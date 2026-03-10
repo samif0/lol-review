@@ -273,11 +273,9 @@ echo [%date% %time%] Update script started >> "{log_file}"
 echo Waiting for PID {pid} to exit... >> "{log_file}"
 
 :waitloop
-tasklist /FI "PID eq {pid}" /FO CSV /NH 2>NUL | findstr /B "\"{pid}\"" >NUL 2>NUL
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >NUL
-    goto waitloop
-)
+timeout /t 1 /nobreak >NUL
+tasklist /FI "PID eq {pid}" 2>NUL | find /I "LoLReview" >NUL
+if %errorlevel%==0 goto waitloop
 
 echo [%date% %time%] Process exited, applying update... >> "{log_file}"
 echo Source: {source_dir} >> "{log_file}"
