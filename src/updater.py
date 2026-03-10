@@ -167,10 +167,10 @@ def _get_app_dir() -> Path:
 def _get_exe_path() -> str:
     """Get the path to relaunch after update."""
     if getattr(sys, "frozen", False):
-        return str(Path(sys.executable))
+        return str(Path(sys.executable).resolve())
     else:
-        # Running from source — restart with python
-        return f'"{sys.executable}" -m src'
+        # Running from source — not a real update scenario, but handle gracefully
+        return f'{sys.executable}" "-m" "src'
 
 
 def download_and_install(
@@ -258,49 +258,51 @@ def _write_update_script(
     source_dir: Path, app_dir: Path, exe_path: str,
     tmp_zip: Path, tmp_extract: Path,
 ):
-    """Write and launch a batch script that swaps files and restarts the app.
-
-    The script:
-    1. Waits for the current process to exit
-    2. Copies new files over the old ones
-    3. Cleans up temp files
-    4. Relaunches the app
-    """
-    script_path = Path(tempfile.mktemp(suffix=".bat", prefix="lolreview_update_"))
+    """Write and launch a batch script that swaps files and restarts the app."""
+    log_file = _CONFIG_DIR / "update.log"
+    script_path = _CONFIG_DIR / "do_update.bat"
 
     pid = os.getpid()
 
-    # Use robocopy /MIR to mirror the new folder over the old one
-    # /MIR = mirror (copies new, deletes old files not in source)
-    # /NFL /NDL /NJH /NJS = quiet output
+    logger.info(f"Update script: source={source_dir} dest={app_dir} exe={exe_path} pid={pid}")
+
+    # Use xcopy /E /Y to copy new files over old ones (preserves extra files like _internal)
+    # Don't use /MIR which would delete files not in the zip
     bat_content = f"""@echo off
-echo Waiting for LoL Review to close...
+echo [%date% %time%] Update script started >> "{log_file}"
+echo Waiting for PID {pid} to exit... >> "{log_file}"
+
 :waitloop
-tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL
+tasklist /FI "PID eq {pid}" /FO CSV /NH 2>NUL | findstr /B "\"{pid}\"" >NUL 2>NUL
 if not errorlevel 1 (
     timeout /t 1 /nobreak >NUL
     goto waitloop
 )
 
-echo Applying update...
-robocopy "{source_dir}" "{app_dir}" /MIR /NFL /NDL /NJH /NJS /R:3 /W:2
+echo [%date% %time%] Process exited, applying update... >> "{log_file}"
+echo Source: {source_dir} >> "{log_file}"
+echo Dest:   {app_dir} >> "{log_file}"
 
-echo Cleaning up...
+xcopy "{source_dir}\\*" "{app_dir}\\" /E /Y /Q >> "{log_file}" 2>&1
+echo [%date% %time%] xcopy exit code: %errorlevel% >> "{log_file}"
+
+echo [%date% %time%] Cleaning up temp files... >> "{log_file}"
 rmdir /s /q "{tmp_extract}" 2>NUL
 
-echo Restarting LoL Review...
-start "" {exe_path}
+echo [%date% %time%] Restarting: {exe_path} >> "{log_file}"
+start "" "{exe_path}"
 
+echo [%date% %time%] Update complete >> "{log_file}"
 del "%~f0"
 """
 
     script_path.write_text(bat_content, encoding="utf-8")
     logger.info(f"Update script written to {script_path}")
 
-    # Launch the batch script hidden (no console window)
+    # Launch the batch script detached
     subprocess.Popen(
         ["cmd", "/c", str(script_path)],
-        creationflags=subprocess.CREATE_NO_WINDOW,
+        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
         close_fds=True,
     )
-    logger.info("Update script launched — exiting app for update")
+    logger.info("Update script launched — app will exit shortly")
