@@ -1,0 +1,24 @@
+# Virtual environment
+Lib/
+Scripts/
+pyvenv.cfg
+Include/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Local data (database, logs)
+data/
+
+# OS junk
+.fuse_hidden*
+Thumbs.db
+Desktop.ini
+.DS_Store
