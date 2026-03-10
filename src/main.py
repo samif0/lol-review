@@ -21,7 +21,7 @@ from .gui import (
     SessionLoggerWindow, ClaudeContextWindow,
 )
 from .lcu import GameMonitor, GameStats
-from .updater import check_for_update_async
+from .updater import check_for_update_async, download_and_install
 from .version import __version__
 
 logger = logging.getLogger(__name__)
@@ -286,30 +286,71 @@ class App:
         self.root.after(0, self._show_dashboard)
 
     def _on_update_check_result(self, update_info):
-        """Called from the background thread when the update check completes."""
+        """Called from background thread when update check completes.
+
+        If an update is found, immediately start downloading and installing.
+        """
         if update_info is None:
             return
 
         logger.info(
             f"Update available: {update_info['version']} "
-            f"(current: {__version__})"
+            f"(current: {__version__}) — auto-installing"
         )
 
-        # Show the update banner on the dashboard (must be on main thread)
-        self.root.after(0, lambda: self._show_update_notification(update_info))
+        download_url = update_info.get("download_url", "")
+        if not download_url:
+            logger.warning("Update has no zip asset attached — skipping")
+            return
 
-    def _show_update_notification(self, update_info):
-        """Show an update available notification on the dashboard."""
-        # Notify via tray
-        if self.tray_icon:
-            self.tray_icon.notify(
-                f"Update {update_info['version']} available!",
-                "LoL Game Review",
-            )
+        # Show the "Updating..." banner on the dashboard
+        self.root.after(0, lambda: self._show_update_status(
+            f"Updating to {update_info['version']}..."
+        ))
 
-        # If dashboard is open, tell it about the update
+        # Start the download immediately
+        download_and_install(
+            download_url,
+            on_progress=self._on_update_progress,
+            on_done=self._on_update_done,
+        )
+
+    def _show_update_status(self, text, color="#a0a0b0"):
+        """Show or update the status text on the dashboard banner."""
         if self._dashboard_window and self._dashboard_window.winfo_exists():
-            self._dashboard_window.show_update_banner(update_info)
+            self._dashboard_window.show_update_banner(text, color)
+
+    def _on_update_progress(self, downloaded, total):
+        """Called from background thread with download progress."""
+        if total > 0:
+            pct = int(downloaded / total * 100)
+            mb = downloaded / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            text = f"Downloading update... {mb:.1f}/{mb_total:.1f} MB ({pct}%)"
+        else:
+            mb = downloaded / (1024 * 1024)
+            text = f"Downloading update... {mb:.1f} MB"
+        try:
+            self.root.after(0, lambda t=text: self._show_update_status(t))
+        except Exception:
+            pass
+
+    def _on_update_done(self, success, message):
+        """Called from background thread when download + extract finishes."""
+        def _handle():
+            if success:
+                self._show_update_status("Update installed — restarting...", "#4ade80")
+                if self.tray_icon:
+                    self.tray_icon.notify("Restarting with new update...", "LoL Game Review")
+                # Brief pause so user sees the message, then exit for the batch script
+                self.root.after(1500, self._quit)
+            else:
+                logger.error(f"Auto-update failed: {message}")
+                self._show_update_status(f"Update failed: {message}", "#f87171")
+        try:
+            self.root.after(0, _handle)
+        except Exception:
+            pass
 
     def _on_dashboard_minimized(self):
         """Called when the user clicks 'Minimize to Tray'."""
