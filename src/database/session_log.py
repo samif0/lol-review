@@ -53,12 +53,17 @@ class SessionLogRepository:
         logger.info(f"Session log: {champion_name} {'W' if win else 'L'} mental={mental_rating}")
 
     def _check_rule_break(self, today: str) -> bool:
-        """Check if playing this game breaks the 2-loss stop rule."""
+        """Check if playing this game breaks the 2-loss stop rule.
+
+        Only counts real losses — excludes remakes (games under 5 min).
+        """
         conn = self._conn_mgr.get_conn()
         recent = conn.execute(
-            """SELECT win FROM session_log
-            WHERE date = ?
-            ORDER BY id DESC LIMIT 2""",
+            """SELECT sl.win FROM session_log sl
+            JOIN games g ON sl.game_id = g.game_id
+            WHERE sl.date = ?
+            AND g.game_duration >= 300
+            ORDER BY sl.id DESC LIMIT 2""",
             (today,),
         ).fetchall()
 

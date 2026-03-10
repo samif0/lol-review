@@ -226,6 +226,12 @@ class App:
             logger.info(f"Casual game ({stats.game_mode}) — skipping")
             return
 
+        # Skip remakes (games under 5 minutes)
+        is_remake = stats.game_duration < 300
+        if is_remake:
+            logger.info(f"Remake detected ({stats.game_duration}s) — skipping")
+            return
+
         # Save to database and session log
         self.db.save_game(stats)
 
