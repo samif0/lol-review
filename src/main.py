@@ -21,7 +21,7 @@ from .gui import (
     SessionLoggerWindow, ClaudeContextWindow,
 )
 from .lcu import GameMonitor, GameStats
-from .updater import check_for_update_async, download_and_install
+from .updater import check_for_update_async, cleanup_old_exe, download_and_install
 from .version import __version__
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,10 @@ class App:
 
     def start(self):
         """Start the application: tray icon, game monitor, and tk mainloop."""
-        logger.info("Starting LoL Game Review")
+        logger.info(f"Starting LoL Game Review v{__version__}")
+
+        # Clean up .old exe from a previous update
+        cleanup_old_exe()
 
         # Create the hidden root window for tkinter event loop
         self.root = ctk.CTk()

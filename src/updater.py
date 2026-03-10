@@ -1,16 +1,23 @@
 """Auto-update system using GitHub Releases.
 
-On startup the app checks for a newer release. If found, the user clicks
-"Install Update" on the dashboard banner. The updater then:
-1. Downloads the zip from the GitHub release
-2. Extracts to a temp folder
-3. Writes a batch script that waits for this process to exit,
-   copies the new files over the old ones, and relaunches the exe
-4. Exits the app — the batch script takes over
+On startup the app checks for a newer release. If found, it automatically
+downloads, swaps the files in place, and relaunches. The whole process
+is seamless — no user interaction, no batch scripts, no console windows.
+
+The approach:
+1. Download the release zip to a temp file
+2. Extract to a temp folder
+3. Rename the running exe from LoLReview.exe → LoLReview.exe.old
+   (Windows allows renaming a running exe, just not overwriting it)
+4. Copy all new files over the app directory
+5. Launch the new exe
+6. Exit the old process
+
+On next launch, the app cleans up the .old file.
 
 How to publish an update:
 1. Bump __version__ in version.py
-2. Build with build.py
+2. Build with: .venv\Scripts\python.exe build.py
 3. Zip the dist/LoLReview folder
 4. Create a GitHub Release with the tag matching the version (e.g. v1.1.0)
 5. Attach the zip to the release
@@ -40,6 +47,9 @@ _RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 # Config file lives next to the database in %LOCALAPPDATA%\LoLReview\
 _CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "LoLReview"
 _CONFIG_FILE = _CONFIG_DIR / "config.json"
+
+
+# ── Config helpers ───────────────────────────────────────────────────
 
 
 def _load_github_token() -> str:
@@ -83,6 +93,22 @@ def parse_version(version_str: str) -> Tuple[int, ...]:
         return tuple(int(x) for x in cleaned.split("."))
     except (ValueError, AttributeError):
         return (0, 0, 0)
+
+
+# ── Cleanup from previous update ────────────────────────────────────
+
+
+def cleanup_old_exe():
+    """Delete LoLReview.exe.old left over from a previous update."""
+    if not getattr(sys, "frozen", False):
+        return
+    old_exe = Path(sys.executable).parent / (Path(sys.executable).name + ".old")
+    if old_exe.exists():
+        try:
+            old_exe.unlink()
+            logger.info(f"Cleaned up old exe: {old_exe}")
+        except Exception as e:
+            logger.warning(f"Could not delete old exe: {e}")
 
 
 # ── Check ────────────────────────────────────────────────────────────
@@ -154,31 +180,12 @@ def check_for_update_async(callback: Callable[[Optional[dict]], None]):
 # ── Download & Install ───────────────────────────────────────────────
 
 
-def _get_app_dir() -> Path:
-    """Get the directory the current exe or script lives in."""
-    if getattr(sys, "frozen", False):
-        # Running as PyInstaller exe
-        return Path(sys.executable).parent
-    else:
-        # Running from source — use the project root
-        return Path(__file__).resolve().parent.parent
-
-
-def _get_exe_path() -> str:
-    """Get the path to relaunch after update."""
-    if getattr(sys, "frozen", False):
-        return str(Path(sys.executable).resolve())
-    else:
-        # Running from source — not a real update scenario, but handle gracefully
-        return f'{sys.executable}" "-m" "src'
-
-
 def download_and_install(
     download_url: str,
     on_progress: Optional[Callable[[int, int], None]] = None,
     on_done: Optional[Callable[[bool, str], None]] = None,
 ):
-    """Download the update zip, extract, and replace the app files.
+    """Download the update zip, swap files in place, and relaunch.
 
     on_progress(downloaded_bytes, total_bytes) — called during download.
     on_done(success, message) — called when finished or on error.
@@ -202,14 +209,13 @@ def _do_download_and_install(
     download_url: str,
     on_progress: Optional[Callable[[int, int], None]] = None,
 ):
-    """The actual download + install logic (runs in background thread)."""
+    """Download zip, extract, rename running exe, copy new files over."""
     headers = _get_auth_headers()
-    # For private repos, asset downloads need Accept: application/octet-stream
     dl_headers = {**headers, "Accept": "application/octet-stream"}
 
     logger.info(f"Downloading update from {download_url}")
 
-    # Download the zip to a temp file
+    # ── Download ─────────────────────────────────────────────
     resp = requests.get(download_url, headers=dl_headers, stream=True, timeout=60)
     resp.raise_for_status()
 
@@ -226,81 +232,75 @@ def _do_download_and_install(
 
     logger.info(f"Downloaded {downloaded} bytes to {tmp_zip}")
 
-    # Extract to a temp directory
+    # ── Extract ──────────────────────────────────────────────
     tmp_extract = Path(tempfile.mkdtemp(prefix="lolreview_extract_"))
     with zipfile.ZipFile(tmp_zip, "r") as zf:
         zf.extractall(tmp_extract)
 
     logger.info(f"Extracted to {tmp_extract}")
 
-    # Find the actual app folder inside the zip
-    # Could be directly in the zip root or inside a subfolder like "LoLReview/"
+    # Find the app folder inside the zip (may be nested in a subfolder)
     extracted_items = list(tmp_extract.iterdir())
     if len(extracted_items) == 1 and extracted_items[0].is_dir():
         source_dir = extracted_items[0]
     else:
         source_dir = tmp_extract
 
-    # Write the swap-and-restart batch script
-    app_dir = _get_app_dir()
-    exe_path = _get_exe_path()
+    # ── Swap files ───────────────────────────────────────────
+    if getattr(sys, "frozen", False):
+        app_dir = Path(sys.executable).parent
+        exe_name = Path(sys.executable).name
+        old_exe = app_dir / (exe_name + ".old")
 
-    _write_update_script(source_dir, app_dir, exe_path, tmp_zip, tmp_extract)
+        # Rename running exe so we can overwrite it
+        logger.info(f"Renaming {exe_name} → {exe_name}.old")
+        if old_exe.exists():
+            old_exe.unlink()
+        os.rename(app_dir / exe_name, old_exe)
 
-    # Clean up zip (extract dir cleaned by batch script)
+        # Copy all new files over the app directory
+        logger.info(f"Copying new files from {source_dir} → {app_dir}")
+        _copy_tree(source_dir, app_dir)
+
+        # Launch the new exe
+        new_exe = app_dir / exe_name
+        logger.info(f"Launching new exe: {new_exe}")
+        subprocess.Popen(
+            [str(new_exe)],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
+    else:
+        # Running from source — just copy files (for dev testing)
+        app_dir = Path(__file__).resolve().parent.parent
+        logger.info(f"Dev mode: copying new files from {source_dir} → {app_dir}")
+        _copy_tree(source_dir, app_dir)
+
+    # ── Cleanup temp files ───────────────────────────────────
     try:
         tmp_zip.unlink()
     except Exception:
         pass
+    try:
+        shutil.rmtree(tmp_extract)
+    except Exception:
+        pass
+
+    logger.info("Update complete — new process launched")
 
 
-def _write_update_script(
-    source_dir: Path, app_dir: Path, exe_path: str,
-    tmp_zip: Path, tmp_extract: Path,
-):
-    """Write and launch a batch script that swaps files and restarts the app."""
-    log_file = _CONFIG_DIR / "update.log"
-    script_path = _CONFIG_DIR / "do_update.bat"
-
-    pid = os.getpid()
-
-    logger.info(f"Update script: source={source_dir} dest={app_dir} exe={exe_path} pid={pid}")
-
-    # Use xcopy /E /Y to copy new files over old ones (preserves extra files like _internal)
-    # Don't use /MIR which would delete files not in the zip
-    bat_content = f"""@echo off
-echo [%date% %time%] Update script started >> "{log_file}"
-echo Waiting for PID {pid} to exit... >> "{log_file}"
-
-:waitloop
-timeout /t 1 /nobreak >NUL
-tasklist /FI "PID eq {pid}" 2>NUL | find /I "LoLReview" >NUL
-if %errorlevel%==0 goto waitloop
-
-echo [%date% %time%] Process exited, applying update... >> "{log_file}"
-echo Source: {source_dir} >> "{log_file}"
-echo Dest:   {app_dir} >> "{log_file}"
-
-xcopy "{source_dir}\\*" "{app_dir}\\" /E /Y /Q >> "{log_file}" 2>&1
-echo [%date% %time%] xcopy exit code: %errorlevel% >> "{log_file}"
-
-echo [%date% %time%] Cleaning up temp files... >> "{log_file}"
-rmdir /s /q "{tmp_extract}" 2>NUL
-
-echo [%date% %time%] Restarting: {exe_path} >> "{log_file}"
-start "" "{exe_path}"
-
-echo [%date% %time%] Update complete >> "{log_file}"
-del "%~f0"
-"""
-
-    script_path.write_text(bat_content, encoding="utf-8")
-    logger.info(f"Update script written to {script_path}")
-
-    # Launch the batch script detached
-    subprocess.Popen(
-        ["cmd", "/c", str(script_path)],
-        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-        close_fds=True,
-    )
-    logger.info("Update script launched — app will exit shortly")
+def _copy_tree(src: Path, dst: Path):
+    """Recursively copy src into dst, overwriting existing files."""
+    for item in src.iterdir():
+        target = dst / item.name
+        if item.is_dir():
+            target.mkdir(exist_ok=True)
+            _copy_tree(item, target)
+        else:
+            try:
+                shutil.copy2(item, target)
+            except PermissionError:
+                # Skip files that are locked (e.g. DLLs in use)
+                logger.warning(f"Skipped locked file: {target}")
+            except Exception as e:
+                logger.warning(f"Failed to copy {item.name}: {e}")
