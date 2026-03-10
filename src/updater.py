@@ -44,15 +44,16 @@ def check_for_update() -> Optional[dict]:
     The dict contains: version, download_url, release_url, release_notes
     """
     try:
+        logger.info(f"Checking for updates at {_RELEASES_URL}")
         resp = requests.get(
             _RELEASES_URL,
             headers={"Accept": "application/vnd.github.v3+json"},
             timeout=10,
         )
+        logger.info(f"Update check response: HTTP {resp.status_code}")
 
         if resp.status_code == 404:
-            # No releases yet — that's fine
-            logger.debug("No releases found on GitHub")
+            logger.info("No releases found on GitHub (404)")
             return None
 
         resp.raise_for_status()
