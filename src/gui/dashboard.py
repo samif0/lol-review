@@ -5,13 +5,16 @@ quick access to every major feature. Designed to help players start
 their session with intention.
 """
 
-import webbrowser
+import logging
 from datetime import datetime, timedelta
 
 import customtkinter as ctk
 
 from ..constants import COLORS, format_duration, format_number
+from ..updater import download_and_install
 from ..version import __version__
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardWindow(ctk.CTkToplevel):
@@ -77,8 +80,9 @@ class DashboardWindow(ctk.CTkToplevel):
         )
         minimize_btn.pack(side="right")
 
-        # Update banner placeholder (shown when an update is available)
-        self._update_banner_parent = outer
+        # Update banner placeholder — empty until an update is found
+        self._update_banner_frame = ctk.CTkFrame(outer, fg_color="transparent", height=0)
+        self._update_banner_frame.pack(fill="x")
 
         # Scrollable body so everything fits on smaller screens
         body = ctk.CTkScrollableFrame(
@@ -407,55 +411,133 @@ class DashboardWindow(ctk.CTkToplevel):
     # ── Actions ─────────────────────────────────────────────────
 
     def show_update_banner(self, update_info: dict):
-        """Show a banner at the top of the dashboard announcing an update."""
-        banner = ctk.CTkFrame(
-            self._update_banner_parent,
-            fg_color="#1a3a1a",
-            corner_radius=8,
-            border_width=1,
-            border_color="#2d8a4e",
-        )
-        # Insert right after the header (before the scrollable body)
-        banner.pack(fill="x", pady=(0, 10), before=self._update_banner_parent.winfo_children()[-1])
+        """Show a banner with an Install Update button."""
+        try:
+            self._update_info = update_info
 
-        inner = ctk.CTkFrame(banner, fg_color="transparent")
-        inner.pack(fill="x", padx=12, pady=10)
+            banner = ctk.CTkFrame(
+                self._update_banner_frame,
+                fg_color="#1a3a1a",
+                corner_radius=8,
+                border_width=1,
+                border_color="#2d8a4e",
+            )
+            banner.pack(fill="x", pady=(0, 10))
+            self._update_banner = banner
 
-        ctk.CTkLabel(
-            inner,
-            text=f"Update available: {update_info['version']}",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#4ade80",
-        ).pack(side="left")
+            inner = ctk.CTkFrame(banner, fg_color="transparent")
+            inner.pack(fill="x", padx=12, pady=10)
 
-        download_url = update_info.get("download_url") or update_info.get("release_url", "")
-
-        if download_url:
-            ctk.CTkButton(
-                inner,
-                text="Download Update",
-                font=ctk.CTkFont(size=12, weight="bold"),
-                height=28,
-                width=140,
-                corner_radius=6,
-                fg_color="#2d8a4e",
-                hover_color="#3aad62",
-                command=lambda: webbrowser.open(download_url),
-            ).pack(side="right")
-
-        notes = update_info.get("release_notes", "").strip()
-        if notes:
-            # Show first ~120 chars of release notes
-            preview = notes[:120] + ("..." if len(notes) > 120 else "")
             ctk.CTkLabel(
+                inner,
+                text=f"Update available: {update_info['version']}",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#4ade80",
+            ).pack(side="left")
+
+            download_url = update_info.get("download_url", "")
+
+            if download_url:
+                self._install_btn = ctk.CTkButton(
+                    inner,
+                    text="Install Update",
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    height=28,
+                    width=140,
+                    corner_radius=6,
+                    fg_color="#2d8a4e",
+                    hover_color="#3aad62",
+                    command=self._start_update,
+                )
+                self._install_btn.pack(side="right")
+
+            # Status label for progress / messages
+            self._update_status = ctk.CTkLabel(
                 banner,
-                text=preview,
+                text="",
                 font=ctk.CTkFont(size=11),
                 text_color="#a0a0b0",
-                wraplength=700,
-                anchor="w",
-                justify="left",
-            ).pack(fill="x", padx=12, pady=(0, 8))
+            )
+            self._update_status.pack(fill="x", padx=12, pady=(0, 8))
+
+            notes = update_info.get("release_notes", "").strip()
+            if notes:
+                preview = notes[:120] + ("..." if len(notes) > 120 else "")
+                self._update_status.configure(text=preview)
+
+        except Exception as e:
+            logger.warning(f"Failed to show update banner: {e}")
+
+    def _start_update(self):
+        """User clicked Install Update — download, extract, replace, restart."""
+        download_url = self._update_info.get("download_url", "")
+        if not download_url:
+            self._update_status.configure(
+                text="No download file attached to this release.",
+                text_color="#f87171",
+            )
+            return
+
+        # Disable the button so they can't double-click
+        self._install_btn.configure(state="disabled", text="Downloading...")
+        self._update_status.configure(text="Downloading update...", text_color="#a0a0b0")
+
+        download_and_install(
+            download_url,
+            on_progress=self._on_update_progress,
+            on_done=self._on_update_done,
+        )
+
+    def _on_update_progress(self, downloaded: int, total: int):
+        """Called from background thread with download progress."""
+        if total > 0:
+            pct = int(downloaded / total * 100)
+            mb_done = downloaded / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            text = f"Downloading... {mb_done:.1f} / {mb_total:.1f} MB ({pct}%)"
+        else:
+            mb_done = downloaded / (1024 * 1024)
+            text = f"Downloading... {mb_done:.1f} MB"
+
+        try:
+            self.after(0, lambda t=text: self._update_status.configure(text=t))
+        except Exception:
+            pass
+
+    def _on_update_done(self, success: bool, message: str):
+        """Called from background thread when download + extract finishes."""
+        def _handle():
+            if success:
+                self._update_status.configure(
+                    text="Update installed — restarting...",
+                    text_color="#4ade80",
+                )
+                self._install_btn.configure(text="Restarting...")
+                # Give the user a moment to read, then quit so the batch script takes over
+                self.after(1500, self._quit_for_update)
+            else:
+                self._update_status.configure(
+                    text=f"Update failed: {message}",
+                    text_color="#f87171",
+                )
+                self._install_btn.configure(state="normal", text="Retry")
+
+        try:
+            self.after(0, _handle)
+        except Exception:
+            pass
+
+    def _quit_for_update(self):
+        """Exit the app so the update batch script can replace files and relaunch."""
+        try:
+            # Find the root window and trigger quit
+            root = self.winfo_toplevel().master
+            if root:
+                root.quit()
+                root.destroy()
+        except Exception:
+            import sys
+            sys.exit(0)
 
     def _minimize_to_tray(self):
         """Hide this window and run in the background."""
