@@ -19,10 +19,11 @@ class SessionLoggerWindow(ctk.CTkToplevel):
     - Visual rule-break flagging
     """
 
-    def __init__(self, db, *args, **kwargs):
+    def __init__(self, db, on_open_vod=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.db = db
+        self._on_open_vod = on_open_vod
         self._selected_date = datetime.now().strftime("%Y-%m-%d")
 
         self.title("LoL Review — Session Logger")
@@ -354,22 +355,35 @@ class SessionLoggerWindow(ctk.CTkToplevel):
             text_color=mental_color,
         ).pack(anchor="e")
 
-        # Review / Edit Review button
+        # Button row: Review + Watch VOD
+        btn_row = ctk.CTkFrame(right, fg_color="transparent")
+        btn_row.pack(anchor="e", pady=(4, 0))
+
         review_btn_text = "Edit Review" if has_review else "Review"
         review_btn_color = COLORS["tag_bg"] if has_review else COLORS["accent_blue"]
 
-        review_btn = ctk.CTkButton(
-            right,
+        ctk.CTkButton(
+            btn_row,
             text=review_btn_text,
             font=ctk.CTkFont(size=11),
-            height=26,
-            width=90,
-            corner_radius=6,
+            height=26, width=90, corner_radius=6,
             fg_color=review_btn_color,
             hover_color="#0077cc",
             command=lambda e=entry, g=game_data: self._open_game_review(e, g),
-        )
-        review_btn.pack(anchor="e", pady=(4, 0))
+        ).pack(side="left", padx=(0, 6))
+
+        # Watch VOD button
+        game_id = entry.get("game_id")
+        if game_id and self.db.get_vod(game_id):
+            ctk.CTkButton(
+                btn_row,
+                text="Watch VOD",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                height=26, width=90, corner_radius=6,
+                fg_color=COLORS["accent_gold"], hover_color="#a88432",
+                text_color="#0a0a0f",
+                command=lambda gid=game_id: self._on_open_vod(gid) if self._on_open_vod else None,
+            ).pack(side="left")
 
     def _go_prev_day(self):
         """Navigate to the previous day."""
@@ -398,11 +412,20 @@ class SessionLoggerWindow(ctk.CTkToplevel):
         if getattr(self, "_review_popup", None) and self._review_popup.winfo_exists():
             self._review_popup.destroy()
 
+        # Check for linked VOD
+        game_id = session_entry.get("game_id")
+        vod_info = self.db.get_vod(game_id) if game_id else None
+        has_vod = vod_info is not None
+        bookmark_count = self.db.get_bookmark_count(game_id) if has_vod else 0
+
         self._review_popup = SessionGameReviewWindow(
             db=self.db,
             session_entry=session_entry,
             game_data=game_data,
             on_save=self._refresh,
+            on_open_vod=self._on_open_vod,
+            has_vod=has_vod,
+            bookmark_count=bookmark_count,
         )
 
     def _open_context_generator(self):

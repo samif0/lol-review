@@ -121,6 +121,46 @@ CREATE TABLE IF NOT EXISTS persistent_notes (
 );
 """
 
+CREATE_VOD_FILES_TABLE = """
+CREATE TABLE IF NOT EXISTS vod_files (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id     INTEGER UNIQUE NOT NULL,
+    file_path   TEXT NOT NULL,
+    file_size   INTEGER DEFAULT 0,
+    duration_s  INTEGER DEFAULT 0,
+    matched_at  INTEGER,
+    FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+"""
+
+CREATE_GAME_EVENTS_TABLE = """
+CREATE TABLE IF NOT EXISTS game_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id     INTEGER NOT NULL,
+    event_type  TEXT NOT NULL,
+    game_time_s INTEGER NOT NULL,
+    details     TEXT DEFAULT '{}',
+    FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+"""
+
+CREATE_GAME_EVENTS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_game_events_game_id
+ON game_events (game_id, game_time_s);
+"""
+
+CREATE_VOD_BOOKMARKS_TABLE = """
+CREATE TABLE IF NOT EXISTS vod_bookmarks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id     INTEGER NOT NULL,
+    game_time_s INTEGER NOT NULL,
+    note        TEXT DEFAULT '',
+    tags        TEXT DEFAULT '[]',
+    created_at  INTEGER,
+    FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+"""
+
 # Pre-populate some useful default tags
 DEFAULT_TAGS = [
     ("Tilted", "#ef4444"),

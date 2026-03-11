@@ -6,8 +6,10 @@ from typing import Callable, Optional
 
 import customtkinter as ctk
 
+from ..config import is_ascent_enabled
 from ..constants import COLORS, format_duration, format_number
 from ..lcu import GameStats
+from ..vod import format_game_time
 from .widgets import StarRating, TagSelector, StatCard
 
 
@@ -20,6 +22,10 @@ class ReviewWindow(ctk.CTkToplevel):
         tags: list[dict],
         existing_review: Optional[dict] = None,
         on_save: Optional[Callable] = None,
+        on_open_vod: Optional[Callable] = None,
+        has_vod: bool = False,
+        bookmark_count: int = 0,
+        bookmarks: Optional[list[dict]] = None,
         *args,
         **kwargs,
     ):
@@ -27,6 +33,10 @@ class ReviewWindow(ctk.CTkToplevel):
 
         self.stats = stats
         self.on_save = on_save
+        self._on_open_vod = on_open_vod
+        self._has_vod = has_vod
+        self._bookmark_count = bookmark_count
+        self._bookmarks = bookmarks or []
 
         # Window setup
         self.title("LoL Game Review")
@@ -60,6 +70,14 @@ class ReviewWindow(ctk.CTkToplevel):
 
         # === DAMAGE BREAKDOWN ===
         self._build_damage_section(container)
+
+        # === VOD BUTTON (if Ascent is set up and a recording exists) ===
+        if self._has_vod:
+            self._build_vod_section(container)
+
+        # === BOOKMARKS (if any exist) ===
+        if self._bookmarks:
+            self._build_bookmarks_section(container)
 
         # === REVIEW SECTION ===
         self._build_review_section(container, tags, er)
@@ -264,8 +282,90 @@ class ReviewWindow(ctk.CTkToplevel):
             parent, fg_color=COLORS["border"], height=1
         ).pack(fill="x", pady=8)
 
+    def _build_vod_section(self, parent):
+        """Show a VOD review button when a recording is linked."""
+        vod_frame = ctk.CTkFrame(
+            parent, fg_color=COLORS["bg_card"], corner_radius=8,
+            border_width=1, border_color=COLORS["accent_gold"],
+        )
+        vod_frame.pack(fill="x", pady=(0, 10))
+
+        inner = ctk.CTkFrame(vod_frame, fg_color="transparent")
+        inner.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(
+            inner, text="VOD AVAILABLE",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["accent_gold"],
+        ).pack(side="left", padx=(0, 10))
+
+        bm_text = ""
+        if self._bookmark_count > 0:
+            bm_text = f"  ({self._bookmark_count} bookmark{'s' if self._bookmark_count != 1 else ''})"
+
+        ctk.CTkButton(
+            inner, text=f"Review VOD{bm_text}",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=34, width=180,
+            fg_color=COLORS["accent_gold"], hover_color="#a88432",
+            text_color="#0a0a0f",
+            command=self._open_vod,
+        ).pack(side="right")
+
+    def _open_vod(self):
+        """Fire the VOD callback to open the player."""
+        if self._on_open_vod:
+            self._on_open_vod(self.stats.game_id)
+
+    def _build_bookmarks_section(self, parent):
+        """Show VOD bookmark notes so they're visible during the review."""
+        ctk.CTkLabel(
+            parent,
+            text="VOD BOOKMARKS",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_dim"],
+        ).pack(anchor="w", pady=(8, 6))
+
+        bm_frame = ctk.CTkFrame(
+            parent, fg_color=COLORS["bg_card"], corner_radius=8,
+            border_width=1, border_color=COLORS["border"],
+        )
+        bm_frame.pack(fill="x", pady=(0, 8))
+
+        sorted_bm = sorted(self._bookmarks, key=lambda b: b.get("game_time_s", 0))
+
+        for bm in sorted_bm:
+            row = ctk.CTkFrame(bm_frame, fg_color="transparent")
+            row.pack(fill="x", padx=10, pady=3)
+
+            time_text = format_game_time(bm.get("game_time_s", 0))
+            ctk.CTkLabel(
+                row, text=time_text,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=COLORS["accent_blue"],
+                width=50, anchor="w",
+            ).pack(side="left", padx=(0, 8))
+
+            note = bm.get("note", "") or "(no note)"
+            ctk.CTkLabel(
+                row, text=note,
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text"] if bm.get("note") else COLORS["text_dim"],
+                anchor="w", justify="left",
+                wraplength=600,
+            ).pack(side="left", fill="x", expand=True)
+
+        # Separator
+        ctk.CTkFrame(
+            parent, fg_color=COLORS["border"], height=1
+        ).pack(fill="x", pady=8)
+
     def _build_review_section(self, parent, tags: list[dict], er: dict):
-        """The note-taking and review fields."""
+        """The note-taking and review fields.
+
+        Focused on learning objectives rather than play-by-play.
+        Specific moments should be captured as VOD bookmarks instead.
+        """
         ctk.CTkLabel(
             parent,
             text="YOUR REVIEW",
@@ -297,10 +397,10 @@ class ReviewWindow(ctk.CTkToplevel):
         self.tag_selector = TagSelector(parent, tags, selected=existing_tags)
         self.tag_selector.pack(fill="x", pady=(0, 10))
 
-        # What went well
+        # Learning objective question — replaces "what went well / what went wrong"
         ctk.CTkLabel(
             parent,
-            text="What went well?",
+            text="Did you work toward your learning objective?",
             font=ctk.CTkFont(size=13),
             text_color=COLORS["text"],
         ).pack(anchor="w", pady=(4, 4))
@@ -312,10 +412,10 @@ class ReviewWindow(ctk.CTkToplevel):
         self.went_well.pack(fill="x", pady=(0, 8))
         self.went_well.insert("1.0", er.get("went_well", ""))
 
-        # Mistakes
+        # Takeaway — replaces "what could you improve"
         ctk.CTkLabel(
             parent,
-            text="What could you improve?",
+            text="Key takeaway from this game",
             font=ctk.CTkFont(size=13),
             text_color=COLORS["text"],
         ).pack(anchor="w", pady=(4, 4))
@@ -326,6 +426,17 @@ class ReviewWindow(ctk.CTkToplevel):
         )
         self.mistakes.pack(fill="x", pady=(0, 8))
         self.mistakes.insert("1.0", er.get("mistakes", ""))
+
+        # VOD hint — encourage using bookmarks for specifics
+        if self._has_vod and self._bookmark_count == 0:
+            ctk.CTkLabel(
+                parent,
+                text="Tip: Use the VOD player to bookmark specific moments "
+                     "instead of writing them here",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_dim"],
+                wraplength=650,
+            ).pack(anchor="w", pady=(0, 6))
 
         # Focus for next game
         ctk.CTkLabel(

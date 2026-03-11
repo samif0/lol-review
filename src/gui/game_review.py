@@ -24,6 +24,9 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
         session_entry: dict,
         game_data: Optional[dict] = None,
         on_save: Optional[Callable] = None,
+        on_open_vod: Optional[Callable] = None,
+        has_vod: bool = False,
+        bookmark_count: int = 0,
         *args,
         **kwargs,
     ):
@@ -33,6 +36,9 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
         self.session_entry = session_entry
         self.game_data = game_data or {}
         self.on_save = on_save
+        self._on_open_vod = on_open_vod
+        self._has_vod = has_vod
+        self._bookmark_count = bookmark_count
 
         champ = session_entry.get("champion_name", "Unknown")
         is_win = bool(session_entry.get("win"))
@@ -88,6 +94,10 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
                     font=ctk.CTkFont(size=14),
                     text_color=COLORS["text"],
                 ).pack(anchor="w", pady=(0, 8))
+
+        # === VOD BUTTON (if a recording is linked) ===
+        if self._has_vod:
+            self._build_vod_section(container)
 
         ctk.CTkFrame(
             container, fg_color=COLORS["border"], height=1
@@ -251,6 +261,42 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
             command=self.destroy,
         )
         cancel_btn.pack(fill="x", pady=(0, 8))
+
+    def _build_vod_section(self, parent):
+        """Show a VOD review button when a recording is linked."""
+        vod_frame = ctk.CTkFrame(
+            parent, fg_color=COLORS["bg_card"], corner_radius=8,
+            border_width=1, border_color=COLORS["accent_gold"],
+        )
+        vod_frame.pack(fill="x", pady=(4, 8))
+
+        inner = ctk.CTkFrame(vod_frame, fg_color="transparent")
+        inner.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(
+            inner, text="VOD AVAILABLE",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["accent_gold"],
+        ).pack(side="left", padx=(0, 10))
+
+        bm_text = ""
+        if self._bookmark_count > 0:
+            bm_text = f"  ({self._bookmark_count} bookmark{'s' if self._bookmark_count != 1 else ''})"
+
+        ctk.CTkButton(
+            inner, text=f"Review VOD{bm_text}",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=34, width=180,
+            fg_color=COLORS["accent_gold"], hover_color="#a88432",
+            text_color="#0a0a0f",
+            command=self._open_vod,
+        ).pack(side="right")
+
+    def _open_vod(self):
+        """Fire the VOD callback to open the player."""
+        game_id = self.session_entry.get("game_id")
+        if self._on_open_vod and game_id is not None:
+            self._on_open_vod(game_id)
 
     def _on_mental_change(self, value):
         """Update mental label when slider changes."""

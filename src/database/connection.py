@@ -10,9 +10,13 @@ from typing import Optional
 
 from .schema import (
     CREATE_GAMES_TABLE,
+    CREATE_GAME_EVENTS_TABLE,
+    CREATE_GAME_EVENTS_INDEX,
     CREATE_PERSISTENT_NOTES_TABLE,
     CREATE_SESSION_LOG_TABLE,
     CREATE_TAGS_TABLE,
+    CREATE_VOD_BOOKMARKS_TABLE,
+    CREATE_VOD_FILES_TABLE,
     DEFAULT_TAGS,
 )
 
@@ -71,6 +75,10 @@ class ConnectionManager:
         conn.execute(CREATE_TAGS_TABLE)
         conn.execute(CREATE_SESSION_LOG_TABLE)
         conn.execute(CREATE_PERSISTENT_NOTES_TABLE)
+        conn.execute(CREATE_VOD_FILES_TABLE)
+        conn.execute(CREATE_VOD_BOOKMARKS_TABLE)
+        conn.execute(CREATE_GAME_EVENTS_TABLE)
+        conn.execute(CREATE_GAME_EVENTS_INDEX)
 
         # Insert default tags if the table is empty
         cursor = conn.execute("SELECT COUNT(*) FROM tags")

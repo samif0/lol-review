@@ -11,11 +11,13 @@ from .session_logger import SessionLoggerWindow
 from .claude_context import ClaudeContextWindow
 from .game_review import SessionGameReviewWindow
 from .dashboard import DashboardWindow
+from .vod_player import VodPlayerWindow
+from .settings import SettingsWindow
 
 __all__ = [
     "StarRating", "TagSelector", "StatCard",
     "ReviewWindow", "PreGameWindow", "HistoryWindow",
     "ReviewLossesWindow", "SessionRulesOverlay", "ManualEntryWindow",
     "SessionLoggerWindow", "ClaudeContextWindow", "SessionGameReviewWindow",
-    "DashboardWindow",
+    "DashboardWindow", "VodPlayerWindow", "SettingsWindow",
 ]

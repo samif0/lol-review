@@ -15,13 +15,15 @@ import pystray
 from PIL import Image, ImageDraw
 
 from .database import Database, DEFAULT_DB_PATH
+from .config import is_ascent_enabled
 from .gui import (
     DashboardWindow, HistoryWindow, PreGameWindow, ReviewWindow,
     ReviewLossesWindow, SessionRulesOverlay, ManualEntryWindow,
-    SessionLoggerWindow, ClaudeContextWindow,
+    SessionLoggerWindow, ClaudeContextWindow, VodPlayerWindow, SettingsWindow,
 )
 from .lcu import GameMonitor, GameStats
 from .updater import check_for_update_async, cleanup_old_exe, download_and_install
+from .vod import auto_match_recordings
 from .version import __version__
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,8 @@ class App:
         self._manual_entry_window = None
         self._session_logger_window = None
         self._claude_context_window = None
+        self._vod_player_window = None
+        self._settings_window = None
         self._connected = False
 
         # Set up customtkinter appearance
@@ -127,6 +131,7 @@ class App:
             pystray.MenuItem("Session Logger", self._show_session_logger),
             pystray.MenuItem("Claude Context", self._show_claude_context),
             pystray.MenuItem("Manual Entry", self._show_manual_entry),
+            pystray.MenuItem("Settings", self._show_settings),
             pystray.MenuItem("Open Data Folder", self._open_data_folder),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._quit),
@@ -246,6 +251,16 @@ class App:
             mental_rating=mental,
         )
 
+        # Save live events collected during the game (no API key needed!)
+        if stats.live_events:
+            try:
+                self.db.save_game_events(stats.game_id, stats.live_events)
+                logger.info(
+                    f"Saved {len(stats.live_events)} live events for game {stats.game_id}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save live events: {e}")
+
         # Show the review popup on the main thread
         self.root.after(0, lambda: self._show_review(stats))
 
@@ -258,11 +273,30 @@ class App:
         tags = self.db.get_all_tags()
         existing = self.db.get_game(stats.game_id)
 
+        # Check for linked VOD
+        vod_info = self.db.get_vod(stats.game_id)
+        has_vod = vod_info is not None
+        bookmarks = self.db.get_bookmarks(stats.game_id) if has_vod else []
+        bookmark_count = len(bookmarks)
+
+        # Try to auto-match a recording if Ascent is enabled and no VOD linked yet
+        if not has_vod and is_ascent_enabled():
+            self._try_auto_match(stats.game_id)
+            vod_info = self.db.get_vod(stats.game_id)
+            has_vod = vod_info is not None
+            if has_vod:
+                bookmarks = self.db.get_bookmarks(stats.game_id)
+                bookmark_count = len(bookmarks)
+
         self._review_window = ReviewWindow(
             stats=stats,
             tags=tags,
             existing_review=existing,
             on_save=self._save_review,
+            on_open_vod=self._open_vod_player,
+            has_vod=has_vod,
+            bookmark_count=bookmark_count,
+            bookmarks=bookmarks,
         )
 
     def _save_review(self, review_data: dict):
@@ -272,6 +306,108 @@ class App:
 
         if self.tray_icon:
             self.tray_icon.notify("Review saved!", "LoL Game Review")
+
+    def _try_auto_match(self, game_id: int):
+        """Attempt to auto-match an Ascent recording to a game."""
+        try:
+            game = self.db.get_game(game_id)
+            if not game:
+                return
+            recent_games = self.db.get_recent_games(10)
+            # Tag which games already have VODs
+            for g in recent_games:
+                g["has_vod"] = self.db.get_vod(g["game_id"]) is not None
+            matches = auto_match_recordings(recent_games)
+            for m in matches:
+                g = m["game"]
+                r = m["recording"]
+                self.db.link_vod(
+                    g["game_id"], r["path"],
+                    file_size=r["size"],
+                )
+                logger.info(f"Auto-matched VOD: {r['name']} → game {g['game_id']}")
+        except Exception as e:
+            logger.warning(f"VOD auto-match failed: {e}")
+
+    def _open_vod_player(self, game_id: int):
+        """Open the VOD player for a specific game."""
+        vod_info = self.db.get_vod(game_id)
+        if not vod_info:
+            logger.warning(f"No VOD found for game {game_id}")
+            return
+
+        game = self.db.get_game(game_id)
+        if not game:
+            return
+
+        # Close existing player if open
+        if self._vod_player_window and self._vod_player_window.winfo_exists():
+            self._vod_player_window.destroy()
+
+        bookmarks = self.db.get_bookmarks(game_id)
+        tags = self.db.get_all_tags()
+        game_events = self.db.get_game_events(game_id)
+
+        self._vod_player_window = VodPlayerWindow(
+            game_id=game_id,
+            vod_path=vod_info["file_path"],
+            game_duration=game.get("game_duration", 0),
+            champion_name=game.get("champion_name", "Unknown"),
+            bookmarks=bookmarks,
+            tags=tags,
+            game_events=game_events,
+            on_add_bookmark=self._on_add_bookmark,
+            on_update_bookmark=self._on_update_bookmark,
+            on_delete_bookmark=self._on_delete_bookmark,
+        )
+
+    def _on_add_bookmark(self, game_id, game_time_s, note="", tags=None):
+        """Save a new bookmark to the database."""
+        bm_id = self.db.add_bookmark(game_id, game_time_s, note, tags)
+        logger.info(f"Bookmark added: game {game_id} @ {game_time_s}s")
+        return bm_id
+
+    def _on_update_bookmark(self, bookmark_id, **kwargs):
+        """Update an existing bookmark."""
+        self.db.update_bookmark(bookmark_id, **kwargs)
+
+    def _on_delete_bookmark(self, bookmark_id):
+        """Delete a bookmark."""
+        self.db.delete_bookmark(bookmark_id)
+        logger.info(f"Bookmark {bookmark_id} deleted")
+
+    def _show_settings(self, icon=None, item=None):
+        """Open the settings window."""
+        def _open():
+            if self._settings_window and self._settings_window.winfo_exists():
+                self._settings_window.lift()
+                return
+            self._settings_window = SettingsWindow(on_save=self._on_settings_saved)
+        self.root.after(0, _open)
+
+    def _on_settings_saved(self):
+        """Called when settings are saved — re-scan for VODs."""
+        logger.info("Settings saved")
+        if is_ascent_enabled():
+            # Run auto-match for recent unmatched games
+            try:
+                recent = self.db.get_recent_games(20)
+                for g in recent:
+                    g["has_vod"] = self.db.get_vod(g["game_id"]) is not None
+                matches = auto_match_recordings(recent)
+                for m in matches:
+                    g = m["game"]
+                    r = m["recording"]
+                    self.db.link_vod(g["game_id"], r["path"], file_size=r["size"])
+                    logger.info(f"Auto-matched VOD: {r['name']} → game {g['game_id']}")
+                if matches:
+                    if self.tray_icon:
+                        self.tray_icon.notify(
+                            f"Matched {len(matches)} recording{'s' if len(matches) != 1 else ''} to games",
+                            "LoL Review"
+                        )
+            except Exception as e:
+                logger.warning(f"Post-settings VOD scan failed: {e}")
 
     def _show_dashboard(self):
         """Show the startup dashboard window."""
@@ -287,7 +423,9 @@ class App:
             on_open_session_logger=lambda: self._show_session_logger(),
             on_open_claude_context=lambda: self._show_claude_context(),
             on_open_manual_entry=lambda: self._show_manual_entry(),
+            on_open_settings=lambda: self._show_settings(),
             on_minimize=self._on_dashboard_minimized,
+            on_open_vod=self._open_vod_player,
         )
 
     def _show_dashboard_from_tray(self, icon=None, item=None):
@@ -381,6 +519,8 @@ class App:
                 games=games,
                 overall=overall,
                 champion_stats=champ_stats,
+                db=self.db,
+                on_open_vod=self._open_vod_player,
             )
 
         self.root.after(0, _open)
@@ -392,7 +532,10 @@ class App:
                 self._review_losses_window.lift()
                 return
 
-            self._review_losses_window = ReviewLossesWindow(db=self.db)
+            self._review_losses_window = ReviewLossesWindow(
+                db=self.db,
+                on_open_vod=self._open_vod_player,
+            )
 
         self.root.after(0, _open)
 
@@ -445,7 +588,10 @@ class App:
                 self._session_logger_window.lift()
                 return
 
-            self._session_logger_window = SessionLoggerWindow(db=self.db)
+            self._session_logger_window = SessionLoggerWindow(
+                db=self.db,
+                on_open_vod=self._open_vod_player,
+            )
 
         self.root.after(0, _open)
 

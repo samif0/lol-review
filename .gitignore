@@ -17,6 +17,9 @@ dist/
 # Local data (database, logs)
 data/
 
+# Downloaded dependencies (fetched by Scripts/download_mpv.py at build time)
+deps/
+
 # OS junk
 .fuse_hidden*
 Thumbs.db

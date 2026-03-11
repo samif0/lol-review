@@ -15,10 +15,11 @@ class ReviewLossesWindow(ctk.CTkToplevel):
     Filterable by champion to focus on specific matchup improvements.
     """
 
-    def __init__(self, db, *args, **kwargs):
+    def __init__(self, db, on_open_vod=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.db = db
+        self._on_open_vod = on_open_vod
         self.selected_champion = "All Champions"
         self._review_popup = None
 
@@ -182,19 +183,35 @@ class ReviewLossesWindow(ctk.CTkToplevel):
             text_color=COLORS["text"],
         ).pack(anchor="e")
 
-        # Review / Edit Review button
+        # Button row: Review + Watch VOD
+        btn_row = ctk.CTkFrame(right_section, fg_color="transparent")
+        btn_row.pack(anchor="e", pady=(4, 0))
+
         review_btn_text = "Edit Review" if has_review else "Review"
         review_btn_color = COLORS["tag_bg"] if has_review else COLORS["accent_blue"]
 
         ctk.CTkButton(
-            right_section,
+            btn_row,
             text=review_btn_text,
             font=ctk.CTkFont(size=11),
             height=26, width=100, corner_radius=6,
             fg_color=review_btn_color,
             hover_color="#0077cc",
             command=lambda g=loss: self._open_loss_review(g),
-        ).pack(anchor="e", pady=(4, 0))
+        ).pack(side="left", padx=(0, 6))
+
+        # Watch VOD button — only if a recording is linked
+        game_id = loss.get("game_id")
+        if game_id and self.db.get_vod(game_id):
+            ctk.CTkButton(
+                btn_row,
+                text="Watch VOD",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                height=26, width=100, corner_radius=6,
+                fg_color=COLORS["accent_gold"], hover_color="#a88432",
+                text_color="#0a0a0f",
+                command=lambda gid=game_id: self._on_open_vod(gid) if self._on_open_vod else None,
+            ).pack(side="left")
 
         # Show tags if present
         tags = json.loads(loss.get("tags", "[]")) if isinstance(loss.get("tags"), str) else loss.get("tags", [])
@@ -301,16 +318,25 @@ class ReviewLossesWindow(ctk.CTkToplevel):
             self._review_popup.destroy()
 
         # Build a session_entry-like dict for SessionGameReviewWindow
+        game_id = loss.get("game_id")
         session_entry = {
-            "game_id": loss.get("game_id"),
+            "game_id": game_id,
             "champion_name": loss.get("champion_name"),
             "win": 0,
             "mental_rating": 5,
         }
+
+        # Check for linked VOD
+        vod_info = self.db.get_vod(game_id) if game_id else None
+        has_vod = vod_info is not None
+        bookmark_count = self.db.get_bookmark_count(game_id) if has_vod else 0
 
         self._review_popup = SessionGameReviewWindow(
             db=self.db,
             session_entry=session_entry,
             game_data=loss,
             on_save=self._refresh_losses,
+            on_open_vod=self._on_open_vod,
+            has_vod=has_vod,
+            bookmark_count=bookmark_count,
         )

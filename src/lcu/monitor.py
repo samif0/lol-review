@@ -1,11 +1,13 @@
 """Game monitor that polls the League client for phase transitions."""
 
 import logging
+import threading
 import time
 from typing import Callable, Optional
 
 from .client import LCUClient
 from .credentials import find_credentials
+from .live_events import LiveEventCollector
 from .models import GameStats
 from .stats import extract_stats_from_eog
 
@@ -45,6 +47,8 @@ class GameMonitor:
         self._last_phase: str = "None"
         self._connected = False
         self._current_game_casual = False
+        self._event_collector: Optional[LiveEventCollector] = None
+        self._collector_thread: Optional[threading.Thread] = None
 
     def start(self):
         """Start the monitor loop. Call from a background thread."""
@@ -115,6 +119,10 @@ class GameMonitor:
             if self.on_game_start:
                 self.on_game_start()
 
+            # Start collecting live events (no API key needed)
+            if not self._current_game_casual:
+                self._start_event_collector()
+
         # Detect transition into EndOfGame
         if phase == "EndOfGame" and self._last_phase != "EndOfGame":
             if self._current_game_casual:
@@ -144,10 +152,38 @@ class GameMonitor:
         }
         return queue_id in casual_ids
 
+    def _start_event_collector(self):
+        """Start the live event collector in a background thread."""
+        self._stop_event_collector()  # Clean up any previous collector
+
+        self._event_collector = LiveEventCollector(poll_interval=10.0)
+        self._collector_thread = threading.Thread(
+            target=self._event_collector.start,
+            daemon=True,
+        )
+        self._collector_thread.start()
+        logger.info("Live event collector thread started")
+
+    def _stop_event_collector(self) -> list[dict]:
+        """Stop the live event collector and return collected events."""
+        events = []
+        if self._event_collector:
+            events = self._event_collector.stop()
+            self._event_collector = None
+        if self._collector_thread:
+            self._collector_thread.join(timeout=5)
+            self._collector_thread = None
+        return events
+
     def _handle_game_end(self):
         """Fetch end-of-game stats and fire the callback."""
         if self._client is None:
             return
+
+        # Stop the live event collector and grab events
+        live_events = self._stop_event_collector()
+        if live_events:
+            logger.info(f"Collected {len(live_events)} live events during game")
 
         # The EOG data might take a moment to be ready — retry a few times
         for attempt in range(5):
@@ -164,6 +200,9 @@ class GameMonitor:
                         )
                     except Exception:
                         pass
+
+                    # Attach live events to the stats object
+                    stats.live_events = live_events
 
                     self.on_game_end(stats)
                     return

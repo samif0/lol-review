@@ -6,13 +6,22 @@ import customtkinter as ctk
 
 from ..constants import COLORS, format_duration, format_number
 from .widgets import StatCard
+from .game_review import SessionGameReviewWindow
 
 
 class HistoryWindow(ctk.CTkToplevel):
     """Window showing game history and stats overview."""
 
-    def __init__(self, games: list[dict], overall: dict, champion_stats: list[dict], *args, **kwargs):
+    def __init__(
+        self, games: list[dict], overall: dict, champion_stats: list[dict],
+        db=None, on_open_vod=None,
+        *args, **kwargs,
+    ):
         super().__init__(*args, **kwargs)
+
+        self.db = db
+        self._on_open_vod = on_open_vod
+        self._review_popup = None
 
         self.title("LoL Review — Game History")
         self.geometry("900x700")
@@ -137,6 +146,42 @@ class HistoryWindow(ctk.CTkToplevel):
                 text_color=COLORS["star_active"],
             ).pack(anchor="e")
 
+        # Action buttons row
+        if self.db:
+            btn_row = ctk.CTkFrame(right, fg_color="transparent")
+            btn_row.pack(anchor="e", pady=(4, 0))
+
+            has_review = bool(
+                game.get("mistakes", "").strip()
+                or game.get("went_well", "").strip()
+                or game.get("focus_next", "").strip()
+                or (game.get("rating") or 0) > 0
+            )
+            review_text = "Edit Review" if has_review else "Review"
+            review_color = COLORS["tag_bg"] if has_review else COLORS["accent_blue"]
+
+            ctk.CTkButton(
+                btn_row,
+                text=review_text,
+                font=ctk.CTkFont(size=11),
+                height=26, width=100, corner_radius=6,
+                fg_color=review_color,
+                hover_color="#0077cc",
+                command=lambda g=game: self._open_review(g),
+            ).pack(side="left", padx=(0, 6))
+
+            game_id = game.get("game_id")
+            if game_id and self.db.get_vod(game_id):
+                ctk.CTkButton(
+                    btn_row,
+                    text="Watch VOD",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    height=26, width=100, corner_radius=6,
+                    fg_color=COLORS["accent_gold"], hover_color="#a88432",
+                    text_color="#0a0a0f",
+                    command=lambda gid=game_id: self._on_open_vod(gid) if self._on_open_vod else None,
+                ).pack(side="left")
+
     def _build_stats_overview(self, parent, overall: dict):
         """Aggregate stats summary."""
         scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
@@ -253,3 +298,30 @@ class HistoryWindow(ctk.CTkToplevel):
                     text_color=color,
                     width=w,
                 ).pack(side="left", padx=6, pady=4)
+
+    def _open_review(self, game: dict):
+        """Open a review popup for a game from the history list."""
+        if self._review_popup and self._review_popup.winfo_exists():
+            self._review_popup.destroy()
+
+        game_id = game.get("game_id")
+        session_entry = {
+            "game_id": game_id,
+            "champion_name": game.get("champion_name"),
+            "win": game.get("win", 0),
+            "mental_rating": 5,
+        }
+
+        vod_info = self.db.get_vod(game_id) if game_id else None
+        has_vod = vod_info is not None
+        bookmark_count = self.db.get_bookmark_count(game_id) if has_vod else 0
+
+        self._review_popup = SessionGameReviewWindow(
+            db=self.db,
+            session_entry=session_entry,
+            game_data=game,
+            on_save=None,
+            on_open_vod=self._on_open_vod,
+            has_vod=has_vod,
+            bookmark_count=bookmark_count,
+        )

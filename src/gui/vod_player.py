@@ -1,0 +1,976 @@
+"""VOD player window — watch Ascent recordings with timestamp bookmarks.
+
+Uses mpv (libmpv) for embedded video playback when available.
+Falls back to opening videos in the system default player.
+
+Features a visual timeline with colored event markers for kills,
+deaths, objectives, and user bookmarks.
+"""
+
+import json
+import logging
+import os
+import subprocess
+import sys
+import tkinter as tk
+from pathlib import Path
+from typing import Callable, Optional
+
+import customtkinter as ctk
+
+from ..config import get_keybinds, KEYBIND_LABELS
+from ..constants import COLORS
+from ..database.game_events import EVENT_STYLES
+from ..vod import format_game_time, parse_game_time
+
+logger = logging.getLogger(__name__)
+
+# Try to import mpv — it's optional
+_mpv = None
+try:
+    import mpv as _mpv
+except (ImportError, OSError):
+    logger.info("python-mpv not available — VOD player will use external player")
+
+
+# ── Timeline Canvas Widget ─────────────────────────────────────
+
+
+class TimelineCanvas(tk.Canvas):
+    """Custom seek bar with visual event markers.
+
+    Draws a horizontal track with:
+    - Dark background track
+    - Blue progress bar showing current position
+    - Colored markers at event timestamps
+    - Purple diamonds for user bookmarks
+    - Hover tooltips showing event details
+    """
+
+    TRACK_HEIGHT = 8
+    MARKER_SIZE = 7
+    CANVAS_HEIGHT = 40
+    BOOKMARK_COLOR = "#8b5cf6"
+
+    def __init__(self, master, duration: int, on_seek: Callable,
+                 events: list = None, bookmarks: list = None, **kwargs):
+        super().__init__(
+            master, height=self.CANVAS_HEIGHT,
+            bg=COLORS["bg_dark"], highlightthickness=0,
+            cursor="hand2", **kwargs,
+        )
+        self._duration = max(duration, 1)
+        self._on_seek = on_seek
+        self._events = events or []
+        self._bookmarks = bookmarks or []
+        self._position = 0.0  # Current position in seconds
+        self._dragging = False
+        self._hover_item = None
+        self._tooltip_window = None
+
+        self.bind("<Configure>", self._on_resize)
+        self.bind("<Button-1>", self._on_click)
+        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<Motion>", self._on_hover)
+        self.bind("<Leave>", self._on_leave)
+
+    def set_position(self, seconds: float):
+        """Update the playback position (0 to duration)."""
+        self._position = max(0, min(seconds, self._duration))
+        self._redraw()
+
+    def set_events(self, events: list):
+        """Update the event markers."""
+        self._events = events or []
+        self._redraw()
+
+    def set_bookmarks(self, bookmarks: list):
+        """Update the bookmark markers."""
+        self._bookmarks = bookmarks or []
+        self._redraw()
+
+    def set_duration(self, duration: int):
+        """Update the total duration."""
+        self._duration = max(duration, 1)
+        self._redraw()
+
+    def _time_to_x(self, seconds: float) -> float:
+        """Convert a time in seconds to an x coordinate."""
+        w = self.winfo_width()
+        pad = 10  # Left/right padding
+        usable = w - 2 * pad
+        frac = seconds / self._duration
+        return pad + frac * usable
+
+    def _x_to_time(self, x: float) -> float:
+        """Convert an x coordinate to time in seconds."""
+        w = self.winfo_width()
+        pad = 10
+        usable = w - 2 * pad
+        frac = (x - pad) / max(usable, 1)
+        return max(0, min(frac * self._duration, self._duration))
+
+    def _redraw(self):
+        """Redraw the entire timeline."""
+        self.delete("all")
+        w = self.winfo_width()
+        h = self.winfo_height()
+
+        if w < 20:
+            return
+
+        pad = 10
+        track_y = h // 2
+        track_top = track_y - self.TRACK_HEIGHT // 2
+        track_bot = track_y + self.TRACK_HEIGHT // 2
+
+        # Background track
+        self.create_rectangle(
+            pad, track_top, w - pad, track_bot,
+            fill="#1a1a24", outline="#2a2a3a", width=1,
+            tags="track",
+        )
+
+        # Progress bar
+        progress_x = self._time_to_x(self._position)
+        if progress_x > pad + 1:
+            self.create_rectangle(
+                pad, track_top, progress_x, track_bot,
+                fill=COLORS["accent_blue"], outline="",
+                tags="progress",
+            )
+
+        # Event markers (draw below the track line, above center)
+        marker_y_top = track_top - 3  # Above the track
+        marker_y_bot = track_bot + 3  # Below the track
+
+        # Group overlapping events to avoid clutter
+        for event in self._events:
+            x = self._time_to_x(event["game_time_s"])
+            etype = event["event_type"]
+            style = EVENT_STYLES.get(etype, {"color": "#888", "symbol": "●"})
+            color = style["color"]
+
+            # Draw marker above the track
+            s = self.MARKER_SIZE
+            # Different shapes per event type
+            if etype in ("KILL", "DEATH", "ASSIST"):
+                # Triangle (up for kill, down for death, circle for assist)
+                if etype == "KILL":
+                    self.create_polygon(
+                        x, marker_y_top - s,
+                        x - s * 0.7, marker_y_top + 2,
+                        x + s * 0.7, marker_y_top + 2,
+                        fill=color, outline="", tags=("marker", f"evt_{id(event)}"),
+                    )
+                elif etype == "DEATH":
+                    self.create_polygon(
+                        x, marker_y_bot + s,
+                        x - s * 0.7, marker_y_bot - 2,
+                        x + s * 0.7, marker_y_bot - 2,
+                        fill=color, outline="", tags=("marker", f"evt_{id(event)}"),
+                    )
+                else:  # ASSIST
+                    self.create_oval(
+                        x - 3, marker_y_top - 3, x + 3, marker_y_top + 3,
+                        fill=color, outline="", tags=("marker", f"evt_{id(event)}"),
+                    )
+            elif etype in ("DRAGON", "BARON", "HERALD"):
+                # Diamond shape
+                self.create_polygon(
+                    x, marker_y_top - s,
+                    x + s * 0.6, marker_y_top,
+                    x, marker_y_top + s,
+                    x - s * 0.6, marker_y_top,
+                    fill=color, outline="", tags=("marker", f"evt_{id(event)}"),
+                )
+            elif etype in ("TURRET", "INHIBITOR"):
+                # Small square
+                self.create_rectangle(
+                    x - 3, marker_y_top - 3, x + 3, marker_y_top + 3,
+                    fill=color, outline="", tags=("marker", f"evt_{id(event)}"),
+                )
+            elif etype == "MULTI_KILL":
+                # Star — drawn as larger circle with glow
+                self.create_oval(
+                    x - 5, marker_y_top - 8, x + 5, marker_y_top - 2,
+                    fill=color, outline="#fff", width=1,
+                    tags=("marker", f"evt_{id(event)}"),
+                )
+            else:
+                # Default: small circle
+                self.create_oval(
+                    x - 3, marker_y_top - 3, x + 3, marker_y_top + 3,
+                    fill=color, outline="", tags=("marker", f"evt_{id(event)}"),
+                )
+
+        # Bookmark markers (purple diamonds below the track)
+        for bm in self._bookmarks:
+            x = self._time_to_x(bm["game_time_s"])
+            s = 5
+            self.create_polygon(
+                x, marker_y_bot + 2,
+                x + s, marker_y_bot + 2 + s,
+                x, marker_y_bot + 2 + s * 2,
+                x - s, marker_y_bot + 2 + s,
+                fill=self.BOOKMARK_COLOR, outline="",
+                tags=("bookmark", f"bm_{bm.get('id', 0)}"),
+            )
+
+        # Playhead indicator (white line)
+        self.create_line(
+            progress_x, track_top - 4, progress_x, track_bot + 4,
+            fill="#ffffff", width=2, tags="playhead",
+        )
+
+    def _on_resize(self, event=None):
+        self._redraw()
+
+    def _on_click(self, event):
+        self._dragging = True
+        t = self._x_to_time(event.x)
+        self._position = t
+        self._redraw()
+        self._on_seek(t)
+
+    def _on_drag(self, event):
+        if self._dragging:
+            t = self._x_to_time(event.x)
+            self._position = t
+            self._redraw()
+
+    def _on_release(self, event):
+        if self._dragging:
+            t = self._x_to_time(event.x)
+            self._on_seek(t)
+            self._dragging = False
+
+    def _on_hover(self, event):
+        """Show tooltip for nearby event markers."""
+        # Find the closest event or bookmark to the cursor
+        closest = None
+        closest_dist = 12  # Max pixel distance for tooltip
+
+        hover_time = self._x_to_time(event.x)
+
+        for evt in self._events:
+            x = self._time_to_x(evt["game_time_s"])
+            dist = abs(event.x - x)
+            if dist < closest_dist:
+                closest_dist = dist
+                style = EVENT_STYLES.get(evt["event_type"], {"label": evt["event_type"]})
+                details = evt.get("details", {})
+                label = style.get("label", evt["event_type"])
+
+                # Add detail info
+                if evt["event_type"] == "DRAGON":
+                    dragon = details.get("dragon_type", "").replace("_DRAGON", "").title()
+                    if dragon:
+                        label = f"{dragon} Dragon"
+                elif evt["event_type"] == "MULTI_KILL":
+                    label = details.get("label", "Multi Kill")
+
+                closest = f"{format_game_time(evt['game_time_s'])} — {label}"
+
+        for bm in self._bookmarks:
+            x = self._time_to_x(bm["game_time_s"])
+            dist = abs(event.x - x)
+            if dist < closest_dist:
+                closest_dist = dist
+                note = bm.get("note", "") or "(bookmark)"
+                closest = f"{format_game_time(bm['game_time_s'])} — {note}"
+
+        if closest:
+            self._show_tooltip(event.x_root, event.y_root, closest)
+        else:
+            self._hide_tooltip()
+
+    def _on_leave(self, event):
+        self._hide_tooltip()
+
+    def _show_tooltip(self, x: int, y: int, text: str):
+        """Show a floating tooltip near the cursor."""
+        self._hide_tooltip()
+        tw = tk.Toplevel(self)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x + 12}+{y - 30}")
+        tw.attributes("-topmost", True)
+
+        label = tk.Label(
+            tw, text=text, justify="left",
+            background="#1e1e2e", foreground="#e4e4e8",
+            relief="solid", borderwidth=1,
+            font=("Segoe UI", 10),
+            padx=6, pady=3,
+        )
+        label.pack()
+        self._tooltip_window = tw
+
+    def _hide_tooltip(self):
+        if self._tooltip_window:
+            self._tooltip_window.destroy()
+            self._tooltip_window = None
+
+
+# ── Timeline Legend ─────────────────────────────────────────────
+
+
+def build_timeline_legend(parent, has_events: bool) -> ctk.CTkFrame:
+    """Build a compact legend showing what each marker color means."""
+    legend = ctk.CTkFrame(parent, fg_color="transparent")
+
+    items = [
+        ("▲ Kill", EVENT_STYLES["KILL"]["color"]),
+        ("▼ Death", EVENT_STYLES["DEATH"]["color"]),
+        ("● Assist", EVENT_STYLES["ASSIST"]["color"]),
+        ("◆ Dragon", EVENT_STYLES["DRAGON"]["color"]),
+        ("◆ Baron", EVENT_STYLES["BARON"]["color"]),
+        ("◆ Herald", EVENT_STYLES["HERALD"]["color"]),
+        ("■ Turret", EVENT_STYLES["TURRET"]["color"]),
+        ("◆ Bookmark", TimelineCanvas.BOOKMARK_COLOR),
+    ]
+
+    if not has_events:
+        # Only show bookmark legend if no Riot API events
+        items = [("◆ Bookmark", TimelineCanvas.BOOKMARK_COLOR)]
+
+    for text, color in items:
+        ctk.CTkLabel(
+            legend, text=text,
+            font=ctk.CTkFont(size=10),
+            text_color=color,
+        ).pack(side="left", padx=(0, 8))
+
+    return legend
+
+
+# ── VOD Player Window ──────────────────────────────────────────
+
+
+class VodPlayerWindow(ctk.CTkToplevel):
+    """Watch a game recording and add timestamped bookmarks.
+
+    If python-mpv + libmpv are available, plays the video inline.
+    Otherwise, opens the file in the system default player and still
+    provides the bookmark UI for manual timestamp entry.
+    """
+
+    def __init__(
+        self,
+        game_id: int,
+        vod_path: str,
+        game_duration: int,
+        champion_name: str,
+        bookmarks: list[dict],
+        tags: list[dict],
+        game_events: list[dict] = None,
+        on_add_bookmark: Optional[Callable] = None,
+        on_update_bookmark: Optional[Callable] = None,
+        on_delete_bookmark: Optional[Callable] = None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+
+        self.game_id = game_id
+        self.vod_path = vod_path
+        self.game_duration = game_duration
+        self.champion_name = champion_name
+        self._bookmarks = list(bookmarks)
+        self._tags = tags
+        self._game_events = game_events or []
+        self._on_add_bookmark = on_add_bookmark
+        self._on_update_bookmark = on_update_bookmark
+        self._on_delete_bookmark = on_delete_bookmark
+
+        self._player = None  # mpv.MPV instance
+        self._playing = False
+        self._update_job = None
+        self._speed = 1.0
+
+        self.title(f"VOD Review — {champion_name}")
+        self.geometry("960x740")
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.minsize(800, 600)
+
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(100, lambda: self.attributes("-topmost", False))
+        self.focus_force()
+
+        self._build_ui()
+        self._init_player()
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _build_ui(self):
+        """Build the player + timeline + bookmarks layout."""
+        outer = ctk.CTkFrame(self, fg_color=COLORS["bg_dark"])
+        outer.pack(fill="both", expand=True, padx=12, pady=12)
+
+        # ── Top: Video area ──────────────────────────────────────
+        self._video_frame = ctk.CTkFrame(
+            outer, fg_color="#000000", corner_radius=8,
+            border_width=1, border_color=COLORS["border"],
+        )
+        self._video_frame.pack(fill="both", expand=True, pady=(0, 8))
+
+        # Canvas for mpv to render into (or a placeholder message)
+        self._video_canvas = tk.Frame(
+            self._video_frame, bg="#000000",
+        )
+        self._video_canvas.pack(fill="both", expand=True)
+
+        # Click on video area to toggle play/pause
+        self._video_canvas.bind("<Button-1>", lambda e: self._toggle_play())
+
+        # ── Transport controls ───────────────────────────────────
+        transport = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=8,
+                                  border_width=1, border_color=COLORS["border"])
+        transport.pack(fill="x", pady=(0, 4))
+
+        transport_inner = ctk.CTkFrame(transport, fg_color="transparent")
+        transport_inner.pack(fill="x", padx=12, pady=8)
+
+        # Play / Pause
+        self._play_btn = ctk.CTkButton(
+            transport_inner, text="▶  Play", width=90, height=32,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._toggle_play,
+        )
+        self._play_btn.pack(side="left", padx=(0, 8))
+
+        # Back 10s / Forward 10s
+        ctk.CTkButton(
+            transport_inner, text="⏪ 10s", width=70, height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["tag_bg"], hover_color="#333344",
+            command=lambda: self._seek_relative(-10),
+        ).pack(side="left", padx=(0, 4))
+
+        ctk.CTkButton(
+            transport_inner, text="10s ⏩", width=70, height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["tag_bg"], hover_color="#333344",
+            command=lambda: self._seek_relative(10),
+        ).pack(side="left", padx=(0, 8))
+
+        # Speed controls
+        self._speed_label = ctk.CTkLabel(
+            transport_inner, text="1x",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text"],
+            width=30,
+        )
+        self._speed_label.pack(side="left", padx=(0, 2))
+
+        for spd, label in [(0.25, ".25"), (0.5, ".5"), (1.0, "1"), (1.5, "1.5"), (2.0, "2")]:
+            btn = ctk.CTkButton(
+                transport_inner, text=label, width=36, height=28,
+                font=ctk.CTkFont(size=11),
+                fg_color=COLORS["accent_blue"] if spd == 1.0 else COLORS["tag_bg"],
+                hover_color="#0077cc" if spd == 1.0 else "#333344",
+                corner_radius=6,
+                command=lambda s=spd: self._set_speed(s),
+            )
+            btn.pack(side="left", padx=1)
+            btn._speed_value = spd  # Tag for updating active state
+
+        # Time display
+        self._time_label = ctk.CTkLabel(
+            transport_inner, text="0:00 / 0:00",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text"],
+        )
+        self._time_label.pack(side="left", padx=(8, 12))
+
+        # Bookmark at current time button
+        self._bookmark_btn = ctk.CTkButton(
+            transport_inner, text="🔖 Bookmark", width=110, height=32,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=COLORS["accent_gold"], hover_color="#a88432",
+            text_color="#0a0a0f",
+            command=self._add_bookmark_at_current,
+        )
+        self._bookmark_btn.pack(side="right")
+
+        # ── Key bindings (configurable via Settings) ─────────────
+        self._keybinds = get_keybinds()
+        self._bind_keys()
+
+        # ── Keyboard shortcut hints ──────────────────────────────
+        self._hint_label = ctk.CTkLabel(
+            transport, text=self._build_hint_text(),
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text_dim"],
+        )
+        self._hint_label.pack(pady=(0, 6))
+
+        # ── Visual Timeline ──────────────────────────────────────
+        self._timeline = TimelineCanvas(
+            outer,
+            duration=self.game_duration,
+            on_seek=self._on_seek,
+            events=self._game_events,
+            bookmarks=self._bookmarks,
+        )
+        self._timeline.pack(fill="x", pady=(0, 2))
+
+        # Timeline legend
+        has_events = len(self._game_events) > 0
+        legend = build_timeline_legend(outer, has_events)
+        legend.pack(anchor="w", pady=(0, 6))
+
+        # ── Bottom: Bookmarks panel ──────────────────────────────
+        bookmarks_section = ctk.CTkFrame(
+            outer, fg_color=COLORS["bg_card"], corner_radius=8,
+            border_width=1, border_color=COLORS["border"],
+        )
+        bookmarks_section.pack(fill="x")
+
+        bm_header = ctk.CTkFrame(bookmarks_section, fg_color="transparent")
+        bm_header.pack(fill="x", padx=12, pady=(10, 6))
+
+        ctk.CTkLabel(
+            bm_header, text="BOOKMARKS",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_dim"],
+        ).pack(side="left")
+
+        self._bm_count_label = ctk.CTkLabel(
+            bm_header, text=f"{len(self._bookmarks)} bookmarks",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_dim"],
+        )
+        self._bm_count_label.pack(side="right")
+
+        # Manual add row
+        add_row = ctk.CTkFrame(bookmarks_section, fg_color="transparent")
+        add_row.pack(fill="x", padx=12, pady=(0, 6))
+
+        ctk.CTkLabel(
+            add_row, text="Time:",
+            font=ctk.CTkFont(size=12), text_color=COLORS["text_dim"],
+        ).pack(side="left", padx=(0, 4))
+
+        self._time_entry = ctk.CTkEntry(
+            add_row, width=70, height=30,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=6,
+            placeholder_text="MM:SS",
+        )
+        self._time_entry.pack(side="left", padx=(0, 6))
+
+        self._note_entry = ctk.CTkEntry(
+            add_row, height=30,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=6,
+            placeholder_text="What happened here?",
+        )
+        self._note_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        ctk.CTkButton(
+            add_row, text="+ Add", width=60, height=30,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["win_green"], hover_color="#1ea05a",
+            text_color="#0a0a0f",
+            command=self._add_bookmark_manual,
+        ).pack(side="right")
+
+        # Scrollable bookmark list
+        self._bm_scroll = ctk.CTkScrollableFrame(
+            bookmarks_section, fg_color="transparent",
+            height=150,
+            scrollbar_button_color=COLORS["border"],
+        )
+        self._bm_scroll.pack(fill="x", padx=8, pady=(0, 8))
+
+        self._refresh_bookmark_list()
+
+    # ── Keybind wiring ──────────────────────────────────────────
+
+    _SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0]
+
+    _ACTION_MAP = {
+        "play_pause":   lambda s: s._toggle_play(),
+        "seek_fwd_5":   lambda s: s._seek_relative(5),
+        "seek_back_5":  lambda s: s._seek_relative(-5),
+        "seek_fwd_2":   lambda s: s._seek_relative(2),
+        "seek_back_2":  lambda s: s._seek_relative(-2),
+        "seek_fwd_10":  lambda s: s._seek_relative(10),
+        "seek_back_10": lambda s: s._seek_relative(-10),
+        "seek_fwd_1":   lambda s: s._seek_relative(1),
+        "seek_back_1":  lambda s: s._seek_relative(-1),
+        "bookmark":     lambda s: s._add_bookmark_at_current(),
+        "speed_up":     lambda s: s._cycle_speed(1),
+        "speed_down":   lambda s: s._cycle_speed(-1),
+    }
+
+    def _bind_keys(self):
+        """Bind all configured keybinds to their actions."""
+        for action, tk_key in self._keybinds.items():
+            if action in self._ACTION_MAP:
+                handler = self._ACTION_MAP[action]
+                # Capture action in closure correctly
+                self.bind(f"<{tk_key}>", lambda e, h=handler: h(self))
+
+    def _build_hint_text(self) -> str:
+        """Build a compact hint string from the current keybinds."""
+        kb = self._keybinds
+        parts = []
+
+        def _short(tk_key: str) -> str:
+            """Shorten a tk key string for the hint bar."""
+            return tk_key.replace("Control-", "Ctrl+").replace("Shift-", "Shift+").replace("Alt-", "Alt+")
+
+        parts.append(f"{_short(kb.get('seek_back_5', '←'))} / {_short(kb.get('seek_fwd_5', '→'))} 5s")
+        parts.append(f"{_short(kb.get('seek_back_2', ''))} 2s")
+        parts.append(f"{_short(kb.get('seek_back_10', ''))} 10s")
+        parts.append(f"{_short(kb.get('seek_back_1', ''))} 1s")
+        parts.append(f"{_short(kb.get('play_pause', 'space'))} play/pause")
+        parts.append(f"{_short(kb.get('bookmark', 'b'))} bookmark")
+        parts.append(f"{_short(kb.get('speed_down', '['))} / {_short(kb.get('speed_up', ']'))} speed")
+        return "  |  ".join(parts)
+
+    def _cycle_speed(self, direction: int):
+        """Cycle playback speed up (+1) or down (-1)."""
+        try:
+            idx = self._SPEEDS.index(self._speed)
+        except ValueError:
+            idx = 2  # default to 1.0
+        idx = max(0, min(idx + direction, len(self._SPEEDS) - 1))
+        self._set_speed(self._SPEEDS[idx])
+
+    def _init_player(self):
+        """Set up mpv player if available, otherwise show fallback message."""
+        if _mpv is None or not Path(self.vod_path).exists():
+            self._show_external_mode()
+            return
+
+        try:
+            # Wait for the tk window to be mapped so we get a valid HWND
+            self._video_canvas.update_idletasks()
+            wid = self._video_canvas.winfo_id()
+
+            self._player = _mpv.MPV(
+                wid=str(wid),
+                vo="gpu",
+                hwdec="auto",
+                keep_open="yes",  # Don't close at end of file
+                osd_level=0,      # No OSD clutter
+                input_default_bindings=False,
+                input_vo_keyboard=False,
+                log_handler=lambda lvl, comp, msg: None,  # silence mpv logs
+            )
+
+            self._player.play(self.vod_path)
+            self._player.pause = True  # Start paused
+            self._playing = False
+
+            logger.info(f"mpv player initialized for {self.vod_path}")
+        except Exception as e:
+            logger.warning(f"Failed to init mpv player: {e}")
+            self._player = None
+            self._show_external_mode()
+
+    def _show_external_mode(self):
+        """Show a message + button for opening in external player."""
+        self._video_canvas.destroy()
+
+        placeholder = ctk.CTkFrame(self._video_frame, fg_color="#0a0a12")
+        placeholder.pack(fill="both", expand=True, padx=2, pady=2)
+
+        msg = "Embedded playback requires libmpv\n" if _mpv is None else ""
+        msg += "Click below to open in your default player"
+
+        ctk.CTkLabel(
+            placeholder, text=msg,
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS["text_dim"],
+            justify="center",
+        ).pack(expand=True)
+
+        ctk.CTkButton(
+            placeholder,
+            text="Open in Default Player",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=40, width=220,
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._open_external,
+        ).pack(pady=(0, 30))
+
+    def _open_external(self):
+        """Open the video file in the OS default player."""
+        try:
+            if sys.platform == "win32":
+                os.startfile(self.vod_path)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", self.vod_path])
+            else:
+                subprocess.Popen(["xdg-open", self.vod_path])
+        except Exception as e:
+            logger.error(f"Failed to open VOD externally: {e}")
+
+    # ── Playback controls ────────────────────────────────────────
+
+    def _toggle_play(self):
+        """Play or pause the video."""
+        if not self._player:
+            self._open_external()
+            return
+
+        if self._playing:
+            self._player.pause = True
+            self._playing = False
+            self._play_btn.configure(text="▶  Play")
+            if self._update_job:
+                self.after_cancel(self._update_job)
+                self._update_job = None
+        else:
+            self._player.pause = False
+            self._playing = True
+            self._play_btn.configure(text="⏸  Pause")
+            self._start_time_update()
+
+    def _set_speed(self, speed: float):
+        """Change playback speed."""
+        self._speed = speed
+        if self._player:
+            try:
+                self._player.speed = speed
+            except Exception:
+                pass
+        self._speed_label.configure(text=f"{speed}x")
+
+        # Update button highlighting — find all speed buttons in the transport
+        for widget in self._speed_label.master.winfo_children():
+            if hasattr(widget, "_speed_value"):
+                if widget._speed_value == speed:
+                    widget.configure(fg_color=COLORS["accent_blue"])
+                else:
+                    widget.configure(fg_color=COLORS["tag_bg"])
+
+    def _seek_relative(self, seconds: int):
+        """Seek forward or backward by the given seconds."""
+        if not self._player:
+            return
+        try:
+            self._player.seek(seconds, reference="relative")
+        except Exception:
+            pass
+        self._update_time_display()
+
+    def _on_seek(self, value):
+        """Handle timeline click/drag — seek the video."""
+        if not self._player:
+            return
+        try:
+            self._player.seek(float(value), reference="absolute")
+        except Exception:
+            pass
+        self._update_time_display()
+
+    def _start_time_update(self):
+        """Periodically update the time display and timeline."""
+        if not self._playing or not self._player:
+            return
+        self._update_time_display()
+        self._update_job = self.after(250, self._start_time_update)
+
+    def _update_time_display(self):
+        """Sync the time label and timeline with the player position."""
+        if not self._player:
+            return
+
+        try:
+            current_s = self._player.time_pos or 0
+            total_s = self._player.duration or self.game_duration
+        except Exception:
+            current_s = 0
+            total_s = self.game_duration
+
+        if current_s < 0:
+            current_s = 0
+
+        self._time_label.configure(
+            text=f"{format_game_time(int(current_s))} / {format_game_time(int(total_s))}"
+        )
+
+        # Update timeline position
+        self._timeline.set_position(current_s)
+        if int(total_s) != self._timeline._duration:
+            self._timeline.set_duration(int(total_s))
+
+    def _get_current_game_time(self) -> int:
+        """Get the current playback position in seconds."""
+        if self._player:
+            try:
+                pos = self._player.time_pos
+                return max(0, int(pos)) if pos is not None else 0
+            except Exception:
+                return 0
+        return 0
+
+    # ── Bookmarks ────────────────────────────────────────────────
+
+    def _add_bookmark_at_current(self):
+        """Add a bookmark at the current playback time."""
+        game_time = self._get_current_game_time()
+        self._do_add_bookmark(game_time, "")
+
+    def _add_bookmark_manual(self):
+        """Add a bookmark from the manual time + note fields."""
+        time_text = self._time_entry.get().strip()
+        note_text = self._note_entry.get().strip()
+
+        game_time = parse_game_time(time_text)
+        if game_time is None:
+            self._time_entry.configure(border_color=COLORS["loss_red"])
+            self.after(1500, lambda: self._time_entry.configure(border_color=COLORS["border"]))
+            return
+
+        self._do_add_bookmark(game_time, note_text)
+        self._time_entry.delete(0, "end")
+        self._note_entry.delete(0, "end")
+
+    def _do_add_bookmark(self, game_time_s: int, note: str):
+        """Create a bookmark and refresh the list."""
+        if self._on_add_bookmark:
+            bm_id = self._on_add_bookmark(self.game_id, game_time_s, note)
+            self._bookmarks.append({
+                "id": bm_id,
+                "game_id": self.game_id,
+                "game_time_s": game_time_s,
+                "note": note,
+                "tags": "[]",
+            })
+            self._refresh_bookmark_list()
+            # Update timeline markers
+            self._timeline.set_bookmarks(self._bookmarks)
+
+    def _delete_bookmark(self, bookmark_id: int):
+        """Remove a bookmark."""
+        if self._on_delete_bookmark:
+            self._on_delete_bookmark(bookmark_id)
+        self._bookmarks = [b for b in self._bookmarks if b["id"] != bookmark_id]
+        self._refresh_bookmark_list()
+        self._timeline.set_bookmarks(self._bookmarks)
+
+    def _seek_to_bookmark(self, game_time_s: int):
+        """Jump the player to a bookmark's timestamp."""
+        if self._player:
+            try:
+                self._player.seek(game_time_s, reference="absolute")
+            except Exception:
+                pass
+            self._update_time_display()
+        # Update timeline
+        self._timeline.set_position(game_time_s)
+
+    def _refresh_bookmark_list(self):
+        """Rebuild the bookmark list UI."""
+        for widget in self._bm_scroll.winfo_children():
+            widget.destroy()
+
+        self._bm_count_label.configure(
+            text=f"{len(self._bookmarks)} bookmark{'s' if len(self._bookmarks) != 1 else ''}"
+        )
+
+        sorted_bm = sorted(self._bookmarks, key=lambda b: b["game_time_s"])
+
+        if not sorted_bm:
+            ctk.CTkLabel(
+                self._bm_scroll,
+                text="No bookmarks yet — press 🔖 Bookmark or add one manually",
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_dim"],
+            ).pack(pady=8)
+            return
+
+        for bm in sorted_bm:
+            self._build_bookmark_row(bm)
+
+    def _build_bookmark_row(self, bm: dict):
+        """Render a single bookmark entry."""
+        row = ctk.CTkFrame(
+            self._bm_scroll, fg_color=COLORS["bg_input"], corner_radius=6,
+        )
+        row.pack(fill="x", pady=2)
+
+        inner = ctk.CTkFrame(row, fg_color="transparent")
+        inner.pack(fill="x", padx=8, pady=6)
+
+        # Timestamp (clickable to seek)
+        time_text = format_game_time(bm["game_time_s"])
+        time_btn = ctk.CTkButton(
+            inner, text=time_text, width=60, height=26,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            corner_radius=4,
+            command=lambda t=bm["game_time_s"]: self._seek_to_bookmark(t),
+        )
+        time_btn.pack(side="left", padx=(0, 8))
+
+        # Note text
+        note = bm.get("note", "")
+        if note:
+            ctk.CTkLabel(
+                inner, text=note,
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text"],
+                wraplength=500,
+                anchor="w",
+                justify="left",
+            ).pack(side="left", fill="x", expand=True)
+        else:
+            ctk.CTkLabel(
+                inner, text="(no note)",
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_dim"],
+            ).pack(side="left", fill="x", expand=True)
+
+        # Tags display
+        try:
+            tag_list = json.loads(bm.get("tags", "[]"))
+        except (json.JSONDecodeError, TypeError):
+            tag_list = []
+
+        if tag_list:
+            for tag_name in tag_list:
+                ctk.CTkLabel(
+                    inner, text=tag_name,
+                    font=ctk.CTkFont(size=10),
+                    text_color=COLORS["text"],
+                    fg_color=COLORS["tag_bg"],
+                    corner_radius=10,
+                    padx=6,
+                    pady=2,
+                ).pack(side="left", padx=2)
+
+        # Delete button
+        ctk.CTkButton(
+            inner, text="✕", width=28, height=26,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent", hover_color=COLORS["loss_red"],
+            text_color=COLORS["text_dim"],
+            corner_radius=4,
+            command=lambda bid=bm["id"]: self._delete_bookmark(bid),
+        ).pack(side="right")
+
+    # ── Cleanup ──────────────────────────────────────────────────
+
+    def _on_close(self):
+        """Clean up mpv resources before closing."""
+        if self._update_job:
+            self.after_cancel(self._update_job)
+        if self._player:
+            try:
+                self._player.terminate()
+            except Exception:
+                pass
+            self._player = None
+        self.destroy()

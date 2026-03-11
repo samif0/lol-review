@@ -96,3 +96,6 @@ class GameStats:
 
     # Raw JSON for anything we might have missed
     raw_stats: dict = field(default_factory=dict)
+
+    # Live events collected during the game (kills, deaths, objectives with timestamps)
+    live_events: list[dict] = field(default_factory=list)

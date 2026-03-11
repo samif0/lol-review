@@ -23,7 +23,6 @@ How to publish an update:
 5. Attach the zip to the release
 """
 
-import json
 import logging
 import os
 import shutil
@@ -37,6 +36,7 @@ from typing import Callable, Optional, Tuple
 
 import requests
 
+from .config import load_github_token, save_github_token  # noqa: F401 — re-export
 from .version import __version__, GITHUB_REPO
 
 logger = logging.getLogger(__name__)
@@ -44,43 +44,11 @@ logger = logging.getLogger(__name__)
 # GitHub API endpoint for latest release
 _RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
-# Config file lives next to the database in %LOCALAPPDATA%\LoLReview\
-_CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "LoLReview"
-_CONFIG_FILE = _CONFIG_DIR / "config.json"
-
-
-# ── Config helpers ───────────────────────────────────────────────────
-
-
-def _load_github_token() -> str:
-    """Load the GitHub token from the local config file, if it exists."""
-    try:
-        if _CONFIG_FILE.exists():
-            data = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
-            return data.get("github_token", "")
-    except Exception as e:
-        logger.warning(f"Could not read config: {e}")
-    return ""
-
-
-def save_github_token(token: str):
-    """Save a GitHub token to the local config file."""
-    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    config = {}
-    try:
-        if _CONFIG_FILE.exists():
-            config = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    config["github_token"] = token
-    _CONFIG_FILE.write_text(json.dumps(config, indent=2), encoding="utf-8")
-    logger.info("GitHub token saved to config")
-
 
 def _get_auth_headers() -> dict:
     """Build request headers, with auth token if available."""
     headers = {"Accept": "application/vnd.github.v3+json"}
-    token = _load_github_token()
+    token = load_github_token()
     if token:
         headers["Authorization"] = f"token {token}"
     return headers

@@ -12,6 +12,7 @@ import customtkinter as ctk
 
 from ..constants import COLORS, format_duration, format_number
 from ..version import __version__
+from .game_review import SessionGameReviewWindow
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ class DashboardWindow(ctk.CTkToplevel):
 
     def __init__(self, db, on_open_history, on_open_losses, on_open_session_logger,
                  on_open_claude_context, on_open_manual_entry, on_minimize,
-                 *args, **kwargs):
+                 on_open_settings=None, on_open_vod=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.db = db
@@ -36,7 +37,10 @@ class DashboardWindow(ctk.CTkToplevel):
         self._on_open_session_logger = on_open_session_logger
         self._on_open_claude_context = on_open_claude_context
         self._on_open_manual_entry = on_open_manual_entry
+        self._on_open_settings = on_open_settings
+        self._on_open_vod = on_open_vod
         self._on_minimize = on_minimize
+        self._review_popup = None
 
         self.title("LoL Review")
         self.geometry("760x720")
@@ -211,7 +215,10 @@ class DashboardWindow(ctk.CTkToplevel):
             text_color=result_color,
         ).pack(side="left")
 
-        # Right: review status
+        # Right: buttons
+        right_frame = ctk.CTkFrame(inner, fg_color="transparent")
+        right_frame.pack(side="right")
+
         has_review = bool(
             (game.get("mistakes") or "").strip()
             or (game.get("went_well") or "").strip()
@@ -219,15 +226,30 @@ class DashboardWindow(ctk.CTkToplevel):
             or (game.get("rating") or 0) > 0
         )
 
-        status_text = "✓ Reviewed" if has_review else "Not reviewed"
-        status_color = COLORS["win_green"] if has_review else COLORS["text_dim"]
+        review_text = "Edit Review" if has_review else "Review"
+        review_color = COLORS["tag_bg"] if has_review else COLORS["accent_blue"]
 
-        ctk.CTkLabel(
-            inner,
-            text=status_text,
-            font=ctk.CTkFont(size=11),
-            text_color=status_color,
-        ).pack(side="right")
+        ctk.CTkButton(
+            right_frame,
+            text=review_text,
+            font=ctk.CTkFont(size=10),
+            height=22, width=80, corner_radius=5,
+            fg_color=review_color,
+            hover_color="#0077cc",
+            command=lambda g=game: self._open_review(g),
+        ).pack(side="left", padx=(0, 4))
+
+        game_id = game.get("game_id")
+        if game_id and self.db.get_vod(game_id):
+            ctk.CTkButton(
+                right_frame,
+                text="Watch VOD",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                height=22, width=80, corner_radius=5,
+                fg_color=COLORS["accent_gold"], hover_color="#a88432",
+                text_color="#0a0a0f",
+                command=lambda gid=game_id: self._on_open_vod(gid) if self._on_open_vod else None,
+            ).pack(side="left")
 
     # ── Unreviewed games ────────────────────────────────────────
 
@@ -326,12 +348,37 @@ class DashboardWindow(ctk.CTkToplevel):
             text_color=border_color,
         ).pack(side="left")
 
+        right_frame = ctk.CTkFrame(inner, fg_color="transparent")
+        right_frame.pack(side="right")
+
         ctk.CTkLabel(
-            inner,
+            right_frame,
             text=date,
             font=ctk.CTkFont(size=11),
             text_color=COLORS["text_dim"],
-        ).pack(side="right")
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            right_frame,
+            text="Review",
+            font=ctk.CTkFont(size=10),
+            height=22, width=70, corner_radius=5,
+            fg_color=COLORS["accent_blue"],
+            hover_color="#0077cc",
+            command=lambda g=game: self._open_review(g),
+        ).pack(side="left", padx=(0, 4))
+
+        game_id = game.get("game_id")
+        if game_id and self.db.get_vod(game_id):
+            ctk.CTkButton(
+                right_frame,
+                text="Watch VOD",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                height=22, width=80, corner_radius=5,
+                fg_color=COLORS["accent_gold"], hover_color="#a88432",
+                text_color="#0a0a0f",
+                command=lambda gid=game_id: self._on_open_vod(gid) if self._on_open_vod else None,
+            ).pack(side="left")
 
     # ── Quick actions ───────────────────────────────────────────
 
@@ -366,6 +413,9 @@ class DashboardWindow(ctk.CTkToplevel):
             ("Claude Context", "#8b5cf6", "#7040d0", self._on_open_claude_context),
             ("Manual Entry", COLORS["tag_bg"], "#333344", self._on_open_manual_entry),
         ]
+
+        if self._on_open_settings:
+            actions.append(("Settings", "#2a2a3a", "#3a3a4a", self._on_open_settings))
 
         for text, fg, hover, callback in actions:
             text_color = "#0a0a0f" if fg in (COLORS["accent_gold"],) else COLORS["text"]
@@ -406,6 +456,35 @@ class DashboardWindow(ctk.CTkToplevel):
                 text_color=COLORS["accent_blue"],
                 wraplength=650,
             ).pack(anchor="w", pady=(4, 0))
+
+    # ── Review helper ──────────────────────────────────────────
+
+    def _open_review(self, game: dict):
+        """Open a review popup for a game from the dashboard."""
+        if self._review_popup and self._review_popup.winfo_exists():
+            self._review_popup.destroy()
+
+        game_id = game.get("game_id")
+        session_entry = {
+            "game_id": game_id,
+            "champion_name": game.get("champion_name"),
+            "win": game.get("win", 0),
+            "mental_rating": 5,
+        }
+
+        vod_info = self.db.get_vod(game_id) if game_id else None
+        has_vod = vod_info is not None
+        bookmark_count = self.db.get_bookmark_count(game_id) if has_vod else 0
+
+        self._review_popup = SessionGameReviewWindow(
+            db=self.db,
+            session_entry=session_entry,
+            game_data=game,
+            on_save=None,
+            on_open_vod=self._on_open_vod,
+            has_vod=has_vod,
+            bookmark_count=bookmark_count,
+        )
 
     # ── Actions ─────────────────────────────────────────────────
 

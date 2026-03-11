@@ -10,10 +10,12 @@ from typing import Optional
 
 from .connection import ConnectionManager, DEFAULT_DB_PATH
 from .context import generate_claude_context
+from .game_events import GameEventsRepository
 from .games import GameRepository
 from .notes import NotesRepository
 from .session_log import SessionLogRepository
 from .tags import TagRepository
+from .vod import VodRepository
 
 __all__ = ["Database", "DEFAULT_DB_PATH"]
 
@@ -33,6 +35,8 @@ class Database:
         self.session_log = SessionLogRepository(self._conn_mgr)
         self.tags = TagRepository(self._conn_mgr)
         self.notes = NotesRepository(self._conn_mgr)
+        self.vod = VodRepository(self._conn_mgr)
+        self.game_events = GameEventsRepository(self._conn_mgr)
 
         # One-time cleanup
         self.session_log.cleanup_mismatched_entries()
@@ -134,6 +138,40 @@ class Database:
 
     def save_persistent_notes(self, content):
         return self.notes.save(content)
+
+    # ── VOD delegates ───────────────────────────────────────────
+
+    def link_vod(self, game_id, file_path, **kwargs):
+        return self.vod.link_vod(game_id, file_path, **kwargs)
+
+    def get_vod(self, game_id):
+        return self.vod.get_vod(game_id)
+
+    def add_bookmark(self, game_id, game_time_s, note="", tags=None):
+        return self.vod.add_bookmark(game_id, game_time_s, note, tags)
+
+    def update_bookmark(self, bookmark_id, **kwargs):
+        return self.vod.update_bookmark(bookmark_id, **kwargs)
+
+    def delete_bookmark(self, bookmark_id):
+        return self.vod.delete_bookmark(bookmark_id)
+
+    def get_bookmarks(self, game_id):
+        return self.vod.get_bookmarks(game_id)
+
+    def get_bookmark_count(self, game_id):
+        return self.vod.get_bookmark_count(game_id)
+
+    # ── Game events delegates ───────────────────────────────────────
+
+    def save_game_events(self, game_id, events):
+        return self.game_events.save_events(game_id, events)
+
+    def get_game_events(self, game_id):
+        return self.game_events.get_events(game_id)
+
+    def has_game_events(self, game_id):
+        return self.game_events.has_events(game_id)
 
     # ── Context generation ───────────────────────────────────────────
 
