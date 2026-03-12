@@ -400,6 +400,5 @@ class GameRepository:
             ),
         )
         conn.commit()
-        row_id = cursor.lastrowid
-        logger.info(f"Saved manual game entry for {champion_name} as row {row_id}")
-        return row_id
+        logger.info(f"Saved manual game entry for {champion_name} (game_id={game_id})")
+        return game_id

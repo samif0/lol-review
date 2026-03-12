@@ -319,41 +319,95 @@ class ReviewWindow(ctk.CTkToplevel):
 
     def _build_bookmarks_section(self, parent):
         """Show VOD bookmark notes so they're visible during the review."""
-        ctk.CTkLabel(
-            parent,
-            text="VOD BOOKMARKS",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=COLORS["text_dim"],
-        ).pack(anchor="w", pady=(8, 6))
+        # Separate clips from regular bookmarks
+        clips = [b for b in self._bookmarks if b.get("clip_path")]
+        regular = [b for b in self._bookmarks if not b.get("clip_path")]
 
-        bm_frame = ctk.CTkFrame(
-            parent, fg_color=COLORS["bg_card"], corner_radius=8,
-            border_width=1, border_color=COLORS["border"],
-        )
-        bm_frame.pack(fill="x", pady=(0, 8))
-
-        sorted_bm = sorted(self._bookmarks, key=lambda b: b.get("game_time_s", 0))
-
-        for bm in sorted_bm:
-            row = ctk.CTkFrame(bm_frame, fg_color="transparent")
-            row.pack(fill="x", padx=10, pady=3)
-
-            time_text = format_game_time(bm.get("game_time_s", 0))
+        if clips:
             ctk.CTkLabel(
-                row, text=time_text,
+                parent,
+                text="SAVED CLIPS",
                 font=ctk.CTkFont(size=12, weight="bold"),
-                text_color=COLORS["accent_blue"],
-                width=50, anchor="w",
-            ).pack(side="left", padx=(0, 8))
+                text_color="#22c55e",
+            ).pack(anchor="w", pady=(8, 6))
 
-            note = bm.get("note", "") or "(no note)"
+            clip_frame = ctk.CTkFrame(
+                parent, fg_color=COLORS["bg_card"], corner_radius=8,
+                border_width=1, border_color="#22c55e",
+            )
+            clip_frame.pack(fill="x", pady=(0, 8))
+
+            sorted_clips = sorted(clips, key=lambda b: b.get("clip_start_s", 0))
+            for bm in sorted_clips:
+                row = ctk.CTkFrame(clip_frame, fg_color="transparent")
+                row.pack(fill="x", padx=10, pady=3)
+
+                # Time range
+                start = bm.get("clip_start_s", 0)
+                end = bm.get("clip_end_s", 0)
+                dur = end - start if end > start else 0
+                time_text = f"{format_game_time(start)} – {format_game_time(end)} ({dur}s)"
+                ctk.CTkLabel(
+                    row, text=time_text,
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    text_color="#22c55e",
+                    anchor="w",
+                ).pack(side="left", padx=(0, 8))
+
+                note = bm.get("note", "") or "(no note)"
+                ctk.CTkLabel(
+                    row, text=note,
+                    font=ctk.CTkFont(size=12),
+                    text_color=COLORS["text"] if bm.get("note") else COLORS["text_dim"],
+                    anchor="w", justify="left",
+                    wraplength=500,
+                ).pack(side="left", fill="x", expand=True)
+
+                ctk.CTkLabel(
+                    row, text="CLIP",
+                    font=ctk.CTkFont(size=9, weight="bold"),
+                    text_color="#22c55e",
+                    fg_color="#1a4d2e",
+                    corner_radius=6,
+                    padx=6, pady=1,
+                ).pack(side="right")
+
+        if regular:
             ctk.CTkLabel(
-                row, text=note,
-                font=ctk.CTkFont(size=12),
-                text_color=COLORS["text"] if bm.get("note") else COLORS["text_dim"],
-                anchor="w", justify="left",
-                wraplength=600,
-            ).pack(side="left", fill="x", expand=True)
+                parent,
+                text="VOD BOOKMARKS",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=COLORS["text_dim"],
+            ).pack(anchor="w", pady=(8, 6))
+
+            bm_frame = ctk.CTkFrame(
+                parent, fg_color=COLORS["bg_card"], corner_radius=8,
+                border_width=1, border_color=COLORS["border"],
+            )
+            bm_frame.pack(fill="x", pady=(0, 8))
+
+            sorted_bm = sorted(regular, key=lambda b: b.get("game_time_s", 0))
+
+            for bm in sorted_bm:
+                row = ctk.CTkFrame(bm_frame, fg_color="transparent")
+                row.pack(fill="x", padx=10, pady=3)
+
+                time_text = format_game_time(bm.get("game_time_s", 0))
+                ctk.CTkLabel(
+                    row, text=time_text,
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    text_color=COLORS["accent_blue"],
+                    width=50, anchor="w",
+                ).pack(side="left", padx=(0, 8))
+
+                note = bm.get("note", "") or "(no note)"
+                ctk.CTkLabel(
+                    row, text=note,
+                    font=ctk.CTkFont(size=12),
+                    text_color=COLORS["text"] if bm.get("note") else COLORS["text_dim"],
+                    anchor="w", justify="left",
+                    wraplength=600,
+                ).pack(side="left", fill="x", expand=True)
 
         # Separator
         ctk.CTkFrame(

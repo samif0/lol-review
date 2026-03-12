@@ -18,6 +18,7 @@ from .schema import (
     CREATE_VOD_BOOKMARKS_TABLE,
     CREATE_VOD_FILES_TABLE,
     DEFAULT_TAGS,
+    MIGRATE_BOOKMARKS_CLIP_COLUMNS,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,13 @@ class ConnectionManager:
         conn.execute(CREATE_VOD_BOOKMARKS_TABLE)
         conn.execute(CREATE_GAME_EVENTS_TABLE)
         conn.execute(CREATE_GAME_EVENTS_INDEX)
+
+        # Migrate: add clip columns to vod_bookmarks if missing
+        for stmt in MIGRATE_BOOKMARKS_CLIP_COLUMNS:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
         # Insert default tags if the table is empty
         cursor = conn.execute("SELECT COUNT(*) FROM tags")

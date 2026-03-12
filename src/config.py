@@ -91,6 +91,8 @@ DEFAULT_KEYBINDS: dict[str, str] = {
     "bookmark":      "b",
     "speed_up":      "bracketright",
     "speed_down":    "bracketleft",
+    "clip_in":       "i",
+    "clip_out":      "o",
 }
 
 # Human-readable labels for the settings UI
@@ -107,6 +109,8 @@ KEYBIND_LABELS: dict[str, str] = {
     "bookmark":      "Bookmark",
     "speed_up":      "Speed Up",
     "speed_down":    "Speed Down",
+    "clip_in":       "Clip In",
+    "clip_out":      "Clip Out",
 }
 
 
@@ -126,3 +130,41 @@ def set_keybinds(binds: dict[str, str]):
     config["keybinds"] = binds
     _save_config(config)
     logger.info("Keybinds saved")
+
+
+# ── Clip settings ─────────────────────────────────────────────────
+
+DEFAULT_CLIPS_MAX_SIZE_MB = 2048  # 2 GB default
+
+
+def get_clips_folder() -> Optional[str]:
+    """Return the configured clips folder, or a default under AppData."""
+    config = _load_config()
+    path = config.get("clips_folder", "")
+    if path and Path(path).is_dir():
+        return path
+    # Default: LoLReview/clips next to the config dir
+    default = _CONFIG_DIR / "clips"
+    default.mkdir(parents=True, exist_ok=True)
+    return str(default)
+
+
+def set_clips_folder(path: str):
+    """Save the clips folder path."""
+    config = _load_config()
+    config["clips_folder"] = path
+    _save_config(config)
+    logger.info(f"Clips folder set to: {path}")
+
+
+def get_clips_max_size_mb() -> int:
+    """Return the max total size (MB) for the clips folder."""
+    return _load_config().get("clips_max_size_mb", DEFAULT_CLIPS_MAX_SIZE_MB)
+
+
+def set_clips_max_size_mb(size_mb: int):
+    """Save the max clips folder size in MB."""
+    config = _load_config()
+    config["clips_max_size_mb"] = max(100, size_mb)  # minimum 100 MB
+    _save_config(config)
+    logger.info(f"Clips max size set to: {size_mb} MB")

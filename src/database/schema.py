@@ -156,10 +156,20 @@ CREATE TABLE IF NOT EXISTS vod_bookmarks (
     game_time_s INTEGER NOT NULL,
     note        TEXT DEFAULT '',
     tags        TEXT DEFAULT '[]',
+    clip_start_s INTEGER,
+    clip_end_s   INTEGER,
+    clip_path    TEXT DEFAULT '',
     created_at  INTEGER,
     FOREIGN KEY (game_id) REFERENCES games(game_id)
 );
 """
+
+# Migration statements for existing databases (added via ALTER TABLE)
+MIGRATE_BOOKMARKS_CLIP_COLUMNS = [
+    "ALTER TABLE vod_bookmarks ADD COLUMN clip_start_s INTEGER",
+    "ALTER TABLE vod_bookmarks ADD COLUMN clip_end_s INTEGER",
+    "ALTER TABLE vod_bookmarks ADD COLUMN clip_path TEXT DEFAULT ''",
+]
 
 # Pre-populate some useful default tags
 DEFAULT_TAGS = [

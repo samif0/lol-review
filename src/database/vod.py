@@ -56,20 +56,26 @@ class VodRepository:
     # ── Bookmarks ────────────────────────────────────────────────
 
     def add_bookmark(self, game_id: int, game_time_s: int,
-                     note: str = "", tags: list[str] = None) -> int:
+                     note: str = "", tags: list[str] = None,
+                     clip_start_s: int = None, clip_end_s: int = None,
+                     clip_path: str = "") -> int:
         """Add a timestamp bookmark for a game. Returns the bookmark ID."""
         conn = self._conn_mgr.get_conn()
         cursor = conn.execute(
-            """INSERT INTO vod_bookmarks (game_id, game_time_s, note, tags, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (game_id, game_time_s, note, json.dumps(tags or []), int(time.time())),
+            """INSERT INTO vod_bookmarks
+               (game_id, game_time_s, note, tags, clip_start_s, clip_end_s, clip_path, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (game_id, game_time_s, note, json.dumps(tags or []),
+             clip_start_s, clip_end_s, clip_path, int(time.time())),
         )
         conn.commit()
         return cursor.lastrowid
 
     def update_bookmark(self, bookmark_id: int, note: str = None,
-                        tags: list[str] = None, game_time_s: int = None):
-        """Update an existing bookmark's note, tags, or timestamp."""
+                        tags: list[str] = None, game_time_s: int = None,
+                        clip_start_s: int = None, clip_end_s: int = None,
+                        clip_path: str = None):
+        """Update an existing bookmark's note, tags, timestamp, or clip info."""
         conn = self._conn_mgr.get_conn()
         updates = []
         params = []
@@ -83,6 +89,15 @@ class VodRepository:
         if game_time_s is not None:
             updates.append("game_time_s = ?")
             params.append(game_time_s)
+        if clip_start_s is not None:
+            updates.append("clip_start_s = ?")
+            params.append(clip_start_s)
+        if clip_end_s is not None:
+            updates.append("clip_end_s = ?")
+            params.append(clip_end_s)
+        if clip_path is not None:
+            updates.append("clip_path = ?")
+            params.append(clip_path)
 
         if not updates:
             return

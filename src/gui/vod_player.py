@@ -18,6 +18,7 @@ from typing import Callable, Optional
 
 import customtkinter as ctk
 
+from ..clips import extract_clip, is_ffmpeg_available
 from ..config import get_keybinds, KEYBIND_LABELS
 from ..constants import COLORS
 from ..database.game_events import EVENT_STYLES
@@ -52,6 +53,9 @@ class TimelineCanvas(tk.Canvas):
     CANVAS_HEIGHT = 40
     BOOKMARK_COLOR = "#8b5cf6"
 
+    CLIP_COLOR = "#22c55e"  # Green for clip range
+    CLIP_ALPHA_COLOR = "#1a4d2e"  # Dark green fill
+
     def __init__(self, master, duration: int, on_seek: Callable,
                  events: list = None, bookmarks: list = None, **kwargs):
         super().__init__(
@@ -67,6 +71,8 @@ class TimelineCanvas(tk.Canvas):
         self._dragging = False
         self._hover_item = None
         self._tooltip_window = None
+        self._clip_start = None  # Clip start time in seconds
+        self._clip_end = None    # Clip end time in seconds
 
         self.bind("<Configure>", self._on_resize)
         self.bind("<Button-1>", self._on_click)
@@ -93,6 +99,12 @@ class TimelineCanvas(tk.Canvas):
     def set_duration(self, duration: int):
         """Update the total duration."""
         self._duration = max(duration, 1)
+        self._redraw()
+
+    def set_clip_range(self, start: float = None, end: float = None):
+        """Set or clear the clip selection range (green overlay)."""
+        self._clip_start = start
+        self._clip_end = end
         self._redraw()
 
     def _time_to_x(self, seconds: float) -> float:
@@ -140,6 +152,29 @@ class TimelineCanvas(tk.Canvas):
                 fill=COLORS["accent_blue"], outline="",
                 tags="progress",
             )
+
+        # Clip range highlight (green overlay on the track)
+        if self._clip_start is not None:
+            cs_x = self._time_to_x(self._clip_start)
+            ce_x = self._time_to_x(self._clip_end) if self._clip_end is not None else progress_x
+            if ce_x > cs_x:
+                self.create_rectangle(
+                    cs_x, track_top - 2, ce_x, track_bot + 2,
+                    fill=self.CLIP_ALPHA_COLOR, outline=self.CLIP_COLOR,
+                    width=1, tags="clip_range",
+                )
+            # Clip start marker (green line)
+            self.create_line(
+                cs_x, track_top - 6, cs_x, track_bot + 6,
+                fill=self.CLIP_COLOR, width=2, tags="clip_marker",
+            )
+            # Clip end marker if set
+            if self._clip_end is not None:
+                ce_x2 = self._time_to_x(self._clip_end)
+                self.create_line(
+                    ce_x2, track_top - 6, ce_x2, track_bot + 6,
+                    fill=self.CLIP_COLOR, width=2, tags="clip_marker",
+                )
 
         # Event markers (draw below the track line, above center)
         marker_y_top = track_top - 3  # Above the track
@@ -388,6 +423,9 @@ class VodPlayerWindow(ctk.CTkToplevel):
         self._playing = False
         self._update_job = None
         self._speed = 1.0
+        self._clip_start_s = None  # Clip in-marker time
+        self._clip_end_s = None    # Clip out-marker time
+        self._clip_saving = False  # True while ffmpeg is running
 
         self.title(f"VOD Review — {champion_name}")
         self.geometry("960x740")
@@ -495,6 +533,54 @@ class VodPlayerWindow(ctk.CTkToplevel):
             command=self._add_bookmark_at_current,
         )
         self._bookmark_btn.pack(side="right")
+
+        # ── Clip controls (right side, next to bookmark) ────────
+        clip_frame = ctk.CTkFrame(transport_inner, fg_color="transparent")
+        clip_frame.pack(side="right", padx=(0, 8))
+
+        self._clip_in_btn = ctk.CTkButton(
+            clip_frame, text="[ In", width=50, height=32,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#1a4d2e", hover_color="#22c55e",
+            text_color="#22c55e",
+            command=self._set_clip_in,
+        )
+        self._clip_in_btn.pack(side="left", padx=(0, 2))
+
+        self._clip_out_btn = ctk.CTkButton(
+            clip_frame, text="Out ]", width=50, height=32,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#1a4d2e", hover_color="#22c55e",
+            text_color="#22c55e",
+            command=self._set_clip_out,
+        )
+        self._clip_out_btn.pack(side="left", padx=(0, 2))
+
+        self._clip_save_btn = ctk.CTkButton(
+            clip_frame, text="Save Clip", width=80, height=32,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#22c55e", hover_color="#1ea05a",
+            text_color="#0a0a0f",
+            command=self._save_clip,
+            state="disabled",
+        )
+        self._clip_save_btn.pack(side="left", padx=(0, 2))
+
+        self._clip_clear_btn = ctk.CTkButton(
+            clip_frame, text="✕", width=28, height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent", hover_color=COLORS["loss_red"],
+            text_color=COLORS["text_dim"],
+            command=self._clear_clip_range,
+        )
+        self._clip_clear_btn.pack(side="left")
+
+        self._clip_range_label = ctk.CTkLabel(
+            clip_frame, text="",
+            font=ctk.CTkFont(size=10),
+            text_color="#22c55e",
+        )
+        self._clip_range_label.pack(side="left", padx=(4, 0))
 
         # ── Key bindings (configurable via Settings) ─────────────
         self._keybinds = get_keybinds()
@@ -608,7 +694,18 @@ class VodPlayerWindow(ctk.CTkToplevel):
         "bookmark":     lambda s: s._add_bookmark_at_current(),
         "speed_up":     lambda s: s._cycle_speed(1),
         "speed_down":   lambda s: s._cycle_speed(-1),
+        "clip_in":      lambda s: s._set_clip_in(),
+        "clip_out":     lambda s: s._set_clip_out(),
     }
+
+    def _is_typing(self) -> bool:
+        """Check if the user is currently typing in a text input field."""
+        focused = self.focus_get()
+        if focused is None:
+            return False
+        widget_class = focused.winfo_class()
+        # CTkEntry uses "Entry" internally, CTkTextbox uses "Text"
+        return widget_class in ("Entry", "Text", "TEntry", "TText", "CTkEntry")
 
     def _bind_keys(self):
         """Bind all configured keybinds to their actions."""
@@ -616,7 +713,8 @@ class VodPlayerWindow(ctk.CTkToplevel):
             if action in self._ACTION_MAP:
                 handler = self._ACTION_MAP[action]
                 # Capture action in closure correctly
-                self.bind(f"<{tk_key}>", lambda e, h=handler: h(self))
+                # Skip if user is typing in a text field
+                self.bind(f"<{tk_key}>", lambda e, h=handler: h(self) if not self._is_typing() else None)
 
     def _build_hint_text(self) -> str:
         """Build a compact hint string from the current keybinds."""
@@ -634,6 +732,8 @@ class VodPlayerWindow(ctk.CTkToplevel):
         parts.append(f"{_short(kb.get('play_pause', 'space'))} play/pause")
         parts.append(f"{_short(kb.get('bookmark', 'b'))} bookmark")
         parts.append(f"{_short(kb.get('speed_down', '['))} / {_short(kb.get('speed_up', ']'))} speed")
+        if kb.get("clip_in") and kb.get("clip_out"):
+            parts.append(f"{_short(kb['clip_in'])} / {_short(kb['clip_out'])} clip in/out")
         return "  |  ".join(parts)
 
     def _cycle_speed(self, direction: int):
@@ -647,7 +747,19 @@ class VodPlayerWindow(ctk.CTkToplevel):
 
     def _init_player(self):
         """Set up mpv player if available, otherwise show fallback message."""
-        if _mpv is None or not Path(self.vod_path).exists():
+        if _mpv is None:
+            self._show_external_mode()
+            return
+
+        # Check file exists — retry once after a short delay in case of
+        # stale file locks from a previous mpv instance
+        vod_exists = Path(self.vod_path).exists()
+        if not vod_exists:
+            import time
+            time.sleep(0.3)
+            vod_exists = Path(self.vod_path).exists()
+        if not vod_exists:
+            logger.warning(f"VOD file not found: {self.vod_path}")
             self._show_external_mode()
             return
 
@@ -896,8 +1008,13 @@ class VodPlayerWindow(ctk.CTkToplevel):
 
     def _build_bookmark_row(self, bm: dict):
         """Render a single bookmark entry."""
+        has_clip = bool(bm.get("clip_path"))
+        border_color = "#22c55e" if has_clip else "transparent"
+
         row = ctk.CTkFrame(
             self._bm_scroll, fg_color=COLORS["bg_input"], corner_radius=6,
+            border_width=1 if has_clip else 0,
+            border_color=border_color,
         )
         row.pack(fill="x", pady=2)
 
@@ -906,12 +1023,25 @@ class VodPlayerWindow(ctk.CTkToplevel):
 
         # Timestamp (clickable to seek)
         time_text = format_game_time(bm["game_time_s"])
+
+        # If has clip, show range instead of single timestamp
+        if has_clip and bm.get("clip_start_s") is not None:
+            time_text = (
+                f"{format_game_time(bm['clip_start_s'])} – "
+                f"{format_game_time(bm['clip_end_s'])}"
+            )
+            seek_to = bm["clip_start_s"]
+        else:
+            seek_to = bm["game_time_s"]
+
         time_btn = ctk.CTkButton(
-            inner, text=time_text, width=60, height=26,
+            inner, text=time_text, width=90 if has_clip else 60, height=26,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            fg_color="#22c55e" if has_clip else COLORS["accent_blue"],
+            hover_color="#1ea05a" if has_clip else "#0077cc",
+            text_color="#0a0a0f" if has_clip else COLORS["text"],
             corner_radius=4,
-            command=lambda t=bm["game_time_s"]: self._seek_to_bookmark(t),
+            command=lambda t=seek_to: self._seek_to_bookmark(t),
         )
         time_btn.pack(side="left", padx=(0, 8))
 
@@ -922,7 +1052,7 @@ class VodPlayerWindow(ctk.CTkToplevel):
                 inner, text=note,
                 font=ctk.CTkFont(size=12),
                 text_color=COLORS["text"],
-                wraplength=500,
+                wraplength=400,
                 anchor="w",
                 justify="left",
             ).pack(side="left", fill="x", expand=True)
@@ -932,6 +1062,17 @@ class VodPlayerWindow(ctk.CTkToplevel):
                 font=ctk.CTkFont(size=12),
                 text_color=COLORS["text_dim"],
             ).pack(side="left", fill="x", expand=True)
+
+        # Clip badge
+        if has_clip:
+            ctk.CTkLabel(
+                inner, text="CLIP",
+                font=ctk.CTkFont(size=9, weight="bold"),
+                text_color="#22c55e",
+                fg_color="#1a4d2e",
+                corner_radius=6,
+                padx=6, pady=1,
+            ).pack(side="left", padx=4)
 
         # Tags display
         try:
@@ -961,13 +1102,235 @@ class VodPlayerWindow(ctk.CTkToplevel):
             command=lambda bid=bm["id"]: self._delete_bookmark(bid),
         ).pack(side="right")
 
+    # ── Clip controls ─────────────────────────────────────────────
+
+    def _set_clip_in(self):
+        """Set the clip start point to the current playback position."""
+        self._clip_start_s = self._get_current_game_time()
+        # If out marker is before in, clear it
+        if self._clip_end_s is not None and self._clip_end_s <= self._clip_start_s:
+            self._clip_end_s = None
+        self._update_clip_ui()
+
+    def _set_clip_out(self):
+        """Set the clip end point to the current playback position."""
+        current = self._get_current_game_time()
+        # Only set if after in point (or no in point yet)
+        if self._clip_start_s is not None and current <= self._clip_start_s:
+            return  # Can't set out before in
+        self._clip_end_s = current
+        if self._clip_start_s is None:
+            self._clip_start_s = 0
+        self._update_clip_ui()
+
+    def _clear_clip_range(self):
+        """Clear both clip markers."""
+        self._clip_start_s = None
+        self._clip_end_s = None
+        self._update_clip_ui()
+
+    def _update_clip_ui(self):
+        """Update the clip range display and button states."""
+        # Update timeline overlay
+        self._timeline.set_clip_range(
+            start=self._clip_start_s,
+            end=self._clip_end_s,
+        )
+
+        # Update in/out button labels
+        if self._clip_start_s is not None:
+            self._clip_in_btn.configure(text=f"[ {format_game_time(self._clip_start_s)}")
+        else:
+            self._clip_in_btn.configure(text="[ In")
+
+        if self._clip_end_s is not None:
+            self._clip_out_btn.configure(text=f"{format_game_time(self._clip_end_s)} ]")
+        else:
+            self._clip_out_btn.configure(text="Out ]")
+
+        # Enable Save Clip only when both markers are set
+        has_range = self._clip_start_s is not None and self._clip_end_s is not None
+        self._clip_save_btn.configure(
+            state="normal" if has_range and not self._clip_saving else "disabled"
+        )
+
+        # Range label
+        if has_range:
+            dur = self._clip_end_s - self._clip_start_s
+            self._clip_range_label.configure(text=f"{dur}s")
+        else:
+            self._clip_range_label.configure(text="")
+
+    def _save_clip(self):
+        """Extract the clip and create a bookmark with the clip path."""
+        if self._clip_start_s is None or self._clip_end_s is None:
+            return
+        if self._clip_saving:
+            return
+
+        self._clip_saving = True
+        self._clip_save_btn.configure(text="Saving...", state="disabled")
+
+        start_s = self._clip_start_s
+        end_s = self._clip_end_s
+
+        # Run extraction in a thread to avoid freezing the UI
+        import threading
+
+        def _do_extract():
+            clip_path, error_msg = extract_clip(
+                vod_path=self.vod_path,
+                start_s=start_s,
+                end_s=end_s,
+                game_id=self.game_id,
+                champion_name=self.champion_name,
+            )
+            # Back to main thread to update UI
+            self.after(0, lambda: self._on_clip_extracted(clip_path, start_s, end_s, error_msg))
+
+        threading.Thread(target=_do_extract, daemon=True).start()
+
+    def _on_clip_extracted(self, clip_path: Optional[str], start_s: int, end_s: int,
+                           error_msg: str = ""):
+        """Called on the main thread after clip extraction finishes."""
+        self._clip_saving = False
+        self._clip_save_btn.configure(text="Save Clip")
+
+        if clip_path:
+            # Prompt for a note via a simple dialog
+            self._show_clip_note_dialog(clip_path, start_s, end_s)
+        else:
+            # Show error in a dialog so user can see the full message
+            self._clip_save_btn.configure(
+                text="Failed!", fg_color=COLORS["loss_red"],
+            )
+            self.after(3000, lambda: self._clip_save_btn.configure(
+                text="Save Clip", fg_color="#22c55e",
+            ))
+            self._update_clip_ui()
+
+            if error_msg:
+                logger.error(f"Clip save failed: {error_msg}")
+                self._show_clip_error_dialog(error_msg)
+
+    def _show_clip_error_dialog(self, error_msg: str):
+        """Show a dialog with the full ffmpeg error for debugging."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Clip Error")
+        dialog.geometry("600x250")
+        dialog.configure(fg_color=COLORS["bg_dark"])
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.lift()
+        dialog.attributes("-topmost", True)
+
+        ctk.CTkLabel(
+            dialog, text="Clip extraction failed",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["loss_red"],
+        ).pack(padx=16, pady=(16, 8))
+
+        error_box = ctk.CTkTextbox(
+            dialog, height=120,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"],
+            wrap="word",
+        )
+        error_box.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+        error_box.insert("1.0", error_msg)
+        error_box.configure(state="disabled")
+
+        ctk.CTkButton(
+            dialog, text="Close", width=80, height=32,
+            fg_color=COLORS["tag_bg"], hover_color="#333344",
+            command=dialog.destroy,
+        ).pack(pady=(0, 12))
+
+    def _show_clip_note_dialog(self, clip_path: str, start_s: int, end_s: int):
+        """Show a small popup to add a note before saving the clip bookmark."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Clip Note")
+        dialog.geometry("400x160")
+        dialog.configure(fg_color=COLORS["bg_dark"])
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.lift()
+        dialog.attributes("-topmost", True)
+
+        ctk.CTkLabel(
+            dialog,
+            text=f"Clip saved: {format_game_time(start_s)} – {format_game_time(end_s)}",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#22c55e",
+        ).pack(padx=16, pady=(16, 8))
+
+        note_entry = ctk.CTkEntry(
+            dialog, height=36,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+            placeholder_text="What happened here? (optional)",
+        )
+        note_entry.pack(fill="x", padx=16, pady=(0, 12))
+        note_entry.focus_set()
+
+        def _save():
+            note = note_entry.get().strip()
+            # Create bookmark with clip info
+            if self._on_add_bookmark:
+                # game_time_s is the midpoint (for timeline display)
+                mid = (start_s + end_s) // 2
+                bm_id = self._on_add_bookmark(self.game_id, mid, note)
+                # Update the bookmark with clip fields
+                if self._on_update_bookmark and bm_id:
+                    self._on_update_bookmark(
+                        bm_id,
+                        clip_start_s=start_s,
+                        clip_end_s=end_s,
+                        clip_path=clip_path,
+                    )
+                self._bookmarks.append({
+                    "id": bm_id,
+                    "game_id": self.game_id,
+                    "game_time_s": mid,
+                    "note": note,
+                    "tags": "[]",
+                    "clip_start_s": start_s,
+                    "clip_end_s": end_s,
+                    "clip_path": clip_path,
+                })
+                self._refresh_bookmark_list()
+                self._timeline.set_bookmarks(self._bookmarks)
+
+            # Clear clip range after saving
+            self._clear_clip_range()
+            dialog.destroy()
+
+        note_entry.bind("<Return>", lambda e: _save())
+
+        ctk.CTkButton(
+            dialog, text="Save Bookmark + Clip",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=36, fg_color="#22c55e", hover_color="#1ea05a",
+            text_color="#0a0a0f",
+            command=_save,
+        ).pack(padx=16, pady=(0, 12))
+
     # ── Cleanup ──────────────────────────────────────────────────
 
     def _on_close(self):
         """Clean up mpv resources before closing."""
+        self._playing = False
         if self._update_job:
             self.after_cancel(self._update_job)
+            self._update_job = None
         if self._player:
+            try:
+                self._player.pause = True
+                self._player.command("stop")
+            except Exception:
+                pass
             try:
                 self._player.terminate()
             except Exception:

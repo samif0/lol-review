@@ -6,9 +6,12 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
+from ..clips import get_clips_folder_size_mb, is_ffmpeg_available
 from ..config import (
     get_ascent_folder, set_ascent_folder,
     get_keybinds, set_keybinds,
+    get_clips_folder, set_clips_folder,
+    get_clips_max_size_mb, set_clips_max_size_mb,
     DEFAULT_KEYBINDS, KEYBIND_LABELS,
 )
 from ..constants import COLORS
@@ -164,6 +167,113 @@ class SettingsWindow(ctk.CTkToplevel):
 
         if current:
             self._show_folder_status(current)
+
+        # ── Clips Section ─────────────────────────────────────────
+        clips_section = ctk.CTkFrame(
+            scroll,
+            fg_color=COLORS["bg_card"],
+            corner_radius=10,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        clips_section.pack(fill="x", pady=(0, 12))
+
+        clips_inner = ctk.CTkFrame(clips_section, fg_color="transparent")
+        clips_inner.pack(fill="x", padx=14, pady=14)
+
+        ctk.CTkLabel(
+            clips_inner,
+            text="CLIP SETTINGS",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_dim"],
+        ).pack(anchor="w", pady=(0, 6))
+
+        # ffmpeg status
+        ffmpeg_ok = is_ffmpeg_available()
+        ctk.CTkLabel(
+            clips_inner,
+            text=f"ffmpeg: {'Available' if ffmpeg_ok else 'Not found — clip saving disabled'}",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["win_green"] if ffmpeg_ok else COLORS["loss_red"],
+        ).pack(anchor="w", pady=(0, 8))
+
+        ctk.CTkLabel(
+            clips_inner,
+            text="Save short video clips from your VOD recordings.\n"
+                 "Clips are stored separately from Ascent recordings.",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_dim"],
+            justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Clips folder path row
+        clips_path_row = ctk.CTkFrame(clips_inner, fg_color="transparent")
+        clips_path_row.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            clips_path_row, text="Folder:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text"],
+            width=50,
+        ).pack(side="left", padx=(0, 4))
+
+        current_clips = get_clips_folder() or ""
+        self._clips_folder_entry = ctk.CTkEntry(
+            clips_path_row, height=36,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+        )
+        self._clips_folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        if current_clips:
+            self._clips_folder_entry.insert(0, current_clips)
+
+        ctk.CTkButton(
+            clips_path_row, text="Browse",
+            font=ctk.CTkFont(size=12), height=36, width=80,
+            corner_radius=8, fg_color=COLORS["tag_bg"], hover_color="#333344",
+            command=self._browse_clips_folder,
+        ).pack(side="right")
+
+        # Max size row
+        size_row = ctk.CTkFrame(clips_inner, fg_color="transparent")
+        size_row.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            size_row, text="Max folder size (MB):",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text"],
+        ).pack(side="left", padx=(0, 8))
+
+        self._clips_max_size_entry = ctk.CTkEntry(
+            size_row, height=36, width=100,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+        )
+        self._clips_max_size_entry.pack(side="left")
+        self._clips_max_size_entry.insert(0, str(get_clips_max_size_mb()))
+
+        # Current usage
+        current_size = get_clips_folder_size_mb()
+        max_size = get_clips_max_size_mb()
+        usage_pct = (current_size / max_size * 100) if max_size > 0 else 0
+        usage_color = COLORS["win_green"] if usage_pct < 80 else (
+            COLORS["accent_gold"] if usage_pct < 95 else COLORS["loss_red"]
+        )
+        ctk.CTkLabel(
+            size_row,
+            text=f"  Using {current_size:.0f} MB / {max_size} MB ({usage_pct:.0f}%)",
+            font=ctk.CTkFont(size=11),
+            text_color=usage_color,
+        ).pack(side="left", padx=(12, 0))
+
+        ctk.CTkLabel(
+            clips_inner,
+            text="Oldest clips are automatically deleted when the folder exceeds this size.",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_dim"],
+        ).pack(anchor="w")
 
         # ── Keybinds Section ──────────────────────────────────────
         kb_section = ctk.CTkFrame(
@@ -398,6 +508,17 @@ class SettingsWindow(ctk.CTkToplevel):
         self._status_label.configure(text="Ascent VOD disabled", text_color=COLORS["text_dim"])
         set_ascent_folder("")
 
+    def _browse_clips_folder(self):
+        """Open a folder picker for the clips folder."""
+        initial = self._clips_folder_entry.get().strip() or None
+        folder = filedialog.askdirectory(
+            title="Select Clips Folder",
+            initialdir=initial,
+        )
+        if folder:
+            self._clips_folder_entry.delete(0, "end")
+            self._clips_folder_entry.insert(0, folder)
+
     def _save(self):
         """Save settings and close."""
         folder = self._folder_entry.get().strip()
@@ -413,6 +534,18 @@ class SettingsWindow(ctk.CTkToplevel):
                 text_color=COLORS["loss_red"],
             )
             return
+
+        # Save clips settings
+        clips_folder = self._clips_folder_entry.get().strip()
+        if clips_folder:
+            Path(clips_folder).mkdir(parents=True, exist_ok=True)
+            set_clips_folder(clips_folder)
+
+        try:
+            max_mb = int(self._clips_max_size_entry.get().strip())
+            set_clips_max_size_mb(max_mb)
+        except ValueError:
+            pass  # Keep existing value
 
         # Save keybinds
         set_keybinds(self._current_keybinds)

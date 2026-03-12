@@ -357,7 +357,7 @@ class ManualEntryWindow(ctk.CTkToplevel):
         game_mode = self.mode_entry.get().strip() or "Manual Entry"
 
         # Save to database
-        self.db.save_manual_game(
+        game_id = self.db.save_manual_game(
             champion_name=champion,
             win=win,
             kills=kills,
@@ -371,6 +371,14 @@ class ManualEntryWindow(ctk.CTkToplevel):
             rating=self.star_rating.get(),
             tags=self.tag_selector.get(),
         )
+
+        # Also log to session so it appears in Session Logger
+        if game_id and game_id > 0:
+            self.db.log_session_game(
+                game_id=game_id,
+                champion_name=champion,
+                win=win,
+            )
 
         # Fire callback if provided
         if self.on_save:

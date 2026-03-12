@@ -116,6 +116,10 @@ class App:
         # Check for updates in the background
         check_for_update_async(self._on_update_check_result)
 
+        # Scan for unmatched VODs on startup (slight delay so UI is responsive)
+        if is_ascent_enabled():
+            self.root.after(3000, self._startup_vod_scan)
+
         # Run tk mainloop (blocks until quit)
         self.root.mainloop()
 
@@ -261,6 +265,10 @@ class App:
             except Exception as e:
                 logger.warning(f"Failed to save live events: {e}")
 
+        # Refresh session logger if it's visible
+        if self._session_logger_window and self._session_logger_window.winfo_exists():
+            self.root.after(0, self._session_logger_window._refresh)
+
         # Show the review popup on the main thread
         self.root.after(0, lambda: self._show_review(stats))
 
@@ -299,6 +307,10 @@ class App:
             bookmarks=bookmarks,
         )
 
+        # If no VOD matched yet, retry after a delay — Ascent may still be encoding
+        if not has_vod and is_ascent_enabled():
+            self.root.after(90_000, lambda gid=stats.game_id: self._retry_vod_match(gid))
+
     def _save_review(self, review_data: dict):
         """Save review notes to the database."""
         self.db.update_review(**review_data)
@@ -306,6 +318,22 @@ class App:
 
         if self.tray_icon:
             self.tray_icon.notify("Review saved!", "LoL Game Review")
+
+        # Refresh session logger if it's visible
+        if self._session_logger_window and self._session_logger_window.winfo_exists():
+            self._session_logger_window._refresh()
+
+    def _retry_vod_match(self, game_id: int):
+        """Delayed retry for VOD matching — Ascent may still be encoding."""
+        # Skip if VOD was already linked (user may have opened player manually)
+        if self.db.get_vod(game_id):
+            return
+        logger.info(f"Retrying VOD auto-match for game {game_id}")
+        self._try_auto_match(game_id)
+        if self.db.get_vod(game_id):
+            logger.info(f"Delayed VOD match succeeded for game {game_id}")
+            if self.tray_icon:
+                self.tray_icon.notify("VOD recording matched!", "LoL Review")
 
     def _try_auto_match(self, game_id: int):
         """Attempt to auto-match an Ascent recording to a game."""
@@ -409,6 +437,32 @@ class App:
             except Exception as e:
                 logger.warning(f"Post-settings VOD scan failed: {e}")
 
+    def _startup_vod_scan(self):
+        """Scan for unmatched VODs on app startup.
+
+        Catches games where the recording existed but auto-match hadn't
+        run yet (e.g. the app was rebuilt after the game ended).
+        """
+        try:
+            recent = self.db.get_recent_games(20)
+            for g in recent:
+                g["has_vod"] = self.db.get_vod(g["game_id"]) is not None
+            matches = auto_match_recordings(recent)
+            for m in matches:
+                g = m["game"]
+                r = m["recording"]
+                self.db.link_vod(g["game_id"], r["path"], file_size=r["size"])
+                logger.info(f"Startup VOD scan matched: {r['name']} → game {g['game_id']}")
+            if matches:
+                logger.info(f"Startup VOD scan: linked {len(matches)} recording(s)")
+                if self.tray_icon:
+                    self.tray_icon.notify(
+                        f"Found {len(matches)} VOD recording{'s' if len(matches) != 1 else ''}",
+                        "LoL Review",
+                    )
+        except Exception as e:
+            logger.warning(f"Startup VOD scan failed: {e}")
+
     def _show_dashboard(self):
         """Show the startup dashboard window."""
         if self._dashboard_window and self._dashboard_window.winfo_exists():
@@ -511,7 +565,7 @@ class App:
                 self._history_window.lift()
                 return
 
-            games = self.db.get_recent_games(100)
+            games = self.db.get_recent_games(9999)
             overall = self.db.get_overall_stats()
             champ_stats = self.db.get_champion_stats()
 

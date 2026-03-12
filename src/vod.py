@@ -1,12 +1,11 @@
 """VOD file discovery and matching for Ascent recordings.
 
 Ascent stores recordings as video files in a configurable folder.
-This module scans for recordings and matches them to tracked games
-by comparing file timestamps against game start/end times.
+Filenames contain the recording start time (e.g. 03-01-2026-14-43.mp4).
+This module parses that timestamp and matches it against game start times.
 """
 
 import logging
-import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -19,17 +18,38 @@ logger = logging.getLogger(__name__)
 # Video extensions Ascent might use
 _VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".webm", ".mov"}
 
-# Maximum time gap (seconds) between a game's end and a recording's
-# modification time for them to be considered a match.
-# Tightened from 600 to 180 to reduce false matches.
-_MATCH_WINDOW_S = 180  # 3 minutes
+# Ascent filename pattern: M-DD-YYYY-HH-MM or MM-DD-YYYY-HH-MM
+_FILENAME_TS_RE = re.compile(r"(\d{1,2})-(\d{1,2})-(\d{4})-(\d{1,2})-(\d{2})")
+
+# Maximum gap (seconds) between the filename timestamp and a game's start
+# time for them to be considered a match.  Ascent starts recording around
+# the same time the game begins, so a generous 10-minute window covers
+# clock skew + loading screen variance.
+_MATCH_WINDOW_S = 600  # 10 minutes
+
+
+def _parse_filename_timestamp(filename: str) -> Optional[float]:
+    """Extract a unix timestamp from an Ascent filename like '03-01-2026-14-43.mp4'.
+
+    Returns the timestamp as a float, or None if the filename doesn't match.
+    """
+    m = _FILENAME_TS_RE.search(filename)
+    if not m:
+        return None
+    try:
+        month, day, year, hour, minute = (int(g) for g in m.groups())
+        dt = datetime(year, month, day, hour, minute)
+        return dt.timestamp()
+    except (ValueError, OSError):
+        return None
 
 
 def find_recordings(folder: Optional[str] = None) -> list[dict]:
     """Scan the Ascent folder for video files.
 
-    Returns a list of dicts with keys: path, name, size, mtime, duration_hint.
-    Sorted by modification time descending (newest first).
+    Returns a list of dicts with keys: path, name, size, mtime, start_ts.
+    start_ts is parsed from the filename (preferred for matching).
+    Sorted by start_ts descending (newest first), falling back to mtime.
     """
     folder = folder or get_ascent_folder()
     if not folder or not Path(folder).is_dir():
@@ -42,11 +62,13 @@ def find_recordings(folder: Optional[str] = None) -> list[dict]:
         if item.is_file() and item.suffix.lower() in _VIDEO_EXTENSIONS:
             try:
                 stat = item.stat()
+                start_ts = _parse_filename_timestamp(item.name)
                 recordings.append({
                     "path": str(item),
                     "name": item.name,
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
+                    "start_ts": start_ts,
                     "mtime_str": datetime.fromtimestamp(stat.st_mtime).strftime(
                         "%Y-%m-%d %H:%M"
                     ),
@@ -54,25 +76,29 @@ def find_recordings(folder: Optional[str] = None) -> list[dict]:
             except OSError as e:
                 logger.warning(f"Could not stat {item}: {e}")
 
-    recordings.sort(key=lambda r: r["mtime"], reverse=True)
+    # Sort by start_ts if available, otherwise mtime
+    recordings.sort(key=lambda r: r.get("start_ts") or r["mtime"], reverse=True)
     return recordings
 
 
 def match_recording_to_game(
-    recording_mtime: float,
+    recording: dict,
     games: list[dict],
     window_s: int = _MATCH_WINDOW_S,
 ) -> Optional[dict]:
-    """Find the game whose end time is closest to the recording's mtime.
+    """Find the game whose start time best matches the recording.
 
-    A recording's mtime should be shortly AFTER the game ends (Ascent
-    finishes encoding after the game). We prefer matches where the
-    recording mtime is AFTER game end (positive delta) since Ascent
-    writes the file after the game. Matches where mtime is before
-    game end are penalized.
+    Primary strategy: compare the timestamp parsed from the filename
+    against each game's start timestamp.  Both represent roughly the
+    same moment (game start ≈ recording start).
+
+    Fallback: if the filename has no parseable timestamp, compare the
+    file's mtime against the game's end time (old behaviour).
     """
+    rec_start = recording.get("start_ts")
+
     best_game = None
-    best_score = float("inf")
+    best_delta = float("inf")
 
     for game in games:
         game_ts = game.get("timestamp", 0)
@@ -80,19 +106,23 @@ def match_recording_to_game(
         if not game_ts:
             continue
 
-        game_end = game_ts + game_dur
-        # Positive = recording is after game end (expected)
-        # Negative = recording is before game end (unlikely)
-        signed_delta = recording_mtime - game_end
+        if rec_start is not None:
+            # Filename-based: compare recording start vs game start.
+            # NOTE: game_ts is actually game END time (set at end-of-game),
+            # so derive the approximate start by subtracting duration.
+            game_start = game_ts - game_dur
+            delta = abs(rec_start - game_start)
+        else:
+            # mtime fallback: compare file mtime vs game end
+            game_end = game_ts + game_dur
+            signed_delta = recording["mtime"] - game_end
+            # Recording should be AFTER game end (allow 30s grace)
+            if signed_delta < -30:
+                continue
+            delta = abs(signed_delta)
 
-        # Only consider recordings that come AFTER the game ended
-        # (allow a small 30s grace for clock skew)
-        if signed_delta < -30:
-            continue
-
-        delta = abs(signed_delta)
-        if delta < window_s and delta < best_score:
-            best_score = delta
+        if delta < window_s and delta < best_delta:
+            best_delta = delta
             best_game = game
 
     return best_game
@@ -118,7 +148,7 @@ def auto_match_recordings(games: list[dict], folder: Optional[str] = None) -> li
     matched_game_ids = set()
 
     for rec in recordings:
-        game = match_recording_to_game(rec["mtime"], unmatched_games)
+        game = match_recording_to_game(rec, unmatched_games)
         if game and game["game_id"] not in matched_game_ids:
             matches.append({"recording": rec, "game": game})
             matched_game_ids.add(game["game_id"])

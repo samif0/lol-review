@@ -147,8 +147,8 @@ class Database:
     def get_vod(self, game_id):
         return self.vod.get_vod(game_id)
 
-    def add_bookmark(self, game_id, game_time_s, note="", tags=None):
-        return self.vod.add_bookmark(game_id, game_time_s, note, tags)
+    def add_bookmark(self, game_id, game_time_s, note="", tags=None, **kwargs):
+        return self.vod.add_bookmark(game_id, game_time_s, note, tags, **kwargs)
 
     def update_bookmark(self, bookmark_id, **kwargs):
         return self.vod.update_bookmark(bookmark_id, **kwargs)
