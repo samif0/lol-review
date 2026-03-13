@@ -467,7 +467,7 @@ class ReviewWindow(ctk.CTkToplevel):
 
             ctk.CTkLabel(
                 parent,
-                text="Did it play out how you expected? How did you handle it?",
+                text="What triggered you, and what was the story you told yourself in the moment?",
                 font=ctk.CTkFont(size=13),
                 text_color=COLORS["text"],
             ).pack(anchor="w", pady=(0, 4))
