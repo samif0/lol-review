@@ -2,19 +2,36 @@
 
 # Color palette — dark theme inspired by League client
 COLORS = {
-    "bg_dark": "#0a0a0f",
-    "bg_card": "#13131a",
-    "bg_input": "#1a1a24",
-    "border": "#2a2a3a",
-    "text": "#e4e4e8",
-    "text_dim": "#8888a0",
-    "accent_blue": "#0099ff",
-    "accent_gold": "#c89b3c",
-    "win_green": "#28c76f",
-    "loss_red": "#ea5455",
-    "tag_bg": "#1e1e2e",
-    "star_active": "#fbbf24",
-    "star_inactive": "#3a3a4a",
+    # Backgrounds
+    "bg_dark": "#0a0a0f",        # Main content bg
+    "bg_sidebar": "#0d0d15",     # Sidebar bg
+    "bg_card": "#12121a",        # Card bg
+    "bg_card_hover": "#16161f",  # Card hover
+    "bg_input": "#1a1a24",       # Input bg
+    # Borders
+    "border": "#1e1e2e",         # Subtle border
+    "border_bright": "#2a2a3a",  # Visible border
+    # Text
+    "text": "#e8e8f0",           # Primary text
+    "text_dim": "#7070a0",       # Secondary text
+    "text_muted": "#404060",     # Muted text
+    # Accents
+    "accent_blue": "#0099ff",    # Primary accent
+    "accent_blue_dim": "#004c80",# Dim blue
+    "accent_gold": "#c89b3c",    # Gold accent
+    "accent_purple": "#7c3aed",  # Purple accent
+    # Status
+    "win_green": "#22c55e",      # Win color
+    "win_green_dim": "#14532d",  # Dim win
+    "loss_red": "#ef4444",       # Loss color
+    "loss_red_dim": "#7f1d1d",   # Dim loss
+    # Misc
+    "tag_bg": "#1e1e2e",         # Tag background
+    "star_active": "#fbbf24",    # Star rating
+    "star_inactive": "#2a2a3a",  # Inactive star
+    # Sidebar
+    "sidebar_active": "#0099ff", # Active nav item accent
+    "sidebar_hover": "#14141e",  # Hovered nav item bg
 }
 
 

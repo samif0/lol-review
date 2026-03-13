@@ -20,8 +20,15 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt pyinstaller
+      - name: Create isolated build venv
+        shell: pwsh
+        run: |
+          # Use an isolated venv so PyInstaller only sees our Python 3.11
+          # and doesn't accidentally pick up DLLs from other Python versions
+          # on the runner (e.g. python314.dll from a pre-installed 3.14).
+          python -m venv build_venv
+          .\build_venv\Scripts\python -m pip install --upgrade pip
+          .\build_venv\Scripts\pip install -r requirements.txt pyinstaller
 
       - name: Extract version from tag
         shell: bash
@@ -103,8 +110,8 @@ jobs:
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          # Pipe "y\ny" to handle any missing-dep prompts that weren't downloaded above
-          "y`ny" | python build.py
+          # Use the venv Python so PyInstaller only bundles 3.11 DLLs
+          "y`ny" | .\build_venv\Scripts\python build.py
 
       - name: Verify build output
         shell: pwsh

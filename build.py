@@ -74,8 +74,11 @@ def main():
         "--noconfirm",
         # Collect customtkinter's theme files (required or the GUI breaks)
         "--collect-all", "customtkinter",
-        # Hidden imports for mpv
+        # Hidden imports
         "--hidden-import", "mpv",
+        "--hidden-import", "multiprocessing",
+        "--hidden-import", "multiprocessing.pool",
+        "--hidden-import", "multiprocessing.managers",
     ]
 
     # Bundle libmpv-2.dll if present
