@@ -22,8 +22,9 @@ class SessionLogRepository:
         win: bool,
         mental_rating: int = 5,
         improvement_note: str = "",
+        pregame_intention: str = "",
     ):
-        """Log a game in the session log with mental rating and notes."""
+        """Log a game in the session log with mental rating, notes, and pregame intention."""
         conn = self._conn_mgr.get_conn()
         today = datetime.now().strftime("%Y-%m-%d")
         now = int(datetime.now().timestamp())
@@ -33,9 +34,10 @@ class SessionLogRepository:
         ).fetchone()
         if existing:
             conn.execute(
-                """UPDATE session_log SET mental_rating = ?, improvement_note = ?
+                """UPDATE session_log SET mental_rating = ?, improvement_note = ?,
+                pregame_intention = ?
                 WHERE game_id = ?""",
-                (mental_rating, improvement_note, game_id),
+                (mental_rating, improvement_note, pregame_intention, game_id),
             )
             conn.commit()
             return
@@ -44,13 +46,41 @@ class SessionLogRepository:
 
         conn.execute(
             """INSERT INTO session_log
-            (date, game_id, champion_name, win, mental_rating, improvement_note, rule_broken, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (date, game_id, champion_name, win, mental_rating, improvement_note,
+             rule_broken, timestamp, pregame_intention)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (today, game_id, champion_name, int(win), mental_rating,
-             improvement_note, int(rule_broken), now),
+             improvement_note, int(rule_broken), now, pregame_intention),
         )
         conn.commit()
         logger.info(f"Session log: {champion_name} {'W' if win else 'L'} mental={mental_rating}")
+
+    def update_mental_handled(self, game_id: int, mental_handled: str):
+        """Save the post-game mental reflection for a specific game."""
+        conn = self._conn_mgr.get_conn()
+        conn.execute(
+            "UPDATE session_log SET mental_handled = ? WHERE game_id = ?",
+            (mental_handled, game_id),
+        )
+        conn.commit()
+
+    def get_entry(self, game_id: int) -> Optional[dict]:
+        """Get a single session_log entry by game_id."""
+        conn = self._conn_mgr.get_conn()
+        row = conn.execute(
+            "SELECT * FROM session_log WHERE game_id = ?", (game_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_last_mental_intention(self) -> str:
+        """Get the most recent non-empty pregame_intention set."""
+        conn = self._conn_mgr.get_conn()
+        row = conn.execute(
+            """SELECT pregame_intention FROM session_log
+            WHERE pregame_intention != ''
+            ORDER BY timestamp DESC LIMIT 1"""
+        ).fetchone()
+        return row["pregame_intention"] if row else ""
 
     def _check_rule_break(self, today: str) -> bool:
         """Check if playing this game breaks the 2-loss stop rule.

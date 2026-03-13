@@ -22,6 +22,7 @@ class PreGameWindow(ctk.CTkToplevel):
         last_mistakes: str = "",
         recent_games: list[dict] = None,
         streak: int = 0,
+        last_mental_intention: str = "",
         on_dismiss: Optional[Callable] = None,
         *args,
         **kwargs,
@@ -30,6 +31,7 @@ class PreGameWindow(ctk.CTkToplevel):
 
         self.on_dismiss = on_dismiss
         recent_games = recent_games or []
+        self._last_mental_intention = last_mental_intention
 
         # Window setup — compact, stays on top so you see it during champ select
         self.title("Pre-Game Focus")
@@ -258,6 +260,76 @@ class PreGameWindow(ctk.CTkToplevel):
             )
             btn.pack(side="left", padx=3, pady=2)
 
+        # Separator
+        ctk.CTkFrame(
+            container, fg_color=COLORS["border"], height=1
+        ).pack(fill="x", pady=8)
+
+        # === MENTAL INTENTION ===
+        ctk.CTkLabel(
+            container,
+            text="Mental intention this game?",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["text"],
+        ).pack(anchor="w", pady=(4, 2))
+
+        ctk.CTkLabel(
+            container,
+            text="Expect it before it happens. Set how you'll respond — before the tilt hits.",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_dim"],
+            wraplength=400,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 6))
+
+        self.mental_intention_entry = ctk.CTkTextbox(
+            container,
+            height=60,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["border"],
+            corner_radius=8,
+        )
+        self.mental_intention_entry.pack(fill="x", pady=(0, 6))
+
+        if self._last_mental_intention:
+            self.mental_intention_entry.insert("1.0", self._last_mental_intention)
+
+        # Quick mental intention buttons
+        ctk.CTkLabel(
+            container,
+            text="Quick picks:",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_dim"],
+        ).pack(anchor="w", pady=(2, 4))
+
+        mental_quick_frame = ctk.CTkFrame(container, fg_color="transparent")
+        mental_quick_frame.pack(fill="x", pady=(0, 12))
+
+        quick_mental = [
+            "Bad call → one ping, move on",
+            "Teammate ints → my game",
+            "Fall behind → breathe, play safe",
+            "I mess up → let it go",
+        ]
+        for text in quick_mental:
+            btn = ctk.CTkButton(
+                mental_quick_frame,
+                text=text,
+                font=ctk.CTkFont(size=11),
+                height=26,
+                corner_radius=13,
+                fg_color=COLORS["tag_bg"],
+                hover_color="#7c3aed",
+                text_color=COLORS["text_dim"],
+                border_width=1,
+                border_color=COLORS["border"],
+                command=lambda t=text: self._set_quick_mental(t),
+            )
+            btn.pack(side="left", padx=3, pady=2)
+
         # === READY BUTTON ===
         ready_btn = ctk.CTkButton(
             container,
@@ -285,19 +357,28 @@ class PreGameWindow(ctk.CTkToplevel):
         self.focus_entry.delete("1.0", "end")
         self.focus_entry.insert("1.0", text)
 
+    def _set_quick_mental(self, text: str):
+        """Replace mental intention text with a quick pick."""
+        self.mental_intention_entry.delete("1.0", "end")
+        self.mental_intention_entry.insert("1.0", text)
+
     def get_focus_text(self) -> str:
-        """Get whatever the user typed/selected as their focus."""
+        """Get whatever the user typed/selected as their gameplay focus."""
         return self.focus_entry.get("1.0", "end-1c").strip()
 
+    def get_mental_intention_text(self) -> str:
+        """Get the mental intention the user set for this game."""
+        return self.mental_intention_entry.get("1.0", "end-1c").strip()
+
     def _dismiss(self):
-        """Close the window and fire callback."""
+        """Close the window and fire callback with both focus and mental intention."""
         if self.on_dismiss:
-            self.on_dismiss(self.get_focus_text())
+            self.on_dismiss(self.get_focus_text(), self.get_mental_intention_text())
         self.destroy()
 
     def auto_close(self):
         """Called by the monitor when loading screen starts."""
         if self.winfo_exists():
             if self.on_dismiss:
-                self.on_dismiss(self.get_focus_text())
+                self.on_dismiss(self.get_focus_text(), self.get_mental_intention_text())
             self.destroy()

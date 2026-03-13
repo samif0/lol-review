@@ -171,6 +171,11 @@ MIGRATE_BOOKMARKS_CLIP_COLUMNS = [
     "ALTER TABLE vod_bookmarks ADD COLUMN clip_path TEXT DEFAULT ''",
 ]
 
+MIGRATE_SESSION_LOG_MENTAL = [
+    "ALTER TABLE session_log ADD COLUMN pregame_intention TEXT DEFAULT ''",
+    "ALTER TABLE session_log ADD COLUMN mental_handled TEXT DEFAULT ''",
+]
+
 # Pre-populate some useful default tags
 DEFAULT_TAGS = [
     ("Tilted", "#ef4444"),

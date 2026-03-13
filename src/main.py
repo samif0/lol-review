@@ -74,6 +74,7 @@ class App:
         self._vod_player_window = None
         self._settings_window = None
         self._connected = False
+        self._current_mental_intention: str = ""
 
         # Set up customtkinter appearance
         ctk.set_appearance_mode("dark")
@@ -191,19 +192,24 @@ class App:
         last_review = self.db.get_last_review_focus()
         recent_games = self.db.get_recent_games(5)
         streak = self.db.get_win_streak()
+        last_mental = self.db.get_last_mental_intention()
 
         self._pregame_window = PreGameWindow(
             last_focus=last_review.get("focus_next", ""),
             last_mistakes=last_review.get("mistakes", ""),
             recent_games=recent_games,
             streak=streak,
+            last_mental_intention=last_mental,
             on_dismiss=self._on_pregame_dismiss,
         )
 
-    def _on_pregame_dismiss(self, focus_text: str):
+    def _on_pregame_dismiss(self, focus_text: str, mental_intention: str = ""):
         """Called when the pre-game window is closed (button or auto)."""
         if focus_text:
             logger.info(f"Pre-game focus set: {focus_text}")
+        if mental_intention:
+            logger.info(f"Mental intention set: {mental_intention}")
+        self._current_mental_intention = mental_intention
         self._pregame_window = None
 
     def _on_game_start(self):
@@ -253,7 +259,9 @@ class App:
             champion_name=stats.champion_name,
             win=stats.win,
             mental_rating=mental,
+            pregame_intention=self._current_mental_intention,
         )
+        self._current_mental_intention = ""  # Reset after use
 
         # Save live events collected during the game (no API key needed!)
         if stats.live_events:
@@ -296,6 +304,11 @@ class App:
                 bookmarks = self.db.get_bookmarks(stats.game_id)
                 bookmark_count = len(bookmarks)
 
+        # Look up the pregame mental intention for this game
+        session_entry = self.db.get_session_log_entry(stats.game_id)
+        pregame_intention = session_entry.get("pregame_intention", "") if session_entry else ""
+        existing_mental_handled = session_entry.get("mental_handled", "") if session_entry else ""
+
         self._review_window = ReviewWindow(
             stats=stats,
             tags=tags,
@@ -305,6 +318,8 @@ class App:
             has_vod=has_vod,
             bookmark_count=bookmark_count,
             bookmarks=bookmarks,
+            pregame_intention=pregame_intention,
+            existing_mental_handled=existing_mental_handled,
         )
 
         # If no VOD matched yet, retry after a delay — Ascent may still be encoding
@@ -313,7 +328,10 @@ class App:
 
     def _save_review(self, review_data: dict):
         """Save review notes to the database."""
+        mental_handled = review_data.pop("mental_handled", "")
         self.db.update_review(**review_data)
+        if mental_handled:
+            self.db.update_mental_handled(review_data["game_id"], mental_handled)
         logger.info(f"Review saved for game {review_data['game_id']}")
 
         if self.tray_icon:

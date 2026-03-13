@@ -77,6 +77,13 @@ def generate_claude_context(
                 f"(mental: {mental}/10){broke}{note_str}"
             )
 
+            pregame_intention = e.get("pregame_intention", "").strip()
+            mental_handled = e.get("mental_handled", "").strip()
+            if pregame_intention:
+                lines.append(f'      Mental intention: "{pregame_intention}"')
+            if mental_handled:
+                lines.append(f'      Mental handled: "{mental_handled}"')
+
             game = games.get(e.get("game_id")) if e.get("game_id") else None
             if game:
                 mistakes = game.get("mistakes", "").strip()

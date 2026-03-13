@@ -26,6 +26,8 @@ class ReviewWindow(ctk.CTkToplevel):
         has_vod: bool = False,
         bookmark_count: int = 0,
         bookmarks: Optional[list[dict]] = None,
+        pregame_intention: str = "",
+        existing_mental_handled: str = "",
         *args,
         **kwargs,
     ):
@@ -37,6 +39,8 @@ class ReviewWindow(ctk.CTkToplevel):
         self._has_vod = has_vod
         self._bookmark_count = bookmark_count
         self._bookmarks = bookmarks or []
+        self._pregame_intention = pregame_intention
+        self._existing_mental_handled = existing_mental_handled
 
         # Window setup
         self.title("LoL Game Review")
@@ -80,7 +84,7 @@ class ReviewWindow(ctk.CTkToplevel):
             self._build_bookmarks_section(container)
 
         # === REVIEW SECTION ===
-        self._build_review_section(container, tags, er)
+        self._build_review_section(container, tags, er, self._pregame_intention, self._existing_mental_handled)
 
         # === SAVE BUTTON ===
         save_btn = ctk.CTkButton(
@@ -414,7 +418,14 @@ class ReviewWindow(ctk.CTkToplevel):
             parent, fg_color=COLORS["border"], height=1
         ).pack(fill="x", pady=8)
 
-    def _build_review_section(self, parent, tags: list[dict], er: dict):
+    def _build_review_section(
+        self,
+        parent,
+        tags: list[dict],
+        er: dict,
+        pregame_intention: str = "",
+        existing_mental_handled: str = "",
+    ):
         """The note-taking and review fields.
 
         Focused on learning objectives rather than play-by-play.
@@ -426,6 +437,56 @@ class ReviewWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLORS["text_dim"],
         ).pack(anchor="w", pady=(8, 6))
+
+        # === MENTAL INTENTION REFLECTION ===
+        if pregame_intention:
+            intention_frame = ctk.CTkFrame(
+                parent,
+                fg_color=COLORS["bg_card"],
+                corner_radius=8,
+                border_width=2,
+                border_color="#7c3aed",
+            )
+            intention_frame.pack(fill="x", pady=(0, 10))
+
+            ctk.CTkLabel(
+                intention_frame,
+                text="YOUR MENTAL INTENTION THIS GAME",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="#a78bfa",
+            ).pack(padx=14, pady=(10, 4), anchor="w")
+
+            ctk.CTkLabel(
+                intention_frame,
+                text=pregame_intention,
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text"],
+                wraplength=650,
+                justify="left",
+            ).pack(padx=14, pady=(0, 8), anchor="w")
+
+            ctk.CTkLabel(
+                parent,
+                text="Did it play out how you expected? How did you handle it?",
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text"],
+            ).pack(anchor="w", pady=(0, 4))
+
+            self.mental_handled = ctk.CTkTextbox(
+                parent,
+                height=60,
+                font=ctk.CTkFont(size=13),
+                fg_color=COLORS["bg_input"],
+                text_color=COLORS["text"],
+                border_width=1,
+                border_color="#7c3aed",
+                corner_radius=8,
+            )
+            self.mental_handled.pack(fill="x", pady=(0, 10))
+            if existing_mental_handled:
+                self.mental_handled.insert("1.0", existing_mental_handled)
+        else:
+            self.mental_handled = None
 
         # Rating
         rating_row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -534,6 +595,10 @@ class ReviewWindow(ctk.CTkToplevel):
             "mistakes": self.mistakes.get("1.0", "end-1c").strip(),
             "went_well": self.went_well.get("1.0", "end-1c").strip(),
             "focus_next": self.focus_next.get().strip(),
+            "mental_handled": (
+                self.mental_handled.get("1.0", "end-1c").strip()
+                if self.mental_handled else ""
+            ),
         }
 
         if self.on_save:
