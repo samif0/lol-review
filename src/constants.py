@@ -42,6 +42,8 @@ def format_duration(seconds: int) -> str:
 
 def format_number(n: int) -> str:
     """Format large numbers with K suffix."""
+    if n is None:
+        n = 0
     if n >= 1000:
         return f"{n / 1000:.1f}k"
     return str(n)

@@ -19,7 +19,9 @@ from ..config import (
 from ..constants import COLORS, format_duration, format_number
 from ..version import __version__
 from .claude_context import ClaudeContextWindow
-from .game_review import SessionGameReviewWindow
+from .game_review import SessionGameReviewPanel
+from .review import ReviewPanel
+from .vod_player import VodPlayerPanel
 
 logger = logging.getLogger(__name__)
 
@@ -64,37 +66,18 @@ def _stat_block(parent, label: str, value: str, color: str = None) -> ctk.CTkLab
     return lbl
 
 
-def _open_review_popup(db, game: dict, on_save, on_open_vod, popup_store: list):
-    if popup_store[0] and popup_store[0].winfo_exists():
-        popup_store[0].destroy()
-    game_id = game.get("game_id")
-    session_entry = {
-        "game_id": game_id,
-        "champion_name": game.get("champion_name"),
-        "win": game.get("win", 0),
-        "mental_rating": 5,
-    }
-    vod_info = db.get_vod(game_id) if game_id else None
-    has_vod = vod_info is not None
-    bookmark_count = db.get_bookmark_count(game_id) if has_vod else 0
-    popup_store[0] = SessionGameReviewWindow(
-        db=db, session_entry=session_entry, game_data=game,
-        on_save=on_save, on_open_vod=on_open_vod,
-        has_vod=has_vod, bookmark_count=bookmark_count,
-    )
-
-
 # ══════════════════════════════════════════════════════════
 # Page: Home
 # ══════════════════════════════════════════════════════════
 
 class HomePage(ctk.CTkFrame):
-    def __init__(self, parent, db, on_open_vod, on_open_claude_context, **kw):
+    def __init__(self, parent, db, on_open_vod, on_open_claude_context,
+                 on_open_review=None, **kw):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
         self.db = db
         self._on_open_vod = on_open_vod
         self._on_open_claude_context = on_open_claude_context
-        self._review_popup = [None]
+        self._on_open_review = on_open_review
         self._scroll = None
         self._build()
 
@@ -243,7 +226,8 @@ class HomePage(ctk.CTkFrame):
                           ).pack(side="left")
 
     def _open_review(self, game: dict):
-        _open_review_popup(self.db, game, self.refresh, self._on_open_vod, self._review_popup)
+        if self._on_open_review:
+            self._on_open_review("session_game", game=game, on_save=self.refresh)
 
     def refresh(self):
         if self._scroll:
@@ -257,12 +241,12 @@ class HomePage(ctk.CTkFrame):
 # ══════════════════════════════════════════════════════════
 
 class SessionPage(ctk.CTkFrame):
-    def __init__(self, parent, db, on_open_vod, **kw):
+    def __init__(self, parent, db, on_open_vod, on_open_review=None, **kw):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
         self.db = db
         self._on_open_vod = on_open_vod
+        self._on_open_review = on_open_review
         self._selected_date = datetime.now().strftime("%Y-%m-%d")
-        self._review_popup = [None]
         self._last_refresh_hash = None
         self._build_chrome()
         self._refresh()
@@ -514,17 +498,17 @@ class SessionPage(ctk.CTkFrame):
         self._refresh()
 
     def _open_game_review(self, session_entry: dict, game_data: dict):
-        if self._review_popup[0] and self._review_popup[0].winfo_exists():
-            self._review_popup[0].destroy()
-        game_id = session_entry.get("game_id")
-        vod_info = self.db.get_vod(game_id) if game_id else None
-        has_vod = vod_info is not None
-        bookmark_count = self.db.get_bookmark_count(game_id) if has_vod else 0
-        self._review_popup[0] = SessionGameReviewWindow(
-            db=self.db, session_entry=session_entry, game_data=game_data,
-            on_save=self._refresh, on_open_vod=self._on_open_vod,
-            has_vod=has_vod, bookmark_count=bookmark_count,
-        )
+        if self._on_open_review:
+            # Build a game dict from session_entry + game_data for the review page
+            game = dict(game_data) if game_data else {}
+            game.setdefault("game_id", session_entry.get("game_id"))
+            game.setdefault("champion_name", session_entry.get("champion_name"))
+            game.setdefault("win", session_entry.get("win", 0))
+            self._on_open_review(
+                "session_game", game=game,
+                session_entry=session_entry,
+                on_save=self._refresh,
+            )
 
     def _auto_refresh(self):
         if not self.winfo_exists():
@@ -545,11 +529,11 @@ class SessionPage(ctk.CTkFrame):
 # ══════════════════════════════════════════════════════════
 
 class HistoryPage(ctk.CTkFrame):
-    def __init__(self, parent, db, on_open_vod, **kw):
+    def __init__(self, parent, db, on_open_vod, on_open_review=None, **kw):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
         self.db = db
         self._on_open_vod = on_open_vod
-        self._review_popup = [None]
+        self._on_open_review = on_open_review
         self._build()
 
     def _build(self):
@@ -740,7 +724,8 @@ class HistoryPage(ctk.CTkFrame):
             grid.columnconfigure(c, weight=1)
 
     def _open_review(self, game: dict):
-        _open_review_popup(self.db, game, lambda: None, self._on_open_vod, self._review_popup)
+        if self._on_open_review:
+            self._on_open_review("session_game", game=game, on_save=lambda: None)
 
     def refresh(self):
         for w in self.winfo_children():
@@ -753,12 +738,12 @@ class HistoryPage(ctk.CTkFrame):
 # ══════════════════════════════════════════════════════════
 
 class LossesPage(ctk.CTkFrame):
-    def __init__(self, parent, db, on_open_vod, **kw):
+    def __init__(self, parent, db, on_open_vod, on_open_review=None, **kw):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
         self.db = db
         self._on_open_vod = on_open_vod
+        self._on_open_review = on_open_review
         self._selected_champion = "All Champions"
-        self._review_popup = [None]
         self._build()
 
     def _build(self):
@@ -913,23 +898,8 @@ class LossesPage(ctk.CTkFrame):
                          justify="left").pack(padx=12, pady=10, anchor="w")
 
     def _open_review(self, loss: dict):
-        if self._review_popup[0] and self._review_popup[0].winfo_exists():
-            self._review_popup[0].destroy()
-        game_id = loss.get("game_id")
-        session_entry = {
-            "game_id": game_id,
-            "champion_name": loss.get("champion_name"),
-            "win": 0,
-            "mental_rating": 5,
-        }
-        vod_info = self.db.get_vod(game_id) if game_id else None
-        has_vod = vod_info is not None
-        bookmark_count = self.db.get_bookmark_count(game_id) if has_vod else 0
-        self._review_popup[0] = SessionGameReviewWindow(
-            db=self.db, session_entry=session_entry, game_data=loss,
-            on_save=self._refresh_losses, on_open_vod=self._on_open_vod,
-            has_vod=has_vod, bookmark_count=bookmark_count,
-        )
+        if self._on_open_review:
+            self._on_open_review("session_game", game=loss, on_save=self._refresh_losses)
 
     def refresh(self):
         self._refresh_losses()
@@ -1435,11 +1405,70 @@ class SettingsPage(ctk.CTkFrame):
 # AppWindow — root window
 # ══════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════
+# Wrapper Pages: Review & VOD (dynamic inline pages)
+# ══════════════════════════════════════════════════════════
+
+class ReviewPage(ctk.CTkFrame):
+    """Wrapper that hosts a ReviewPanel or SessionGameReviewPanel inline."""
+
+    def __init__(self, parent, **kw):
+        super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
+        self._panel = None
+
+    def show_review(self, panel_class, kwargs: dict):
+        """Destroy old panel and create a new one."""
+        if self._panel:
+            self._panel.destroy()
+            self._panel = None
+        self._panel = panel_class(self, **kwargs)
+        self._panel.pack(fill="both", expand=True)
+
+    def clear(self):
+        """Clean up the current panel."""
+        if self._panel:
+            self._panel.destroy()
+            self._panel = None
+
+
+class VodPage(ctk.CTkFrame):
+    """Wrapper that hosts a VodPlayerPanel inline."""
+
+    def __init__(self, parent, **kw):
+        super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
+        self._panel = None
+
+    def show_vod(self, kwargs: dict):
+        """Destroy old panel, create new VodPlayerPanel, activate it."""
+        self.clear()
+        self._panel = VodPlayerPanel(self, **kwargs)
+        self._panel.pack(fill="both", expand=True)
+        # Delay activate so the widget is mapped and has a valid HWND
+        self.after(50, self._panel.activate)
+
+    def clear(self):
+        """Deactivate and destroy the VOD panel (stops mpv, unbinds keys)."""
+        if self._panel:
+            self._panel.deactivate()
+            self._panel.destroy()
+            self._panel = None
+
+
+# ══════════════════════════════════════════════════════════
+# AppWindow — root window
+# ══════════════════════════════════════════════════════════
+
+
 class AppWindow(ctk.CTk):
     """Single-window app with sidebar navigation."""
 
+    # Sidebar page names (have nav items)
+    _SIDEBAR_PAGES = {"home", "session", "history", "losses", "stats", "settings"}
+
     def __init__(self, db, on_minimize, on_open_vod, on_open_manual_entry,
-                 on_settings_saved=None):
+                 on_settings_saved=None,
+                 on_add_bookmark=None, on_update_bookmark=None,
+                 on_delete_bookmark=None):
         super().__init__()
 
         self.db = db
@@ -1447,10 +1476,13 @@ class AppWindow(ctk.CTk):
         self._on_open_vod = on_open_vod
         self._on_open_manual_entry = on_open_manual_entry
         self._on_settings_saved = on_settings_saved
+        self._on_add_bookmark = on_add_bookmark
+        self._on_update_bookmark = on_update_bookmark
+        self._on_delete_bookmark = on_delete_bookmark
         self._current_page = "home"
+        self._nav_stack: list[str] = []
         self._pages: dict[str, ctk.CTkFrame] = {}
         self._nav_items: dict[str, dict] = {}
-        self._update_label = None
         self._claude_context_window = None
 
         self.title("LoL Review")
@@ -1477,10 +1509,6 @@ class AppWindow(ctk.CTk):
         # Right panel (update banner + content)
         right_panel = ctk.CTkFrame(container, fg_color=COLORS["bg_dark"], corner_radius=0)
         right_panel.pack(side="left", fill="both", expand=True)
-
-        # Update banner slot (zero-height until needed)
-        self._update_banner_slot = ctk.CTkFrame(right_panel, fg_color="transparent")
-        self._update_banner_slot.pack(fill="x")
 
         # Content area
         self._content = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_dark"], corner_radius=0)
@@ -1570,11 +1598,11 @@ class AppWindow(ctk.CTk):
             widget.bind("<Button-1>", lambda e, p=page_name: self._navigate(p))
 
         def on_enter(e, p=page_name):
-            if self._current_page != p:
+            if self._current_page != p and p not in ("review", "vod"):
                 btn_frame.configure(fg_color=COLORS["sidebar_hover"])
 
         def on_leave(e, p=page_name):
-            if self._current_page != p:
+            if self._current_page != p and p not in ("review", "vod"):
                 btn_frame.configure(fg_color="transparent")
 
         for widget in (container, btn_frame, lbl):
@@ -1590,17 +1618,24 @@ class AppWindow(ctk.CTk):
 
         self._pages["home"] = HomePage(
             self._content, db=self.db,
-            on_open_vod=self._on_open_vod,
+            on_open_vod=self._navigate_to_vod,
             on_open_claude_context=_open_claude,
+            on_open_review=self._navigate_to_review,
         )
         self._pages["session"] = SessionPage(
-            self._content, db=self.db, on_open_vod=self._on_open_vod,
+            self._content, db=self.db,
+            on_open_vod=self._navigate_to_vod,
+            on_open_review=self._navigate_to_review,
         )
         self._pages["history"] = HistoryPage(
-            self._content, db=self.db, on_open_vod=self._on_open_vod,
+            self._content, db=self.db,
+            on_open_vod=self._navigate_to_vod,
+            on_open_review=self._navigate_to_review,
         )
         self._pages["losses"] = LossesPage(
-            self._content, db=self.db, on_open_vod=self._on_open_vod,
+            self._content, db=self.db,
+            on_open_vod=self._navigate_to_vod,
+            on_open_review=self._navigate_to_review,
         )
         self._pages["stats"] = StatsPage(
             self._content, db=self.db,
@@ -1611,15 +1646,41 @@ class AppWindow(ctk.CTk):
             app_window=self,
         )
 
-    def _navigate(self, page_name: str):
+        # Dynamic pages (not in sidebar)
+        self._pages["review"] = ReviewPage(self._content)
+        self._pages["vod"] = VodPage(self._content)
+
+    def _navigate(self, page_name: str, push_stack: bool = True):
         if page_name not in self._pages:
             return
 
+        # Clean up dynamic pages when navigating away
+        old_page = self._pages.get(self._current_page)
+        if old_page and hasattr(old_page, "clear"):
+            # Only clear when navigating to a sidebar page (not review→vod)
+            if page_name in self._SIDEBAR_PAGES:
+                old_page.clear()
+
+        # Push current page to nav stack
+        if push_stack and self._current_page != page_name:
+            self._nav_stack.append(self._current_page)
+
+        # Hide all pages
         for p in self._pages.values():
             p.pack_forget()
 
+        # Update sidebar highlighting
+        # For dynamic pages (review/vod), keep the originating sidebar item highlighted
+        sidebar_highlight = page_name if page_name in self._SIDEBAR_PAGES else None
+        if sidebar_highlight is None:
+            # Find the last sidebar page in the stack
+            for prev in reversed(self._nav_stack):
+                if prev in self._SIDEBAR_PAGES:
+                    sidebar_highlight = prev
+                    break
+
         for name, items in self._nav_items.items():
-            if name == page_name:
+            if name == sidebar_highlight:
                 items["accent"].configure(fg_color=COLORS["sidebar_active"])
                 items["btn_frame"].configure(fg_color=COLORS["sidebar_hover"])
                 items["label"].configure(text_color=COLORS["text"])
@@ -1630,6 +1691,106 @@ class AppWindow(ctk.CTk):
 
         self._pages[page_name].pack(fill="both", expand=True)
         self._current_page = page_name
+
+        # Clear stack when navigating to a sidebar page via sidebar click
+        if push_stack and page_name in self._SIDEBAR_PAGES:
+            self._nav_stack.clear()
+
+    def _navigate_back(self):
+        """Pop nav stack and navigate to the previous page."""
+        if self._nav_stack:
+            prev = self._nav_stack.pop()
+            self._navigate(prev, push_stack=False)
+        else:
+            self._navigate("home", push_stack=False)
+
+    def _navigate_to_review(self, review_type: str, **kwargs):
+        """Navigate to an inline review page.
+
+        review_type: "session_game" or "post_game"
+        """
+        try:
+            if review_type == "session_game":
+                game = kwargs.get("game", {})
+                session_entry = kwargs.get("session_entry")
+                on_save_cb = kwargs.get("on_save", lambda: None)
+
+                # Build session_entry if not provided
+                if session_entry is None:
+                    game_id = game.get("game_id")
+                    session_entry = {
+                        "game_id": game_id,
+                        "champion_name": game.get("champion_name"),
+                        "win": game.get("win", 0),
+                        "mental_rating": 5,
+                    }
+
+                game_id = session_entry.get("game_id")
+                vod_info = self.db.get_vod(game_id) if game_id else None
+                has_vod = vod_info is not None
+                bookmark_count = self.db.get_bookmark_count(game_id) if has_vod else 0
+
+                review_page = self._pages["review"]
+                review_page.show_review(
+                    SessionGameReviewPanel,
+                    {
+                        "db": self.db,
+                        "session_entry": session_entry,
+                        "game_data": game,
+                        "on_save": on_save_cb,
+                        "on_open_vod": self._navigate_to_vod,
+                        "on_back": self._navigate_back,
+                        "has_vod": has_vod,
+                        "bookmark_count": bookmark_count,
+                    },
+                )
+                self._navigate("review")
+
+            elif review_type == "post_game":
+                # Full post-game review with stats
+                review_page = self._pages["review"]
+                review_kwargs = dict(kwargs)
+                review_kwargs["on_back"] = self._navigate_back
+                review_kwargs["on_open_vod"] = self._navigate_to_vod
+                review_page.show_review(ReviewPanel, review_kwargs)
+                self._navigate("review")
+        except Exception as e:
+            logger.error(f"Failed to open review ({review_type}): {e}", exc_info=True)
+
+    def _navigate_to_vod(self, game_id: int):
+        """Navigate to an inline VOD player for a specific game."""
+        vod_info = self.db.get_vod(game_id)
+        if not vod_info:
+            logger.warning(f"No VOD found for game {game_id}")
+            return
+
+        game = self.db.get_game(game_id)
+        if not game:
+            logger.warning(f"No game record found for game {game_id}")
+            return
+
+        bookmarks = self.db.get_bookmarks(game_id)
+        tags = self.db.get_all_tags()
+        game_events = self.db.get_game_events(game_id)
+
+        try:
+            vod_page = self._pages["vod"]
+            vod_page.show_vod({
+                "game_id": game_id,
+                "vod_path": vod_info["file_path"],
+                "game_duration": game.get("game_duration", 0),
+                "champion_name": game.get("champion_name", "Unknown"),
+                "bookmarks": bookmarks,
+                "tags": tags,
+                "game_events": game_events,
+                "on_add_bookmark": self._on_add_bookmark,
+                "on_update_bookmark": self._on_update_bookmark,
+                "on_delete_bookmark": self._on_delete_bookmark,
+                "on_back": self._navigate_back,
+            })
+            self._navigate("vod")
+        except Exception as e:
+            logger.error(f"Failed to open VOD player for game {game_id}: {e}", exc_info=True)
 
     def _minimize_to_tray(self):
         self.withdraw()
@@ -1673,3 +1834,11 @@ class AppWindow(ctk.CTk):
 
     def navigate_to(self, page: str):
         self._navigate(page)
+
+    def navigate_to_review(self, review_type: str, **kwargs):
+        """Public API for navigating to an inline review."""
+        self._navigate_to_review(review_type, **kwargs)
+
+    def navigate_to_vod(self, game_id: int):
+        """Public API for navigating to an inline VOD player."""
+        self._navigate_to_vod(game_id)

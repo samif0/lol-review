@@ -9,8 +9,8 @@ from ..constants import COLORS
 from .widgets import StarRating, TagSelector
 
 
-class SessionGameReviewWindow(ctk.CTkToplevel):
-    """Lightweight review popup for a game from the session logger.
+class SessionGameReviewPanel(ctk.CTkFrame):
+    """Inline review panel for a game from the session logger.
 
     Lets you review (or edit a review for) a game that was auto-tracked
     but not fully reviewed at the time. Updates both the session_log
@@ -20,23 +20,25 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
 
     def __init__(
         self,
+        parent,
         db,
         session_entry: dict,
         game_data: Optional[dict] = None,
         on_save: Optional[Callable] = None,
         on_open_vod: Optional[Callable] = None,
+        on_back: Optional[Callable] = None,
         has_vod: bool = False,
         bookmark_count: int = 0,
-        *args,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(parent, fg_color=COLORS["bg_dark"], **kwargs)
 
         self.db = db
         self.session_entry = session_entry
         self.game_data = game_data or {}
         self.on_save = on_save
         self._on_open_vod = on_open_vod
+        self._on_back = on_back
         self._has_vod = has_vod
         self._bookmark_count = bookmark_count
 
@@ -45,23 +47,28 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
         result = "Victory" if is_win else "Defeat"
         result_color = COLORS["win_green"] if is_win else COLORS["loss_red"]
 
-        self.title(f"Review — {champ} ({result})")
-        self.geometry("620x750")
-        self.configure(fg_color=COLORS["bg_dark"])
-        self.resizable(True, True)
-        self.minsize(500, 600)
-
-        self.lift()
-        self.attributes("-topmost", True)
-        self.after(100, lambda: self.attributes("-topmost", False))
-        self.focus_force()
+        # Back button header
+        back_row = ctk.CTkFrame(self, fg_color="transparent")
+        back_row.pack(fill="x", padx=16, pady=(12, 0))
+        ctk.CTkButton(
+            back_row, text="← Back", width=80, height=30,
+            font=ctk.CTkFont(size=12), corner_radius=6,
+            fg_color=COLORS["tag_bg"], hover_color="#333344",
+            text_color=COLORS["text"],
+            command=self._go_back,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            back_row, text=f"Review — {champ} ({result})",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["text"],
+        ).pack(side="left", padx=(12, 0))
 
         container = ctk.CTkScrollableFrame(
             self,
             fg_color=COLORS["bg_dark"],
             scrollbar_button_color=COLORS["border"],
         )
-        container.pack(fill="both", expand=True, padx=16, pady=16)
+        container.pack(fill="both", expand=True, padx=16, pady=(8, 16))
 
         # Header
         header = ctk.CTkFrame(container, fg_color="transparent")
@@ -258,7 +265,7 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
             text_color=COLORS["text_dim"],
             border_width=1,
             border_color=COLORS["border"],
-            command=self.destroy,
+            command=self._go_back,
         )
         cancel_btn.pack(fill="x", pady=(0, 8))
 
@@ -364,4 +371,13 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
         if self.on_save:
             self.on_save()
 
-        self.destroy()
+        self._go_back()
+
+    def _go_back(self):
+        """Navigate back to the previous page."""
+        if self._on_back:
+            self._on_back()
+
+
+# Legacy alias — kept so existing imports don't break
+SessionGameReviewWindow = SessionGameReviewPanel

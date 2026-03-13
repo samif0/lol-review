@@ -17,9 +17,9 @@ from PIL import Image, ImageDraw
 from .database import Database, DEFAULT_DB_PATH
 from .config import is_ascent_enabled
 from .gui import (
-    AppWindow, PreGameWindow, ReviewWindow,
+    AppWindow, PreGameWindow,
     SessionRulesOverlay, ManualEntryWindow,
-    ClaudeContextWindow, VodPlayerWindow,
+    ClaudeContextWindow,
 )
 from .lcu import GameMonitor, GameStats
 from .updater import check_for_update_async, cleanup_old_exe, post_update_startup, download_and_install
@@ -62,12 +62,10 @@ class App:
         self.app_window: AppWindow = None
         self.tray_icon: pystray.Icon = None
         self.monitor: GameMonitor = None
-        self._review_window = None
         self._pregame_window = None
         self._session_overlay = None
         self._manual_entry_window = None
         self._claude_context_window = None
-        self._vod_player_window = None
         self._connected = False
         self._current_mental_intention: str = ""
 
@@ -89,6 +87,9 @@ class App:
             on_open_vod=self._open_vod_player,
             on_open_manual_entry=self._show_manual_entry,
             on_settings_saved=self._on_settings_saved,
+            on_add_bookmark=self._on_add_bookmark,
+            on_update_bookmark=self._on_update_bookmark,
+            on_delete_bookmark=self._on_delete_bookmark,
         )
 
         # Start the game monitor in a background thread
@@ -278,11 +279,7 @@ class App:
         self.app_window.after(0, lambda: self._show_review(stats))
 
     def _show_review(self, stats: GameStats):
-        """Open the review popup window."""
-        # Close existing review window if any
-        if self._review_window and self._review_window.winfo_exists():
-            self._review_window.destroy()
-
+        """Show an inline review page for a completed game."""
         tags = self.db.get_all_tags()
         existing = self.db.get_game(stats.game_id)
 
@@ -306,12 +303,12 @@ class App:
         pregame_intention = session_entry.get("pregame_intention", "") if session_entry else ""
         existing_mental_handled = session_entry.get("mental_handled", "") if session_entry else ""
 
-        self._review_window = ReviewWindow(
+        self.app_window.navigate_to_review(
+            "post_game",
             stats=stats,
             tags=tags,
             existing_review=existing,
             on_save=self._save_review,
-            on_open_vod=self._open_vod_player,
             has_vod=has_vod,
             bookmark_count=bookmark_count,
             bookmarks=bookmarks,
@@ -375,36 +372,8 @@ class App:
             logger.warning(f"VOD auto-match failed: {e}")
 
     def _open_vod_player(self, game_id: int):
-        """Open the VOD player for a specific game."""
-        vod_info = self.db.get_vod(game_id)
-        if not vod_info:
-            logger.warning(f"No VOD found for game {game_id}")
-            return
-
-        game = self.db.get_game(game_id)
-        if not game:
-            return
-
-        # Close existing player if open
-        if self._vod_player_window and self._vod_player_window.winfo_exists():
-            self._vod_player_window.destroy()
-
-        bookmarks = self.db.get_bookmarks(game_id)
-        tags = self.db.get_all_tags()
-        game_events = self.db.get_game_events(game_id)
-
-        self._vod_player_window = VodPlayerWindow(
-            game_id=game_id,
-            vod_path=vod_info["file_path"],
-            game_duration=game.get("game_duration", 0),
-            champion_name=game.get("champion_name", "Unknown"),
-            bookmarks=bookmarks,
-            tags=tags,
-            game_events=game_events,
-            on_add_bookmark=self._on_add_bookmark,
-            on_update_bookmark=self._on_update_bookmark,
-            on_delete_bookmark=self._on_delete_bookmark,
-        )
+        """Open the inline VOD player for a specific game."""
+        self.app_window.navigate_to_vod(game_id)
 
     def _on_add_bookmark(self, game_id, game_time_s, note="", tags=None):
         """Save a new bookmark to the database."""
