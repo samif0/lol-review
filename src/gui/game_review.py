@@ -347,6 +347,19 @@ class SessionGameReviewWindow(ctk.CTkToplevel):
                 mental_rating=mental,
                 improvement_note=improvement,
             )
+        elif game_id is not None and improvement:
+            # Game has no session log entry (e.g. reviewed from History/Dashboard).
+            # update_review() silently ignores improvement_note via **kwargs — save it
+            # to the games table's review_notes field as a fallback so it isn't lost.
+            self.db.update_review(
+                game_id=game_id,
+                notes=improvement,
+                rating=rating,
+                tags=tags,
+                mistakes=mistakes,
+                went_well=went_well,
+                focus_next=focus_next,
+            )
 
         if self.on_save:
             self.on_save()

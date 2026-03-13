@@ -309,10 +309,10 @@ class PreGameWindow(ctk.CTkToplevel):
         mental_quick_frame.pack(fill="x", pady=(0, 12))
 
         quick_mental = [
-            "Bad call → one ping, move on",
-            "Teammate ints → my game",
-            "Fall behind → breathe, play safe",
-            "I mess up → let it go",
+            "Bad call → one ping",
+            "Ints → my game",
+            "Behind → breathe",
+            "I mess up → let go",
         ]
         for text in quick_mental:
             btn = ctk.CTkButton(

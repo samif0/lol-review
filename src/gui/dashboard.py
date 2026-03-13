@@ -70,6 +70,18 @@ class DashboardWindow(ctk.CTkToplevel):
             text_color=COLORS["accent_gold"],
         ).pack(side="left")
 
+        ctk.CTkButton(
+            header,
+            text="↻ Refresh",
+            font=ctk.CTkFont(size=12),
+            height=30,
+            width=90,
+            corner_radius=6,
+            fg_color=COLORS["tag_bg"],
+            hover_color="#333344",
+            command=self._rebuild_body,
+        ).pack(side="right", padx=(0, 6))
+
         minimize_btn = ctk.CTkButton(
             header,
             text="Minimize to Tray",
@@ -87,14 +99,19 @@ class DashboardWindow(ctk.CTkToplevel):
         self._update_banner_frame = ctk.CTkFrame(outer, fg_color="transparent", height=0)
         self._update_banner_frame.pack(fill="x")
 
-        # Scrollable body so everything fits on smaller screens
-        body = ctk.CTkScrollableFrame(
+        # Scrollable body — stored so _rebuild_body can swap it out
+        self._body_frame = ctk.CTkScrollableFrame(
             outer,
             fg_color="transparent",
             scrollbar_button_color=COLORS["border"],
         )
-        body.pack(fill="both", expand=True)
+        self._body_frame.pack(fill="both", expand=True)
+        self._outer = outer
 
+        self._populate_body(self._body_frame)
+
+    def _populate_body(self, body):
+        """Populate the scrollable body sections."""
         # ── Yesterday recap ─────────────────────────────────────
         self._build_yesterday_recap(body)
 
@@ -103,6 +120,17 @@ class DashboardWindow(ctk.CTkToplevel):
 
         # ── Quick actions ───────────────────────────────────────
         self._build_quick_actions(body)
+
+    def _rebuild_body(self):
+        """Destroy and rebuild the scrollable body to refresh all data."""
+        self._body_frame.destroy()
+        self._body_frame = ctk.CTkScrollableFrame(
+            self._outer,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["border"],
+        )
+        self._body_frame.pack(fill="both", expand=True)
+        self._populate_body(self._body_frame)
 
     # ── Yesterday recap ─────────────────────────────────────────
 
@@ -480,7 +508,7 @@ class DashboardWindow(ctk.CTkToplevel):
             db=self.db,
             session_entry=session_entry,
             game_data=game,
-            on_save=None,
+            on_save=self._rebuild_body,
             on_open_vod=self._on_open_vod,
             has_vod=has_vod,
             bookmark_count=bookmark_count,

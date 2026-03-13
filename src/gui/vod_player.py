@@ -715,13 +715,19 @@ class VodPlayerWindow(ctk.CTkToplevel):
         return widget_class in ("Entry", "Text", "TEntry", "TText", "CTkEntry")
 
     def _bind_keys(self):
-        """Bind all configured keybinds to their actions."""
+        """Bind all configured keybinds to their actions.
+
+        Uses bind_all so keybinds fire even when a child widget (canvas,
+        timeline, scrollable frame) has focus — not just the toplevel itself.
+        Gates on _is_typing() to suppress them when an entry field is active.
+        """
         for action, tk_key in self._keybinds.items():
             if action in self._ACTION_MAP:
                 handler = self._ACTION_MAP[action]
-                # Capture action in closure correctly
-                # Skip if user is typing in a text field
-                self.bind(f"<{tk_key}>", lambda e, h=handler: h(self) if not self._is_typing() else None)
+                self.bind_all(
+                    f"<{tk_key}>",
+                    lambda e, h=handler: h(self) if not self._is_typing() else None,
+                )
 
     def _build_hint_text(self) -> str:
         """Build a compact hint string from the current keybinds."""
@@ -996,6 +1002,7 @@ class VodPlayerWindow(ctk.CTkToplevel):
 
         note_entry.bind("<Return>", lambda e: _save())
         note_entry.bind("<Escape>", lambda e: _cancel())
+        dialog.protocol("WM_DELETE_WINDOW", _cancel)
 
         ctk.CTkButton(
             dialog, text="Save Bookmark",
@@ -1380,6 +1387,7 @@ class VodPlayerWindow(ctk.CTkToplevel):
             dialog.destroy()
 
         note_entry.bind("<Return>", lambda e: _save())
+        dialog.protocol("WM_DELETE_WINDOW", lambda: (self._clear_clip_range(), dialog.destroy()))
 
         ctk.CTkButton(
             dialog, text="Save Bookmark + Clip",
@@ -1393,6 +1401,12 @@ class VodPlayerWindow(ctk.CTkToplevel):
 
     def _on_close(self):
         """Clean up mpv resources before closing."""
+        # Remove bind_all keybinds so they don't leak to other windows
+        for action, tk_key in self._keybinds.items():
+            try:
+                self.unbind_all(f"<{tk_key}>")
+            except Exception:
+                pass
         self._playing = False
         if self._update_job:
             self.after_cancel(self._update_job)

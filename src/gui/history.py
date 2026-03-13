@@ -299,6 +299,14 @@ class HistoryWindow(ctk.CTkToplevel):
                     width=w,
                 ).pack(side="left", padx=6, pady=4)
 
+    def _refresh_game_row(self, game: dict):
+        """After saving a review, re-fetch the game and update its button state."""
+        if not self.db:
+            return
+        fresh = self.db.get_game(game.get("game_id"))
+        if fresh:
+            game.update(fresh)
+
     def _open_review(self, game: dict):
         """Open a review popup for a game from the history list."""
         if self._review_popup and self._review_popup.winfo_exists():
@@ -320,7 +328,7 @@ class HistoryWindow(ctk.CTkToplevel):
             db=self.db,
             session_entry=session_entry,
             game_data=game,
-            on_save=None,
+            on_save=lambda: self._refresh_game_row(game),
             on_open_vod=self._on_open_vod,
             has_vod=has_vod,
             bookmark_count=bookmark_count,

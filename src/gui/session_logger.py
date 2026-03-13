@@ -183,6 +183,7 @@ class SessionLoggerWindow(ctk.CTkToplevel):
         context_btn.pack(side="left")
 
         self._context_window = None
+        self._last_refresh_hash = None  # Used to skip unnecessary full rebuilds
 
         # Initial data load
         self._refresh()
@@ -190,7 +191,7 @@ class SessionLoggerWindow(ctk.CTkToplevel):
         # Auto-refresh every 30s
         self.after(30000, self._auto_refresh)
 
-    def _refresh(self):
+    def _refresh(self, force: bool = False):
         """Reload session data for the selected date."""
         # Update date display
         is_today = self._selected_date == datetime.now().strftime("%Y-%m-%d")
@@ -244,11 +245,17 @@ class SessionLoggerWindow(ctk.CTkToplevel):
             text_color=COLORS["win_green"] if streak >= 3 else COLORS["text"],
         )
 
-        # Reload game entries
+        # Reload game entries — skip full rebuild if data hasn't changed
+        # (avoids visible flicker on the 30s auto-refresh)
+        entries = self.db.get_session_log_for_date(self._selected_date)
+        refresh_hash = str([(e.get("game_id"), e.get("win"), e.get("mental_rating"),
+                             e.get("improvement_note"), e.get("rule_broken")) for e in (entries or [])])
+        if not force and refresh_hash == self._last_refresh_hash:
+            return
+        self._last_refresh_hash = refresh_hash
+
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
-
-        entries = self.db.get_session_log_for_date(self._selected_date)
         if not entries:
             empty_msg = (
                 "No games logged today.\nGames are logged automatically when detected,\n"
@@ -436,7 +443,14 @@ class SessionLoggerWindow(ctk.CTkToplevel):
         self._context_window = ClaudeContextWindow(db=self.db)
 
     def _auto_refresh(self):
-        """Auto-refresh periodically."""
-        if self.winfo_exists():
+        """Auto-refresh periodically. Wrapped in try/except so a transient
+        error (DB hiccup, widget timing issue) doesn't kill the polling loop."""
+        if not self.winfo_exists():
+            return
+        try:
             self._refresh()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Auto-refresh error (will retry): {e}")
+        finally:
             self.after(30000, self._auto_refresh)
