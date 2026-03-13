@@ -95,6 +95,10 @@ def post_update_startup() -> bool:
             except Exception as e:
                 logger.warning(f"Could not delete old exe: {e}")
 
+    # Remove any stale Python DLLs from a previous Python version.
+    # These get left behind when the update copy phase skips locked files.
+    _cleanup_old_python_dlls()
+
     # Check for update lock
     lock = _get_lock_path()
     if not lock.exists():
@@ -292,14 +296,16 @@ def _do_download_and_install(
         logger.info(f"Copying new files from {source_dir} → {app_dir}")
         _copy_tree(source_dir, app_dir)
 
-        # Launch the new exe
+        # Launch the new exe via a batch script intermediary.
+        # We CANNOT launch it directly here — the old process is still running
+        # and holds its python3XX.dll locked. If the new build uses a different
+        # Python version, PyInstaller's multiprocessing bootstrap will crash with
+        # "Module use of pythonNNN.dll conflicts with this version of Python."
+        # The batch script waits until this PID disappears (all DLLs released),
+        # then starts the new exe cleanly.
         new_exe = app_dir / exe_name
-        logger.info(f"Launching new exe: {new_exe}")
-        subprocess.Popen(
-            [str(new_exe)],
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
-        )
+        logger.info(f"Scheduling relaunch via batch script: {new_exe}")
+        _relaunch_via_bat(new_exe, app_dir)
     else:
         # Running from source — just copy files (for dev testing)
         app_dir = Path(__file__).resolve().parent.parent
@@ -330,7 +336,89 @@ def _copy_tree(src: Path, dst: Path):
             try:
                 shutil.copy2(item, target)
             except PermissionError:
-                # Skip files that are locked (e.g. DLLs in use)
+                # Skip files that are locked (e.g. DLLs in use by the running process).
+                # These will be cleaned up by _cleanup_old_python_dlls() on next startup.
                 logger.warning(f"Skipped locked file: {target}")
             except Exception as e:
                 logger.warning(f"Failed to copy {item.name}: {e}")
+
+
+def _relaunch_via_bat(new_exe: Path, app_dir: Path):
+    """Write a self-deleting batch script that waits for this process to exit,
+    then launches the new exe.
+
+    Launching the new exe directly from the old process causes a Python DLL
+    conflict when the update crosses Python versions (e.g. 3.11 → 3.14):
+    the old process still holds python311.dll locked, and PyInstaller's
+    multiprocessing bootstrap in the new exe detects the conflict and crashes.
+    Waiting for the old process to fully exit releases all its DLL handles
+    so the new process starts with a clean slate.
+    """
+    pid = os.getpid()
+    bat = app_dir / "_lolreview_relaunch.bat"
+
+    # The batch logic:
+    # 1. Wait ~1s (ping trick — no sleep command in plain cmd)
+    # 2. Check if our PID is still alive via tasklist
+    # 3. If still alive, loop; otherwise launch the new exe and self-delete
+    script = (
+        "@echo off\n"
+        ":wait\n"
+        "ping -n 2 127.0.0.1 >NUL\n"
+        f"tasklist /FI \"PID eq {pid}\" 2>NUL | find \"INFO:\" >NUL\n"
+        "if errorlevel 1 goto wait\n"
+        f"start \"\" \"{new_exe}\"\n"
+        "(goto) 2>NUL & del \"%~f0\"\n"
+    )
+
+    try:
+        bat.write_text(script, encoding="utf-8")
+        subprocess.Popen(
+            ["cmd.exe", "/c", str(bat)],
+            creationflags=(
+                subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.CREATE_NO_WINDOW
+            ),
+            close_fds=True,
+        )
+        logger.info(f"Relaunch batch script started (watching PID {pid})")
+    except Exception as e:
+        logger.error(f"Failed to start relaunch script: {e}")
+        # Fall back to direct launch — may crash if Python version changed,
+        # but better than silently failing to update at all.
+        subprocess.Popen(
+            [str(new_exe)],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
+
+
+def _cleanup_old_python_dlls():
+    """Delete Python DLL files from previous Python versions left in the app dir.
+
+    When updating across Python versions (e.g. 3.11 → 3.14) the old DLL
+    (python311.dll) cannot be overwritten during the copy phase because the
+    running process holds it locked. After the old process exits the new one
+    starts, but the stale DLL is still sitting on disk. On the NEXT update
+    cycle (or if something re-scans the folder) having two python*.dll files
+    present can cause another conflict. Clean them up on startup.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+
+    current_dll = f"python{sys.version_info.major}{sys.version_info.minor}.dll"
+    app_dir = Path(sys.executable).parent
+
+    # DLLs may live in the root app dir or in _internal/ (PyInstaller 6+)
+    search_dirs = [app_dir, app_dir / "_internal"]
+    for search_dir in search_dirs:
+        if not search_dir.exists():
+            continue
+        for dll in search_dir.glob("python*.dll"):
+            if dll.name.lower() != current_dll.lower():
+                try:
+                    dll.unlink()
+                    logger.info(f"Removed stale Python DLL: {dll}")
+                except Exception as e:
+                    logger.warning(f"Could not remove stale DLL {dll.name}: {e}")
