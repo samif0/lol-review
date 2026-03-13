@@ -296,16 +296,16 @@ def _do_download_and_install(
         logger.info(f"Copying new files from {source_dir} → {app_dir}")
         _copy_tree(source_dir, app_dir)
 
-        # Launch the new exe via a batch script intermediary.
+        # Launch the new exe via a PowerShell intermediary.
         # We CANNOT launch it directly here — the old process is still running
         # and holds its python3XX.dll locked. If the new build uses a different
         # Python version, PyInstaller's multiprocessing bootstrap will crash with
         # "Module use of pythonNNN.dll conflicts with this version of Python."
-        # The batch script waits until this PID disappears (all DLLs released),
-        # then starts the new exe cleanly.
+        # PowerShell sleeps briefly, then starts the new exe after this process
+        # has fully exited and released all its DLL handles.
         new_exe = app_dir / exe_name
-        logger.info(f"Scheduling relaunch via batch script: {new_exe}")
-        _relaunch_via_bat(new_exe, app_dir)
+        logger.info(f"Scheduling relaunch via PowerShell: {new_exe}")
+        _relaunch_via_powershell(new_exe)
     else:
         # Running from source — just copy files (for dev testing)
         app_dir = Path(__file__).resolve().parent.parent
@@ -343,38 +343,38 @@ def _copy_tree(src: Path, dst: Path):
                 logger.warning(f"Failed to copy {item.name}: {e}")
 
 
-def _relaunch_via_bat(new_exe: Path, app_dir: Path):
-    """Write a self-deleting batch script that waits for this process to exit,
-    then launches the new exe.
+def _relaunch_via_powershell(new_exe: Path, delay_s: int = 4):
+    """Relaunch the new exe via a detached PowerShell process after a brief delay.
 
     Launching the new exe directly from the old process causes a Python DLL
     conflict when the update crosses Python versions (e.g. 3.11 → 3.14):
-    the old process still holds python311.dll locked, and PyInstaller's
-    multiprocessing bootstrap in the new exe detects the conflict and crashes.
-    Waiting for the old process to fully exit releases all its DLL handles
-    so the new process starts with a clean slate.
-    """
-    pid = os.getpid()
-    bat = app_dir / "_lolreview_relaunch.bat"
+    both Python DLLs end up present in _internal/ and PyInstaller's
+    multiprocessing bootstrap crashes with "Module use of pythonNNN.dll
+    conflicts with this version of Python."
 
-    # The batch logic:
-    # 1. Wait ~1s (ping trick — no sleep command in plain cmd)
-    # 2. Check if our PID is still alive via tasklist
-    # 3. If still alive, loop; otherwise launch the new exe and self-delete
-    script = (
-        "@echo off\n"
-        ":wait\n"
-        "ping -n 2 127.0.0.1 >NUL\n"
-        f"tasklist /FI \"PID eq {pid}\" 2>NUL | find \"INFO:\" >NUL\n"
-        "if errorlevel 1 goto wait\n"
-        f"start \"\" \"{new_exe}\"\n"
-        "(goto) 2>NUL & del \"%~f0\"\n"
+    PowerShell runs detached, sleeps a few seconds, then starts the new exe.
+    By then this process has fully exited and released every DLL handle, so
+    the new process boots into a clean state.  No batch files, no PID polling.
+
+    Base64-encoding the command avoids quoting issues for paths with spaces.
+    """
+    import base64
+
+    ps_script = (
+        f'Start-Sleep -Seconds {delay_s}; '
+        f'Start-Process -FilePath "{new_exe}"'
     )
+    encoded = base64.b64encode(ps_script.encode("utf-16-le")).decode("ascii")
 
     try:
-        bat.write_text(script, encoding="utf-8")
         subprocess.Popen(
-            ["cmd.exe", "/c", str(bat)],
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle", "Hidden",
+                "-EncodedCommand", encoded,
+            ],
             creationflags=(
                 subprocess.DETACHED_PROCESS
                 | subprocess.CREATE_NEW_PROCESS_GROUP
@@ -382,11 +382,11 @@ def _relaunch_via_bat(new_exe: Path, app_dir: Path):
             ),
             close_fds=True,
         )
-        logger.info(f"Relaunch batch script started (watching PID {pid})")
+        logger.info(f"PowerShell relaunch scheduled in {delay_s}s: {new_exe}")
     except Exception as e:
-        logger.error(f"Failed to start relaunch script: {e}")
-        # Fall back to direct launch — may crash if Python version changed,
-        # but better than silently failing to update at all.
+        logger.error(f"PowerShell relaunch failed, falling back to direct launch: {e}")
+        # Direct launch may crash if the Python version changed, but it's
+        # better than silently not restarting at all.
         subprocess.Popen(
             [str(new_exe)],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
