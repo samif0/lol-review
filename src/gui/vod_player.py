@@ -460,8 +460,8 @@ class VodPlayerWindow(ctk.CTkToplevel):
         )
         self._video_canvas.pack(fill="both", expand=True)
 
-        # Click on video area to toggle play/pause
-        self._video_canvas.bind("<Button-1>", lambda e: self._toggle_play())
+        # Click on video area to toggle play/pause and reclaim keyboard focus
+        self._video_canvas.bind("<Button-1>", lambda e: (self.focus_set(), self._toggle_play()))
 
         # ── Transport controls ───────────────────────────────────
         transport = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=8,
@@ -603,6 +603,8 @@ class VodPlayerWindow(ctk.CTkToplevel):
             bookmarks=self._bookmarks,
         )
         self._timeline.pack(fill="x", pady=(0, 2))
+        # Clicking the timeline should reclaim keybind focus from any entry field
+        self._timeline.bind("<Button-1>", lambda e: self.focus_set(), add="+")
 
         # Timeline legend
         has_events = len(self._game_events) > 0
@@ -666,6 +668,11 @@ class VodPlayerWindow(ctk.CTkToplevel):
             text_color="#0a0a0f",
             command=self._add_bookmark_manual,
         ).pack(side="right")
+
+        # Return focus to window on Enter/Escape so keybinds work immediately after
+        self._note_entry.bind("<Return>", lambda e: (self._add_bookmark_manual(), self.focus_set()))
+        self._note_entry.bind("<Escape>", lambda e: self.focus_set())
+        self._time_entry.bind("<Escape>", lambda e: self.focus_set())
 
         # Scrollable bookmark list
         self._bm_scroll = ctk.CTkScrollableFrame(
@@ -930,9 +937,73 @@ class VodPlayerWindow(ctk.CTkToplevel):
     # ── Bookmarks ────────────────────────────────────────────────
 
     def _add_bookmark_at_current(self):
-        """Add a bookmark at the current playback time."""
+        """Pause and show a note dialog, then add a bookmark at the current time."""
         game_time = self._get_current_game_time()
-        self._do_add_bookmark(game_time, "")
+
+        # Pause while the user types the note
+        was_playing = self._playing
+        if was_playing:
+            self._player.pause = True
+            self._playing = False
+            self._play_btn.configure(text="▶  Play")
+            if self._update_job:
+                self.after_cancel(self._update_job)
+                self._update_job = None
+
+        self._show_bookmark_note_dialog(game_time, resume_after=was_playing)
+
+    def _show_bookmark_note_dialog(self, game_time_s: int, resume_after: bool = False):
+        """Show a small popup to add a note before saving the bookmark."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add Bookmark")
+        dialog.geometry("400x150")
+        dialog.configure(fg_color=COLORS["bg_dark"])
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.lift()
+        dialog.attributes("-topmost", True)
+
+        ctk.CTkLabel(
+            dialog,
+            text=f"Bookmark at {format_game_time(game_time_s)}",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["accent_gold"],
+        ).pack(padx=16, pady=(16, 8))
+
+        note_entry = ctk.CTkEntry(
+            dialog, height=36,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+            placeholder_text="What happened here? (optional)",
+        )
+        note_entry.pack(fill="x", padx=16, pady=(0, 12))
+        note_entry.focus_set()
+
+        def _save():
+            note = note_entry.get().strip()
+            dialog.destroy()
+            self._do_add_bookmark(game_time_s, note)
+            if resume_after:
+                self._toggle_play()
+            self.focus_set()  # Return keybinds to the window
+
+        def _cancel():
+            dialog.destroy()
+            if resume_after:
+                self._toggle_play()
+            self.focus_set()
+
+        note_entry.bind("<Return>", lambda e: _save())
+        note_entry.bind("<Escape>", lambda e: _cancel())
+
+        ctk.CTkButton(
+            dialog, text="Save Bookmark",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=36, fg_color=COLORS["accent_gold"], hover_color="#a88432",
+            text_color="#0a0a0f",
+            command=_save,
+        ).pack(padx=16, pady=(0, 12))
 
     def _add_bookmark_manual(self):
         """Add a bookmark from the manual time + note fields."""
@@ -948,6 +1019,7 @@ class VodPlayerWindow(ctk.CTkToplevel):
         self._do_add_bookmark(game_time, note_text)
         self._time_entry.delete(0, "end")
         self._note_entry.delete(0, "end")
+        self.focus_set()  # Return keybinds to the window
 
     def _do_add_bookmark(self, game_time_s: int, note: str):
         """Create a bookmark and refresh the list."""
