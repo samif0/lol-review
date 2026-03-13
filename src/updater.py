@@ -7,20 +7,26 @@ is seamless — no user interaction, no batch scripts, no console windows.
 The approach:
 1. Download the release zip to a temp file
 2. Extract to a temp folder
-3. Rename the running exe from LoLReview.exe → LoLReview.exe.old
+3. Write an update lock file recording the target version
+4. Rename the running exe from LoLReview.exe → LoLReview.exe.old
    (Windows allows renaming a running exe, just not overwriting it)
-4. Copy all new files over the app directory
-5. Launch the new exe
-6. Exit the old process
+5. Copy all new files over the app directory
+6. Launch the new exe
+7. Exit the old process
 
-On next launch, the app cleans up the .old file.
+On next launch, the app reads the lock file:
+- If the lock exists, we just updated — skip the update check this session
+  to prevent infinite update loops (lock is deleted after being read).
+- The app also cleans up the .old exe file.
 
-How to publish an update:
-1. Bump __version__ in version.py
-2. Build with: .venv\Scripts\python.exe build.py
+How to publish an update (manual):
+1. Bump __version__ in version.py  ← MUST match the release tag or loop occurs
+2. Build with: .venv\\Scripts\\python.exe build.py
 3. Zip the dist/LoLReview folder
-4. Create a GitHub Release with the tag matching the version (e.g. v1.1.0)
+4. Create a GitHub Release tagged v{version} (e.g. v1.2.0)
 5. Attach the zip to the release
+
+For automated releases, push a version tag — GitHub Actions handles the rest.
 """
 
 import logging
@@ -63,20 +69,59 @@ def parse_version(version_str: str) -> Tuple[int, ...]:
         return (0, 0, 0)
 
 
-# ── Cleanup from previous update ────────────────────────────────────
+# ── Update lock (prevents infinite restart loops) ────────────────────
 
 
+def _get_lock_path() -> Path:
+    """Path to the update-pending lock file, written before relaunching."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / ".update_pending"
+    return Path(tempfile.gettempdir()) / "lolreview_update_pending"
+
+
+def post_update_startup() -> bool:
+    """Run on every startup. Reads and clears the update lock if present.
+
+    Returns True if we just completed an update — caller should skip the
+    update check this session to prevent infinite restart loops.
+    """
+    # Always clean up the .old exe first
+    if getattr(sys, "frozen", False):
+        old_exe = Path(sys.executable).parent / (Path(sys.executable).name + ".old")
+        if old_exe.exists():
+            try:
+                old_exe.unlink()
+                logger.info(f"Cleaned up old exe: {old_exe}")
+            except Exception as e:
+                logger.warning(f"Could not delete old exe: {e}")
+
+    # Check for update lock
+    lock = _get_lock_path()
+    if not lock.exists():
+        return False
+
+    try:
+        expected_version = lock.read_text(encoding="utf-8").strip()
+        lock.unlink()
+    except Exception as e:
+        logger.warning(f"Could not read/clear update lock: {e}")
+        return True  # Assume we just updated — skip check to be safe
+
+    if expected_version == __version__:
+        logger.info(f"Updated successfully to {__version__} — skipping update check")
+    else:
+        logger.warning(
+            f"Update lock version mismatch: expected {expected_version!r}, "
+            f"running {__version__!r}. "
+            f"Skipping update check this session to prevent restart loop."
+        )
+    return True  # Either way, skip the update check this session
+
+
+# Keep old name as an alias so nothing breaks if it's called directly
 def cleanup_old_exe():
-    """Delete LoLReview.exe.old left over from a previous update."""
-    if not getattr(sys, "frozen", False):
-        return
-    old_exe = Path(sys.executable).parent / (Path(sys.executable).name + ".old")
-    if old_exe.exists():
-        try:
-            old_exe.unlink()
-            logger.info(f"Cleaned up old exe: {old_exe}")
-        except Exception as e:
-            logger.warning(f"Could not delete old exe: {e}")
+    """Deprecated: use post_update_startup() instead."""
+    post_update_startup()
 
 
 # ── Check ────────────────────────────────────────────────────────────
@@ -150,11 +195,15 @@ def check_for_update_async(callback: Callable[[Optional[dict]], None]):
 
 def download_and_install(
     download_url: str,
+    target_version: str = "",
     on_progress: Optional[Callable[[int, int], None]] = None,
     on_done: Optional[Callable[[bool, str], None]] = None,
 ):
     """Download the update zip, swap files in place, and relaunch.
 
+    target_version: the version string from the release tag (e.g. "v1.2.0").
+                    Written to the update lock before relaunching so the new
+                    process can verify the update succeeded.
     on_progress(downloaded_bytes, total_bytes) — called during download.
     on_done(success, message) — called when finished or on error.
 
@@ -162,7 +211,7 @@ def download_and_install(
     """
     def _worker():
         try:
-            _do_download_and_install(download_url, on_progress)
+            _do_download_and_install(download_url, target_version, on_progress)
             if on_done:
                 on_done(True, "Update ready — restarting...")
         except Exception as e:
@@ -175,6 +224,7 @@ def download_and_install(
 
 def _do_download_and_install(
     download_url: str,
+    target_version: str = "",
     on_progress: Optional[Callable[[int, int], None]] = None,
 ):
     """Download zip, extract, rename running exe, copy new files over."""
@@ -219,6 +269,18 @@ def _do_download_and_install(
         app_dir = Path(sys.executable).parent
         exe_name = Path(sys.executable).name
         old_exe = app_dir / (exe_name + ".old")
+
+        # Write update lock BEFORE touching any files.
+        # The new process reads this on startup to know it just updated
+        # and skips the update check — preventing infinite restart loops.
+        lock = _get_lock_path()
+        try:
+            # Store the version we're installing (strip leading 'v')
+            lock_version = target_version.lstrip("vV") if target_version else "unknown"
+            lock.write_text(lock_version, encoding="utf-8")
+            logger.info(f"Wrote update lock: expecting {lock_version}")
+        except Exception as e:
+            logger.warning(f"Could not write update lock: {e}")
 
         # Rename running exe so we can overwrite it
         logger.info(f"Renaming {exe_name} → {exe_name}.old")

@@ -122,9 +122,15 @@ jobs:
         shell: pwsh
         run: |
           $zipName = "LoLReview-${{ env.TAG }}.zip"
+          # Zip the contents directly (no subfolder) so the updater's
+          # _copy_tree lands files in the right place on auto-update.
           Compress-Archive -Path dist\LoLReview\* -DestinationPath $zipName
           $mb = [math]::Round((Get-Item $zipName).Length / 1MB, 1)
           Write-Host "Zipped: $zipName ($mb MB)"
+          # Verify the exe is at zip root (not in a subfolder)
+          $entries = (& 7z l $zipName) | Where-Object { $_ -like "*LoLReview.exe*" }
+          if ($entries) { Write-Host "Verified: LoLReview.exe at zip root" }
+          else { Write-Warning "LoLReview.exe not found at zip root — check zip structure" }
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
 
       - name: Publish GitHub Release

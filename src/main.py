@@ -22,7 +22,7 @@ from .gui import (
     SessionLoggerWindow, ClaudeContextWindow, VodPlayerWindow, SettingsWindow,
 )
 from .lcu import GameMonitor, GameStats
-from .updater import check_for_update_async, cleanup_old_exe, download_and_install
+from .updater import check_for_update_async, cleanup_old_exe, post_update_startup, download_and_install
 from .vod import auto_match_recordings
 from .version import __version__
 
@@ -84,8 +84,10 @@ class App:
         """Start the application: tray icon, game monitor, and tk mainloop."""
         logger.info(f"Starting LoL Game Review v{__version__}")
 
-        # Clean up .old exe from a previous update
-        cleanup_old_exe()
+        # Clean up .old exe and check update lock from a previous update.
+        # Returns True if we just updated — skip auto-update check this session
+        # to prevent infinite restart loops.
+        just_updated = post_update_startup()
 
         # Create the hidden root window for tkinter event loop
         self.root = ctk.CTk()
@@ -114,8 +116,12 @@ class App:
         # Show the startup dashboard
         self._show_dashboard()
 
-        # Check for updates in the background
-        check_for_update_async(self._on_update_check_result)
+        # Check for updates in the background — skipped if we just updated
+        # this session (prevents infinite restart loops)
+        if not just_updated:
+            check_for_update_async(self._on_update_check_result)
+        else:
+            logger.info("Skipping update check — app was just updated")
 
         # Scan for unmatched VODs on startup (slight delay so UI is responsive)
         if is_ascent_enabled():
@@ -530,6 +536,7 @@ class App:
         # Start the download immediately
         download_and_install(
             download_url,
+            target_version=update_info.get("version", ""),
             on_progress=self._on_update_progress,
             on_done=self._on_update_done,
         )
