@@ -17,9 +17,9 @@ from PIL import Image, ImageDraw
 from .database import Database, DEFAULT_DB_PATH
 from .config import is_ascent_enabled
 from .gui import (
-    DashboardWindow, HistoryWindow, PreGameWindow, ReviewWindow,
-    ReviewLossesWindow, SessionRulesOverlay, ManualEntryWindow,
-    SessionLoggerWindow, ClaudeContextWindow, VodPlayerWindow, SettingsWindow,
+    AppWindow, PreGameWindow, ReviewWindow,
+    SessionRulesOverlay, ManualEntryWindow,
+    ClaudeContextWindow, VodPlayerWindow,
 )
 from .lcu import GameMonitor, GameStats
 from .updater import check_for_update_async, cleanup_old_exe, post_update_startup, download_and_install
@@ -59,20 +59,15 @@ class App:
 
     def __init__(self):
         self.db = Database()
-        self.root: ctk.CTk = None
+        self.app_window: AppWindow = None
         self.tray_icon: pystray.Icon = None
         self.monitor: GameMonitor = None
-        self._dashboard_window = None
-        self._history_window = None
         self._review_window = None
         self._pregame_window = None
-        self._review_losses_window = None
         self._session_overlay = None
         self._manual_entry_window = None
-        self._session_logger_window = None
         self._claude_context_window = None
         self._vod_player_window = None
-        self._settings_window = None
         self._connected = False
         self._current_mental_intention: str = ""
 
@@ -85,14 +80,16 @@ class App:
         logger.info(f"Starting LoL Game Review v{__version__}")
 
         # Clean up .old exe and check update lock from a previous update.
-        # Returns True if we just updated — skip auto-update check this session
-        # to prevent infinite restart loops.
         just_updated = post_update_startup()
 
-        # Create the hidden root window for tkinter event loop
-        self.root = ctk.CTk()
-        self.root.withdraw()  # Hidden — we only show toplevels
-        self.root.title("LoL Game Review")
+        # Create the AppWindow (this IS the root CTk window)
+        self.app_window = AppWindow(
+            db=self.db,
+            on_minimize=self._on_app_minimized,
+            on_open_vod=self._open_vod_player,
+            on_open_manual_entry=self._show_manual_entry,
+            on_settings_saved=self._on_settings_saved,
+        )
 
         # Start the game monitor in a background thread
         self.monitor = GameMonitor(
@@ -113,11 +110,7 @@ class App:
 
         logger.info("App started — waiting for League client")
 
-        # Show the startup dashboard
-        self._show_dashboard()
-
-        # Check for updates in the background — skipped if we just updated
-        # this session (prevents infinite restart loops)
+        # Check for updates in the background
         if not just_updated:
             check_for_update_async(self._on_update_check_result)
         else:
@@ -125,10 +118,10 @@ class App:
 
         # Scan for unmatched VODs on startup (slight delay so UI is responsive)
         if is_ascent_enabled():
-            self.root.after(3000, self._startup_vod_scan)
+            self.app_window.after(3000, self._startup_vod_scan)
 
         # Run tk mainloop (blocks until quit)
-        self.root.mainloop()
+        self.app_window.mainloop()
 
     def _build_tray_menu(self, status: str) -> pystray.Menu:
         """Build the tray icon right-click menu."""
@@ -136,13 +129,11 @@ class App:
             pystray.MenuItem(f"LoL Review v{__version__}", None, enabled=False),
             pystray.MenuItem(f"Status: {status}", None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Show Dashboard", self._show_dashboard_from_tray),
-            pystray.MenuItem("Game History", self._show_history),
-            pystray.MenuItem("Review Losses", self._show_review_losses),
-            pystray.MenuItem("Session Logger", self._show_session_logger),
+            pystray.MenuItem("Open App", self._show_app_from_tray),
             pystray.MenuItem("Claude Context", self._show_claude_context),
             pystray.MenuItem("Manual Entry", self._show_manual_entry),
-            pystray.MenuItem("Settings", self._show_settings),
+            pystray.MenuItem("Session Overlay", self._show_session_overlay_from_tray),
+            pystray.MenuItem("Settings", self._show_settings_from_tray),
             pystray.MenuItem("Open Data Folder", self._open_data_folder),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._quit),
@@ -172,21 +163,21 @@ class App:
         if self.tray_icon:
             self.tray_icon.notify("Connected to League client", "LoL Game Review")
 
-        # Show Session Rules overlay when connected
-        self.root.after(0, self._show_session_overlay)
+        self.app_window.after(0, lambda: self.app_window.set_connection_status(True))
+        self.app_window.after(0, self._show_session_overlay)
 
     def _on_disconnect(self):
         """Called when the League client disconnects."""
         logger.info("League client disconnected")
         self._update_tray_status(False)
 
-        # Hide Session Rules overlay when disconnected
-        self.root.after(0, self._hide_session_overlay)
+        self.app_window.after(0, lambda: self.app_window.set_connection_status(False))
+        self.app_window.after(0, self._hide_session_overlay)
 
     def _on_champ_select(self):
         """Called when champ select begins — show the pre-game focus window."""
         logger.info("Champ select detected — showing pre-game window")
-        self.root.after(0, self._show_pregame)
+        self.app_window.after(0, self._show_pregame)
 
     def _show_pregame(self):
         """Open the pre-game focus window."""
@@ -221,7 +212,7 @@ class App:
     def _on_game_start(self):
         """Called when loading screen begins — auto-close the pre-game window."""
         logger.info("Game starting — closing pre-game window")
-        self.root.after(0, self._close_pregame)
+        self.app_window.after(0, self._close_pregame)
 
     def _close_pregame(self):
         """Close the pre-game window if it's still open."""
@@ -279,12 +270,12 @@ class App:
             except Exception as e:
                 logger.warning(f"Failed to save live events: {e}")
 
-        # Refresh session logger if it's visible
-        if self._session_logger_window and self._session_logger_window.winfo_exists():
-            self.root.after(0, self._session_logger_window._refresh)
+        # Navigate to session page and refresh after game ends
+        self.app_window.after(0, lambda: self.app_window.navigate_to("session"))
+        self.app_window.after(0, self.app_window.refresh)
 
         # Show the review popup on the main thread
-        self.root.after(0, lambda: self._show_review(stats))
+        self.app_window.after(0, lambda: self._show_review(stats))
 
     def _show_review(self, stats: GameStats):
         """Open the review popup window."""
@@ -330,7 +321,7 @@ class App:
 
         # If no VOD matched yet, retry after a delay — Ascent may still be encoding
         if not has_vod and is_ascent_enabled():
-            self.root.after(90_000, lambda gid=stats.game_id: self._retry_vod_match(gid))
+            self.app_window.after(90_000, lambda gid=stats.game_id: self._retry_vod_match(gid))
 
     def _save_review(self, review_data: dict):
         """Save review notes to the database."""
@@ -343,9 +334,11 @@ class App:
         if self.tray_icon:
             self.tray_icon.notify("Review saved!", "LoL Game Review")
 
-        # Refresh session logger if it's visible
-        if self._session_logger_window and self._session_logger_window.winfo_exists():
-            self._session_logger_window._refresh()
+        # Refresh session page
+        try:
+            self.app_window.after(0, self.app_window.refresh)
+        except Exception:
+            pass
 
     def _retry_vod_match(self, game_id: int):
         """Delayed retry for VOD matching — Ascent may still be encoding."""
@@ -428,14 +421,13 @@ class App:
         self.db.delete_bookmark(bookmark_id)
         logger.info(f"Bookmark {bookmark_id} deleted")
 
-    def _show_settings(self, icon=None, item=None):
-        """Open the settings window."""
+    def _show_settings_from_tray(self, icon=None, item=None):
+        """Open the settings page from tray."""
         def _open():
-            if self._settings_window and self._settings_window.winfo_exists():
-                self._settings_window.lift()
-                return
-            self._settings_window = SettingsWindow(on_save=self._on_settings_saved)
-        self.root.after(0, _open)
+            self.app_window.deiconify()
+            self.app_window.lift()
+            self.app_window.navigate_to("settings")
+        self.app_window.after(0, _open)
 
     def _on_settings_saved(self):
         """Called when settings are saved — re-scan for VODs."""
@@ -487,28 +479,12 @@ class App:
         except Exception as e:
             logger.warning(f"Startup VOD scan failed: {e}")
 
-    def _show_dashboard(self):
-        """Show the startup dashboard window."""
-        if self._dashboard_window and self._dashboard_window.winfo_exists():
-            self._dashboard_window.deiconify()
-            self._dashboard_window.lift()
-            return
-
-        self._dashboard_window = DashboardWindow(
-            db=self.db,
-            on_open_history=lambda: self._show_history(),
-            on_open_losses=lambda: self._show_review_losses(),
-            on_open_session_logger=lambda: self._show_session_logger(),
-            on_open_claude_context=lambda: self._show_claude_context(),
-            on_open_manual_entry=lambda: self._show_manual_entry(),
-            on_open_settings=lambda: self._show_settings(),
-            on_minimize=self._on_dashboard_minimized,
-            on_open_vod=self._open_vod_player,
-        )
-
-    def _show_dashboard_from_tray(self, icon=None, item=None):
-        """Re-open the dashboard from the tray menu."""
-        self.root.after(0, self._show_dashboard)
+    def _show_app_from_tray(self, icon=None, item=None):
+        """Show the app window from tray."""
+        def _show():
+            self.app_window.deiconify()
+            self.app_window.lift()
+        self.app_window.after(0, _show)
 
     def _on_update_check_result(self, update_info):
         """Called from background thread when update check completes.
@@ -528,8 +504,8 @@ class App:
             logger.warning("Update has no zip asset attached — skipping")
             return
 
-        # Show the "Updating..." banner on the dashboard
-        self.root.after(0, lambda: self._show_update_status(
+        # Show the "Updating..." banner on the app window
+        self.app_window.after(0, lambda: self._show_update_status(
             f"Updating to {update_info['version']}..."
         ))
 
@@ -542,9 +518,11 @@ class App:
         )
 
     def _show_update_status(self, text, color="#a0a0b0"):
-        """Show or update the status text on the dashboard banner."""
-        if self._dashboard_window and self._dashboard_window.winfo_exists():
-            self._dashboard_window.show_update_banner(text, color)
+        """Show or update the status text on the app window banner."""
+        try:
+            self.app_window.show_update_banner(text, color)
+        except Exception:
+            pass
 
     def _on_update_progress(self, downloaded, total):
         """Called from background thread with download progress."""
@@ -557,7 +535,7 @@ class App:
             mb = downloaded / (1024 * 1024)
             text = f"Downloading update... {mb:.1f} MB"
         try:
-            self.root.after(0, lambda t=text: self._show_update_status(t))
+            self.app_window.after(0, lambda t=text: self._show_update_status(t))
         except Exception:
             pass
 
@@ -568,55 +546,23 @@ class App:
                 self._show_update_status("Update installed — restarting...", "#4ade80")
                 if self.tray_icon:
                     self.tray_icon.notify("Restarting with new update...", "LoL Game Review")
-                # Brief pause so user sees the message, then exit for the batch script
-                self.root.after(1500, self._quit)
+                self.app_window.after(1500, self._quit)
             else:
                 logger.error(f"Auto-update failed: {message}")
                 self._show_update_status(f"Update failed: {message}", "#f87171")
         try:
-            self.root.after(0, _handle)
+            self.app_window.after(0, _handle)
         except Exception:
             pass
 
-    def _on_dashboard_minimized(self):
+    def _on_app_minimized(self):
         """Called when the user clicks 'Minimize to Tray'."""
         if self.tray_icon:
             self.tray_icon.notify("Running in background", "LoL Game Review")
 
-    def _show_history(self, icon=None, item=None):
-        """Open the game history window."""
-        def _open():
-            if self._history_window and self._history_window.winfo_exists():
-                self._history_window.lift()
-                return
-
-            games = self.db.get_recent_games(9999)
-            overall = self.db.get_overall_stats()
-            champ_stats = self.db.get_champion_stats()
-
-            self._history_window = HistoryWindow(
-                games=games,
-                overall=overall,
-                champion_stats=champ_stats,
-                db=self.db,
-                on_open_vod=self._open_vod_player,
-            )
-
-        self.root.after(0, _open)
-
-    def _show_review_losses(self, icon=None, item=None):
-        """Open the Review Losses window."""
-        def _open():
-            if self._review_losses_window and self._review_losses_window.winfo_exists():
-                self._review_losses_window.lift()
-                return
-
-            self._review_losses_window = ReviewLossesWindow(
-                db=self.db,
-                on_open_vod=self._open_vod_player,
-            )
-
-        self.root.after(0, _open)
+    def _show_session_overlay_from_tray(self, icon=None, item=None):
+        """Show Session Rules overlay from tray."""
+        self.app_window.after(0, self._show_session_overlay)
 
     def _show_session_overlay(self):
         """Show the Session Rules overlay."""
@@ -644,7 +590,7 @@ class App:
                 on_save=self._on_manual_entry_saved,
             )
 
-        self.root.after(0, _open)
+        self.app_window.after(0, _open)
 
     def _on_manual_entry_saved(self):
         """Called when a manual entry is saved."""
@@ -652,27 +598,13 @@ class App:
         if self.tray_icon:
             self.tray_icon.notify("Game entry saved!", "LoL Game Review")
 
-        # Refresh session overlay if it's visible
         if self._session_overlay and self._session_overlay.winfo_exists():
             self._session_overlay._refresh_session_data()
 
-        # Refresh session logger if it's visible
-        if self._session_logger_window and self._session_logger_window.winfo_exists():
-            self._session_logger_window._refresh()
-
-    def _show_session_logger(self, icon=None, item=None):
-        """Open the Session Logger window."""
-        def _open():
-            if self._session_logger_window and self._session_logger_window.winfo_exists():
-                self._session_logger_window.lift()
-                return
-
-            self._session_logger_window = SessionLoggerWindow(
-                db=self.db,
-                on_open_vod=self._open_vod_player,
-            )
-
-        self.root.after(0, _open)
+        try:
+            self.app_window.after(0, self.app_window.refresh)
+        except Exception:
+            pass
 
     def _show_claude_context(self, icon=None, item=None):
         """Open the Claude Context Generator window."""
@@ -683,7 +615,7 @@ class App:
 
             self._claude_context_window = ClaudeContextWindow(db=self.db)
 
-        self.root.after(0, _open)
+        self.app_window.after(0, _open)
 
     def _open_data_folder(self, icon=None, item=None):
         """Open the data folder in file explorer."""
@@ -699,8 +631,8 @@ class App:
             self.tray_icon.stop()
         if self.db:
             self.db.close()
-        if self.root:
-            self.root.after(0, self.root.destroy)
+        if self.app_window:
+            self.app_window.after(0, self.app_window.destroy)
 
 
 def main():

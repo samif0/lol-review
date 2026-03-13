@@ -13,6 +13,7 @@ from .game_review import SessionGameReviewWindow
 from .dashboard import DashboardWindow
 from .vod_player import VodPlayerWindow
 from .settings import SettingsWindow
+from .app_window import AppWindow
 
 __all__ = [
     "StarRating", "TagSelector", "StatCard",
@@ -20,4 +21,5 @@ __all__ = [
     "ReviewLossesWindow", "SessionRulesOverlay", "ManualEntryWindow",
     "SessionLoggerWindow", "ClaudeContextWindow", "SessionGameReviewWindow",
     "DashboardWindow", "VodPlayerWindow", "SettingsWindow",
+    "AppWindow",
 ]
