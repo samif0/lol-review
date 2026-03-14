@@ -1,23 +1,29 @@
 """Auto-update system using GitHub Releases.
 
-On startup the app checks for a newer release. If found, it automatically
-downloads, swaps the files in place, and relaunches. The whole process
-is seamless — no user interaction, no batch scripts, no console windows.
+On startup the app checks for a newer release. If found, it:
+1. Downloads the release zip to a temp file
+2. Extracts to a staging temp folder
+3. Launches a detached PowerShell script, then exits
 
-The approach:
-1. Download the release zip to a temp file
-2. Extract to a temp folder
-3. Write an update lock file recording the target version
-4. Rename the running exe from LoLReview.exe → LoLReview.exe.old
-   (Windows allows renaming a running exe, just not overwriting it)
-5. Copy all new files over the app directory
-6. Launch the new exe
-7. Exit the old process
+The PowerShell script (runs after the old process fully exits):
+1. Waits for the old process to die (by PID, not a fixed sleep)
+2. Uses robocopy /MIR to mirror the staging dir over the app dir
+   — copies all new files AND deletes old files not in the new build
+   — this eliminates DLL conflicts (old python3XX.dll gets removed)
+3. Writes the update lock file
+4. Launches the new exe
+5. Cleans up the staging directory
 
 On next launch, the app reads the lock file:
 - If the lock exists, we just updated — skip the update check this session
   to prevent infinite update loops (lock is deleted after being read).
-- The app also cleans up the .old exe file.
+- The app also cleans up leftover .old files and stale DLLs.
+
+Why robocopy /MIR instead of in-place _copy_tree:
+- Runs AFTER old process exits — no locked files, no skipped DLLs
+- Handles the DELETE case — stale python3XX.dll gets removed
+- Retries on failure (/R:5 /W:2)
+- Built into Windows since Vista
 
 How to publish an update (manual):
 1. Bump __version__ in version.py  ← MUST match the release tag or loop occurs
@@ -232,7 +238,7 @@ def _do_download_and_install(
     target_version: str = "",
     on_progress: Optional[Callable[[int, int], None]] = None,
 ):
-    """Download zip, extract, rename running exe, copy new files over."""
+    """Download zip, extract to staging, schedule PowerShell swap after exit."""
     headers = _get_auth_headers()
     dl_headers = {**headers, "Accept": "application/octet-stream"}
 
@@ -269,73 +275,52 @@ def _do_download_and_install(
     else:
         source_dir = tmp_extract
 
-    # ── Swap files ───────────────────────────────────────────
+    # ── Schedule swap or copy directly ───────────────────────
     if getattr(sys, "frozen", False):
         app_dir = Path(sys.executable).parent
         exe_name = Path(sys.executable).name
-        old_exe = app_dir / (exe_name + ".old")
+        lock_version = target_version.lstrip("vV") if target_version else "unknown"
 
-        # Write update lock BEFORE touching any files.
-        # The new process reads this on startup to know it just updated
-        # and skips the update check — preventing infinite restart loops.
-        lock = _get_lock_path()
+        # DO NOT touch any files in the app directory while we're running!
+        # The running process holds its exe, python DLLs, and loaded .pyd
+        # files locked. Any attempt to copy/overwrite/delete them either
+        # fails silently or leaves a corrupt mix of old and new files.
+        #
+        # Instead, hand everything off to a PowerShell script that runs
+        # AFTER this process exits, when nothing is locked. PowerShell
+        # uses robocopy /MIR to do a clean mirror from staging → app dir.
+
+        logger.info(f"Scheduling PowerShell swap: {source_dir} → {app_dir}")
+        _relaunch_via_powershell(
+            app_dir=app_dir,
+            exe_name=exe_name,
+            staging_dir=source_dir,
+            staging_cleanup_dir=tmp_extract,
+            lock_version=lock_version,
+        )
+
+        # Only clean up the zip. DO NOT delete tmp_extract —
+        # PowerShell needs the staging files after this process exits.
         try:
-            # Store the version we're installing (strip leading 'v')
-            lock_version = target_version.lstrip("vV") if target_version else "unknown"
-            lock.write_text(lock_version, encoding="utf-8")
-            logger.info(f"Wrote update lock: expecting {lock_version}")
-        except Exception as e:
-            logger.warning(f"Could not write update lock: {e}")
+            tmp_zip.unlink()
+        except Exception:
+            pass
 
-        # Rename running exe so we can overwrite it
-        logger.info(f"Renaming {exe_name} → {exe_name}.old")
-        if old_exe.exists():
-            old_exe.unlink()
-        os.rename(app_dir / exe_name, old_exe)
-
-        # Identify the Python DLL the new build ships so we can clean up stale ones.
-        expected_python_dll = _find_expected_python_dll(source_dir)
-        if expected_python_dll:
-            logger.info(f"New build expects: {expected_python_dll}")
-
-        # CRITICAL: Rename stale Python DLLs BEFORE copying new files.
-        # When crossing Python versions (e.g. 3.14→3.11), _copy_tree will ADD
-        # the new python311.dll but the old python314.dll stays (locked by the
-        # running process, can't be deleted). Two python3XX.dll files in the
-        # same directory causes PyInstaller's bootloader to crash BEFORE any
-        # Python code runs — so _cleanup_old_python_dlls() on startup can never
-        # help. Windows allows renaming locked files on NTFS, so we rename
-        # the stale DLL to .old which the bootloader ignores.
-        _pre_copy_dll_cleanup(source_dir, app_dir)
-
-        # Copy all new files over the app directory
-        logger.info(f"Copying new files from {source_dir} → {app_dir}")
-        _copy_tree(source_dir, app_dir)
-
-        # Launch via a PowerShell intermediary that:
-        # 1. Waits for this process to fully exit (DLL handles released)
-        # 2. Deletes any remaining stale python3XX.dll files
-        # 3. Launches the new exe in a clean state
-        new_exe = app_dir / exe_name
-        logger.info(f"Scheduling relaunch via PowerShell: {new_exe}")
-        _relaunch_via_powershell(new_exe, expected_python_dll=expected_python_dll)
     else:
         # Running from source — just copy files (for dev testing)
         app_dir = Path(__file__).resolve().parent.parent
         logger.info(f"Dev mode: copying new files from {source_dir} → {app_dir}")
         _copy_tree(source_dir, app_dir)
+        try:
+            tmp_zip.unlink()
+        except Exception:
+            pass
+        try:
+            shutil.rmtree(tmp_extract)
+        except Exception:
+            pass
 
-    # ── Cleanup temp files ───────────────────────────────────
-    try:
-        tmp_zip.unlink()
-    except Exception:
-        pass
-    try:
-        shutil.rmtree(tmp_extract)
-    except Exception:
-        pass
-
-    logger.info("Update complete — new process launched")
+    logger.info("Update staged — will complete after process exit")
 
 
 def _copy_tree(src: Path, dst: Path):
@@ -357,63 +342,58 @@ def _copy_tree(src: Path, dst: Path):
 
 
 def _relaunch_via_powershell(
-    new_exe: Path,
-    expected_python_dll: Optional[str] = None,
+    app_dir: Path,
+    exe_name: str,
+    staging_dir: Path,
+    staging_cleanup_dir: Path,
+    lock_version: str,
 ):
-    """Relaunch the new exe via a detached PowerShell process.
+    """Launch a detached PowerShell that installs the update after this process exits.
 
-    The script waits for this process to exit (by PID), then:
-    1. Deletes any stale python3XX.dll files that don't match the new build
-    2. Cleans up .old and .dll.old leftovers
-    3. Launches the new exe
+    This is the ONLY reliable way to update a PyInstaller app on Windows.
+    All file operations happen after the old process has fully exited and
+    released every file lock. No DLL conflicts, no partial installs.
 
-    This is the critical second layer of defence against the cross-version
-    DLL conflict.  The first layer (_pre_copy_dll_cleanup) renames the stale
-    DLL before _copy_tree, but if that rename fails for any reason, this
-    PowerShell cleanup catches it after all file locks are released.
+    The PowerShell script:
+    1. Waits for this process to exit (by PID, deterministic)
+    2. robocopy /MIR staging → app dir (copies new, deletes old)
+    3. Writes the update lock file (AFTER robocopy so /MIR doesn't delete it)
+    4. Launches the new exe
+    5. Cleans up the staging directory
 
-    Uses Wait-Process instead of a fixed sleep so timing is deterministic.
     Base64-encoding the command avoids quoting issues for paths with spaces.
     """
     import base64
 
     pid = os.getpid()
-    app_dir_str = str(new_exe.parent)
-    internal_dir_str = str(new_exe.parent / "_internal")
-    old_exe_str = str(new_exe) + ".old"
+    new_exe_str = str(app_dir / exe_name)
+    lock_path_str = str(app_dir / ".update_pending")
 
-    # Build the PowerShell script
     parts = [
-        # Wait for the old process to fully exit and release all DLL handles
+        # Suppress non-terminating errors (robocopy returns non-zero on success)
         "$ErrorActionPreference = 'SilentlyContinue'",
+
+        # Wait for the old process to fully exit and release all file handles
         f"try {{ Wait-Process -Id {pid} -Timeout 30 }} catch {{ }}",
         "Start-Sleep -Seconds 2",
+
+        # Mirror the staging directory over the app directory.
+        # /MIR copies all new files AND deletes files not in source
+        # (this is what kills stale python3XX.dll — the root cause of all crashes).
+        # /R:5 /W:2 = retry 5 times, 2 seconds between retries.
+        f"& robocopy '{staging_dir}' '{app_dir}' /MIR /R:5 /W:2 /NFL /NDL /NJH /NJS /NC /NS",
+
+        # robocopy exit codes: 0-7 = success, 8+ = error.
+        # Only launch the new exe if robocopy succeeded.
+        f"if ($LASTEXITCODE -lt 8) {{ "
+        f"Set-Content -Path '{lock_path_str}' -Value '{lock_version}' -Encoding UTF8; "
+        f"Start-Process -FilePath '{new_exe_str}' "
+        f"}}",
+
+        # Clean up staging directory (wait a moment for the new exe to start)
+        "Start-Sleep -Seconds 3",
+        f"Remove-Item -Path '{staging_cleanup_dir}' -Recurse -Force",
     ]
-
-    # Delete stale Python DLLs — the key fix for cross-version updates
-    if expected_python_dll:
-        for d in [app_dir_str, internal_dir_str]:
-            parts.append(
-                f"Get-ChildItem '{d}\\python3[0-9]*.dll' -ErrorAction SilentlyContinue | "
-                f"Where-Object {{ $_.Name -ne '{expected_python_dll}' }} | "
-                f"Remove-Item -Force -ErrorAction SilentlyContinue"
-            )
-    else:
-        # Don't know the expected DLL — at least clean up .old files
-        logger.warning("No expected Python DLL name — skipping targeted DLL cleanup")
-
-    # Clean up rename leftovers (.dll.old from _pre_copy_dll_cleanup)
-    for d in [app_dir_str, internal_dir_str]:
-        parts.append(
-            f"Get-ChildItem '{d}\\*.dll.old' -ErrorAction SilentlyContinue | "
-            f"Remove-Item -Force -ErrorAction SilentlyContinue"
-        )
-
-    # Clean up old exe
-    parts.append(f"Remove-Item '{old_exe_str}' -Force -ErrorAction SilentlyContinue")
-
-    # Launch the new exe
-    parts.append(f"Start-Process -FilePath '{new_exe}'")
 
     ps_script = "; ".join(parts)
     encoded = base64.b64encode(ps_script.encode("utf-16-le")).decode("ascii")
@@ -435,74 +415,56 @@ def _relaunch_via_powershell(
             close_fds=True,
         )
         logger.info(
-            f"PowerShell relaunch scheduled (waiting on PID {pid}): {new_exe}"
+            f"PowerShell swap scheduled (PID {pid}): "
+            f"robocopy '{staging_dir}' → '{app_dir}', then launch {exe_name}"
         )
     except Exception as e:
-        logger.error(f"PowerShell relaunch failed, falling back to direct launch: {e}")
-        # Direct launch may crash if the Python version changed, but it's
-        # better than silently not restarting at all.
+        logger.error(f"PowerShell launch failed, falling back to legacy install: {e}")
+        _legacy_fallback_install(app_dir, exe_name, staging_dir, lock_version)
+
+
+def _legacy_fallback_install(
+    app_dir: Path,
+    exe_name: str,
+    staging_dir: Path,
+    lock_version: str,
+):
+    """Fallback installer when PowerShell is unavailable.
+
+    Uses the old _copy_tree approach: rename exe, copy files, direct launch.
+    Works for same-Python-version updates but may fail for cross-version
+    updates due to DLL conflicts. Better than silently failing to update.
+    """
+    old_exe = app_dir / (exe_name + ".old")
+    new_exe = app_dir / exe_name
+
+    # Write update lock
+    try:
+        lock = _get_lock_path()
+        lock.write_text(lock_version, encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Could not write update lock: {e}")
+
+    # Rename running exe so we can copy the new one
+    try:
+        if old_exe.exists():
+            old_exe.unlink()
+        os.rename(new_exe, old_exe)
+    except Exception as e:
+        logger.error(f"Could not rename exe: {e}")
+
+    # Copy files (may skip locked ones — degraded but better than nothing)
+    _copy_tree(staging_dir, app_dir)
+
+    # Direct launch
+    try:
         subprocess.Popen(
             [str(new_exe)],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
             close_fds=True,
         )
-
-
-def _find_expected_python_dll(source_dir: Path) -> Optional[str]:
-    """Find the python3XX.dll filename that the new build ships.
-
-    Scans both the source root and _internal/ subdirectory since PyInstaller
-    may place the DLL in either location depending on the version.
-    """
-    for subdir in [".", "_internal"]:
-        path = source_dir / subdir
-        if path.is_dir():
-            for dll in path.glob("python3[0-9]*.dll"):
-                return dll.name
-    return None
-
-
-def _pre_copy_dll_cleanup(source_dir: Path, app_dir: Path):
-    """Rename stale python DLLs BEFORE _copy_tree to prevent version conflicts.
-
-    When crossing Python versions (e.g. 3.14→3.11), _copy_tree will add the
-    new python311.dll but cannot delete the old python314.dll (it's locked by
-    the still-running process).  Two version-specific DLLs in the same
-    directory causes PyInstaller's bootloader to crash with:
-        "Module use of pythonNNN.dll conflicts with this version of Python."
-
-    The crash happens in the C bootloader BEFORE Python starts, so no amount
-    of Python-level cleanup on startup can help.
-
-    Windows (NTFS) allows *renaming* locked files even though it blocks
-    deletion.  By renaming the stale DLL to .dll.old, the bootloader won't
-    find it.  PowerShell deletes the .old file after the old process exits.
-    """
-    for subdir in [".", "_internal"]:
-        src_path = source_dir / subdir
-        tgt_path = app_dir / subdir
-        if not tgt_path.is_dir():
-            continue
-        # What version-specific DLLs does the new build ship?
-        src_dlls: set = set()
-        if src_path.is_dir():
-            src_dlls = {f.name.lower() for f in src_path.glob("python3[0-9]*.dll")}
-        # Rename any target DLLs that the new build does NOT ship
-        for dll in list(tgt_path.glob("python3[0-9]*.dll")):
-            if dll.name.lower() not in src_dlls:
-                renamed = dll.with_suffix(".dll.old")
-                try:
-                    if renamed.exists():
-                        renamed.unlink()
-                    dll.rename(renamed)
-                    logger.info(f"Renamed stale DLL: {dll.name} → {renamed.name}")
-                except Exception as e:
-                    # Rename failed — PowerShell layer will handle it after
-                    # the old process exits and releases the file lock.
-                    logger.warning(
-                        f"Could not rename stale DLL {dll.name}: {e} "
-                        f"— PowerShell will clean it up after process exit"
-                    )
+    except Exception as e:
+        logger.error(f"Direct launch failed: {e}")
 
 
 def _cleanup_old_python_dlls():

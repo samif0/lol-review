@@ -546,7 +546,7 @@ class App:
         """Called from background thread when download + extract finishes."""
         def _handle():
             if success:
-                self._show_update_status("Update installed — restarting...", "#4ade80")
+                self._show_update_status("Update ready — restarting...", "#4ade80")
                 if self.tray_icon:
                     self.tray_icon.notify("Restarting with new update...", "LoL Game Review")
                 self.app_window.after(UPDATE_RESTART_DELAY_MS, self._quit)
