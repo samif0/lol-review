@@ -6,16 +6,13 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from .connection import ConnectionManager
+from ..constants import CASUAL_MODES, CASUAL_MODE_SQL_FILTER, DEFAULT_RECENT_GAMES_LIMIT, UNREVIEWED_GAMES_DAYS
 
 logger = logging.getLogger(__name__)
 
 
 class GameRepository:
     """CRUD operations for the games table."""
-
-    # Modes that don't count as "real" games for session tracking / stats
-    CASUAL_MODES = ("ARAM", "CHERRY", "ULTBOOK", "TUTORIAL", "PRACTICETOOL")
-    _CASUAL_FILTER = "AND game_mode NOT IN ('ARAM','CHERRY','ULTBOOK','TUTORIAL','PRACTICETOOL')"
 
     def __init__(self, conn_mgr: ConnectionManager):
         self._conn_mgr = conn_mgr
@@ -26,7 +23,7 @@ class GameRepository:
         Casual modes (ARAM, Arena, etc.) are silently skipped — they
         don't belong in a ranked improvement tracker.
         """
-        if getattr(stats, "game_mode", "").upper() in self.CASUAL_MODES:
+        if getattr(stats, "game_mode", "").upper() in CASUAL_MODES:
             logger.info(f"Skipping casual game: {stats.champion_name} ({stats.game_mode})")
             return -1
 
@@ -166,12 +163,12 @@ class GameRepository:
         ).fetchone()
         return dict(row) if row else None
 
-    def get_recent(self, limit: int = 50) -> list[dict]:
+    def get_recent(self, limit: int = DEFAULT_RECENT_GAMES_LIMIT, offset: int = 0) -> list[dict]:
         """Get recent ranked/normal games ordered by most recent first."""
         conn = self._conn_mgr.get_conn()
         rows = conn.execute(
-            f"SELECT * FROM games WHERE 1=1 {self._CASUAL_FILTER} ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
+            f"SELECT * FROM games WHERE 1=1 {CASUAL_MODE_SQL_FILTER} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+            (limit, offset),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -192,7 +189,7 @@ class GameRepository:
                 ROUND(AVG(vision_score), 1) as avg_vision,
                 ROUND(AVG(total_damage_to_champions), 0) as avg_damage
             FROM games
-            WHERE 1=1 {self._CASUAL_FILTER}
+            WHERE 1=1 {CASUAL_MODE_SQL_FILTER}
             GROUP BY champion_name
             ORDER BY games_played DESC
         """).fetchall()
@@ -217,7 +214,7 @@ class GameRepository:
                 MAX(kills) as max_kills,
                 MAX(kda_ratio) as best_kda
             FROM games
-            WHERE 1=1 {self._CASUAL_FILTER}
+            WHERE 1=1 {CASUAL_MODE_SQL_FILTER}
         """).fetchone()
         return dict(row) if row else {}
 
@@ -228,7 +225,7 @@ class GameRepository:
             SELECT focus_next, mistakes, went_well
             FROM games
             WHERE (focus_next != '' OR mistakes != '')
-                {self._CASUAL_FILTER}
+                {CASUAL_MODE_SQL_FILTER}
             ORDER BY timestamp DESC
             LIMIT 1
         """).fetchone()
@@ -245,7 +242,7 @@ class GameRepository:
         """Get current win/loss streak. Positive = wins, negative = losses."""
         conn = self._conn_mgr.get_conn()
         rows = conn.execute(
-            f"SELECT win FROM games WHERE 1=1 {self._CASUAL_FILTER} ORDER BY timestamp DESC LIMIT 50"
+            f"SELECT win FROM games WHERE 1=1 {CASUAL_MODE_SQL_FILTER} ORDER BY timestamp DESC LIMIT 50"
         ).fetchall()
 
         if not rows:
@@ -268,20 +265,20 @@ class GameRepository:
         if champion and champion != "All Champions":
             rows = conn.execute(
                 f"""SELECT * FROM games
-                WHERE win = 0 AND champion_name = ? {self._CASUAL_FILTER}
+                WHERE win = 0 AND champion_name = ? {CASUAL_MODE_SQL_FILTER}
                 ORDER BY timestamp DESC""",
                 (champion,),
             ).fetchall()
         else:
             rows = conn.execute(
                 f"""SELECT * FROM games
-                WHERE win = 0 {self._CASUAL_FILTER}
+                WHERE win = 0 {CASUAL_MODE_SQL_FILTER}
                 ORDER BY timestamp DESC"""
             ).fetchall()
 
         return [dict(r) for r in rows]
 
-    def get_unreviewed_games(self, days: int = 3) -> list[dict]:
+    def get_unreviewed_games(self, days: int = UNREVIEWED_GAMES_DAYS) -> list[dict]:
         """Get recent ranked/normal games that haven't been reviewed yet.
 
         A game counts as 'unreviewed' if it has no rating, no mistakes text,
@@ -298,7 +295,7 @@ class GameRepository:
               AND (mistakes IS NULL OR mistakes = '')
               AND (went_well IS NULL OR went_well = '')
               AND (focus_next IS NULL OR focus_next = '')
-              {self._CASUAL_FILTER}
+              {CASUAL_MODE_SQL_FILTER}
             ORDER BY timestamp DESC""",
             (cutoff_ts,),
         ).fetchall()
@@ -309,7 +306,7 @@ class GameRepository:
         conn = self._conn_mgr.get_conn()
         rows = conn.execute(
             f"""SELECT * FROM games
-            WHERE date_played LIKE ? {self._CASUAL_FILTER}
+            WHERE date_played LIKE ? {CASUAL_MODE_SQL_FILTER}
             ORDER BY timestamp ASC""",
             (f"{date_str}%",),
         ).fetchall()
@@ -324,7 +321,7 @@ class GameRepository:
 
         rows = conn.execute(
             f"""SELECT * FROM games
-            WHERE timestamp >= ? {self._CASUAL_FILTER}
+            WHERE timestamp >= ? {CASUAL_MODE_SQL_FILTER}
             ORDER BY timestamp ASC""",
             (today_timestamp,),
         ).fetchall()
@@ -339,14 +336,14 @@ class GameRepository:
             rows = conn.execute(
                 f"""SELECT DISTINCT champion_name
                 FROM games
-                WHERE win = 0 {self._CASUAL_FILTER}
+                WHERE win = 0 {CASUAL_MODE_SQL_FILTER}
                 ORDER BY champion_name"""
             ).fetchall()
         else:
             rows = conn.execute(
                 f"""SELECT DISTINCT champion_name
                 FROM games
-                WHERE 1=1 {self._CASUAL_FILTER}
+                WHERE 1=1 {CASUAL_MODE_SQL_FILTER}
                 ORDER BY champion_name"""
             ).fetchall()
 

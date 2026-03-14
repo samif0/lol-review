@@ -176,6 +176,70 @@ MIGRATE_SESSION_LOG_MENTAL = [
     "ALTER TABLE session_log ADD COLUMN mental_handled TEXT DEFAULT ''",
 ]
 
+CREATE_OBJECTIVES_TABLE = """
+CREATE TABLE IF NOT EXISTS objectives (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    title               TEXT NOT NULL,
+    skill_area          TEXT DEFAULT '',
+    type                TEXT DEFAULT 'primary',
+    completion_criteria TEXT DEFAULT '',
+    description         TEXT DEFAULT '',
+    status              TEXT DEFAULT 'active',
+    score               INTEGER DEFAULT 0,
+    game_count          INTEGER DEFAULT 0,
+    created_at          INTEGER,
+    completed_at        INTEGER
+);
+"""
+
+CREATE_GAME_OBJECTIVES_TABLE = """
+CREATE TABLE IF NOT EXISTS game_objectives (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id         INTEGER NOT NULL,
+    objective_id    INTEGER NOT NULL,
+    practiced       INTEGER DEFAULT 1,
+    execution_note  TEXT DEFAULT '',
+    FOREIGN KEY (game_id) REFERENCES games(game_id),
+    FOREIGN KEY (objective_id) REFERENCES objectives(id),
+    UNIQUE(game_id, objective_id)
+);
+"""
+
+CREATE_CONCEPT_TAGS_TABLE = """
+CREATE TABLE IF NOT EXISTS concept_tags (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    name     TEXT UNIQUE NOT NULL,
+    polarity TEXT DEFAULT 'neutral',
+    color    TEXT DEFAULT '#3b82f6'
+);
+"""
+
+CREATE_GAME_CONCEPT_TAGS_TABLE = """
+CREATE TABLE IF NOT EXISTS game_concept_tags (
+    game_id INTEGER NOT NULL,
+    tag_id  INTEGER NOT NULL,
+    PRIMARY KEY (game_id, tag_id),
+    FOREIGN KEY (game_id) REFERENCES games(game_id),
+    FOREIGN KEY (tag_id) REFERENCES concept_tags(id)
+);
+"""
+
+DEFAULT_CONCEPT_TAGS = [
+    ("Dominated lane",    "positive", "#22c55e"),
+    ("Won teamfight",     "positive", "#22c55e"),
+    ("Good roam",         "positive", "#22c55e"),
+    ("Objective control", "positive", "#22c55e"),
+    ("Survived early",    "positive", "#22c55e"),
+    ("Caught out",        "negative", "#ef4444"),
+    ("Bad trade",         "negative", "#ef4444"),
+    ("Poor macro",        "negative", "#ef4444"),
+    ("Tilted",            "negative", "#ef4444"),
+    ("Overextended",      "negative", "#ef4444"),
+    ("Even game",         "neutral",  "#3b82f6"),
+    ("Team diff",         "neutral",  "#3b82f6"),
+    ("Passive game",      "neutral",  "#3b82f6"),
+]
+
 # Pre-populate some useful default tags
 DEFAULT_TAGS = [
     ("Tilted", "#ef4444"),

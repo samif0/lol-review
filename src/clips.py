@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Union
 
 from .config import get_clips_folder, get_clips_max_size_mb
+from .constants import FFMPEG_CRF, FFMPEG_CLIP_TIMEOUT_S, FFMPEG_RE_ENCODE_TIMEOUT_S
 
 logger = logging.getLogger(__name__)
 
@@ -122,13 +123,13 @@ def extract_clip(
     clip_result = _run_ffmpeg_clip(
         ffmpeg, vod_path, start_s, end_s, output_path,
         extra_args=[
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", str(FFMPEG_CRF),
             "-c:a", "aac", "-b:a", "128k",
             "-threads", "2",
             "-movflags", "+faststart",
         ],
         creation_flags=creation_flags,
-        timeout=180,  # re-encode takes longer
+        timeout=FFMPEG_RE_ENCODE_TIMEOUT_S,  # re-encode takes longer
     )
     if clip_result[0]:
         enforce_clips_folder_limit()
@@ -143,7 +144,7 @@ def _run_ffmpeg_clip(
     output_path: str,
     extra_args: list,
     creation_flags: int = 0,
-    timeout: int = 60,
+    timeout: int = FFMPEG_CLIP_TIMEOUT_S,
 ) -> Tuple[Optional[str], str]:
     """Run a single ffmpeg clip extraction attempt.
 

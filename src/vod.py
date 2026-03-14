@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import get_ascent_folder
+from .constants import VOD_MATCH_WINDOW_S, VOD_MTIME_GRACE_S
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,6 @@ _FILENAME_TS_RE = re.compile(r"(\d{1,2})-(\d{1,2})-(\d{4})-(\d{1,2})-(\d{2})")
 # time for them to be considered a match.  Ascent starts recording around
 # the same time the game begins, so a generous 10-minute window covers
 # clock skew + loading screen variance.
-_MATCH_WINDOW_S = 600  # 10 minutes
 
 
 def _parse_filename_timestamp(filename: str) -> Optional[float]:
@@ -84,7 +84,7 @@ def find_recordings(folder: Optional[str] = None) -> list[dict]:
 def match_recording_to_game(
     recording: dict,
     games: list[dict],
-    window_s: int = _MATCH_WINDOW_S,
+    window_s: int = VOD_MATCH_WINDOW_S,
 ) -> Optional[dict]:
     """Find the game whose start time best matches the recording.
 
@@ -116,8 +116,8 @@ def match_recording_to_game(
             # mtime fallback: compare file mtime vs game end
             game_end = game_ts + game_dur
             signed_delta = recording["mtime"] - game_end
-            # Recording should be AFTER game end (allow 30s grace)
-            if signed_delta < -30:
+            # Recording should be AFTER game end (allow grace period)
+            if signed_delta < -VOD_MTIME_GRACE_S:
                 continue
             delta = abs(signed_delta)
 

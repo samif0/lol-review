@@ -1,16 +1,18 @@
 """Post-game review popup window."""
 
-import json
 import tkinter as tk
 from typing import Callable, Optional
 
 import customtkinter as ctk
 
 from ..config import is_ascent_enabled
-from ..constants import COLORS, format_duration, format_number
+from ..constants import (
+    COLORS, format_duration, format_number,
+    KDA_EXCELLENT_THRESHOLD, KDA_GOOD_THRESHOLD, DAMAGE_DISPLAY_THRESHOLD,
+)
 from ..lcu import GameStats
 from ..vod import format_game_time
-from .widgets import StarRating, TagSelector, StatCard
+from .widgets import ConceptTagSelector, StarRating, StatCard
 
 
 class ReviewPanel(ctk.CTkFrame):
@@ -20,7 +22,7 @@ class ReviewPanel(ctk.CTkFrame):
         self,
         parent,
         stats: GameStats,
-        tags: list[dict],
+        tags: list[dict] = None,
         existing_review: Optional[dict] = None,
         on_save: Optional[Callable] = None,
         on_open_vod: Optional[Callable] = None,
@@ -30,6 +32,10 @@ class ReviewPanel(ctk.CTkFrame):
         bookmarks: Optional[list[dict]] = None,
         pregame_intention: str = "",
         existing_mental_handled: str = "",
+        concept_tags: Optional[list[dict]] = None,
+        existing_concept_tag_ids: Optional[list[int]] = None,
+        active_objectives: Optional[list[dict]] = None,
+        existing_game_objectives: Optional[list[dict]] = None,
         **kwargs,
     ):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kwargs)
@@ -43,6 +49,11 @@ class ReviewPanel(ctk.CTkFrame):
         self._bookmarks = bookmarks or []
         self._pregame_intention = pregame_intention
         self._existing_mental_handled = existing_mental_handled
+        self._concept_tags = concept_tags or []
+        self._existing_concept_tag_ids = existing_concept_tag_ids or []
+        self._active_objectives = active_objectives or []
+        self._existing_game_objectives = existing_game_objectives or []
+        self._objective_widgets: dict[int, dict] = {}  # populated by _build_review_section
 
         # Back button header
         s = self.stats
@@ -92,7 +103,12 @@ class ReviewPanel(ctk.CTkFrame):
             self._build_bookmarks_section(container)
 
         # === REVIEW SECTION ===
-        self._build_review_section(container, tags, er, self._pregame_intention, self._existing_mental_handled)
+        self._build_review_section(
+            container, er,
+            self._pregame_intention, self._existing_mental_handled,
+            self._concept_tags, self._existing_concept_tag_ids,
+            self._active_objectives, self._existing_game_objectives,
+        )
 
         # === SAVE BUTTON ===
         save_btn = ctk.CTkButton(
@@ -171,8 +187,8 @@ class ReviewPanel(ctk.CTkFrame):
             text_color=COLORS["text"],
         ).pack(anchor="e")
 
-        kda_color = COLORS["win_green"] if s.kda_ratio >= 3.0 else (
-            COLORS["accent_gold"] if s.kda_ratio >= 2.0 else COLORS["text_dim"]
+        kda_color = COLORS["win_green"] if s.kda_ratio >= KDA_EXCELLENT_THRESHOLD else (
+            COLORS["accent_gold"] if s.kda_ratio >= KDA_GOOD_THRESHOLD else COLORS["text_dim"]
         )
         ctk.CTkLabel(
             right,
@@ -259,15 +275,15 @@ class ReviewPanel(ctk.CTkFrame):
         bar_inner = ctk.CTkFrame(bar_frame, fg_color="transparent")
         bar_inner.pack(fill="both", expand=True, padx=2, pady=2)
 
-        if phys_pct > 0.02:
+        if phys_pct > DAMAGE_DISPLAY_THRESHOLD:
             phys_bar = ctk.CTkFrame(bar_inner, fg_color="#e74c3c", corner_radius=4)
             phys_bar.place(relx=0, rely=0, relwidth=phys_pct, relheight=1)
 
-        if magic_pct > 0.02:
+        if magic_pct > DAMAGE_DISPLAY_THRESHOLD:
             magic_bar = ctk.CTkFrame(bar_inner, fg_color="#3498db", corner_radius=4)
             magic_bar.place(relx=phys_pct, rely=0, relwidth=magic_pct, relheight=1)
 
-        if true_pct > 0.02:
+        if true_pct > DAMAGE_DISPLAY_THRESHOLD:
             true_bar = ctk.CTkFrame(bar_inner, fg_color="#f1f1f1", corner_radius=4)
             true_bar.place(relx=phys_pct + magic_pct, rely=0, relwidth=true_pct, relheight=1)
 
@@ -429,16 +445,20 @@ class ReviewPanel(ctk.CTkFrame):
     def _build_review_section(
         self,
         parent,
-        tags: list[dict],
         er: dict,
         pregame_intention: str = "",
         existing_mental_handled: str = "",
+        concept_tags: list[dict] = None,
+        existing_concept_tag_ids: list[int] = None,
+        active_objectives: list[dict] = None,
+        existing_game_objectives: list[dict] = None,
     ):
-        """The note-taking and review fields.
+        """The note-taking and review fields."""
+        concept_tags = concept_tags or []
+        existing_concept_tag_ids = existing_concept_tag_ids or []
+        active_objectives = active_objectives or []
+        existing_game_objectives = existing_game_objectives or []
 
-        Focused on learning objectives rather than play-by-play.
-        Specific moments should be captured as VOD bookmarks instead.
-        """
         ctk.CTkLabel(
             parent,
             text="YOUR REVIEW",
@@ -496,6 +516,93 @@ class ReviewPanel(ctk.CTkFrame):
         else:
             self.mental_handled = None
 
+        # === ACTIVE OBJECTIVE BLOCK ===
+        # Find the primary objective (first one, type='primary')
+        primary_obj = next((o for o in active_objectives if o.get("type") == "primary"), None)
+        mental_obj = next((o for o in active_objectives if o.get("type") == "mental"), None)
+
+        # Map existing game objectives by objective_id for pre-filling
+        existing_go_by_id = {go["objective_id"]: go for go in existing_game_objectives}
+
+        self._objective_widgets: dict[int, dict] = {}  # obj_id → {practiced_var, note_box}
+
+        for obj in [primary_obj, mental_obj]:
+            if obj is None:
+                continue
+            obj_id = obj["id"]
+            is_mental = obj.get("type") == "mental"
+            existing_go = existing_go_by_id.get(obj_id, {})
+
+            border_color = "#7c3aed" if is_mental else COLORS["accent_blue"]
+            label_color = "#a78bfa" if is_mental else COLORS["accent_blue"]
+            type_label = "MENTAL OBJECTIVE" if is_mental else "LEARNING OBJECTIVE"
+
+            obj_frame = ctk.CTkFrame(
+                parent, fg_color=COLORS["bg_card"], corner_radius=8,
+                border_width=2, border_color=border_color,
+            )
+            obj_frame.pack(fill="x", pady=(0, 10))
+
+            header_row = ctk.CTkFrame(obj_frame, fg_color="transparent")
+            header_row.pack(fill="x", padx=14, pady=(10, 4))
+
+            ctk.CTkLabel(
+                header_row, text=type_label,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=label_color,
+            ).pack(side="left")
+
+            ctk.CTkLabel(
+                obj_frame,
+                text=obj["title"],
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=COLORS["text"],
+                wraplength=650, justify="left",
+            ).pack(padx=14, pady=(0, 4), anchor="w")
+
+            if obj.get("completion_criteria"):
+                ctk.CTkLabel(
+                    obj_frame,
+                    text=f"Success looks like: {obj['completion_criteria']}",
+                    font=ctk.CTkFont(size=12),
+                    text_color=COLORS["text_dim"],
+                    wraplength=650, justify="left",
+                ).pack(padx=14, pady=(0, 6), anchor="w")
+
+            # Practiced checkbox
+            practiced_var = ctk.BooleanVar(value=bool(existing_go.get("practiced", True)))
+            ctk.CTkCheckBox(
+                obj_frame,
+                text="I practiced this objective this game",
+                variable=practiced_var,
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text"],
+                fg_color=border_color,
+                hover_color=border_color,
+            ).pack(padx=14, pady=(0, 6), anchor="w")
+
+            # Execution note
+            ctk.CTkLabel(
+                obj_frame,
+                text="How did it go?",
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_dim"],
+            ).pack(padx=14, anchor="w")
+
+            note_box = ctk.CTkTextbox(
+                obj_frame, height=52, font=ctk.CTkFont(size=13),
+                fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                border_width=1, border_color=border_color, corner_radius=6,
+            )
+            note_box.pack(fill="x", padx=14, pady=(4, 12))
+            if existing_go.get("execution_note"):
+                note_box.insert("1.0", existing_go["execution_note"])
+
+            self._objective_widgets[obj_id] = {
+                "practiced_var": practiced_var,
+                "note_box": note_box,
+            }
+
         # Rating
         rating_row = ctk.CTkFrame(parent, fg_color="transparent")
         rating_row.pack(fill="x", pady=(0, 8))
@@ -508,22 +615,26 @@ class ReviewPanel(ctk.CTkFrame):
         self.star_rating = StarRating(rating_row, initial=er.get("rating", 0))
         self.star_rating.pack(side="right")
 
-        # Tags
+        # Concept Tags (replaces old tag selector)
+        if concept_tags:
+            ctk.CTkLabel(
+                parent,
+                text="Concept Tags",
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text"],
+            ).pack(anchor="w", pady=(4, 4))
+
+            self.concept_tag_selector = ConceptTagSelector(
+                parent, concept_tags, selected_ids=existing_concept_tag_ids,
+            )
+            self.concept_tag_selector.pack(fill="x", pady=(0, 10))
+        else:
+            self.concept_tag_selector = None
+
+        # Key takeaway
         ctk.CTkLabel(
             parent,
-            text="Tags",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(4, 4))
-
-        existing_tags = json.loads(er.get("tags", "[]")) if isinstance(er.get("tags"), str) else er.get("tags", [])
-        self.tag_selector = TagSelector(parent, tags, selected=existing_tags)
-        self.tag_selector.pack(fill="x", pady=(0, 10))
-
-        # Learning objective question — replaces "what went well / what went wrong"
-        ctk.CTkLabel(
-            parent,
-            text="Did you work toward your learning objective?",
+            text="Key takeaway from this game",
             font=ctk.CTkFont(size=13),
             text_color=COLORS["text"],
         ).pack(anchor="w", pady=(4, 4))
@@ -535,10 +646,10 @@ class ReviewPanel(ctk.CTkFrame):
         self.went_well.pack(fill="x", pady=(0, 8))
         self.went_well.insert("1.0", er.get("went_well", ""))
 
-        # Takeaway — replaces "what could you improve"
+        # Mistakes / improvements
         ctk.CTkLabel(
             parent,
-            text="Key takeaway from this game",
+            text="What to improve next game",
             font=ctk.CTkFont(size=13),
             text_color=COLORS["text"],
         ).pack(anchor="w", pady=(4, 4))
@@ -550,7 +661,7 @@ class ReviewPanel(ctk.CTkFrame):
         self.mistakes.pack(fill="x", pady=(0, 8))
         self.mistakes.insert("1.0", er.get("mistakes", ""))
 
-        # VOD hint — encourage using bookmarks for specifics
+        # VOD hint
         if self._has_vod and self._bookmark_count == 0:
             ctk.CTkLabel(
                 parent,
@@ -595,11 +706,20 @@ class ReviewPanel(ctk.CTkFrame):
 
     def _save(self):
         """Collect review data and fire the save callback."""
+        # Collect objective data
+        objectives_data = []
+        for obj_id, widgets in self._objective_widgets.items():
+            objectives_data.append({
+                "objective_id": obj_id,
+                "practiced": widgets["practiced_var"].get(),
+                "execution_note": widgets["note_box"].get("1.0", "end-1c").strip(),
+            })
+
         review_data = {
             "game_id": self.stats.game_id,
+            "win": self.stats.win,
             "notes": self.notes.get("1.0", "end-1c").strip(),
             "rating": self.star_rating.get(),
-            "tags": self.tag_selector.get(),
             "mistakes": self.mistakes.get("1.0", "end-1c").strip(),
             "went_well": self.went_well.get("1.0", "end-1c").strip(),
             "focus_next": self.focus_next.get().strip(),
@@ -607,6 +727,10 @@ class ReviewPanel(ctk.CTkFrame):
                 self.mental_handled.get("1.0", "end-1c").strip()
                 if self.mental_handled else ""
             ),
+            "concept_tag_ids": (
+                self.concept_tag_selector.get() if self.concept_tag_selector else []
+            ),
+            "objectives_data": objectives_data,
         }
 
         if self.on_save:

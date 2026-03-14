@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from .connection import ConnectionManager
+from ..constants import SESSION_MIN_GAME_DURATION_S, CONSECUTIVE_LOSS_WARNING
 
 logger = logging.getLogger(__name__)
 
@@ -89,18 +90,18 @@ class SessionLogRepository:
         """
         conn = self._conn_mgr.get_conn()
         recent = conn.execute(
-            """SELECT sl.win FROM session_log sl
+            f"""SELECT sl.win FROM session_log sl
             JOIN games g ON sl.game_id = g.game_id
             WHERE sl.date = ?
-            AND g.game_duration >= 300
-            ORDER BY sl.id DESC LIMIT 2""",
+            AND g.game_duration >= {SESSION_MIN_GAME_DURATION_S}
+            ORDER BY sl.id DESC LIMIT {CONSECUTIVE_LOSS_WARNING}""",
             (today,),
         ).fetchall()
 
-        if len(recent) < 2:
+        if len(recent) < CONSECUTIVE_LOSS_WARNING:
             return False
 
-        return recent[0]["win"] == 0 and recent[1]["win"] == 0
+        return all(r["win"] == 0 for r in recent[:CONSECUTIVE_LOSS_WARNING])
 
     def has_entry(self, game_id: int) -> bool:
         """Check if a game already has a session_log entry."""

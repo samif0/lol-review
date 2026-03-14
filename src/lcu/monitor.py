@@ -5,6 +5,7 @@ import threading
 import time
 from typing import Callable, Optional
 
+from ..constants import GAME_MONITOR_POLL_INTERVAL_S, LIVE_EVENT_POLL_INTERVAL_S, MONITOR_STOP_TIMEOUT_S, EOG_STATS_RETRY_ATTEMPTS
 from .client import LCUClient
 from .credentials import find_credentials
 from .live_events import LiveEventCollector
@@ -33,7 +34,7 @@ class GameMonitor:
         on_game_start: Optional[Callable[[], None]] = None,
         on_connect: Optional[Callable[[], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
-        poll_interval: float = 5.0,
+        poll_interval: float = GAME_MONITOR_POLL_INTERVAL_S,
     ):
         self.on_game_end = on_game_end
         self.on_champ_select = on_champ_select
@@ -156,7 +157,7 @@ class GameMonitor:
         """Start the live event collector in a background thread."""
         self._stop_event_collector()  # Clean up any previous collector
 
-        self._event_collector = LiveEventCollector(poll_interval=10.0)
+        self._event_collector = LiveEventCollector(poll_interval=LIVE_EVENT_POLL_INTERVAL_S)
         self._collector_thread = threading.Thread(
             target=self._event_collector.start,
             daemon=True,
@@ -171,7 +172,7 @@ class GameMonitor:
             events = self._event_collector.stop()
             self._event_collector = None
         if self._collector_thread:
-            self._collector_thread.join(timeout=5)
+            self._collector_thread.join(timeout=MONITOR_STOP_TIMEOUT_S)
             self._collector_thread = None
         return events
 
@@ -186,7 +187,7 @@ class GameMonitor:
             logger.info(f"Collected {len(live_events)} live events during game")
 
         # The EOG data might take a moment to be ready — retry a few times
-        for attempt in range(5):
+        for attempt in range(EOG_STATS_RETRY_ATTEMPTS):
             eog_data = self._client.get_end_of_game_stats()
             if eog_data:
                 stats = extract_stats_from_eog(eog_data)

@@ -20,7 +20,13 @@ import customtkinter as ctk
 
 from ..clips import extract_clip, is_ffmpeg_available
 from ..config import get_keybinds, KEYBIND_LABELS
-from ..constants import COLORS
+from ..constants import (
+    CLIP_SAVE_FEEDBACK_MS,
+    COLORS,
+    VOD_ERROR_FLASH_MS,
+    VOD_PLAYBACK_SPEEDS,
+    VOD_TIME_UPDATE_INTERVAL_MS,
+)
 from ..database.game_events import EVENT_STYLES
 from ..vod import format_game_time, parse_game_time
 
@@ -534,7 +540,8 @@ class VodPlayerPanel(ctk.CTkFrame):
         )
         self._speed_label.pack(side="left", padx=(0, 2))
 
-        for spd, label in [(0.25, ".25"), (0.5, ".5"), (1.0, "1"), (1.5, "1.5"), (2.0, "2")]:
+        for spd in VOD_PLAYBACK_SPEEDS:
+            label = str(spd).rstrip('0').rstrip('.')
             btn = ctk.CTkButton(
                 transport_inner, text=label, width=36, height=28,
                 font=ctk.CTkFont(size=11),
@@ -713,7 +720,7 @@ class VodPlayerPanel(ctk.CTkFrame):
 
     # ── Keybind wiring ──────────────────────────────────────────
 
-    _SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0]
+    _SPEEDS = VOD_PLAYBACK_SPEEDS
 
     _ACTION_MAP = {
         "play_pause":   lambda s: s._toggle_play(),
@@ -921,7 +928,7 @@ class VodPlayerPanel(ctk.CTkFrame):
         if not self._playing or not self._player:
             return
         self._update_time_display()
-        self._update_job = self.after(250, self._start_time_update)
+        self._update_job = self.after(VOD_TIME_UPDATE_INTERVAL_MS, self._start_time_update)
 
     def _update_time_display(self):
         if not self._player:
@@ -1023,7 +1030,7 @@ class VodPlayerPanel(ctk.CTkFrame):
         game_time = parse_game_time(time_text)
         if game_time is None:
             self._time_entry.configure(border_color=COLORS["loss_red"])
-            self.after(1500, lambda: self._time_entry.configure(border_color=COLORS["border"]))
+            self.after(VOD_ERROR_FLASH_MS, lambda: self._time_entry.configure(border_color=COLORS["border"]))
             return
         self._do_add_bookmark(game_time, note_text)
         self._time_entry.delete(0, "end")
@@ -1202,7 +1209,7 @@ class VodPlayerPanel(ctk.CTkFrame):
             self._show_clip_note_dialog(clip_path, start_s, end_s)
         else:
             self._clip_save_btn.configure(text="Failed!", fg_color=COLORS["loss_red"])
-            self.after(3000, lambda: self._clip_save_btn.configure(
+            self.after(CLIP_SAVE_FEEDBACK_MS, lambda: self._clip_save_btn.configure(
                 text="Save Clip", fg_color="#22c55e"))
             self._update_clip_ui()
             if error_msg:
@@ -1408,7 +1415,8 @@ class VodPlayerWindow(ctk.CTkToplevel):
         )
         self._speed_label.pack(side="left", padx=(0, 2))
 
-        for spd, label in [(0.25, ".25"), (0.5, ".5"), (1.0, "1"), (1.5, "1.5"), (2.0, "2")]:
+        for spd in VOD_PLAYBACK_SPEEDS:
+            label = str(spd).rstrip('0').rstrip('.')
             btn = ctk.CTkButton(
                 transport_inner, text=label, width=36, height=28,
                 font=ctk.CTkFont(size=11),
@@ -1590,7 +1598,7 @@ class VodPlayerWindow(ctk.CTkToplevel):
 
     # ── Keybind wiring ──────────────────────────────────────────
 
-    _SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0]
+    _SPEEDS = VOD_PLAYBACK_SPEEDS
 
     _ACTION_MAP = {
         "play_pause":   lambda s: s._toggle_play(),
@@ -1808,7 +1816,7 @@ class VodPlayerWindow(ctk.CTkToplevel):
         if not self._playing or not self._player:
             return
         self._update_time_display()
-        self._update_job = self.after(250, self._start_time_update)
+        self._update_job = self.after(VOD_TIME_UPDATE_INTERVAL_MS, self._start_time_update)
 
     def _update_time_display(self):
         """Sync the time label and timeline with the player position."""
@@ -1924,7 +1932,7 @@ class VodPlayerWindow(ctk.CTkToplevel):
         game_time = parse_game_time(time_text)
         if game_time is None:
             self._time_entry.configure(border_color=COLORS["loss_red"])
-            self.after(1500, lambda: self._time_entry.configure(border_color=COLORS["border"]))
+            self.after(VOD_ERROR_FLASH_MS, lambda: self._time_entry.configure(border_color=COLORS["border"]))
             return
 
         self._do_add_bookmark(game_time, note_text)
@@ -2186,7 +2194,7 @@ class VodPlayerWindow(ctk.CTkToplevel):
             self._clip_save_btn.configure(
                 text="Failed!", fg_color=COLORS["loss_red"],
             )
-            self.after(3000, lambda: self._clip_save_btn.configure(
+            self.after(CLIP_SAVE_FEEDBACK_MS, lambda: self._clip_save_btn.configure(
                 text="Save Clip", fg_color="#22c55e",
             ))
             self._update_clip_ui()

@@ -2,7 +2,12 @@
 
 import customtkinter as ctk
 
-from ..constants import COLORS
+from ..constants import (
+    COLORS, AUTO_REFRESH_INTERVAL_MS, FLASH_WARNING_INTERVAL_MS,
+    CONSECUTIVE_LOSS_WARNING, MENTAL_RATING_MIN, MENTAL_RATING_MAX,
+    MENTAL_RATING_DEFAULT, MENTAL_RATING_STEPS,
+    MENTAL_EXCELLENT_THRESHOLD, MENTAL_DECENT_THRESHOLD,
+)
 
 
 class SessionRulesOverlay(ctk.CTkToplevel):
@@ -35,6 +40,8 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         # Track flash state for consecutive loss warning
         self.flash_active = False
         self.flash_state = False
+        self._flash_after_id = None
+        self._auto_refresh_after_id = None
 
         # Main container
         main_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_dark"])
@@ -152,7 +159,7 @@ class SessionRulesOverlay(ctk.CTkToplevel):
 
         self.mental_rating_label = ctk.CTkLabel(
             mental_frame,
-            text="5",
+            text=str(MENTAL_RATING_DEFAULT),
             font=ctk.CTkFont(size=28, weight="bold"),
             text_color=COLORS["accent_blue"],
         )
@@ -160,15 +167,15 @@ class SessionRulesOverlay(ctk.CTkToplevel):
 
         self.mental_slider = ctk.CTkSlider(
             mental_frame,
-            from_=1,
-            to=10,
-            number_of_steps=9,
+            from_=MENTAL_RATING_MIN,
+            to=MENTAL_RATING_MAX,
+            number_of_steps=MENTAL_RATING_STEPS,
             command=self._on_mental_slider_change,
             button_color=COLORS["accent_blue"],
             button_hover_color="#0077cc",
             progress_color=COLORS["accent_blue"],
         )
-        self.mental_slider.set(5)
+        self.mental_slider.set(MENTAL_RATING_DEFAULT)
         self.mental_slider.pack(fill="x", padx=12, pady=(6, 10))
 
         # Refresh button
@@ -188,7 +195,7 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         self._refresh_session_data()
 
         # Auto-refresh every 30 seconds
-        self.after(30000, self._auto_refresh)
+        self._auto_refresh_after_id = self.after(AUTO_REFRESH_INTERVAL_MS, self._auto_refresh)
 
     def _on_mental_slider_change(self, value):
         """Update mental rating label when slider changes."""
@@ -196,9 +203,9 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         self.mental_rating_label.configure(text=str(rating))
 
         # Color code the rating
-        if rating >= 8:
+        if rating >= MENTAL_EXCELLENT_THRESHOLD:
             color = COLORS["win_green"]
-        elif rating >= 5:
+        elif rating >= MENTAL_DECENT_THRESHOLD:
             color = COLORS["accent_blue"]
         else:
             color = COLORS["loss_red"]
@@ -242,7 +249,7 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         self.loss_streak_label.configure(text_color=streak_color)
 
         # Show/hide warning based on consecutive losses
-        if consecutive_losses >= 2:
+        if consecutive_losses >= CONSECUTIVE_LOSS_WARNING:
             self._show_warning()
         else:
             self._hide_warning()
@@ -273,11 +280,19 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         """Hide the STOP warning and stop flashing."""
         if self.flash_active:
             self.flash_active = False
+            self._cancel_flash()
             self.warning_label.pack_forget()
+
+    def _cancel_flash(self):
+        """Cancel any pending flash callback."""
+        if self._flash_after_id is not None:
+            self.after_cancel(self._flash_after_id)
+            self._flash_after_id = None
 
     def _flash_warning(self):
         """Flash the warning label between red and darker red."""
         if not self.flash_active:
+            self._flash_after_id = None
             return
 
         if self.flash_state:
@@ -288,13 +303,43 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         self.flash_state = not self.flash_state
 
         # Continue flashing every 500ms
-        self.after(500, self._flash_warning)
+        self._flash_after_id = self.after(FLASH_WARNING_INTERVAL_MS, self._flash_warning)
 
     def _auto_refresh(self):
         """Auto-refresh session data periodically."""
         if self.winfo_exists():
+            try:
+                self._refresh_session_data()
+            except Exception:
+                pass  # Don't let exceptions kill the refresh loop
+            self._auto_refresh_after_id = self.after(AUTO_REFRESH_INTERVAL_MS, self._auto_refresh)
+
+    def withdraw(self):
+        """Override withdraw to cancel flash and auto-refresh timers."""
+        self._cancel_flash()
+        if self._auto_refresh_after_id is not None:
+            self.after_cancel(self._auto_refresh_after_id)
+            self._auto_refresh_after_id = None
+        super().withdraw()
+
+    def deiconify(self):
+        """Override deiconify to restart flash and auto-refresh timers."""
+        super().deiconify()
+        # Restart auto-refresh
+        if self._auto_refresh_after_id is None:
             self._refresh_session_data()
-            self.after(30000, self._auto_refresh)
+            self._auto_refresh_after_id = self.after(AUTO_REFRESH_INTERVAL_MS, self._auto_refresh)
+        # Restart flash if it was active
+        if self.flash_active and self._flash_after_id is None:
+            self._flash_warning()
+
+    def destroy(self):
+        """Override destroy to cancel all pending after() callbacks."""
+        self._cancel_flash()
+        if self._auto_refresh_after_id is not None:
+            self.after_cancel(self._auto_refresh_after_id)
+            self._auto_refresh_after_id = None
+        super().destroy()
 
     def get_mental_rating(self) -> int:
         """Get current mental check rating."""

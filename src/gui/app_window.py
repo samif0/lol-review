@@ -16,7 +16,13 @@ from ..config import (
     get_clips_max_size_mb, set_clips_max_size_mb,
     DEFAULT_KEYBINDS, KEYBIND_LABELS,
 )
-from ..constants import COLORS, format_duration, format_number
+from ..constants import (
+    COLORS, format_duration, format_number,
+    AUTO_REFRESH_INTERVAL_MS,
+    MENTAL_EXCELLENT_THRESHOLD, MENTAL_DECENT_THRESHOLD,
+    ADHERENCE_STREAK_LOCKED_IN, UNREVIEWED_GAMES_DAYS,
+    UNREVIEWED_GAMES_DISPLAY_LIMIT, HISTORY_PAGE_SIZE,
+)
 from ..version import __version__
 from .claude_context import ClaudeContextWindow
 from .game_review import SessionGameReviewPanel
@@ -53,6 +59,26 @@ def _card(parent, **kwargs) -> ctk.CTkFrame:
         border_color=COLORS["border"],
         **kwargs,
     )
+
+
+def _refresh_scroll(scroll, rebuild_fn, pack_kw=None):
+    """Rebuild a CTkScrollableFrame's content without visible flicker.
+
+    Hides the frame, destroys children, calls rebuild_fn to repopulate,
+    re-shows the frame, and restores scroll position.
+    """
+    pack_kw = pack_kw or {"fill": "both", "expand": True, "padx": 16, "pady": 16}
+    try:
+        pos = scroll._parent_canvas.yview()[0]
+    except Exception:
+        pos = 0.0
+    scroll.pack_forget()
+    for w in scroll.winfo_children():
+        w.destroy()
+    rebuild_fn()
+    scroll.pack(**pack_kw)
+    if pos > 0.01:
+        scroll.after_idle(lambda: scroll._parent_canvas.yview_moveto(pos))
 
 
 def _stat_block(parent, label: str, value: str, color: str = None) -> ctk.CTkLabel:
@@ -136,7 +162,7 @@ class HomePage(ctk.CTkFrame):
         _stat_block(row, "Avg Mental", f"{avg_mental}/10" if games > 0 else "—", COLORS["accent_blue"])
         _stat_block(row, "Win Streak", st, sc)
         _stat_block(row, "Adherence", f"{adherence}d",
-                    COLORS["win_green"] if adherence >= 3 else COLORS["text"])
+                    COLORS["win_green"] if adherence >= ADHERENCE_STREAK_LOCKED_IN else COLORS["text"])
 
         if games > 0:
             if avg_mental >= 7:
@@ -151,7 +177,7 @@ class HomePage(ctk.CTkFrame):
                          text_color=btc).pack(pady=10)
 
     def _build_unreviewed(self, parent):
-        unreviewed = self.db.get_unreviewed_games(days=3)
+        unreviewed = self.db.get_unreviewed_games(days=UNREVIEWED_GAMES_DAYS)
         count = len(unreviewed)
 
         section = _card(parent)
@@ -179,11 +205,11 @@ class HomePage(ctk.CTkFrame):
                      font=ctk.CTkFont(size=12),
                      text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
 
-        for game in unreviewed[:8]:
+        for game in unreviewed[:UNREVIEWED_GAMES_DISPLAY_LIMIT]:
             self._build_unreviewed_row(inner, game)
 
-        if count > 8:
-            ctk.CTkLabel(inner, text=f"+ {count - 8} more — check Losses page",
+        if count > UNREVIEWED_GAMES_DISPLAY_LIMIT:
+            ctk.CTkLabel(inner, text=f"+ {count - UNREVIEWED_GAMES_DISPLAY_LIMIT} more — check Losses page",
                          font=ctk.CTkFont(size=11),
                          text_color=COLORS["text_dim"]).pack(anchor="w", pady=(6, 0))
 
@@ -231,9 +257,7 @@ class HomePage(ctk.CTkFrame):
 
     def refresh(self):
         if self._scroll:
-            for w in self._scroll.winfo_children():
-                w.destroy()
-            self._populate(self._scroll)
+            _refresh_scroll(self._scroll, lambda: self._populate(self._scroll))
 
 
 # ══════════════════════════════════════════════════════════
@@ -250,7 +274,7 @@ class SessionPage(ctk.CTkFrame):
         self._last_refresh_hash = None
         self._build_chrome()
         self._refresh()
-        self.after(30000, self._auto_refresh)
+        self.after(AUTO_REFRESH_INTERVAL_MS, self._auto_refresh)
 
     def _build_chrome(self):
         outer = ctk.CTkFrame(self, fg_color="transparent")
@@ -381,7 +405,7 @@ class SessionPage(ctk.CTkFrame):
         )
         self._stat_labels["streak"].configure(
             text=str(streak),
-            text_color=COLORS["win_green"] if streak >= 3 else COLORS["text"],
+            text_color=COLORS["win_green"] if streak >= ADHERENCE_STREAK_LOCKED_IN else COLORS["text"],
         )
 
         entries = self.db.get_session_log_for_date(self._selected_date)
@@ -391,20 +415,20 @@ class SessionPage(ctk.CTkFrame):
             return
         self._last_refresh_hash = h
 
-        for w in self.scroll_frame.winfo_children():
-            w.destroy()
+        def _rebuild_games():
+            if not entries:
+                ctk.CTkLabel(
+                    self.scroll_frame,
+                    text=("No games logged today.\nGames are logged automatically when detected."
+                          if is_today else "No games logged on this date."),
+                    font=ctk.CTkFont(size=13), text_color=COLORS["text_dim"], justify="center",
+                ).pack(pady=30)
+                return
+            for entry in entries:
+                self._build_entry_row(entry)
 
-        if not entries:
-            ctk.CTkLabel(
-                self.scroll_frame,
-                text=("No games logged today.\nGames are logged automatically when detected."
-                      if is_today else "No games logged on this date."),
-                font=ctk.CTkFont(size=13), text_color=COLORS["text_dim"], justify="center",
-            ).pack(pady=30)
-            return
-
-        for entry in entries:
-            self._build_entry_row(entry)
+        _refresh_scroll(self.scroll_frame, _rebuild_games,
+                        pack_kw={"fill": "both", "expand": True})
 
     def _build_entry_row(self, entry: dict):
         is_win = bool(entry.get("win"))
@@ -452,7 +476,7 @@ class SessionPage(ctk.CTkFrame):
         right.pack(side="right")
 
         mental = entry.get("mental_rating", 5)
-        mc = COLORS["win_green"] if mental >= 8 else (COLORS["accent_blue"] if mental >= 5 else COLORS["loss_red"])
+        mc = COLORS["win_green"] if mental >= MENTAL_EXCELLENT_THRESHOLD else (COLORS["accent_blue"] if mental >= MENTAL_DECENT_THRESHOLD else COLORS["loss_red"])
         ctk.CTkLabel(right, text=f"Mental: {mental}/10",
                      font=ctk.CTkFont(size=14, weight="bold"),
                      text_color=mc).pack(anchor="e")
@@ -518,7 +542,7 @@ class SessionPage(ctk.CTkFrame):
         except Exception as e:
             logger.warning(f"Session auto-refresh error: {e}")
         finally:
-            self.after(30000, self._auto_refresh)
+            self.after(AUTO_REFRESH_INTERVAL_MS, self._auto_refresh)
 
     def refresh(self):
         self._refresh(force=True)
@@ -529,11 +553,14 @@ class SessionPage(ctk.CTkFrame):
 # ══════════════════════════════════════════════════════════
 
 class HistoryPage(ctk.CTkFrame):
+    _page_size = HISTORY_PAGE_SIZE
+
     def __init__(self, parent, db, on_open_vod, on_open_review=None, **kw):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
         self.db = db
         self._on_open_vod = on_open_vod
         self._on_open_review = on_open_review
+        self._current_page = 0
         self._build()
 
     def _build(self):
@@ -561,11 +588,23 @@ class HistoryPage(ctk.CTkFrame):
         self._populate_stats(tab_stats)
 
     def _populate_games(self, parent):
-        games = self.db.get_recent_games(9999)
-        scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        scroll.pack(fill="both", expand=True)
+        self._games_scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self._games_scroll.pack(fill="both", expand=True)
+        self._load_more_btn = None
+        self._load_games_page()
 
-        if not games:
+    def _load_games_page(self):
+        offset = self._current_page * self._page_size
+        games = self.db.get_recent_games(self._page_size, offset=offset)
+
+        scroll = self._games_scroll
+
+        # Remove the previous "Load More" button if present
+        if self._load_more_btn is not None:
+            self._load_more_btn.destroy()
+            self._load_more_btn = None
+
+        if not games and self._current_page == 0:
             ctk.CTkLabel(scroll, text="No games recorded yet.",
                          font=ctk.CTkFont(size=14),
                          text_color=COLORS["text_dim"]).pack(pady=40)
@@ -573,6 +612,20 @@ class HistoryPage(ctk.CTkFrame):
 
         for game in games:
             self._build_game_row(scroll, game)
+
+        # Show "Load More" button if we got a full page (more may exist)
+        if len(games) >= self._page_size:
+            self._load_more_btn = ctk.CTkButton(
+                scroll, text="Load More", font=ctk.CTkFont(size=13),
+                height=32, width=160, corner_radius=8,
+                fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+                command=self._on_load_more,
+            )
+            self._load_more_btn.pack(pady=12)
+
+    def _on_load_more(self):
+        self._current_page += 1
+        self._load_games_page()
 
     def _build_game_row(self, parent, game: dict):
         is_win = bool(game.get("win"))
@@ -728,9 +781,18 @@ class HistoryPage(ctk.CTkFrame):
             self._on_open_review("session_game", game=game, on_save=lambda: None)
 
     def refresh(self):
-        for w in self.winfo_children():
-            w.destroy()
-        self._build()
+        self._current_page = 0
+        # Only rebuild game list content, preserve tabs
+        if hasattr(self, "_games_scroll") and self._games_scroll:
+            _refresh_scroll(
+                self._games_scroll,
+                self._load_games_page,
+                pack_kw={"fill": "both", "expand": True},
+            )
+        else:
+            for w in self.winfo_children():
+                w.destroy()
+            self._build()
 
 
 # ══════════════════════════════════════════════════════════
@@ -791,21 +853,21 @@ class LossesPage(ctk.CTkFrame):
         self._refresh_losses()
 
     def _refresh_losses(self):
-        for w in self._scroll.winfo_children():
-            w.destroy()
-
         champ = None if self._selected_champion == "All Champions" else self._selected_champion
         losses = self.db.get_losses(champion=champ)
 
-        if not losses:
-            ctk.CTkLabel(self._scroll,
-                         text="No losses recorded yet.",
-                         font=ctk.CTkFont(size=14),
-                         text_color=COLORS["text_dim"]).pack(pady=40)
-            return
+        def _rebuild():
+            if not losses:
+                ctk.CTkLabel(self._scroll,
+                             text="No losses recorded yet.",
+                             font=ctk.CTkFont(size=14),
+                             text_color=COLORS["text_dim"]).pack(pady=40)
+                return
+            for loss in losses:
+                self._build_loss_card(self._scroll, loss)
 
-        for loss in losses:
-            self._build_loss_card(self._scroll, loss)
+        _refresh_scroll(self._scroll, _rebuild,
+                        pack_kw={"fill": "both", "expand": True})
 
     def _build_loss_card(self, parent, loss: dict):
         has_review = bool(
@@ -1067,9 +1129,7 @@ class StatsPage(ctk.CTkFrame):
                              text_color=color, width=w).pack(side="left", padx=8, pady=3)
 
     def refresh(self):
-        for w in self._scroll.winfo_children():
-            w.destroy()
-        self._populate(self._scroll)
+        _refresh_scroll(self._scroll, lambda: self._populate(self._scroll))
 
 
 # ══════════════════════════════════════════════════════════
@@ -1406,6 +1466,426 @@ class SettingsPage(ctk.CTkFrame):
 # ══════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════
+# Page: Objectives
+# ══════════════════════════════════════════════════════════
+
+_LEVEL_COLORS = ["#6b7280", "#3b82f6", "#8b5cf6", "#eab308"]
+
+
+class _NewObjectiveDialog(ctk.CTkToplevel):
+    """Modal form for creating a new learning objective."""
+
+    def __init__(self, parent, db, on_created, **kw):
+        super().__init__(parent, **kw)
+        self.db = db
+        self._on_created = on_created
+
+        self.title("New Learning Objective")
+        self.geometry("520x560")
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.resizable(False, False)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(100, lambda: self.attributes("-topmost", False))
+        self.grab_set()
+
+        scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_button_color=COLORS["border"],
+        )
+        scroll.pack(fill="both", expand=True, padx=20, pady=16)
+
+        ctk.CTkLabel(scroll, text="New Objective",
+                     font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color=COLORS["text"]).pack(anchor="w", pady=(0, 16))
+
+        # Type selector
+        ctk.CTkLabel(scroll, text="Type", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._type_var = ctk.StringVar(value="primary")
+        type_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        type_row.pack(fill="x", pady=(4, 12))
+        for label, val in [("Primary (gameplay)", "primary"), ("Mental (mindset)", "mental")]:
+            ctk.CTkRadioButton(
+                type_row, text=label, variable=self._type_var, value=val,
+                font=ctk.CTkFont(size=13), text_color=COLORS["text"],
+                fg_color=COLORS["accent_blue"],
+            ).pack(side="left", padx=(0, 20))
+
+        # Title
+        ctk.CTkLabel(scroll, text="Title *", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._title_entry = ctk.CTkEntry(
+            scroll, height=36, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_color=COLORS["border"], placeholder_text="e.g., Hit wave before roaming",
+        )
+        self._title_entry.pack(fill="x", pady=(4, 12))
+
+        # Skill area
+        ctk.CTkLabel(scroll, text="Skill Area", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._skill_entry = ctk.CTkEntry(
+            scroll, height=36, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_color=COLORS["border"],
+            placeholder_text="e.g., Laning, Macro, Mental, Teamfighting",
+        )
+        self._skill_entry.pack(fill="x", pady=(4, 12))
+
+        # Completion criteria
+        ctk.CTkLabel(scroll, text="What does success look like in-game? *",
+                     font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._criteria_box = ctk.CTkTextbox(
+            scroll, height=80, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+        )
+        self._criteria_box.pack(fill="x", pady=(4, 12))
+
+        # Description (optional)
+        ctk.CTkLabel(scroll, text="Description (optional)",
+                     font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._desc_box = ctk.CTkTextbox(
+            scroll, height=60, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+        )
+        self._desc_box.pack(fill="x", pady=(4, 12))
+
+        # Buttons
+        btn_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(8, 0))
+        ctk.CTkButton(
+            btn_row, text="Create Objective",
+            font=ctk.CTkFont(size=14, weight="bold"), height=40,
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._create,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(
+            btn_row, text="Cancel",
+            font=ctk.CTkFont(size=14), height=40,
+            fg_color="transparent", hover_color=COLORS["bg_input"],
+            text_color=COLORS["text_dim"], border_width=1,
+            border_color=COLORS["border"],
+            command=self.destroy,
+        ).pack(side="left", fill="x", expand=True)
+
+    def _create(self):
+        title = self._title_entry.get().strip()
+        if not title:
+            self._title_entry.configure(border_color=COLORS["loss_red"])
+            return
+        criteria = self._criteria_box.get("1.0", "end-1c").strip()
+        self.db.objectives.create(
+            title=title,
+            skill_area=self._skill_entry.get().strip(),
+            obj_type=self._type_var.get(),
+            completion_criteria=criteria,
+            description=self._desc_box.get("1.0", "end-1c").strip(),
+        )
+        self.destroy()
+        if self._on_created:
+            self._on_created()
+
+
+class _ConfirmDialog(ctk.CTkToplevel):
+    """Small modal confirmation dialog consistent with the app's dark theme."""
+
+    def __init__(self, parent, message: str, confirm_text: str = "Delete",
+                 confirm_color: str = COLORS["loss_red"],
+                 confirm_hover: str = "#b91c1c",
+                 on_confirm=None, **kw):
+        super().__init__(parent, **kw)
+        self._on_confirm = on_confirm
+
+        self.title("Confirm")
+        self.geometry("380x160")
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.resizable(False, False)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(100, lambda: self.attributes("-topmost", False))
+        self.grab_set()
+
+        ctk.CTkLabel(
+            self, text=message,
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS["text"],
+            wraplength=340, justify="center",
+        ).pack(padx=20, pady=(24, 20))
+
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(fill="x", padx=20, pady=(0, 20))
+
+        ctk.CTkButton(
+            btn_row, text=confirm_text,
+            font=ctk.CTkFont(size=14, weight="bold"), height=38,
+            fg_color=confirm_color, hover_color=confirm_hover,
+            command=self._confirm,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        ctk.CTkButton(
+            btn_row, text="Cancel",
+            font=ctk.CTkFont(size=14), height=38,
+            fg_color="transparent", hover_color=COLORS["bg_input"],
+            text_color=COLORS["text_dim"],
+            border_width=1, border_color=COLORS["border"],
+            command=self.destroy,
+        ).pack(side="left", fill="x", expand=True)
+
+    def _confirm(self):
+        self.destroy()
+        if self._on_confirm:
+            self._on_confirm()
+
+
+class ObjectivesPage(ctk.CTkFrame):
+    def __init__(self, parent, db, **kw):
+        super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
+        self.db = db
+        self._scroll = None
+        self._build()
+
+    def _build(self):
+        self._scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_button_color=COLORS["border"],
+        )
+        self._scroll.pack(fill="both", expand=True, padx=16, pady=16)
+        self._populate()
+
+    def _populate(self):
+        body = self._scroll
+
+        # Header
+        hrow = ctk.CTkFrame(body, fg_color="transparent")
+        hrow.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(hrow, text="Learning Objectives",
+                     font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=COLORS["text"]).pack(side="left")
+        ctk.CTkButton(
+            hrow, text="+ New Objective",
+            font=ctk.CTkFont(size=13), height=34, width=140,
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._open_new_dialog,
+        ).pack(side="right")
+
+        objectives = self.db.objectives.get_all()
+        active = [o for o in objectives if o["status"] == "active"]
+        completed = [o for o in objectives if o["status"] != "active"]
+
+        if not objectives:
+            empty = ctk.CTkFrame(body, fg_color=COLORS["bg_card"], corner_radius=10,
+                                 border_width=1, border_color=COLORS["border"])
+            empty.pack(fill="x", pady=(0, 12))
+            ctk.CTkLabel(
+                empty,
+                text="No objectives yet.\n\nCreate your first learning objective to start tracking progress.",
+                font=ctk.CTkFont(size=14),
+                text_color=COLORS["text_dim"],
+                justify="center",
+            ).pack(padx=20, pady=30)
+            return
+
+        if active:
+            ctk.CTkLabel(body, text="ACTIVE",
+                         font=ctk.CTkFont(size=11, weight="bold"),
+                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+            for obj in active:
+                self._build_objective_card(body, obj)
+
+        if completed:
+            ctk.CTkLabel(body, text="COMPLETED",
+                         font=ctk.CTkFont(size=11, weight="bold"),
+                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(16, 8))
+            for obj in completed:
+                self._build_completed_card(body, obj)
+
+    def _build_objective_card(self, parent, obj: dict):
+        info = self.db.objectives.get_level_info(obj["score"], obj["game_count"])
+
+        is_mental = obj.get("type") == "mental"
+        border_color = "#7c3aed" if is_mental else COLORS["accent_blue"]
+        level_color = _LEVEL_COLORS[min(info["level_index"], len(_LEVEL_COLORS) - 1)]
+
+        card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10,
+                            border_width=2, border_color=border_color)
+        card.pack(fill="x", pady=(0, 12))
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        # Title row
+        title_row = ctk.CTkFrame(inner, fg_color="transparent")
+        title_row.pack(fill="x", pady=(0, 4))
+
+        type_badge_color = "#7c3aed" if is_mental else "#1e40af"
+        type_text = "MENTAL" if is_mental else "PRIMARY"
+        ctk.CTkLabel(
+            title_row, text=type_text,
+            font=ctk.CTkFont(size=9, weight="bold"),
+            text_color="#ffffff", fg_color=type_badge_color,
+            corner_radius=4, padx=6, pady=1,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(
+            title_row, text=obj["title"],
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["text"], anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+
+        if obj.get("skill_area"):
+            ctk.CTkLabel(inner, text=obj["skill_area"],
+                         font=ctk.CTkFont(size=12),
+                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 6))
+
+        if obj.get("completion_criteria"):
+            ctk.CTkLabel(
+                inner,
+                text=f"Success: {obj['completion_criteria']}",
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_dim"],
+                wraplength=600, justify="left",
+            ).pack(anchor="w", pady=(0, 10))
+
+        # Level + score row
+        level_row = ctk.CTkFrame(inner, fg_color="transparent")
+        level_row.pack(fill="x", pady=(0, 6))
+
+        ctk.CTkLabel(
+            level_row, text=info["level_name"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=level_color,
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            level_row,
+            text=f"  {obj['score']} pts  •  {obj['game_count']} games",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_dim"],
+        ).pack(side="left")
+
+        if info["next_threshold"] is not None:
+            pts_needed = info["next_threshold"] - obj["score"]
+            ctk.CTkLabel(
+                level_row,
+                text=f"  ({pts_needed} pts to next level)",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_dim"],
+            ).pack(side="left")
+
+        # Progress bar
+        progress_bar = ctk.CTkProgressBar(
+            inner, height=8, corner_radius=4,
+            fg_color=COLORS["border"],
+            progress_color=level_color,
+        )
+        progress_bar.set(info["progress"])
+        progress_bar.pack(fill="x", pady=(0, 12))
+
+        # Action buttons
+        btn_row = ctk.CTkFrame(inner, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        if info["suggest_complete"]:
+            ctk.CTkLabel(
+                btn_row,
+                text="Ready to complete! You've mastered this objective.",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=COLORS["accent_gold"],
+            ).pack(side="left", padx=(0, 10))
+
+        if info["can_complete"]:
+            ctk.CTkButton(
+                btn_row, text="Mark Complete",
+                font=ctk.CTkFont(size=12), height=30, width=130,
+                fg_color="#22c55e", hover_color="#16a34a",
+                text_color="#ffffff",
+                command=lambda oid=obj["id"]: self._complete_objective(oid),
+            ).pack(side="right", padx=(6, 0))
+        else:
+            remaining = max(0, 30 - obj["game_count"])
+            ctk.CTkLabel(
+                btn_row,
+                text=f"{remaining} more games to unlock completion",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_dim"],
+            ).pack(side="right")
+
+        ctk.CTkButton(
+            btn_row, text="Delete",
+            font=ctk.CTkFont(size=12), height=30, width=70,
+            fg_color="transparent", hover_color="#3f1111",
+            text_color=COLORS["loss_red"],
+            border_width=1, border_color=COLORS["loss_red"],
+            command=lambda oid=obj["id"]: self._delete_objective(oid),
+        ).pack(side="right")
+
+    def _build_completed_card(self, parent, obj: dict):
+        card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=8,
+                            border_width=1, border_color=COLORS["border"])
+        card.pack(fill="x", pady=(0, 8))
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=10)
+
+        ctk.CTkLabel(
+            row, text=obj["title"],
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS["text_dim"], anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+
+        ctk.CTkLabel(
+            row, text=f"{obj['score']} pts  •  {obj['game_count']} games",
+            font=ctk.CTkFont(size=12), text_color=COLORS["text_dim"],
+        ).pack(side="right", padx=(8, 0))
+
+        ctk.CTkLabel(
+            row, text="DONE",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color="#22c55e", fg_color="#1a3a1a",
+            corner_radius=4, padx=6, pady=1,
+        ).pack(side="right")
+
+    def _open_new_dialog(self):
+        _NewObjectiveDialog(self, db=self.db, on_created=self.refresh)
+
+    def _complete_objective(self, obj_id: int):
+        def _do_complete():
+            self.db.objectives.mark_complete(obj_id)
+            self.refresh()
+
+        _ConfirmDialog(
+            self,
+            message="Mark this objective as complete? This cannot be undone.",
+            confirm_text="Complete",
+            confirm_color=COLORS["win_green"],
+            confirm_hover="#16a34a",
+            on_confirm=_do_complete,
+        )
+
+    def _delete_objective(self, obj_id: int):
+        def _do_delete():
+            self.db.objectives.delete(obj_id)
+            self.refresh()
+
+        _ConfirmDialog(
+            self,
+            message="Delete this objective? This cannot be undone.",
+            confirm_text="Delete",
+            confirm_color=COLORS["loss_red"],
+            confirm_hover="#b91c1c",
+            on_confirm=_do_delete,
+        )
+
+    def refresh(self):
+        _refresh_scroll(self._scroll, self._populate)
+
+
+# ══════════════════════════════════════════════════════════
 # Wrapper Pages: Review & VOD (dynamic inline pages)
 # ══════════════════════════════════════════════════════════
 
@@ -1463,7 +1943,7 @@ class AppWindow(ctk.CTk):
     """Single-window app with sidebar navigation."""
 
     # Sidebar page names (have nav items)
-    _SIDEBAR_PAGES = {"home", "session", "history", "losses", "stats", "settings"}
+    _SIDEBAR_PAGES = {"home", "session", "objectives", "history", "losses", "stats", "settings"}
 
     def __init__(self, db, on_minimize, on_open_vod, on_open_manual_entry,
                  on_settings_saved=None,
@@ -1537,6 +2017,7 @@ class AppWindow(ctk.CTk):
         for icon, label, page in [
             ("🏠", "Home", "home"),
             ("📋", "Session", "session"),
+            ("🎯", "Objectives", "objectives"),
             ("📜", "History", "history"),
             ("💔", "Losses", "losses"),
             ("📊", "Stats", "stats"),
@@ -1626,6 +2107,9 @@ class AppWindow(ctk.CTk):
             self._content, db=self.db,
             on_open_vod=self._navigate_to_vod,
             on_open_review=self._navigate_to_review,
+        )
+        self._pages["objectives"] = ObjectivesPage(
+            self._content, db=self.db,
         )
         self._pages["history"] = HistoryPage(
             self._content, db=self.db,

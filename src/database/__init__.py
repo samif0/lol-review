@@ -8,11 +8,13 @@ are added in future versions.
 from pathlib import Path
 from typing import Optional
 
+from .concept_tags import ConceptTagRepository
 from .connection import ConnectionManager, DEFAULT_DB_PATH
 from .context import generate_claude_context
 from .game_events import GameEventsRepository
 from .games import GameRepository
 from .notes import NotesRepository
+from .objectives import ObjectivesRepository
 from .session_log import SessionLogRepository
 from .tags import TagRepository
 from .vod import VodRepository
@@ -37,6 +39,8 @@ class Database:
         self.notes = NotesRepository(self._conn_mgr)
         self.vod = VodRepository(self._conn_mgr)
         self.game_events = GameEventsRepository(self._conn_mgr)
+        self.objectives = ObjectivesRepository(self._conn_mgr)
+        self.concept_tags = ConceptTagRepository(self._conn_mgr)
 
         # One-time cleanup
         self.session_log.cleanup_mismatched_entries()
@@ -52,8 +56,8 @@ class Database:
     def get_game(self, game_id):
         return self.games.get(game_id)
 
-    def get_recent_games(self, limit=50):
-        return self.games.get_recent(limit)
+    def get_recent_games(self, limit=50, offset=0):
+        return self.games.get_recent(limit, offset)
 
     def get_champion_stats(self):
         return self.games.get_champion_stats()

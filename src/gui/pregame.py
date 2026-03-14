@@ -24,6 +24,7 @@ class PreGameWindow(ctk.CTkToplevel):
         streak: int = 0,
         last_mental_intention: str = "",
         on_dismiss: Optional[Callable] = None,
+        active_objective: Optional[dict] = None,
         *args,
         **kwargs,
     ):
@@ -32,6 +33,7 @@ class PreGameWindow(ctk.CTkToplevel):
         self.on_dismiss = on_dismiss
         recent_games = recent_games or []
         self._last_mental_intention = last_mental_intention
+        self._active_objective = active_objective
 
         # Window setup — compact, stays on top so you see it during champ select
         self.title("Pre-Game Focus")
@@ -70,6 +72,49 @@ class PreGameWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=12),
             text_color=COLORS["text_dim"],
         ).pack(anchor="w", pady=(0, 12))
+
+        # === ACTIVE LEARNING OBJECTIVE ===
+        if self._active_objective:
+            obj = self._active_objective
+            obj_frame = ctk.CTkFrame(
+                container,
+                fg_color=COLORS["bg_card"],
+                corner_radius=8,
+                border_width=2,
+                border_color=COLORS["accent_blue"],
+            )
+            obj_frame.pack(fill="x", pady=(0, 12))
+
+            ctk.CTkLabel(
+                obj_frame,
+                text="YOUR CURRENT OBJECTIVE",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=COLORS["accent_blue"],
+            ).pack(padx=14, pady=(10, 4), anchor="w")
+
+            ctk.CTkLabel(
+                obj_frame,
+                text=obj["title"],
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=COLORS["text"],
+                wraplength=400, justify="left",
+            ).pack(padx=14, pady=(0, 4), anchor="w")
+
+            if obj.get("completion_criteria"):
+                ctk.CTkLabel(
+                    obj_frame,
+                    text=f"Success: {obj['completion_criteria']}",
+                    font=ctk.CTkFont(size=12),
+                    text_color=COLORS["text_dim"],
+                    wraplength=400, justify="left",
+                ).pack(padx=14, pady=(0, 10), anchor="w")
+            else:
+                obj_frame.configure()  # just close padding
+                ctk.CTkFrame(obj_frame, height=6, fg_color="transparent").pack()
+
+            # Pre-fill focus entry with objective title if no prior focus
+            if not last_focus:
+                last_focus = obj["title"]
 
         # === STREAK INDICATOR ===
         if streak != 0:

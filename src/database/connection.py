@@ -12,11 +12,16 @@ from .schema import (
     CREATE_GAMES_TABLE,
     CREATE_GAME_EVENTS_TABLE,
     CREATE_GAME_EVENTS_INDEX,
+    CREATE_OBJECTIVES_TABLE,
+    CREATE_GAME_OBJECTIVES_TABLE,
+    CREATE_CONCEPT_TAGS_TABLE,
+    CREATE_GAME_CONCEPT_TAGS_TABLE,
     CREATE_PERSISTENT_NOTES_TABLE,
     CREATE_SESSION_LOG_TABLE,
     CREATE_TAGS_TABLE,
     CREATE_VOD_BOOKMARKS_TABLE,
     CREATE_VOD_FILES_TABLE,
+    DEFAULT_CONCEPT_TAGS,
     DEFAULT_TAGS,
     MIGRATE_BOOKMARKS_CLIP_COLUMNS,
     MIGRATE_SESSION_LOG_MENTAL,
@@ -60,6 +65,7 @@ class ConnectionManager:
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
         return self._conn
 
     def close(self):
@@ -81,6 +87,10 @@ class ConnectionManager:
         conn.execute(CREATE_VOD_BOOKMARKS_TABLE)
         conn.execute(CREATE_GAME_EVENTS_TABLE)
         conn.execute(CREATE_GAME_EVENTS_INDEX)
+        conn.execute(CREATE_OBJECTIVES_TABLE)
+        conn.execute(CREATE_GAME_OBJECTIVES_TABLE)
+        conn.execute(CREATE_CONCEPT_TAGS_TABLE)
+        conn.execute(CREATE_GAME_CONCEPT_TAGS_TABLE)
 
         # Migrate: add clip columns to vod_bookmarks if missing
         for stmt in MIGRATE_BOOKMARKS_CLIP_COLUMNS:
@@ -102,6 +112,14 @@ class ConnectionManager:
             conn.executemany(
                 "INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)",
                 DEFAULT_TAGS,
+            )
+
+        # Seed default concept tags if the table is empty
+        cursor = conn.execute("SELECT COUNT(*) FROM concept_tags")
+        if cursor.fetchone()[0] == 0:
+            conn.executemany(
+                "INSERT OR IGNORE INTO concept_tags (name, polarity, color) VALUES (?, ?, ?)",
+                DEFAULT_CONCEPT_TAGS,
             )
 
         # Insert default persistent notes row if empty

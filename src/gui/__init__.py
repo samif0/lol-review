@@ -1,6 +1,6 @@
 """GUI windows for the LoL Review application."""
 
-from .widgets import StarRating, TagSelector, StatCard
+from .widgets import StarRating, TagSelector, ConceptTagSelector, StatCard
 from .review import ReviewWindow, ReviewPanel
 from .pregame import PreGameWindow
 from .history import HistoryWindow
@@ -16,7 +16,7 @@ from .settings import SettingsWindow
 from .app_window import AppWindow
 
 __all__ = [
-    "StarRating", "TagSelector", "StatCard",
+    "StarRating", "TagSelector", "ConceptTagSelector", "StatCard",
     "ReviewWindow", "ReviewPanel", "PreGameWindow", "HistoryWindow",
     "ReviewLossesWindow", "SessionRulesOverlay", "ManualEntryWindow",
     "SessionLoggerWindow", "ClaudeContextWindow",

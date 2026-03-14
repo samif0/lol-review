@@ -14,6 +14,15 @@ import customtkinter as ctk
 import pystray
 from PIL import Image, ImageDraw
 
+from .constants import (
+    CASUAL_MODES,
+    GAME_MONITOR_POLL_INTERVAL_S,
+    MENTAL_RATING_DEFAULT,
+    REMAKE_THRESHOLD_S,
+    STARTUP_VOD_SCAN_DELAY_MS,
+    UPDATE_RESTART_DELAY_MS,
+    VOD_RETRY_DELAY_MS,
+)
 from .database import Database, DEFAULT_DB_PATH
 from .config import is_ascent_enabled
 from .gui import (
@@ -99,7 +108,7 @@ class App:
             on_game_start=self._on_game_start,
             on_connect=self._on_connect,
             on_disconnect=self._on_disconnect,
-            poll_interval=5.0,
+            poll_interval=GAME_MONITOR_POLL_INTERVAL_S,
         )
         monitor_thread = threading.Thread(target=self.monitor.start, daemon=True)
         monitor_thread.start()
@@ -119,7 +128,7 @@ class App:
 
         # Scan for unmatched VODs on startup (slight delay so UI is responsive)
         if is_ascent_enabled():
-            self.app_window.after(3000, self._startup_vod_scan)
+            self.app_window.after(STARTUP_VOD_SCAN_DELAY_MS, self._startup_vod_scan)
 
         # Run tk mainloop (blocks until quit)
         self.app_window.mainloop()
@@ -192,6 +201,10 @@ class App:
         streak = self.db.get_win_streak()
         last_mental = self.db.get_last_mental_intention()
 
+        # Get active primary objective (if any) to show in pregame window
+        active_objectives = self.db.objectives.get_active()
+        primary_obj = next((o for o in active_objectives if o.get("type") == "primary"), None)
+
         self._pregame_window = PreGameWindow(
             last_focus=last_review.get("focus_next", ""),
             last_mistakes=last_review.get("mistakes", ""),
@@ -199,6 +212,7 @@ class App:
             streak=streak,
             last_mental_intention=last_mental,
             on_dismiss=self._on_pregame_dismiss,
+            active_objective=primary_obj,
         )
 
     def _on_pregame_dismiss(self, focus_text: str, mental_intention: str = ""):
@@ -221,9 +235,6 @@ class App:
             self._pregame_window.auto_close()
             self._pregame_window = None
 
-    # Game modes that don't count toward your ranked session
-    _CASUAL_MODES = {"ARAM", "CHERRY", "ULTBOOK", "TUTORIAL", "PRACTICETOOL"}
-
     def _on_game_end(self, stats: GameStats):
         """Called when a game ends — save stats, log session, and show review popup."""
         logger.info(
@@ -234,13 +245,13 @@ class App:
         )
 
         # Skip casual modes entirely — no save, no session log, no review popup
-        is_casual = stats.game_mode.upper() in self._CASUAL_MODES
+        is_casual = stats.game_mode.upper() in CASUAL_MODES
         if is_casual:
             logger.info(f"Casual game ({stats.game_mode}) — skipping")
             return
 
         # Skip remakes (games under 5 minutes)
-        is_remake = stats.game_duration < 300
+        is_remake = stats.game_duration < REMAKE_THRESHOLD_S
         if is_remake:
             logger.info(f"Remake detected ({stats.game_duration}s) — skipping")
             return
@@ -248,7 +259,7 @@ class App:
         # Save to database and session log
         self.db.save_game(stats)
 
-        mental = 5
+        mental = MENTAL_RATING_DEFAULT
         if self._session_overlay and self._session_overlay.winfo_exists():
             mental = self._session_overlay.get_mental_rating()
 
@@ -280,7 +291,6 @@ class App:
 
     def _show_review(self, stats: GameStats):
         """Show an inline review page for a completed game."""
-        tags = self.db.get_all_tags()
         existing = self.db.get_game(stats.game_id)
 
         # Check for linked VOD
@@ -303,10 +313,15 @@ class App:
         pregame_intention = session_entry.get("pregame_intention", "") if session_entry else ""
         existing_mental_handled = session_entry.get("mental_handled", "") if session_entry else ""
 
+        # Objectives + concept tags
+        active_objectives = self.db.objectives.get_active()
+        existing_game_objectives = self.db.objectives.get_game_objectives(stats.game_id)
+        concept_tags = self.db.concept_tags.get_all()
+        existing_concept_tag_ids = self.db.concept_tags.get_ids_for_game(stats.game_id)
+
         self.app_window.navigate_to_review(
             "post_game",
             stats=stats,
-            tags=tags,
             existing_review=existing,
             on_save=self._save_review,
             has_vod=has_vod,
@@ -314,19 +329,42 @@ class App:
             bookmarks=bookmarks,
             pregame_intention=pregame_intention,
             existing_mental_handled=existing_mental_handled,
+            concept_tags=concept_tags,
+            existing_concept_tag_ids=existing_concept_tag_ids,
+            active_objectives=active_objectives,
+            existing_game_objectives=existing_game_objectives,
         )
 
         # If no VOD matched yet, retry after a delay — Ascent may still be encoding
         if not has_vod and is_ascent_enabled():
-            self.app_window.after(90_000, lambda gid=stats.game_id: self._retry_vod_match(gid))
+            self.app_window.after(VOD_RETRY_DELAY_MS, lambda gid=stats.game_id: self._retry_vod_match(gid))
 
     def _save_review(self, review_data: dict):
         """Save review notes to the database."""
+        game_id = review_data["game_id"]
+        win = review_data.pop("win", None)
         mental_handled = review_data.pop("mental_handled", "")
+        concept_tag_ids = review_data.pop("concept_tag_ids", [])
+        objectives_data = review_data.pop("objectives_data", [])
+
         self.db.update_review(**review_data)
+
         if mental_handled:
-            self.db.update_mental_handled(review_data["game_id"], mental_handled)
-        logger.info(f"Review saved for game {review_data['game_id']}")
+            self.db.update_mental_handled(game_id, mental_handled)
+
+        if concept_tag_ids is not None:
+            self.db.concept_tags.set_for_game(game_id, concept_tag_ids)
+
+        for od in objectives_data:
+            obj_id = od.get("objective_id")
+            practiced = od.get("practiced", True)
+            execution_note = od.get("execution_note", "")
+            if obj_id:
+                self.db.objectives.record_game(game_id, obj_id, practiced, execution_note)
+                if practiced:
+                    self.db.objectives.update_score(obj_id, win=bool(win))
+
+        logger.info(f"Review saved for game {game_id}")
 
         if self.tray_icon:
             self.tray_icon.notify("Review saved!", "LoL Game Review")
@@ -515,7 +553,7 @@ class App:
                 self._show_update_status("Update installed — restarting...", "#4ade80")
                 if self.tray_icon:
                     self.tray_icon.notify("Restarting with new update...", "LoL Game Review")
-                self.app_window.after(1500, self._quit)
+                self.app_window.after(UPDATE_RESTART_DELAY_MS, self._quit)
             else:
                 logger.error(f"Auto-update failed: {message}")
                 self._show_update_status(f"Update failed: {message}", "#f87171")

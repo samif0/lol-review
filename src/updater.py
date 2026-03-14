@@ -43,6 +43,7 @@ from typing import Callable, Optional, Tuple
 import requests
 
 from .config import load_github_token, save_github_token  # noqa: F401 — re-export
+from .constants import UPDATE_CHECK_TIMEOUT_S, UPDATE_DOWNLOAD_TIMEOUT_S, DOWNLOAD_CHUNK_SIZE
 from .version import __version__, GITHUB_REPO
 
 logger = logging.getLogger(__name__)
@@ -144,7 +145,7 @@ def check_for_update() -> Optional[dict]:
         else:
             logger.info("No GitHub token — will fail for private repos")
 
-        resp = requests.get(_RELEASES_URL, headers=headers, timeout=10)
+        resp = requests.get(_RELEASES_URL, headers=headers, timeout=UPDATE_CHECK_TIMEOUT_S)
         logger.info(f"Update check response: HTTP {resp.status_code}")
 
         if resp.status_code == 404:
@@ -238,7 +239,7 @@ def _do_download_and_install(
     logger.info(f"Downloading update from {download_url}")
 
     # ── Download ─────────────────────────────────────────────
-    resp = requests.get(download_url, headers=dl_headers, stream=True, timeout=60)
+    resp = requests.get(download_url, headers=dl_headers, stream=True, timeout=UPDATE_DOWNLOAD_TIMEOUT_S)
     resp.raise_for_status()
 
     total = int(resp.headers.get("content-length", 0))
@@ -246,7 +247,7 @@ def _do_download_and_install(
 
     downloaded = 0
     with open(tmp_zip, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=64 * 1024):
+        for chunk in resp.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
             f.write(chunk)
             downloaded += len(chunk)
             if on_progress:

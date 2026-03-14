@@ -5,7 +5,11 @@ from typing import Callable, Optional
 
 import customtkinter as ctk
 
-from ..constants import COLORS
+from ..constants import (
+    COLORS, MENTAL_EXCELLENT_THRESHOLD, MENTAL_DECENT_THRESHOLD,
+    MENTAL_RATING_MIN, MENTAL_RATING_MAX, MENTAL_RATING_DEFAULT,
+    MENTAL_RATING_STEPS,
+)
 from .widgets import StarRating, TagSelector
 
 
@@ -123,7 +127,7 @@ class SessionGameReviewPanel(ctk.CTkFrame):
 
         self.mental_label = ctk.CTkLabel(
             mental_frame,
-            text=str(session_entry.get("mental_rating", 5)),
+            text=str(session_entry.get("mental_rating", MENTAL_RATING_DEFAULT)),
             font=ctk.CTkFont(size=18, weight="bold"),
             text_color=COLORS["accent_blue"],
         )
@@ -131,15 +135,15 @@ class SessionGameReviewPanel(ctk.CTkFrame):
 
         self.mental_slider = ctk.CTkSlider(
             container,
-            from_=1,
-            to=10,
-            number_of_steps=9,
+            from_=MENTAL_RATING_MIN,
+            to=MENTAL_RATING_MAX,
+            number_of_steps=MENTAL_RATING_STEPS,
             command=self._on_mental_change,
             button_color=COLORS["accent_blue"],
             button_hover_color="#0077cc",
             progress_color=COLORS["accent_blue"],
         )
-        self.mental_slider.set(session_entry.get("mental_rating", 5))
+        self.mental_slider.set(session_entry.get("mental_rating", MENTAL_RATING_DEFAULT))
         self.mental_slider.pack(fill="x", pady=(0, 12))
 
         # === PERFORMANCE RATING (games table field) ===
@@ -309,9 +313,9 @@ class SessionGameReviewPanel(ctk.CTkFrame):
         """Update mental label when slider changes."""
         rating = int(value)
         self.mental_label.configure(text=str(rating))
-        if rating >= 8:
+        if rating >= MENTAL_EXCELLENT_THRESHOLD:
             color = COLORS["win_green"]
-        elif rating >= 5:
+        elif rating >= MENTAL_DECENT_THRESHOLD:
             color = COLORS["accent_blue"]
         else:
             color = COLORS["loss_red"]
