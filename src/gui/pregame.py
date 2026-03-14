@@ -10,18 +10,15 @@ from ..constants import COLORS
 class PreGameWindow(ctk.CTkToplevel):
     """Pre-game focus reminder that appears during champ select.
 
-    Shows your "focus for next game" from the last review, your recent
-    performance trends, and lets you set specific intentions before the
-    match starts. Auto-closes when loading screen begins, or when you
-    hit the "I'm Ready" button.
+    Shows your current learning objective and last-game focus, then lets
+    you set gameplay and mental intentions for the upcoming match.
+    Auto-closes when loading screen begins, or when you hit "I'm Ready".
     """
 
     def __init__(
         self,
         last_focus: str = "",
         last_mistakes: str = "",
-        recent_games: list[dict] = None,
-        streak: int = 0,
         last_mental_intention: str = "",
         on_dismiss: Optional[Callable] = None,
         active_objective: Optional[dict] = None,
@@ -31,23 +28,18 @@ class PreGameWindow(ctk.CTkToplevel):
         super().__init__(*args, **kwargs)
 
         self.on_dismiss = on_dismiss
-        recent_games = recent_games or []
-        self._last_mental_intention = last_mental_intention
         self._active_objective = active_objective
 
-        # Window setup — compact, stays on top so you see it during champ select
+        # Window setup — compact, stays on top during champ select
         self.title("Pre-Game Focus")
-        self.geometry("480x620")
+        self.geometry("460x520")
         self.configure(fg_color=COLORS["bg_dark"])
         self.resizable(True, True)
-        self.minsize(420, 500)
+        self.minsize(400, 400)
 
-        # Keep on top during champ select
         self.lift()
         self.attributes("-topmost", True)
         self.focus_force()
-
-        # Handle window close (X button) gracefully
         self.protocol("WM_DELETE_WINDOW", self._dismiss)
 
         # Main container
@@ -97,7 +89,7 @@ class PreGameWindow(ctk.CTkToplevel):
                 text=obj["title"],
                 font=ctk.CTkFont(size=14, weight="bold"),
                 text_color=COLORS["text"],
-                wraplength=400, justify="left",
+                wraplength=380, justify="left",
             ).pack(padx=14, pady=(0, 4), anchor="w")
 
             if obj.get("completion_criteria"):
@@ -106,60 +98,23 @@ class PreGameWindow(ctk.CTkToplevel):
                     text=f"Success: {obj['completion_criteria']}",
                     font=ctk.CTkFont(size=12),
                     text_color=COLORS["text_dim"],
-                    wraplength=400, justify="left",
+                    wraplength=380, justify="left",
                 ).pack(padx=14, pady=(0, 10), anchor="w")
             else:
-                obj_frame.configure()  # just close padding
                 ctk.CTkFrame(obj_frame, height=6, fg_color="transparent").pack()
 
-            # Pre-fill focus entry with objective title if no prior focus
+            # Pre-fill focus with objective title if no prior focus
             if not last_focus:
                 last_focus = obj["title"]
 
-        # === STREAK INDICATOR ===
-        if streak != 0:
-            streak_frame = ctk.CTkFrame(
-                container,
-                fg_color=COLORS["bg_card"],
-                corner_radius=8,
-                border_width=1,
-                border_color=COLORS["border"],
-            )
-            streak_frame.pack(fill="x", pady=(0, 12))
-
-            if streak > 0:
-                streak_text = f"You're on a {streak}-game win streak!"
-                streak_color = COLORS["win_green"]
-                streak_emoji = "  "  # keep it text-only per guidelines
-                streak_sub = "Keep the momentum going."
-            else:
-                streak_text = f"You've lost {abs(streak)} in a row."
-                streak_color = COLORS["loss_red"]
-                streak_emoji = ""
-                streak_sub = "Take a breath. Focus on what you can control."
-
-            ctk.CTkLabel(
-                streak_frame,
-                text=f"{streak_emoji}{streak_text}",
-                font=ctk.CTkFont(size=14, weight="bold"),
-                text_color=streak_color,
-            ).pack(padx=14, pady=(10, 2), anchor="w")
-
-            ctk.CTkLabel(
-                streak_frame,
-                text=streak_sub,
-                font=ctk.CTkFont(size=12),
-                text_color=COLORS["text_dim"],
-            ).pack(padx=14, pady=(0, 10), anchor="w")
-
-        # === LAST GAME'S FOCUS (from your last review) ===
+        # === LAST GAME'S FOCUS ===
         if last_focus:
             focus_frame = ctk.CTkFrame(
                 container,
                 fg_color=COLORS["bg_card"],
                 corner_radius=8,
-                border_width=2,
-                border_color=COLORS["accent_blue"],
+                border_width=1,
+                border_color=COLORS["border"],
             )
             focus_frame.pack(fill="x", pady=(0, 12))
 
@@ -175,11 +130,11 @@ class PreGameWindow(ctk.CTkToplevel):
                 text=last_focus,
                 font=ctk.CTkFont(size=14),
                 text_color=COLORS["text"],
-                wraplength=400,
+                wraplength=380,
                 justify="left",
             ).pack(padx=14, pady=(0, 10), anchor="w")
 
-        # === LAST GAME'S MISTAKES (quick reminder) ===
+        # === WHAT YOU WANTED TO IMPROVE ===
         if last_mistakes:
             mistakes_frame = ctk.CTkFrame(
                 container,
@@ -202,44 +157,9 @@ class PreGameWindow(ctk.CTkToplevel):
                 text=last_mistakes,
                 font=ctk.CTkFont(size=13),
                 text_color=COLORS["text_dim"],
-                wraplength=400,
+                wraplength=380,
                 justify="left",
             ).pack(padx=14, pady=(0, 10), anchor="w")
-
-        # === RECENT FORM (last 5 games mini-summary) ===
-        if recent_games:
-            ctk.CTkLabel(
-                container,
-                text="RECENT FORM",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                text_color=COLORS["text_dim"],
-            ).pack(anchor="w", pady=(4, 6))
-
-            form_frame = ctk.CTkFrame(container, fg_color="transparent")
-            form_frame.pack(fill="x", pady=(0, 12))
-
-            for game in recent_games[:5]:
-                is_win = bool(game.get("win"))
-                color = COLORS["win_green"] if is_win else COLORS["loss_red"]
-                result = "W" if is_win else "L"
-                champ = game.get("champion_name", "?")
-                kda = f"{game.get('kills', 0)}/{game.get('deaths', 0)}/{game.get('assists', 0)}"
-
-                pill = ctk.CTkFrame(
-                    form_frame,
-                    fg_color=COLORS["bg_card"],
-                    corner_radius=6,
-                    border_width=1,
-                    border_color=color,
-                )
-                pill.pack(side="left", padx=3, pady=2)
-
-                ctk.CTkLabel(
-                    pill,
-                    text=f"{result} {champ} {kda}",
-                    font=ctk.CTkFont(size=11),
-                    text_color=color,
-                ).pack(padx=8, pady=5)
 
         # Separator
         ctk.CTkFrame(
@@ -266,18 +186,10 @@ class PreGameWindow(ctk.CTkToplevel):
         )
         self.focus_entry.pack(fill="x", pady=(0, 6))
 
-        # Pre-fill with last game's focus so they can keep or modify it
         if last_focus:
             self.focus_entry.insert("1.0", last_focus)
 
         # Quick-select focus buttons
-        ctk.CTkLabel(
-            container,
-            text="Quick picks:",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_dim"],
-        ).pack(anchor="w", pady=(2, 4))
-
         quick_frame = ctk.CTkFrame(container, fg_color="transparent")
         quick_frame.pack(fill="x", pady=(0, 12))
 
@@ -323,7 +235,7 @@ class PreGameWindow(ctk.CTkToplevel):
             text="Expect it before it happens. Set how you'll respond — before the tilt hits.",
             font=ctk.CTkFont(size=11),
             text_color=COLORS["text_dim"],
-            wraplength=400,
+            wraplength=380,
             justify="left",
         ).pack(anchor="w", pady=(0, 6))
 
@@ -339,25 +251,18 @@ class PreGameWindow(ctk.CTkToplevel):
         )
         self.mental_intention_entry.pack(fill="x", pady=(0, 6))
 
-        if self._last_mental_intention:
-            self.mental_intention_entry.insert("1.0", self._last_mental_intention)
+        if last_mental_intention:
+            self.mental_intention_entry.insert("1.0", last_mental_intention)
 
         # Quick mental intention buttons
-        ctk.CTkLabel(
-            container,
-            text="Quick picks:",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_dim"],
-        ).pack(anchor="w", pady=(2, 4))
-
         mental_quick_frame = ctk.CTkFrame(container, fg_color="transparent")
         mental_quick_frame.pack(fill="x", pady=(0, 12))
 
         quick_mental = [
-            "Bad call → one ping",
-            "Ints → my game",
-            "Behind → breathe",
-            "I mess up → let go",
+            "Bad call \u2192 one ping",
+            "Ints \u2192 my game",
+            "Behind \u2192 breathe",
+            "I mess up \u2192 let go",
         ]
         for text in quick_mental:
             btn = ctk.CTkButton(
@@ -376,9 +281,9 @@ class PreGameWindow(ctk.CTkToplevel):
             btn.pack(side="left", padx=3, pady=2)
 
         # === READY BUTTON ===
-        ready_btn = ctk.CTkButton(
+        ctk.CTkButton(
             container,
-            text="I'm Ready — GL HF!",
+            text="I'm Ready \u2014 GL HF!",
             font=ctk.CTkFont(size=16, weight="bold"),
             height=48,
             corner_radius=8,
@@ -386,10 +291,8 @@ class PreGameWindow(ctk.CTkToplevel):
             hover_color="#1ea05a",
             text_color="#ffffff",
             command=self._dismiss,
-        )
-        ready_btn.pack(fill="x", pady=(8, 4))
+        ).pack(fill="x", pady=(8, 4))
 
-        # Subtle note about auto-close
         ctk.CTkLabel(
             container,
             text="This window will close automatically when your game loads.",
@@ -398,31 +301,25 @@ class PreGameWindow(ctk.CTkToplevel):
         ).pack(pady=(4, 0))
 
     def _set_quick_focus(self, text: str):
-        """Replace focus text with a quick pick."""
         self.focus_entry.delete("1.0", "end")
         self.focus_entry.insert("1.0", text)
 
     def _set_quick_mental(self, text: str):
-        """Replace mental intention text with a quick pick."""
         self.mental_intention_entry.delete("1.0", "end")
         self.mental_intention_entry.insert("1.0", text)
 
     def get_focus_text(self) -> str:
-        """Get whatever the user typed/selected as their gameplay focus."""
         return self.focus_entry.get("1.0", "end-1c").strip()
 
     def get_mental_intention_text(self) -> str:
-        """Get the mental intention the user set for this game."""
         return self.mental_intention_entry.get("1.0", "end-1c").strip()
 
     def _dismiss(self):
-        """Close the window and fire callback with both focus and mental intention."""
         if self.on_dismiss:
             self.on_dismiss(self.get_focus_text(), self.get_mental_intention_text())
         self.destroy()
 
     def auto_close(self):
-        """Called by the monitor when loading screen starts."""
         if self.winfo_exists():
             if self.on_dismiss:
                 self.on_dismiss(self.get_focus_text(), self.get_mental_intention_text())

@@ -197,8 +197,6 @@ class App:
 
         # Pull context from the database
         last_review = self.db.get_last_review_focus()
-        recent_games = self.db.get_recent_games(5)
-        streak = self.db.get_win_streak()
         last_mental = self.db.get_last_mental_intention()
 
         # Get active primary objective (if any) to show in pregame window
@@ -208,8 +206,6 @@ class App:
         self._pregame_window = PreGameWindow(
             last_focus=last_review.get("focus_next", ""),
             last_mistakes=last_review.get("mistakes", ""),
-            recent_games=recent_games,
-            streak=streak,
             last_mental_intention=last_mental,
             on_dismiss=self._on_pregame_dismiss,
             active_objective=primary_obj,
