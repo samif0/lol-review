@@ -17,6 +17,7 @@ from .schema import (
     CREATE_CONCEPT_TAGS_TABLE,
     CREATE_GAME_CONCEPT_TAGS_TABLE,
     CREATE_PERSISTENT_NOTES_TABLE,
+    CREATE_RULES_TABLE,
     CREATE_SESSION_LOG_TABLE,
     CREATE_TAGS_TABLE,
     CREATE_VOD_BOOKMARKS_TABLE,
@@ -91,6 +92,7 @@ class ConnectionManager:
         conn.execute(CREATE_GAME_OBJECTIVES_TABLE)
         conn.execute(CREATE_CONCEPT_TAGS_TABLE)
         conn.execute(CREATE_GAME_CONCEPT_TAGS_TABLE)
+        conn.execute(CREATE_RULES_TABLE)
 
         # Migrate: add clip columns to vod_bookmarks if missing
         for stmt in MIGRATE_BOOKMARKS_CLIP_COLUMNS:

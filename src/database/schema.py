@@ -224,6 +224,18 @@ CREATE TABLE IF NOT EXISTS game_concept_tags (
 );
 """
 
+CREATE_RULES_TABLE = """
+CREATE TABLE IF NOT EXISTS rules (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    description     TEXT DEFAULT '',
+    rule_type       TEXT DEFAULT 'custom',
+    condition_value TEXT DEFAULT '',
+    is_active       INTEGER DEFAULT 1,
+    created_at      INTEGER
+);
+"""
+
 DEFAULT_CONCEPT_TAGS = [
     ("Dominated lane",    "positive", "#22c55e"),
     ("Won teamfight",     "positive", "#22c55e"),

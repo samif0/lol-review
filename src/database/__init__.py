@@ -15,6 +15,7 @@ from .game_events import GameEventsRepository
 from .games import GameRepository
 from .notes import NotesRepository
 from .objectives import ObjectivesRepository
+from .rules import RulesRepository
 from .session_log import SessionLogRepository
 from .tags import TagRepository
 from .vod import VodRepository
@@ -40,6 +41,7 @@ class Database:
         self.vod = VodRepository(self._conn_mgr)
         self.game_events = GameEventsRepository(self._conn_mgr)
         self.objectives = ObjectivesRepository(self._conn_mgr)
+        self.rules = RulesRepository(self._conn_mgr)
         self.concept_tags = ConceptTagRepository(self._conn_mgr)
 
         # One-time cleanup

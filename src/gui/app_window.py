@@ -1886,6 +1886,486 @@ class ObjectivesPage(ctk.CTkFrame):
 
 
 # ══════════════════════════════════════════════════════════
+# Page: Rules
+# ══════════════════════════════════════════════════════════
+
+_RULE_TYPES = [
+    ("custom",        "Custom",          "Personal reminder — not auto-checked"),
+    ("no_play_day",   "No-Play Day",     "Don't play on specific days"),
+    ("no_play_after", "No Play After",   "Don't play after a certain hour"),
+    ("loss_streak",   "Loss Streak",     "Stop after N consecutive losses"),
+    ("max_games",     "Max Games/Day",   "Limit how many games you play per day"),
+    ("min_mental",    "Minimum Mental",  "Don't queue if mental rating is too low"),
+]
+
+_RULE_TYPE_MAP = {rt[0]: rt[1] for rt in _RULE_TYPES}
+
+_DAYS_OF_WEEK = [
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+]
+
+
+class RulesPage(ctk.CTkFrame):
+    def __init__(self, parent, db, **kw):
+        super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
+        self.db = db
+        self._scroll = None
+        self._build()
+
+    def _build(self):
+        self._scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_button_color=COLORS["border"],
+        )
+        self._scroll.pack(fill="both", expand=True, padx=16, pady=16)
+        self._populate()
+
+    def _populate(self):
+        body = self._scroll
+
+        # Header
+        hrow = ctk.CTkFrame(body, fg_color="transparent")
+        hrow.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(hrow, text="My Rules",
+                     font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=COLORS["text"]).pack(side="left")
+        ctk.CTkButton(
+            hrow, text="+ New Rule",
+            font=ctk.CTkFont(size=13), height=34, width=120,
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._open_new_dialog,
+        ).pack(side="right")
+
+        rules = self.db.rules.get_all()
+        active = [r for r in rules if r["is_active"]]
+        inactive = [r for r in rules if not r["is_active"]]
+
+        if not rules:
+            empty = _card(body)
+            empty.pack(fill="x", pady=(0, 12))
+            ctk.CTkLabel(
+                empty,
+                text=(
+                    "No rules yet.\n\n"
+                    "Set rules to keep yourself accountable.\n"
+                    "e.g., \"Don't play on Sunday\", \"Stop after 2 losses\""
+                ),
+                font=ctk.CTkFont(size=14),
+                text_color=COLORS["text_dim"],
+                justify="center",
+            ).pack(padx=20, pady=30)
+            return
+
+        # Check violations for active rules
+        todays_games = self.db.get_todays_games()
+        violations = self.db.rules.check_violations(todays_games=todays_games)
+        violation_map = {v["rule"]["id"]: v for v in violations}
+
+        if active:
+            ctk.CTkLabel(body, text="ACTIVE",
+                         font=ctk.CTkFont(size=11, weight="bold"),
+                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+            for rule in active:
+                vinfo = violation_map.get(rule["id"])
+                self._build_rule_card(body, rule, vinfo)
+
+        if inactive:
+            ctk.CTkLabel(body, text="DISABLED",
+                         font=ctk.CTkFont(size=11, weight="bold"),
+                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(16, 8))
+            for rule in inactive:
+                self._build_rule_card(body, rule, None, dimmed=True)
+
+    def _build_rule_card(self, parent, rule: dict, violation: dict | None,
+                         dimmed: bool = False):
+        is_violated = violation and violation["violated"]
+        border_color = COLORS["loss_red"] if is_violated else COLORS["border"]
+
+        card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10,
+                            border_width=2 if is_violated else 1,
+                            border_color=border_color)
+        card.pack(fill="x", pady=(0, 10))
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=12)
+
+        # Top row: type badge + name + violation status
+        top_row = ctk.CTkFrame(inner, fg_color="transparent")
+        top_row.pack(fill="x", pady=(0, 4))
+
+        type_label = _RULE_TYPE_MAP.get(rule["rule_type"], "Custom")
+        badge_color = "#7c3aed" if rule["rule_type"] == "custom" else "#1e40af"
+        ctk.CTkLabel(
+            top_row, text=type_label.upper(),
+            font=ctk.CTkFont(size=9, weight="bold"),
+            text_color="#ffffff", fg_color=badge_color,
+            corner_radius=4, padx=6, pady=1,
+        ).pack(side="left", padx=(0, 8))
+
+        name_color = COLORS["text_dim"] if dimmed else COLORS["text"]
+        ctk.CTkLabel(
+            top_row, text=rule["name"],
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=name_color, anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+
+        # Status indicator for auto-checkable rules
+        if is_violated:
+            ctk.CTkLabel(
+                top_row, text="VIOLATED",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color="#ffffff", fg_color=COLORS["loss_red"],
+                corner_radius=4, padx=8, pady=2,
+            ).pack(side="right")
+        elif violation and rule["rule_type"] != "custom":
+            ctk.CTkLabel(
+                top_row, text="OK",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color="#ffffff", fg_color=COLORS["win_green"],
+                corner_radius=4, padx=8, pady=2,
+            ).pack(side="right")
+
+        # Violation reason
+        if is_violated and violation["reason"]:
+            ctk.CTkLabel(
+                inner, text=violation["reason"],
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["loss_red"],
+            ).pack(anchor="w", pady=(0, 4))
+
+        # Description
+        if rule.get("description"):
+            ctk.CTkLabel(
+                inner, text=rule["description"],
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_dim"],
+                wraplength=600, justify="left",
+            ).pack(anchor="w", pady=(0, 4))
+
+        # Condition display for auto-checkable rules
+        condition_text = self._format_condition(rule)
+        if condition_text:
+            ctk.CTkLabel(
+                inner, text=condition_text,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_muted"],
+            ).pack(anchor="w", pady=(0, 4))
+
+        # Action buttons
+        btn_row = ctk.CTkFrame(inner, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(4, 0))
+
+        toggle_text = "Disable" if rule["is_active"] else "Enable"
+        toggle_color = COLORS["text_dim"] if rule["is_active"] else COLORS["win_green"]
+        ctk.CTkButton(
+            btn_row, text=toggle_text,
+            font=ctk.CTkFont(size=12), height=28, width=80,
+            fg_color="transparent", hover_color=COLORS["bg_input"],
+            text_color=toggle_color,
+            border_width=1, border_color=COLORS["border"],
+            command=lambda rid=rule["id"]: self._toggle_rule(rid),
+        ).pack(side="right", padx=(6, 0))
+
+        ctk.CTkButton(
+            btn_row, text="Delete",
+            font=ctk.CTkFont(size=12), height=28, width=70,
+            fg_color="transparent", hover_color="#3f1111",
+            text_color=COLORS["loss_red"],
+            border_width=1, border_color=COLORS["loss_red"],
+            command=lambda rid=rule["id"]: self._delete_rule(rid),
+        ).pack(side="right")
+
+    @staticmethod
+    def _format_condition(rule: dict) -> str:
+        rt = rule["rule_type"]
+        cv = rule["condition_value"]
+        if not cv:
+            return ""
+        if rt == "no_play_day":
+            return f"Days: {cv}"
+        if rt == "no_play_after":
+            try:
+                h = int(cv)
+                suffix = "AM" if h < 12 else "PM"
+                display_h = h if h <= 12 else h - 12
+                if display_h == 0:
+                    display_h = 12
+                return f"No play after {display_h}:00 {suffix}"
+            except ValueError:
+                return ""
+        if rt == "loss_streak":
+            return f"Stop after {cv} consecutive losses"
+        if rt == "max_games":
+            return f"Max {cv} games per day"
+        if rt == "min_mental":
+            return f"Don't queue below mental {cv}"
+        return ""
+
+    def _open_new_dialog(self):
+        _NewRuleDialog(self, db=self.db, on_created=self.refresh)
+
+    def _toggle_rule(self, rule_id: int):
+        self.db.rules.toggle(rule_id)
+        self.refresh()
+
+    def _delete_rule(self, rule_id: int):
+        def _do_delete():
+            self.db.rules.delete(rule_id)
+            self.refresh()
+
+        _ConfirmDialog(
+            self,
+            message="Delete this rule? This cannot be undone.",
+            confirm_text="Delete",
+            confirm_color=COLORS["loss_red"],
+            confirm_hover="#b91c1c",
+            on_confirm=_do_delete,
+        )
+
+    def refresh(self):
+        _refresh_scroll(self._scroll, self._populate)
+
+
+class _NewRuleDialog(ctk.CTkToplevel):
+    """Modal form for creating a new rule."""
+
+    def __init__(self, parent, db, on_created, **kw):
+        super().__init__(parent, **kw)
+        self.db = db
+        self._on_created = on_created
+
+        self.title("New Rule")
+        self.geometry("480x520")
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.resizable(False, False)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(100, lambda: self.attributes("-topmost", False))
+        self.grab_set()
+
+        scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_button_color=COLORS["border"],
+        )
+        scroll.pack(fill="both", expand=True, padx=20, pady=16)
+
+        ctk.CTkLabel(scroll, text="New Rule",
+                     font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color=COLORS["text"]).pack(anchor="w", pady=(0, 16))
+
+        # Type selector
+        ctk.CTkLabel(scroll, text="Rule Type", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+
+        type_values = [rt[1] for rt in _RULE_TYPES]
+        self._type_key_map = {rt[1]: rt[0] for rt in _RULE_TYPES}
+        self._type_menu = ctk.CTkOptionMenu(
+            scroll, values=type_values,
+            font=ctk.CTkFont(size=13), height=36,
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            button_color=COLORS["accent_blue"],
+            button_hover_color="#0077cc",
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_text_color=COLORS["text"],
+            dropdown_hover_color=COLORS["bg_input"],
+            command=self._on_type_change,
+        )
+        self._type_menu.set(type_values[0])
+        self._type_menu.pack(fill="x", pady=(4, 12))
+
+        # Name
+        ctk.CTkLabel(scroll, text="Rule Name *", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._name_entry = ctk.CTkEntry(
+            scroll, height=36, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_color=COLORS["border"],
+            placeholder_text="e.g., No games on Sunday",
+        )
+        self._name_entry.pack(fill="x", pady=(4, 12))
+
+        # Dynamic condition frame
+        self._condition_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        self._condition_frame.pack(fill="x", pady=(0, 12))
+        self._condition_widgets = {}
+        self._build_condition_ui("custom")
+
+        # Description (optional)
+        ctk.CTkLabel(scroll, text="Description (optional)",
+                     font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._desc_box = ctk.CTkTextbox(
+            scroll, height=60, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+        )
+        self._desc_box.pack(fill="x", pady=(4, 12))
+
+        # Buttons
+        btn_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(8, 0))
+        ctk.CTkButton(
+            btn_row, text="Create Rule",
+            font=ctk.CTkFont(size=14, weight="bold"), height=40,
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._create,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(
+            btn_row, text="Cancel",
+            font=ctk.CTkFont(size=14), height=40,
+            fg_color="transparent", hover_color=COLORS["bg_input"],
+            text_color=COLORS["text_dim"], border_width=1,
+            border_color=COLORS["border"],
+            command=self.destroy,
+        ).pack(side="left", fill="x", expand=True)
+
+    def _on_type_change(self, choice: str):
+        rule_type = self._type_key_map.get(choice, "custom")
+        self._build_condition_ui(rule_type)
+
+    def _build_condition_ui(self, rule_type: str):
+        for w in self._condition_frame.winfo_children():
+            w.destroy()
+        self._condition_widgets = {}
+
+        if rule_type == "custom":
+            return
+
+        if rule_type == "no_play_day":
+            ctk.CTkLabel(
+                self._condition_frame, text="Select days:",
+                font=ctk.CTkFont(size=13), text_color=COLORS["text_dim"],
+            ).pack(anchor="w", pady=(0, 4))
+            self._condition_widgets["day_vars"] = {}
+            days_frame = ctk.CTkFrame(self._condition_frame, fg_color="transparent")
+            days_frame.pack(fill="x")
+            for day in _DAYS_OF_WEEK:
+                var = ctk.BooleanVar(value=False)
+                self._condition_widgets["day_vars"][day] = var
+                ctk.CTkCheckBox(
+                    days_frame, text=day[:3], variable=var,
+                    font=ctk.CTkFont(size=12), text_color=COLORS["text"],
+                    fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+                    checkbox_width=20, checkbox_height=20,
+                ).pack(side="left", padx=(0, 8), pady=2)
+
+        elif rule_type == "no_play_after":
+            ctk.CTkLabel(
+                self._condition_frame, text="Don't play after:",
+                font=ctk.CTkFont(size=13), text_color=COLORS["text_dim"],
+            ).pack(anchor="w", pady=(0, 4))
+            hours = [f"{h}:00 {'AM' if h < 12 else 'PM'}" for h in range(12, 24)] + \
+                    [f"{h}:00 AM" for h in range(0, 4)]
+            self._condition_widgets["hour_menu"] = ctk.CTkOptionMenu(
+                self._condition_frame, values=hours,
+                font=ctk.CTkFont(size=13), height=36,
+                fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                button_color=COLORS["accent_blue"],
+                dropdown_fg_color=COLORS["bg_card"],
+                dropdown_text_color=COLORS["text"],
+                dropdown_hover_color=COLORS["bg_input"],
+            )
+            self._condition_widgets["hour_menu"].set("23:00 PM")
+            self._condition_widgets["hour_menu"].pack(fill="x")
+
+        elif rule_type == "loss_streak":
+            ctk.CTkLabel(
+                self._condition_frame, text="Stop after how many consecutive losses?",
+                font=ctk.CTkFont(size=13), text_color=COLORS["text_dim"],
+            ).pack(anchor="w", pady=(0, 4))
+            self._condition_widgets["entry"] = ctk.CTkEntry(
+                self._condition_frame, height=36, font=ctk.CTkFont(size=13),
+                fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                border_color=COLORS["border"], placeholder_text="2",
+            )
+            self._condition_widgets["entry"].pack(fill="x")
+
+        elif rule_type == "max_games":
+            ctk.CTkLabel(
+                self._condition_frame, text="Maximum games per day:",
+                font=ctk.CTkFont(size=13), text_color=COLORS["text_dim"],
+            ).pack(anchor="w", pady=(0, 4))
+            self._condition_widgets["entry"] = ctk.CTkEntry(
+                self._condition_frame, height=36, font=ctk.CTkFont(size=13),
+                fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                border_color=COLORS["border"], placeholder_text="5",
+            )
+            self._condition_widgets["entry"].pack(fill="x")
+
+        elif rule_type == "min_mental":
+            ctk.CTkLabel(
+                self._condition_frame, text="Minimum mental rating to queue:",
+                font=ctk.CTkFont(size=13), text_color=COLORS["text_dim"],
+            ).pack(anchor="w", pady=(0, 4))
+            self._condition_widgets["entry"] = ctk.CTkEntry(
+                self._condition_frame, height=36, font=ctk.CTkFont(size=13),
+                fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                border_color=COLORS["border"], placeholder_text="5",
+            )
+            self._condition_widgets["entry"].pack(fill="x")
+
+    def _get_condition_value(self, rule_type: str) -> str:
+        if rule_type == "custom":
+            return ""
+
+        if rule_type == "no_play_day":
+            day_vars = self._condition_widgets.get("day_vars", {})
+            selected = [day for day, var in day_vars.items() if var.get()]
+            return ",".join(selected)
+
+        if rule_type == "no_play_after":
+            menu = self._condition_widgets.get("hour_menu")
+            if menu:
+                text = menu.get()  # e.g., "23:00 PM"
+                try:
+                    return str(int(text.split(":")[0]))
+                except (ValueError, IndexError):
+                    return ""
+            return ""
+
+        # loss_streak, max_games, min_mental — all numeric entries
+        entry = self._condition_widgets.get("entry")
+        if entry:
+            return entry.get().strip()
+        return ""
+
+    def _create(self):
+        name = self._name_entry.get().strip()
+        if not name:
+            self._name_entry.configure(border_color=COLORS["loss_red"])
+            return
+
+        type_display = self._type_menu.get()
+        rule_type = self._type_key_map.get(type_display, "custom")
+        condition_value = self._get_condition_value(rule_type)
+
+        # Validate numeric conditions
+        if rule_type in ("loss_streak", "max_games", "min_mental"):
+            try:
+                val = int(condition_value)
+                if val <= 0:
+                    raise ValueError
+            except ValueError:
+                entry = self._condition_widgets.get("entry")
+                if entry:
+                    entry.configure(border_color=COLORS["loss_red"])
+                return
+
+        if rule_type == "no_play_day" and not condition_value:
+            return  # No days selected
+
+        self.db.rules.create(
+            name=name,
+            description=self._desc_box.get("1.0", "end-1c").strip(),
+            rule_type=rule_type,
+            condition_value=condition_value,
+        )
+        self.destroy()
+        if self._on_created:
+            self._on_created()
+
+
+# ══════════════════════════════════════════════════════════
 # Wrapper Pages: Review & VOD (dynamic inline pages)
 # ══════════════════════════════════════════════════════════
 
@@ -1943,7 +2423,7 @@ class AppWindow(ctk.CTk):
     """Single-window app with sidebar navigation."""
 
     # Sidebar page names (have nav items)
-    _SIDEBAR_PAGES = {"home", "session", "objectives", "history", "losses", "stats", "settings"}
+    _SIDEBAR_PAGES = {"home", "session", "objectives", "rules", "history", "losses", "stats", "settings"}
 
     def __init__(self, db, on_minimize, on_open_vod, on_open_manual_entry,
                  on_settings_saved=None,
@@ -2018,6 +2498,7 @@ class AppWindow(ctk.CTk):
             ("🏠", "Home", "home"),
             ("📋", "Session", "session"),
             ("🎯", "Objectives", "objectives"),
+            ("📏", "Rules", "rules"),
             ("📜", "History", "history"),
             ("💔", "Losses", "losses"),
             ("📊", "Stats", "stats"),
@@ -2109,6 +2590,9 @@ class AppWindow(ctk.CTk):
             on_open_review=self._navigate_to_review,
         )
         self._pages["objectives"] = ObjectivesPage(
+            self._content, db=self.db,
+        )
+        self._pages["rules"] = RulesPage(
             self._content, db=self.db,
         )
         self._pages["history"] = HistoryPage(
