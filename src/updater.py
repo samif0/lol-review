@@ -368,31 +368,39 @@ def _relaunch_via_powershell(
     pid = os.getpid()
     new_exe_str = str(app_dir / exe_name)
     lock_path_str = str(app_dir / ".update_pending")
+    log_path_str = str(app_dir / ".update_log.txt")
 
     parts = [
-        # Suppress non-terminating errors (robocopy returns non-zero on success)
-        "$ErrorActionPreference = 'SilentlyContinue'",
+        # Log file for debugging update issues
+        f"$log = '{log_path_str}'",
+        f"\"$(Get-Date) - Update swap starting, waiting for PID {pid}\" | Out-File $log",
 
         # Wait for the old process to fully exit and release all file handles
-        f"try {{ Wait-Process -Id {pid} -Timeout 30 }} catch {{ }}",
+        f"try {{ Wait-Process -Id {pid} -Timeout 30; "
+        f"\"$(Get-Date) - Process exited cleanly\" | Out-File $log -Append "
+        f"}} catch {{ \"$(Get-Date) - Wait timed out or process already gone\" | Out-File $log -Append }}",
         "Start-Sleep -Seconds 2",
 
         # Mirror the staging directory over the app directory.
         # /MIR copies all new files AND deletes files not in source
         # (this is what kills stale python3XX.dll — the root cause of all crashes).
         # /R:5 /W:2 = retry 5 times, 2 seconds between retries.
+        f"\"$(Get-Date) - Running robocopy '{staging_dir}' -> '{app_dir}'\" | Out-File $log -Append",
         f"& robocopy '{staging_dir}' '{app_dir}' /MIR /R:5 /W:2 /NFL /NDL /NJH /NJS /NC /NS",
+        f"\"$(Get-Date) - Robocopy exit code: $LASTEXITCODE\" | Out-File $log -Append",
 
         # robocopy exit codes: 0-7 = success, 8+ = error.
         # Only launch the new exe if robocopy succeeded.
         f"if ($LASTEXITCODE -lt 8) {{ "
         f"Set-Content -Path '{lock_path_str}' -Value '{lock_version}' -Encoding UTF8; "
+        f"\"$(Get-Date) - Launching {exe_name}\" | Out-File $log -Append; "
         f"Start-Process -FilePath '{new_exe_str}' "
-        f"}}",
+        f"}} else {{ \"$(Get-Date) - FAILED: robocopy exit code $LASTEXITCODE, not launching\" | Out-File $log -Append }}",
 
         # Clean up staging directory (wait a moment for the new exe to start)
         "Start-Sleep -Seconds 3",
         f"Remove-Item -Path '{staging_cleanup_dir}' -Recurse -Force",
+        f"\"$(Get-Date) - Update swap complete\" | Out-File $log -Append",
     ]
 
     ps_script = "; ".join(parts)

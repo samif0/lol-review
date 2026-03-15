@@ -626,16 +626,39 @@ class App:
         os.startfile(str(data_dir))
 
     def _quit(self, icon=None, item=None):
-        """Clean shutdown."""
+        """Clean shutdown.
+
+        Uses os._exit(0) to guarantee the process terminates. This is
+        critical for the auto-updater: the PowerShell swap script waits
+        for this PID to exit before it can robocopy the new files and
+        launch the updated exe. Without a hard exit, non-daemon threads
+        (pystray, tkinter internals) can keep the process alive
+        indefinitely, causing the PowerShell Wait-Process to time out
+        and robocopy to fail on locked files.
+        """
         logger.info("Shutting down")
-        if self.monitor:
-            self.monitor.stop()
-        if self.tray_icon:
-            self.tray_icon.stop()
-        if self.db:
-            self.db.close()
-        if self.app_window:
-            self.app_window.after(0, self.app_window.destroy)
+        try:
+            if self.monitor:
+                self.monitor.stop()
+        except Exception:
+            pass
+        try:
+            if self.tray_icon:
+                self.tray_icon.stop()
+        except Exception:
+            pass
+        try:
+            if self.db:
+                self.db.close()
+        except Exception:
+            pass
+        # Flush log handlers before hard exit
+        for handler in logging.getLogger().handlers:
+            try:
+                handler.flush()
+            except Exception:
+                pass
+        os._exit(0)
 
 
 def main():
