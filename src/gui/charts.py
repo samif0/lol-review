@@ -45,9 +45,9 @@ class SimpleLineChart(ctk.CTkFrame):
         self._canvas.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, event=None):
-        self._draw()
+        self._render_chart()
 
-    def _draw(self):
+    def _render_chart(self, **kwargs):
         c = self._canvas
         c.delete("all")
 
@@ -194,9 +194,9 @@ class SimpleBarChart(ctk.CTkFrame):
         self._canvas.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, event=None):
-        self._draw()
+        self._render_chart()
 
-    def _draw(self):
+    def _render_chart(self, **kwargs):
         c = self._canvas
         c.delete("all")
 
