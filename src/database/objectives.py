@@ -61,11 +61,14 @@ class ObjectivesRepository:
         return dict(row) if row else None
 
     def update_score(self, obj_id: int, win: bool):
-        """Apply win (+2) or loss (-1) to objective score. Score floors at 0."""
+        """Apply win (+2) or loss (-1) to objective score and increment game count.
+
+        Score floors at 0.
+        """
         delta = 2 if win else -1
         conn = self._conn_mgr.get_conn()
         conn.execute(
-            "UPDATE objectives SET score = MAX(0, score + ?) WHERE id = ?",
+            "UPDATE objectives SET score = MAX(0, score + ?), game_count = game_count + 1 WHERE id = ?",
             (delta, obj_id),
         )
         conn.commit()

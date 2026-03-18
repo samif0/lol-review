@@ -23,9 +23,9 @@ from ..constants import (
     ADHERENCE_STREAK_LOCKED_IN, UNREVIEWED_GAMES_DAYS,
     UNREVIEWED_GAMES_DISPLAY_LIMIT, HISTORY_PAGE_SIZE,
 )
+from ..lcu import GameStats
 from ..version import __version__
 from .claude_context import ClaudeContextWindow
-from .game_review import SessionGameReviewPanel
 from .review import ReviewPanel
 from .vod_player import VodPlayerPanel
 
@@ -39,6 +39,85 @@ _KEY_DISPLAY = {
     "semicolon": ";", "quoteright": "'", "minus": "-", "equal": "=",
     "Return": "Enter", "BackSpace": "Backspace", "Escape": "Esc", "Tab": "Tab",
 }
+
+
+def _game_dict_to_stats(game: dict) -> GameStats:
+    """Construct a GameStats from a database game row dict."""
+    import json as _json
+    items_raw = game.get("items", "[]")
+    if isinstance(items_raw, str):
+        try:
+            items = _json.loads(items_raw)
+        except (ValueError, TypeError):
+            items = []
+    else:
+        items = items_raw or []
+
+    return GameStats(
+        game_id=game.get("game_id", 0),
+        timestamp=game.get("timestamp", 0),
+        game_duration=game.get("game_duration", 0),
+        game_mode=game.get("game_mode", ""),
+        game_type=game.get("game_type", ""),
+        queue_type=game.get("queue_type", ""),
+        summoner_name=game.get("summoner_name", ""),
+        champion_name=game.get("champion_name", "Unknown"),
+        champion_id=game.get("champion_id", 0),
+        team_id=game.get("team_id", 0),
+        position=game.get("position", ""),
+        role=game.get("role", ""),
+        win=bool(game.get("win", False)),
+        kills=game.get("kills", 0),
+        deaths=game.get("deaths", 0),
+        assists=game.get("assists", 0),
+        kda_ratio=game.get("kda_ratio", 0.0),
+        largest_killing_spree=game.get("largest_killing_spree", 0),
+        largest_multi_kill=game.get("largest_multi_kill", 0),
+        double_kills=game.get("double_kills", 0),
+        triple_kills=game.get("triple_kills", 0),
+        quadra_kills=game.get("quadra_kills", 0),
+        penta_kills=game.get("penta_kills", 0),
+        first_blood=bool(game.get("first_blood", False)),
+        total_damage_dealt=game.get("total_damage_dealt", 0),
+        total_damage_to_champions=game.get("total_damage_to_champions", 0),
+        physical_damage_to_champions=game.get("physical_damage_to_champions", 0),
+        magic_damage_to_champions=game.get("magic_damage_to_champions", 0),
+        true_damage_to_champions=game.get("true_damage_to_champions", 0),
+        total_damage_taken=game.get("total_damage_taken", 0),
+        damage_self_mitigated=game.get("damage_self_mitigated", 0),
+        largest_critical_strike=game.get("largest_critical_strike", 0),
+        gold_earned=game.get("gold_earned", 0),
+        gold_spent=game.get("gold_spent", 0),
+        total_minions_killed=game.get("total_minions_killed", 0),
+        neutral_minions_killed=game.get("neutral_minions_killed", 0),
+        cs_total=game.get("cs_total", 0),
+        cs_per_min=game.get("cs_per_min", 0.0),
+        vision_score=game.get("vision_score", 0),
+        wards_placed=game.get("wards_placed", 0),
+        wards_killed=game.get("wards_killed", 0),
+        control_wards_purchased=game.get("control_wards_purchased", 0),
+        turret_kills=game.get("turret_kills", 0),
+        inhibitor_kills=game.get("inhibitor_kills", 0),
+        dragon_kills=game.get("dragon_kills", 0),
+        baron_kills=game.get("baron_kills", 0),
+        rift_herald_kills=game.get("rift_herald_kills", 0),
+        total_heal=game.get("total_heal", 0),
+        total_heals_on_teammates=game.get("total_heals_on_teammates", 0),
+        total_damage_shielded_on_teammates=game.get("total_damage_shielded_on_teammates", 0),
+        total_time_cc_dealt=game.get("total_time_cc_dealt", 0),
+        time_ccing_others=game.get("time_ccing_others", 0),
+        spell1_casts=game.get("spell1_casts", 0),
+        spell2_casts=game.get("spell2_casts", 0),
+        spell3_casts=game.get("spell3_casts", 0),
+        spell4_casts=game.get("spell4_casts", 0),
+        summoner1_id=game.get("summoner1_id", 0),
+        summoner2_id=game.get("summoner2_id", 0),
+        items=items,
+        champ_level=game.get("champ_level", 0),
+        team_kills=game.get("team_kills", 0),
+        team_deaths=game.get("team_deaths", 0),
+        kill_participation=game.get("kill_participation", 0.0),
+    )
 
 
 def _display_key(tk_key: str) -> str:
@@ -134,12 +213,12 @@ class HomePage(ctk.CTkFrame):
         ).pack(side="right")
 
         self._build_today_stats(body)
+        self._build_objectives_summary(body)
         self._build_unreviewed(body)
 
     def _build_today_stats(self, parent):
         today = datetime.now().strftime("%Y-%m-%d")
         stats = self.db.get_session_stats_for_date(today)
-        streak = self.db.get_win_streak()
         adherence = self.db.get_adherence_streak()
 
         card = _card(parent)
@@ -151,16 +230,12 @@ class HomePage(ctk.CTkFrame):
         wins = stats.get("wins", 0) or 0
         losses = stats.get("losses", 0) or 0
         avg_mental = stats.get("avg_mental", 0) or 0
-        sv = streak
-        sc = COLORS["win_green"] if sv > 0 else (COLORS["loss_red"] if sv < 0 else COLORS["text"])
-        st = f"+{sv}" if sv > 0 else str(sv)
         wl_color = (COLORS["win_green"] if wins > losses and games > 0
                     else COLORS["loss_red"] if losses > wins else COLORS["text"])
 
         _stat_block(row, "Games", str(games))
         _stat_block(row, "W / L", f"{wins} / {losses}", wl_color)
         _stat_block(row, "Avg Mental", f"{avg_mental}/10" if games > 0 else "—", COLORS["accent_blue"])
-        _stat_block(row, "Win Streak", st, sc)
         _stat_block(row, "Adherence", f"{adherence}d",
                     COLORS["win_green"] if adherence >= ADHERENCE_STREAK_LOCKED_IN else COLORS["text"])
 
@@ -175,6 +250,50 @@ class HomePage(ctk.CTkFrame):
             banner.pack(fill="x", pady=(0, 12))
             ctk.CTkLabel(banner, text=btxt, font=ctk.CTkFont(size=14, weight="bold"),
                          text_color=btc).pack(pady=10)
+
+    def _build_objectives_summary(self, parent):
+        objectives = self.db.objectives.get_active()
+        if not objectives:
+            return
+
+        card = _card(parent)
+        card.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="ACTIVE OBJECTIVES",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 10))
+
+        for obj in objectives:
+            info = self.db.objectives.get_level_info(obj["score"], obj["game_count"])
+            level_color = _LEVEL_COLORS[min(info["level_index"], len(_LEVEL_COLORS) - 1)]
+
+            obj_row = ctk.CTkFrame(inner, fg_color="transparent")
+            obj_row.pack(fill="x", pady=(0, 8))
+
+            # Title + level
+            ctk.CTkLabel(
+                obj_row, text=obj["title"],
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color=COLORS["text"], anchor="w",
+            ).pack(side="left")
+
+            ctk.CTkLabel(
+                obj_row,
+                text=f"{info['level_name']}  •  {obj['score']} pts  •  {obj['game_count']} games",
+                font=ctk.CTkFont(size=11),
+                text_color=level_color,
+            ).pack(side="right")
+
+            # Progress bar
+            bar = ctk.CTkProgressBar(
+                inner, height=6, corner_radius=3,
+                fg_color=COLORS["border"],
+                progress_color=level_color,
+            )
+            bar.set(info["progress"])
+            bar.pack(fill="x", pady=(0, 6))
 
     def _build_unreviewed(self, parent):
         unreviewed = self.db.get_unreviewed_games(days=UNREVIEWED_GAMES_DAYS)
@@ -717,15 +836,18 @@ class HistoryPage(ctk.CTkFrame):
         for champ in champ_stats:
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill="x")
-            wr = champ.get("winrate", 0)
+            wr = champ.get("winrate") or 0
             wr_c = COLORS["win_green"] if wr >= 50 else COLORS["loss_red"]
+            avg_kda = champ.get("avg_kda") or 0
+            avg_cs = champ.get("avg_cs_min") or 0
+            avg_dmg = champ.get("avg_damage") or 0
             for text, color, w in [
-                (champ.get("champion_name", "?"), COLORS["accent_gold"], 140),
-                (str(champ.get("games_played", 0)), COLORS["text"], 60),
+                (champ.get("champion_name") or "?", COLORS["accent_gold"], 140),
+                (str(champ.get("games_played") or 0), COLORS["text"], 60),
                 (f"{wr:.1f}%", wr_c, 60),
-                (f"{champ.get('avg_kda', 0):.2f}", COLORS["text"], 80),
-                (f"{champ.get('avg_cs_min', 0):.1f}", COLORS["text"], 80),
-                (format_number(int(champ.get("avg_damage", 0))), COLORS["text"], 90),
+                (f"{avg_kda:.2f}", COLORS["text"], 80),
+                (f"{avg_cs:.1f}", COLORS["text"], 80),
+                (format_number(int(avg_dmg)), COLORS["text"], 90),
             ]:
                 ctk.CTkLabel(row, text=text, font=ctk.CTkFont(size=12),
                              text_color=color, width=w).pack(side="left", padx=6, pady=4)
@@ -778,7 +900,7 @@ class HistoryPage(ctk.CTkFrame):
 
     def _open_review(self, game: dict):
         if self._on_open_review:
-            self._on_open_review("session_game", game=game, on_save=lambda: None)
+            self._on_open_review("session_game", game=game, on_save=self.refresh)
 
     def refresh(self):
         self._current_page = 0
@@ -2370,7 +2492,7 @@ class _NewRuleDialog(ctk.CTkToplevel):
 # ══════════════════════════════════════════════════════════
 
 class ReviewPage(ctk.CTkFrame):
-    """Wrapper that hosts a ReviewPanel or SessionGameReviewPanel inline."""
+    """Wrapper that hosts a ReviewPanel inline."""
 
     def __init__(self, parent, **kw):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
@@ -2672,6 +2794,40 @@ class AppWindow(ctk.CTk):
         else:
             self._navigate("home", push_stack=False)
 
+    def _save_session_game_review(self, review_data: dict, after_save=None):
+        """Save review data from the unified ReviewPanel for an edited game.
+
+        Mirrors the save logic in main._save_review so that objectives,
+        concept tags, and mental_handled are all persisted.
+        """
+        game_id = review_data["game_id"]
+        win = review_data.pop("win", None)
+        mental_handled = review_data.pop("mental_handled", "")
+        concept_tag_ids = review_data.pop("concept_tag_ids", [])
+        objectives_data = review_data.pop("objectives_data", [])
+
+        self.db.update_review(**review_data)
+
+        if mental_handled:
+            self.db.update_mental_handled(game_id, mental_handled)
+
+        if concept_tag_ids is not None:
+            self.db.concept_tags.set_for_game(game_id, concept_tag_ids)
+
+        for od in objectives_data:
+            obj_id = od.get("objective_id")
+            practiced = od.get("practiced", True)
+            execution_note = od.get("execution_note", "")
+            if obj_id:
+                self.db.objectives.record_game(game_id, obj_id, practiced, execution_note)
+                if practiced:
+                    self.db.objectives.update_score(obj_id, win=bool(win))
+
+        logger.info(f"Session game review saved for game {game_id}")
+
+        if after_save:
+            after_save()
+
     def _navigate_to_review(self, review_type: str, **kwargs):
         """Navigate to an inline review page.
 
@@ -2694,22 +2850,44 @@ class AppWindow(ctk.CTk):
                     }
 
                 game_id = session_entry.get("game_id")
+
+                # Construct GameStats from the game dict for the full ReviewPanel
+                stats = _game_dict_to_stats(game)
+
+                # Gather VOD, bookmark, objective, and concept tag data
                 vod_info = self.db.get_vod(game_id) if game_id else None
                 has_vod = vod_info is not None
-                bookmark_count = self.db.get_bookmark_count(game_id) if has_vod else 0
+                bookmarks = self.db.get_bookmarks(game_id) if has_vod else []
+                bookmark_count = len(bookmarks)
+
+                pregame_intention = session_entry.get("pregame_intention", "") if session_entry else ""
+                existing_mental_handled = session_entry.get("mental_handled", "") if session_entry else ""
+
+                active_objectives = self.db.objectives.get_active()
+                existing_game_objectives = self.db.objectives.get_game_objectives(game_id) if game_id else []
+                concept_tags = self.db.concept_tags.get_all()
+                existing_concept_tag_ids = self.db.concept_tags.get_ids_for_game(game_id) if game_id else []
+
+                existing_review = self.db.get_game(game_id)
 
                 review_page = self._pages["review"]
                 review_page.show_review(
-                    SessionGameReviewPanel,
+                    ReviewPanel,
                     {
-                        "db": self.db,
-                        "session_entry": session_entry,
-                        "game_data": game,
-                        "on_save": on_save_cb,
+                        "stats": stats,
+                        "existing_review": existing_review,
+                        "on_save": lambda rd: self._save_session_game_review(rd, after_save=on_save_cb),
                         "on_open_vod": self._navigate_to_vod,
                         "on_back": self._navigate_back,
                         "has_vod": has_vod,
                         "bookmark_count": bookmark_count,
+                        "bookmarks": bookmarks,
+                        "pregame_intention": pregame_intention,
+                        "existing_mental_handled": existing_mental_handled,
+                        "concept_tags": concept_tags,
+                        "existing_concept_tag_ids": existing_concept_tag_ids,
+                        "active_objectives": active_objectives,
+                        "existing_game_objectives": existing_game_objectives,
                     },
                 )
                 self._navigate("review")

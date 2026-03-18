@@ -109,6 +109,7 @@ class App:
             on_connect=self._on_connect,
             on_disconnect=self._on_disconnect,
             poll_interval=GAME_MONITOR_POLL_INTERVAL_S,
+            check_game_saved=lambda gid: self.db.get_game(gid) is not None,
         )
         monitor_thread = threading.Thread(target=self.monitor.start, daemon=True)
         monitor_thread.start()

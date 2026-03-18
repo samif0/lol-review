@@ -132,6 +132,17 @@ class ConnectionManager:
                 ("", int(time.time())),
             )
 
+        # Backfill objectives.game_count from game_objectives for existing data
+        conn.execute("""
+            UPDATE objectives SET game_count = (
+                SELECT COUNT(*) FROM game_objectives
+                WHERE game_objectives.objective_id = objectives.id
+            ) WHERE game_count = 0 AND EXISTS (
+                SELECT 1 FROM game_objectives
+                WHERE game_objectives.objective_id = objectives.id
+            )
+        """)
+
         conn.commit()
         logger.info(f"Database initialized at {self.db_path}")
 

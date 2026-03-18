@@ -10,7 +10,7 @@ from .client import LCUClient
 from .credentials import find_credentials
 from .live_events import LiveEventCollector
 from .models import GameStats
-from .stats import extract_stats_from_eog
+from .stats import extract_stats_from_eog, extract_stats_from_match_history
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ class GameMonitor:
         on_connect: Optional[Callable[[], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
         poll_interval: float = GAME_MONITOR_POLL_INTERVAL_S,
+        check_game_saved: Optional[Callable[[int], bool]] = None,
     ):
         self.on_game_end = on_game_end
         self.on_champ_select = on_champ_select
@@ -42,6 +43,7 @@ class GameMonitor:
         self.on_connect = on_connect
         self.on_disconnect = on_disconnect
         self.poll_interval = poll_interval
+        self.check_game_saved = check_game_saved
 
         self._running = False
         self._client: Optional[LCUClient] = None
@@ -50,6 +52,7 @@ class GameMonitor:
         self._current_game_casual = False
         self._event_collector: Optional[LiveEventCollector] = None
         self._collector_thread: Optional[threading.Thread] = None
+        self._reconcile_pending = False
 
     def start(self):
         """Start the monitor loop. Call from a background thread."""
@@ -131,7 +134,16 @@ class GameMonitor:
             else:
                 logger.info("Game ended — fetching stats")
                 self._handle_game_end()
+                self._reconcile_pending = True
             self._current_game_casual = False
+
+        # When returning to lobby after a game, reconcile match history
+        # to catch any games we might have missed
+        if self._last_phase in ("EndOfGame", "InProgress", "GameStart", "WaitingForStats"):
+            if phase in ("Lobby", "None", "ReadyCheck", "ChampSelect"):
+                if self._reconcile_pending or self._last_phase == "InProgress":
+                    self._reconcile_match_history()
+                    self._reconcile_pending = False
 
         self._last_phase = phase
 
@@ -211,3 +223,57 @@ class GameMonitor:
             time.sleep(2)
 
         logger.warning("Could not retrieve end-of-game stats after retries")
+        # Mark for reconciliation since we failed to get EOG stats
+        self._reconcile_pending = True
+
+    def _reconcile_match_history(self):
+        """Check recent match history for games we might have missed.
+
+        This acts as a safety net — if the EndOfGame phase transition was
+        missed or EOG stats failed to load, we backfill from match history.
+        """
+        if self._client is None or self.check_game_saved is None:
+            return
+
+        try:
+            matches = self._client.get_match_history(begin=0, count=5)
+        except Exception as e:
+            logger.debug(f"Reconciliation: failed to fetch match history: {e}")
+            return
+
+        if not matches:
+            return
+
+        backfilled = 0
+        for game in matches:
+            game_id = game.get("gameId", 0)
+            if not game_id:
+                continue
+
+            # Already saved?
+            if self.check_game_saved(game_id):
+                continue
+
+            stats = extract_stats_from_match_history(game)
+            if stats is None:
+                continue
+
+            # Try to get summoner name
+            try:
+                summoner = self._client.get_current_summoner()
+                stats.summoner_name = summoner.get(
+                    "displayName",
+                    summoner.get("gameName", "Unknown"),
+                )
+            except Exception:
+                pass
+
+            logger.info(f"Reconciliation: backfilling missed game {game_id} "
+                        f"({stats.champion_name} {'W' if stats.win else 'L'})")
+            self.on_game_end(stats)
+            backfilled += 1
+
+        if backfilled:
+            logger.info(f"Reconciliation: backfilled {backfilled} missed game(s)")
+        else:
+            logger.debug("Reconciliation: no missed games found")

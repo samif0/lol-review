@@ -146,6 +146,73 @@ class SessionGameReviewPanel(ctk.CTkFrame):
         self.mental_slider.set(session_entry.get("mental_rating", MENTAL_RATING_DEFAULT))
         self.mental_slider.pack(fill="x", pady=(0, 12))
 
+        # === MENTAL REFLECTION (shown when mental <= 3) ===
+        self._mental_reflection_frame = ctk.CTkFrame(
+            container, fg_color=COLORS["bg_card"], corner_radius=8,
+            border_width=1, border_color="#7c3aed",
+        )
+        # Inner content
+        refl_inner = ctk.CTkFrame(self._mental_reflection_frame, fg_color="transparent")
+        refl_inner.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(
+            refl_inner, text="MENTAL CHECK-IN",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#7c3aed",
+        ).pack(anchor="w", pady=(0, 6))
+
+        ctk.CTkLabel(
+            refl_inner,
+            text="Your mental was low this game. Take a moment to reflect before moving on.",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_dim"],
+            wraplength=500, justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        ctk.CTkLabel(
+            refl_inner,
+            text="What triggered the tilt / frustration?",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text"],
+        ).pack(anchor="w", pady=(0, 4))
+
+        self._mental_trigger = ctk.CTkTextbox(
+            refl_inner, height=50, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color="#7c3aed", corner_radius=8,
+        )
+        self._mental_trigger.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            refl_inner,
+            text="Should you keep playing or take a break? Why?",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text"],
+        ).pack(anchor="w", pady=(0, 4))
+
+        self._mental_decision = ctk.CTkTextbox(
+            refl_inner, height=50, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color="#7c3aed", corner_radius=8,
+        )
+        self._mental_decision.pack(fill="x", pady=(0, 4))
+
+        # Pre-fill if previously saved
+        existing_handled = session_entry.get("mental_handled", "")
+        if existing_handled:
+            # Split on the separator if present
+            parts = existing_handled.split(" | Decision: ", 1)
+            trigger_text = parts[0].replace("Trigger: ", "", 1)
+            decision_text = parts[1] if len(parts) > 1 else ""
+            self._mental_trigger.insert("1.0", trigger_text)
+            self._mental_decision.insert("1.0", decision_text)
+
+        # Show/hide based on initial mental value
+        initial_mental = session_entry.get("mental_rating", MENTAL_RATING_DEFAULT)
+        if initial_mental <= 3:
+            self._mental_reflection_frame.pack(fill="x", pady=(0, 12))
+        # (otherwise stays hidden until slider changes)
+
         # === PERFORMANCE RATING (games table field) ===
         rating_row = ctk.CTkFrame(container, fg_color="transparent")
         rating_row.pack(fill="x", pady=(0, 8))
@@ -321,10 +388,34 @@ class SessionGameReviewPanel(ctk.CTkFrame):
             color = COLORS["loss_red"]
         self.mental_label.configure(text_color=color)
 
+        # Show/hide mental reflection
+        if rating <= 3:
+            if not self._mental_reflection_frame.winfo_manager():
+                # Insert right after the slider (before performance rating)
+                self._mental_reflection_frame.pack(fill="x", pady=(0, 12),
+                                                   after=self.mental_slider)
+        else:
+            if self._mental_reflection_frame.winfo_manager():
+                self._mental_reflection_frame.pack_forget()
+
     def _save(self):
         """Save review data to both session_log and games tables."""
         game_id = self.session_entry.get("game_id")
         mental = int(self.mental_slider.get())
+
+        # Require mental reflection if mental is low
+        if mental <= 3:
+            trigger = self._mental_trigger.get("1.0", "end-1c").strip()
+            decision = self._mental_decision.get("1.0", "end-1c").strip()
+            if not trigger or not decision:
+                self._mental_reflection_frame.configure(border_color=COLORS["loss_red"])
+                return
+            mental_handled = f"Trigger: {trigger} | Decision: {decision}"
+            if game_id is not None and self.db.has_session_log_entry(game_id):
+                self.db.update_mental_handled(game_id, mental_handled)
+        else:
+            self._mental_reflection_frame.configure(border_color="#7c3aed")
+
         improvement = self.improvement_note.get().strip()
 
         # Collect review fields before any DB writes

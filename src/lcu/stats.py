@@ -1,4 +1,4 @@
-"""Extract structured stats from end-of-game data."""
+"""Extract structured stats from end-of-game and match history data."""
 
 import logging
 import time
@@ -7,6 +7,148 @@ from typing import Optional
 from .models import GameStats
 
 logger = logging.getLogger(__name__)
+
+
+def extract_stats_from_match_history(game: dict) -> Optional[GameStats]:
+    """Extract GameStats from an LCU match history entry.
+
+    Match history entries have a different structure than EOG data —
+    participant stats are nested under 'participants' with standard
+    Riot API field names rather than the ALL_CAPS EOG format.
+    """
+    if not game:
+        return None
+
+    try:
+        game_id = game.get("gameId", 0)
+        game_creation = game.get("gameCreation", 0)
+        game_duration = game.get("gameDuration", 0)
+        game_mode = game.get("gameMode", "")
+        game_type = game.get("gameType", "")
+        queue_id = game.get("queueId", 0)
+
+        # Find the local player's participant data
+        participants = game.get("participants", [])
+        participant_identities = game.get("participantIdentities", [])
+
+        # In LCU match history, there's usually a single participant (the local player)
+        # or we need to find them via participantIdentities
+        p = None
+        if len(participants) == 1:
+            p = participants[0]
+        elif participant_identities:
+            # Find the current player's participantId
+            for pi in participant_identities:
+                player_info = pi.get("player", {})
+                if player_info.get("currentPlayer", False):
+                    pid = pi.get("participantId")
+                    for part in participants:
+                        if part.get("participantId") == pid:
+                            p = part
+                            break
+                    break
+
+        if not p:
+            # Fallback: just use the first participant
+            if participants:
+                p = participants[0]
+            else:
+                return None
+
+        stats = p.get("stats", {})
+        team_id = p.get("teamId", 100)
+
+        kills = int(stats.get("kills", 0))
+        deaths = int(stats.get("deaths", 0))
+        assists = int(stats.get("assists", 0))
+        minions = int(stats.get("totalMinionsKilled", 0))
+        jungle = int(stats.get("neutralMinionsKilled", 0))
+        cs_total = minions + jungle
+        duration_min = max(game_duration / 60, 1)
+
+        # Compute team kills from all participants on same team
+        team_kills_total = 0
+        for part in participants:
+            if part.get("teamId") == team_id:
+                team_kills_total += int(part.get("stats", {}).get("kills", 0))
+
+        kda = (kills + assists) / max(deaths, 1)
+        kp = (kills + assists) / max(team_kills_total, 1) * 100
+
+        # Use game creation timestamp (milliseconds) converted to seconds
+        timestamp = int(game_creation / 1000) if game_creation > 1e12 else int(game_creation)
+
+        gs = GameStats(
+            game_id=game_id,
+            timestamp=timestamp,
+            game_duration=game_duration,
+            game_mode=game_mode,
+            game_type=game_type,
+            queue_type=str(queue_id),
+            champion_name=p.get("championName", "") or game.get("championName", "Unknown"),
+            champion_id=p.get("championId", 0),
+            team_id=team_id,
+            position=p.get("timeline", {}).get("lane", ""),
+            role=p.get("timeline", {}).get("role", ""),
+            win=bool(stats.get("win", False)),
+            kills=kills,
+            deaths=deaths,
+            assists=assists,
+            kda_ratio=round(kda, 2),
+            largest_killing_spree=int(stats.get("largestKillingSpree", 0)),
+            largest_multi_kill=int(stats.get("largestMultiKill", 0)),
+            double_kills=int(stats.get("doubleKills", 0)),
+            triple_kills=int(stats.get("tripleKills", 0)),
+            quadra_kills=int(stats.get("quadraKills", 0)),
+            penta_kills=int(stats.get("pentaKills", 0)),
+            first_blood=bool(stats.get("firstBloodKill", False)),
+            total_damage_dealt=int(stats.get("totalDamageDealt", 0)),
+            total_damage_to_champions=int(stats.get("totalDamageDealtToChampions", 0)),
+            physical_damage_to_champions=int(stats.get("physicalDamageDealtToChampions", 0)),
+            magic_damage_to_champions=int(stats.get("magicDamageDealtToChampions", 0)),
+            true_damage_to_champions=int(stats.get("trueDamageDealtToChampions", 0)),
+            total_damage_taken=int(stats.get("totalDamageTaken", 0)),
+            damage_self_mitigated=int(stats.get("damageSelfMitigated", 0)),
+            largest_critical_strike=int(stats.get("largestCriticalStrike", 0)),
+            gold_earned=int(stats.get("goldEarned", 0)),
+            gold_spent=int(stats.get("goldSpent", 0)),
+            total_minions_killed=minions,
+            neutral_minions_killed=jungle,
+            cs_total=cs_total,
+            cs_per_min=round(cs_total / duration_min, 1),
+            vision_score=int(stats.get("visionScore", 0)),
+            wards_placed=int(stats.get("wardsPlaced", 0)),
+            wards_killed=int(stats.get("wardsKilled", 0)),
+            control_wards_purchased=int(stats.get("visionWardsBoughtInGame", 0)),
+            turret_kills=int(stats.get("turretKills", 0)),
+            inhibitor_kills=int(stats.get("inhibitorKills", 0)),
+            total_heal=int(stats.get("totalHeal", 0)),
+            total_heals_on_teammates=int(stats.get("totalHealsOnTeammates", 0)),
+            total_damage_shielded_on_teammates=int(stats.get("totalDamageShieldedOnTeammates", 0)),
+            total_time_cc_dealt=int(stats.get("totalTimeCrowdControlDealt", 0)),
+            time_ccing_others=int(stats.get("timeCCingOthers", 0)),
+            spell1_casts=int(stats.get("spell1Casts", 0)),
+            spell2_casts=int(stats.get("spell2Casts", 0)),
+            spell3_casts=int(stats.get("spell3Casts", 0)),
+            spell4_casts=int(stats.get("spell4Casts", 0)),
+            summoner1_id=p.get("spell1Id", 0),
+            summoner2_id=p.get("spell2Id", 0),
+            champ_level=int(stats.get("champLevel", 0)),
+            team_kills=team_kills_total,
+            kill_participation=round(kp, 1),
+            items=[
+                int(stats.get(f"item{i}", 0))
+                for i in range(7)
+                if int(stats.get(f"item{i}", 0)) != 0
+            ],
+            raw_stats=stats,
+        )
+
+        return gs
+
+    except Exception as e:
+        logger.error(f"Failed to extract match history stats: {e}", exc_info=True)
+        return None
 
 
 def extract_stats_from_eog(eog_data: dict) -> Optional[GameStats]:

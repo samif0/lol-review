@@ -73,15 +73,20 @@ class LCUClient:
         except Exception:
             return -1
 
-    def get_match_history(self, begin: int = 0, count: int = 20) -> list[dict]:
-        """Get recent match history for the current player."""
+    def get_match_history(self, begin: int = 0, count: int = 5) -> list[dict]:
+        """Get recent match history for the current player via LCU."""
         try:
+            summoner = self.get_current_summoner()
+            puuid = summoner.get("puuid", "")
+            if not puuid:
+                return []
             data = self.get(
-                f"/lol-match-history/v3/matchlist/account/"
-                f"{{accountId}}?begIndex={begin}&endIndex={begin + count}"
+                f"/lol-match-history/v1/products/lol/{puuid}/matches"
+                f"?begIndex={begin}&endIndex={begin + count}"
             )
-            return data.get("games", {}).get("games", [])
-        except Exception:
+            return data.get("games", []) if isinstance(data, dict) else data if isinstance(data, list) else []
+        except Exception as e:
+            logger.debug(f"Failed to fetch match history: {e}")
             return []
 
     def get_ranked_stats(self) -> Optional[dict]:
