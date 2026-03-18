@@ -1,39 +1,34 @@
-"""Side-by-side versioned auto-updater using GitHub Releases.
+"""Auto-updater using GitHub Releases with side-by-side versioned directories.
 
-Architecture (Squirrel/Chrome-style):
+Layout:
   LoLReview/
-    LoLReview.exe        <- tiny native launcher (never updated)
-    .current             <- text file: "1.5.0" (active version)
-    .previous            <- text file: "1.4.0" (rollback target)
-    app-1.4.0/           <- previous version (kept for rollback)
-    app-1.5.0/           <- current version
+    LoLReview.exe        <- native launcher (reads .current on first launch)
+    .current             <- "1.5.3"
+    .previous            <- "1.5.2"
+    app-1.5.2/
+    app-1.5.3/
       LoLReview.exe      <- actual PyInstaller app
       _internal/
 
 Update flow:
-1. App checks GitHub Releases for a newer version (unchanged)
-2. Downloads ZIP, extracts to a NEW app-{version}/ directory
-   — never touches the running version's files
-3. Atomically updates .current pointer to the new version
-4. Writes old version to .previous (for rollback)
-5. Exits with code 42 — the launcher re-reads .current and launches the new version
+1. App checks GitHub for newer version
+2. If already installed locally (previous restart failed) -> just restart
+3. Otherwise: download ZIP, extract to app-{version}/, update .current
+4. Restart via _restart.cmd batch file that:
+   - Polls until our PID is dead (no fixed timeout, no race)
+   - Launches new version exe directly
+   - Deletes itself
 
-The launcher (launcher.c):
-- Reads .current, launches app-{version}/LoLReview.exe
-- Watches the process for 30 seconds
-- If it crashes, reads .previous, rolls back, launches the old version
-- If it survives 30s, the launcher exits — the app is healthy
-
-Why this is bulletproof:
-- No PowerShell. No robocopy. No file locking. No timing windows.
-- The new version is installed into a fresh directory while the old one runs.
-- If anything goes wrong, the old version is untouched and the launcher rolls back.
-- Stale DLLs are never a problem — each version has its own complete directory.
+Startup safety:
+- If .current points to a newer installed version, launch it and exit
+  (catches the case where the batch file restart failed but update IS installed)
+- If .update_pending exists, we just updated -> show banner, skip check
 """
 
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -50,24 +45,20 @@ from .version import __version__, GITHUB_REPO
 
 logger = logging.getLogger(__name__)
 
-# Exit code that tells the launcher to re-read .current and launch the new version.
+# Kept for launcher.c compatibility
 UPDATE_RESTART_EXIT_CODE = 42
 
-# GitHub API endpoint for latest release
 _RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-
-# How long after startup before we consider this version "healthy" and clean up old ones
-HEALTHY_START_DELAY_S = 60
 
 
 # ── SxS layout detection ────────────────────────────────────────────
 
 
 def get_sxs_root() -> Optional[Path]:
-    """Return the SxS root directory, or None if not running in SxS layout.
+    """Return the SxS root directory, or None if not in SxS layout.
 
-    In SxS layout, the exe is at:  <sxs_root>/app-X.Y.Z/LoLReview.exe
-    So sxs_root = exe.parent.parent, and it should contain a .current file.
+    In SxS layout the exe lives at: <root>/app-X.Y.Z/LoLReview.exe
+    So root = exe.parent.parent, and root/.current must exist.
     """
     if not getattr(sys, "frozen", False):
         return None
@@ -79,7 +70,6 @@ def get_sxs_root() -> Optional[Path]:
 
 
 def is_sxs_layout() -> bool:
-    """True if we're running inside a side-by-side versioned directory."""
     return get_sxs_root() is not None
 
 
@@ -87,7 +77,6 @@ def is_sxs_layout() -> bool:
 
 
 def _read_pointer(path: Path) -> str:
-    """Read a pointer file (.current / .previous). Returns empty string on failure."""
     try:
         if path.exists():
             return path.read_text(encoding="utf-8").strip()
@@ -97,29 +86,15 @@ def _read_pointer(path: Path) -> str:
 
 
 def _write_pointer_atomic(path: Path, value: str):
-    """Write a pointer file atomically (write to .tmp, then rename)."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(value, encoding="utf-8")
     tmp.replace(path)
-
-
-# ── Auth ─────────────────────────────────────────────────────────────
-
-
-def _get_auth_headers() -> dict:
-    """Build request headers, with auth token if available."""
-    headers = {"Accept": "application/vnd.github.v3+json"}
-    token = load_github_token()
-    if token:
-        headers["Authorization"] = f"token {token}"
-    return headers
 
 
 # ── Version parsing ──────────────────────────────────────────────────
 
 
 def parse_version(version_str: str) -> Tuple[int, ...]:
-    """Parse a version string like '1.2.3' or 'v1.2.3' into a comparable tuple."""
     cleaned = version_str.lstrip("vV").strip()
     try:
         return tuple(int(x) for x in cleaned.split("."))
@@ -127,15 +102,64 @@ def parse_version(version_str: str) -> Tuple[int, ...]:
         return (0, 0, 0)
 
 
+# ── Auth ─────────────────────────────────────────────────────────────
+
+
+def _get_auth_headers() -> dict:
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    token = load_github_token()
+    if token:
+        headers["Authorization"] = f"token {token}"
+    return headers
+
+
 # ── Startup ──────────────────────────────────────────────────────────
 
 
-def post_update_startup() -> bool:
-    """Run on every startup. Returns True if we just updated (skip update check).
+def maybe_redirect_to_current_version():
+    """If .current points to a NEWER installed version, launch it and exit.
 
-    In SxS mode, checks the .update_pending lock in the SxS root.
-    In legacy mode, checks the lock next to the exe.
+    This catches the case where an update was installed (app-{new}/ exists,
+    .current was updated) but the restart failed. The user relaunched the
+    old version manually — we detect this and redirect them.
+
+    Only redirects to NEWER versions. If .current is older (launcher rolled
+    back after a crash), we stay on the current version.
+
+    Call this at the start of main() after logging is configured.
+    If we redirect, this function does not return.
     """
+    sxs_root = get_sxs_root()
+    if not sxs_root:
+        return
+
+    current = _read_pointer(sxs_root / ".current")
+    if not current or current == __version__:
+        return
+
+    if parse_version(current) <= parse_version(__version__):
+        return
+
+    target_exe = sxs_root / f"app-{current}" / "LoLReview.exe"
+    if not target_exe.exists():
+        logger.warning(f"Redirect: app-{current}/LoLReview.exe not found, skipping")
+        return
+
+    logger.info(f"Redirecting {__version__} -> {current}")
+    try:
+        # Use cmd.exe /c start to launch — most reliable Windows process spawn
+        subprocess.Popen(
+            f'cmd.exe /c start "" "{target_exe}"',
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        os._exit(0)
+    except Exception as e:
+        logger.error(f"Redirect failed: {e}")
+        # Continue running as current version
+
+
+def post_update_startup() -> bool:
+    """Check for .update_pending lock. Returns True if we just updated."""
     sxs_root = get_sxs_root()
 
     if sxs_root:
@@ -158,14 +182,13 @@ def post_update_startup() -> bool:
     if expected == __version__:
         logger.info(f"Updated successfully to {__version__}")
     else:
-        logger.warning(f"Update lock version mismatch: expected {expected!r}, running {__version__!r}")
+        logger.warning(f"Update lock mismatch: expected {expected!r}, running {__version__!r}")
 
     return True
 
 
-# Keep old name as alias
 def cleanup_old_exe():
-    """Deprecated: use post_update_startup() instead."""
+    """Deprecated alias for post_update_startup()."""
     post_update_startup()
 
 
@@ -173,43 +196,27 @@ def cleanup_old_exe():
 
 
 def register_successful_start():
-    """Mark this version as healthy after it has been running for a while.
-
-    Called ~60s after startup from main.py. Writes a .healthy marker and
-    cleans up old version directories.
-    """
     sxs_root = get_sxs_root()
     if not sxs_root:
         return
-
-    # Write .healthy marker in our version directory
     version_dir = Path(sys.executable).parent
     try:
         (version_dir / ".healthy").write_text(str(int(time.time())), encoding="utf-8")
         logger.info(f"Registered healthy start for {__version__}")
     except Exception as e:
         logger.warning(f"Could not write .healthy marker: {e}")
-
-    # Clean up old versions
     cleanup_old_versions()
 
 
 def cleanup_old_versions():
-    """Remove old version directories, keeping current + previous."""
     sxs_root = get_sxs_root()
     if not sxs_root:
         return
-
     current = _read_pointer(sxs_root / ".current")
     previous = _read_pointer(sxs_root / ".previous")
     keep = {f"app-{current}", f"app-{previous}"} - {"app-"}
-
     for entry in sxs_root.iterdir():
-        if not entry.is_dir():
-            continue
-        if not entry.name.startswith("app-"):
-            continue
-        if entry.name in keep:
+        if not entry.is_dir() or not entry.name.startswith("app-") or entry.name in keep:
             continue
         try:
             shutil.rmtree(entry)
@@ -218,73 +225,62 @@ def cleanup_old_versions():
             logger.warning(f"Could not remove {entry.name}: {e}")
 
 
-# ── Check ────────────────────────────────────────────────────────────
+# ── Check for update ─────────────────────────────────────────────────
 
 
 def check_for_update() -> Optional[dict]:
-    """Check GitHub Releases for a newer version.
-
-    Returns a dict with update info if available, None otherwise.
-    """
+    """Check GitHub for a newer version. Returns info dict or None."""
     try:
-        logger.info(f"Checking for updates at {_RELEASES_URL}")
         headers = _get_auth_headers()
-        if "Authorization" in headers:
-            logger.info("Using GitHub token for auth")
-        else:
-            logger.info("No GitHub token — will fail for private repos")
-
         resp = requests.get(_RELEASES_URL, headers=headers, timeout=UPDATE_CHECK_TIMEOUT_S)
-        logger.info(f"Update check response: HTTP {resp.status_code}")
 
         if resp.status_code == 404:
-            logger.info("No releases found on GitHub (404)")
             return None
-
         resp.raise_for_status()
         data = resp.json()
 
         latest_tag = data.get("tag_name", "")
-        latest_version = parse_version(latest_tag)
-        current_version = parse_version(__version__)
-
-        if latest_version <= current_version:
-            logger.info(f"Up to date (current: {__version__}, latest: {latest_tag})")
+        if parse_version(latest_tag) <= parse_version(__version__):
+            logger.info(f"Up to date ({__version__})")
             return None
 
-        # Find the zip asset
         download_url = ""
         for asset in data.get("assets", []):
             if asset["name"].endswith(".zip"):
                 download_url = asset["browser_download_url"]
                 break
 
-        release_url = data.get("html_url", "")
+        clean_version = latest_tag.lstrip("vV")
+
+        # Check if this version is already installed locally
+        # (previous download succeeded but restart failed)
+        already_installed = False
+        sxs_root = get_sxs_root()
+        if sxs_root:
+            target_exe = sxs_root / f"app-{clean_version}" / "LoLReview.exe"
+            already_installed = target_exe.exists()
+            if already_installed:
+                logger.info(f"v{clean_version} already installed locally, just needs restart")
 
         return {
             "version": latest_tag,
+            "clean_version": clean_version,
             "download_url": download_url,
-            "release_url": release_url,
+            "release_url": data.get("html_url", ""),
             "release_notes": data.get("body", ""),
+            "already_installed": already_installed,
         }
 
-    except requests.RequestException as e:
-        logger.warning(f"Update check failed (network error): {e}")
-        return None
     except Exception as e:
         logger.warning(f"Update check failed: {e}")
         return None
 
 
 def check_for_update_async(callback: Callable[[Optional[dict]], None]):
-    """Check for updates in a background thread."""
-    def _worker():
-        result = check_for_update()
-        callback(result)
-    threading.Thread(target=_worker, daemon=True).start()
+    threading.Thread(target=lambda: callback(check_for_update()), daemon=True).start()
 
 
-# ── Download & Install ───────────────────────────────────────────────
+# ── Download & install ───────────────────────────────────────────────
 
 
 def download_and_install(
@@ -293,11 +289,6 @@ def download_and_install(
     on_progress: Optional[Callable[[int, int], None]] = None,
     on_done: Optional[Callable[[bool, str], None]] = None,
 ):
-    """Download the update and install to a new versioned directory.
-
-    In SxS mode: extracts to app-{version}/, updates .current pointer.
-    In legacy mode: falls back to simple file copy (dev testing only).
-    """
     def _worker():
         try:
             _do_download_and_install(download_url, target_version, on_progress)
@@ -311,20 +302,14 @@ def download_and_install(
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def _do_download_and_install(
-    download_url: str,
-    target_version: str = "",
-    on_progress: Optional[Callable[[int, int], None]] = None,
-):
-    """Download zip and install to a new versioned directory."""
+def _do_download_and_install(download_url, target_version="", on_progress=None):
     headers = _get_auth_headers()
     dl_headers = {**headers, "Accept": "application/octet-stream"}
     clean_version = target_version.lstrip("vV") if target_version else "unknown"
 
-    logger.info(f"Downloading update from {download_url}")
-
-    # ── Download ─────────────────────────────────────────────
-    resp = requests.get(download_url, headers=dl_headers, stream=True, timeout=UPDATE_DOWNLOAD_TIMEOUT_S)
+    # Download
+    resp = requests.get(download_url, headers=dl_headers, stream=True,
+                        timeout=UPDATE_DOWNLOAD_TIMEOUT_S)
     resp.raise_for_status()
 
     total = int(resp.headers.get("content-length", 0))
@@ -338,80 +323,45 @@ def _do_download_and_install(
             if on_progress:
                 on_progress(downloaded, total)
 
-    logger.info(f"Downloaded {downloaded} bytes to {tmp_zip}")
-
-    # ── Extract to temp ──────────────────────────────────────
+    # Extract
     tmp_extract = Path(tempfile.mkdtemp(prefix="lolreview_extract_"))
     with zipfile.ZipFile(tmp_zip, "r") as zf:
         zf.extractall(tmp_extract)
 
-    logger.info(f"Extracted to {tmp_extract}")
-
-    # ── Find the app files inside the zip ────────────────────
-    # ZIP may contain:
-    #   (a) Files at root (LoLReview.exe, _internal/, ...)
-    #   (b) A single subfolder containing the files
-    #   (c) SxS layout (LoLReview.exe launcher + app-X.Y.Z/ + .current)
-    #
-    # For SxS updates, we want the app-X.Y.Z/ directory contents.
-    # For legacy ZIPs, we want all files.
-
+    # Find app source
     source_dir = _find_app_source(tmp_extract, clean_version)
+    if not list(source_dir.glob("*.exe")):
+        raise RuntimeError(f"No .exe in update package at {source_dir}")
 
-    # Validate: the source must contain an exe
-    exe_candidates = list(source_dir.glob("*.exe"))
-    if not exe_candidates:
-        raise RuntimeError(f"No .exe found in update package at {source_dir}")
-
-    logger.info(f"Update source directory: {source_dir} ({len(list(source_dir.iterdir()))} items)")
-
-    # ── Install ──────────────────────────────────────────────
+    # Install (SxS only — no legacy PowerShell path)
     sxs_root = get_sxs_root()
+    if not sxs_root:
+        raise RuntimeError("Not in SxS layout — download the update manually from GitHub")
 
-    if sxs_root and getattr(sys, "frozen", False):
-        _install_sxs(sxs_root, source_dir, clean_version)
-    elif getattr(sys, "frozen", False):
-        # Legacy flat layout — this is the last time this path runs.
-        # After this update, the user will have the SxS layout.
-        _install_legacy_to_sxs(source_dir, clean_version, tmp_extract)
-    else:
-        # Dev mode — just copy files
-        app_dir = Path(__file__).resolve().parent.parent
-        logger.info(f"Dev mode: copying {source_dir} → {app_dir}")
-        _copy_tree(source_dir, app_dir)
+    _install_sxs(sxs_root, source_dir, clean_version)
 
-    # Clean up temp files.
-    # For SxS installs, we can clean up immediately since we copied (not moved) the files.
-    # For legacy bridge installs, PowerShell cleans up tmp_extract after it's done.
+    # Cleanup temp
     try:
         tmp_zip.unlink()
     except Exception:
         pass
-    if sxs_root:
-        try:
-            shutil.rmtree(tmp_extract)
-        except Exception:
-            pass
+    try:
+        shutil.rmtree(tmp_extract)
+    except Exception:
+        pass
 
-    logger.info(f"Update to {clean_version} installed successfully")
+    logger.info(f"Update to {clean_version} installed")
 
 
 def _find_app_source(extract_dir: Path, version: str) -> Path:
-    """Find the actual app files inside an extracted ZIP.
-
-    Handles both SxS ZIPs (contain app-X.Y.Z/) and legacy flat ZIPs.
-    """
-    # Check for SxS layout: does the ZIP contain an app-{version}/ directory?
+    # SxS layout in ZIP: app-{version}/ directory
     sxs_app_dir = extract_dir / f"app-{version}"
     if sxs_app_dir.is_dir():
         return sxs_app_dir
-
-    # Check for any app-* directory (version in ZIP might differ slightly)
     for entry in extract_dir.iterdir():
         if entry.is_dir() and entry.name.startswith("app-"):
             return entry
-
-    # Legacy flat ZIP: single subfolder or files at root
+    # Flat ZIP: single subfolder or root
     items = list(extract_dir.iterdir())
     if len(items) == 1 and items[0].is_dir():
         return items[0]
@@ -419,128 +369,107 @@ def _find_app_source(extract_dir: Path, version: str) -> Path:
 
 
 def _install_sxs(sxs_root: Path, source_dir: Path, version: str):
-    """Install update into a new versioned directory under the SxS root."""
     target_dir = sxs_root / f"app-{version}"
 
     if target_dir.exists():
-        logger.warning(f"Version directory already exists, replacing: {target_dir}")
         shutil.rmtree(target_dir)
 
-    # Move the extracted files into the version directory.
-    # Use shutil.copytree + rmtree instead of rename, because rename fails
-    # across filesystem boundaries (temp dir might be on a different drive).
-    logger.info(f"Installing to {target_dir}")
     shutil.copytree(str(source_dir), str(target_dir))
 
-    # Validate the installed exe exists
-    installed_exe = target_dir / "LoLReview.exe"
-    if not installed_exe.exists():
-        # Try to find it
-        exes = list(target_dir.glob("*.exe"))
-        if not exes:
+    if not (target_dir / "LoLReview.exe").exists():
+        if not list(target_dir.glob("*.exe")):
             shutil.rmtree(target_dir)
-            raise RuntimeError(f"Installed version has no exe: {target_dir}")
-        logger.warning(f"Expected LoLReview.exe, found: {[e.name for e in exes]}")
+            raise RuntimeError(f"No exe in {target_dir}")
 
-    # Update pointers atomically
     old_version = _read_pointer(sxs_root / ".current")
     _write_pointer_atomic(sxs_root / ".current", version)
     if old_version:
         _write_pointer_atomic(sxs_root / ".previous", old_version)
 
-    # Write update lock so the new version knows it just updated
+    (sxs_root / ".update_pending").write_text(version, encoding="utf-8")
+    logger.info(f"SxS install: .current={version}, .previous={old_version}")
+
+
+# ── Restart via batch file ───────────────────────────────────────────
+
+
+def set_current_version(version: str):
+    """Update .current pointer. Saves old version as .previous."""
+    sxs_root = get_sxs_root()
+    if not sxs_root:
+        return
+    old = _read_pointer(sxs_root / ".current")
+    if old != version:
+        _write_pointer_atomic(sxs_root / ".current", version)
+        if old:
+            _write_pointer_atomic(sxs_root / ".previous", old)
     (sxs_root / ".update_pending").write_text(version, encoding="utf-8")
 
-    logger.info(f"SxS install complete: .current={version}, .previous={old_version}")
 
+def restart_into_version(version: str = "") -> bool:
+    """Create a .cmd batch file that waits for us to exit, then launches the new version.
 
-def _install_legacy_to_sxs(source_dir: Path, version: str, tmp_extract: Path):
-    """Bridge migration: install SxS update over a legacy flat directory.
+    The batch file:
+    1. Polls `tasklist` until our PID is gone (no fixed timeout, no race condition)
+    2. Launches the new version's exe via `start`
+    3. Deletes itself
 
-    The old updater (PowerShell/robocopy) downloads the new ZIP which has
-    the SxS layout. This function handles the case where we're still running
-    in the old flat layout but the downloaded ZIP is SxS-formatted.
-
-    Since we can't modify our own files while running, we fall back to the
-    old PowerShell approach one last time to do the migration.
+    Returns True if the batch was launched successfully (caller should os._exit(0)).
+    Returns False on failure.
     """
-    import base64
-    import subprocess
+    sxs_root = get_sxs_root()
+    if not sxs_root:
+        logger.error("restart_into_version: not in SxS layout")
+        return False
 
-    app_dir = Path(sys.executable).parent
-    exe_name = Path(sys.executable).name
+    if not version:
+        version = _read_pointer(sxs_root / ".current")
+    if not version:
+        logger.error("restart_into_version: no version in .current")
+        return False
+
+    target_exe = sxs_root / f"app-{version}" / "LoLReview.exe"
+    if not target_exe.exists():
+        logger.error(f"restart_into_version: {target_exe} not found")
+        return False
+
     pid = os.getpid()
+    restart_cmd = sxs_root / "_restart.cmd"
 
-    # The source_dir contains the app files. But for the bridge migration,
-    # we need to copy the ENTIRE SxS structure (launcher + app-X.Y.Z/ + .current).
-    # The tmp_extract root should have this structure.
-    #
-    # Check if tmp_extract has the SxS layout
-    sxs_source = tmp_extract
-    items = list(tmp_extract.iterdir())
-    if len(items) == 1 and items[0].is_dir():
-        sxs_source = items[0]
+    # Batch script that polls until our PID is dead, then launches new version.
+    # - tasklist + find: check if PID still running
+    # - ping -n 2: ~1 second delay between checks (ping to localhost is instant)
+    # - start "": launch exe (empty title required by start syntax)
+    # - del "%~f0": delete the batch file itself
+    script = (
+        '@echo off\r\n'
+        ':wait\r\n'
+        f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul\r\n'
+        'if not errorlevel 1 (\r\n'
+        '  ping -n 2 127.0.0.1 >nul\r\n'
+        '  goto wait\r\n'
+        ')\r\n'
+        f'start "" "{target_exe}"\r\n'
+        'del "%~f0"\r\n'
+    )
 
-    log_path = str(app_dir / ".update_log.txt")
-    new_launcher = str(app_dir / "LoLReview.exe")
-
-    # Last PowerShell migration — after this, the SxS launcher takes over
-    parts = [
-        f"$log = '{log_path}'",
-        f"\"$(Get-Date) - Bridge migration starting, waiting for PID {pid}\" | Out-File $log",
-
-        f"try {{ Wait-Process -Id {pid} -Timeout 30; "
-        f"\"$(Get-Date) - Process exited\" | Out-File $log -Append "
-        f"}} catch {{ \"$(Get-Date) - Wait timed out\" | Out-File $log -Append }}",
-        "Start-Sleep -Seconds 2",
-
-        f"\"$(Get-Date) - Running robocopy '{sxs_source}' -> '{app_dir}'\" | Out-File $log -Append",
-        f"& robocopy '{sxs_source}' '{app_dir}' /MIR /R:5 /W:2 /NFL /NDL /NJH /NJS /NC /NS",
-        f"$rc = $LASTEXITCODE",
-        f"\"$(Get-Date) - Robocopy exit code: $rc\" | Out-File $log -Append",
-
-        # Always launch the exe (now the launcher)
-        f"\"$(Get-Date) - Launching launcher\" | Out-File $log -Append",
-        f"Start-Process -FilePath '{new_launcher}'",
-
-        "Start-Sleep -Seconds 3",
-        f"Remove-Item -Path '{tmp_extract}' -Recurse -Force -ErrorAction SilentlyContinue",
-        f"\"$(Get-Date) - Bridge migration complete\" | Out-File $log -Append",
-    ]
-
-    ps_script = "; ".join(parts)
-    encoded = base64.b64encode(ps_script.encode("utf-16-le")).decode("ascii")
+    try:
+        restart_cmd.write_text(script, encoding="mbcs")
+    except Exception as e:
+        logger.error(f"Could not write restart script: {e}")
+        return False
 
     try:
         subprocess.Popen(
-            [
-                "powershell.exe",
-                "-NoProfile", "-NonInteractive",
-                "-WindowStyle", "Hidden",
-                "-EncodedCommand", encoded,
-            ],
-            creationflags=(
-                subprocess.DETACHED_PROCESS
-                | subprocess.CREATE_NEW_PROCESS_GROUP
-                | subprocess.CREATE_NO_WINDOW
-            ),
-            close_fds=True,
+            f'cmd.exe /c "{restart_cmd}"',
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
         )
-        logger.info(f"Bridge migration scheduled: {sxs_source} → {app_dir}")
+        logger.info(f"Restart script launched for app-{version}")
+        return True
     except Exception as e:
-        logger.error(f"Bridge migration failed to launch PowerShell: {e}")
-        raise RuntimeError(f"Could not start bridge migration: {e}")
-
-
-def _copy_tree(src: Path, dst: Path):
-    """Recursively copy src into dst (dev mode only)."""
-    for item in src.iterdir():
-        target = dst / item.name
-        if item.is_dir():
-            target.mkdir(exist_ok=True)
-            _copy_tree(item, target)
-        else:
-            try:
-                shutil.copy2(item, target)
-            except Exception as e:
-                logger.warning(f"Failed to copy {item.name}: {e}")
+        logger.error(f"Failed to launch restart script: {e}")
+        try:
+            restart_cmd.unlink()
+        except Exception:
+            pass
+        return False

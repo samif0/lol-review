@@ -31,9 +31,10 @@ from .gui import (
 )
 from .lcu import GameMonitor, GameStats
 from .updater import (
-    check_for_update_async, cleanup_old_exe, post_update_startup,
-    download_and_install, register_successful_start, is_sxs_layout,
-    get_sxs_root, UPDATE_RESTART_EXIT_CODE,
+    check_for_update_async, post_update_startup,
+    download_and_install, register_successful_start,
+    maybe_redirect_to_current_version, restart_into_version,
+    set_current_version,
 )
 from .vod import auto_match_recordings
 from .version import __version__
@@ -570,32 +571,37 @@ class App:
         self.app_window.after(0, _show)
 
     def _on_update_check_result(self, update_info):
-        """Called from background thread when update check completes.
-
-        If an update is found, immediately start downloading and installing.
-        """
+        """Called from background thread when update check completes."""
         if update_info is None:
             return
 
-        logger.info(
-            f"Update available: {update_info['version']} "
-            f"(current: {__version__}) — auto-installing"
-        )
+        version = update_info.get("version", "")
+        clean_version = update_info.get("clean_version", version.lstrip("vV"))
+
+        # If the version is already installed locally (previous restart failed),
+        # just update the pointer and restart — no need to re-download.
+        if update_info.get("already_installed"):
+            logger.info(f"v{clean_version} already installed, restarting into it")
+            set_current_version(clean_version)
+            self.app_window.after(0, lambda: self._show_update_status(
+                "Update ready — restarting...", "#4ade80"
+            ))
+            self.app_window.after(UPDATE_RESTART_DELAY_MS, self._restart_for_update)
+            return
 
         download_url = update_info.get("download_url", "")
         if not download_url:
-            logger.warning("Update has no zip asset attached — skipping")
+            logger.warning("Update has no zip asset — skipping")
             return
 
-        # Show the "Updating..." banner on the app window
+        logger.info(f"Update available: {version} (current: {__version__})")
         self.app_window.after(0, lambda: self._show_update_status(
-            f"Updating to {update_info['version']}..."
+            f"Updating to {version}..."
         ))
 
-        # Start the download immediately
         download_and_install(
             download_url,
-            target_version=update_info.get("version", ""),
+            target_version=version,
             on_progress=self._on_update_progress,
             on_done=self._on_update_done,
         )
@@ -702,39 +708,21 @@ class App:
             logger.warning(f"Could not register healthy start: {e}")
 
     def _restart_for_update(self):
-        """Restart the app after an update by launching the root SxS launcher.
+        """Restart via batch file that waits for us to die, then launches the new version.
 
-        The launcher reads .current (already updated to the new version) and
-        starts app-{new_version}/LoLReview.exe. We can't rely on exit code 42
-        because the launcher exits 30s after a healthy start — it's long gone
-        by the time an update finishes downloading.
-
-        In legacy (non-SxS) mode, the PowerShell bridge migration handles the relaunch.
+        The batch file polls tasklist until our PID is gone — no race condition,
+        no timing assumption. If the batch file fails, the next manual launch
+        will trigger maybe_redirect_to_current_version() which redirects to the
+        installed newer version.
         """
-        import subprocess
-
         logger.info("Restarting for update")
+
+        # Launch the restart batch BEFORE shutdown — we need subprocess to work
+        launched = restart_into_version()
+        if not launched:
+            logger.error("Restart script failed — user must relaunch manually")
+
         self._shutdown_services()
-
-        if is_sxs_layout():
-            sxs_root = get_sxs_root()
-            launcher = sxs_root / "LoLReview.exe" if sxs_root else None
-            if launcher and launcher.exists():
-                try:
-                    subprocess.Popen(
-                        [str(launcher)],
-                        creationflags=(
-                            subprocess.DETACHED_PROCESS
-                            | subprocess.CREATE_NEW_PROCESS_GROUP
-                        ),
-                        close_fds=True,
-                    )
-                    logger.info(f"Launched root launcher: {launcher}")
-                except Exception as e:
-                    logger.error(f"Failed to launch root launcher: {e}")
-            else:
-                logger.error(f"Root launcher not found at {launcher}")
-
         os._exit(0)
 
     def _shutdown_services(self):
@@ -781,6 +769,10 @@ def main():
             logging.StreamHandler(sys.stdout),
         ],
     )
+
+    # If a newer version is installed but we're running an older one
+    # (previous restart failed), redirect to the newer version immediately.
+    maybe_redirect_to_current_version()
 
     app = App()
     app.start()
