@@ -128,6 +128,7 @@ class App:
             check_for_update_async(self._on_update_check_result)
         else:
             logger.info("Skipping update check — app was just updated")
+            self.app_window.show_just_updated_banner()
 
         # Scan for unmatched VODs on startup (slight delay so UI is responsive)
         if is_ascent_enabled():

@@ -3134,6 +3134,8 @@ class AppWindow(ctk.CTk):
         self._nav_stack: list[str] = []
         self._pages: dict[str, ctk.CTkFrame] = {}
         self._nav_items: dict[str, dict] = {}
+        self._update_banner_slot = None
+        self._update_label = None
 
         self.title("LoL Review")
         self.geometry("1200x800")
@@ -3159,6 +3161,11 @@ class AppWindow(ctk.CTk):
         # Right panel (update banner + content)
         right_panel = ctk.CTkFrame(container, fg_color=COLORS["bg_dark"], corner_radius=0)
         right_panel.pack(side="left", fill="both", expand=True)
+
+        # Slot for update banners (above content)
+        self._update_banner_slot = ctk.CTkFrame(right_panel, fg_color="transparent",
+                                                 corner_radius=0, height=0)
+        self._update_banner_slot.pack(fill="x")
 
         # Content area
         self._content = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_dark"], corner_radius=0)
@@ -3608,6 +3615,24 @@ class AppWindow(ctk.CTk):
             self._update_label.pack(padx=16, pady=8)
         except Exception as e:
             logger.warning(f"Failed to show update banner: {e}")
+
+    def show_just_updated_banner(self):
+        """Show a green 'Updated successfully' banner that auto-dismisses after 8s."""
+        try:
+            banner = ctk.CTkFrame(
+                self._update_banner_slot,
+                fg_color="#14332a", corner_radius=0,
+            )
+            banner.pack(fill="x")
+            ctk.CTkLabel(
+                banner,
+                text=f"Updated to v{__version__} successfully",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#4ade80",
+            ).pack(padx=16, pady=8)
+            self.after(8000, banner.destroy)
+        except Exception:
+            pass
 
     def refresh(self):
         page = self._pages.get(self._current_page)
