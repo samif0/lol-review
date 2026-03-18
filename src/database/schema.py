@@ -236,6 +236,84 @@ CREATE TABLE IF NOT EXISTS rules (
 );
 """
 
+CREATE_DERIVED_EVENT_DEFINITIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS derived_event_definitions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT UNIQUE NOT NULL,
+    source_types    TEXT NOT NULL,
+    min_count       INTEGER NOT NULL,
+    window_seconds  INTEGER NOT NULL,
+    color           TEXT DEFAULT '#ff6b6b',
+    is_default      INTEGER DEFAULT 0,
+    created_at      INTEGER
+);
+"""
+
+CREATE_DERIVED_EVENT_INSTANCES_TABLE = """
+CREATE TABLE IF NOT EXISTS derived_event_instances (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id         INTEGER NOT NULL,
+    definition_id   INTEGER NOT NULL,
+    start_time_s    INTEGER NOT NULL,
+    end_time_s      INTEGER NOT NULL,
+    event_count     INTEGER NOT NULL,
+    source_event_ids TEXT DEFAULT '[]',
+    FOREIGN KEY (game_id) REFERENCES games(game_id),
+    FOREIGN KEY (definition_id) REFERENCES derived_event_definitions(id)
+);
+"""
+
+DEFAULT_DERIVED_EVENTS = [
+    ("Teamfight",         '["KILL","DEATH"]',                    3, 15, "#ff6b6b"),
+    ("Skirmish",          '["KILL","DEATH"]',                    2, 10, "#ffa07a"),
+    ("Objective Contest",  '["DRAGON","BARON","KILL","DEATH"]',  2, 30, "#c89b3c"),
+    ("Death Streak",      '["DEATH"]',                          2, 60, "#ea5455"),
+    ("Tower Dive",        '["TURRET","KILL","DEATH"]',          2, 10, "#f97316"),
+]
+
+CREATE_OBJECTIVE_PROMPTS_TABLE = """
+CREATE TABLE IF NOT EXISTS objective_prompts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    objective_id    INTEGER NOT NULL,
+    question_text   TEXT NOT NULL,
+    event_tag       TEXT DEFAULT '',
+    answer_type     TEXT DEFAULT 'yes_no',
+    sort_order      INTEGER DEFAULT 0,
+    FOREIGN KEY (objective_id) REFERENCES objectives(id)
+);
+"""
+
+CREATE_PROMPT_ANSWERS_TABLE = """
+CREATE TABLE IF NOT EXISTS prompt_answers (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id           INTEGER NOT NULL,
+    prompt_id         INTEGER NOT NULL,
+    event_instance_id INTEGER,
+    event_time_s      INTEGER,
+    answer_value      INTEGER NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(game_id),
+    FOREIGN KEY (prompt_id) REFERENCES objective_prompts(id),
+    UNIQUE(game_id, prompt_id, event_instance_id)
+);
+"""
+
+CREATE_MATCHUP_NOTES_TABLE = """
+CREATE TABLE IF NOT EXISTS matchup_notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    champion    TEXT NOT NULL,
+    enemy       TEXT NOT NULL,
+    note        TEXT DEFAULT '',
+    helpful     INTEGER,
+    game_id     INTEGER,
+    created_at  INTEGER,
+    FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+"""
+
+MIGRATE_GAMES_ENEMY_LANER = [
+    "ALTER TABLE games ADD COLUMN enemy_laner TEXT DEFAULT ''",
+]
+
 DEFAULT_CONCEPT_TAGS = [
     ("Dominated lane",    "positive", "#22c55e"),
     ("Won teamfight",     "positive", "#22c55e"),

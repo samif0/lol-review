@@ -249,3 +249,47 @@ class SessionLogRepository:
             ORDER BY bracket"""
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def check_tilt_warning(self, date_str: str) -> dict | None:
+        """Check for mental rating drops between consecutive games today.
+
+        Returns a warning dict if mental dropped by >= 3 between adjacent games,
+        or None if no tilt detected.
+        """
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            """SELECT mental_rating, champion_name, game_id
+               FROM session_log
+               WHERE date = ?
+               ORDER BY timestamp ASC""",
+            (date_str,),
+        ).fetchall()
+
+        if len(rows) < 2:
+            return None
+
+        entries = [dict(r) for r in rows]
+        for i in range(1, len(entries)):
+            prev = entries[i - 1]["mental_rating"]
+            curr = entries[i]["mental_rating"]
+            if prev - curr >= 3:
+                return {
+                    "from_mental": prev,
+                    "to_mental": curr,
+                    "game_champion": entries[i].get("champion_name", ""),
+                    "game_id": entries[i].get("game_id"),
+                }
+
+        return None
+
+    def get_mental_trend(self, limit: int = 50) -> list[dict]:
+        """Get recent mental ratings for trend charting."""
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            """SELECT timestamp, mental_rating, win, champion_name
+               FROM session_log
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in reversed(rows)]

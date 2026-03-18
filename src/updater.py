@@ -1,47 +1,43 @@
-"""Auto-update system using GitHub Releases.
+"""Side-by-side versioned auto-updater using GitHub Releases.
 
-On startup the app checks for a newer release. If found, it:
-1. Downloads the release zip to a temp file
-2. Extracts to a staging temp folder
-3. Launches a detached PowerShell script, then exits
+Architecture (Squirrel/Chrome-style):
+  LoLReview/
+    LoLReview.exe        <- tiny native launcher (never updated)
+    .current             <- text file: "1.5.0" (active version)
+    .previous            <- text file: "1.4.0" (rollback target)
+    app-1.4.0/           <- previous version (kept for rollback)
+    app-1.5.0/           <- current version
+      LoLReview.exe      <- actual PyInstaller app
+      _internal/
 
-The PowerShell script (runs after the old process fully exits):
-1. Waits for the old process to die (by PID, not a fixed sleep)
-2. Uses robocopy /MIR to mirror the staging dir over the app dir
-   — copies all new files AND deletes old files not in the new build
-   — this eliminates DLL conflicts (old python3XX.dll gets removed)
-3. Writes the update lock file
-4. Launches the new exe
-5. Cleans up the staging directory
+Update flow:
+1. App checks GitHub Releases for a newer version (unchanged)
+2. Downloads ZIP, extracts to a NEW app-{version}/ directory
+   — never touches the running version's files
+3. Atomically updates .current pointer to the new version
+4. Writes old version to .previous (for rollback)
+5. Exits with code 42 — the launcher re-reads .current and launches the new version
 
-On next launch, the app reads the lock file:
-- If the lock exists, we just updated — skip the update check this session
-  to prevent infinite update loops (lock is deleted after being read).
-- The app also cleans up leftover .old files and stale DLLs.
+The launcher (launcher.c):
+- Reads .current, launches app-{version}/LoLReview.exe
+- Watches the process for 30 seconds
+- If it crashes, reads .previous, rolls back, launches the old version
+- If it survives 30s, the launcher exits — the app is healthy
 
-Why robocopy /MIR instead of in-place _copy_tree:
-- Runs AFTER old process exits — no locked files, no skipped DLLs
-- Handles the DELETE case — stale python3XX.dll gets removed
-- Retries on failure (/R:5 /W:2)
-- Built into Windows since Vista
-
-How to publish an update (manual):
-1. Bump __version__ in version.py  ← MUST match the release tag or loop occurs
-2. Build with: .venv\\Scripts\\python.exe build.py
-3. Zip the dist/LoLReview folder
-4. Create a GitHub Release tagged v{version} (e.g. v1.2.0)
-5. Attach the zip to the release
-
-For automated releases, push a version tag — GitHub Actions handles the rest.
+Why this is bulletproof:
+- No PowerShell. No robocopy. No file locking. No timing windows.
+- The new version is installed into a fresh directory while the old one runs.
+- If anything goes wrong, the old version is untouched and the launcher rolls back.
+- Stale DLLs are never a problem — each version has its own complete directory.
 """
 
 import logging
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zipfile
 from pathlib import Path
 from typing import Callable, Optional, Tuple
@@ -54,8 +50,60 @@ from .version import __version__, GITHUB_REPO
 
 logger = logging.getLogger(__name__)
 
+# Exit code that tells the launcher to re-read .current and launch the new version.
+UPDATE_RESTART_EXIT_CODE = 42
+
 # GitHub API endpoint for latest release
 _RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+# How long after startup before we consider this version "healthy" and clean up old ones
+HEALTHY_START_DELAY_S = 60
+
+
+# ── SxS layout detection ────────────────────────────────────────────
+
+
+def get_sxs_root() -> Optional[Path]:
+    """Return the SxS root directory, or None if not running in SxS layout.
+
+    In SxS layout, the exe is at:  <sxs_root>/app-X.Y.Z/LoLReview.exe
+    So sxs_root = exe.parent.parent, and it should contain a .current file.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    app_dir = Path(sys.executable).parent
+    candidate = app_dir.parent
+    if (candidate / ".current").exists():
+        return candidate
+    return None
+
+
+def is_sxs_layout() -> bool:
+    """True if we're running inside a side-by-side versioned directory."""
+    return get_sxs_root() is not None
+
+
+# ── Pointer file helpers ─────────────────────────────────────────────
+
+
+def _read_pointer(path: Path) -> str:
+    """Read a pointer file (.current / .previous). Returns empty string on failure."""
+    try:
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _write_pointer_atomic(path: Path, value: str):
+    """Write a pointer file atomically (write to .tmp, then rename)."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(value, encoding="utf-8")
+    tmp.replace(path)
+
+
+# ── Auth ─────────────────────────────────────────────────────────────
 
 
 def _get_auth_headers() -> dict:
@@ -67,6 +115,9 @@ def _get_auth_headers() -> dict:
     return headers
 
 
+# ── Version parsing ──────────────────────────────────────────────────
+
+
 def parse_version(version_str: str) -> Tuple[int, ...]:
     """Parse a version string like '1.2.3' or 'v1.2.3' into a comparable tuple."""
     cleaned = version_str.lstrip("vV").strip()
@@ -76,63 +127,95 @@ def parse_version(version_str: str) -> Tuple[int, ...]:
         return (0, 0, 0)
 
 
-# ── Update lock (prevents infinite restart loops) ────────────────────
-
-
-def _get_lock_path() -> Path:
-    """Path to the update-pending lock file, written before relaunching."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent / ".update_pending"
-    return Path(tempfile.gettempdir()) / "lolreview_update_pending"
+# ── Startup ──────────────────────────────────────────────────────────
 
 
 def post_update_startup() -> bool:
-    """Run on every startup. Reads and clears the update lock if present.
+    """Run on every startup. Returns True if we just updated (skip update check).
 
-    Returns True if we just completed an update — caller should skip the
-    update check this session to prevent infinite restart loops.
+    In SxS mode, checks the .update_pending lock in the SxS root.
+    In legacy mode, checks the lock next to the exe.
     """
-    # Always clean up the .old exe first
-    if getattr(sys, "frozen", False):
-        old_exe = Path(sys.executable).parent / (Path(sys.executable).name + ".old")
-        if old_exe.exists():
-            try:
-                old_exe.unlink()
-                logger.info(f"Cleaned up old exe: {old_exe}")
-            except Exception as e:
-                logger.warning(f"Could not delete old exe: {e}")
+    sxs_root = get_sxs_root()
 
-    # Remove any stale Python DLLs from a previous Python version.
-    # These get left behind when the update copy phase skips locked files.
-    _cleanup_old_python_dlls()
+    if sxs_root:
+        lock = sxs_root / ".update_pending"
+    elif getattr(sys, "frozen", False):
+        lock = Path(sys.executable).parent / ".update_pending"
+    else:
+        lock = Path(tempfile.gettempdir()) / "lolreview_update_pending"
 
-    # Check for update lock
-    lock = _get_lock_path()
     if not lock.exists():
         return False
 
     try:
-        expected_version = lock.read_text(encoding="utf-8").strip()
+        expected = lock.read_text(encoding="utf-8").strip()
         lock.unlink()
     except Exception as e:
         logger.warning(f"Could not read/clear update lock: {e}")
-        return True  # Assume we just updated — skip check to be safe
+        return True
 
-    if expected_version == __version__:
-        logger.info(f"Updated successfully to {__version__} — skipping update check")
+    if expected == __version__:
+        logger.info(f"Updated successfully to {__version__}")
     else:
-        logger.warning(
-            f"Update lock version mismatch: expected {expected_version!r}, "
-            f"running {__version__!r}. "
-            f"Skipping update check this session to prevent restart loop."
-        )
-    return True  # Either way, skip the update check this session
+        logger.warning(f"Update lock version mismatch: expected {expected!r}, running {__version__!r}")
+
+    return True
 
 
-# Keep old name as an alias so nothing breaks if it's called directly
+# Keep old name as alias
 def cleanup_old_exe():
     """Deprecated: use post_update_startup() instead."""
     post_update_startup()
+
+
+# ── Health registration & cleanup ────────────────────────────────────
+
+
+def register_successful_start():
+    """Mark this version as healthy after it has been running for a while.
+
+    Called ~60s after startup from main.py. Writes a .healthy marker and
+    cleans up old version directories.
+    """
+    sxs_root = get_sxs_root()
+    if not sxs_root:
+        return
+
+    # Write .healthy marker in our version directory
+    version_dir = Path(sys.executable).parent
+    try:
+        (version_dir / ".healthy").write_text(str(int(time.time())), encoding="utf-8")
+        logger.info(f"Registered healthy start for {__version__}")
+    except Exception as e:
+        logger.warning(f"Could not write .healthy marker: {e}")
+
+    # Clean up old versions
+    cleanup_old_versions()
+
+
+def cleanup_old_versions():
+    """Remove old version directories, keeping current + previous."""
+    sxs_root = get_sxs_root()
+    if not sxs_root:
+        return
+
+    current = _read_pointer(sxs_root / ".current")
+    previous = _read_pointer(sxs_root / ".previous")
+    keep = {f"app-{current}", f"app-{previous}"} - {"app-"}
+
+    for entry in sxs_root.iterdir():
+        if not entry.is_dir():
+            continue
+        if not entry.name.startswith("app-"):
+            continue
+        if entry.name in keep:
+            continue
+        try:
+            shutil.rmtree(entry)
+            logger.info(f"Cleaned up old version: {entry.name}")
+        except Exception as e:
+            logger.warning(f"Could not remove {entry.name}: {e}")
 
 
 # ── Check ────────────────────────────────────────────────────────────
@@ -210,15 +293,10 @@ def download_and_install(
     on_progress: Optional[Callable[[int, int], None]] = None,
     on_done: Optional[Callable[[bool, str], None]] = None,
 ):
-    """Download the update zip, swap files in place, and relaunch.
+    """Download the update and install to a new versioned directory.
 
-    target_version: the version string from the release tag (e.g. "v1.2.0").
-                    Written to the update lock before relaunching so the new
-                    process can verify the update succeeded.
-    on_progress(downloaded_bytes, total_bytes) — called during download.
-    on_done(success, message) — called when finished or on error.
-
-    This runs in a background thread.
+    In SxS mode: extracts to app-{version}/, updates .current pointer.
+    In legacy mode: falls back to simple file copy (dev testing only).
     """
     def _worker():
         try:
@@ -238,9 +316,10 @@ def _do_download_and_install(
     target_version: str = "",
     on_progress: Optional[Callable[[int, int], None]] = None,
 ):
-    """Download zip, extract to staging, schedule PowerShell swap after exit."""
+    """Download zip and install to a new versioned directory."""
     headers = _get_auth_headers()
     dl_headers = {**headers, "Accept": "application/octet-stream"}
+    clean_version = target_version.lstrip("vV") if target_version else "unknown"
 
     logger.info(f"Downloading update from {download_url}")
 
@@ -261,146 +340,172 @@ def _do_download_and_install(
 
     logger.info(f"Downloaded {downloaded} bytes to {tmp_zip}")
 
-    # ── Extract ──────────────────────────────────────────────
+    # ── Extract to temp ──────────────────────────────────────
     tmp_extract = Path(tempfile.mkdtemp(prefix="lolreview_extract_"))
     with zipfile.ZipFile(tmp_zip, "r") as zf:
         zf.extractall(tmp_extract)
 
     logger.info(f"Extracted to {tmp_extract}")
 
-    # Find the app folder inside the zip (may be nested in a subfolder)
-    extracted_items = list(tmp_extract.iterdir())
-    if len(extracted_items) == 1 and extracted_items[0].is_dir():
-        source_dir = extracted_items[0]
+    # ── Find the app files inside the zip ────────────────────
+    # ZIP may contain:
+    #   (a) Files at root (LoLReview.exe, _internal/, ...)
+    #   (b) A single subfolder containing the files
+    #   (c) SxS layout (LoLReview.exe launcher + app-X.Y.Z/ + .current)
+    #
+    # For SxS updates, we want the app-X.Y.Z/ directory contents.
+    # For legacy ZIPs, we want all files.
+
+    source_dir = _find_app_source(tmp_extract, clean_version)
+
+    # Validate: the source must contain an exe
+    exe_candidates = list(source_dir.glob("*.exe"))
+    if not exe_candidates:
+        raise RuntimeError(f"No .exe found in update package at {source_dir}")
+
+    logger.info(f"Update source directory: {source_dir} ({len(list(source_dir.iterdir()))} items)")
+
+    # ── Install ──────────────────────────────────────────────
+    sxs_root = get_sxs_root()
+
+    if sxs_root and getattr(sys, "frozen", False):
+        _install_sxs(sxs_root, source_dir, clean_version)
+    elif getattr(sys, "frozen", False):
+        # Legacy flat layout — this is the last time this path runs.
+        # After this update, the user will have the SxS layout.
+        _install_legacy_to_sxs(source_dir, clean_version, tmp_extract)
     else:
-        source_dir = tmp_extract
-
-    # ── Schedule swap or copy directly ───────────────────────
-    if getattr(sys, "frozen", False):
-        app_dir = Path(sys.executable).parent
-        exe_name = Path(sys.executable).name
-        lock_version = target_version.lstrip("vV") if target_version else "unknown"
-
-        # DO NOT touch any files in the app directory while we're running!
-        # The running process holds its exe, python DLLs, and loaded .pyd
-        # files locked. Any attempt to copy/overwrite/delete them either
-        # fails silently or leaves a corrupt mix of old and new files.
-        #
-        # Instead, hand everything off to a PowerShell script that runs
-        # AFTER this process exits, when nothing is locked. PowerShell
-        # uses robocopy /MIR to do a clean mirror from staging → app dir.
-
-        logger.info(f"Scheduling PowerShell swap: {source_dir} → {app_dir}")
-        _relaunch_via_powershell(
-            app_dir=app_dir,
-            exe_name=exe_name,
-            staging_dir=source_dir,
-            staging_cleanup_dir=tmp_extract,
-            lock_version=lock_version,
-        )
-
-        # Only clean up the zip. DO NOT delete tmp_extract —
-        # PowerShell needs the staging files after this process exits.
-        try:
-            tmp_zip.unlink()
-        except Exception:
-            pass
-
-    else:
-        # Running from source — just copy files (for dev testing)
+        # Dev mode — just copy files
         app_dir = Path(__file__).resolve().parent.parent
-        logger.info(f"Dev mode: copying new files from {source_dir} → {app_dir}")
+        logger.info(f"Dev mode: copying {source_dir} → {app_dir}")
         _copy_tree(source_dir, app_dir)
-        try:
-            tmp_zip.unlink()
-        except Exception:
-            pass
+
+    # Clean up temp files.
+    # For SxS installs, we can clean up immediately since we copied (not moved) the files.
+    # For legacy bridge installs, PowerShell cleans up tmp_extract after it's done.
+    try:
+        tmp_zip.unlink()
+    except Exception:
+        pass
+    if sxs_root:
         try:
             shutil.rmtree(tmp_extract)
         except Exception:
             pass
 
-    logger.info("Update staged — will complete after process exit")
+    logger.info(f"Update to {clean_version} installed successfully")
 
 
-def _copy_tree(src: Path, dst: Path):
-    """Recursively copy src into dst, overwriting existing files."""
-    for item in src.iterdir():
-        target = dst / item.name
-        if item.is_dir():
-            target.mkdir(exist_ok=True)
-            _copy_tree(item, target)
-        else:
-            try:
-                shutil.copy2(item, target)
-            except PermissionError:
-                # Skip files that are locked (e.g. DLLs in use by the running process).
-                # These will be cleaned up by _cleanup_old_python_dlls() on next startup.
-                logger.warning(f"Skipped locked file: {target}")
-            except Exception as e:
-                logger.warning(f"Failed to copy {item.name}: {e}")
+def _find_app_source(extract_dir: Path, version: str) -> Path:
+    """Find the actual app files inside an extracted ZIP.
+
+    Handles both SxS ZIPs (contain app-X.Y.Z/) and legacy flat ZIPs.
+    """
+    # Check for SxS layout: does the ZIP contain an app-{version}/ directory?
+    sxs_app_dir = extract_dir / f"app-{version}"
+    if sxs_app_dir.is_dir():
+        return sxs_app_dir
+
+    # Check for any app-* directory (version in ZIP might differ slightly)
+    for entry in extract_dir.iterdir():
+        if entry.is_dir() and entry.name.startswith("app-"):
+            return entry
+
+    # Legacy flat ZIP: single subfolder or files at root
+    items = list(extract_dir.iterdir())
+    if len(items) == 1 and items[0].is_dir():
+        return items[0]
+    return extract_dir
 
 
-def _relaunch_via_powershell(
-    app_dir: Path,
-    exe_name: str,
-    staging_dir: Path,
-    staging_cleanup_dir: Path,
-    lock_version: str,
-):
-    """Launch a detached PowerShell that installs the update after this process exits.
+def _install_sxs(sxs_root: Path, source_dir: Path, version: str):
+    """Install update into a new versioned directory under the SxS root."""
+    target_dir = sxs_root / f"app-{version}"
 
-    This is the ONLY reliable way to update a PyInstaller app on Windows.
-    All file operations happen after the old process has fully exited and
-    released every file lock. No DLL conflicts, no partial installs.
+    if target_dir.exists():
+        logger.warning(f"Version directory already exists, replacing: {target_dir}")
+        shutil.rmtree(target_dir)
 
-    The PowerShell script:
-    1. Waits for this process to exit (by PID, deterministic)
-    2. robocopy /MIR staging → app dir (copies new, deletes old)
-    3. Writes the update lock file (AFTER robocopy so /MIR doesn't delete it)
-    4. Launches the new exe
-    5. Cleans up the staging directory
+    # Move the extracted files into the version directory.
+    # Use shutil.copytree + rmtree instead of rename, because rename fails
+    # across filesystem boundaries (temp dir might be on a different drive).
+    logger.info(f"Installing to {target_dir}")
+    shutil.copytree(str(source_dir), str(target_dir))
 
-    Base64-encoding the command avoids quoting issues for paths with spaces.
+    # Validate the installed exe exists
+    installed_exe = target_dir / "LoLReview.exe"
+    if not installed_exe.exists():
+        # Try to find it
+        exes = list(target_dir.glob("*.exe"))
+        if not exes:
+            shutil.rmtree(target_dir)
+            raise RuntimeError(f"Installed version has no exe: {target_dir}")
+        logger.warning(f"Expected LoLReview.exe, found: {[e.name for e in exes]}")
+
+    # Update pointers atomically
+    old_version = _read_pointer(sxs_root / ".current")
+    _write_pointer_atomic(sxs_root / ".current", version)
+    if old_version:
+        _write_pointer_atomic(sxs_root / ".previous", old_version)
+
+    # Write update lock so the new version knows it just updated
+    (sxs_root / ".update_pending").write_text(version, encoding="utf-8")
+
+    logger.info(f"SxS install complete: .current={version}, .previous={old_version}")
+
+
+def _install_legacy_to_sxs(source_dir: Path, version: str, tmp_extract: Path):
+    """Bridge migration: install SxS update over a legacy flat directory.
+
+    The old updater (PowerShell/robocopy) downloads the new ZIP which has
+    the SxS layout. This function handles the case where we're still running
+    in the old flat layout but the downloaded ZIP is SxS-formatted.
+
+    Since we can't modify our own files while running, we fall back to the
+    old PowerShell approach one last time to do the migration.
     """
     import base64
+    import subprocess
 
+    app_dir = Path(sys.executable).parent
+    exe_name = Path(sys.executable).name
     pid = os.getpid()
-    new_exe_str = str(app_dir / exe_name)
-    lock_path_str = str(app_dir / ".update_pending")
-    log_path_str = str(app_dir / ".update_log.txt")
 
+    # The source_dir contains the app files. But for the bridge migration,
+    # we need to copy the ENTIRE SxS structure (launcher + app-X.Y.Z/ + .current).
+    # The tmp_extract root should have this structure.
+    #
+    # Check if tmp_extract has the SxS layout
+    sxs_source = tmp_extract
+    items = list(tmp_extract.iterdir())
+    if len(items) == 1 and items[0].is_dir():
+        sxs_source = items[0]
+
+    log_path = str(app_dir / ".update_log.txt")
+    new_launcher = str(app_dir / "LoLReview.exe")
+
+    # Last PowerShell migration — after this, the SxS launcher takes over
     parts = [
-        # Log file for debugging update issues
-        f"$log = '{log_path_str}'",
-        f"\"$(Get-Date) - Update swap starting, waiting for PID {pid}\" | Out-File $log",
+        f"$log = '{log_path}'",
+        f"\"$(Get-Date) - Bridge migration starting, waiting for PID {pid}\" | Out-File $log",
 
-        # Wait for the old process to fully exit and release all file handles
         f"try {{ Wait-Process -Id {pid} -Timeout 30; "
-        f"\"$(Get-Date) - Process exited cleanly\" | Out-File $log -Append "
-        f"}} catch {{ \"$(Get-Date) - Wait timed out or process already gone\" | Out-File $log -Append }}",
+        f"\"$(Get-Date) - Process exited\" | Out-File $log -Append "
+        f"}} catch {{ \"$(Get-Date) - Wait timed out\" | Out-File $log -Append }}",
         "Start-Sleep -Seconds 2",
 
-        # Mirror the staging directory over the app directory.
-        # /MIR copies all new files AND deletes files not in source
-        # (this is what kills stale python3XX.dll — the root cause of all crashes).
-        # /R:5 /W:2 = retry 5 times, 2 seconds between retries.
-        f"\"$(Get-Date) - Running robocopy '{staging_dir}' -> '{app_dir}'\" | Out-File $log -Append",
-        f"& robocopy '{staging_dir}' '{app_dir}' /MIR /R:5 /W:2 /NFL /NDL /NJH /NJS /NC /NS",
-        f"\"$(Get-Date) - Robocopy exit code: $LASTEXITCODE\" | Out-File $log -Append",
+        f"\"$(Get-Date) - Running robocopy '{sxs_source}' -> '{app_dir}'\" | Out-File $log -Append",
+        f"& robocopy '{sxs_source}' '{app_dir}' /MIR /R:5 /W:2 /NFL /NDL /NJH /NJS /NC /NS",
+        f"$rc = $LASTEXITCODE",
+        f"\"$(Get-Date) - Robocopy exit code: $rc\" | Out-File $log -Append",
 
-        # robocopy exit codes: 0-7 = success, 8+ = error.
-        # Only launch the new exe if robocopy succeeded.
-        f"if ($LASTEXITCODE -lt 8) {{ "
-        f"Set-Content -Path '{lock_path_str}' -Value '{lock_version}' -Encoding UTF8; "
-        f"\"$(Get-Date) - Launching {exe_name}\" | Out-File $log -Append; "
-        f"Start-Process -FilePath '{new_exe_str}' "
-        f"}} else {{ \"$(Get-Date) - FAILED: robocopy exit code $LASTEXITCODE, not launching\" | Out-File $log -Append }}",
+        # Always launch the exe (now the launcher)
+        f"\"$(Get-Date) - Launching launcher\" | Out-File $log -Append",
+        f"Start-Process -FilePath '{new_launcher}'",
 
-        # Clean up staging directory (wait a moment for the new exe to start)
         "Start-Sleep -Seconds 3",
-        f"Remove-Item -Path '{staging_cleanup_dir}' -Recurse -Force",
-        f"\"$(Get-Date) - Update swap complete\" | Out-File $log -Append",
+        f"Remove-Item -Path '{tmp_extract}' -Recurse -Force -ErrorAction SilentlyContinue",
+        f"\"$(Get-Date) - Bridge migration complete\" | Out-File $log -Append",
     ]
 
     ps_script = "; ".join(parts)
@@ -410,8 +515,7 @@ def _relaunch_via_powershell(
         subprocess.Popen(
             [
                 "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
+                "-NoProfile", "-NonInteractive",
                 "-WindowStyle", "Hidden",
                 "-EncodedCommand", encoded,
             ],
@@ -422,93 +526,21 @@ def _relaunch_via_powershell(
             ),
             close_fds=True,
         )
-        logger.info(
-            f"PowerShell swap scheduled (PID {pid}): "
-            f"robocopy '{staging_dir}' → '{app_dir}', then launch {exe_name}"
-        )
+        logger.info(f"Bridge migration scheduled: {sxs_source} → {app_dir}")
     except Exception as e:
-        logger.error(f"PowerShell launch failed, falling back to legacy install: {e}")
-        _legacy_fallback_install(app_dir, exe_name, staging_dir, lock_version)
+        logger.error(f"Bridge migration failed to launch PowerShell: {e}")
+        raise RuntimeError(f"Could not start bridge migration: {e}")
 
 
-def _legacy_fallback_install(
-    app_dir: Path,
-    exe_name: str,
-    staging_dir: Path,
-    lock_version: str,
-):
-    """Fallback installer when PowerShell is unavailable.
-
-    Uses the old _copy_tree approach: rename exe, copy files, direct launch.
-    Works for same-Python-version updates but may fail for cross-version
-    updates due to DLL conflicts. Better than silently failing to update.
-    """
-    old_exe = app_dir / (exe_name + ".old")
-    new_exe = app_dir / exe_name
-
-    # Write update lock
-    try:
-        lock = _get_lock_path()
-        lock.write_text(lock_version, encoding="utf-8")
-    except Exception as e:
-        logger.warning(f"Could not write update lock: {e}")
-
-    # Rename running exe so we can copy the new one
-    try:
-        if old_exe.exists():
-            old_exe.unlink()
-        os.rename(new_exe, old_exe)
-    except Exception as e:
-        logger.error(f"Could not rename exe: {e}")
-
-    # Copy files (may skip locked ones — degraded but better than nothing)
-    _copy_tree(staging_dir, app_dir)
-
-    # Direct launch
-    try:
-        subprocess.Popen(
-            [str(new_exe)],
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
-        )
-    except Exception as e:
-        logger.error(f"Direct launch failed: {e}")
-
-
-def _cleanup_old_python_dlls():
-    """Delete stale Python DLL files left behind by cross-version updates.
-
-    Third layer of defence (belt and suspenders):
-    - Layer 1: _pre_copy_dll_cleanup renames stale DLLs to .old before copy
-    - Layer 2: PowerShell deletes stale DLLs after old process exits
-    - Layer 3: This function cleans up anything that slipped through
-
-    Uses python3[0-9]*.dll pattern to avoid accidentally deleting python3.dll
-    (the stable ABI forwarder DLL that PyInstaller also bundles).
-    """
-    if not getattr(sys, "frozen", False):
-        return
-
-    current_dll = f"python{sys.version_info.major}{sys.version_info.minor}.dll"
-    app_dir = Path(sys.executable).parent
-
-    # DLLs may live in the root app dir or in _internal/ (PyInstaller 6+)
-    search_dirs = [app_dir, app_dir / "_internal"]
-    for search_dir in search_dirs:
-        if not search_dir.exists():
-            continue
-        # Remove version-specific DLLs from other Python versions
-        for dll in search_dir.glob("python3[0-9]*.dll"):
-            if dll.name.lower() != current_dll.lower():
-                try:
-                    dll.unlink()
-                    logger.info(f"Removed stale Python DLL: {dll}")
-                except Exception as e:
-                    logger.warning(f"Could not remove stale DLL {dll.name}: {e}")
-        # Remove .dll.old leftovers from _pre_copy_dll_cleanup
-        for old_dll in search_dir.glob("*.dll.old"):
+def _copy_tree(src: Path, dst: Path):
+    """Recursively copy src into dst (dev mode only)."""
+    for item in src.iterdir():
+        target = dst / item.name
+        if item.is_dir():
+            target.mkdir(exist_ok=True)
+            _copy_tree(item, target)
+        else:
             try:
-                old_dll.unlink()
-                logger.info(f"Removed old DLL: {old_dll}")
+                shutil.copy2(item, target)
             except Exception as e:
-                logger.warning(f"Could not remove {old_dll.name}: {e}")
+                logger.warning(f"Failed to copy {item.name}: {e}")

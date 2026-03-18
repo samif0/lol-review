@@ -22,6 +22,7 @@ class GameStats:
     team_id: int = 0  # 100 = blue, 200 = red
     position: str = ""
     role: str = ""
+    enemy_laner: str = ""
 
     # Outcome
     win: bool = False

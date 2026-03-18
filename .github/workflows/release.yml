@@ -49,6 +49,30 @@ jobs:
           Set-Content $path $content
           Write-Host "Stamped version: $version"
 
+      - name: Build native launcher
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          if not exist launcher_out mkdir launcher_out
+          cl.exe /O2 /W3 /Fe:launcher_out\LoLReview.exe launcher\launcher.c /link kernel32.lib user32.lib
+          if %ERRORLEVEL% NEQ 0 (
+            echo Launcher build failed!
+            exit /b 1
+          )
+          echo Launcher built successfully
+
+      - name: Verify launcher
+        shell: pwsh
+        run: |
+          $exe = "launcher_out\LoLReview.exe"
+          if (Test-Path $exe) {
+            $kb = [math]::Round((Get-Item $exe).Length / 1KB, 1)
+            Write-Host "Launcher built: $kb KB"
+          } else {
+            Write-Error "Launcher build failed — LoLReview.exe not found in launcher_out"
+            exit 1
+          }
+
       - name: Create deps directory
         run: New-Item -ItemType Directory -Force -Path deps
 
@@ -125,19 +149,50 @@ jobs:
             exit 1
           }
 
-      - name: Zip release artifact
+      - name: Package SxS release
         shell: pwsh
         run: |
-          $zipName = "LoLReview-${{ env.TAG }}.zip"
-          # Zip the contents directly (no subfolder) so the updater's
-          # _copy_tree lands files in the right place on auto-update.
-          Compress-Archive -Path dist\LoLReview\* -DestinationPath $zipName
+          $version = "${{ env.VERSION }}"
+          $tag = "${{ env.TAG }}"
+          $staging = "sxs_staging"
+
+          # Create SxS directory structure:
+          #   LoLReview.exe          <- tiny native launcher
+          #   .current               <- points to active version
+          #   app-X.Y.Z/             <- versioned app directory
+          #     LoLReview.exe         <- actual PyInstaller app
+          #     _internal/
+          #     ...
+          New-Item -ItemType Directory -Force -Path $staging
+          New-Item -ItemType Directory -Force -Path "$staging\app-$version"
+
+          # Copy launcher to root
+          Copy-Item "launcher_out\LoLReview.exe" "$staging\LoLReview.exe"
+
+          # Write .current pointer
+          Set-Content -Path "$staging\.current" -Value $version -NoNewline -Encoding UTF8
+
+          # Copy PyInstaller output into versioned subdirectory
+          Copy-Item -Path "dist\LoLReview\*" -Destination "$staging\app-$version" -Recurse
+
+          # Create the ZIP
+          $zipName = "LoLReview-$tag.zip"
+          Compress-Archive -Path "$staging\*" -DestinationPath $zipName
           $mb = [math]::Round((Get-Item $zipName).Length / 1MB, 1)
           Write-Host "Zipped: $zipName ($mb MB)"
-          # Verify the exe is at zip root (not in a subfolder)
-          $entries = (& 7z l $zipName) | Where-Object { $_ -like "*LoLReview.exe*" }
-          if ($entries) { Write-Host "Verified: LoLReview.exe at zip root" }
-          else { Write-Warning "LoLReview.exe not found at zip root — check zip structure" }
+
+          # Verify structure
+          $entries = & 7z l $zipName
+          $launcherFound = $entries | Where-Object { $_ -match "^\s+\d.*LoLReview\.exe$" }
+          $appDirFound = $entries | Where-Object { $_ -like "*app-$version\LoLReview.exe*" }
+          $currentFound = $entries | Where-Object { $_ -like "*.current*" }
+          if ($launcherFound) { Write-Host "OK: Launcher at zip root" }
+          else { Write-Warning "Launcher not at zip root" }
+          if ($appDirFound) { Write-Host "OK: App in app-$version/" }
+          else { Write-Warning "App not in expected versioned directory" }
+          if ($currentFound) { Write-Host "OK: .current pointer present" }
+          else { Write-Warning ".current not found in zip" }
+
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
 
       - name: Publish GitHub Release

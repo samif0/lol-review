@@ -1,6 +1,5 @@
 """Session game review window."""
 
-import json
 from typing import Callable, Optional
 
 import customtkinter as ctk
@@ -10,7 +9,6 @@ from ..constants import (
     MENTAL_RATING_MIN, MENTAL_RATING_MAX, MENTAL_RATING_DEFAULT,
     MENTAL_RATING_STEPS,
 )
-from .widgets import StarRating, TagSelector
 
 
 class SessionGameReviewPanel(ctk.CTkFrame):
@@ -213,37 +211,6 @@ class SessionGameReviewPanel(ctk.CTkFrame):
             self._mental_reflection_frame.pack(fill="x", pady=(0, 12))
         # (otherwise stays hidden until slider changes)
 
-        # === PERFORMANCE RATING (games table field) ===
-        rating_row = ctk.CTkFrame(container, fg_color="transparent")
-        rating_row.pack(fill="x", pady=(0, 8))
-
-        ctk.CTkLabel(
-            rating_row,
-            text="Performance Rating",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(side="left")
-
-        self.star_rating = StarRating(
-            rating_row, initial=self.game_data.get("rating", 0)
-        )
-        self.star_rating.pack(side="right")
-
-        # === TAGS ===
-        ctk.CTkLabel(
-            container,
-            text="Tags",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(4, 4))
-
-        all_tags = self.db.get_all_tags()
-        existing_tags = json.loads(self.game_data.get("tags", "[]")) if isinstance(
-            self.game_data.get("tags"), str
-        ) else self.game_data.get("tags", [])
-        self.tag_selector = TagSelector(container, all_tags, selected=existing_tags)
-        self.tag_selector.pack(fill="x", pady=(0, 10))
-
         # === WHAT WENT WELL ===
         ctk.CTkLabel(
             container,
@@ -419,8 +386,8 @@ class SessionGameReviewPanel(ctk.CTkFrame):
         improvement = self.improvement_note.get().strip()
 
         # Collect review fields before any DB writes
-        rating = self.star_rating.get()
-        tags = self.tag_selector.get()
+        rating = 0
+        tags = []
         mistakes = self.mistakes.get("1.0", "end-1c").strip()
         went_well = self.went_well.get("1.0", "end-1c").strip()
         focus_next = self.focus_next.get().strip()

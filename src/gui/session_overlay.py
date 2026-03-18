@@ -1,5 +1,7 @@
 """Session rules overlay window for tracking daily performance."""
 
+from datetime import datetime
+
 import customtkinter as ctk
 
 from ..constants import (
@@ -133,6 +135,19 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         )
         # Don't pack yet — will show/hide dynamically
 
+        # Tilt detection warning (hidden by default)
+        self.tilt_warning_label = ctk.CTkLabel(
+            main_frame,
+            text="",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#ffffff",
+            fg_color="#7c3aed",
+            corner_radius=8,
+            height=50,
+        )
+        # Don't pack yet — will show/hide dynamically
+        self._tilt_warning_visible = False
+
         # Mental check section
         mental_frame = ctk.CTkFrame(
             main_frame,
@@ -254,6 +269,14 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         else:
             self._hide_warning()
 
+        # Tilt detection
+        today = datetime.now().strftime("%Y-%m-%d")
+        tilt_warning = self.db.session_log.check_tilt_warning(today)
+        if tilt_warning:
+            self._show_tilt_warning(tilt_warning)
+        else:
+            self._hide_tilt_warning()
+
     def _calculate_consecutive_losses(self, games: list[dict]) -> int:
         """Calculate consecutive losses from the end of the game list."""
         if not games:
@@ -282,6 +305,23 @@ class SessionRulesOverlay(ctk.CTkToplevel):
             self.flash_active = False
             self._cancel_flash()
             self.warning_label.pack_forget()
+
+    def _show_tilt_warning(self, warning: dict):
+        """Show the tilt detection warning label."""
+        from_val = warning.get("from_mental", "?")
+        to_val = warning.get("to_mental", "?")
+        self.tilt_warning_label.configure(
+            text=f"Mental dropped {from_val} \u2192 {to_val} \u2014 take a moment",
+        )
+        if not self._tilt_warning_visible:
+            self._tilt_warning_visible = True
+            self.tilt_warning_label.pack(fill="x", pady=(0, 10))
+
+    def _hide_tilt_warning(self):
+        """Hide the tilt detection warning label."""
+        if self._tilt_warning_visible:
+            self._tilt_warning_visible = False
+            self.tilt_warning_label.pack_forget()
 
     def _cancel_flash(self):
         """Cancel any pending flash callback."""

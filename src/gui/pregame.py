@@ -22,6 +22,7 @@ class PreGameWindow(ctk.CTkToplevel):
         last_mental_intention: str = "",
         on_dismiss: Optional[Callable] = None,
         active_objective: Optional[dict] = None,
+        matchup_notes: list[dict] = None,
         *args,
         **kwargs,
     ):
@@ -160,6 +161,61 @@ class PreGameWindow(ctk.CTkToplevel):
                 wraplength=380,
                 justify="left",
             ).pack(padx=14, pady=(0, 10), anchor="w")
+
+        # === MATCHUP NOTES ===
+        if matchup_notes:
+            matchup_frame = ctk.CTkFrame(
+                container,
+                fg_color=COLORS["bg_card"],
+                corner_radius=8,
+                border_width=2,
+                border_color=COLORS["accent_gold"],
+            )
+            matchup_frame.pack(fill="x", pady=(0, 12))
+
+            ctk.CTkLabel(
+                matchup_frame,
+                text="MATCHUP NOTES",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=COLORS["accent_gold"],
+            ).pack(padx=14, pady=(10, 4), anchor="w")
+
+            for mn in matchup_notes:
+                note_row = ctk.CTkFrame(matchup_frame, fg_color="transparent")
+                note_row.pack(fill="x", padx=14, pady=(0, 4))
+
+                ctk.CTkLabel(
+                    note_row,
+                    text=mn.get("note", ""),
+                    font=ctk.CTkFont(size=13),
+                    text_color=COLORS["text"],
+                    wraplength=380,
+                    justify="left",
+                ).pack(side="left", fill="x", expand=True)
+
+                if mn.get("helpful") == 1:
+                    ctk.CTkLabel(
+                        note_row,
+                        text="Helpful",
+                        font=ctk.CTkFont(size=9, weight="bold"),
+                        text_color="#22c55e",
+                        fg_color="#1a4d2e",
+                        corner_radius=6,
+                        padx=6, pady=1,
+                    ).pack(side="right", padx=(6, 0))
+                elif mn.get("helpful") == 0:
+                    ctk.CTkLabel(
+                        note_row,
+                        text="Not helpful",
+                        font=ctk.CTkFont(size=9, weight="bold"),
+                        text_color=COLORS["loss_red"],
+                        fg_color="#4d1a1a",
+                        corner_radius=6,
+                        padx=6, pady=1,
+                    ).pack(side="right", padx=(6, 0))
+
+            # Bottom padding
+            ctk.CTkFrame(matchup_frame, height=6, fg_color="transparent").pack()
 
         # Separator
         ctk.CTkFrame(

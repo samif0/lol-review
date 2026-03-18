@@ -28,10 +28,13 @@ from .config import is_ascent_enabled
 from .gui import (
     AppWindow, PreGameWindow,
     SessionRulesOverlay, ManualEntryWindow,
-    ClaudeContextWindow,
 )
 from .lcu import GameMonitor, GameStats
-from .updater import check_for_update_async, cleanup_old_exe, post_update_startup, download_and_install
+from .updater import (
+    check_for_update_async, cleanup_old_exe, post_update_startup,
+    download_and_install, register_successful_start, is_sxs_layout,
+    UPDATE_RESTART_EXIT_CODE,
+)
 from .vod import auto_match_recordings
 from .version import __version__
 
@@ -74,7 +77,6 @@ class App:
         self._pregame_window = None
         self._session_overlay = None
         self._manual_entry_window = None
-        self._claude_context_window = None
         self._connected = False
         self._current_mental_intention: str = ""
 
@@ -131,6 +133,9 @@ class App:
         if is_ascent_enabled():
             self.app_window.after(STARTUP_VOD_SCAN_DELAY_MS, self._startup_vod_scan)
 
+        # Register this version as healthy after 60s (SxS updater)
+        self.app_window.after(60_000, self._register_healthy_start)
+
         # Run tk mainloop (blocks until quit)
         self.app_window.mainloop()
 
@@ -141,7 +146,6 @@ class App:
             pystray.MenuItem(f"Status: {status}", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Open App", self._show_app_from_tray),
-            pystray.MenuItem("Claude Context", self._show_claude_context),
             pystray.MenuItem("Manual Entry", self._show_manual_entry),
             pystray.MenuItem("Session Overlay", self._show_session_overlay_from_tray),
             pystray.MenuItem("Settings", self._show_settings_from_tray),
@@ -279,6 +283,16 @@ class App:
             except Exception as e:
                 logger.warning(f"Failed to save live events: {e}")
 
+            # Compute and save derived event instances
+            try:
+                game_events = self.db.get_game_events(stats.game_id)
+                instances = self.db.derived_events.compute_instances(stats.game_id, game_events)
+                if instances:
+                    self.db.derived_events.save_instances(stats.game_id, instances)
+                    logger.info(f"Computed {len(instances)} derived event instances for game {stats.game_id}")
+            except Exception as e:
+                logger.warning(f"Failed to compute derived events: {e}")
+
         # Navigate to session page and refresh after game ends
         self.app_window.after(0, lambda: self.app_window.navigate_to("session"))
         self.app_window.after(0, self.app_window.refresh)
@@ -316,6 +330,28 @@ class App:
         concept_tags = self.db.concept_tags.get_all()
         existing_concept_tag_ids = self.db.concept_tags.get_ids_for_game(stats.game_id)
 
+        # Extract enemy laner from raw_stats if available
+        enemy_laner = ""
+        matchup_notes_shown = []
+        if isinstance(stats.raw_stats, dict):
+            enemy_champions = stats.raw_stats.get("_enemy_champions", [])
+            if enemy_champions:
+                enemy_laner = enemy_champions[0]  # First enemy is likely lane opponent
+        if enemy_laner and stats.champion_name:
+            matchup_notes_shown = self.db.matchup_notes.get_for_matchup(
+                stats.champion_name, enemy_laner
+            )
+
+        # Fetch objective prompts, game events, and derived events
+        objective_prompts = {}
+        for obj in active_objectives:
+            prompts = self.db.prompts.get_prompts_for_objective(obj["id"])
+            if prompts:
+                objective_prompts[obj["id"]] = prompts
+        game_events = self.db.get_game_events(stats.game_id)
+        derived_event_instances = self.db.derived_events.get_instances(stats.game_id)
+        existing_prompt_answers = self.db.prompts.get_answers_for_game(stats.game_id)
+
         self.app_window.navigate_to_review(
             "post_game",
             stats=stats,
@@ -330,6 +366,12 @@ class App:
             existing_concept_tag_ids=existing_concept_tag_ids,
             active_objectives=active_objectives,
             existing_game_objectives=existing_game_objectives,
+            matchup_notes_shown=matchup_notes_shown,
+            enemy_laner=enemy_laner,
+            game_events=game_events,
+            derived_event_instances=derived_event_instances,
+            objective_prompts=objective_prompts,
+            existing_prompt_answers=existing_prompt_answers,
         )
 
         # If no VOD matched yet, retry after a delay — Ascent may still be encoding
@@ -343,6 +385,10 @@ class App:
         mental_handled = review_data.pop("mental_handled", "")
         concept_tag_ids = review_data.pop("concept_tag_ids", [])
         objectives_data = review_data.pop("objectives_data", [])
+        matchup_helpful = review_data.pop("matchup_helpful", [])
+        matchup_note = review_data.pop("matchup_note", None)
+        enemy_laner = review_data.pop("enemy_laner", "")
+        prompt_answers = review_data.pop("prompt_answers", [])
 
         self.db.update_review(**review_data)
 
@@ -360,6 +406,38 @@ class App:
                 self.db.objectives.record_game(game_id, obj_id, practiced, execution_note)
                 if practiced:
                     self.db.objectives.update_score(obj_id, win=bool(win))
+
+        # Save matchup helpful ratings
+        for mh in matchup_helpful:
+            note_id = mh.get("note_id")
+            helpful = mh.get("helpful")
+            if note_id is not None and helpful is not None:
+                self.db.matchup_notes.update_helpful(note_id, helpful)
+
+        # Save new matchup note if provided
+        if matchup_note:
+            game = self.db.get_game(game_id)
+            champion = game.get("champion_name", "") if game else ""
+            self.db.matchup_notes.create(
+                champion=champion,
+                enemy=matchup_note["enemy"],
+                note=matchup_note["note"],
+                game_id=game_id,
+            )
+
+        # Save prompt answers
+        for pa in prompt_answers:
+            self.db.prompts.save_answer(
+                game_id=game_id,
+                prompt_id=pa["prompt_id"],
+                answer_value=pa["answer_value"],
+                event_instance_id=pa.get("event_instance_id"),
+                event_time_s=pa.get("event_time_s"),
+            )
+
+        # Update enemy_laner on the game record
+        if enemy_laner:
+            self.db.games.update_enemy_laner(game_id, enemy_laner)
 
         logger.info(f"Review saved for game {game_id}")
 
@@ -550,7 +628,7 @@ class App:
                 self._show_update_status("Update ready — restarting...", "#4ade80")
                 if self.tray_icon:
                     self.tray_icon.notify("Restarting with new update...", "LoL Game Review")
-                self.app_window.after(UPDATE_RESTART_DELAY_MS, self._quit)
+                self.app_window.after(UPDATE_RESTART_DELAY_MS, self._restart_for_update)
             else:
                 logger.error(f"Auto-update failed: {message}")
                 self._show_update_status(f"Update failed: {message}", "#f87171")
@@ -610,34 +688,34 @@ class App:
         except Exception:
             pass
 
-    def _show_claude_context(self, icon=None, item=None):
-        """Open the Claude Context Generator window."""
-        def _open():
-            if self._claude_context_window and self._claude_context_window.winfo_exists():
-                self._claude_context_window.lift()
-                return
-
-            self._claude_context_window = ClaudeContextWindow(db=self.db)
-
-        self.app_window.after(0, _open)
-
     def _open_data_folder(self, icon=None, item=None):
         """Open the data folder in file explorer."""
         data_dir = self.db.db_path.parent
         os.startfile(str(data_dir))
 
-    def _quit(self, icon=None, item=None):
-        """Clean shutdown.
+    def _register_healthy_start(self):
+        """Called ~60s after startup. Marks this version as healthy."""
+        try:
+            register_successful_start()
+        except Exception as e:
+            logger.warning(f"Could not register healthy start: {e}")
 
-        Uses os._exit(0) to guarantee the process terminates. This is
-        critical for the auto-updater: the PowerShell swap script waits
-        for this PID to exit before it can robocopy the new files and
-        launch the updated exe. Without a hard exit, non-daemon threads
-        (pystray, tkinter internals) can keep the process alive
-        indefinitely, causing the PowerShell Wait-Process to time out
-        and robocopy to fail on locked files.
+    def _restart_for_update(self):
+        """Exit with code 42 so the SxS launcher re-reads .current and launches the new version.
+
+        In legacy (non-SxS) mode, the PowerShell bridge migration handles the relaunch,
+        so a normal exit (code 0) is fine — PowerShell waits for PID then launches the new layout.
         """
-        logger.info("Shutting down")
+        logger.info("Restarting for update")
+        self._shutdown_services()
+        if is_sxs_layout():
+            os._exit(UPDATE_RESTART_EXIT_CODE)
+        else:
+            # Legacy bridge migration — PowerShell handles relaunch
+            os._exit(0)
+
+    def _shutdown_services(self):
+        """Stop all background services and flush logs."""
         try:
             if self.monitor:
                 self.monitor.stop()
@@ -653,12 +731,16 @@ class App:
                 self.db.close()
         except Exception:
             pass
-        # Flush log handlers before hard exit
         for handler in logging.getLogger().handlers:
             try:
                 handler.flush()
             except Exception:
                 pass
+
+    def _quit(self, icon=None, item=None):
+        """Clean shutdown."""
+        logger.info("Shutting down")
+        self._shutdown_services()
         os._exit(0)
 
 

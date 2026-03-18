@@ -11,10 +11,13 @@ from typing import Optional
 from .concept_tags import ConceptTagRepository
 from .connection import ConnectionManager, DEFAULT_DB_PATH
 from .context import generate_claude_context
+from .derived_events import DerivedEventsRepository
 from .game_events import GameEventsRepository
 from .games import GameRepository
+from .matchup_notes import MatchupNotesRepository
 from .notes import NotesRepository
 from .objectives import ObjectivesRepository
+from .prompts import PromptsRepository
 from .rules import RulesRepository
 from .session_log import SessionLogRepository
 from .tags import TagRepository
@@ -36,13 +39,15 @@ class Database:
         self.db_path = self._conn_mgr.db_path  # Expose for callers like main.py
         self.games = GameRepository(self._conn_mgr)
         self.session_log = SessionLogRepository(self._conn_mgr)
-        self.tags = TagRepository(self._conn_mgr)
         self.notes = NotesRepository(self._conn_mgr)
         self.vod = VodRepository(self._conn_mgr)
         self.game_events = GameEventsRepository(self._conn_mgr)
         self.objectives = ObjectivesRepository(self._conn_mgr)
         self.rules = RulesRepository(self._conn_mgr)
         self.concept_tags = ConceptTagRepository(self._conn_mgr)
+        self.derived_events = DerivedEventsRepository(self._conn_mgr)
+        self.prompts = PromptsRepository(self._conn_mgr)
+        self.matchup_notes = MatchupNotesRepository(self._conn_mgr)
 
         # One-time cleanup
         self.session_log.cleanup_mismatched_entries()
@@ -137,14 +142,6 @@ class Database:
 
     def get_session_log_entry(self, game_id: int) -> Optional[dict]:
         return self.session_log.get_entry(game_id)
-
-    # ── Tag delegates ────────────────────────────────────────────────
-
-    def get_all_tags(self):
-        return self.tags.get_all()
-
-    def add_tag(self, name, color="#3b82f6"):
-        return self.tags.add(name, color)
 
     # ── Notes delegates ──────────────────────────────────────────────
 

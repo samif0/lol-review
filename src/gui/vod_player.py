@@ -63,7 +63,8 @@ class TimelineCanvas(tk.Canvas):
     CLIP_ALPHA_COLOR = "#1a4d2e"  # Dark green fill
 
     def __init__(self, master, duration: int, on_seek: Callable,
-                 events: list = None, bookmarks: list = None, **kwargs):
+                 events: list = None, bookmarks: list = None,
+                 derived_events: list = None, **kwargs):
         super().__init__(
             master, height=self.CANVAS_HEIGHT,
             bg=COLORS["bg_dark"], highlightthickness=0,
@@ -73,6 +74,7 @@ class TimelineCanvas(tk.Canvas):
         self._on_seek = on_seek
         self._events = events or []
         self._bookmarks = bookmarks or []
+        self._derived_events = derived_events or []
         self._position = 0.0  # Current position in seconds
         self._dragging = False
         self._hover_item = None
@@ -100,6 +102,11 @@ class TimelineCanvas(tk.Canvas):
     def set_bookmarks(self, bookmarks: list):
         """Update the bookmark markers."""
         self._bookmarks = bookmarks or []
+        self._redraw()
+
+    def set_derived_events(self, derived_events: list):
+        """Update the derived event regions."""
+        self._derived_events = derived_events or []
         self._redraw()
 
     def set_duration(self, duration: int):
@@ -180,6 +187,33 @@ class TimelineCanvas(tk.Canvas):
                 self.create_line(
                     ce_x2, track_top - 6, ce_x2, track_bot + 6,
                     fill=self.CLIP_COLOR, width=2, tags="clip_marker",
+                )
+
+        # Derived event regions (translucent colored rectangles spanning time ranges)
+        for de in self._derived_events:
+            x_start = self._time_to_x(de["start_time_s"])
+            x_end = self._time_to_x(de["end_time_s"])
+            # Ensure minimum visible width
+            if x_end - x_start < 4:
+                x_end = x_start + 4
+            color = de.get("color", "#ff6b6b")
+            # Draw a translucent rectangle spanning the track area
+            self.create_rectangle(
+                x_start, track_top - 6, x_end, track_bot + 6,
+                fill=color, outline=color, width=1,
+                stipple="gray25",
+                tags=("derived_event", f"de_{id(de)}"),
+            )
+            # Small label above the region
+            mid_x = (x_start + x_end) / 2
+            name = de.get("definition_name", "")
+            if name:
+                self.create_text(
+                    mid_x, track_top - 12,
+                    text=name, fill=color,
+                    font=("Segoe UI", 7),
+                    anchor="s",
+                    tags=("derived_label", f"de_{id(de)}"),
                 )
 
         # Event markers (draw below the track line, above center)
@@ -322,6 +356,20 @@ class TimelineCanvas(tk.Canvas):
                 note = bm.get("note", "") or "(bookmark)"
                 closest = f"{format_game_time(bm['game_time_s'])} — {note}"
 
+        # Check derived event regions (hover within the time range)
+        for de in self._derived_events:
+            x_start = self._time_to_x(de["start_time_s"])
+            x_end = self._time_to_x(de["end_time_s"])
+            if x_start <= event.x <= x_end:
+                name = de.get("definition_name", "Event")
+                count = de.get("event_count", 0)
+                time_range = (
+                    f"{format_game_time(de['start_time_s'])} - "
+                    f"{format_game_time(de['end_time_s'])}"
+                )
+                closest = f"{name} ({count} events) — {time_range}"
+                break  # Derived event regions take priority when hovering inside
+
         if closest:
             self._show_tooltip(event.x_root, event.y_root, closest)
         else:
@@ -406,6 +454,7 @@ class VodPlayerPanel(ctk.CTkFrame):
         bookmarks: list[dict],
         tags: list[dict],
         game_events: list[dict] = None,
+        derived_events: list[dict] = None,
         on_add_bookmark: Optional[Callable] = None,
         on_update_bookmark: Optional[Callable] = None,
         on_delete_bookmark: Optional[Callable] = None,
@@ -421,6 +470,7 @@ class VodPlayerPanel(ctk.CTkFrame):
         self._bookmarks = list(bookmarks)
         self._tags = tags
         self._game_events = game_events or []
+        self._derived_events = derived_events or []
         self._on_add_bookmark = on_add_bookmark
         self._on_update_bookmark = on_update_bookmark
         self._on_delete_bookmark = on_delete_bookmark
@@ -635,6 +685,7 @@ class VodPlayerPanel(ctk.CTkFrame):
             on_seek=self._on_seek,
             events=self._game_events,
             bookmarks=self._bookmarks,
+            derived_events=self._derived_events,
         )
         self._timeline.pack(fill="x", pady=(0, 2))
         self._timeline.bind("<Button-1>", lambda e: self.focus_set(), add="+")

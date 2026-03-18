@@ -12,19 +12,26 @@ from .schema import (
     CREATE_GAMES_TABLE,
     CREATE_GAME_EVENTS_TABLE,
     CREATE_GAME_EVENTS_INDEX,
+    CREATE_MATCHUP_NOTES_TABLE,
+    CREATE_OBJECTIVE_PROMPTS_TABLE,
     CREATE_OBJECTIVES_TABLE,
     CREATE_GAME_OBJECTIVES_TABLE,
     CREATE_CONCEPT_TAGS_TABLE,
     CREATE_GAME_CONCEPT_TAGS_TABLE,
+    CREATE_DERIVED_EVENT_DEFINITIONS_TABLE,
+    CREATE_DERIVED_EVENT_INSTANCES_TABLE,
     CREATE_PERSISTENT_NOTES_TABLE,
+    CREATE_PROMPT_ANSWERS_TABLE,
     CREATE_RULES_TABLE,
     CREATE_SESSION_LOG_TABLE,
     CREATE_TAGS_TABLE,
     CREATE_VOD_BOOKMARKS_TABLE,
     CREATE_VOD_FILES_TABLE,
     DEFAULT_CONCEPT_TAGS,
+    DEFAULT_DERIVED_EVENTS,
     DEFAULT_TAGS,
     MIGRATE_BOOKMARKS_CLIP_COLUMNS,
+    MIGRATE_GAMES_ENEMY_LANER,
     MIGRATE_SESSION_LOG_MENTAL,
 )
 
@@ -93,6 +100,18 @@ class ConnectionManager:
         conn.execute(CREATE_CONCEPT_TAGS_TABLE)
         conn.execute(CREATE_GAME_CONCEPT_TAGS_TABLE)
         conn.execute(CREATE_RULES_TABLE)
+        conn.execute(CREATE_DERIVED_EVENT_DEFINITIONS_TABLE)
+        conn.execute(CREATE_DERIVED_EVENT_INSTANCES_TABLE)
+        conn.execute(CREATE_OBJECTIVE_PROMPTS_TABLE)
+        conn.execute(CREATE_PROMPT_ANSWERS_TABLE)
+        conn.execute(CREATE_MATCHUP_NOTES_TABLE)
+
+        # Migrate: add enemy_laner column to games if missing
+        for stmt in MIGRATE_GAMES_ENEMY_LANER:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
         # Migrate: add clip columns to vod_bookmarks if missing
         for stmt in MIGRATE_BOOKMARKS_CLIP_COLUMNS:
@@ -122,6 +141,16 @@ class ConnectionManager:
             conn.executemany(
                 "INSERT OR IGNORE INTO concept_tags (name, polarity, color) VALUES (?, ?, ?)",
                 DEFAULT_CONCEPT_TAGS,
+            )
+
+        # Seed default derived event definitions if the table is empty
+        cursor = conn.execute("SELECT COUNT(*) FROM derived_event_definitions")
+        if cursor.fetchone()[0] == 0:
+            conn.executemany(
+                """INSERT OR IGNORE INTO derived_event_definitions
+                   (name, source_types, min_count, window_seconds, color, is_default, created_at)
+                   VALUES (?, ?, ?, ?, ?, 1, ?)""",
+                [(n, st, mc, ws, c, int(time.time())) for n, st, mc, ws, c in DEFAULT_DERIVED_EVENTS],
             )
 
         # Insert default persistent notes row if empty

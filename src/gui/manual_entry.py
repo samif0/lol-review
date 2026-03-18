@@ -6,7 +6,6 @@ from typing import Callable, Optional
 import customtkinter as ctk
 
 from ..constants import COLORS
-from .widgets import StarRating, TagSelector
 
 
 class ManualEntryWindow(ctk.CTkToplevel):
@@ -196,32 +195,6 @@ class ManualEntryWindow(ctk.CTkToplevel):
             text_color=COLORS["text_dim"],
         ).pack(anchor="w", pady=(0, 8))
 
-        # Rating
-        rating_row = ctk.CTkFrame(container, fg_color="transparent")
-        rating_row.pack(fill="x", pady=(0, 8))
-
-        ctk.CTkLabel(
-            rating_row,
-            text="Performance Rating",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(side="left")
-
-        self.star_rating = StarRating(rating_row, initial=0)
-        self.star_rating.pack(side="right")
-
-        # Tags
-        ctk.CTkLabel(
-            container,
-            text="Tags",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(4, 4))
-
-        tags = self.db.get_all_tags()
-        self.tag_selector = TagSelector(container, tags, selected=[])
-        self.tag_selector.pack(fill="x", pady=(0, 10))
-
         # What went well
         ctk.CTkLabel(
             container,
@@ -368,8 +341,8 @@ class ManualEntryWindow(ctk.CTkToplevel):
             mistakes=self.mistakes.get("1.0", "end-1c").strip(),
             went_well=self.went_well.get("1.0", "end-1c").strip(),
             focus_next=self.focus_next.get().strip(),
-            rating=self.star_rating.get(),
-            tags=self.tag_selector.get(),
+            rating=0,
+            tags=[],
         )
 
         # Also log to session so it appears in Session Logger

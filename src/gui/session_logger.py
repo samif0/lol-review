@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import customtkinter as ctk
 
 from ..constants import COLORS
-from .claude_context import ClaudeContextWindow
+from .claude_context import generate_and_copy
 from .game_review import SessionGameReviewWindow
 
 
@@ -182,7 +182,7 @@ class SessionLoggerWindow(ctk.CTkToplevel):
         )
         context_btn.pack(side="left")
 
-        self._context_window = None
+        self._context_btn = context_btn
         self._last_refresh_hash = None  # Used to skip unnecessary full rebuilds
 
         # Initial data load
@@ -436,11 +436,12 @@ class SessionLoggerWindow(ctk.CTkToplevel):
         )
 
     def _open_context_generator(self):
-        """Open the Claude Context Generator window."""
-        if self._context_window and self._context_window.winfo_exists():
-            self._context_window.lift()
-            return
-        self._context_window = ClaudeContextWindow(db=self.db)
+        """Generate Claude context and copy to clipboard."""
+        context = generate_and_copy(self.db)
+        self.clipboard_clear()
+        self.clipboard_append(context)
+        self._context_btn.configure(text="Copied!")
+        self.after(1500, lambda: self._context_btn.configure(text="Claude Context"))
 
     def _auto_refresh(self):
         """Auto-refresh periodically. Wrapped in try/except so a transient

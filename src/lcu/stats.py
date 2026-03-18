@@ -187,6 +187,15 @@ def extract_stats_from_eog(eog_data: dict) -> Optional[GameStats]:
                     p_stats = p.get("stats", {})
                     team_kills_total += int(p_stats.get("CHAMPIONS_KILLED", 0))
 
+        # Extract enemy team champion names for matchup reference
+        enemy_champions = []
+        for team_data in eog_data.get("teams", []):
+            if team_data.get("teamId") != team_id:
+                for p in team_data.get("players", []):
+                    champ = p.get("championName", "")
+                    if champ:
+                        enemy_champions.append(champ)
+
         kda = (kills + assists) / max(deaths, 1)
         kp = (kills + assists) / max(team_kills_total, 1) * 100
 
@@ -254,6 +263,10 @@ def extract_stats_from_eog(eog_data: dict) -> Optional[GameStats]:
         gs.summoner_name = eog_data.get("localPlayer", {}).get(
             "summonerName", "Unknown"
         )
+
+        # Store enemy team for matchup reference
+        if isinstance(gs.raw_stats, dict):
+            gs.raw_stats["_enemy_champions"] = enemy_champions
 
         return gs
 

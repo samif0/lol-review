@@ -23,9 +23,11 @@ from ..constants import (
     ADHERENCE_STREAK_LOCKED_IN, UNREVIEWED_GAMES_DAYS,
     UNREVIEWED_GAMES_DISPLAY_LIMIT, HISTORY_PAGE_SIZE,
 )
+from ..database.game_events import EVENT_STYLES
 from ..lcu import GameStats
 from ..version import __version__
-from .claude_context import ClaudeContextWindow
+from .claude_context import generate_and_copy
+from .charts import SimpleLineChart
 from .review import ReviewPanel
 from .vod_player import VodPlayerPanel
 
@@ -176,14 +178,14 @@ def _stat_block(parent, label: str, value: str, color: str = None) -> ctk.CTkLab
 # ══════════════════════════════════════════════════════════
 
 class HomePage(ctk.CTkFrame):
-    def __init__(self, parent, db, on_open_vod, on_open_claude_context,
+    def __init__(self, parent, db, on_open_vod,
                  on_open_review=None, **kw):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
         self.db = db
         self._on_open_vod = on_open_vod
-        self._on_open_claude_context = on_open_claude_context
         self._on_open_review = on_open_review
         self._scroll = None
+        self._claude_btn = None
         self._build()
 
     def _build(self):
@@ -193,6 +195,15 @@ class HomePage(ctk.CTkFrame):
         )
         self._scroll.pack(fill="both", expand=True, padx=16, pady=16)
         self._populate(self._scroll)
+
+    def _copy_claude_context(self):
+        """Generate Claude context, copy to clipboard, flash button text."""
+        context = generate_and_copy(self.db)
+        self.clipboard_clear()
+        self.clipboard_append(context)
+        # Flash button text
+        self._claude_btn.configure(text="Copied!")
+        self.after(1500, lambda: self._claude_btn.configure(text="Claude Context"))
 
     def _populate(self, body):
         hour = datetime.now().hour
@@ -204,13 +215,14 @@ class HomePage(ctk.CTkFrame):
         ctk.CTkLabel(grow, text=f"Good {tod} — ready to climb?",
                      font=ctk.CTkFont(size=22, weight="bold"),
                      text_color=COLORS["text"]).pack(side="left")
-        ctk.CTkButton(
+        self._claude_btn = ctk.CTkButton(
             grow, text="Claude Context",
             font=ctk.CTkFont(size=13, weight="bold"),
             height=36, width=150, corner_radius=8,
             fg_color=COLORS["accent_purple"], hover_color="#6d28d9",
-            command=self._on_open_claude_context,
-        ).pack(side="right")
+            command=self._copy_claude_context,
+        )
+        self._claude_btn.pack(side="right")
 
         self._build_today_stats(body)
         self._build_objectives_summary(body)
@@ -1120,6 +1132,9 @@ class StatsPage(ctk.CTkFrame):
         self._build_overall(body)
         self._build_mental_winrate(body)
         self._build_seven_day(body)
+        self._build_winrate_trend(body)
+        self._build_mental_trend(body)
+        self._build_deaths_trend(body)
 
     def _build_overall(self, parent):
         overall = self.db.get_overall_stats()
@@ -1250,6 +1265,114 @@ class StatsPage(ctk.CTkFrame):
                 ctk.CTkLabel(rframe, text=text, font=ctk.CTkFont(size=12),
                              text_color=color, width=w).pack(side="left", padx=8, pady=3)
 
+    def _build_winrate_trend(self, parent):
+        try:
+            games = self.db.games.get_recent_for_charts(100)
+        except Exception:
+            return
+        if len(games) < 5:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="WIN RATE TREND (20-game rolling)",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+        window = 20
+        if len(games) < window:
+            window = len(games)
+        data = []
+        for i in range(window - 1, len(games)):
+            chunk = games[i - window + 1:i + 1]
+            wr = sum(1 for g in chunk if g["win"]) / window * 100
+            label = f"#{i + 1}"
+            data.append((label, wr))
+
+        if len(data) < 2:
+            return
+
+        chart = SimpleLineChart(
+            inner, data=data,
+            color=COLORS["accent_blue"],
+            target_value=50.0,
+            target_color=COLORS["accent_gold"],
+            height=200,
+        )
+        chart.pack(fill="x", pady=(0, 4))
+
+    def _build_mental_trend(self, parent):
+        try:
+            entries = self.db.session_log.get_mental_trend(50)
+        except Exception:
+            return
+        if len(entries) < 3:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="MENTAL RATING TREND",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+        data = []
+        for e in entries:
+            ts = e.get("timestamp", "")
+            # Show short date from timestamp if available
+            if ts:
+                label = str(ts)[:10]
+            else:
+                label = ""
+            rating = e.get("mental_rating", 5)
+            data.append((label, rating))
+
+        if len(data) < 2:
+            return
+
+        chart = SimpleLineChart(
+            inner, data=data,
+            color=COLORS["accent_purple"],
+            target_value=7.0,
+            target_color=COLORS["win_green"],
+            height=200,
+        )
+        chart.pack(fill="x", pady=(0, 4))
+
+    def _build_deaths_trend(self, parent):
+        try:
+            games = self.db.games.get_recent_for_charts(50)
+        except Exception:
+            return
+        if len(games) < 5:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="DEATHS PER GAME TREND",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+        data = [(f"#{i + 1}", g["deaths"]) for i, g in enumerate(games)]
+
+        if len(data) < 2:
+            return
+
+        chart = SimpleLineChart(
+            inner, data=data,
+            color=COLORS["loss_red"],
+            height=200,
+        )
+        chart.pack(fill="x", pady=(0, 4))
+
     def refresh(self):
         _refresh_scroll(self._scroll, lambda: self._populate(self._scroll))
 
@@ -1259,13 +1382,15 @@ class StatsPage(ctk.CTkFrame):
 # ══════════════════════════════════════════════════════════
 
 class SettingsPage(ctk.CTkFrame):
-    def __init__(self, parent, on_save=None, app_window=None, **kw):
+    def __init__(self, parent, on_save=None, app_window=None, db=None, **kw):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kw)
         self._on_save = on_save
         self._app_window = app_window
+        self.db = db
         self._keybind_entries: dict[str, ctk.CTkButton] = {}
         self._current_keybinds = get_keybinds()
         self._listening_action: str | None = None
+        self._notes_textbox = None
         self._build_ui()
 
     def _build_ui(self):
@@ -1397,6 +1522,33 @@ class SettingsPage(ctk.CTkFrame):
             text=f"  Using {current_size:.0f} MB / {max_size} MB ({usage_pct:.0f}%)",
             font=ctk.CTkFont(size=11), text_color=usage_color,
         ).pack(side="left", padx=(12, 0))
+
+        # ── Persistent Notes section
+        notes_s = _card(scroll)
+        notes_s.pack(fill="x", pady=(0, 12))
+        ni = ctk.CTkFrame(notes_s, fg_color="transparent")
+        ni.pack(fill="x", padx=14, pady=14)
+
+        ctk.CTkLabel(ni, text="PERSISTENT NOTES",
+                     font=ctk.CTkFont(size=12, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(
+            ni,
+            text="Notes that get included in Claude context exports.",
+            font=ctk.CTkFont(size=12), text_color=COLORS["text_dim"], justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+        self._notes_textbox = ctk.CTkTextbox(
+            ni, height=120, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+            wrap="word",
+        )
+        self._notes_textbox.pack(fill="x", pady=(0, 8))
+        if self.db:
+            existing_notes = self.db.notes.get()
+            if existing_notes:
+                self._notes_textbox.insert("1.0", existing_notes)
 
         # ── Keybinds section
         kb_s = _card(scroll)
@@ -1574,6 +1726,10 @@ class SettingsPage(ctk.CTkFrame):
 
         set_keybinds(self._current_keybinds)
 
+        if self.db and self._notes_textbox:
+            notes_content = self._notes_textbox.get("1.0", "end-1c").strip()
+            self.db.notes.save(notes_content)
+
         if self._on_save:
             self._on_save()
 
@@ -1603,7 +1759,7 @@ class _NewObjectiveDialog(ctk.CTkToplevel):
         self._on_created = on_created
 
         self.title("New Learning Objective")
-        self.geometry("520x560")
+        self.geometry("520x680")
         self.configure(fg_color=COLORS["bg_dark"])
         self.resizable(False, False)
         self.lift()
@@ -1677,6 +1833,32 @@ class _NewObjectiveDialog(ctk.CTkToplevel):
         )
         self._desc_box.pack(fill="x", pady=(4, 12))
 
+        # Review Prompts (optional)
+        ctk.CTkLabel(scroll, text="Review Prompts (optional)",
+                     font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+
+        # Build event tag options: "" (General) + EVENT_STYLES keys + derived event names
+        self._event_tag_options = [""]
+        self._event_tag_options.extend(sorted(EVENT_STYLES.keys()))
+        try:
+            for defn in self.db.derived_events.get_all_definitions():
+                self._event_tag_options.append(defn["name"])
+        except Exception:
+            pass
+
+        self._prompt_rows_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        self._prompt_rows_frame.pack(fill="x", pady=(4, 4))
+        self._prompt_rows: list[dict] = []
+
+        ctk.CTkButton(
+            scroll, text="+ Add Prompt",
+            font=ctk.CTkFont(size=12), height=30, width=120,
+            fg_color=COLORS["tag_bg"], hover_color="#333344",
+            text_color=COLORS["text"],
+            command=self._add_prompt_row,
+        ).pack(anchor="w", pady=(0, 12))
+
         # Buttons
         btn_row = ctk.CTkFrame(scroll, fg_color="transparent")
         btn_row.pack(fill="x", pady=(8, 0))
@@ -1695,19 +1877,105 @@ class _NewObjectiveDialog(ctk.CTkToplevel):
             command=self.destroy,
         ).pack(side="left", fill="x", expand=True)
 
+    def _add_prompt_row(self):
+        """Add a new prompt row to the dialog."""
+        row_frame = ctk.CTkFrame(self._prompt_rows_frame, fg_color=COLORS["bg_card"],
+                                 corner_radius=6, border_width=1,
+                                 border_color=COLORS["border"])
+        row_frame.pack(fill="x", pady=(0, 6))
+
+        inner = ctk.CTkFrame(row_frame, fg_color="transparent")
+        inner.pack(fill="x", padx=8, pady=6)
+
+        # Question text entry
+        question_entry = ctk.CTkEntry(
+            inner, height=30, font=ctk.CTkFont(size=12),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_color=COLORS["border"],
+            placeholder_text="Prompt question...",
+        )
+        question_entry.pack(fill="x", pady=(0, 4))
+
+        options_row = ctk.CTkFrame(inner, fg_color="transparent")
+        options_row.pack(fill="x")
+
+        # Event tag dropdown
+        tag_display = [t if t else "(General)" for t in self._event_tag_options]
+        tag_var = ctk.StringVar(value=tag_display[0])
+        tag_menu = ctk.CTkOptionMenu(
+            options_row, variable=tag_var, values=tag_display,
+            font=ctk.CTkFont(size=11), height=28, width=130,
+            fg_color=COLORS["bg_input"], button_color=COLORS["border"],
+            text_color=COLORS["text"],
+        )
+        tag_menu.pack(side="left", padx=(0, 6))
+
+        # Answer type radio buttons
+        answer_var = ctk.StringVar(value="yes_no")
+        ctk.CTkRadioButton(
+            options_row, text="Yes / No", variable=answer_var, value="yes_no",
+            font=ctk.CTkFont(size=11), text_color=COLORS["text"],
+            fg_color=COLORS["accent_blue"], height=24,
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkRadioButton(
+            options_row, text="1-5 Scale", variable=answer_var, value="scale",
+            font=ctk.CTkFont(size=11), text_color=COLORS["text"],
+            fg_color=COLORS["accent_blue"], height=24,
+        ).pack(side="left", padx=(0, 8))
+
+        # Remove button
+        row_data = {
+            "frame": row_frame,
+            "question_entry": question_entry,
+            "tag_var": tag_var,
+            "answer_var": answer_var,
+        }
+        ctk.CTkButton(
+            options_row, text="X", width=28, height=28,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="transparent", hover_color="#3f1111",
+            text_color=COLORS["loss_red"],
+            command=lambda rd=row_data: self._remove_prompt_row(rd),
+        ).pack(side="right")
+
+        self._prompt_rows.append(row_data)
+
+    def _remove_prompt_row(self, row_data: dict):
+        """Remove a prompt row from the dialog."""
+        row_data["frame"].destroy()
+        if row_data in self._prompt_rows:
+            self._prompt_rows.remove(row_data)
+
     def _create(self):
         title = self._title_entry.get().strip()
         if not title:
             self._title_entry.configure(border_color=COLORS["loss_red"])
             return
         criteria = self._criteria_box.get("1.0", "end-1c").strip()
-        self.db.objectives.create(
+        obj_id = self.db.objectives.create(
             title=title,
             skill_area=self._skill_entry.get().strip(),
             obj_type=self._type_var.get(),
             completion_criteria=criteria,
             description=self._desc_box.get("1.0", "end-1c").strip(),
         )
+
+        # Save review prompts
+        for idx, row in enumerate(self._prompt_rows):
+            question = row["question_entry"].get().strip()
+            if not question:
+                continue
+            tag_display = row["tag_var"].get()
+            event_tag = "" if tag_display == "(General)" else tag_display
+            answer_type = row["answer_var"].get()
+            self.db.prompts.create_prompt(
+                objective_id=obj_id,
+                question_text=question,
+                event_tag=event_tag,
+                answer_type=answer_type,
+                sort_order=idx,
+            )
+
         self.destroy()
         if self._on_created:
             self._on_created()
@@ -1858,6 +2126,15 @@ class ObjectivesPage(ctk.CTkFrame):
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=COLORS["text"], anchor="w",
         ).pack(side="left", fill="x", expand=True)
+
+        prompt_count = len(self.db.prompts.get_prompts_for_objective(obj["id"]))
+        if prompt_count > 0:
+            ctk.CTkLabel(
+                title_row,
+                text=f"{prompt_count} review prompt{'s' if prompt_count != 1 else ''}",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_dim"],
+            ).pack(side="right", padx=(8, 0))
 
         if obj.get("skill_area"):
             ctk.CTkLabel(inner, text=obj["skill_area"],
@@ -2076,27 +2353,61 @@ class RulesPage(ctk.CTkFrame):
                 text_color=COLORS["text_dim"],
                 justify="center",
             ).pack(padx=20, pady=30)
-            return
+        else:
+            # Check violations for active rules
+            todays_games = self.db.get_todays_games()
+            violations = self.db.rules.check_violations(todays_games=todays_games)
+            violation_map = {v["rule"]["id"]: v for v in violations}
 
-        # Check violations for active rules
-        todays_games = self.db.get_todays_games()
-        violations = self.db.rules.check_violations(todays_games=todays_games)
-        violation_map = {v["rule"]["id"]: v for v in violations}
+            if active:
+                ctk.CTkLabel(body, text="ACTIVE",
+                             font=ctk.CTkFont(size=11, weight="bold"),
+                             text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+                for rule in active:
+                    vinfo = violation_map.get(rule["id"])
+                    self._build_rule_card(body, rule, vinfo)
 
-        if active:
-            ctk.CTkLabel(body, text="ACTIVE",
-                         font=ctk.CTkFont(size=11, weight="bold"),
-                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
-            for rule in active:
-                vinfo = violation_map.get(rule["id"])
-                self._build_rule_card(body, rule, vinfo)
+            if inactive:
+                ctk.CTkLabel(body, text="DISABLED",
+                             font=ctk.CTkFont(size=11, weight="bold"),
+                             text_color=COLORS["text_dim"]).pack(anchor="w", pady=(16, 8))
+                for rule in inactive:
+                    self._build_rule_card(body, rule, None, dimmed=True)
 
-        if inactive:
-            ctk.CTkLabel(body, text="DISABLED",
-                         font=ctk.CTkFont(size=11, weight="bold"),
-                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(16, 8))
-            for rule in inactive:
-                self._build_rule_card(body, rule, None, dimmed=True)
+        # ── Custom Events Section ─────────────────────────────────
+        separator = ctk.CTkFrame(body, fg_color=COLORS["border"], height=1)
+        separator.pack(fill="x", pady=(24, 24))
+
+        de_hrow = ctk.CTkFrame(body, fg_color="transparent")
+        de_hrow.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(de_hrow, text="Custom Events",
+                     font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=COLORS["text"]).pack(side="left")
+        ctk.CTkButton(
+            de_hrow, text="+ New Custom Event",
+            font=ctk.CTkFont(size=13), height=34, width=160,
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._open_new_derived_event_dialog,
+        ).pack(side="right")
+
+        definitions = self.db.derived_events.get_all_definitions()
+        if not definitions:
+            empty = _card(body)
+            empty.pack(fill="x", pady=(0, 12))
+            ctk.CTkLabel(
+                empty,
+                text=(
+                    "No custom events yet.\n\n"
+                    "Define custom events to detect patterns like teamfights,\n"
+                    "skirmishes, or objective contests on your VOD timeline."
+                ),
+                font=ctk.CTkFont(size=14),
+                text_color=COLORS["text_dim"],
+                justify="center",
+            ).pack(padx=20, pady=30)
+        else:
+            for defn in definitions:
+                self._build_derived_event_card(body, defn)
 
     def _build_rule_card(self, parent, rule: dict, violation: dict | None,
                          dimmed: bool = False):
@@ -2238,6 +2549,85 @@ class RulesPage(ctk.CTkFrame):
         _ConfirmDialog(
             self,
             message="Delete this rule? This cannot be undone.",
+            confirm_text="Delete",
+            confirm_color=COLORS["loss_red"],
+            confirm_hover="#b91c1c",
+            on_confirm=_do_delete,
+        )
+
+    def _build_derived_event_card(self, parent, defn: dict):
+        is_default = defn.get("is_default", 0)
+        card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10,
+                            border_width=1, border_color=COLORS["border"])
+        card.pack(fill="x", pady=(0, 10))
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=12)
+
+        # Top row: color dot + name + default badge
+        top_row = ctk.CTkFrame(inner, fg_color="transparent")
+        top_row.pack(fill="x", pady=(0, 4))
+
+        color = defn.get("color", "#ff6b6b")
+        ctk.CTkLabel(
+            top_row, text="\u25cf",
+            font=ctk.CTkFont(size=16),
+            text_color=color,
+        ).pack(side="left", padx=(0, 6))
+
+        ctk.CTkLabel(
+            top_row, text=defn["name"],
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=COLORS["text"], anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+
+        if is_default:
+            ctk.CTkLabel(
+                top_row, text="DEFAULT",
+                font=ctk.CTkFont(size=9, weight="bold"),
+                text_color="#ffffff", fg_color=COLORS["text_muted"],
+                corner_radius=4, padx=6, pady=1,
+            ).pack(side="right")
+
+        # Details row: source types, min count, window
+        source_types = defn.get("source_types", [])
+        source_str = ", ".join(source_types) if source_types else "None"
+        details_text = (
+            f"Sources: {source_str}  |  "
+            f"Min count: {defn.get('min_count', 0)}  |  "
+            f"Window: {defn.get('window_seconds', 0)}s"
+        )
+        ctk.CTkLabel(
+            inner, text=details_text,
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_dim"],
+            wraplength=600, justify="left",
+        ).pack(anchor="w", pady=(0, 4))
+
+        # Action buttons (only for non-default definitions)
+        if not is_default:
+            btn_row = ctk.CTkFrame(inner, fg_color="transparent")
+            btn_row.pack(fill="x", pady=(4, 0))
+            ctk.CTkButton(
+                btn_row, text="Delete",
+                font=ctk.CTkFont(size=12), height=28, width=70,
+                fg_color="transparent", hover_color="#3f1111",
+                text_color=COLORS["loss_red"],
+                border_width=1, border_color=COLORS["loss_red"],
+                command=lambda did=defn["id"]: self._delete_derived_event(did),
+            ).pack(side="right")
+
+    def _open_new_derived_event_dialog(self):
+        _NewDerivedEventDialog(self, db=self.db, on_created=self.refresh)
+
+    def _delete_derived_event(self, def_id: int):
+        def _do_delete():
+            self.db.derived_events.delete_definition(def_id)
+            self.refresh()
+
+        _ConfirmDialog(
+            self,
+            message="Delete this custom event? All computed instances will also be removed.",
             confirm_text="Delete",
             confirm_color=COLORS["loss_red"],
             confirm_hover="#b91c1c",
@@ -2487,6 +2877,185 @@ class _NewRuleDialog(ctk.CTkToplevel):
             self._on_created()
 
 
+_DERIVED_EVENT_PRESET_COLORS = [
+    ("#ff6b6b", "Red"),
+    ("#fbbf24", "Gold"),
+    ("#22c55e", "Green"),
+    ("#0099ff", "Blue"),
+    ("#8b5cf6", "Purple"),
+    ("#ec4899", "Pink"),
+    ("#06b6d4", "Cyan"),
+    ("#f97316", "Orange"),
+]
+
+
+class _NewDerivedEventDialog(ctk.CTkToplevel):
+    """Modal form for creating a new derived event definition."""
+
+    def __init__(self, parent, db, on_created, **kw):
+        super().__init__(parent, **kw)
+        self.db = db
+        self._on_created = on_created
+        self._selected_color = _DERIVED_EVENT_PRESET_COLORS[0][0]
+        self._color_buttons = []
+
+        self.title("New Custom Event")
+        self.geometry("500x580")
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.resizable(False, False)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(100, lambda: self.attributes("-topmost", False))
+        self.grab_set()
+
+        scroll = ctk.CTkScrollableFrame(
+            self, fg_color="transparent",
+            scrollbar_button_color=COLORS["border"],
+        )
+        scroll.pack(fill="both", expand=True, padx=20, pady=16)
+
+        ctk.CTkLabel(scroll, text="New Custom Event",
+                     font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color=COLORS["text"]).pack(anchor="w", pady=(0, 16))
+
+        # Name
+        ctk.CTkLabel(scroll, text="Event Name *", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._name_entry = ctk.CTkEntry(
+            scroll, height=36, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_color=COLORS["border"],
+            placeholder_text="e.g., Teamfight, Skirmish",
+        )
+        self._name_entry.pack(fill="x", pady=(4, 12))
+
+        # Source types (checkboxes for event types from EVENT_STYLES)
+        ctk.CTkLabel(scroll, text="Source Event Types *", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 4))
+        self._source_vars = {}
+        source_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        source_frame.pack(fill="x", pady=(0, 12))
+
+        for etype, style in EVENT_STYLES.items():
+            if etype == "LEVEL_UP":
+                continue  # Skip level up — not useful for clustering
+            var = ctk.BooleanVar(value=False)
+            self._source_vars[etype] = var
+            cb_frame = ctk.CTkFrame(source_frame, fg_color="transparent")
+            cb_frame.pack(anchor="w", pady=1)
+            ctk.CTkCheckBox(
+                cb_frame, text=style.get("label", etype), variable=var,
+                font=ctk.CTkFont(size=12), text_color=COLORS["text"],
+                fg_color=style["color"], hover_color=style["color"],
+                checkbox_width=18, checkbox_height=18,
+            ).pack(side="left")
+
+        # Min count
+        ctk.CTkLabel(scroll, text="Minimum Event Count *", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._min_count_entry = ctk.CTkEntry(
+            scroll, height=36, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_color=COLORS["border"], placeholder_text="3",
+        )
+        self._min_count_entry.pack(fill="x", pady=(4, 12))
+
+        # Window seconds
+        ctk.CTkLabel(scroll, text="Time Window (seconds) *", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w")
+        self._window_entry = ctk.CTkEntry(
+            scroll, height=36, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_color=COLORS["border"], placeholder_text="30",
+        )
+        self._window_entry.pack(fill="x", pady=(4, 12))
+
+        # Color picker (preset buttons)
+        ctk.CTkLabel(scroll, text="Color", font=ctk.CTkFont(size=13),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 4))
+        color_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        color_frame.pack(fill="x", pady=(0, 12))
+
+        for hex_color, color_name in _DERIVED_EVENT_PRESET_COLORS:
+            btn = ctk.CTkButton(
+                color_frame, text="", width=32, height=32,
+                fg_color=hex_color, hover_color=hex_color,
+                corner_radius=6,
+                border_width=3,
+                border_color="#ffffff" if hex_color == self._selected_color else "transparent",
+                command=lambda c=hex_color: self._select_color(c),
+            )
+            btn.pack(side="left", padx=(0, 6))
+            btn._color_hex = hex_color
+            self._color_buttons.append(btn)
+
+        # Buttons
+        btn_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(8, 0))
+        ctk.CTkButton(
+            btn_row, text="Create Event",
+            font=ctk.CTkFont(size=14, weight="bold"), height=40,
+            fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._create,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(
+            btn_row, text="Cancel",
+            font=ctk.CTkFont(size=14), height=40,
+            fg_color="transparent", hover_color=COLORS["bg_input"],
+            text_color=COLORS["text_dim"], border_width=1,
+            border_color=COLORS["border"],
+            command=self.destroy,
+        ).pack(side="left", fill="x", expand=True)
+
+    def _select_color(self, hex_color: str):
+        self._selected_color = hex_color
+        for btn in self._color_buttons:
+            if btn._color_hex == hex_color:
+                btn.configure(border_color="#ffffff")
+            else:
+                btn.configure(border_color="transparent")
+
+    def _create(self):
+        name = self._name_entry.get().strip()
+        if not name:
+            self._name_entry.configure(border_color=COLORS["loss_red"])
+            return
+
+        # Gather selected source types
+        source_types = [etype for etype, var in self._source_vars.items() if var.get()]
+        if not source_types:
+            return  # Must select at least one source type
+
+        # Validate min count
+        try:
+            min_count = int(self._min_count_entry.get().strip())
+            if min_count <= 0:
+                raise ValueError
+        except ValueError:
+            self._min_count_entry.configure(border_color=COLORS["loss_red"])
+            return
+
+        # Validate window seconds
+        try:
+            window_seconds = int(self._window_entry.get().strip())
+            if window_seconds <= 0:
+                raise ValueError
+        except ValueError:
+            self._window_entry.configure(border_color=COLORS["loss_red"])
+            return
+
+        self.db.derived_events.create(
+            name=name,
+            source_types=source_types,
+            min_count=min_count,
+            window_seconds=window_seconds,
+            color=self._selected_color,
+        )
+        self.destroy()
+        if self._on_created:
+            self._on_created()
+
+
 # ══════════════════════════════════════════════════════════
 # Wrapper Pages: Review & VOD (dynamic inline pages)
 # ══════════════════════════════════════════════════════════
@@ -2565,7 +3134,6 @@ class AppWindow(ctk.CTk):
         self._nav_stack: list[str] = []
         self._pages: dict[str, ctk.CTkFrame] = {}
         self._nav_items: dict[str, dict] = {}
-        self._claude_context_window = None
 
         self.title("LoL Review")
         self.geometry("1200x800")
@@ -2694,16 +3262,9 @@ class AppWindow(ctk.CTk):
             widget.bind("<Leave>", on_leave)
 
     def _build_pages(self):
-        def _open_claude():
-            if self._claude_context_window and self._claude_context_window.winfo_exists():
-                self._claude_context_window.lift()
-                return
-            self._claude_context_window = ClaudeContextWindow(db=self.db)
-
         self._pages["home"] = HomePage(
             self._content, db=self.db,
             on_open_vod=self._navigate_to_vod,
-            on_open_claude_context=_open_claude,
             on_open_review=self._navigate_to_review,
         )
         self._pages["session"] = SessionPage(
@@ -2734,6 +3295,7 @@ class AppWindow(ctk.CTk):
             self._content,
             on_save=self._on_settings_saved,
             app_window=self,
+            db=self.db,
         )
 
         # Dynamic pages (not in sidebar)
@@ -2798,13 +3360,17 @@ class AppWindow(ctk.CTk):
         """Save review data from the unified ReviewPanel for an edited game.
 
         Mirrors the save logic in main._save_review so that objectives,
-        concept tags, and mental_handled are all persisted.
+        concept tags, mental_handled, and matchup data are all persisted.
         """
         game_id = review_data["game_id"]
         win = review_data.pop("win", None)
         mental_handled = review_data.pop("mental_handled", "")
         concept_tag_ids = review_data.pop("concept_tag_ids", [])
         objectives_data = review_data.pop("objectives_data", [])
+        matchup_helpful = review_data.pop("matchup_helpful", [])
+        matchup_note = review_data.pop("matchup_note", None)
+        enemy_laner = review_data.pop("enemy_laner", "")
+        prompt_answers = review_data.pop("prompt_answers", [])
 
         self.db.update_review(**review_data)
 
@@ -2822,6 +3388,38 @@ class AppWindow(ctk.CTk):
                 self.db.objectives.record_game(game_id, obj_id, practiced, execution_note)
                 if practiced:
                     self.db.objectives.update_score(obj_id, win=bool(win))
+
+        # Save matchup helpful ratings
+        for mh in matchup_helpful:
+            note_id = mh.get("note_id")
+            helpful = mh.get("helpful")
+            if note_id is not None and helpful is not None:
+                self.db.matchup_notes.update_helpful(note_id, helpful)
+
+        # Save new matchup note if provided
+        if matchup_note:
+            game = self.db.get_game(game_id)
+            champion = game.get("champion_name", "") if game else ""
+            self.db.matchup_notes.create(
+                champion=champion,
+                enemy=matchup_note["enemy"],
+                note=matchup_note["note"],
+                game_id=game_id,
+            )
+
+        # Update enemy_laner on the game record
+        if enemy_laner:
+            self.db.games.update_enemy_laner(game_id, enemy_laner)
+
+        # Save prompt answers
+        for pa in prompt_answers:
+            self.db.prompts.save_answer(
+                game_id=game_id,
+                prompt_id=pa["prompt_id"],
+                answer_value=pa["answer_value"],
+                event_instance_id=pa.get("event_instance_id"),
+                event_time_s=pa.get("event_time_s"),
+            )
 
         logger.info(f"Session game review saved for game {game_id}")
 
@@ -2870,6 +3468,36 @@ class AppWindow(ctk.CTk):
 
                 existing_review = self.db.get_game(game_id)
 
+                # Look up enemy laner and matchup notes
+                enemy_laner = game.get("enemy_laner", "") or ""
+                matchup_notes_shown = []
+                if not enemy_laner and game.get("raw_stats"):
+                    import json as _json
+                    raw = game["raw_stats"]
+                    if isinstance(raw, str):
+                        try:
+                            raw = _json.loads(raw)
+                        except (ValueError, TypeError):
+                            raw = {}
+                    enemy_champions = raw.get("_enemy_champions", []) if isinstance(raw, dict) else []
+                    if enemy_champions:
+                        enemy_laner = enemy_champions[0]
+                champion_name = game.get("champion_name", "")
+                if enemy_laner and champion_name:
+                    matchup_notes_shown = self.db.matchup_notes.get_for_matchup(
+                        champion_name, enemy_laner
+                    )
+
+                # Fetch objective prompts, game events, and derived events
+                objective_prompts = {}
+                for obj in active_objectives:
+                    prompts = self.db.prompts.get_prompts_for_objective(obj["id"])
+                    if prompts:
+                        objective_prompts[obj["id"]] = prompts
+                game_events = self.db.get_game_events(game_id) if game_id else []
+                derived_event_instances = self.db.derived_events.get_instances(game_id) if game_id else []
+                existing_prompt_answers = self.db.prompts.get_answers_for_game(game_id) if game_id else []
+
                 review_page = self._pages["review"]
                 review_page.show_review(
                     ReviewPanel,
@@ -2888,6 +3516,12 @@ class AppWindow(ctk.CTk):
                         "existing_concept_tag_ids": existing_concept_tag_ids,
                         "active_objectives": active_objectives,
                         "existing_game_objectives": existing_game_objectives,
+                        "matchup_notes_shown": matchup_notes_shown,
+                        "enemy_laner": enemy_laner,
+                        "game_events": game_events,
+                        "derived_event_instances": derived_event_instances,
+                        "objective_prompts": objective_prompts,
+                        "existing_prompt_answers": existing_prompt_answers,
                     },
                 )
                 self._navigate("review")
@@ -2916,8 +3550,9 @@ class AppWindow(ctk.CTk):
             return
 
         bookmarks = self.db.get_bookmarks(game_id)
-        tags = self.db.get_all_tags()
+        tags = []
         game_events = self.db.get_game_events(game_id)
+        derived_events = self.db.derived_events.get_instances(game_id)
 
         try:
             vod_page = self._pages["vod"]
@@ -2929,6 +3564,7 @@ class AppWindow(ctk.CTk):
                 "bookmarks": bookmarks,
                 "tags": tags,
                 "game_events": game_events,
+                "derived_events": derived_events,
                 "on_add_bookmark": self._on_add_bookmark,
                 "on_update_bookmark": self._on_update_bookmark,
                 "on_delete_bookmark": self._on_delete_bookmark,

@@ -10,9 +10,10 @@ from ..constants import (
     COLORS, format_duration, format_number,
     KDA_EXCELLENT_THRESHOLD, KDA_GOOD_THRESHOLD, DAMAGE_DISPLAY_THRESHOLD,
 )
+from ..database.game_events import EVENT_STYLES
 from ..lcu import GameStats
 from ..vod import format_game_time
-from .widgets import ConceptTagSelector, StarRating, StatCard
+from .widgets import ConceptTagSelector, StatCard
 
 
 class ReviewPanel(ctk.CTkFrame):
@@ -36,6 +37,12 @@ class ReviewPanel(ctk.CTkFrame):
         existing_concept_tag_ids: Optional[list[int]] = None,
         active_objectives: Optional[list[dict]] = None,
         existing_game_objectives: Optional[list[dict]] = None,
+        matchup_notes_shown: Optional[list[dict]] = None,
+        enemy_laner: str = "",
+        game_events: Optional[list[dict]] = None,
+        derived_event_instances: Optional[list[dict]] = None,
+        objective_prompts: Optional[dict] = None,
+        existing_prompt_answers: Optional[list[dict]] = None,
         **kwargs,
     ):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kwargs)
@@ -53,6 +60,13 @@ class ReviewPanel(ctk.CTkFrame):
         self._existing_concept_tag_ids = existing_concept_tag_ids or []
         self._active_objectives = active_objectives or []
         self._existing_game_objectives = existing_game_objectives or []
+        self._matchup_notes_shown = matchup_notes_shown or []
+        self._enemy_laner = enemy_laner
+        self._game_events = game_events or []
+        self._derived_event_instances = derived_event_instances or []
+        self._objective_prompts = objective_prompts or {}  # {obj_id: [prompt_dicts]}
+        self._existing_prompt_answers = existing_prompt_answers or []
+        self._prompt_answer_widgets: list[dict] = []  # prompt answer widget tracking
         self._objective_widgets: dict[int, dict] = {}  # populated by _build_review_section
 
         # Back button header
@@ -108,6 +122,7 @@ class ReviewPanel(ctk.CTkFrame):
             self._pregame_intention, self._existing_mental_handled,
             self._concept_tags, self._existing_concept_tag_ids,
             self._active_objectives, self._existing_game_objectives,
+            self._matchup_notes_shown, self._enemy_laner,
         )
 
         # === SAVE BUTTON ===
@@ -452,12 +467,15 @@ class ReviewPanel(ctk.CTkFrame):
         existing_concept_tag_ids: list[int] = None,
         active_objectives: list[dict] = None,
         existing_game_objectives: list[dict] = None,
+        matchup_notes_shown: list[dict] = None,
+        enemy_laner: str = "",
     ):
         """The note-taking and review fields."""
         concept_tags = concept_tags or []
         existing_concept_tag_ids = existing_concept_tag_ids or []
         active_objectives = active_objectives or []
         existing_game_objectives = existing_game_objectives or []
+        matchup_notes_shown = matchup_notes_shown or []
 
         ctk.CTkLabel(
             parent,
@@ -598,22 +616,15 @@ class ReviewPanel(ctk.CTkFrame):
             if existing_go.get("execution_note"):
                 note_box.insert("1.0", existing_go["execution_note"])
 
+            # === REVIEW PROMPTS for this objective ===
+            obj_prompts = self._objective_prompts.get(obj_id, [])
+            if obj_prompts:
+                self._render_objective_prompts(obj_frame, obj_id, obj_prompts, border_color)
+
             self._objective_widgets[obj_id] = {
                 "practiced_var": practiced_var,
                 "note_box": note_box,
             }
-
-        # Rating
-        rating_row = ctk.CTkFrame(parent, fg_color="transparent")
-        rating_row.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(
-            rating_row,
-            text="Performance Rating",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(side="left")
-        self.star_rating = StarRating(rating_row, initial=er.get("rating", 0))
-        self.star_rating.pack(side="right")
 
         # Concept Tags (replaces old tag selector)
         if concept_tags:
@@ -704,6 +715,276 @@ class ReviewPanel(ctk.CTkFrame):
         self.notes.pack(fill="x", pady=(0, 8))
         self.notes.insert("1.0", er.get("review_notes", ""))
 
+        # === MATCHUP SECTION ===
+        # Rate matchup notes that were shown in pregame
+        self._matchup_helpful_widgets: list[dict] = []
+        if matchup_notes_shown:
+            ctk.CTkFrame(
+                parent, fg_color=COLORS["border"], height=1
+            ).pack(fill="x", pady=8)
+
+            ctk.CTkLabel(
+                parent,
+                text="MATCHUP NOTES",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=COLORS["accent_gold"],
+            ).pack(anchor="w", pady=(4, 4))
+
+            ctk.CTkLabel(
+                parent,
+                text="Were these matchup notes helpful?",
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text"],
+            ).pack(anchor="w", pady=(0, 6))
+
+            for mn in matchup_notes_shown:
+                mn_frame = ctk.CTkFrame(
+                    parent, fg_color=COLORS["bg_card"], corner_radius=8,
+                    border_width=1, border_color=COLORS["border"],
+                )
+                mn_frame.pack(fill="x", pady=(0, 6))
+
+                ctk.CTkLabel(
+                    mn_frame,
+                    text=mn.get("note", ""),
+                    font=ctk.CTkFont(size=12),
+                    text_color=COLORS["text"],
+                    wraplength=620, justify="left",
+                ).pack(padx=12, pady=(8, 4), anchor="w")
+
+                btn_row = ctk.CTkFrame(mn_frame, fg_color="transparent")
+                btn_row.pack(fill="x", padx=12, pady=(0, 8))
+
+                helpful_var = tk.IntVar(value=-1)  # -1 = unrated, 1 = helpful, 0 = not helpful
+
+                ctk.CTkButton(
+                    btn_row, text="Helpful",
+                    font=ctk.CTkFont(size=11), height=26, width=80,
+                    corner_radius=13,
+                    fg_color=COLORS["tag_bg"], hover_color="#1a4d2e",
+                    text_color=COLORS["text_dim"],
+                    border_width=1, border_color=COLORS["border"],
+                    command=lambda v=helpful_var: v.set(1),
+                ).pack(side="left", padx=(0, 6))
+
+                ctk.CTkButton(
+                    btn_row, text="Not helpful",
+                    font=ctk.CTkFont(size=11), height=26, width=100,
+                    corner_radius=13,
+                    fg_color=COLORS["tag_bg"], hover_color="#4d1a1a",
+                    text_color=COLORS["text_dim"],
+                    border_width=1, border_color=COLORS["border"],
+                    command=lambda v=helpful_var: v.set(0),
+                ).pack(side="left")
+
+                self._matchup_helpful_widgets.append({
+                    "note_id": mn.get("id"),
+                    "helpful_var": helpful_var,
+                })
+
+        # Add Matchup Note section (always shown)
+        ctk.CTkFrame(
+            parent, fg_color=COLORS["border"], height=1
+        ).pack(fill="x", pady=8)
+
+        ctk.CTkLabel(
+            parent,
+            text="ADD MATCHUP NOTE",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["accent_gold"],
+        ).pack(anchor="w", pady=(4, 4))
+
+        ctk.CTkLabel(
+            parent,
+            text="Enemy champion",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text"],
+        ).pack(anchor="w", pady=(4, 2))
+
+        self.matchup_enemy_entry = ctk.CTkEntry(
+            parent, height=34, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+            placeholder_text="e.g., Zed, Yasuo...",
+        )
+        self.matchup_enemy_entry.pack(fill="x", pady=(0, 6))
+        if enemy_laner:
+            self.matchup_enemy_entry.insert(0, enemy_laner)
+
+        ctk.CTkLabel(
+            parent,
+            text="Matchup note (optional)",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text"],
+        ).pack(anchor="w", pady=(2, 2))
+
+        self.matchup_note_entry = ctk.CTkTextbox(
+            parent, height=60, font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["border"], corner_radius=8,
+        )
+        self.matchup_note_entry.pack(fill="x", pady=(0, 8))
+
+    def _render_objective_prompts(self, parent, obj_id: int, prompts: list[dict],
+                                    border_color: str):
+        """Render review prompts for an objective inside its card frame."""
+        # Build a lookup of existing answers by (prompt_id, event_time_s)
+        existing_by_key = {}
+        for ans in self._existing_prompt_answers:
+            key = (ans["prompt_id"], ans.get("event_time_s"))
+            existing_by_key[key] = ans.get("answer_value", 0)
+
+        prompts_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        prompts_frame.pack(fill="x", padx=14, pady=(0, 10))
+
+        ctk.CTkLabel(
+            prompts_frame, text="REVIEW PROMPTS",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color=border_color,
+        ).pack(anchor="w", pady=(0, 4))
+
+        for prompt in prompts:
+            event_tag = prompt.get("event_tag", "") or ""
+            answer_type = prompt.get("answer_type", "yes_no")
+            prompt_id = prompt["id"]
+            question = prompt.get("question_text", "")
+
+            if not event_tag:
+                # General prompt — render once
+                self._render_single_prompt(
+                    prompts_frame, prompt_id, question, answer_type,
+                    event_instance_id=None, event_time_s=None,
+                    context_text=None,
+                    existing_value=existing_by_key.get((prompt_id, None)),
+                )
+            else:
+                # Event-tagged prompt — find matching events
+                matching_events = self._get_matching_events(event_tag)
+                if not matching_events:
+                    # No matching events — show the prompt once, greyed out
+                    no_event_frame = ctk.CTkFrame(prompts_frame, fg_color="transparent")
+                    no_event_frame.pack(fill="x", pady=(0, 2))
+                    ctk.CTkLabel(
+                        no_event_frame,
+                        text=f"{question}  (no {event_tag} events this game)",
+                        font=ctk.CTkFont(size=12),
+                        text_color=COLORS["text_dim"],
+                    ).pack(anchor="w")
+                else:
+                    for evt in matching_events:
+                        evt_time = evt.get("game_time_s") or evt.get("start_time_s", 0)
+                        evt_id = evt.get("id")
+                        time_str = format_game_time(evt_time)
+                        context = f"@ {time_str} — {event_tag}"
+                        self._render_single_prompt(
+                            prompts_frame, prompt_id, question, answer_type,
+                            event_instance_id=evt_id, event_time_s=evt_time,
+                            context_text=context,
+                            existing_value=existing_by_key.get((prompt_id, evt_time)),
+                        )
+
+    def _get_matching_events(self, event_tag: str) -> list[dict]:
+        """Get game events or derived event instances matching an event tag."""
+        # Check if it's a standard event type (from EVENT_STYLES)
+        if event_tag in EVENT_STYLES:
+            return [e for e in self._game_events
+                    if e.get("event_type") == event_tag]
+        # Otherwise check derived event instances by definition_name
+        return [d for d in self._derived_event_instances
+                if d.get("definition_name") == event_tag]
+
+    def _render_single_prompt(self, parent, prompt_id: int, question: str,
+                               answer_type: str, event_instance_id=None,
+                               event_time_s=None, context_text=None,
+                               existing_value=None):
+        """Render a single prompt question with its answer widget."""
+        row = ctk.CTkFrame(parent, fg_color=COLORS["bg_input"], corner_radius=6)
+        row.pack(fill="x", pady=(0, 4))
+
+        inner = ctk.CTkFrame(row, fg_color="transparent")
+        inner.pack(fill="x", padx=10, pady=6)
+
+        # Context label (event timestamp) if present
+        if context_text:
+            ctk.CTkLabel(
+                inner, text=context_text,
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=COLORS["accent_gold"],
+            ).pack(anchor="w")
+
+        # Question label
+        ctk.CTkLabel(
+            inner, text=question,
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text"],
+            wraplength=580, justify="left",
+        ).pack(anchor="w", pady=(0, 4))
+
+        # Answer widget
+        answer_row = ctk.CTkFrame(inner, fg_color="transparent")
+        answer_row.pack(fill="x")
+
+        if answer_type == "yes_no":
+            var = tk.IntVar(value=existing_value if existing_value is not None else 0)
+            ctk.CTkRadioButton(
+                answer_row, text="No", variable=var, value=0,
+                font=ctk.CTkFont(size=11), text_color=COLORS["text"],
+                fg_color=COLORS["loss_red"], height=22,
+            ).pack(side="left", padx=(0, 12))
+            ctk.CTkRadioButton(
+                answer_row, text="Yes", variable=var, value=1,
+                font=ctk.CTkFont(size=11), text_color=COLORS["text"],
+                fg_color=COLORS["win_green"], height=22,
+            ).pack(side="left")
+            widget = var
+        else:
+            # 1-5 scale
+            initial = existing_value if existing_value is not None else 3
+            var = tk.IntVar(value=initial)
+
+            scale_label = ctk.CTkLabel(
+                answer_row, text=str(initial),
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color=COLORS["accent_blue"], width=24,
+            )
+
+            def _on_scale_change(val, lbl=scale_label, v=var):
+                int_val = int(round(float(val)))
+                v.set(int_val)
+                lbl.configure(text=str(int_val))
+
+            ctk.CTkLabel(
+                answer_row, text="1",
+                font=ctk.CTkFont(size=10), text_color=COLORS["text_dim"],
+            ).pack(side="left")
+
+            slider = ctk.CTkSlider(
+                answer_row, from_=1, to=5, number_of_steps=4,
+                width=160, height=16,
+                fg_color=COLORS["border"],
+                progress_color=COLORS["accent_blue"],
+                button_color=COLORS["accent_blue"],
+                button_hover_color="#0077cc",
+                command=_on_scale_change,
+            )
+            slider.set(initial)
+            slider.pack(side="left", padx=(4, 4))
+
+            ctk.CTkLabel(
+                answer_row, text="5",
+                font=ctk.CTkFont(size=10), text_color=COLORS["text_dim"],
+            ).pack(side="left")
+
+            scale_label.pack(side="left", padx=(8, 0))
+            widget = var
+
+        self._prompt_answer_widgets.append({
+            "prompt_id": prompt_id,
+            "event_instance_id": event_instance_id,
+            "event_time_s": event_time_s,
+            "widget": widget,
+        })
+
     def _save(self):
         """Collect review data and fire the save callback."""
         # Collect objective data
@@ -715,11 +996,28 @@ class ReviewPanel(ctk.CTkFrame):
                 "execution_note": widgets["note_box"].get("1.0", "end-1c").strip(),
             })
 
+        # Collect matchup helpful ratings
+        matchup_helpful = []
+        for mw in self._matchup_helpful_widgets:
+            val = mw["helpful_var"].get()
+            if val != -1:  # Only include if user actually rated
+                matchup_helpful.append({
+                    "note_id": mw["note_id"],
+                    "helpful": val,
+                })
+
+        # Collect new matchup note
+        enemy_text = self.matchup_enemy_entry.get().strip()
+        note_text = self.matchup_note_entry.get("1.0", "end-1c").strip()
+        matchup_note = None
+        if enemy_text and note_text:
+            matchup_note = {"enemy": enemy_text, "note": note_text}
+
         review_data = {
             "game_id": self.stats.game_id,
             "win": self.stats.win,
             "notes": self.notes.get("1.0", "end-1c").strip(),
-            "rating": self.star_rating.get(),
+            "rating": 0,
             "mistakes": self.mistakes.get("1.0", "end-1c").strip(),
             "went_well": self.went_well.get("1.0", "end-1c").strip(),
             "focus_next": self.focus_next.get().strip(),
@@ -731,6 +1029,18 @@ class ReviewPanel(ctk.CTkFrame):
                 self.concept_tag_selector.get() if self.concept_tag_selector else []
             ),
             "objectives_data": objectives_data,
+            "matchup_helpful": matchup_helpful,
+            "matchup_note": matchup_note,
+            "enemy_laner": enemy_text,
+            "prompt_answers": [
+                {
+                    "prompt_id": pw["prompt_id"],
+                    "answer_value": pw["widget"].get(),
+                    "event_instance_id": pw["event_instance_id"],
+                    "event_time_s": pw["event_time_s"],
+                }
+                for pw in self._prompt_answer_widgets
+            ],
         }
 
         if self.on_save:

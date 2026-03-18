@@ -399,3 +399,25 @@ class GameRepository:
         conn.commit()
         logger.info(f"Saved manual game entry for {champion_name} (game_id={game_id})")
         return game_id
+
+    def update_enemy_laner(self, game_id: int, enemy_laner: str):
+        """Update the enemy_laner field for a game."""
+        conn = self._conn_mgr.get_conn()
+        conn.execute(
+            "UPDATE games SET enemy_laner = ? WHERE game_id = ?",
+            (enemy_laner, game_id),
+        )
+        conn.commit()
+
+    def get_recent_for_charts(self, limit: int = 100) -> list[dict]:
+        """Get recent game data for trend charts."""
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            f"""SELECT game_id, win, deaths, timestamp, champion_name, kda_ratio
+                FROM games
+                WHERE 1=1 {CASUAL_MODE_SQL_FILTER}
+                ORDER BY timestamp DESC
+                LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in reversed(rows)]
