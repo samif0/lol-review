@@ -33,7 +33,7 @@ from .lcu import GameMonitor, GameStats
 from .updater import (
     check_for_update_async, cleanup_old_exe, post_update_startup,
     download_and_install, register_successful_start, is_sxs_layout,
-    UPDATE_RESTART_EXIT_CODE,
+    get_sxs_root, UPDATE_RESTART_EXIT_CODE,
 )
 from .vod import auto_match_recordings
 from .version import __version__
@@ -702,18 +702,40 @@ class App:
             logger.warning(f"Could not register healthy start: {e}")
 
     def _restart_for_update(self):
-        """Exit with code 42 so the SxS launcher re-reads .current and launches the new version.
+        """Restart the app after an update by launching the root SxS launcher.
 
-        In legacy (non-SxS) mode, the PowerShell bridge migration handles the relaunch,
-        so a normal exit (code 0) is fine — PowerShell waits for PID then launches the new layout.
+        The launcher reads .current (already updated to the new version) and
+        starts app-{new_version}/LoLReview.exe. We can't rely on exit code 42
+        because the launcher exits 30s after a healthy start — it's long gone
+        by the time an update finishes downloading.
+
+        In legacy (non-SxS) mode, the PowerShell bridge migration handles the relaunch.
         """
+        import subprocess
+
         logger.info("Restarting for update")
         self._shutdown_services()
+
         if is_sxs_layout():
-            os._exit(UPDATE_RESTART_EXIT_CODE)
-        else:
-            # Legacy bridge migration — PowerShell handles relaunch
-            os._exit(0)
+            sxs_root = get_sxs_root()
+            launcher = sxs_root / "LoLReview.exe" if sxs_root else None
+            if launcher and launcher.exists():
+                try:
+                    subprocess.Popen(
+                        [str(launcher)],
+                        creationflags=(
+                            subprocess.DETACHED_PROCESS
+                            | subprocess.CREATE_NEW_PROCESS_GROUP
+                        ),
+                        close_fds=True,
+                    )
+                    logger.info(f"Launched root launcher: {launcher}")
+                except Exception as e:
+                    logger.error(f"Failed to launch root launcher: {e}")
+            else:
+                logger.error(f"Root launcher not found at {launcher}")
+
+        os._exit(0)
 
     def _shutdown_services(self):
         """Stop all background services and flush logs."""
