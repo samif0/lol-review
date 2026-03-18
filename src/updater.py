@@ -73,6 +73,22 @@ def is_sxs_layout() -> bool:
     return get_sxs_root() is not None
 
 
+def _get_install_root() -> Optional[Path]:
+    """Get the directory where app-{version}/ dirs and .current live.
+
+    - SxS layout: returns the SxS root (parent of app-X.Y.Z/).
+    - Flat layout: returns the exe's own directory. The first update
+      bootstraps SxS by creating app-{version}/ and .current here.
+    - Dev mode: returns None (can't install).
+    """
+    sxs_root = get_sxs_root()
+    if sxs_root:
+        return sxs_root
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return None
+
+
 # ── Pointer file helpers ─────────────────────────────────────────────
 
 
@@ -119,35 +135,37 @@ def _get_auth_headers() -> dict:
 def maybe_redirect_to_current_version():
     """If .current points to a NEWER installed version, launch it and exit.
 
-    This catches the case where an update was installed (app-{new}/ exists,
-    .current was updated) but the restart failed. The user relaunched the
-    old version manually — we detect this and redirect them.
+    Checks both SxS layout (exe in app-X.Y.Z/) and flat layout (exe
+    alongside .current after a bootstrap update). This catches cases where
+    an update was installed but the restart failed.
 
-    Only redirects to NEWER versions. If .current is older (launcher rolled
-    back after a crash), we stay on the current version.
+    Only redirects to NEWER versions. If .current is older (rollback), stay put.
 
-    Call this at the start of main() after logging is configured.
+    Call at the start of main() after logging is configured.
     If we redirect, this function does not return.
     """
-    sxs_root = get_sxs_root()
-    if not sxs_root:
+    install_root = _get_install_root()
+    if not install_root:
         return
 
-    current = _read_pointer(sxs_root / ".current")
+    current_file = install_root / ".current"
+    if not current_file.exists():
+        return
+
+    current = _read_pointer(current_file)
     if not current or current == __version__:
         return
 
     if parse_version(current) <= parse_version(__version__):
         return
 
-    target_exe = sxs_root / f"app-{current}" / "LoLReview.exe"
+    target_exe = install_root / f"app-{current}" / "LoLReview.exe"
     if not target_exe.exists():
         logger.warning(f"Redirect: app-{current}/LoLReview.exe not found, skipping")
         return
 
     logger.info(f"Redirecting {__version__} -> {current}")
     try:
-        # Use cmd.exe /c start to launch — most reliable Windows process spawn
         subprocess.Popen(
             f'cmd.exe /c start "" "{target_exe}"',
             creationflags=0x08000000,  # CREATE_NO_WINDOW
@@ -255,9 +273,9 @@ def check_for_update() -> Optional[dict]:
         # Check if this version is already installed locally
         # (previous download succeeded but restart failed)
         already_installed = False
-        sxs_root = get_sxs_root()
-        if sxs_root:
-            target_exe = sxs_root / f"app-{clean_version}" / "LoLReview.exe"
+        install_root = _get_install_root()
+        if install_root:
+            target_exe = install_root / f"app-{clean_version}" / "LoLReview.exe"
             already_installed = target_exe.exists()
             if already_installed:
                 logger.info(f"v{clean_version} already installed locally, just needs restart")
@@ -333,12 +351,13 @@ def _do_download_and_install(download_url, target_version="", on_progress=None):
     if not list(source_dir.glob("*.exe")):
         raise RuntimeError(f"No .exe in update package at {source_dir}")
 
-    # Install (SxS only — no legacy PowerShell path)
-    sxs_root = get_sxs_root()
-    if not sxs_root:
-        raise RuntimeError("Not in SxS layout — download the update manually from GitHub")
+    # Install to app-{version}/ under the install root.
+    # Works for both SxS layout and flat layout (bootstraps SxS on first update).
+    install_root = _get_install_root()
+    if not install_root:
+        raise RuntimeError("Cannot determine install location — download the update manually from GitHub")
 
-    _install_sxs(sxs_root, source_dir, clean_version)
+    _install_sxs(install_root, source_dir, clean_version)
 
     # Cleanup temp
     try:
@@ -395,15 +414,15 @@ def _install_sxs(sxs_root: Path, source_dir: Path, version: str):
 
 def set_current_version(version: str):
     """Update .current pointer. Saves old version as .previous."""
-    sxs_root = get_sxs_root()
-    if not sxs_root:
+    install_root = _get_install_root()
+    if not install_root:
         return
-    old = _read_pointer(sxs_root / ".current")
+    old = _read_pointer(install_root / ".current")
     if old != version:
-        _write_pointer_atomic(sxs_root / ".current", version)
+        _write_pointer_atomic(install_root / ".current", version)
         if old:
-            _write_pointer_atomic(sxs_root / ".previous", old)
-    (sxs_root / ".update_pending").write_text(version, encoding="utf-8")
+            _write_pointer_atomic(install_root / ".previous", old)
+    (install_root / ".update_pending").write_text(version, encoding="utf-8")
 
 
 def restart_into_version(version: str = "") -> bool:
@@ -417,24 +436,24 @@ def restart_into_version(version: str = "") -> bool:
     Returns True if the batch was launched successfully (caller should os._exit(0)).
     Returns False on failure.
     """
-    sxs_root = get_sxs_root()
-    if not sxs_root:
-        logger.error("restart_into_version: not in SxS layout")
+    install_root = _get_install_root()
+    if not install_root:
+        logger.error("restart_into_version: cannot determine install root")
         return False
 
     if not version:
-        version = _read_pointer(sxs_root / ".current")
+        version = _read_pointer(install_root / ".current")
     if not version:
         logger.error("restart_into_version: no version in .current")
         return False
 
-    target_exe = sxs_root / f"app-{version}" / "LoLReview.exe"
+    target_exe = install_root / f"app-{version}" / "LoLReview.exe"
     if not target_exe.exists():
         logger.error(f"restart_into_version: {target_exe} not found")
         return False
 
     pid = os.getpid()
-    restart_cmd = sxs_root / "_restart.cmd"
+    restart_cmd = install_root / "_restart.cmd"
 
     # Batch script that polls until our PID is dead, then launches new version.
     # - tasklist + find: check if PID still running
