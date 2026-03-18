@@ -212,7 +212,7 @@ class HomePage(ctk.CTkFrame):
         # Greeting row
         grow = ctk.CTkFrame(body, fg_color="transparent")
         grow.pack(fill="x", pady=(0, 16))
-        ctk.CTkLabel(grow, text=f"Good {tod} — let's go.",
+        ctk.CTkLabel(grow, text=f"Good {tod} — let's climb.",
                      font=ctk.CTkFont(size=22, weight="bold"),
                      text_color=COLORS["text"]).pack(side="left")
         self._claude_btn = ctk.CTkButton(
