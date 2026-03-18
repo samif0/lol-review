@@ -9,6 +9,7 @@ from ..config import is_ascent_enabled
 from ..constants import (
     COLORS, format_duration, format_number,
     KDA_EXCELLENT_THRESHOLD, KDA_GOOD_THRESHOLD, DAMAGE_DISPLAY_THRESHOLD,
+    MENTAL_RATING_MIN, MENTAL_RATING_MAX, MENTAL_RATING_DEFAULT, MENTAL_RATING_STEPS,
 )
 from ..database.game_events import EVENT_STYLES
 from ..lcu import GameStats
@@ -43,6 +44,7 @@ class ReviewPanel(ctk.CTkFrame):
         derived_event_instances: Optional[list[dict]] = None,
         objective_prompts: Optional[dict] = None,
         existing_prompt_answers: Optional[list[dict]] = None,
+        mental_rating: int = MENTAL_RATING_DEFAULT,
         **kwargs,
     ):
         super().__init__(parent, fg_color=COLORS["bg_dark"], **kwargs)
@@ -56,6 +58,7 @@ class ReviewPanel(ctk.CTkFrame):
         self._bookmarks = bookmarks or []
         self._pregame_intention = pregame_intention
         self._existing_mental_handled = existing_mental_handled
+        self._mental_rating = mental_rating
         self._concept_tags = concept_tags or []
         self._existing_concept_tag_ids = existing_concept_tag_ids or []
         self._active_objectives = active_objectives or []
@@ -483,6 +486,38 @@ class ReviewPanel(ctk.CTkFrame):
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLORS["text_dim"],
         ).pack(anchor="w", pady=(8, 6))
+
+        # === MENTAL RATING SLIDER ===
+        mental_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        mental_frame.pack(fill="x", pady=(4, 8))
+
+        ctk.CTkLabel(
+            mental_frame,
+            text="Mental Rating (1-10)",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text"],
+        ).pack(side="left")
+
+        self._mental_value_label = ctk.CTkLabel(
+            mental_frame,
+            text=str(self._mental_rating),
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["accent_blue"],
+        )
+        self._mental_value_label.pack(side="right", padx=(0, 8))
+
+        self._mental_slider = ctk.CTkSlider(
+            parent,
+            from_=MENTAL_RATING_MIN,
+            to=MENTAL_RATING_MAX,
+            number_of_steps=MENTAL_RATING_STEPS,
+            command=self._on_mental_slider_change,
+            button_color=COLORS["accent_blue"],
+            button_hover_color="#0077cc",
+            progress_color=COLORS["accent_blue"],
+        )
+        self._mental_slider.set(self._mental_rating)
+        self._mental_slider.pack(fill="x", pady=(0, 12))
 
         # === MENTAL INTENTION REFLECTION ===
         if pregame_intention:
@@ -985,6 +1020,20 @@ class ReviewPanel(ctk.CTkFrame):
             "widget": widget,
         })
 
+    def _on_mental_slider_change(self, value):
+        """Update mental rating label when slider moves."""
+        val = int(round(value))
+        self._mental_rating = val
+        self._mental_value_label.configure(text=str(val))
+        # Color code: red for low, yellow for mid, green for high
+        if val <= 3:
+            color = "#ea5455"
+        elif val <= 6:
+            color = "#f0c040"
+        else:
+            color = "#4caf50"
+        self._mental_value_label.configure(text_color=color)
+
     def _save(self):
         """Collect review data and fire the save callback."""
         # Collect objective data
@@ -1018,6 +1067,7 @@ class ReviewPanel(ctk.CTkFrame):
             "win": self.stats.win,
             "notes": self.notes.get("1.0", "end-1c").strip(),
             "rating": 0,
+            "mental_rating": self._mental_rating,
             "mistakes": self.mistakes.get("1.0", "end-1c").strip(),
             "went_well": self.went_well.get("1.0", "end-1c").strip(),
             "focus_next": self.focus_next.get().strip(),

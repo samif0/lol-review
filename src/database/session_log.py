@@ -56,6 +56,15 @@ class SessionLogRepository:
         conn.commit()
         logger.info(f"Session log: {champion_name} {'W' if win else 'L'} mental={mental_rating}")
 
+    def update_mental_rating(self, game_id: int, mental_rating: int):
+        """Update the mental rating for a specific game."""
+        conn = self._conn_mgr.get_conn()
+        conn.execute(
+            "UPDATE session_log SET mental_rating = ? WHERE game_id = ?",
+            (mental_rating, game_id),
+        )
+        conn.commit()
+
     def update_mental_handled(self, game_id: int, mental_handled: str):
         """Save the post-game mental reflection for a specific game."""
         conn = self._conn_mgr.get_conn()

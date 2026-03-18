@@ -3372,6 +3372,7 @@ class AppWindow(ctk.CTk):
         game_id = review_data["game_id"]
         win = review_data.pop("win", None)
         mental_handled = review_data.pop("mental_handled", "")
+        mental_rating = review_data.pop("mental_rating", None)
         concept_tag_ids = review_data.pop("concept_tag_ids", [])
         objectives_data = review_data.pop("objectives_data", [])
         matchup_helpful = review_data.pop("matchup_helpful", [])
@@ -3380,6 +3381,9 @@ class AppWindow(ctk.CTk):
         prompt_answers = review_data.pop("prompt_answers", [])
 
         self.db.update_review(**review_data)
+
+        if mental_rating is not None:
+            self.db.session_log.update_mental_rating(game_id, mental_rating)
 
         if mental_handled:
             self.db.update_mental_handled(game_id, mental_handled)
@@ -3529,6 +3533,7 @@ class AppWindow(ctk.CTk):
                         "derived_event_instances": derived_event_instances,
                         "objective_prompts": objective_prompts,
                         "existing_prompt_answers": existing_prompt_answers,
+                        "mental_rating": session_entry.get("mental_rating", 5),
                     },
                 )
                 self._navigate("review")
