@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS games (
     goals_met       TEXT DEFAULT '[]',
     mistakes        TEXT DEFAULT '',
     went_well       TEXT DEFAULT '',
-    focus_next      TEXT DEFAULT ''
+    focus_next      TEXT DEFAULT '',
+    spotted_problems TEXT DEFAULT ''
 );
 """
 
@@ -313,6 +314,44 @@ CREATE TABLE IF NOT EXISTS matchup_notes (
 MIGRATE_GAMES_ENEMY_LANER = [
     "ALTER TABLE games ADD COLUMN enemy_laner TEXT DEFAULT ''",
 ]
+
+MIGRATE_GAMES_SPOTTED_PROBLEMS = [
+    "ALTER TABLE games ADD COLUMN spotted_problems TEXT DEFAULT ''",
+]
+
+# Cognitive reappraisal fields (Gross 1998/2002; Buhle et al. 2014 meta-analysis)
+MIGRATE_GAMES_REAPPRAISAL = [
+    "ALTER TABLE games ADD COLUMN outside_control TEXT DEFAULT ''",
+    "ALTER TABLE games ADD COLUMN within_control TEXT DEFAULT ''",
+]
+
+# Attribution tracking (Weiner 1985; Dweck 2006)
+MIGRATE_GAMES_ATTRIBUTION = [
+    "ALTER TABLE games ADD COLUMN attribution TEXT DEFAULT ''",
+]
+
+# Self-efficacy anchoring (Bandura 1977/1997)
+MIGRATE_GAMES_SELF_EFFICACY = [
+    "ALTER TABLE games ADD COLUMN personal_contribution TEXT DEFAULT ''",
+]
+
+# Pre-game mood / affect labeling (Lieberman et al. 2007)
+MIGRATE_SESSION_LOG_MOOD = [
+    "ALTER TABLE session_log ADD COLUMN pre_game_mood INTEGER DEFAULT 0",
+]
+
+# Session-level intentions and debriefs (Gollwitzer 1999)
+CREATE_SESSIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS sessions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    date            TEXT UNIQUE NOT NULL,
+    intention       TEXT DEFAULT '',
+    debrief_rating  INTEGER DEFAULT 0,
+    debrief_note    TEXT DEFAULT '',
+    started_at      INTEGER,
+    ended_at        INTEGER
+);
+"""
 
 DEFAULT_CONCEPT_TAGS = [
     ("Dominated lane",    "positive", "#22c55e"),

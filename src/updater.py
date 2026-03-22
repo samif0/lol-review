@@ -456,18 +456,23 @@ def restart_into_version(version: str = "") -> bool:
     restart_cmd = install_root / "_restart.cmd"
 
     # Batch script that polls until our PID is dead, then launches new version.
-    # - tasklist + find: check if PID still running
-    # - ping -n 2: ~1 second delay between checks (ping to localhost is instant)
+    # - tasklist /NH /FI: check if PID still running (/NH = no header)
+    #   When the process is gone, tasklist prints a line starting with "INFO:"
+    # - set /a retries: timeout counter — bail after ~60 seconds (60 iterations)
+    # - ping -n 2: ~1 second delay between checks
     # - start "": launch exe (empty title required by start syntax)
     # - del "%~f0": delete the batch file itself
     script = (
         '@echo off\r\n'
+        'set /a retries=0\r\n'
         ':wait\r\n'
-        f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul\r\n'
-        'if not errorlevel 1 (\r\n'
-        '  ping -n 2 127.0.0.1 >nul\r\n'
-        '  goto wait\r\n'
-        ')\r\n'
+        f'tasklist /NH /FI "PID eq {pid}" 2>nul | findstr /B /C:"INFO:" >nul\r\n'
+        'if not errorlevel 1 goto launch\r\n'
+        'set /a retries+=1\r\n'
+        'if %retries% GEQ 60 goto launch\r\n'
+        'ping -n 2 127.0.0.1 >nul\r\n'
+        'goto wait\r\n'
+        ':launch\r\n'
         f'start "" "{target_exe}"\r\n'
         'del "%~f0"\r\n'
     )

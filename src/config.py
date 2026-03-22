@@ -132,6 +132,21 @@ def set_keybinds(binds: dict[str, str]):
     logger.info("Keybinds saved")
 
 
+# ── Tilt Fix Mode ────────────────────────────────────────────────
+
+def is_tilt_fix_enabled() -> bool:
+    """True if the user has turned on Tilt Fix Mode."""
+    return bool(_load_config().get("tilt_fix_mode", False))
+
+
+def set_tilt_fix_enabled(enabled: bool):
+    """Enable or disable Tilt Fix Mode."""
+    config = _load_config()
+    config["tilt_fix_mode"] = enabled
+    _save_config(config)
+    logger.info(f"Tilt Fix Mode {'enabled' if enabled else 'disabled'}")
+
+
 # ── Clip settings ─────────────────────────────────────────────────
 
 DEFAULT_CLIPS_MAX_SIZE_MB = 2048  # 2 GB default

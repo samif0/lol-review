@@ -61,7 +61,7 @@ class GameRepository:
                 spell1_casts, spell2_casts, spell3_casts, spell4_casts,
                 summoner1_id, summoner2_id, items,
                 champ_level, team_kills, kill_participation,
-                raw_stats
+                raw_stats, enemy_laner
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -83,7 +83,7 @@ class GameRepository:
                 ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?,
-                ?
+                ?, ?
             )""",
             (
                 stats.game_id, stats.timestamp, date_str, stats.game_duration,
@@ -113,7 +113,7 @@ class GameRepository:
                 stats.summoner1_id, stats.summoner2_id,
                 json.dumps(stats.items),
                 stats.champ_level, stats.team_kills, stats.kill_participation,
-                json.dumps(stats.raw_stats),
+                json.dumps(stats.raw_stats), stats.enemy_laner,
             ),
         )
         conn.commit()
@@ -130,6 +130,11 @@ class GameRepository:
         mistakes: str = "",
         went_well: str = "",
         focus_next: str = "",
+        spotted_problems: str = "",
+        outside_control: str = "",
+        within_control: str = "",
+        attribution: str = "",
+        personal_contribution: str = "",
         **kwargs,
     ):
         """Update the review fields for a game (by game_id, not row id)."""
@@ -141,7 +146,12 @@ class GameRepository:
                 tags = ?,
                 mistakes = ?,
                 went_well = ?,
-                focus_next = ?
+                focus_next = ?,
+                spotted_problems = ?,
+                outside_control = ?,
+                within_control = ?,
+                attribution = ?,
+                personal_contribution = ?
             WHERE game_id = ?""",
             (
                 notes,
@@ -150,6 +160,11 @@ class GameRepository:
                 mistakes,
                 went_well,
                 focus_next,
+                spotted_problems,
+                outside_control,
+                within_control,
+                attribution,
+                personal_contribution,
                 game_id,
             ),
         )
@@ -408,6 +423,37 @@ class GameRepository:
             (enemy_laner, game_id),
         )
         conn.commit()
+
+    def get_attribution_stats(self) -> list[dict]:
+        """Get win/loss breakdown by attribution value."""
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            f"""SELECT attribution,
+                COUNT(*) as games,
+                SUM(win) as wins,
+                COUNT(*) - SUM(win) as losses,
+                ROUND(AVG(win) * 100, 1) as winrate
+            FROM games
+            WHERE attribution IS NOT NULL AND attribution != ''
+              {CASUAL_MODE_SQL_FILTER}
+            GROUP BY attribution
+            ORDER BY games DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_recent_spotted_problems(self, limit: int = 20) -> list[dict]:
+        """Get recent games that have spotted_problems notes."""
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            f"""SELECT game_id, champion_name, spotted_problems, date_played, win
+                FROM games
+                WHERE spotted_problems IS NOT NULL AND spotted_problems != ''
+                  {CASUAL_MODE_SQL_FILTER}
+                ORDER BY timestamp DESC
+                LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_recent_for_charts(self, limit: int = 100) -> list[dict]:
         """Get recent game data for trend charts."""

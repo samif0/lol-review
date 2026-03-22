@@ -4,7 +4,7 @@ A Windows desktop app that runs in the background and tracks your League of Lege
 
 ## What it does
 
-- Detects champ select and shows a pre-game focus window — your last review, recent form, and a space to set your gameplay focus and mental intention for the game
+- Detects champ select and shows a pre-game focus window — your last review, recent form, and a space to set your gameplay focus for the game
 - After the game, pops up your full stats (KDA, CS, vision, damage, etc.) with fields for notes, tags, and mental reflection
 - Dashboard on startup recaps your session and flags unreviewed games
 - Game history, session logger, loss review, and Claude context export built in

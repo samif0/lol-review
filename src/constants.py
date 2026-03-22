@@ -4,7 +4,7 @@
 
 # Game modes that don't count as "real" games for session tracking / stats
 CASUAL_MODES: frozenset[str] = frozenset({
-    "ARAM", "CHERRY", "ULTBOOK", "TUTORIAL", "PRACTICETOOL",
+    "ARAM", "CHERRY", "KIWI", "ULTBOOK", "TUTORIAL", "PRACTICETOOL",
 })
 
 # SQL fragment for excluding casual modes in queries
@@ -48,6 +48,22 @@ MENTAL_EXCELLENT_THRESHOLD = 8            # Mental >= 8 → green/excellent
 MENTAL_DECENT_THRESHOLD = 5              # Mental >= 5 → blue/decent (below = red)
 ADHERENCE_STREAK_LOCKED_IN = 3           # Days of adherence to show "locked in"
 CONSECUTIVE_LOSS_WARNING = 2             # Consecutive losses before warning flash
+
+# ── Post-loss cooldown (Tice et al. 2001; Verduyn & Lavrijsen 2015) ──
+COOLDOWN_DURATION_S = 90                 # Post-loss cooldown suggestion (seconds)
+COOLDOWN_BREATHE_INTERVAL_MS = 4000      # Breathing cycle interval (4s in, 4s out)
+
+# ── Pre-game mood (Lieberman et al. 2007 — affect labeling) ───────────
+MOOD_LABELS = {1: "Tilted", 2: "Off", 3: "Neutral", 4: "Good", 5: "Locked In"}
+MOOD_COLORS = {1: "#ef4444", 2: "#f97316", 3: "#6b7280", 4: "#22c55e", 5: "#10b981"}
+
+# ── Attribution (Weiner 1985; Dweck 2006) ─────────────────────────────
+ATTRIBUTION_OPTIONS = [
+    ("my_play", "My play"),
+    ("team_effort", "Team effort"),
+    ("teammates", "Teammates"),
+    ("external", "External"),
+]
 
 # ── Display limits ────────────────────────────────────────────────────
 

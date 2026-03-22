@@ -76,10 +76,10 @@ class App:
         self.tray_icon: pystray.Icon = None
         self.monitor: GameMonitor = None
         self._pregame_window = None
+        self._pregame_mood = 0
         self._session_overlay = None
         self._manual_entry_window = None
         self._connected = False
-        self._current_mental_intention: str = ""
 
         # Set up customtkinter appearance
         ctk.set_appearance_mode("dark")
@@ -204,27 +204,37 @@ class App:
 
         # Pull context from the database
         last_review = self.db.get_last_review_focus()
-        last_mental = self.db.get_last_mental_intention()
 
         # Get active primary objective (if any) to show in pregame window
         active_objectives = self.db.objectives.get_active()
         primary_obj = next((o for o in active_objectives if o.get("type") == "primary"), None)
 
+        from datetime import datetime as _dt
+        today = _dt.now().strftime("%Y-%m-%d")
+        todays_entries = self.db.get_session_log_today()
+        is_first_game = len(todays_entries) == 0
+        session_intention = self.db.session_log.get_session_intention(today)
+
         self._pregame_window = PreGameWindow(
             last_focus=last_review.get("focus_next", ""),
             last_mistakes=last_review.get("mistakes", ""),
-            last_mental_intention=last_mental,
             on_dismiss=self._on_pregame_dismiss,
             active_objective=primary_obj,
+            is_first_game=is_first_game,
+            session_intention=session_intention,
         )
 
-    def _on_pregame_dismiss(self, focus_text: str, mental_intention: str = ""):
+    def _on_pregame_dismiss(self, focus_text: str, mood: int = 0, intention: str = ""):
         """Called when the pre-game window is closed (button or auto)."""
         if focus_text:
             logger.info(f"Pre-game focus set: {focus_text}")
-        if mental_intention:
-            logger.info(f"Mental intention set: {mental_intention}")
-        self._current_mental_intention = mental_intention
+        self._pregame_mood = mood
+        # Save session intention if provided (first game of session)
+        if intention:
+            from datetime import datetime as _dt
+            today = _dt.now().strftime("%Y-%m-%d")
+            self.db.session_log.set_session_intention(today, intention)
+            logger.info(f"Session intention set: {intention}")
         self._pregame_window = None
 
     def _on_game_start(self):
@@ -266,14 +276,20 @@ class App:
         if self._session_overlay and self._session_overlay.winfo_exists():
             mental = self._session_overlay.get_mental_rating()
 
+        pre_game_mood = getattr(self, '_pregame_mood', 0)
         self.db.log_session_game(
             game_id=stats.game_id,
             champion_name=stats.champion_name,
             win=stats.win,
             mental_rating=mental,
-            pregame_intention=self._current_mental_intention,
+            pre_game_mood=pre_game_mood,
         )
-        self._current_mental_intention = ""  # Reset after use
+        self._pregame_mood = 0  # Reset for next game
+
+        # Show cooldown timer after losses (Tice et al. 2001) — tilt fix mode only
+        from .config import is_tilt_fix_enabled
+        if is_tilt_fix_enabled() and not stats.win and self._session_overlay and self._session_overlay.winfo_exists():
+            self.app_window.after(0, self._session_overlay.show_cooldown)
 
         # Save live events collected during the game (no API key needed!)
         if stats.live_events:
@@ -321,10 +337,7 @@ class App:
                 bookmarks = self.db.get_bookmarks(stats.game_id)
                 bookmark_count = len(bookmarks)
 
-        # Look up the pregame mental intention for this game
         session_entry = self.db.get_session_log_entry(stats.game_id)
-        pregame_intention = session_entry.get("pregame_intention", "") if session_entry else ""
-        existing_mental_handled = session_entry.get("mental_handled", "") if session_entry else ""
 
         # Objectives + concept tags
         active_objectives = self.db.objectives.get_active()
@@ -332,13 +345,13 @@ class App:
         concept_tags = self.db.concept_tags.get_all()
         existing_concept_tag_ids = self.db.concept_tags.get_ids_for_game(stats.game_id)
 
-        # Extract enemy laner from raw_stats if available
-        enemy_laner = ""
+        # Use position-detected enemy laner, fall back to first enemy champion
+        enemy_laner = stats.enemy_laner or ""
         matchup_notes_shown = []
-        if isinstance(stats.raw_stats, dict):
+        if not enemy_laner and isinstance(stats.raw_stats, dict):
             enemy_champions = stats.raw_stats.get("_enemy_champions", [])
             if enemy_champions:
-                enemy_laner = enemy_champions[0]  # First enemy is likely lane opponent
+                enemy_laner = enemy_champions[0]
         if enemy_laner and stats.champion_name:
             matchup_notes_shown = self.db.matchup_notes.get_for_matchup(
                 stats.champion_name, enemy_laner
@@ -354,6 +367,8 @@ class App:
         derived_event_instances = self.db.derived_events.get_instances(stats.game_id)
         existing_prompt_answers = self.db.prompts.get_answers_for_game(stats.game_id)
 
+        mental_rating = session_entry.get("mental_rating", MENTAL_RATING_DEFAULT) if session_entry else MENTAL_RATING_DEFAULT
+
         self.app_window.navigate_to_review(
             "post_game",
             stats=stats,
@@ -362,8 +377,6 @@ class App:
             has_vod=has_vod,
             bookmark_count=bookmark_count,
             bookmarks=bookmarks,
-            pregame_intention=pregame_intention,
-            existing_mental_handled=existing_mental_handled,
             concept_tags=concept_tags,
             existing_concept_tag_ids=existing_concept_tag_ids,
             active_objectives=active_objectives,
@@ -374,6 +387,7 @@ class App:
             derived_event_instances=derived_event_instances,
             objective_prompts=objective_prompts,
             existing_prompt_answers=existing_prompt_answers,
+            mental_rating=mental_rating,
         )
 
         # If no VOD matched yet, retry after a delay — Ascent may still be encoding
@@ -385,6 +399,7 @@ class App:
         game_id = review_data["game_id"]
         win = review_data.pop("win", None)
         mental_handled = review_data.pop("mental_handled", "")
+        mental_rating = review_data.pop("mental_rating", None)
         concept_tag_ids = review_data.pop("concept_tag_ids", [])
         objectives_data = review_data.pop("objectives_data", [])
         matchup_helpful = review_data.pop("matchup_helpful", [])
@@ -394,20 +409,55 @@ class App:
 
         self.db.update_review(**review_data)
 
+        if mental_rating is not None:
+            self.db.session_log.update_mental_rating(game_id, mental_rating)
+
         if mental_handled:
             self.db.update_mental_handled(game_id, mental_handled)
 
         if concept_tag_ids is not None:
             self.db.concept_tags.set_for_game(game_id, concept_tag_ids)
 
+        objectives_updated = False
         for od in objectives_data:
             obj_id = od.get("objective_id")
             practiced = od.get("practiced", True)
             execution_note = od.get("execution_note", "")
             if obj_id:
+                # Snapshot level before update for level-up detection
+                old_obj = self.db.objectives.get(obj_id)
+                old_level = None
+                if old_obj:
+                    old_level = self.db.objectives.get_level_info(
+                        old_obj["score"], old_obj["game_count"]
+                    )["level_index"]
+
                 self.db.objectives.record_game(game_id, obj_id, practiced, execution_note)
                 if practiced:
                     self.db.objectives.update_score(obj_id, win=bool(win))
+                    objectives_updated = True
+
+                    # Check for level-up and notify
+                    new_obj = self.db.objectives.get(obj_id)
+                    if new_obj and old_level is not None:
+                        new_info = self.db.objectives.get_level_info(
+                            new_obj["score"], new_obj["game_count"]
+                        )
+                        if new_info["level_index"] > old_level:
+                            try:
+                                self.app_window.after(0, lambda t=new_obj["title"], l=new_info["level_name"]:
+                                    self.app_window.show_toast(
+                                        f"\u2B06 {t} leveled up to {l}!",
+                                    ))
+                            except Exception:
+                                pass
+
+        # Refresh objectives page if any scores changed
+        if objectives_updated:
+            try:
+                self.app_window.after(0, self.app_window.refresh_objectives_page)
+            except Exception:
+                pass
 
         # Save matchup helpful ratings
         for mh in matchup_helpful:
@@ -721,8 +771,13 @@ class App:
         launched = restart_into_version()
         if not launched:
             logger.error("Restart script failed — user must relaunch manually")
+            self._show_update_status(
+                "Update installed but restart failed — please relaunch manually",
+                "#f87171",
+            )
+            return  # Don't kill the app if the restart script didn't launch
 
-        self._shutdown_services()
+        self._shutdown_services_with_timeout()
         os._exit(0)
 
     def _shutdown_services(self):
@@ -748,9 +803,59 @@ class App:
             except Exception:
                 pass
 
+    def _shutdown_services_with_timeout(self, timeout: float = 5.0):
+        """Run _shutdown_services in a thread with a timeout.
+
+        If shutdown hangs (e.g. monitor thread stuck polling LCU), we still
+        exit so the batch file's PID check can detect us as dead and launch
+        the new version.
+        """
+        t = threading.Thread(target=self._shutdown_services, daemon=True)
+        t.start()
+        t.join(timeout=timeout)
+        if t.is_alive():
+            logger.warning(f"Shutdown services timed out after {timeout}s — exiting anyway")
+
     def _quit(self, icon=None, item=None):
-        """Clean shutdown."""
+        """Clean shutdown — show session debrief if applicable."""
         logger.info("Shutting down")
+        # Check if session debrief is needed (tilt fix mode + played games + set intention)
+        try:
+            from .config import is_tilt_fix_enabled as _tilt_check
+            if _tilt_check():
+                from datetime import datetime as _dt
+                today = _dt.now().strftime("%Y-%m-%d")
+                session = self.db.session_log.get_session(today)
+                todays_games = self.db.get_session_log_today()
+                if (session and session.get("intention") and not session.get("debrief_rating")
+                        and len(todays_games) > 0):
+                    self._show_session_debrief(session["intention"])
+                    return  # debrief window will call _finish_quit when done
+        except Exception:
+            pass
+        self._finish_quit()
+
+    def _show_session_debrief(self, intention: str):
+        """Show the session debrief window before quitting."""
+        from .gui.pregame import SessionDebriefWindow
+
+        def on_debrief_save(rating: int, note: str):
+            from datetime import datetime as _dt
+            today = _dt.now().strftime("%Y-%m-%d")
+            if rating:
+                self.db.session_log.save_session_debrief(today, rating, note)
+                logger.info(f"Session debrief saved: rating={rating}")
+            self.app_window.after(100, self._finish_quit)
+
+        self._debrief_window = SessionDebriefWindow(
+            intention=intention,
+            on_save=on_debrief_save,
+        )
+        # Also quit if they close the window
+        self._debrief_window.protocol("WM_DELETE_WINDOW", lambda: self.app_window.after(0, self._finish_quit))
+
+    def _finish_quit(self):
+        """Final shutdown after debrief."""
         self._shutdown_services()
         os._exit(0)
 

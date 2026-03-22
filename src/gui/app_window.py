@@ -14,6 +14,7 @@ from ..config import (
     get_keybinds, set_keybinds,
     get_clips_folder, set_clips_folder,
     get_clips_max_size_mb, set_clips_max_size_mb,
+    is_tilt_fix_enabled, set_tilt_fix_enabled,
     DEFAULT_KEYBINDS, KEYBIND_LABELS,
 )
 from ..constants import (
@@ -224,6 +225,32 @@ class HomePage(ctk.CTkFrame):
         )
         self._claude_btn.pack(side="right")
 
+        # Tilt Fix Mode toggle
+        tilt_row = ctk.CTkFrame(body, fg_color=COLORS["bg_card"], corner_radius=8,
+                                border_width=1, border_color=COLORS["accent_purple"])
+        tilt_row.pack(fill="x", pady=(0, 12))
+        tilt_inner = ctk.CTkFrame(tilt_row, fg_color="transparent")
+        tilt_inner.pack(fill="x", padx=14, pady=10)
+
+        tilt_left = ctk.CTkFrame(tilt_inner, fg_color="transparent")
+        tilt_left.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(tilt_left, text="Tilt Fix Mode",
+                     font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=COLORS["accent_purple"]).pack(anchor="w")
+        ctk.CTkLabel(tilt_left,
+                     text="Cooldown timer, reappraisal prompts, attribution tracking, mood check-in",
+                     font=ctk.CTkFont(size=11), text_color=COLORS["text_dim"],
+                     wraplength=500, justify="left").pack(anchor="w")
+
+        self._tilt_fix_var = ctk.BooleanVar(value=is_tilt_fix_enabled())
+        ctk.CTkSwitch(
+            tilt_inner, text="", variable=self._tilt_fix_var,
+            command=self._on_tilt_fix_toggle,
+            fg_color=COLORS["border"], progress_color=COLORS["accent_purple"],
+            button_color=COLORS["text"], button_hover_color=COLORS["accent_purple"],
+            width=44, height=22,
+        ).pack(side="right")
+
         self._build_today_stats(body)
         self._build_objectives_summary(body)
         self._build_unreviewed(body)
@@ -381,6 +408,9 @@ class HomePage(ctk.CTkFrame):
                           text_color="#0a0a0f",
                           command=lambda gid=game_id: self._on_open_vod(gid) if self._on_open_vod else None,
                           ).pack(side="left")
+
+    def _on_tilt_fix_toggle(self):
+        set_tilt_fix_enabled(self._tilt_fix_var.get())
 
     def _open_review(self, game: dict):
         if self._on_open_review:
@@ -547,6 +577,33 @@ class SessionPage(ctk.CTkFrame):
         self._last_refresh_hash = h
 
         def _rebuild_games():
+            # Session intention/debrief banner
+            try:
+                session = self.db.session_log.get_session(self._selected_date)
+                if session and session.get("intention"):
+                    int_frame = ctk.CTkFrame(
+                        self.scroll_frame, fg_color=COLORS["bg_card"], corner_radius=8,
+                        border_width=1, border_color=COLORS["accent_gold"],
+                    )
+                    int_frame.pack(fill="x", pady=(0, 8))
+                    int_inner = ctk.CTkFrame(int_frame, fg_color="transparent")
+                    int_inner.pack(fill="x", padx=12, pady=8)
+                    ctk.CTkLabel(int_inner, text="SESSION GOAL",
+                                 font=ctk.CTkFont(size=10, weight="bold"),
+                                 text_color=COLORS["accent_gold"]).pack(anchor="w")
+                    ctk.CTkLabel(int_inner, text=session["intention"],
+                                 font=ctk.CTkFont(size=12), text_color=COLORS["text"],
+                                 wraplength=600, justify="left").pack(anchor="w", pady=(2, 0))
+                    dr = session.get("debrief_rating", 0)
+                    if dr:
+                        debrief_text = {1: "Did not stick to goal", 2: "Partially stuck to goal", 3: "Stuck to goal"}
+                        debrief_color = {1: COLORS["loss_red"], 2: COLORS["star_active"], 3: COLORS["win_green"]}
+                        ctk.CTkLabel(int_inner, text=debrief_text.get(dr, ""),
+                                     font=ctk.CTkFont(size=11, weight="bold"),
+                                     text_color=debrief_color.get(dr, COLORS["text"])).pack(anchor="w", pady=(4, 0))
+            except Exception:
+                pass
+
             if not entries:
                 ctk.CTkLabel(
                     self.scroll_frame,
@@ -1093,6 +1150,18 @@ class LossesPage(ctk.CTkFrame):
                          text_color=COLORS["text"], wraplength=840,
                          justify="left").pack(padx=12, pady=10, anchor="w")
 
+        spotted = loss.get("spotted_problems", "").strip()
+        if spotted:
+            ctk.CTkLabel(inner, text="Spotted problems:",
+                         font=ctk.CTkFont(size=12, weight="bold"),
+                         text_color="#f59e0b").pack(anchor="w", pady=(0, 4))
+            sp = ctk.CTkFrame(inner, fg_color=COLORS["bg_input"], border_width=2,
+                              border_color="#f59e0b", corner_radius=6)
+            sp.pack(fill="x", pady=(0, 8))
+            ctk.CTkLabel(sp, text=spotted, font=ctk.CTkFont(size=13),
+                         text_color=COLORS["text"], wraplength=840,
+                         justify="left").pack(padx=12, pady=10, anchor="w")
+
     def _open_review(self, loss: dict):
         if self._on_open_review:
             self._on_open_review("session_game", game=loss, on_save=self._refresh_losses)
@@ -1131,6 +1200,8 @@ class StatsPage(ctk.CTkFrame):
 
         self._build_overall(body)
         self._build_mental_winrate(body)
+        self._build_mood_winrate(body)
+        self._build_attribution_breakdown(body)
         self._build_seven_day(body)
         self._build_winrate_trend(body)
         self._build_mental_trend(body)
@@ -1220,6 +1291,114 @@ class StatsPage(ctk.CTkFrame):
                 ctk.CTkLabel(rframe, text=text, font=ctk.CTkFont(size=12),
                              text_color=color, width=w).pack(side="left", padx=8, pady=3)
 
+    def _build_mood_winrate(self, parent):
+        """Show winrate by pre-game mood (affect labeling data)."""
+        try:
+            data = self.db.session_log.get_mood_winrate_correlation()
+        except Exception:
+            return
+        if not data:
+            return
+
+        from ..constants import MOOD_LABELS, MOOD_COLORS
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="PRE-GAME MOOD vs WIN RATE",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+        header = ctk.CTkFrame(inner, fg_color=COLORS["bg_input"], corner_radius=6)
+        header.pack(fill="x", pady=(0, 4))
+        for text, w in zip(["Mood", "Games", "Wins", "Win Rate"], [140, 70, 70, 100]):
+            ctk.CTkLabel(header, text=text, font=ctk.CTkFont(size=11, weight="bold"),
+                         text_color=COLORS["text_dim"], width=w).pack(side="left", padx=8, pady=6)
+
+        for row in data:
+            mood_val = row["mood"]
+            games = row["games"]
+            wins = row["wins"]
+            wr = row["winrate"]
+
+            rframe = ctk.CTkFrame(inner, fg_color="transparent")
+            rframe.pack(fill="x")
+            mood_label = MOOD_LABELS.get(mood_val, str(mood_val))
+            mood_color = MOOD_COLORS.get(mood_val, COLORS["text"])
+            wr_c = COLORS["win_green"] if wr >= 50 else COLORS["loss_red"]
+
+            for text, color, w in [
+                (mood_label, mood_color, 140),
+                (str(games), COLORS["text"], 70),
+                (str(wins), COLORS["win_green"], 70),
+                (f"{wr:.1f}%", wr_c, 100),
+            ]:
+                ctk.CTkLabel(rframe, text=text, font=ctk.CTkFont(size=12),
+                             text_color=color, width=w).pack(side="left", padx=8, pady=3)
+
+    def _build_attribution_breakdown(self, parent):
+        """Show attribution patterns — key insight for growth mindset."""
+        try:
+            data = self.db.games.get_attribution_stats()
+        except Exception:
+            return
+        if not data:
+            return
+
+        from ..constants import ATTRIBUTION_OPTIONS
+        label_map = dict(ATTRIBUTION_OPTIONS)
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="ATTRIBUTION PATTERNS",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+        header = ctk.CTkFrame(inner, fg_color=COLORS["bg_input"], corner_radius=6)
+        header.pack(fill="x", pady=(0, 4))
+        for text, w in zip(["Attribution", "Games", "Wins", "Losses", "Win Rate"], [140, 60, 60, 60, 80]):
+            ctk.CTkLabel(header, text=text, font=ctk.CTkFont(size=11, weight="bold"),
+                         text_color=COLORS["text_dim"], width=w).pack(side="left", padx=6, pady=6)
+
+        for row in data:
+            rframe = ctk.CTkFrame(inner, fg_color="transparent")
+            rframe.pack(fill="x")
+            wr = row["winrate"]
+            wr_c = COLORS["win_green"] if wr >= 50 else COLORS["loss_red"]
+            attr_label = label_map.get(row["attribution"], row["attribution"])
+
+            for text, color, w in [
+                (attr_label, COLORS["text"], 140),
+                (str(row["games"]), COLORS["text"], 60),
+                (str(row["wins"]), COLORS["win_green"], 60),
+                (str(row["losses"]), COLORS["loss_red"], 60),
+                (f"{wr:.1f}%", wr_c, 80),
+            ]:
+                ctk.CTkLabel(rframe, text=text, font=ctk.CTkFont(size=12),
+                             text_color=color, width=w).pack(side="left", padx=6, pady=3)
+
+        # Insight: check if user blames externally often in losses
+        total_loss_games = sum(r["losses"] for r in data)
+        external_losses = sum(r["losses"] for r in data if r["attribution"] in ("teammates", "external"))
+        if total_loss_games >= 5 and external_losses / total_loss_games > 0.5:
+            ctk.CTkLabel(inner,
+                         text=f"You attribute {external_losses}/{total_loss_games} losses to external factors — "
+                              "focusing on what you can control leads to faster improvement",
+                         font=ctk.CTkFont(size=11), text_color="#f59e0b",
+                         wraplength=500, justify="left").pack(anchor="w", pady=(8, 0))
+        elif total_loss_games >= 5:
+            my_play_losses = sum(r["losses"] for r in data if r["attribution"] == "my_play")
+            if my_play_losses / total_loss_games > 0.5:
+                ctk.CTkLabel(inner,
+                             text="Strong growth mindset — you focus on what you can control",
+                             font=ctk.CTkFont(size=11), text_color=COLORS["win_green"],
+                             wraplength=500).pack(anchor="w", pady=(8, 0))
+
     def _build_seven_day(self, parent):
         try:
             summaries = self.db.get_daily_summaries(7)
@@ -1289,7 +1468,9 @@ class StatsPage(ctk.CTkFrame):
         for i in range(window - 1, len(games)):
             chunk = games[i - window + 1:i + 1]
             wr = sum(1 for g in chunk if g["win"]) / window * 100
-            label = f"#{i + 1}"
+            # Label as rolling point number (1-based), not raw game index
+            point_num = i - window + 2
+            label = f"#{point_num}"
             data.append((label, wr))
 
         if len(data) < 2:
@@ -1322,13 +1503,10 @@ class StatsPage(ctk.CTkFrame):
                      text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
 
         data = []
-        for e in entries:
+        for i, e in enumerate(entries):
             ts = e.get("timestamp", "")
-            # Show short date from timestamp if available
-            if ts:
-                label = str(ts)[:10]
-            else:
-                label = ""
+            # Show game number; include short date on first/last point
+            label = f"#{i + 1}"
             rating = e.get("mental_rating", 5)
             data.append((label, rating))
 
@@ -1357,11 +1535,11 @@ class StatsPage(ctk.CTkFrame):
         inner = ctk.CTkFrame(section, fg_color="transparent")
         inner.pack(fill="x", padx=16, pady=14)
 
-        ctk.CTkLabel(inner, text="DEATHS PER GAME TREND",
+        ctk.CTkLabel(inner, text=f"DEATHS PER GAME (last {len(games)} games)",
                      font=ctk.CTkFont(size=11, weight="bold"),
                      text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
 
-        data = [(f"#{i + 1}", g["deaths"]) for i, g in enumerate(games)]
+        data = [(g.get("champion_name", f"#{i+1}")[:6], g["deaths"]) for i, g in enumerate(games)]
 
         if len(data) < 2:
             return
@@ -2093,6 +2271,33 @@ class ObjectivesPage(ctk.CTkFrame):
                          text_color=COLORS["text_dim"]).pack(anchor="w", pady=(16, 8))
             for obj in completed:
                 self._build_completed_card(body, obj)
+
+        # Spotted problems from recent reviews
+        spotted = self.db.games.get_recent_spotted_problems(limit=10)
+        if spotted:
+            ctk.CTkFrame(body, fg_color=COLORS["border"], height=1).pack(fill="x", pady=(20, 8))
+            ctk.CTkLabel(body, text="SPOTTED PROBLEMS",
+                         font=ctk.CTkFont(size=11, weight="bold"),
+                         text_color="#f59e0b").pack(anchor="w", pady=(4, 2))
+            ctk.CTkLabel(body, text="Problems noted in reviews — use these as ideas for new objectives",
+                         font=ctk.CTkFont(size=12),
+                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+            for sp in spotted:
+                sp_card = ctk.CTkFrame(body, fg_color=COLORS["bg_card"], corner_radius=8,
+                                       border_width=1, border_color="#f59e0b")
+                sp_card.pack(fill="x", pady=(0, 6))
+                sp_inner = ctk.CTkFrame(sp_card, fg_color="transparent")
+                sp_inner.pack(fill="x", padx=12, pady=10)
+
+                meta = f"{sp['champion_name']}  •  {sp['date_played']}"
+                ctk.CTkLabel(sp_inner, text=meta,
+                             font=ctk.CTkFont(size=11),
+                             text_color=COLORS["text_dim"]).pack(anchor="w")
+                ctk.CTkLabel(sp_inner, text=sp["spotted_problems"],
+                             font=ctk.CTkFont(size=13),
+                             text_color=COLORS["text"],
+                             wraplength=700, justify="left").pack(anchor="w", pady=(4, 0))
 
     def _build_objective_card(self, parent, obj: dict):
         info = self.db.objectives.get_level_info(obj["score"], obj["game_count"])
@@ -3075,6 +3280,11 @@ class ReviewPage(ctk.CTkFrame):
         self._panel = panel_class(self, **kwargs)
         self._panel.pack(fill="both", expand=True)
 
+    def update_bookmarks(self, bookmarks: list[dict]):
+        """Forward bookmark updates to the active ReviewPanel."""
+        if self._panel and hasattr(self._panel, "update_bookmarks"):
+            self._panel.update_bookmarks(bookmarks)
+
     def clear(self):
         """Clean up the current panel."""
         if self._panel:
@@ -3357,11 +3567,23 @@ class AppWindow(ctk.CTk):
 
     def _navigate_back(self):
         """Pop nav stack and navigate to the previous page."""
+        came_from = self._current_page
         if self._nav_stack:
             prev = self._nav_stack.pop()
             self._navigate(prev, push_stack=False)
         else:
             self._navigate("home", push_stack=False)
+        # Refresh the page we just navigated to (e.g. update unreviewed list)
+        self.refresh()
+        # Refresh bookmarks on review page when returning from VOD player
+        if came_from == "vod" and self._current_page == "review":
+            review_page = self._pages.get("review")
+            if review_page and review_page._panel:
+                game_id = getattr(review_page._panel, "stats", None)
+                if game_id:
+                    game_id = game_id.game_id
+                    bookmarks = self.db.get_bookmarks(game_id)
+                    review_page.update_bookmarks(bookmarks)
 
     def _save_session_game_review(self, review_data: dict, after_save=None):
         """Save review data from the unified ReviewPanel for an edited game.
@@ -3391,14 +3613,40 @@ class AppWindow(ctk.CTk):
         if concept_tag_ids is not None:
             self.db.concept_tags.set_for_game(game_id, concept_tag_ids)
 
+        objectives_updated = False
         for od in objectives_data:
             obj_id = od.get("objective_id")
             practiced = od.get("practiced", True)
             execution_note = od.get("execution_note", "")
             if obj_id:
+                # Snapshot level before update for level-up detection
+                old_obj = self.db.objectives.get(obj_id)
+                old_level = None
+                if old_obj:
+                    old_level = self.db.objectives.get_level_info(
+                        old_obj["score"], old_obj["game_count"]
+                    )["level_index"]
+
                 self.db.objectives.record_game(game_id, obj_id, practiced, execution_note)
                 if practiced:
                     self.db.objectives.update_score(obj_id, win=bool(win))
+                    objectives_updated = True
+
+                    # Check for level-up
+                    new_obj = self.db.objectives.get(obj_id)
+                    if new_obj and old_level is not None:
+                        new_info = self.db.objectives.get_level_info(
+                            new_obj["score"], new_obj["game_count"]
+                        )
+                        if new_info["level_index"] > old_level:
+                            self.show_toast(
+                                f"\u2B06 {new_obj['title']} leveled up to {new_info['level_name']}!",
+                                color=_LEVEL_COLORS[min(new_info["level_index"], len(_LEVEL_COLORS) - 1)],
+                            )
+
+        # Refresh objectives page if any scores changed
+        if objectives_updated:
+            self.after(0, self.refresh_objectives_page)
 
         # Save matchup helpful ratings
         for mh in matchup_helpful:
@@ -3469,9 +3717,6 @@ class AppWindow(ctk.CTk):
                 bookmarks = self.db.get_bookmarks(game_id) if has_vod else []
                 bookmark_count = len(bookmarks)
 
-                pregame_intention = session_entry.get("pregame_intention", "") if session_entry else ""
-                existing_mental_handled = session_entry.get("mental_handled", "") if session_entry else ""
-
                 active_objectives = self.db.objectives.get_active()
                 existing_game_objectives = self.db.objectives.get_game_objectives(game_id) if game_id else []
                 concept_tags = self.db.concept_tags.get_all()
@@ -3490,9 +3735,16 @@ class AppWindow(ctk.CTk):
                             raw = _json.loads(raw)
                         except (ValueError, TypeError):
                             raw = {}
-                    enemy_champions = raw.get("_enemy_champions", []) if isinstance(raw, dict) else []
-                    if enemy_champions:
-                        enemy_laner = enemy_champions[0]
+                    if isinstance(raw, dict):
+                        # Try position-based matching first
+                        enemy_by_pos = raw.get("_enemy_by_position", {})
+                        my_position = game.get("position", "")
+                        if my_position and my_position in enemy_by_pos:
+                            enemy_laner = enemy_by_pos[my_position]
+                        else:
+                            enemy_champions = raw.get("_enemy_champions", [])
+                            if enemy_champions:
+                                enemy_laner = enemy_champions[0]
                 champion_name = game.get("champion_name", "")
                 if enemy_laner and champion_name:
                     matchup_notes_shown = self.db.matchup_notes.get_for_matchup(
@@ -3521,8 +3773,6 @@ class AppWindow(ctk.CTk):
                         "has_vod": has_vod,
                         "bookmark_count": bookmark_count,
                         "bookmarks": bookmarks,
-                        "pregame_intention": pregame_intention,
-                        "existing_mental_handled": existing_mental_handled,
                         "concept_tags": concept_tags,
                         "existing_concept_tag_ids": existing_concept_tag_ids,
                         "active_objectives": active_objectives,
@@ -3650,6 +3900,28 @@ class AppWindow(ctk.CTk):
     def navigate_to_review(self, review_type: str, **kwargs):
         """Public API for navigating to an inline review."""
         self._navigate_to_review(review_type, **kwargs)
+
+    def refresh_objectives_page(self):
+        """Refresh the objectives page regardless of which page is currently active."""
+        page = self._pages.get("objectives")
+        if page and hasattr(page, "refresh"):
+            page.refresh()
+
+    def show_toast(self, message: str, color: str = COLORS["accent_gold"], duration_ms: int = 5000):
+        """Show a temporary toast notification at the top of the window."""
+        try:
+            toast = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=8,
+                                 border_width=1, border_color=color)
+            toast.place(relx=0.5, y=10, anchor="n")
+            ctk.CTkLabel(
+                toast, text=message,
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color=color,
+            ).pack(padx=20, pady=10)
+            toast.lift()
+            self.after(duration_ms, toast.destroy)
+        except Exception:
+            pass
 
     def navigate_to_vod(self, game_id: int):
         """Public API for navigating to an inline VOD player."""

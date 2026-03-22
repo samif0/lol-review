@@ -158,6 +158,7 @@ class GameMonitor:
             900,   # ARURF
             1010,  # Snow ARURF
             1020,  # One for All
+            2070,  # ARAM Mayhem (Kiwi)
             2000,  # Tutorial 1
             2010,  # Tutorial 2
             2020,  # Tutorial 3

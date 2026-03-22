@@ -9,6 +9,7 @@ from ..constants import (
     CONSECUTIVE_LOSS_WARNING, MENTAL_RATING_MIN, MENTAL_RATING_MAX,
     MENTAL_RATING_DEFAULT, MENTAL_RATING_STEPS,
     MENTAL_EXCELLENT_THRESHOLD, MENTAL_DECENT_THRESHOLD,
+    COOLDOWN_DURATION_S, COOLDOWN_BREATHE_INTERVAL_MS,
 )
 
 
@@ -206,6 +207,47 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         )
         refresh_btn.pack(fill="x")
 
+        # === POST-LOSS COOLDOWN (Tice et al. 2001; Verduyn & Lavrijsen 2015) ===
+        self._cooldown_frame = ctk.CTkFrame(
+            main_frame, fg_color=COLORS["bg_card"], corner_radius=8,
+            border_width=2, border_color=COLORS["accent_purple"],
+        )
+        # Not packed — shown dynamically after losses
+
+        ctk.CTkLabel(
+            self._cooldown_frame, text="TAKE A MOMENT",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["accent_purple"],
+        ).pack(pady=(10, 4))
+
+        self._cooldown_timer_label = ctk.CTkLabel(
+            self._cooldown_frame, text="1:30",
+            font=ctk.CTkFont(size=32, weight="bold"),
+            text_color=COLORS["text"],
+        )
+        self._cooldown_timer_label.pack(pady=(0, 4))
+
+        self._cooldown_breathe_label = ctk.CTkLabel(
+            self._cooldown_frame, text="Breathe in...",
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS["accent_purple"],
+        )
+        self._cooldown_breathe_label.pack(pady=(0, 8))
+
+        ctk.CTkButton(
+            self._cooldown_frame, text="I'm ready",
+            font=ctk.CTkFont(size=11), height=26, width=80,
+            corner_radius=13, fg_color=COLORS["tag_bg"],
+            hover_color=COLORS["accent_purple"],
+            text_color=COLORS["text_dim"],
+            command=self._dismiss_cooldown,
+        ).pack(pady=(0, 10))
+
+        self._cooldown_remaining = 0
+        self._cooldown_tick_id = None
+        self._cooldown_breathe_id = None
+        self._cooldown_breathe_in = True
+
         # Initial data load
         self._refresh_session_data()
 
@@ -373,9 +415,51 @@ class SessionRulesOverlay(ctk.CTkToplevel):
         if self.flash_active and self._flash_after_id is None:
             self._flash_warning()
 
+    # ── Post-loss cooldown ────────────────────────────────────────────
+
+    def show_cooldown(self):
+        """Show a soft cooldown timer after a loss."""
+        self._cooldown_remaining = COOLDOWN_DURATION_S
+        self._cooldown_breathe_in = True
+        self._update_cooldown_display()
+        self._cooldown_frame.pack(fill="x", pady=(10, 0))
+        self._cooldown_tick_id = self.after(1000, self._tick_cooldown)
+        self._cooldown_breathe_id = self.after(COOLDOWN_BREATHE_INTERVAL_MS, self._cycle_breathe)
+
+    def _tick_cooldown(self):
+        self._cooldown_remaining -= 1
+        if self._cooldown_remaining <= 0:
+            self._dismiss_cooldown()
+            return
+        self._update_cooldown_display()
+        self._cooldown_tick_id = self.after(1000, self._tick_cooldown)
+
+    def _update_cooldown_display(self):
+        mins = self._cooldown_remaining // 60
+        secs = self._cooldown_remaining % 60
+        self._cooldown_timer_label.configure(text=f"{mins}:{secs:02d}")
+
+    def _cycle_breathe(self):
+        self._cooldown_breathe_in = not self._cooldown_breathe_in
+        text = "Breathe in..." if self._cooldown_breathe_in else "Breathe out..."
+        self._cooldown_breathe_label.configure(text=text)
+        if self._cooldown_remaining > 0:
+            self._cooldown_breathe_id = self.after(COOLDOWN_BREATHE_INTERVAL_MS, self._cycle_breathe)
+
+    def _dismiss_cooldown(self):
+        self._cooldown_remaining = 0
+        if self._cooldown_tick_id:
+            self.after_cancel(self._cooldown_tick_id)
+            self._cooldown_tick_id = None
+        if self._cooldown_breathe_id:
+            self.after_cancel(self._cooldown_breathe_id)
+            self._cooldown_breathe_id = None
+        self._cooldown_frame.pack_forget()
+
     def destroy(self):
         """Override destroy to cancel all pending after() callbacks."""
         self._cancel_flash()
+        self._dismiss_cooldown()
         if self._auto_refresh_after_id is not None:
             self.after_cancel(self._auto_refresh_after_id)
             self._auto_refresh_after_id = None

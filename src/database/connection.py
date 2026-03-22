@@ -31,8 +31,14 @@ from .schema import (
     DEFAULT_DERIVED_EVENTS,
     DEFAULT_TAGS,
     MIGRATE_BOOKMARKS_CLIP_COLUMNS,
+    MIGRATE_GAMES_ATTRIBUTION,
     MIGRATE_GAMES_ENEMY_LANER,
+    MIGRATE_GAMES_REAPPRAISAL,
+    MIGRATE_GAMES_SELF_EFFICACY,
+    MIGRATE_GAMES_SPOTTED_PROBLEMS,
     MIGRATE_SESSION_LOG_MENTAL,
+    MIGRATE_SESSION_LOG_MOOD,
+    CREATE_SESSIONS_TABLE,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,6 +118,44 @@ class ConnectionManager:
                 conn.execute(stmt)
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # Migrate: add spotted_problems column to games if missing
+        for stmt in MIGRATE_GAMES_SPOTTED_PROBLEMS:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+        # Migrate: add reappraisal columns to games if missing
+        for stmt in MIGRATE_GAMES_REAPPRAISAL:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+
+        # Migrate: add attribution column to games if missing
+        for stmt in MIGRATE_GAMES_ATTRIBUTION:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+
+        # Migrate: add self-efficacy column to games if missing
+        for stmt in MIGRATE_GAMES_SELF_EFFICACY:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+
+        # Migrate: add pre_game_mood to session_log if missing
+        for stmt in MIGRATE_SESSION_LOG_MOOD:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+
+        # Create sessions table for session-level intentions/debriefs
+        conn.execute(CREATE_SESSIONS_TABLE)
 
         # Migrate: add clip columns to vod_bookmarks if missing
         for stmt in MIGRATE_BOOKMARKS_CLIP_COLUMNS:

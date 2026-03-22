@@ -134,9 +134,6 @@ class Database:
     def get_mental_winrate_correlation(self):
         return self.session_log.get_mental_winrate_correlation()
 
-    def get_last_mental_intention(self) -> str:
-        return self.session_log.get_last_mental_intention()
-
     def update_mental_handled(self, game_id: int, mental_handled: str):
         return self.session_log.update_mental_handled(game_id, mental_handled)
 

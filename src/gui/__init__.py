@@ -2,7 +2,7 @@
 
 from .widgets import ConceptTagSelector, StatCard
 from .review import ReviewWindow, ReviewPanel
-from .pregame import PreGameWindow
+from .pregame import PreGameWindow, SessionDebriefWindow
 from .history import HistoryWindow
 from .losses import ReviewLossesWindow
 from .session_overlay import SessionRulesOverlay

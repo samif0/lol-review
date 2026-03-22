@@ -5,11 +5,12 @@ from typing import Callable, Optional
 
 import customtkinter as ctk
 
-from ..config import is_ascent_enabled
+from ..config import is_ascent_enabled, is_tilt_fix_enabled
 from ..constants import (
     COLORS, format_duration, format_number,
     KDA_EXCELLENT_THRESHOLD, KDA_GOOD_THRESHOLD, DAMAGE_DISPLAY_THRESHOLD,
     MENTAL_RATING_MIN, MENTAL_RATING_MAX, MENTAL_RATING_DEFAULT, MENTAL_RATING_STEPS,
+    ATTRIBUTION_OPTIONS,
 )
 from ..database.game_events import EVENT_STYLES
 from ..lcu import GameStats
@@ -32,8 +33,6 @@ class ReviewPanel(ctk.CTkFrame):
         has_vod: bool = False,
         bookmark_count: int = 0,
         bookmarks: Optional[list[dict]] = None,
-        pregame_intention: str = "",
-        existing_mental_handled: str = "",
         concept_tags: Optional[list[dict]] = None,
         existing_concept_tag_ids: Optional[list[int]] = None,
         active_objectives: Optional[list[dict]] = None,
@@ -56,8 +55,6 @@ class ReviewPanel(ctk.CTkFrame):
         self._has_vod = has_vod
         self._bookmark_count = bookmark_count
         self._bookmarks = bookmarks or []
-        self._pregame_intention = pregame_intention
-        self._existing_mental_handled = existing_mental_handled
         self._mental_rating = mental_rating
         self._concept_tags = concept_tags or []
         self._existing_concept_tag_ids = existing_concept_tag_ids or []
@@ -115,47 +112,19 @@ class ReviewPanel(ctk.CTkFrame):
         if self._has_vod:
             self._build_vod_section(container)
 
-        # === BOOKMARKS (if any exist) ===
+        # === BOOKMARKS (refreshable container) ===
+        self._bookmarks_frame = ctk.CTkFrame(container, fg_color="transparent")
+        self._bookmarks_frame.pack(fill="x")
         if self._bookmarks:
-            self._build_bookmarks_section(container)
+            self._build_bookmarks_section(self._bookmarks_frame)
 
         # === REVIEW SECTION ===
         self._build_review_section(
             container, er,
-            self._pregame_intention, self._existing_mental_handled,
             self._concept_tags, self._existing_concept_tag_ids,
             self._active_objectives, self._existing_game_objectives,
             self._matchup_notes_shown, self._enemy_laner,
         )
-
-        # === SAVE BUTTON ===
-        save_btn = ctk.CTkButton(
-            container,
-            text="Save Review",
-            font=ctk.CTkFont(size=15, weight="bold"),
-            height=44,
-            corner_radius=8,
-            fg_color=COLORS["accent_blue"],
-            hover_color="#0077cc",
-            command=self._save,
-        )
-        save_btn.pack(fill="x", pady=(16, 8))
-
-        # Skip button
-        skip_btn = ctk.CTkButton(
-            container,
-            text="Skip (save stats only)",
-            font=ctk.CTkFont(size=13),
-            height=36,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color=COLORS["bg_input"],
-            text_color=COLORS["text_dim"],
-            border_width=1,
-            border_color=COLORS["border"],
-            command=self._go_back,
-        )
-        skip_btn.pack(fill="x", pady=(0, 8))
 
     def _build_header(self, parent):
         """Champion name, win/loss, KDA, and game info."""
@@ -460,12 +429,20 @@ class ReviewPanel(ctk.CTkFrame):
             parent, fg_color=COLORS["border"], height=1
         ).pack(fill="x", pady=8)
 
+    def _card(self, parent, border_color=None):
+        """Create a standard card frame matching the app's visual language."""
+        kw = {
+            "fg_color": COLORS["bg_card"],
+            "corner_radius": 10,
+            "border_width": 1,
+            "border_color": border_color or COLORS["border"],
+        }
+        return ctk.CTkFrame(parent, **kw)
+
     def _build_review_section(
         self,
         parent,
         er: dict,
-        pregame_intention: str = "",
-        existing_mental_handled: str = "",
         concept_tags: list[dict] = None,
         existing_concept_tag_ids: list[int] = None,
         active_objectives: list[dict] = None,
@@ -473,111 +450,21 @@ class ReviewPanel(ctk.CTkFrame):
         matchup_notes_shown: list[dict] = None,
         enemy_laner: str = "",
     ):
-        """The note-taking and review fields."""
+        """The note-taking and review fields — card-based layout."""
         concept_tags = concept_tags or []
         existing_concept_tag_ids = existing_concept_tag_ids or []
         active_objectives = active_objectives or []
         existing_game_objectives = existing_game_objectives or []
         matchup_notes_shown = matchup_notes_shown or []
+        tilt_fix = is_tilt_fix_enabled()
 
-        ctk.CTkLabel(
-            parent,
-            text="YOUR REVIEW",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=COLORS["text_dim"],
-        ).pack(anchor="w", pady=(8, 6))
-
-        # === MENTAL RATING SLIDER ===
-        mental_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        mental_frame.pack(fill="x", pady=(4, 8))
-
-        ctk.CTkLabel(
-            mental_frame,
-            text="Mental Rating (1-10)",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(side="left")
-
-        self._mental_value_label = ctk.CTkLabel(
-            mental_frame,
-            text=str(self._mental_rating),
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color=COLORS["accent_blue"],
-        )
-        self._mental_value_label.pack(side="right", padx=(0, 8))
-
-        self._mental_slider = ctk.CTkSlider(
-            parent,
-            from_=MENTAL_RATING_MIN,
-            to=MENTAL_RATING_MAX,
-            number_of_steps=MENTAL_RATING_STEPS,
-            command=self._on_mental_slider_change,
-            button_color=COLORS["accent_blue"],
-            button_hover_color="#0077cc",
-            progress_color=COLORS["accent_blue"],
-        )
-        self._mental_slider.set(self._mental_rating)
-        self._mental_slider.pack(fill="x", pady=(0, 12))
-
-        # === MENTAL INTENTION REFLECTION ===
-        if pregame_intention:
-            intention_frame = ctk.CTkFrame(
-                parent,
-                fg_color=COLORS["bg_card"],
-                corner_radius=8,
-                border_width=2,
-                border_color="#7c3aed",
-            )
-            intention_frame.pack(fill="x", pady=(0, 10))
-
-            ctk.CTkLabel(
-                intention_frame,
-                text="YOUR MENTAL INTENTION THIS GAME",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                text_color="#a78bfa",
-            ).pack(padx=14, pady=(10, 4), anchor="w")
-
-            ctk.CTkLabel(
-                intention_frame,
-                text=pregame_intention,
-                font=ctk.CTkFont(size=13),
-                text_color=COLORS["text"],
-                wraplength=650,
-                justify="left",
-            ).pack(padx=14, pady=(0, 8), anchor="w")
-
-            ctk.CTkLabel(
-                parent,
-                text="What triggered you, and what was the story you told yourself in the moment?",
-                font=ctk.CTkFont(size=13),
-                text_color=COLORS["text"],
-            ).pack(anchor="w", pady=(0, 4))
-
-            self.mental_handled = ctk.CTkTextbox(
-                parent,
-                height=60,
-                font=ctk.CTkFont(size=13),
-                fg_color=COLORS["bg_input"],
-                text_color=COLORS["text"],
-                border_width=1,
-                border_color="#7c3aed",
-                corner_radius=8,
-            )
-            self.mental_handled.pack(fill="x", pady=(0, 10))
-            if existing_mental_handled:
-                self.mental_handled.insert("1.0", existing_mental_handled)
-        else:
-            self.mental_handled = None
-
-        # === ACTIVE OBJECTIVE BLOCK ===
-        # Find the primary objective (first one, type='primary')
+        # ┌─────────────────────────────────────────────────┐
+        # │  CARD 1: Learning Objective (the focus)         │
+        # └─────────────────────────────────────────────────┘
         primary_obj = next((o for o in active_objectives if o.get("type") == "primary"), None)
         mental_obj = next((o for o in active_objectives if o.get("type") == "mental"), None)
-
-        # Map existing game objectives by objective_id for pre-filling
         existing_go_by_id = {go["objective_id"]: go for go in existing_game_objectives}
-
-        self._objective_widgets: dict[int, dict] = {}  # obj_id → {practiced_var, note_box}
+        self._objective_widgets: dict[int, dict] = {}
 
         for obj in [primary_obj, mental_obj]:
             if obj is None:
@@ -585,280 +472,365 @@ class ReviewPanel(ctk.CTkFrame):
             obj_id = obj["id"]
             is_mental = obj.get("type") == "mental"
             existing_go = existing_go_by_id.get(obj_id, {})
-
             border_color = "#7c3aed" if is_mental else COLORS["accent_blue"]
             label_color = "#a78bfa" if is_mental else COLORS["accent_blue"]
             type_label = "MENTAL OBJECTIVE" if is_mental else "LEARNING OBJECTIVE"
 
-            obj_frame = ctk.CTkFrame(
-                parent, fg_color=COLORS["bg_card"], corner_radius=8,
-                border_width=2, border_color=border_color,
-            )
-            obj_frame.pack(fill="x", pady=(0, 10))
-
-            header_row = ctk.CTkFrame(obj_frame, fg_color="transparent")
-            header_row.pack(fill="x", padx=14, pady=(10, 4))
+            card = self._card(parent, border_color=border_color)
+            card.configure(border_width=2)
+            card.pack(fill="x", pady=(0, 12))
+            inner = ctk.CTkFrame(card, fg_color="transparent")
+            inner.pack(fill="x", padx=16, pady=14)
 
             ctk.CTkLabel(
-                header_row, text=type_label,
+                inner, text=type_label,
                 font=ctk.CTkFont(size=11, weight="bold"),
                 text_color=label_color,
-            ).pack(side="left")
-
+            ).pack(anchor="w")
             ctk.CTkLabel(
-                obj_frame,
-                text=obj["title"],
+                inner, text=obj["title"],
                 font=ctk.CTkFont(size=14, weight="bold"),
-                text_color=COLORS["text"],
-                wraplength=650, justify="left",
-            ).pack(padx=14, pady=(0, 4), anchor="w")
-
+                text_color=COLORS["text"], wraplength=650, justify="left",
+            ).pack(anchor="w", pady=(2, 4))
             if obj.get("completion_criteria"):
                 ctk.CTkLabel(
-                    obj_frame,
-                    text=f"Success looks like: {obj['completion_criteria']}",
-                    font=ctk.CTkFont(size=12),
-                    text_color=COLORS["text_dim"],
+                    inner, text=f"Success: {obj['completion_criteria']}",
+                    font=ctk.CTkFont(size=12), text_color=COLORS["text_dim"],
                     wraplength=650, justify="left",
-                ).pack(padx=14, pady=(0, 6), anchor="w")
+                ).pack(anchor="w", pady=(0, 6))
 
-            # Practiced checkbox
             practiced_var = ctk.BooleanVar(value=bool(existing_go.get("practiced", True)))
             ctk.CTkCheckBox(
-                obj_frame,
-                text="I practiced this objective this game",
-                variable=practiced_var,
-                font=ctk.CTkFont(size=13),
+                inner, text="I practiced this objective",
+                variable=practiced_var, font=ctk.CTkFont(size=13),
                 text_color=COLORS["text"],
-                fg_color=border_color,
-                hover_color=border_color,
-            ).pack(padx=14, pady=(0, 6), anchor="w")
-
-            # Execution note
-            ctk.CTkLabel(
-                obj_frame,
-                text="How did it go?",
-                font=ctk.CTkFont(size=12),
-                text_color=COLORS["text_dim"],
-            ).pack(padx=14, anchor="w")
+                fg_color=border_color, hover_color=border_color,
+            ).pack(anchor="w", pady=(0, 6))
 
             note_box = ctk.CTkTextbox(
-                obj_frame, height=52, font=ctk.CTkFont(size=13),
+                inner, height=50, font=ctk.CTkFont(size=13),
                 fg_color=COLORS["bg_input"], text_color=COLORS["text"],
                 border_width=1, border_color=border_color, corner_radius=6,
             )
-            note_box.pack(fill="x", padx=14, pady=(4, 12))
-            if existing_go.get("execution_note"):
-                note_box.insert("1.0", existing_go["execution_note"])
+            note_box.pack(fill="x", pady=(0, 4))
+            note_box.insert("1.0", existing_go.get("execution_note", ""))
 
-            # === REVIEW PROMPTS for this objective ===
             obj_prompts = self._objective_prompts.get(obj_id, [])
             if obj_prompts:
-                self._render_objective_prompts(obj_frame, obj_id, obj_prompts, border_color)
+                self._render_objective_prompts(inner, obj_id, obj_prompts, border_color)
 
             self._objective_widgets[obj_id] = {
                 "practiced_var": practiced_var,
                 "note_box": note_box,
             }
 
-        # Concept Tags (replaces old tag selector)
-        if concept_tags:
-            ctk.CTkLabel(
-                parent,
-                text="Concept Tags",
-                font=ctk.CTkFont(size=13),
-                text_color=COLORS["text"],
-            ).pack(anchor="w", pady=(4, 4))
+        # ┌─────────────────────────────────────────────────┐
+        # │  CARD 2: Game Review (core fields)              │
+        # └─────────────────────────────────────────────────┘
+        review_card = self._card(parent)
+        review_card.pack(fill="x", pady=(0, 12))
+        rc = ctk.CTkFrame(review_card, fg_color="transparent")
+        rc.pack(fill="x", padx=16, pady=14)
 
-            self.concept_tag_selector = ConceptTagSelector(
-                parent, concept_tags, selected_ids=existing_concept_tag_ids,
-            )
-            self.concept_tag_selector.pack(fill="x", pady=(0, 10))
+        # Contextual prompt
+        if tilt_fix and not self.stats.win:
+            prompt_text = "What happened and what can you control next time?"
+        elif tilt_fix and self.stats.win:
+            prompt_text = "What did you do well and what's your key takeaway?"
         else:
-            self.concept_tag_selector = None
+            prompt_text = "Key takeaway — what went well and what to improve"
 
-        # Key takeaway
         ctk.CTkLabel(
-            parent,
-            text="Key takeaway from this game",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(4, 4))
+            rc, text=prompt_text,
+            font=ctk.CTkFont(size=13), text_color=COLORS["text"],
+        ).pack(anchor="w")
         self.went_well = ctk.CTkTextbox(
-            parent, height=60, font=ctk.CTkFont(size=13),
+            rc, height=70, font=ctk.CTkFont(size=13),
             fg_color=COLORS["bg_input"], text_color=COLORS["text"],
-            border_width=1, border_color=COLORS["border"], corner_radius=8,
+            border_width=1, border_color=COLORS["border"], corner_radius=6,
         )
-        self.went_well.pack(fill="x", pady=(0, 8))
-        self.went_well.insert("1.0", er.get("went_well", ""))
+        self.went_well.pack(fill="x", pady=(4, 10))
+        existing_parts = []
+        if er.get("went_well"):
+            existing_parts.append(er["went_well"])
+        if er.get("mistakes"):
+            existing_parts.append(er["mistakes"])
+        self.went_well.insert("1.0", "\n".join(existing_parts))
+        self.mistakes = self.went_well
 
-        # Mistakes / improvements
         ctk.CTkLabel(
-            parent,
-            text="What to improve next game",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(4, 4))
-        self.mistakes = ctk.CTkTextbox(
-            parent, height=60, font=ctk.CTkFont(size=13),
-            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
-            border_width=1, border_color=COLORS["border"], corner_radius=8,
-        )
-        self.mistakes.pack(fill="x", pady=(0, 8))
-        self.mistakes.insert("1.0", er.get("mistakes", ""))
-
-        # VOD hint
-        if self._has_vod and self._bookmark_count == 0:
-            ctk.CTkLabel(
-                parent,
-                text="Tip: Use the VOD player to bookmark specific moments "
-                     "instead of writing them here",
-                font=ctk.CTkFont(size=11),
-                text_color=COLORS["text_dim"],
-                wraplength=650,
-            ).pack(anchor="w", pady=(0, 6))
-
-        # Focus for next game
-        ctk.CTkLabel(
-            parent,
-            text="Focus for next game",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(4, 4))
+            rc, text="Focus for next game",
+            font=ctk.CTkFont(size=13), text_color=COLORS["text"],
+        ).pack(anchor="w")
         self.focus_next = ctk.CTkEntry(
-            parent, height=38, font=ctk.CTkFont(size=13),
+            rc, height=36, font=ctk.CTkFont(size=13),
             fg_color=COLORS["bg_input"], text_color=COLORS["text"],
-            border_width=1, border_color=COLORS["border"], corner_radius=8,
+            border_width=1, border_color=COLORS["border"], corner_radius=6,
             placeholder_text="e.g., Track jungle timers, play safer before 6...",
         )
-        self.focus_next.pack(fill="x", pady=(0, 8))
+        self.focus_next.pack(fill="x", pady=(4, 10))
         if er.get("focus_next"):
             self.focus_next.insert(0, er["focus_next"])
 
-        # General notes
+        # Mental + attribution in compact row
+        ctk.CTkFrame(rc, fg_color=COLORS["border"], height=1).pack(fill="x", pady=(0, 8))
+
+        mental_row = ctk.CTkFrame(rc, fg_color="transparent")
+        mental_row.pack(fill="x")
         ctk.CTkLabel(
-            parent,
-            text="Additional Notes",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(4, 4))
-        self.notes = ctk.CTkTextbox(
-            parent, height=80, font=ctk.CTkFont(size=13),
-            fg_color=COLORS["bg_input"], text_color=COLORS["text"],
-            border_width=1, border_color=COLORS["border"], corner_radius=8,
+            mental_row, text="Mental",
+            font=ctk.CTkFont(size=12), text_color=COLORS["text_dim"],
+        ).pack(side="left")
+        self._mental_value_label = ctk.CTkLabel(
+            mental_row, text=str(self._mental_rating),
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["accent_blue"],
         )
-        self.notes.pack(fill="x", pady=(0, 8))
-        self.notes.insert("1.0", er.get("review_notes", ""))
+        self._mental_value_label.pack(side="right")
 
+        self._mental_slider = ctk.CTkSlider(
+            rc, from_=MENTAL_RATING_MIN, to=MENTAL_RATING_MAX,
+            number_of_steps=MENTAL_RATING_STEPS,
+            command=self._on_mental_slider_change,
+            button_color=COLORS["accent_blue"],
+            button_hover_color="#0077cc",
+            progress_color=COLORS["accent_blue"],
+        )
+        self._mental_slider.set(self._mental_rating)
+        self._mental_slider.pack(fill="x", pady=(4, 0))
+
+        self.mental_handled = None
+        self.outside_control = None
+        self.within_control = None
+        self.personal_contribution = None
+        self._attribution_var = er.get("attribution", "")
+        self._attribution_buttons: dict[str, ctk.CTkButton] = {}
+
+        if tilt_fix:
+            attr_row = ctk.CTkFrame(rc, fg_color="transparent")
+            attr_row.pack(fill="x", pady=(8, 0))
+            ctk.CTkLabel(
+                attr_row, text="Factor:",
+                font=ctk.CTkFont(size=11), text_color=COLORS["text_dim"],
+            ).pack(side="left", padx=(0, 6))
+            for key, label in ATTRIBUTION_OPTIONS:
+                btn = ctk.CTkButton(
+                    attr_row, text=label,
+                    font=ctk.CTkFont(size=11), height=26, corner_radius=13,
+                    fg_color=COLORS["tag_bg"], hover_color=COLORS["accent_blue"],
+                    text_color=COLORS["text_dim"],
+                    border_width=1, border_color=COLORS["border"],
+                    command=lambda k=key: self._select_attribution(k),
+                )
+                btn.pack(side="left", padx=2)
+                self._attribution_buttons[key] = btn
+            if self._attribution_var:
+                self._select_attribution(self._attribution_var)
+
+        # ┌─────────────────────────────────────────────────┐
+        # │  SAVE / SKIP                                    │
+        # └─────────────────────────────────────────────────┘
+        ctk.CTkButton(
+            parent, text="Save Review",
+            font=ctk.CTkFont(size=15, weight="bold"), height=44,
+            corner_radius=8, fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+            command=self._save,
+        ).pack(fill="x", pady=(4, 8))
+
+        ctk.CTkButton(
+            parent, text="Skip (save stats only)",
+            font=ctk.CTkFont(size=13), height=36, corner_radius=8,
+            fg_color="transparent", hover_color=COLORS["bg_input"],
+            text_color=COLORS["text_dim"],
+            border_width=1, border_color=COLORS["border"],
+            command=self._go_back,
+        ).pack(fill="x", pady=(0, 12))
+
+        # ┌─────────────────────────────────────────────────┐
+        # │  CARD 3: Optional Details (below save)          │
+        # └─────────────────────────────────────────────────┘
+        has_optional = bool(
+            concept_tags or er.get("review_notes", "").strip()
+            or er.get("spotted_problems", "").strip()
+            or matchup_notes_shown or enemy_laner
+            or (tilt_fix and (er.get("outside_control", "").strip()
+                              or er.get("personal_contribution", "").strip()))
+        )
+
+        if has_optional or concept_tags or tilt_fix:
+            opt_card = self._card(parent)
+            opt_card.pack(fill="x", pady=(0, 12))
+            oc = ctk.CTkFrame(opt_card, fg_color="transparent")
+            oc.pack(fill="x", padx=16, pady=14)
+
+            ctk.CTkLabel(
+                oc, text="ADDITIONAL DETAILS",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=COLORS["text_dim"],
+            ).pack(anchor="w", pady=(0, 8))
+
+            # Concept tags
+            self.concept_tag_selector = None
+            if concept_tags:
+                ctk.CTkLabel(
+                    oc, text="Concept Tags",
+                    font=ctk.CTkFont(size=12), text_color=COLORS["text"],
+                ).pack(anchor="w", pady=(0, 4))
+                self.concept_tag_selector = ConceptTagSelector(
+                    oc, concept_tags, selected_ids=existing_concept_tag_ids,
+                )
+                self.concept_tag_selector.pack(fill="x", pady=(0, 8))
+
+            # Tilt fix detail fields
+            if tilt_fix and not self.stats.win:
+                ctk.CTkLabel(
+                    oc, text="What was outside your control?",
+                    font=ctk.CTkFont(size=12), text_color=COLORS["accent_purple"],
+                ).pack(anchor="w", pady=(4, 2))
+                self.outside_control = ctk.CTkTextbox(
+                    oc, height=40, font=ctk.CTkFont(size=13),
+                    fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                    border_width=1, border_color=COLORS["accent_purple"], corner_radius=6,
+                )
+                self.outside_control.pack(fill="x", pady=(0, 6))
+                self.outside_control.insert("1.0", er.get("outside_control", ""))
+
+                ctk.CTkLabel(
+                    oc, text="What can you control differently?",
+                    font=ctk.CTkFont(size=12), text_color=COLORS["accent_purple"],
+                ).pack(anchor="w", pady=(2, 2))
+                self.within_control = ctk.CTkTextbox(
+                    oc, height=40, font=ctk.CTkFont(size=13),
+                    fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                    border_width=1, border_color=COLORS["accent_purple"], corner_radius=6,
+                )
+                self.within_control.pack(fill="x", pady=(0, 8))
+                self.within_control.insert("1.0", er.get("within_control", ""))
+
+            if tilt_fix and self.stats.win:
+                ctk.CTkLabel(
+                    oc, text="What did YOU do well that contributed?",
+                    font=ctk.CTkFont(size=12), text_color=COLORS["win_green"],
+                ).pack(anchor="w", pady=(4, 2))
+                self.personal_contribution = ctk.CTkTextbox(
+                    oc, height=40, font=ctk.CTkFont(size=13),
+                    fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                    border_width=1, border_color=COLORS["win_green"], corner_radius=6,
+                )
+                self.personal_contribution.pack(fill="x", pady=(0, 8))
+                self.personal_contribution.insert("1.0", er.get("personal_contribution", ""))
+
+            # Notes
+            self.notes = ctk.CTkTextbox(
+                oc, height=50, font=ctk.CTkFont(size=13),
+                fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                border_width=1, border_color=COLORS["border"], corner_radius=6,
+            )
+            ctk.CTkLabel(
+                oc, text="Notes",
+                font=ctk.CTkFont(size=12), text_color=COLORS["text_dim"],
+            ).pack(anchor="w", pady=(4, 2))
+            self.notes.pack(fill="x", pady=(0, 8))
+            self.notes.insert("1.0", er.get("review_notes", ""))
+
+            # Spotted problems
+            ctk.CTkLabel(
+                oc, text="Spotted problems (for future objectives)",
+                font=ctk.CTkFont(size=12), text_color="#f59e0b",
+            ).pack(anchor="w", pady=(4, 2))
+            self.spotted_problems = ctk.CTkTextbox(
+                oc, height=40, font=ctk.CTkFont(size=13),
+                fg_color=COLORS["bg_input"], text_color=COLORS["text"],
+                border_width=1, border_color="#f59e0b", corner_radius=6,
+            )
+            self.spotted_problems.pack(fill="x", pady=(0, 4))
+            self.spotted_problems.insert("1.0", er.get("spotted_problems", ""))
+        else:
+            self.concept_tag_selector = None
+            self.notes = None
+            self.spotted_problems = None
+
+        # ┌─────────────────────────────────────────────────┐
+        # │  CARD 4: Matchup Notes (optional)               │
+        # └─────────────────────────────────────────────────┘
         # === MATCHUP SECTION ===
-        # Rate matchup notes that were shown in pregame
         self._matchup_helpful_widgets: list[dict] = []
+
+        matchup_card = self._card(parent, border_color=COLORS["accent_gold"])
+        matchup_card.pack(fill="x", pady=(0, 12))
+        mc = ctk.CTkFrame(matchup_card, fg_color="transparent")
+        mc.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(
+            mc, text="MATCHUP",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["accent_gold"],
+        ).pack(anchor="w", pady=(0, 6))
+
         if matchup_notes_shown:
-            ctk.CTkFrame(
-                parent, fg_color=COLORS["border"], height=1
-            ).pack(fill="x", pady=8)
-
             ctk.CTkLabel(
-                parent,
-                text="MATCHUP NOTES",
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color=COLORS["accent_gold"],
-            ).pack(anchor="w", pady=(4, 4))
-
-            ctk.CTkLabel(
-                parent,
-                text="Were these matchup notes helpful?",
-                font=ctk.CTkFont(size=13),
-                text_color=COLORS["text"],
+                mc, text="Were these matchup notes helpful?",
+                font=ctk.CTkFont(size=12), text_color=COLORS["text_dim"],
             ).pack(anchor="w", pady=(0, 6))
 
             for mn in matchup_notes_shown:
-                mn_frame = ctk.CTkFrame(
-                    parent, fg_color=COLORS["bg_card"], corner_radius=8,
-                    border_width=1, border_color=COLORS["border"],
-                )
-                mn_frame.pack(fill="x", pady=(0, 6))
+                mn_row = ctk.CTkFrame(mc, fg_color=COLORS["bg_input"], corner_radius=6)
+                mn_row.pack(fill="x", pady=(0, 6))
+                mn_inner = ctk.CTkFrame(mn_row, fg_color="transparent")
+                mn_inner.pack(fill="x", padx=10, pady=6)
 
                 ctk.CTkLabel(
-                    mn_frame,
-                    text=mn.get("note", ""),
-                    font=ctk.CTkFont(size=12),
-                    text_color=COLORS["text"],
-                    wraplength=620, justify="left",
-                ).pack(padx=12, pady=(8, 4), anchor="w")
+                    mn_inner, text=mn.get("note", ""),
+                    font=ctk.CTkFont(size=12), text_color=COLORS["text"],
+                    wraplength=550, justify="left",
+                ).pack(anchor="w", pady=(0, 4))
 
-                btn_row = ctk.CTkFrame(mn_frame, fg_color="transparent")
-                btn_row.pack(fill="x", padx=12, pady=(0, 8))
-
-                helpful_var = tk.IntVar(value=-1)  # -1 = unrated, 1 = helpful, 0 = not helpful
-
+                btn_row = ctk.CTkFrame(mn_inner, fg_color="transparent")
+                btn_row.pack(anchor="w")
+                helpful_var = tk.IntVar(value=-1)
                 ctk.CTkButton(
                     btn_row, text="Helpful",
-                    font=ctk.CTkFont(size=11), height=26, width=80,
-                    corner_radius=13,
+                    font=ctk.CTkFont(size=10), height=22, width=70, corner_radius=11,
                     fg_color=COLORS["tag_bg"], hover_color="#1a4d2e",
                     text_color=COLORS["text_dim"],
-                    border_width=1, border_color=COLORS["border"],
                     command=lambda v=helpful_var: v.set(1),
-                ).pack(side="left", padx=(0, 6))
-
+                ).pack(side="left", padx=(0, 4))
                 ctk.CTkButton(
                     btn_row, text="Not helpful",
-                    font=ctk.CTkFont(size=11), height=26, width=100,
-                    corner_radius=13,
+                    font=ctk.CTkFont(size=10), height=22, width=85, corner_radius=11,
                     fg_color=COLORS["tag_bg"], hover_color="#4d1a1a",
                     text_color=COLORS["text_dim"],
-                    border_width=1, border_color=COLORS["border"],
                     command=lambda v=helpful_var: v.set(0),
                 ).pack(side="left")
-
                 self._matchup_helpful_widgets.append({
-                    "note_id": mn.get("id"),
-                    "helpful_var": helpful_var,
+                    "note_id": mn.get("id"), "helpful_var": helpful_var,
                 })
 
-        # Add Matchup Note section (always shown)
-        ctk.CTkFrame(
-            parent, fg_color=COLORS["border"], height=1
-        ).pack(fill="x", pady=8)
+            ctk.CTkFrame(mc, fg_color=COLORS["border"], height=1).pack(fill="x", pady=8)
 
+        # Add matchup note
+        enemy_row = ctk.CTkFrame(mc, fg_color="transparent")
+        enemy_row.pack(fill="x", pady=(0, 4))
         ctk.CTkLabel(
-            parent,
-            text="ADD MATCHUP NOTE",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=COLORS["accent_gold"],
-        ).pack(anchor="w", pady=(4, 4))
-
-        ctk.CTkLabel(
-            parent,
-            text="Enemy champion",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(4, 2))
-
+            enemy_row, text="Enemy:", font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_dim"], width=50,
+        ).pack(side="left")
         self.matchup_enemy_entry = ctk.CTkEntry(
-            parent, height=34, font=ctk.CTkFont(size=13),
+            enemy_row, height=30, font=ctk.CTkFont(size=12),
             fg_color=COLORS["bg_input"], text_color=COLORS["text"],
-            border_width=1, border_color=COLORS["border"], corner_radius=8,
-            placeholder_text="e.g., Zed, Yasuo...",
+            border_width=1, border_color=COLORS["border"], corner_radius=6,
+            placeholder_text="e.g., Zed",
         )
-        self.matchup_enemy_entry.pack(fill="x", pady=(0, 6))
+        self.matchup_enemy_entry.pack(side="left", fill="x", expand=True, padx=(4, 0))
         if enemy_laner:
             self.matchup_enemy_entry.insert(0, enemy_laner)
 
-        ctk.CTkLabel(
-            parent,
-            text="Matchup note (optional)",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text"],
-        ).pack(anchor="w", pady=(2, 2))
-
         self.matchup_note_entry = ctk.CTkTextbox(
-            parent, height=60, font=ctk.CTkFont(size=13),
+            mc, height=45, font=ctk.CTkFont(size=12),
             fg_color=COLORS["bg_input"], text_color=COLORS["text"],
-            border_width=1, border_color=COLORS["border"], corner_radius=8,
+            border_width=1, border_color=COLORS["border"], corner_radius=6,
         )
-        self.matchup_note_entry.pack(fill="x", pady=(0, 8))
+        self.matchup_note_entry.pack(fill="x", pady=(4, 0))
 
     def _render_objective_prompts(self, parent, obj_id: int, prompts: list[dict],
                                     border_color: str):
@@ -1020,6 +992,15 @@ class ReviewPanel(ctk.CTkFrame):
             "widget": widget,
         })
 
+    def _select_attribution(self, key: str):
+        """Highlight the selected attribution button."""
+        self._attribution_var = key
+        for k, btn in self._attribution_buttons.items():
+            if k == key:
+                btn.configure(fg_color=COLORS["accent_blue"], text_color="#ffffff")
+            else:
+                btn.configure(fg_color=COLORS["tag_bg"], text_color=COLORS["text_dim"])
+
     def _on_mental_slider_change(self, value):
         """Update mental rating label when slider moves."""
         val = int(round(value))
@@ -1065,12 +1046,26 @@ class ReviewPanel(ctk.CTkFrame):
         review_data = {
             "game_id": self.stats.game_id,
             "win": self.stats.win,
-            "notes": self.notes.get("1.0", "end-1c").strip(),
+            "notes": self.notes.get("1.0", "end-1c").strip() if self.notes else "",
             "rating": 0,
             "mental_rating": self._mental_rating,
-            "mistakes": self.mistakes.get("1.0", "end-1c").strip(),
+            "mistakes": "",
             "went_well": self.went_well.get("1.0", "end-1c").strip(),
             "focus_next": self.focus_next.get().strip(),
+            "spotted_problems": self.spotted_problems.get("1.0", "end-1c").strip() if self.spotted_problems else "",
+            "outside_control": (
+                self.outside_control.get("1.0", "end-1c").strip()
+                if self.outside_control else ""
+            ),
+            "within_control": (
+                self.within_control.get("1.0", "end-1c").strip()
+                if self.within_control else ""
+            ),
+            "attribution": self._attribution_var,
+            "personal_contribution": (
+                self.personal_contribution.get("1.0", "end-1c").strip()
+                if self.personal_contribution else ""
+            ),
             "mental_handled": (
                 self.mental_handled.get("1.0", "end-1c").strip()
                 if self.mental_handled else ""
@@ -1102,6 +1097,14 @@ class ReviewPanel(ctk.CTkFrame):
         """Navigate back to the previous page."""
         if self._on_back:
             self._on_back()
+
+    def update_bookmarks(self, bookmarks: list[dict]):
+        """Refresh the bookmarks section with new data (e.g. after VOD player)."""
+        self._bookmarks = bookmarks
+        for child in self._bookmarks_frame.winfo_children():
+            child.destroy()
+        if self._bookmarks:
+            self._build_bookmarks_section(self._bookmarks_frame)
 
 
 # Legacy alias — kept so existing imports don't break
