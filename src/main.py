@@ -150,6 +150,7 @@ class App:
             pystray.MenuItem("Open App", self._show_app_from_tray),
             pystray.MenuItem("Manual Entry", self._show_manual_entry),
             pystray.MenuItem("Session Overlay", self._show_session_overlay_from_tray),
+            pystray.MenuItem("Tilt Check", self._show_tilt_check_from_tray),
             pystray.MenuItem("Settings", self._show_settings_from_tray),
             pystray.MenuItem("Open Data Folder", self._open_data_folder),
             pystray.Menu.SEPARATOR,
@@ -554,6 +555,14 @@ class App:
         """Delete a bookmark."""
         self.db.delete_bookmark(bookmark_id)
         logger.info(f"Bookmark {bookmark_id} deleted")
+
+    def _show_tilt_check_from_tray(self, icon=None, item=None):
+        """Open the tilt check page from tray."""
+        def _open():
+            self.app_window.deiconify()
+            self.app_window.lift()
+            self.app_window.navigate_to("tilt_check")
+        self.app_window.after(0, _open)
 
     def _show_settings_from_tray(self, icon=None, item=None):
         """Open the settings page from tray."""

@@ -13,6 +13,7 @@ from .game_review import SessionGameReviewWindow, SessionGameReviewPanel
 from .dashboard import DashboardWindow
 from .vod_player import VodPlayerWindow, VodPlayerPanel
 from .settings import SettingsWindow
+from .tilt_check import TiltCheckPage
 from .app_window import AppWindow
 
 __all__ = [
@@ -22,5 +23,5 @@ __all__ = [
     "SessionLoggerWindow", "generate_and_copy",
     "SessionGameReviewWindow", "SessionGameReviewPanel",
     "DashboardWindow", "VodPlayerWindow", "VodPlayerPanel",
-    "SettingsWindow", "AppWindow",
+    "SettingsWindow", "TiltCheckPage", "AppWindow",
 ]

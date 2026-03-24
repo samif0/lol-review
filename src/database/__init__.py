@@ -21,6 +21,7 @@ from .prompts import PromptsRepository
 from .rules import RulesRepository
 from .session_log import SessionLogRepository
 from .tags import TagRepository
+from .tilt_checks import TiltCheckRepository
 from .vod import VodRepository
 
 __all__ = ["Database", "DEFAULT_DB_PATH"]
@@ -48,6 +49,7 @@ class Database:
         self.derived_events = DerivedEventsRepository(self._conn_mgr)
         self.prompts = PromptsRepository(self._conn_mgr)
         self.matchup_notes = MatchupNotesRepository(self._conn_mgr)
+        self.tilt_checks = TiltCheckRepository(self._conn_mgr)
 
         # One-time cleanup
         self.session_log.cleanup_mismatched_entries()

@@ -370,6 +370,21 @@ DEFAULT_CONCEPT_TAGS = [
 ]
 
 # Pre-populate some useful default tags
+CREATE_TILT_CHECKS_TABLE = """
+CREATE TABLE IF NOT EXISTS tilt_checks (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    emotion           TEXT NOT NULL,
+    intensity_before  INTEGER NOT NULL,
+    intensity_after   INTEGER,
+    reframe_thought   TEXT DEFAULT '',
+    reframe_response  TEXT DEFAULT '',
+    thought_type      TEXT DEFAULT '',
+    cue_word          TEXT DEFAULT '',
+    focus_intention   TEXT DEFAULT '',
+    created_at        INTEGER
+);
+"""
+
 DEFAULT_TAGS = [
     ("Tilted", "#ef4444"),
     ("Stomped Lane", "#22c55e"),

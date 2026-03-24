@@ -788,20 +788,33 @@ class ReviewPanel(ctk.CTkFrame):
                 btn_row = ctk.CTkFrame(mn_inner, fg_color="transparent")
                 btn_row.pack(anchor="w")
                 helpful_var = tk.IntVar(value=-1)
-                ctk.CTkButton(
+                helpful_btn = ctk.CTkButton(
                     btn_row, text="Helpful",
                     font=ctk.CTkFont(size=10), height=22, width=70, corner_radius=11,
                     fg_color=COLORS["tag_bg"], hover_color="#1a4d2e",
                     text_color=COLORS["text_dim"],
-                    command=lambda v=helpful_var: v.set(1),
-                ).pack(side="left", padx=(0, 4))
-                ctk.CTkButton(
+                )
+                helpful_btn.pack(side="left", padx=(0, 4))
+                not_helpful_btn = ctk.CTkButton(
                     btn_row, text="Not helpful",
                     font=ctk.CTkFont(size=10), height=22, width=85, corner_radius=11,
                     fg_color=COLORS["tag_bg"], hover_color="#4d1a1a",
                     text_color=COLORS["text_dim"],
-                    command=lambda v=helpful_var: v.set(0),
-                ).pack(side="left")
+                )
+                not_helpful_btn.pack(side="left")
+
+                def _on_helpful(v=helpful_var, hb=helpful_btn, nhb=not_helpful_btn):
+                    v.set(1)
+                    hb.configure(fg_color="#1a4d2e", text_color=COLORS["text"])
+                    nhb.configure(fg_color=COLORS["tag_bg"], text_color=COLORS["text_dim"])
+
+                def _on_not_helpful(v=helpful_var, hb=helpful_btn, nhb=not_helpful_btn):
+                    v.set(0)
+                    nhb.configure(fg_color="#4d1a1a", text_color=COLORS["text"])
+                    hb.configure(fg_color=COLORS["tag_bg"], text_color=COLORS["text_dim"])
+
+                helpful_btn.configure(command=_on_helpful)
+                not_helpful_btn.configure(command=_on_not_helpful)
                 self._matchup_helpful_widgets.append({
                     "note_id": mn.get("id"), "helpful_var": helpful_var,
                 })

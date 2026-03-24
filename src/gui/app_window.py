@@ -30,6 +30,7 @@ from ..version import __version__
 from .claude_context import generate_and_copy
 from .charts import SimpleLineChart
 from .review import ReviewPanel
+from .tilt_check import TiltCheckPage
 from .vod_player import VodPlayerPanel
 
 logger = logging.getLogger(__name__)
@@ -3324,7 +3325,7 @@ class AppWindow(ctk.CTk):
     """Single-window app with sidebar navigation."""
 
     # Sidebar page names (have nav items)
-    _SIDEBAR_PAGES = {"home", "session", "objectives", "rules", "history", "losses", "stats", "settings"}
+    _SIDEBAR_PAGES = {"home", "session", "objectives", "rules", "tilt_check", "history", "losses", "stats", "settings"}
 
     def __init__(self, db, on_minimize, on_open_vod, on_open_manual_entry,
                  on_settings_saved=None,
@@ -3406,6 +3407,7 @@ class AppWindow(ctk.CTk):
             ("📋", "Session", "session"),
             ("🎯", "Objectives", "objectives"),
             ("📏", "Rules", "rules"),
+            ("🧊", "Tilt Check", "tilt_check"),
             ("📜", "History", "history"),
             ("💔", "Losses", "losses"),
             ("📊", "Stats", "stats"),
@@ -3493,6 +3495,9 @@ class AppWindow(ctk.CTk):
             self._content, db=self.db,
         )
         self._pages["rules"] = RulesPage(
+            self._content, db=self.db,
+        )
+        self._pages["tilt_check"] = TiltCheckPage(
             self._content, db=self.db,
         )
         self._pages["history"] = HistoryPage(

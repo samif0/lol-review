@@ -39,6 +39,7 @@ from .schema import (
     MIGRATE_SESSION_LOG_MENTAL,
     MIGRATE_SESSION_LOG_MOOD,
     CREATE_SESSIONS_TABLE,
+    CREATE_TILT_CHECKS_TABLE,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,8 @@ class ConnectionManager:
         conn.execute(CREATE_OBJECTIVE_PROMPTS_TABLE)
         conn.execute(CREATE_PROMPT_ANSWERS_TABLE)
         conn.execute(CREATE_MATCHUP_NOTES_TABLE)
+
+        conn.execute(CREATE_TILT_CHECKS_TABLE)
 
         # Migrate: add enemy_laner column to games if missing
         for stmt in MIGRATE_GAMES_ENEMY_LANER:
