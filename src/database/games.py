@@ -463,3 +463,96 @@ class GameRepository:
             (limit,),
         ).fetchall()
         return [dict(r) for r in reversed(rows)]
+
+    def get_matchup_stats(self) -> list[dict]:
+        """Get win rates grouped by champion vs enemy laner matchup."""
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            f"""SELECT champion_name, enemy_laner,
+                    COUNT(*) as games,
+                    SUM(win) as wins,
+                    ROUND(100.0 * SUM(win) / COUNT(*), 1) as winrate,
+                    ROUND(AVG(kda_ratio), 2) as avg_kda,
+                    ROUND(AVG(deaths), 1) as avg_deaths
+                FROM games
+                WHERE enemy_laner IS NOT NULL AND enemy_laner != ''
+                    {CASUAL_MODE_SQL_FILTER}
+                GROUP BY champion_name, enemy_laner
+                HAVING COUNT(*) >= 2
+                ORDER BY COUNT(*) DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_performance_trends(self, limit: int = 50) -> list[dict]:
+        """Get per-game performance metrics for trend charting."""
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            f"""SELECT cs_per_min, vision_score, kda_ratio, deaths,
+                    kill_participation, champion_name, timestamp, win
+                FROM games
+                WHERE 1=1 {CASUAL_MODE_SQL_FILTER}
+                ORDER BY timestamp DESC
+                LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in reversed(rows)]
+
+    def get_role_stats(self) -> list[dict]:
+        """Get performance stats grouped by role/position."""
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            f"""SELECT position,
+                    COUNT(*) as games,
+                    SUM(win) as wins,
+                    ROUND(100.0 * SUM(win) / COUNT(*), 1) as winrate,
+                    ROUND(AVG(kda_ratio), 2) as avg_kda
+                FROM games
+                WHERE position IS NOT NULL AND position != ''
+                    {CASUAL_MODE_SQL_FILTER}
+                GROUP BY position
+                ORDER BY COUNT(*) DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_duration_stats(self) -> list[dict]:
+        """Get win rates bucketed by game duration."""
+        conn = self._conn_mgr.get_conn()
+        rows = conn.execute(
+            f"""SELECT
+                    CASE
+                        WHEN game_duration < 1200 THEN '< 20m'
+                        WHEN game_duration < 1800 THEN '20-30m'
+                        WHEN game_duration < 2400 THEN '30-40m'
+                        ELSE '40m+'
+                    END as bucket,
+                    COUNT(*) as games,
+                    SUM(win) as wins,
+                    ROUND(100.0 * SUM(win) / COUNT(*), 1) as winrate
+                FROM games
+                WHERE game_duration > 0 {CASUAL_MODE_SQL_FILTER}
+                GROUP BY bucket
+                ORDER BY MIN(game_duration)"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_recent_stats(self, limit: int = 20) -> dict:
+        """Get aggregate stats over the last N games for suggestion thresholds."""
+        conn = self._conn_mgr.get_conn()
+        row = conn.execute(
+            f"""SELECT
+                    COUNT(*) as games,
+                    ROUND(100.0 * SUM(win) / MAX(COUNT(*), 1), 1) as winrate,
+                    ROUND(AVG(cs_per_min), 1) as avg_cs_min,
+                    ROUND(AVG(vision_score), 1) as avg_vision,
+                    ROUND(AVG(deaths), 1) as avg_deaths,
+                    ROUND(AVG(kda_ratio), 2) as avg_kda,
+                    ROUND(AVG(kills), 1) as avg_kills
+                FROM (
+                    SELECT * FROM games
+                    WHERE 1=1 {CASUAL_MODE_SQL_FILTER}
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                )""",
+            (limit,),
+        ).fetchone()
+        return dict(row) if row else {}

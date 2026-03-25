@@ -24,11 +24,12 @@ from ..constants import (
     ADHERENCE_STREAK_LOCKED_IN, UNREVIEWED_GAMES_DAYS,
     UNREVIEWED_GAMES_DISPLAY_LIMIT, HISTORY_PAGE_SIZE,
 )
+from ..analysis import generate_player_profile, SuggestionEngine
 from ..database.game_events import EVENT_STYLES
 from ..lcu import GameStats
 from ..version import __version__
 from .claude_context import generate_and_copy
-from .charts import SimpleLineChart
+from .charts import SimpleLineChart, SimpleBarChart
 from .review import ReviewPanel
 from .tilt_check import TiltCheckPage
 from .vod_player import VodPlayerPanel
@@ -1186,16 +1187,23 @@ class StatsPage(ctk.CTkFrame):
     def _populate(self, body):
         hrow = ctk.CTkFrame(body, fg_color="transparent")
         hrow.pack(fill="x", pady=(0, 16))
-        ctk.CTkLabel(hrow, text="Stats", font=ctk.CTkFont(size=22, weight="bold"),
+        ctk.CTkLabel(hrow, text="Analytics", font=ctk.CTkFont(size=22, weight="bold"),
                      text_color=COLORS["text"]).pack(side="left")
         ctk.CTkLabel(hrow, text="Performance overview",
                      font=ctk.CTkFont(size=13),
                      text_color=COLORS["text_dim"]).pack(side="left", padx=(12, 0))
 
+        self._build_suggestions(body)
         self._build_overall(body)
+        self._build_champion_performance(body)
+        self._build_matchup_analysis(body)
+        self._build_concept_tags_chart(body)
         self._build_mental_winrate(body)
         self._build_mood_winrate(body)
         self._build_attribution_breakdown(body)
+        self._build_performance_trends(body)
+        self._build_role_stats(body)
+        self._build_duration_stats(body)
         self._build_seven_day(body)
         self._build_winrate_trend(body)
         self._build_mental_trend(body)
@@ -1513,6 +1521,301 @@ class StatsPage(ctk.CTkFrame):
             target_value=7.0,
             target_color=COLORS["win_green"],
             height=200,
+        )
+        chart.pack(fill="x", pady=(0, 4))
+
+    # ── New Analytics sections ─────────────────────────────────
+
+    def _build_suggestions(self, parent):
+        """Show smart objective suggestions at the top of the page."""
+        try:
+            profile = generate_player_profile(self.db)
+            engine = SuggestionEngine()
+            suggestions = engine.generate(profile, limit=3)
+        except Exception:
+            return
+        if not suggestions:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="SUGGESTED OBJECTIVES",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["accent_gold"]).pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(inner, text="Based on your recent gameplay patterns",
+                     font=ctk.CTkFont(size=12),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 10))
+
+        for s in suggestions:
+            scard = ctk.CTkFrame(inner, fg_color=COLORS["bg_input"], corner_radius=8,
+                                 border_width=1, border_color=COLORS["accent_gold"])
+            scard.pack(fill="x", pady=(0, 8))
+            sinner = ctk.CTkFrame(scard, fg_color="transparent")
+            sinner.pack(fill="x", padx=12, pady=10)
+
+            title_row = ctk.CTkFrame(sinner, fg_color="transparent")
+            title_row.pack(fill="x")
+
+            ctk.CTkLabel(
+                title_row, text=s["title"],
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=COLORS["text"],
+            ).pack(side="left")
+
+            ctk.CTkButton(
+                title_row, text="+ Create Objective",
+                font=ctk.CTkFont(size=11), height=26, width=130,
+                fg_color=COLORS["accent_blue"], hover_color="#0077cc",
+                command=lambda sg=s: self._create_from_suggestion(sg),
+            ).pack(side="right")
+
+            ctk.CTkLabel(
+                sinner, text=s["reason"],
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_dim"],
+                wraplength=600, justify="left",
+            ).pack(anchor="w", pady=(4, 0))
+
+    def _create_from_suggestion(self, suggestion: dict):
+        """Open the new objective dialog pre-filled with suggestion data."""
+        _NewObjectiveDialog(
+            self, db=self.db, on_created=self.refresh,
+            prefill_title=suggestion.get("title", ""),
+            prefill_skill_area=suggestion.get("skill_area", ""),
+            prefill_type=suggestion.get("type", "primary"),
+            prefill_criteria=suggestion.get("completion_criteria", ""),
+            prefill_description=suggestion.get("description", ""),
+        )
+
+    def _build_champion_performance(self, parent):
+        """Show per-champion performance table."""
+        try:
+            champs = self.db.games.get_champion_stats()
+        except Exception:
+            return
+        champs = [c for c in champs if c.get("games_played", 0) >= 3]
+        if not champs:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="CHAMPION PERFORMANCE",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 10))
+
+        # Header
+        hdr = ctk.CTkFrame(inner, fg_color="transparent")
+        hdr.pack(fill="x")
+        cols = [("Champion", 120), ("Games", 60), ("WR%", 60), ("KDA", 60),
+                ("CS/m", 60), ("Vision", 60)]
+        for text, w in cols:
+            ctk.CTkLabel(hdr, text=text, width=w,
+                         font=ctk.CTkFont(size=10, weight="bold"),
+                         text_color=COLORS["text_dim"]).pack(side="left")
+
+        for c in champs[:15]:
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            wr = c.get("winrate", 0)
+            wr_color = COLORS["win_green"] if wr >= 55 else (COLORS["loss_red"] if wr < 45 else COLORS["text"])
+            vals = [
+                (c.get("champion_name", "?")[:14], 120, COLORS["text"]),
+                (str(c.get("games_played", 0)), 60, COLORS["text"]),
+                (f"{wr:.0f}%", 60, wr_color),
+                (f"{c.get('avg_kda', 0):.1f}", 60, COLORS["text"]),
+                (f"{c.get('avg_cs_min', 0):.1f}", 60, COLORS["text"]),
+                (f"{c.get('avg_vision', 0):.0f}", 60, COLORS["text"]),
+            ]
+            for text, w, color in vals:
+                ctk.CTkLabel(row, text=text, width=w,
+                             font=ctk.CTkFont(size=12),
+                             text_color=color).pack(side="left")
+
+    def _build_matchup_analysis(self, parent):
+        """Show matchup winrate table."""
+        try:
+            matchups = self.db.games.get_matchup_stats()
+        except Exception:
+            return
+        if not matchups:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="MATCHUP ANALYSIS",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 10))
+
+        hdr = ctk.CTkFrame(inner, fg_color="transparent")
+        hdr.pack(fill="x")
+        for text, w in [("You", 100), ("vs", 100), ("Games", 60), ("WR%", 60), ("KDA", 60), ("Deaths", 60)]:
+            ctk.CTkLabel(hdr, text=text, width=w,
+                         font=ctk.CTkFont(size=10, weight="bold"),
+                         text_color=COLORS["text_dim"]).pack(side="left")
+
+        for m in matchups[:20]:
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            wr = m.get("winrate", 0)
+            wr_color = COLORS["win_green"] if wr >= 55 else (COLORS["loss_red"] if wr < 45 else COLORS["text"])
+            vals = [
+                (m.get("champion_name", "?")[:12], 100, COLORS["text"]),
+                (m.get("enemy_laner", "?")[:12], 100, COLORS["text"]),
+                (str(m.get("games", 0)), 60, COLORS["text"]),
+                (f"{wr:.0f}%", 60, wr_color),
+                (f"{m.get('avg_kda', 0):.1f}", 60, COLORS["text"]),
+                (f"{m.get('avg_deaths', 0):.1f}", 60, COLORS["text"]),
+            ]
+            for text, w, color in vals:
+                ctk.CTkLabel(row, text=text, width=w,
+                             font=ctk.CTkFont(size=12),
+                             text_color=color).pack(side="left")
+
+    def _build_concept_tags_chart(self, parent):
+        """Show concept tag frequency as a bar chart."""
+        try:
+            tags = self.db.concept_tags.get_tag_frequency(limit=12)
+        except Exception:
+            return
+        if not tags:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="CONCEPT TAG FREQUENCY",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+        data = [(t["name"][:12], t["count"]) for t in tags]
+        colors = [t.get("color", COLORS["accent_blue"]) for t in tags]
+
+        chart = SimpleBarChart(
+            inner, data=data, colors=colors,
+            height=200, title="Games tagged",
+        )
+        chart.pack(fill="x", pady=(0, 4))
+
+    def _build_performance_trends(self, parent):
+        """Show CS/min and vision score trend lines."""
+        try:
+            trends = self.db.games.get_performance_trends(limit=50)
+        except Exception:
+            return
+        if len(trends) < 5:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="PERFORMANCE TRENDS",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+        # CS/min trend
+        cs_data = [
+            (t.get("champion_name", "")[:4], t.get("cs_per_min", 0) or 0)
+            for t in trends
+        ]
+        cs_chart = SimpleLineChart(
+            inner, data=cs_data,
+            color=COLORS["accent_gold"],
+            height=150,
+            title=f"CS/min — Last {len(trends)} Games",
+        )
+        cs_chart.pack(fill="x", pady=(0, 12))
+
+        # Vision score trend
+        vis_data = [
+            (t.get("champion_name", "")[:4], t.get("vision_score", 0) or 0)
+            for t in trends
+        ]
+        vis_chart = SimpleLineChart(
+            inner, data=vis_data,
+            color="#06b6d4",
+            height=150,
+            title=f"Vision Score — Last {len(trends)} Games",
+        )
+        vis_chart.pack(fill="x", pady=(0, 4))
+
+    def _build_role_stats(self, parent):
+        """Show performance by role/position."""
+        try:
+            roles = self.db.games.get_role_stats()
+        except Exception:
+            return
+        if not roles:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="ROLE PERFORMANCE",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 10))
+
+        hdr = ctk.CTkFrame(inner, fg_color="transparent")
+        hdr.pack(fill="x")
+        for text, w in [("Role", 120), ("Games", 80), ("WR%", 80), ("KDA", 80)]:
+            ctk.CTkLabel(hdr, text=text, width=w,
+                         font=ctk.CTkFont(size=10, weight="bold"),
+                         text_color=COLORS["text_dim"]).pack(side="left")
+
+        for r in roles:
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            wr = r.get("winrate", 0)
+            wr_color = COLORS["win_green"] if wr >= 55 else (COLORS["loss_red"] if wr < 45 else COLORS["text"])
+            vals = [
+                (r.get("position", "?").title(), 120, COLORS["text"]),
+                (str(r.get("games", 0)), 80, COLORS["text"]),
+                (f"{wr:.0f}%", 80, wr_color),
+                (f"{r.get('avg_kda', 0):.1f}", 80, COLORS["text"]),
+            ]
+            for text, w, color in vals:
+                ctk.CTkLabel(row, text=text, width=w,
+                             font=ctk.CTkFont(size=12),
+                             text_color=color).pack(side="left")
+
+    def _build_duration_stats(self, parent):
+        """Show winrate by game duration buckets."""
+        try:
+            buckets = self.db.games.get_duration_stats()
+        except Exception:
+            return
+        if not buckets:
+            return
+
+        section = _card(parent)
+        section.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(inner, text="WINRATE BY GAME LENGTH",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=COLORS["text_dim"]).pack(anchor="w", pady=(0, 8))
+
+        data = [(b["bucket"], b["winrate"]) for b in buckets]
+        chart = SimpleBarChart(
+            inner, data=data,
+            color=COLORS["accent_blue"],
+            height=180,
+            title="Win% by duration",
         )
         chart.pack(fill="x", pady=(0, 4))
 
@@ -1925,10 +2228,17 @@ _LEVEL_COLORS = ["#6b7280", "#3b82f6", "#8b5cf6", "#eab308"]
 class _NewObjectiveDialog(ctk.CTkToplevel):
     """Modal form for creating a new learning objective."""
 
-    def __init__(self, parent, db, on_created, **kw):
+    def __init__(self, parent, db, on_created, prefill_title="",
+                 prefill_skill_area="", prefill_type="", prefill_criteria="",
+                 prefill_description="", **kw):
         super().__init__(parent, **kw)
         self.db = db
         self._on_created = on_created
+        self._prefill = {
+            "title": prefill_title, "skill_area": prefill_skill_area,
+            "type": prefill_type, "criteria": prefill_criteria,
+            "description": prefill_description,
+        }
 
         self.title("New Learning Objective")
         self.geometry("520x680")
@@ -2004,6 +2314,18 @@ class _NewObjectiveDialog(ctk.CTkToplevel):
             border_width=1, border_color=COLORS["border"], corner_radius=8,
         )
         self._desc_box.pack(fill="x", pady=(4, 12))
+
+        # Apply prefill values if provided
+        if self._prefill.get("type"):
+            self._type_var.set(self._prefill["type"])
+        if self._prefill.get("title"):
+            self._title_entry.insert(0, self._prefill["title"])
+        if self._prefill.get("skill_area"):
+            self._skill_entry.insert(0, self._prefill["skill_area"])
+        if self._prefill.get("criteria"):
+            self._criteria_box.insert("1.0", self._prefill["criteria"])
+        if self._prefill.get("description"):
+            self._desc_box.insert("1.0", self._prefill["description"])
 
         # Review Prompts (optional)
         ctk.CTkLabel(scroll, text="Review Prompts (optional)",
@@ -3438,7 +3760,7 @@ class AppWindow(ctk.CTk):
             ("🧊", "Tilt Check", "tilt_check"),
             ("📜", "History", "history"),
             ("💔", "Losses", "losses"),
-            ("📊", "Stats", "stats"),
+            ("📊", "Analytics", "stats"),
             ("⚙️", "Settings", "settings"),
         ]:
             self._build_nav_item(sb, icon, label, page)

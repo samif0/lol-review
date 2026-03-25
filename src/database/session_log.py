@@ -351,3 +351,44 @@ class SessionLogRepository:
             "SELECT * FROM sessions WHERE date = ?", (date_str,)
         ).fetchone()
         return dict(row) if row else None
+
+    def get_session_patterns(self) -> dict:
+        """Get aggregate session-level patterns for player profiling."""
+        conn = self._conn_mgr.get_conn()
+        # Average games per session day
+        row = conn.execute(
+            """SELECT ROUND(AVG(day_count), 1) as avg_games_per_session
+               FROM (SELECT date, COUNT(*) as day_count
+                     FROM session_log GROUP BY date)"""
+        ).fetchone()
+        avg_games = row["avg_games_per_session"] if row else 0
+
+        # Mental delta: avg difference between first and last game mental per day
+        rows = conn.execute(
+            """SELECT date,
+                    FIRST_VALUE(mental_rating) OVER (PARTITION BY date ORDER BY timestamp) as first_mental,
+                    FIRST_VALUE(mental_rating) OVER (PARTITION BY date ORDER BY timestamp DESC) as last_mental
+               FROM session_log
+               WHERE mental_rating IS NOT NULL
+               GROUP BY date"""
+        ).fetchall()
+        deltas = [r["last_mental"] - r["first_mental"] for r in rows if r["first_mental"] and r["last_mental"]]
+        avg_mental_delta = round(sum(deltas) / len(deltas), 1) if deltas else 0
+
+        # Tilt frequency: % of days with a rule broken
+        tilt_row = conn.execute(
+            """SELECT
+                    COUNT(DISTINCT date) as total_days,
+                    COUNT(DISTINCT CASE WHEN rule_broken = 1 THEN date END) as tilt_days
+               FROM session_log"""
+        ).fetchone()
+        total_days = tilt_row["total_days"] if tilt_row else 0
+        tilt_days = tilt_row["tilt_days"] if tilt_row else 0
+        tilt_pct = round(100.0 * tilt_days / total_days, 1) if total_days else 0
+
+        return {
+            "avg_games_per_session": avg_games or 0,
+            "avg_mental_delta": avg_mental_delta,
+            "tilt_frequency_pct": tilt_pct,
+            "total_session_days": total_days,
+        }

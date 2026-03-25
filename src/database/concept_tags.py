@@ -49,3 +49,22 @@ class ConceptTagRepository:
                 (game_id, tid),
             )
         conn.commit()
+
+    def get_tag_frequency(self, limit: int = 20) -> list[dict]:
+        """Get concept tag usage frequency across all games."""
+        conn = self._conn_mgr.get_conn()
+        total_games = conn.execute("SELECT COUNT(DISTINCT game_id) FROM game_concept_tags").fetchone()[0]
+        if not total_games:
+            return []
+        rows = conn.execute(
+            """SELECT ct.name, ct.polarity, ct.color,
+                    COUNT(*) as count,
+                    ROUND(100.0 * COUNT(*) / ?, 1) as game_pct
+                FROM game_concept_tags gct
+                JOIN concept_tags ct ON ct.id = gct.tag_id
+                GROUP BY gct.tag_id
+                ORDER BY COUNT(*) DESC
+                LIMIT ?""",
+            (total_games, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]

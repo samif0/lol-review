@@ -169,6 +169,7 @@ class SimpleBarChart(ctk.CTkFrame):
         parent,
         data: list[tuple[str, float]],
         color: str = COLORS["accent_blue"],
+        colors: list[str] | None = None,
         height: int = 200,
         title: str | None = None,
         **kwargs,
@@ -176,6 +177,7 @@ class SimpleBarChart(ctk.CTkFrame):
         super().__init__(parent, fg_color=COLORS["bg_input"], corner_radius=8, **kwargs)
         self._data = data
         self._color = color
+        self._colors = colors  # Optional per-bar colors
         self._chart_height = height
         self._title = title
 
@@ -257,9 +259,11 @@ class SimpleBarChart(ctk.CTkFrame):
             y_top = mt + plot_h - bar_h
             y_bot = mt + plot_h
 
+            bar_color = (self._colors[i] if self._colors and i < len(self._colors)
+                         else self._color)
             c.create_rectangle(
                 x, y_top, x + bar_w, y_bot,
-                fill=self._color, outline=self._color,
+                fill=bar_color, outline=bar_color,
             )
 
             # Value label on top of bar
