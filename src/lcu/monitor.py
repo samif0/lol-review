@@ -53,6 +53,8 @@ class GameMonitor:
         self._event_collector: Optional[LiveEventCollector] = None
         self._collector_thread: Optional[threading.Thread] = None
         self._reconcile_pending = False
+        self._cred_fail_count = 0
+        self._max_cred_backoff = 6  # skip up to 6 ticks (~30s at 5s intervals)
 
     def start(self):
         """Start the monitor loop. Call from a background thread."""
@@ -76,14 +78,25 @@ class GameMonitor:
         """Single monitoring cycle: ensure connection + check phase."""
         # Try to connect if we don't have a client
         if self._client is None or not self._connected:
+            # Backoff: skip ticks when repeatedly failing to find credentials
+            if self._cred_fail_count > 0:
+                self._cred_fail_count -= 1
+                return
+
             creds = find_credentials()
             if creds is None:
+                self._cred_fail_count = min(
+                    self._cred_fail_count + 2, self._max_cred_backoff
+                )
                 if self._connected:
                     self._connected = False
+                    logger.info("League client disconnected — credentials not found")
+                    self._stop_event_collector()
                     if self.on_disconnect:
                         self.on_disconnect()
                 return
 
+            self._cred_fail_count = 0
             self._client = LCUClient(creds)
             if self._client.is_connected():
                 self._connected = True
@@ -97,9 +110,11 @@ class GameMonitor:
         # Check current gameflow phase
         try:
             phase = self._client.get_gameflow_phase()
-        except Exception:
+        except Exception as e:
             # Client might have closed
+            logger.warning(f"League client connection lost: {e}")
             self._connected = False
+            self._stop_event_collector()
             self._client = None
             if self.on_disconnect:
                 self.on_disconnect()

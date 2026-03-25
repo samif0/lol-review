@@ -135,17 +135,6 @@ class HistoryWindow(ctk.CTkToplevel):
             text_color=COLORS["text_dim"],
         ).pack(anchor="e")
 
-        # Show rating stars if reviewed
-        rating = game.get("rating", 0)
-        if rating > 0:
-            stars = "★" * rating + "☆" * (5 - rating)
-            ctk.CTkLabel(
-                right,
-                text=stars,
-                font=ctk.CTkFont(size=12),
-                text_color=COLORS["star_active"],
-            ).pack(anchor="e")
-
         # Action buttons row
         if self.db:
             btn_row = ctk.CTkFrame(right, fg_color="transparent")
@@ -155,7 +144,6 @@ class HistoryWindow(ctk.CTkToplevel):
                 game.get("mistakes", "").strip()
                 or game.get("went_well", "").strip()
                 or game.get("focus_next", "").strip()
-                or (game.get("rating") or 0) > 0
             )
             review_text = "Edit Review" if has_review else "Review"
             review_color = COLORS["tag_bg"] if has_review else COLORS["accent_blue"]

@@ -171,7 +171,7 @@ class SessionLoggerWindow(ctk.CTkToplevel):
 
         context_btn = ctk.CTkButton(
             btn_frame,
-            text="Open Claude Context Generator",
+            text="Copy Claude Context",
             font=ctk.CTkFont(size=13),
             height=36,
             corner_radius=6,
@@ -289,7 +289,6 @@ class SessionLoggerWindow(ctk.CTkToplevel):
                 game_data.get("mistakes", "").strip()
                 or game_data.get("went_well", "").strip()
                 or game_data.get("focus_next", "").strip()
-                or game_data.get("rating", 0) > 0
             )
 
         row = ctk.CTkFrame(
@@ -441,7 +440,7 @@ class SessionLoggerWindow(ctk.CTkToplevel):
         self.clipboard_clear()
         self.clipboard_append(context)
         self._context_btn.configure(text="Copied!")
-        self.after(1500, lambda: self._context_btn.configure(text="Claude Context"))
+        self.after(1500, lambda: self._context_btn.configure(text="Copy Claude Context"))
 
     def _auto_refresh(self):
         """Auto-refresh periodically. Wrapped in try/except so a transient

@@ -1060,7 +1060,6 @@ class ReviewPanel(ctk.CTkFrame):
             "game_id": self.stats.game_id,
             "win": self.stats.win,
             "notes": self.notes.get("1.0", "end-1c").strip() if self.notes else "",
-            "rating": 0,
             "mental_rating": self._mental_rating,
             "mistakes": "",
             "went_well": self.went_well.get("1.0", "end-1c").strip(),

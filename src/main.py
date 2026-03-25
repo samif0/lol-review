@@ -24,7 +24,7 @@ from .constants import (
     VOD_RETRY_DELAY_MS,
 )
 from .database import Database, DEFAULT_DB_PATH
-from .config import is_ascent_enabled
+from .config import is_ascent_enabled, get_backup_enabled, get_backup_folder
 from .gui import (
     AppWindow, PreGameWindow,
     SessionRulesOverlay, ManualEntryWindow,
@@ -85,9 +85,43 @@ class App:
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
+    def _maybe_backup_database(self):
+        """Back up the database file if backups are enabled."""
+        if not get_backup_enabled():
+            return
+        folder = get_backup_folder()
+        if not folder:
+            logger.debug("Backup enabled but no folder configured")
+            return
+        import shutil
+        from datetime import datetime
+        backup_name = f"lol_review_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        dest = Path(folder) / backup_name
+        try:
+            shutil.copy2(str(self.db.db_path), str(dest))
+            logger.info(f"Database backed up to {dest}")
+        except Exception as e:
+            logger.warning(f"Database backup failed: {e}")
+            return
+        # Prune: keep only the 5 most recent backups
+        backups = sorted(
+            Path(folder).glob("lol_review_backup_*.db"),
+            key=lambda p: p.stat().st_mtime,
+        )
+        while len(backups) > 5:
+            oldest = backups.pop(0)
+            try:
+                oldest.unlink()
+                logger.info(f"Pruned old backup: {oldest.name}")
+            except Exception:
+                pass
+
     def start(self):
         """Start the application: tray icon, game monitor, and tk mainloop."""
         logger.info(f"Starting LoL Game Review v{__version__}")
+
+        # Back up database if configured
+        self._maybe_backup_database()
 
         # Clean up .old exe and check update lock from a previous update.
         just_updated = post_update_startup()

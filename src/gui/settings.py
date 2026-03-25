@@ -12,6 +12,8 @@ from ..config import (
     get_keybinds, set_keybinds,
     get_clips_folder, set_clips_folder,
     get_clips_max_size_mb, set_clips_max_size_mb,
+    get_backup_enabled, set_backup_enabled,
+    get_backup_folder, set_backup_folder,
     DEFAULT_KEYBINDS, KEYBIND_LABELS,
 )
 from ..constants import COLORS
@@ -275,6 +277,78 @@ class SettingsWindow(ctk.CTkToplevel):
             text_color=COLORS["text_dim"],
         ).pack(anchor="w")
 
+        # ── Database Backup Section ───────────────────────────────
+        backup_section = ctk.CTkFrame(
+            scroll,
+            fg_color=COLORS["bg_card"],
+            corner_radius=10,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        backup_section.pack(fill="x", pady=(0, 12))
+
+        backup_inner = ctk.CTkFrame(backup_section, fg_color="transparent")
+        backup_inner.pack(fill="x", padx=14, pady=14)
+
+        ctk.CTkLabel(
+            backup_inner,
+            text="DATABASE BACKUP",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_dim"],
+        ).pack(anchor="w", pady=(0, 4))
+
+        ctk.CTkLabel(
+            backup_inner,
+            text="Back up your database automatically when the app starts. Keeps last 5 backups.",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_dim"],
+            wraplength=480,
+        ).pack(anchor="w", pady=(0, 8))
+
+        self._backup_enabled_var = ctk.BooleanVar(value=get_backup_enabled())
+        ctk.CTkCheckBox(
+            backup_inner,
+            text="Enable automatic backups",
+            variable=self._backup_enabled_var,
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text"],
+            fg_color=COLORS["accent_blue"],
+            hover_color="#0077cc",
+        ).pack(anchor="w", pady=(0, 10))
+
+        ctk.CTkLabel(
+            backup_inner,
+            text="Backup folder:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text"],
+        ).pack(anchor="w", pady=(0, 4))
+
+        backup_row = ctk.CTkFrame(backup_inner, fg_color="transparent")
+        backup_row.pack(fill="x", pady=(0, 4))
+
+        self._backup_folder_entry = ctk.CTkEntry(
+            backup_row,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text"],
+        )
+        self._backup_folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        existing_backup = get_backup_folder()
+        if existing_backup:
+            self._backup_folder_entry.insert(0, existing_backup)
+
+        ctk.CTkButton(
+            backup_row,
+            text="Browse",
+            font=ctk.CTkFont(size=12),
+            height=30,
+            width=80,
+            fg_color=COLORS["tag_bg"],
+            hover_color="#333344",
+            command=self._browse_backup_folder,
+        ).pack(side="right")
+
         # ── Keybinds Section ──────────────────────────────────────
         kb_section = ctk.CTkFrame(
             scroll,
@@ -508,6 +582,17 @@ class SettingsWindow(ctk.CTkToplevel):
         self._status_label.configure(text="Ascent VOD disabled", text_color=COLORS["text_dim"])
         set_ascent_folder("")
 
+    def _browse_backup_folder(self):
+        """Open a folder picker for the backup folder."""
+        initial = self._backup_folder_entry.get().strip() or None
+        folder = filedialog.askdirectory(
+            title="Select Backup Folder",
+            initialdir=initial,
+        )
+        if folder:
+            self._backup_folder_entry.delete(0, "end")
+            self._backup_folder_entry.insert(0, folder)
+
     def _browse_clips_folder(self):
         """Open a folder picker for the clips folder."""
         initial = self._clips_folder_entry.get().strip() or None
@@ -546,6 +631,15 @@ class SettingsWindow(ctk.CTkToplevel):
             set_clips_max_size_mb(max_mb)
         except ValueError:
             pass  # Keep existing value
+
+        # Save backup settings
+        set_backup_enabled(bool(self._backup_enabled_var.get()))
+        backup_folder = self._backup_folder_entry.get().strip()
+        if backup_folder:
+            Path(backup_folder).mkdir(parents=True, exist_ok=True)
+            set_backup_folder(backup_folder)
+        else:
+            set_backup_folder("")
 
         # Save keybinds
         set_keybinds(self._current_keybinds)
