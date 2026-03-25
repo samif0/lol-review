@@ -1236,7 +1236,7 @@ class StatsPage(ctk.CTkFrame):
         _stat_block(row, "Win Rate", f"{wr:.1f}%", wr_c)
         _stat_block(row, "Wins", str(wins), COLORS["win_green"])
         _stat_block(row, "Losses", str(total - wins), COLORS["loss_red"])
-        _stat_block(row, "Avg KDA", f"{overall.get('avg_kda', 0):.2f}", COLORS["accent_blue"])
+        _stat_block(row, "Avg KDA", f"{(overall.get('avg_kda') or 0):.2f}", COLORS["accent_blue"])
 
     def _build_mental_winrate(self, parent):
         try:
@@ -1622,15 +1622,15 @@ class StatsPage(ctk.CTkFrame):
         for c in champs[:15]:
             row = ctk.CTkFrame(inner, fg_color="transparent")
             row.pack(fill="x", pady=1)
-            wr = c.get("winrate", 0)
+            wr = c.get("winrate") or 0
             wr_color = COLORS["win_green"] if wr >= 55 else (COLORS["loss_red"] if wr < 45 else COLORS["text"])
             vals = [
                 (c.get("champion_name", "?")[:14], 120, COLORS["text"]),
-                (str(c.get("games_played", 0)), 60, COLORS["text"]),
+                (str(c.get("games_played") or 0), 60, COLORS["text"]),
                 (f"{wr:.0f}%", 60, wr_color),
-                (f"{c.get('avg_kda', 0):.1f}", 60, COLORS["text"]),
-                (f"{c.get('avg_cs_min', 0):.1f}", 60, COLORS["text"]),
-                (f"{c.get('avg_vision', 0):.0f}", 60, COLORS["text"]),
+                (f"{(c.get('avg_kda') or 0):.1f}", 60, COLORS["text"]),
+                (f"{(c.get('avg_cs_min') or 0):.1f}", 60, COLORS["text"]),
+                (f"{(c.get('avg_vision') or 0):.0f}", 60, COLORS["text"]),
             ]
             for text, w, color in vals:
                 ctk.CTkLabel(row, text=text, width=w,
@@ -1665,15 +1665,15 @@ class StatsPage(ctk.CTkFrame):
         for m in matchups[:20]:
             row = ctk.CTkFrame(inner, fg_color="transparent")
             row.pack(fill="x", pady=1)
-            wr = m.get("winrate", 0)
+            wr = m.get("winrate") or 0
             wr_color = COLORS["win_green"] if wr >= 55 else (COLORS["loss_red"] if wr < 45 else COLORS["text"])
             vals = [
-                (m.get("champion_name", "?")[:12], 100, COLORS["text"]),
-                (m.get("enemy_laner", "?")[:12], 100, COLORS["text"]),
-                (str(m.get("games", 0)), 60, COLORS["text"]),
+                ((m.get("champion_name") or "?")[:12], 100, COLORS["text"]),
+                ((m.get("enemy_laner") or "?")[:12], 100, COLORS["text"]),
+                (str(m.get("games") or 0), 60, COLORS["text"]),
                 (f"{wr:.0f}%", 60, wr_color),
-                (f"{m.get('avg_kda', 0):.1f}", 60, COLORS["text"]),
-                (f"{m.get('avg_deaths', 0):.1f}", 60, COLORS["text"]),
+                (f"{(m.get('avg_kda') or 0):.1f}", 60, COLORS["text"]),
+                (f"{(m.get('avg_deaths') or 0):.1f}", 60, COLORS["text"]),
             ]
             for text, w, color in vals:
                 ctk.CTkLabel(row, text=text, width=w,
@@ -1779,13 +1779,13 @@ class StatsPage(ctk.CTkFrame):
         for r in roles:
             row = ctk.CTkFrame(inner, fg_color="transparent")
             row.pack(fill="x", pady=1)
-            wr = r.get("winrate", 0)
+            wr = r.get("winrate") or 0
             wr_color = COLORS["win_green"] if wr >= 55 else (COLORS["loss_red"] if wr < 45 else COLORS["text"])
             vals = [
-                (r.get("position", "?").title(), 120, COLORS["text"]),
-                (str(r.get("games", 0)), 80, COLORS["text"]),
+                ((r.get("position") or "?").title(), 120, COLORS["text"]),
+                (str(r.get("games") or 0), 80, COLORS["text"]),
                 (f"{wr:.0f}%", 80, wr_color),
-                (f"{r.get('avg_kda', 0):.1f}", 80, COLORS["text"]),
+                (f"{(r.get('avg_kda') or 0):.1f}", 80, COLORS["text"]),
             ]
             for text, w, color in vals:
                 ctk.CTkLabel(row, text=text, width=w,
