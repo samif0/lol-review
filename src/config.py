@@ -183,3 +183,35 @@ def set_clips_max_size_mb(size_mb: int):
     config["clips_max_size_mb"] = max(100, size_mb)  # minimum 100 MB
     _save_config(config)
     logger.info(f"Clips max size set to: {size_mb} MB")
+
+
+# ── Database backup settings ─────────────────────────────────────
+
+
+def get_backup_enabled() -> bool:
+    """True if automatic database backups are enabled."""
+    return bool(_load_config().get("backup_enabled", False))
+
+
+def set_backup_enabled(enabled: bool):
+    """Enable or disable automatic database backups."""
+    config = _load_config()
+    config["backup_enabled"] = enabled
+    _save_config(config)
+    logger.info(f"Database backup {'enabled' if enabled else 'disabled'}")
+
+
+def get_backup_folder() -> str:
+    """Return the configured backup folder, or empty string if not set."""
+    path = _load_config().get("backup_folder", "")
+    if path and Path(path).is_dir():
+        return path
+    return ""
+
+
+def set_backup_folder(path: str):
+    """Save the backup folder path."""
+    config = _load_config()
+    config["backup_folder"] = path
+    _save_config(config)
+    logger.info(f"Backup folder set to: {path}")

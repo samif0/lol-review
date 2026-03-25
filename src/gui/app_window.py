@@ -205,7 +205,7 @@ class HomePage(ctk.CTkFrame):
         self.clipboard_append(context)
         # Flash button text
         self._claude_btn.configure(text="Copied!")
-        self.after(1500, lambda: self._claude_btn.configure(text="Claude Context"))
+        self.after(1500, lambda: self._claude_btn.configure(text="Copy Claude Context"))
 
     def _populate(self, body):
         hour = datetime.now().hour
@@ -218,7 +218,7 @@ class HomePage(ctk.CTkFrame):
                      font=ctk.CTkFont(size=22, weight="bold"),
                      text_color=COLORS["text"]).pack(side="left")
         self._claude_btn = ctk.CTkButton(
-            grow, text="Claude Context",
+            grow, text="Copy Claude Context",
             font=ctk.CTkFont(size=13, weight="bold"),
             height=36, width=150, corner_radius=8,
             fg_color=COLORS["accent_purple"], hover_color="#6d28d9",
@@ -629,7 +629,6 @@ class SessionPage(ctk.CTkFrame):
             game_data.get("mistakes", "").strip()
             or game_data.get("went_well", "").strip()
             or game_data.get("focus_next", "").strip()
-            or game_data.get("rating", 0) > 0
         ))
 
         row = ctk.CTkFrame(
@@ -854,17 +853,11 @@ class HistoryPage(ctk.CTkFrame):
             text=f"CS {game.get('cs_total', 0)} ({game.get('cs_per_min', 0)}/m)  •  Vision {game.get('vision_score', 0)}  •  {format_number(game.get('total_damage_to_champions', 0))} dmg",
             font=ctk.CTkFont(size=11), text_color=COLORS["text_dim"],
         ).pack(anchor="e")
-        rating = game.get("rating", 0)
-        if rating > 0:
-            ctk.CTkLabel(right, text="★" * rating + "☆" * (5 - rating),
-                         font=ctk.CTkFont(size=12),
-                         text_color=COLORS["star_active"]).pack(anchor="e")
-
         btn_row = ctk.CTkFrame(right, fg_color="transparent")
         btn_row.pack(anchor="e", pady=(4, 0))
         has_review = bool(
             game.get("mistakes", "").strip() or game.get("went_well", "").strip()
-            or game.get("focus_next", "").strip() or (game.get("rating") or 0) > 0
+            or game.get("focus_next", "").strip()
         )
         ctk.CTkButton(
             btn_row, text="Edit Review" if has_review else "Review",
@@ -1064,7 +1057,7 @@ class LossesPage(ctk.CTkFrame):
     def _build_loss_card(self, parent, loss: dict):
         has_review = bool(
             loss.get("mistakes", "").strip() or loss.get("went_well", "").strip()
-            or loss.get("focus_next", "").strip() or (loss.get("rating") or 0) > 0
+            or loss.get("focus_next", "").strip()
         )
         card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=8,
                             border_width=2, border_color=COLORS["loss_red"])
@@ -2267,11 +2260,19 @@ class ObjectivesPage(ctk.CTkFrame):
                 self._build_objective_card(body, obj)
 
         if completed:
-            ctk.CTkLabel(body, text="COMPLETED",
-                         font=ctk.CTkFont(size=11, weight="bold"),
-                         text_color=COLORS["text_dim"]).pack(anchor="w", pady=(16, 8))
-            for obj in completed:
-                self._build_completed_card(body, obj)
+            expanded = getattr(self, "_archived_expanded", False)
+            toggle_text = f"ARCHIVED \u25be ({len(completed)})" if expanded else f"ARCHIVED \u25b8 ({len(completed)})"
+            ctk.CTkButton(
+                body, text=toggle_text,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                fg_color="transparent", hover_color=COLORS["bg_input"],
+                text_color=COLORS["text_dim"], height=24, anchor="w",
+                command=self._toggle_archived,
+            ).pack(anchor="w", pady=(16, 8))
+
+            if expanded:
+                for obj in completed:
+                    self._build_completed_card(body, obj)
 
         # Spotted problems from recent reviews
         spotted = self.db.games.get_recent_spotted_problems(limit=10)
@@ -2429,6 +2430,15 @@ class ObjectivesPage(ctk.CTkFrame):
             command=lambda oid=obj["id"]: self._delete_objective(oid),
         ).pack(side="right")
 
+        ctk.CTkButton(
+            btn_row, text="Archive",
+            font=ctk.CTkFont(size=12), height=30, width=80,
+            fg_color="transparent", hover_color="#1a3a1a",
+            text_color=COLORS["text_dim"],
+            border_width=1, border_color=COLORS["border"],
+            command=lambda oid=obj["id"]: self._archive_objective(oid),
+        ).pack(side="right", padx=(0, 6))
+
     def _build_completed_card(self, parent, obj: dict):
         card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=8,
                             border_width=1, border_color=COLORS["border"])
@@ -2457,6 +2467,24 @@ class ObjectivesPage(ctk.CTkFrame):
 
     def _open_new_dialog(self):
         _NewObjectiveDialog(self, db=self.db, on_created=self.refresh)
+
+    def _toggle_archived(self):
+        self._archived_expanded = not getattr(self, "_archived_expanded", False)
+        self.refresh()
+
+    def _archive_objective(self, obj_id: int):
+        def _do_archive():
+            self.db.objectives.mark_complete(obj_id)
+            self.refresh()
+
+        _ConfirmDialog(
+            self,
+            message="Archive this objective? It will move to the Archived section.",
+            confirm_text="Archive",
+            confirm_color=COLORS["accent_gold"],
+            confirm_hover="#a88432",
+            on_confirm=_do_archive,
+        )
 
     def _complete_objective(self, obj_id: int):
         def _do_complete():

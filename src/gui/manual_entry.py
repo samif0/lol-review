@@ -341,7 +341,6 @@ class ManualEntryWindow(ctk.CTkToplevel):
             mistakes=self.mistakes.get("1.0", "end-1c").strip(),
             went_well=self.went_well.get("1.0", "end-1c").strip(),
             focus_next=self.focus_next.get().strip(),
-            rating=0,
             tags=[],
         )
 

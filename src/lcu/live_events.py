@@ -122,21 +122,24 @@ class LiveEventCollector:
             try:
                 self._poll()
             except Exception as e:
+                if not self._running:
+                    break
                 logger.debug(f"Live event poll error: {e}")
-            time.sleep(self._poll_interval)
+            if self._running:
+                time.sleep(self._poll_interval)
 
     def stop(self) -> list[dict]:
         """Stop collecting and return parsed events in our standard format.
 
         Does one final poll to catch any last-second events.
         """
+        self._running = False
+
         # Final poll to get any remaining events
         try:
             self._poll()
         except Exception:
             pass
-
-        self._running = False
 
         if not self._raw_events:
             logger.info("No live events collected")

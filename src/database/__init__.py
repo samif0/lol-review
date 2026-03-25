@@ -20,7 +20,6 @@ from .objectives import ObjectivesRepository
 from .prompts import PromptsRepository
 from .rules import RulesRepository
 from .session_log import SessionLogRepository
-from .tags import TagRepository
 from .tilt_checks import TiltCheckRepository
 from .vod import VodRepository
 

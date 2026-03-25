@@ -386,7 +386,6 @@ class SessionGameReviewPanel(ctk.CTkFrame):
         improvement = self.improvement_note.get().strip()
 
         # Collect review fields before any DB writes
-        rating = 0
         tags = []
         mistakes = self.mistakes.get("1.0", "end-1c").strip()
         went_well = self.went_well.get("1.0", "end-1c").strip()
@@ -397,7 +396,6 @@ class SessionGameReviewPanel(ctk.CTkFrame):
             self.db.update_review(
                 game_id=game_id,
                 notes="",
-                rating=rating,
                 tags=tags,
                 mistakes=mistakes,
                 went_well=went_well,

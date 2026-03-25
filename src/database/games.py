@@ -125,7 +125,6 @@ class GameRepository:
         self,
         game_id: int,
         notes: str = "",
-        rating: int = 0,
         tags: list[str] = None,
         mistakes: str = "",
         went_well: str = "",
@@ -142,7 +141,6 @@ class GameRepository:
         conn.execute(
             """UPDATE games SET
                 review_notes = ?,
-                rating = ?,
                 tags = ?,
                 mistakes = ?,
                 went_well = ?,
@@ -155,7 +153,6 @@ class GameRepository:
             WHERE game_id = ?""",
             (
                 notes,
-                rating,
                 json.dumps(tags or []),
                 mistakes,
                 went_well,
@@ -376,7 +373,6 @@ class GameRepository:
         mistakes: str = "",
         went_well: str = "",
         focus_next: str = "",
-        rating: int = 0,
         tags: list[str] = None,
     ) -> int:
         """Save a manually entered game with minimal required fields."""
@@ -394,20 +390,20 @@ class GameRepository:
                 game_type, queue_type, summoner_name, champion_name, champion_id,
                 team_id, position, role, win,
                 kills, deaths, assists, kda_ratio,
-                review_notes, rating, tags, mistakes, went_well, focus_next
+                review_notes, tags, mistakes, went_well, focus_next
             ) VALUES (
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?
             )""",
             (
                 game_id, now, date_str, 0, game_mode,
                 "Manual", "Manual", "Manual Entry", champion_name, 0,
                 0, "", "", int(win),
                 kills, deaths, assists, round(kda_ratio, 2),
-                notes, rating, json.dumps(tags or []),
+                notes, json.dumps(tags or []),
                 mistakes, went_well, focus_next,
             ),
         )

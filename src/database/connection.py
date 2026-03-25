@@ -24,12 +24,10 @@ from .schema import (
     CREATE_PROMPT_ANSWERS_TABLE,
     CREATE_RULES_TABLE,
     CREATE_SESSION_LOG_TABLE,
-    CREATE_TAGS_TABLE,
     CREATE_VOD_BOOKMARKS_TABLE,
     CREATE_VOD_FILES_TABLE,
     DEFAULT_CONCEPT_TAGS,
     DEFAULT_DERIVED_EVENTS,
-    DEFAULT_TAGS,
     MIGRATE_BOOKMARKS_CLIP_COLUMNS,
     MIGRATE_GAMES_ATTRIBUTION,
     MIGRATE_GAMES_ENEMY_LANER,
@@ -95,7 +93,6 @@ class ConnectionManager:
         """Create tables if they don't exist."""
         conn = self.get_conn()
         conn.execute(CREATE_GAMES_TABLE)
-        conn.execute(CREATE_TAGS_TABLE)
         conn.execute(CREATE_SESSION_LOG_TABLE)
         conn.execute(CREATE_PERSISTENT_NOTES_TABLE)
         conn.execute(CREATE_VOD_FILES_TABLE)
@@ -173,14 +170,6 @@ class ConnectionManager:
                 conn.execute(stmt)
             except sqlite3.OperationalError:
                 pass  # Column already exists
-
-        # Insert default tags if the table is empty
-        cursor = conn.execute("SELECT COUNT(*) FROM tags")
-        if cursor.fetchone()[0] == 0:
-            conn.executemany(
-                "INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)",
-                DEFAULT_TAGS,
-            )
 
         # Seed default concept tags if the table is empty
         cursor = conn.execute("SELECT COUNT(*) FROM concept_tags")

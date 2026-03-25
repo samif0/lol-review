@@ -12,6 +12,7 @@ import customtkinter as ctk
 
 from ..constants import COLORS, format_duration, format_number
 from ..version import __version__
+from .charts import SimpleLineChart
 from .game_review import SessionGameReviewWindow
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,9 @@ class DashboardWindow(ctk.CTkToplevel):
         """Populate the scrollable body sections."""
         # ── Yesterday recap ─────────────────────────────────────
         self._build_yesterday_recap(body)
+
+        # ── Mental trend ────────────────────────────────────────
+        self._build_mental_trend(body)
 
         # ── Unreviewed games ────────────────────────────────────
         self._build_unreviewed_section(body)
@@ -251,7 +255,6 @@ class DashboardWindow(ctk.CTkToplevel):
             (game.get("mistakes") or "").strip()
             or (game.get("went_well") or "").strip()
             or (game.get("focus_next") or "").strip()
-            or (game.get("rating") or 0) > 0
         )
 
         review_text = "Edit Review" if has_review else "Review"
@@ -278,6 +281,45 @@ class DashboardWindow(ctk.CTkToplevel):
                 text_color="#0a0a0f",
                 command=lambda gid=game_id: self._on_open_vod(gid) if self._on_open_vod else None,
             ).pack(side="left")
+
+    # ── Mental trend ───────────────────────────────────────────
+
+    def _build_mental_trend(self, parent):
+        """Show a sparkline of recent mental ratings."""
+        trend = self.db.session_log.get_mental_trend(limit=20)
+        if len(trend) < 3:
+            return  # Not enough data for a useful chart
+
+        section = ctk.CTkFrame(
+            parent, fg_color=COLORS["bg_card"], corner_radius=10,
+            border_width=1, border_color=COLORS["border"],
+        )
+        section.pack(fill="x", pady=(0, 12))
+
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(
+            inner, text="MENTAL TREND",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["text_dim"],
+        ).pack(anchor="w", pady=(0, 4))
+
+        data = []
+        for entry in trend:
+            label = entry.get("champion_name", "")[:4]
+            value = entry.get("mental_rating", 5)
+            data.append((label, value))
+
+        chart = SimpleLineChart(
+            inner, data=data,
+            color=COLORS["accent_blue"],
+            target_value=5,
+            target_color=COLORS["text_dim"],
+            height=150,
+            title="Mental Rating — Last 20 Games",
+        )
+        chart.pack(fill="x", pady=(8, 0))
 
     # ── Unreviewed games ────────────────────────────────────────
 
@@ -438,7 +480,7 @@ class DashboardWindow(ctk.CTkToplevel):
             ("Game History", COLORS["accent_blue"], "#0077cc", self._on_open_history),
             ("Review Losses", COLORS["loss_red"], "#c03030", self._on_open_losses),
             ("Session Logger", COLORS["accent_gold"], "#a88432", self._on_open_session_logger),
-            ("Claude Context", "#8b5cf6", "#7040d0", self._on_open_claude_context),
+            ("Copy Claude Context", "#8b5cf6", "#7040d0", self._on_open_claude_context),
             ("Manual Entry", COLORS["tag_bg"], "#333344", self._on_open_manual_entry),
         ]
 

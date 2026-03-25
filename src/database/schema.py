@@ -91,14 +91,6 @@ CREATE TABLE IF NOT EXISTS games (
 );
 """
 
-CREATE_TAGS_TABLE = """
-CREATE TABLE IF NOT EXISTS tags (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    name    TEXT UNIQUE NOT NULL,
-    color   TEXT DEFAULT '#3b82f6'
-);
-"""
-
 CREATE_SESSION_LOG_TABLE = """
 CREATE TABLE IF NOT EXISTS session_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -369,7 +361,6 @@ DEFAULT_CONCEPT_TAGS = [
     ("Passive game",      "neutral",  "#3b82f6"),
 ]
 
-# Pre-populate some useful default tags
 CREATE_TILT_CHECKS_TABLE = """
 CREATE TABLE IF NOT EXISTS tilt_checks (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -384,16 +375,3 @@ CREATE TABLE IF NOT EXISTS tilt_checks (
     created_at        INTEGER
 );
 """
-
-DEFAULT_TAGS = [
-    ("Tilted", "#ef4444"),
-    ("Stomped Lane", "#22c55e"),
-    ("Got Carried", "#eab308"),
-    ("Comeback", "#8b5cf6"),
-    ("Threw Lead", "#f97316"),
-    ("Good Macro", "#06b6d4"),
-    ("Bad Draft", "#ec4899"),
-    ("Clean Game", "#10b981"),
-    ("Tough Matchup", "#f59e0b"),
-    ("Team Diff", "#6366f1"),
-]

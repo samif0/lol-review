@@ -131,7 +131,6 @@ class ReviewLossesWindow(ctk.CTkToplevel):
             loss.get("mistakes", "").strip()
             or loss.get("went_well", "").strip()
             or loss.get("focus_next", "").strip()
-            or (loss.get("rating") or 0) > 0
         )
 
         card = ctk.CTkFrame(
