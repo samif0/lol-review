@@ -3,7 +3,7 @@ name: Build & Release (C#)
 on:
   push:
     tags:
-      - 'v2.*'
+      - 'v2.[1-9].*'
       - 'v3.*'
 
 permissions:
