@@ -1,0 +1,102 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         LoL Review Dark Theme
+         Based on the Python COLORS dict / ColorPalette.cs constants
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── Backgrounds ─────────────────────────────────────────────── -->
+    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0a0a0f"/>
+    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#0d0d15"/>
+    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#12121a"/>
+    <SolidColorBrush x:Key="CardHoverBackgroundBrush" Color="#16161f"/>
+    <SolidColorBrush x:Key="InputBackgroundBrush" Color="#1a1a24"/>
+
+    <!-- ── Borders ─────────────────────────────────────────────────── -->
+    <SolidColorBrush x:Key="SubtleBorderBrush" Color="#1e1e2e"/>
+    <SolidColorBrush x:Key="BrightBorderBrush" Color="#2a2a3a"/>
+
+    <!-- ── Text ────────────────────────────────────────────────────── -->
+    <SolidColorBrush x:Key="PrimaryTextBrush" Color="#e8e8f0"/>
+    <SolidColorBrush x:Key="SecondaryTextBrush" Color="#7070a0"/>
+    <SolidColorBrush x:Key="MutedTextBrush" Color="#404060"/>
+
+    <!-- ── Accents ─────────────────────────────────────────────────── -->
+    <SolidColorBrush x:Key="AccentBlueBrush" Color="#0099ff"/>
+    <SolidColorBrush x:Key="AccentBlueDimBrush" Color="#004c80"/>
+    <SolidColorBrush x:Key="AccentGoldBrush" Color="#c89b3c"/>
+    <SolidColorBrush x:Key="AccentPurpleBrush" Color="#7c3aed"/>
+
+    <!-- ── Status ──────────────────────────────────────────────────── -->
+    <SolidColorBrush x:Key="WinGreenBrush" Color="#22c55e"/>
+    <SolidColorBrush x:Key="WinGreenDimBrush" Color="#14532d"/>
+    <SolidColorBrush x:Key="LossRedBrush" Color="#ef4444"/>
+    <SolidColorBrush x:Key="LossRedDimBrush" Color="#7f1d1d"/>
+
+    <!-- ── Misc ────────────────────────────────────────────────────── -->
+    <SolidColorBrush x:Key="TagBackgroundBrush" Color="#1e1e2e"/>
+    <SolidColorBrush x:Key="StarActiveBrush" Color="#fbbf24"/>
+    <SolidColorBrush x:Key="StarInactiveBrush" Color="#2a2a3a"/>
+    <SolidColorBrush x:Key="SidebarActiveBrush" Color="#0099ff"/>
+    <SolidColorBrush x:Key="SidebarHoverBrush" Color="#14141e"/>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Override WinUI dark-theme system brushes
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <!-- Main content area background -->
+    <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="#0a0a0f"/>
+    <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#12121a"/>
+
+    <!-- NavigationView pane background → sidebar color -->
+    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#0d0d15"/>
+    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#0d0d15"/>
+
+    <!-- NavigationView content background -->
+    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#0a0a0f"/>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Custom Styles
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <!-- Card container style -->
+    <Style x:Key="CardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="Padding" Value="16"/>
+    </Style>
+
+    <!-- Stat display text (large number) -->
+    <Style x:Key="StatValueStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="28"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+    </Style>
+
+    <!-- Stat label text (small label below) -->
+    <Style x:Key="StatLabelStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
+        <Setter Property="Margin" Value="0,4,0,0"/>
+    </Style>
+
+    <!-- Section header -->
+    <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="18"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+        <Setter Property="Margin" Value="0,0,0,12"/>
+    </Style>
+
+    <!-- Tag chip style -->
+    <Style x:Key="TagChipStyle" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource TagBackgroundBrush}"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="Padding" Value="8,4"/>
+    </Style>
+
+</ResourceDictionary>

@@ -1,0 +1,241 @@
+<ContentDialog
+    x:Class="LoLReview.App.Dialogs.PreGameDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:LoLReview.App.Converters"
+    xmlns:controls="using:LoLReview.App.Controls"
+    mc:Ignorable="d"
+    Title=""
+    PrimaryButtonText="I'm Ready -- GL HF!"
+    CloseButtonText=""
+    DefaultButton="Primary"
+    FullSizeDesired="False"
+    Background="{StaticResource CardBackgroundBrush}"
+    Foreground="{StaticResource PrimaryTextBrush}"
+    BorderBrush="{StaticResource SubtleBorderBrush}">
+
+    <ContentDialog.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </ContentDialog.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  MaxHeight="600" MaxWidth="480">
+        <StackPanel Spacing="12">
+
+            <!-- ═══ Header ═══ -->
+            <TextBlock Text="BEFORE YOU QUEUE UP..."
+                       FontSize="20" FontWeight="Bold"
+                       Foreground="{StaticResource AccentGoldBrush}"/>
+
+            <TextBlock Text="Take a moment to set your focus for this game."
+                       FontSize="12"
+                       Foreground="{StaticResource SecondaryTextBrush}"/>
+
+            <!-- ═══ Mood Check-in (Tilt Fix) ═══ -->
+            <Border Visibility="{x:Bind ViewModel.ShowMoodSelector, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Background="{StaticResource CardBackgroundBrush}"
+                    BorderBrush="{StaticResource AccentPurpleBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="14,10">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="HOW ARE YOU FEELING RIGHT NOW?"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource AccentPurpleBrush}"/>
+
+                    <controls:MoodSelector SelectedMood="{x:Bind ViewModel.SelectedMood, Mode=TwoWay}"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ═══ Session Intention (first game only) ═══ -->
+            <Border Visibility="{x:Bind ViewModel.ShowIntention, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Background="{StaticResource CardBackgroundBrush}"
+                    BorderBrush="{StaticResource AccentGoldBrush}"
+                    BorderThickness="2" CornerRadius="8" Padding="14,10">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="SESSION MINDSET GOAL"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource AccentGoldBrush}"/>
+
+                    <TextBlock Text="Try: &quot;When [trigger] happens, I will [response]&quot;"
+                               FontSize="11"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                    <TextBox Text="{x:Bind ViewModel.SessionIntention, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="Your session mindset goal..."
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             MinHeight="50" FontSize="13"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}"
+                             CornerRadius="6"/>
+
+                    <!-- Quick intention buttons -->
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button Content="When I die, I'll review why"
+                                Command="{x:Bind ViewModel.SetQuickIntentionCommand}"
+                                CommandParameter="When I die, I'll review why"
+                                FontSize="10" Height="24" CornerRadius="12"
+                                Padding="8,0"
+                                Background="{StaticResource TagBackgroundBrush}"
+                                Foreground="{StaticResource SecondaryTextBrush}"
+                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                BorderThickness="1"/>
+                        <Button Content="When tilted, I'll take 3 breaths"
+                                Command="{x:Bind ViewModel.SetQuickIntentionCommand}"
+                                CommandParameter="When tilted, I'll take 3 breaths"
+                                FontSize="10" Height="24" CornerRadius="12"
+                                Padding="8,0"
+                                Background="{StaticResource TagBackgroundBrush}"
+                                Foreground="{StaticResource SecondaryTextBrush}"
+                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                BorderThickness="1"/>
+                        <Button Content="When behind, I'll focus on farm"
+                                Command="{x:Bind ViewModel.SetQuickIntentionCommand}"
+                                CommandParameter="When behind, I'll focus on farm"
+                                FontSize="10" Height="24" CornerRadius="12"
+                                Padding="8,0"
+                                Background="{StaticResource TagBackgroundBrush}"
+                                Foreground="{StaticResource SecondaryTextBrush}"
+                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                BorderThickness="1"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ═══ Active Objective ═══ -->
+            <Border Visibility="{x:Bind ViewModel.HasActiveObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Background="{StaticResource CardBackgroundBrush}"
+                    BorderBrush="{StaticResource AccentBlueBrush}"
+                    BorderThickness="2" CornerRadius="8" Padding="14,10">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="YOUR CURRENT OBJECTIVE"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource AccentBlueBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.ActiveObjectiveTitle, Mode=OneWay}"
+                               FontSize="14" FontWeight="Bold"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{x:Bind ViewModel.ActiveObjectiveCriteria, Mode=OneWay}"
+                               FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ═══ Last Game Focus ═══ -->
+            <Border Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="YOUR FOCUS FROM LAST GAME"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource AccentBlueBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.LastFocus, Mode=OneWay}"
+                               FontSize="14"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ═══ Last Game Mistakes ═══ -->
+            <Border Visibility="{x:Bind ViewModel.HasLastMistakes, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="WHAT YOU WANTED TO IMPROVE"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource StarActiveBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.LastMistakes, Mode=OneWay}"
+                               FontSize="13"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Separator -->
+            <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
+
+            <!-- ═══ Set Focus ═══ -->
+            <TextBlock Text="What's your focus this game?"
+                       FontSize="14" FontWeight="Bold"
+                       Foreground="{StaticResource PrimaryTextBrush}"/>
+
+            <TextBox Text="{x:Bind ViewModel.FocusText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     PlaceholderText="What will you focus on?"
+                     TextWrapping="Wrap" AcceptsReturn="True"
+                     MinHeight="70" FontSize="13"
+                     Background="{StaticResource InputBackgroundBrush}"
+                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     CornerRadius="8"/>
+
+            <!-- Quick focus buttons -->
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Content="CS better early"
+                        Command="{x:Bind ViewModel.SetQuickFocusCommand}"
+                        CommandParameter="CS better early"
+                        FontSize="11" Height="26" CornerRadius="13"
+                        Padding="10,0"
+                        Background="{StaticResource TagBackgroundBrush}"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                        BorderThickness="1"/>
+                <Button Content="Track enemy JG"
+                        Command="{x:Bind ViewModel.SetQuickFocusCommand}"
+                        CommandParameter="Track enemy JG"
+                        FontSize="11" Height="26" CornerRadius="13"
+                        Padding="10,0"
+                        Background="{StaticResource TagBackgroundBrush}"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                        BorderThickness="1"/>
+                <Button Content="Don't die before 6"
+                        Command="{x:Bind ViewModel.SetQuickFocusCommand}"
+                        CommandParameter="Don't die before 6"
+                        FontSize="11" Height="26" CornerRadius="13"
+                        Padding="10,0"
+                        Background="{StaticResource TagBackgroundBrush}"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                        BorderThickness="1"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Content="Play for teamfights"
+                        Command="{x:Bind ViewModel.SetQuickFocusCommand}"
+                        CommandParameter="Play for teamfights"
+                        FontSize="11" Height="26" CornerRadius="13"
+                        Padding="10,0"
+                        Background="{StaticResource TagBackgroundBrush}"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                        BorderThickness="1"/>
+                <Button Content="Ward more"
+                        Command="{x:Bind ViewModel.SetQuickFocusCommand}"
+                        CommandParameter="Ward more"
+                        FontSize="11" Height="26" CornerRadius="13"
+                        Padding="10,0"
+                        Background="{StaticResource TagBackgroundBrush}"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                        BorderThickness="1"/>
+                <Button Content="Roam after push"
+                        Command="{x:Bind ViewModel.SetQuickFocusCommand}"
+                        CommandParameter="Roam after push"
+                        FontSize="11" Height="26" CornerRadius="13"
+                        Padding="10,0"
+                        Background="{StaticResource TagBackgroundBrush}"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                        BorderThickness="1"/>
+            </StackPanel>
+
+            <!-- Auto-close note -->
+            <TextBlock Text="This window will close automatically when your game loads."
+                       FontSize="11"
+                       Foreground="{StaticResource SecondaryTextBrush}"
+                       HorizontalAlignment="Center"
+                       Margin="0,8,0,0"/>
+
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

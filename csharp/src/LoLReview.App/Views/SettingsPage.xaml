@@ -1,0 +1,287 @@
+<Page
+    x:Class="LoLReview.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:LoLReview.App.Converters"
+    mc:Ignorable="d"
+    Background="{StaticResource AppBackgroundBrush}">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </Page.Resources>
+
+    <Grid>
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="24,24,24,24">
+            <StackPanel Spacing="12" MaxWidth="700" HorizontalAlignment="Stretch">
+
+                <!-- ═══ Header ═══ -->
+                <TextBlock Text="Settings"
+                           FontSize="22" FontWeight="Bold"
+                           Foreground="{StaticResource AccentGoldBrush}"/>
+
+                <!-- ═══ Ascent VOD Recordings Section ═══ -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="ASCENT VOD RECORDINGS"
+                                   FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                        <TextBlock Text="Point this to your Ascent recordings folder to enable VOD playback and timestamped bookmarks in your reviews."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <!-- Folder path row -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox Grid.Column="0"
+                                     Text="{x:Bind ViewModel.AscentFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="e.g. C:\Users\you\Videos\Ascent"
+                                     FontSize="12"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="8"
+                                     Height="36"
+                                     Margin="0,0,8,0"/>
+
+                            <Button Grid.Column="1"
+                                    Content="Browse"
+                                    Command="{x:Bind ViewModel.BrowseAscentFolderCommand}"
+                                    FontSize="12" Height="36"
+                                    Padding="16,0" CornerRadius="8"
+                                    Background="{StaticResource TagBackgroundBrush}"
+                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+                        </Grid>
+
+                        <!-- Status text -->
+                        <TextBlock Text="{x:Bind ViewModel.AscentStatus, Mode=OneWay}"
+                                   FontSize="11"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                        <!-- Clear button -->
+                        <Button Content="Clear Ascent Folder"
+                                Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
+                                FontSize="11" Height="30"
+                                Padding="12,0" CornerRadius="6"
+                                Background="Transparent"
+                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                BorderThickness="1"
+                                Foreground="{StaticResource SecondaryTextBrush}"
+                                HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Clip Settings Section ═══ -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="CLIP SETTINGS"
+                                   FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                        <!-- ffmpeg status -->
+                        <TextBlock Text="{x:Bind ViewModel.FfmpegStatusText, Mode=OneWay}"
+                                   FontSize="11"/>
+
+                        <TextBlock Text="Save short video clips from your VOD recordings. Clips are stored separately from Ascent recordings."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <!-- Clips folder path row -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="Folder:"
+                                       FontSize="12"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0"/>
+
+                            <TextBox Grid.Column="1"
+                                     Text="{x:Bind ViewModel.ClipsFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     FontSize="12"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="8"
+                                     Height="36"
+                                     Margin="0,0,8,0"/>
+
+                            <Button Grid.Column="2"
+                                    Content="Browse"
+                                    Command="{x:Bind ViewModel.BrowseClipsFolderCommand}"
+                                    FontSize="12" Height="36"
+                                    Padding="16,0" CornerRadius="8"
+                                    Background="{StaticResource TagBackgroundBrush}"
+                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+                        </Grid>
+
+                        <!-- Max size row -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Max folder size (MB):"
+                                       FontSize="12"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <TextBox Text="{x:Bind ViewModel.ClipsMaxSizeMbText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                     Width="120" Height="36"
+                                     FontSize="12"
+                                     CornerRadius="8"
+                                     Background="#1a1a24"
+                                     Foreground="#e8e8f0"
+                                     BorderBrush="#1e1e2e"/>
+
+                            <TextBlock Text="{x:Bind ViewModel.CurrentClipUsage, Mode=OneWay}"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Oldest clips are automatically deleted when the folder exceeds this size."
+                                   FontSize="11"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Database Backup Section ═══ -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="DATABASE BACKUP"
+                                   FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                        <TextBlock Text="Back up your database automatically when the app starts. Keeps last 5 backups."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <CheckBox Content="Enable automatic backups"
+                                  IsChecked="{x:Bind ViewModel.BackupEnabled, Mode=TwoWay}"
+                                  FontSize="13"
+                                  Foreground="{StaticResource PrimaryTextBrush}"/>
+
+                        <TextBlock Text="Backup folder:"
+                                   FontSize="12"
+                                   Foreground="{StaticResource PrimaryTextBrush}"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox Grid.Column="0"
+                                     Text="{x:Bind ViewModel.BackupFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     FontSize="12"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="8"
+                                     Height="36"
+                                     Margin="0,0,8,0"/>
+
+                            <Button Grid.Column="1"
+                                    Content="Browse"
+                                    Command="{x:Bind ViewModel.BrowseBackupFolderCommand}"
+                                    FontSize="12" Height="36"
+                                    Padding="16,0" CornerRadius="8"
+                                    Background="{StaticResource TagBackgroundBrush}"
+                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Tilt Fix Mode Section ═══ -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="TILT FIX MODE"
+                                   FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                        <TextBlock Text="Enable mood check-ins before games, session intention setting, and mental reflection prompts when mental rating is low."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.TiltFixEnabled, Mode=TwoWay}"
+                                      Header="Enable Tilt Fix features"
+                                      OnContent="On" OffContent="Off"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ App Version & Updates Section ═══ -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="APP VERSION"
+                                   FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                        <TextBlock Text="{x:Bind ViewModel.AppVersion, Mode=OneWay}"
+                                   FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{StaticResource PrimaryTextBrush}"/>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Check for Updates"
+                                    Command="{x:Bind ViewModel.CheckForUpdateCommand}"
+                                    FontSize="12" Height="32"
+                                    Padding="14,0" CornerRadius="6"
+                                    Background="{StaticResource TagBackgroundBrush}"
+                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+
+                            <Button Content="Download &amp; Restart"
+                                    Command="{x:Bind ViewModel.DownloadAndApplyUpdateCommand}"
+                                    Visibility="{x:Bind ViewModel.IsUpdateAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                    FontSize="12" Height="32"
+                                    Padding="14,0" CornerRadius="6"
+                                    Background="{StaticResource AccentGoldBrush}"
+                                    Foreground="#0a0a0f"/>
+                        </StackPanel>
+
+                        <TextBlock Text="{x:Bind ViewModel.UpdateStatusText, Mode=OneWay}"
+                                   FontSize="11"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Save Button Row ═══ -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="{x:Bind ViewModel.SaveStatusText, Mode=OneWay}"
+                               FontSize="13" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+
+                    <Button Grid.Column="1"
+                            Content="Save Settings"
+                            Command="{x:Bind ViewModel.SaveCommand}"
+                            FontSize="14" FontWeight="Bold"
+                            Height="40" Padding="24,0"
+                            CornerRadius="8"
+                            Background="{StaticResource AccentBlueBrush}"
+                            Foreground="{StaticResource PrimaryTextBrush}"/>
+                </Grid>
+
+                <!-- Bottom spacer -->
+                <Border Height="24"/>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

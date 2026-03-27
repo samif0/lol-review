@@ -1,0 +1,285 @@
+<Page
+    x:Class="LoLReview.App.Views.SessionLoggerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:LoLReview.App.Converters"
+    xmlns:vm="using:LoLReview.App.ViewModels"
+    mc:Ignorable="d"
+    Loaded="Page_Loaded">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <converters:InverseBoolConverter x:Key="InverseBool"/>
+        <converters:MentalRatingColorConverter x:Key="MentalColor"/>
+        <converters:WinLossColorConverter x:Key="WinLossColor"/>
+    </Page.Resources>
+
+    <Grid Background="{StaticResource AppBackgroundBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Padding="24,20" Spacing="12" Width="900" HorizontalAlignment="Center">
+
+                <!-- Page Header -->
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="Session"
+                               FontSize="22" FontWeight="Bold"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                    <TextBlock Text="Track your mental state and adherence"
+                               FontSize="13"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Date Navigation Bar -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Spacing="12">
+                        <Button Content="&#x25C0;  Prev"
+                                Command="{x:Bind ViewModel.PreviousDayCommand}"
+                                Background="{StaticResource TagBackgroundBrush}"
+                                Foreground="{StaticResource PrimaryTextBrush}"
+                                CornerRadius="6" Height="32" Width="100"
+                                BorderThickness="0"/>
+                        <TextBlock Text="{x:Bind ViewModel.DateDisplay, Mode=OneWay}"
+                                   FontSize="15" FontWeight="Bold"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0"/>
+                        <Button Content="Next  &#x25B6;"
+                                Command="{x:Bind ViewModel.NextDayCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanNavigateForward, Mode=OneWay}"
+                                Background="{StaticResource TagBackgroundBrush}"
+                                Foreground="{StaticResource PrimaryTextBrush}"
+                                CornerRadius="6" Height="32" Width="100"
+                                BorderThickness="0"/>
+                        <Button Content="Today"
+                                Command="{x:Bind ViewModel.GoTodayCommand}"
+                                Background="{StaticResource AccentBlueBrush}"
+                                Foreground="White"
+                                CornerRadius="6" Height="32" Width="80"
+                                BorderThickness="0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Stats Cards Row -->
+                <Border Style="{StaticResource CardStyle}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Games -->
+                        <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.TotalGames, Mode=OneWay}"
+                                       Style="{StaticResource StatValueStyle}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Games"
+                                       Style="{StaticResource StatLabelStyle}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Wins -->
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.Wins, Mode=OneWay}"
+                                       Style="{StaticResource StatValueStyle}"
+                                       Foreground="{StaticResource WinGreenBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Wins"
+                                       Style="{StaticResource StatLabelStyle}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Losses -->
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.Losses, Mode=OneWay}"
+                                       Style="{StaticResource StatValueStyle}"
+                                       Foreground="{StaticResource LossRedBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Losses"
+                                       Style="{StaticResource StatLabelStyle}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Avg Mental -->
+                        <StackPanel Grid.Column="3" HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.AvgMental, Mode=OneWay}"
+                                       Style="{StaticResource StatValueStyle}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Avg Mental"
+                                       Style="{StaticResource StatLabelStyle}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Rule Breaks -->
+                        <StackPanel Grid.Column="4" HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.RuleBreaks, Mode=OneWay}"
+                                       Style="{StaticResource StatValueStyle}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Rule Breaks"
+                                       Style="{StaticResource StatLabelStyle}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Adherence Streak -->
+                        <StackPanel Grid.Column="5" HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.AdherenceStreak, Mode=OneWay}"
+                                       Style="{StaticResource StatValueStyle}"
+                                       Foreground="{StaticResource WinGreenBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Adherence"
+                                       Style="{StaticResource StatLabelStyle}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Session Intention -->
+                <Border Style="{StaticResource CardStyle}"
+                        BorderBrush="{StaticResource AccentGoldBrush}"
+                        Visibility="{x:Bind ViewModel.HasIntention, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="SESSION GOAL"
+                                   FontSize="10" FontWeight="Bold"
+                                   Foreground="{StaticResource AccentGoldBrush}"/>
+                        <TextBlock Text="{x:Bind ViewModel.SessionIntention, Mode=OneWay}"
+                                   FontSize="12"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Session Intention Input (when no intention set) -->
+                <Border Style="{StaticResource CardStyle}"
+                        Visibility="{x:Bind ViewModel.HasIntention, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Set Session Goal"
+                                   FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0"
+                                     Text="{x:Bind ViewModel.SessionIntention, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="What will you focus on this session?"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     CornerRadius="6"/>
+                            <Button Grid.Column="1"
+                                    Content="Save"
+                                    Command="{x:Bind ViewModel.SaveIntentionCommand}"
+                                    Background="{StaticResource AccentGoldBrush}"
+                                    Foreground="#0a0a0f"
+                                    CornerRadius="6" Height="32"
+                                    BorderThickness="0"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Games Heading -->
+                <TextBlock Text="{x:Bind ViewModel.GamesHeading, Mode=OneWay}"
+                           FontSize="11" FontWeight="Bold"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Margin="0,4,0,0"/>
+
+                <!-- Empty State -->
+                <TextBlock Text="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
+                           FontSize="13"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"
+                           Margin="0,30"
+                           Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
+
+                <!-- Games List -->
+                <ItemsRepeater ItemsSource="{x:Bind ViewModel.Games, Mode=OneWay}"
+                               Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="6"/>
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SessionGameEntry">
+                            <Border Background="{StaticResource CardBackgroundBrush}"
+                                    CornerRadius="8"
+                                    Padding="14,12"
+                                    BorderThickness="2"
+                                    BorderBrush="{x:Bind Win, Converter={StaticResource WinLossColor}}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Left: Champion + Note -->
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock FontSize="14" FontWeight="Bold"
+                                                       Foreground="{x:Bind Win, Converter={StaticResource WinLossColor}}">
+                                                <Run Text="{x:Bind ResultText}"/>
+                                                <Run Text="  "/>
+                                                <Run Text="{x:Bind ChampionName}"/>
+                                            </TextBlock>
+                                            <Border Background="{StaticResource LossRedBrush}"
+                                                    CornerRadius="4" Padding="6,2"
+                                                    Visibility="{x:Bind RuleBroken, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="RULE BREAK"
+                                                           FontSize="9" FontWeight="Bold"
+                                                           Foreground="White"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{x:Bind ImprovementNote}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="400"
+                                                   Visibility="{x:Bind HasImprovementNote, Converter={StaticResource BoolToVis}}"/>
+                                        <TextBlock Text="Reviewed"
+                                                   FontSize="10"
+                                                   Foreground="{StaticResource WinGreenBrush}"
+                                                   Visibility="{x:Bind HasReview, Converter={StaticResource BoolToVis}}"/>
+                                    </StackPanel>
+
+                                    <!-- Right: Mental + Review Button -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center"
+                                                HorizontalAlignment="Right" Spacing="6">
+                                        <TextBlock Text="{x:Bind MentalText}"
+                                                   FontSize="14" FontWeight="Bold"
+                                                   Foreground="{x:Bind MentalRating, Converter={StaticResource MentalColor}}"
+                                                   HorizontalAlignment="Right"/>
+                                        <Button Content="Review"
+                                                Background="{StaticResource AccentBlueBrush}"
+                                                Foreground="White"
+                                                CornerRadius="6" Height="28"
+                                                FontSize="11"
+                                                BorderThickness="0"
+                                                HorizontalAlignment="Right"
+                                                Tag="{x:Bind GameId}"
+                                                Click="ReviewButton_Click"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+
+                <!-- Loading indicator -->
+                <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                              Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                              HorizontalAlignment="Center"
+                              Width="40" Height="40"
+                              Margin="0,20"/>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

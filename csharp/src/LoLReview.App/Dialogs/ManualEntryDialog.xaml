@@ -1,0 +1,188 @@
+<ContentDialog
+    x:Class="LoLReview.App.Dialogs.ManualEntryDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title=""
+    PrimaryButtonText="Save Game Entry"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    IsPrimaryButtonEnabled="{x:Bind ViewModel.IsValid, Mode=OneWay}"
+    FullSizeDesired="False"
+    Background="{StaticResource CardBackgroundBrush}"
+    Foreground="{StaticResource PrimaryTextBrush}"
+    BorderBrush="{StaticResource SubtleBorderBrush}">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  MaxHeight="650" MaxWidth="600">
+        <StackPanel Spacing="12">
+
+            <!-- ═══ Header ═══ -->
+            <TextBlock Text="MANUAL GAME ENTRY"
+                       FontSize="22" FontWeight="Bold"
+                       Foreground="{StaticResource AccentGoldBrush}"/>
+
+            <TextBlock Text="Add notes for games that weren't automatically tracked"
+                       FontSize="12"
+                       Foreground="{StaticResource SecondaryTextBrush}"/>
+
+            <!-- ═══ Basic Info Section ═══ -->
+            <TextBlock Text="BASIC INFO"
+                       FontSize="11" FontWeight="Bold"
+                       Foreground="{StaticResource SecondaryTextBrush}"
+                       Margin="0,4,0,0"/>
+
+            <!-- Champion name -->
+            <TextBlock Text="Champion Name *"
+                       FontSize="13"
+                       Foreground="{StaticResource PrimaryTextBrush}"/>
+            <TextBox Text="{x:Bind ViewModel.ChampionName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     PlaceholderText="e.g., Yasuo, Ahri, Lee Sin..."
+                     FontSize="14"
+                     Background="{StaticResource InputBackgroundBrush}"
+                     BorderBrush="{StaticResource AccentBlueBrush}"
+                     BorderThickness="2"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     CornerRadius="8"
+                     Height="38"/>
+
+            <!-- Error message -->
+            <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                       FontSize="11"
+                       Foreground="{StaticResource LossRedBrush}"
+                       Visibility="{x:Bind HasError, Mode=OneWay}"/>
+
+            <!-- Result -->
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Result *"
+                           FontSize="13"
+                           Foreground="{StaticResource PrimaryTextBrush}"
+                           VerticalAlignment="Center"/>
+                <RadioButton Content="Victory" GroupName="Result"
+                             IsChecked="{x:Bind ViewModel.IsVictory, Mode=TwoWay}"
+                             Foreground="{StaticResource PrimaryTextBrush}"/>
+                <RadioButton Content="Defeat" GroupName="Result"
+                             Foreground="{StaticResource PrimaryTextBrush}"/>
+            </StackPanel>
+
+            <!-- KDA -->
+            <TextBlock Text="KDA (Optional)"
+                       FontSize="13"
+                       Foreground="{StaticResource PrimaryTextBrush}"/>
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="Kills" FontSize="11"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <NumberBox Value="{x:Bind ViewModel.Kills, Mode=TwoWay}"
+                              Minimum="0" Maximum="99"
+                              SpinButtonPlacementMode="Compact"
+                              FontSize="13" Height="34"
+                              CornerRadius="6"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock Text="Deaths" FontSize="11"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <NumberBox Value="{x:Bind ViewModel.Deaths, Mode=TwoWay}"
+                              Minimum="0" Maximum="99"
+                              SpinButtonPlacementMode="Compact"
+                              FontSize="13" Height="34"
+                              CornerRadius="6"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Spacing="2">
+                    <TextBlock Text="Assists" FontSize="11"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <NumberBox Value="{x:Bind ViewModel.Assists, Mode=TwoWay}"
+                              Minimum="0" Maximum="99"
+                              SpinButtonPlacementMode="Compact"
+                              FontSize="13" Height="34"
+                              CornerRadius="6"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Game mode -->
+            <TextBlock Text="Game Mode (Optional)"
+                       FontSize="13"
+                       Foreground="{StaticResource PrimaryTextBrush}"/>
+            <TextBox Text="{x:Bind ViewModel.GameMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     PlaceholderText="e.g., Ranked Solo, ARAM, Normal..."
+                     FontSize="13"
+                     Background="{StaticResource InputBackgroundBrush}"
+                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     CornerRadius="6"
+                     Height="34"/>
+
+            <!-- Separator -->
+            <Border Height="1" Background="{StaticResource SubtleBorderBrush}" Margin="0,4"/>
+
+            <!-- ═══ Review Section ═══ -->
+            <TextBlock Text="REVIEW NOTES"
+                       FontSize="11" FontWeight="Bold"
+                       Foreground="{StaticResource SecondaryTextBrush}"/>
+
+            <!-- What went well -->
+            <TextBlock Text="What went well?"
+                       FontSize="13"
+                       Foreground="{StaticResource PrimaryTextBrush}"/>
+            <TextBox Text="{x:Bind ViewModel.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     PlaceholderText="Good plays, decisions, mechanics..."
+                     TextWrapping="Wrap" AcceptsReturn="True"
+                     MinHeight="60" FontSize="13"
+                     Background="{StaticResource InputBackgroundBrush}"
+                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     CornerRadius="8"/>
+
+            <!-- Mistakes -->
+            <TextBlock Text="What could you improve?"
+                       FontSize="13"
+                       Foreground="{StaticResource PrimaryTextBrush}"/>
+            <TextBox Text="{x:Bind ViewModel.Mistakes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     PlaceholderText="Deaths, missed plays, bad decisions..."
+                     TextWrapping="Wrap" AcceptsReturn="True"
+                     MinHeight="60" FontSize="13"
+                     Background="{StaticResource InputBackgroundBrush}"
+                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     CornerRadius="8"/>
+
+            <!-- Focus for next game -->
+            <TextBlock Text="Focus for next game"
+                       FontSize="13"
+                       Foreground="{StaticResource PrimaryTextBrush}"/>
+            <TextBox Text="{x:Bind ViewModel.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     PlaceholderText="e.g., Track jungle timers, play safer before 6..."
+                     FontSize="13"
+                     Background="{StaticResource InputBackgroundBrush}"
+                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     CornerRadius="8"
+                     Height="38"/>
+
+            <!-- Additional notes -->
+            <TextBlock Text="Additional Notes"
+                       FontSize="13"
+                       Foreground="{StaticResource PrimaryTextBrush}"/>
+            <TextBox Text="{x:Bind ViewModel.ReviewNotes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     PlaceholderText="Any other notes about this game..."
+                     TextWrapping="Wrap" AcceptsReturn="True"
+                     MinHeight="80" FontSize="13"
+                     Background="{StaticResource InputBackgroundBrush}"
+                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     CornerRadius="8"/>
+
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

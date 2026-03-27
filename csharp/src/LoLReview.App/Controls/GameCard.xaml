@@ -1,0 +1,103 @@
+<UserControl
+    x:Class="LoLReview.App.Controls.GameCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Border x:Name="CardBorder"
+            Background="{StaticResource CardBackgroundBrush}"
+            CornerRadius="8"
+            BorderBrush="{StaticResource SubtleBorderBrush}"
+            BorderThickness="1"
+            Padding="0"
+            PointerEntered="OnPointerEntered"
+            PointerExited="OnPointerExited">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <!-- W/L color bar -->
+                <ColumnDefinition Width="4"/>
+                <!-- Champion + date -->
+                <ColumnDefinition Width="*"/>
+                <!-- KDA -->
+                <ColumnDefinition Width="Auto"/>
+                <!-- Stats line -->
+                <ColumnDefinition Width="Auto"/>
+                <!-- Review indicator -->
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- W/L color bar on left edge -->
+            <Border x:Name="WinLossBar"
+                    Grid.Column="0"
+                    CornerRadius="8,0,0,8"/>
+
+            <!-- Champion + Date + Game mode -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center"
+                        Margin="12,8,12,8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock x:Name="WinLossText"
+                               FontSize="12" FontWeight="Bold"
+                               VerticalAlignment="Center"
+                               MinWidth="16"/>
+                    <TextBlock x:Name="ChampionText"
+                               FontSize="14" FontWeight="Bold"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock x:Name="DateText"
+                               FontSize="11"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <TextBlock x:Name="DurationText"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedTextBrush}"/>
+                    <TextBlock x:Name="GameModeText"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedTextBrush}"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- KDA -->
+            <StackPanel Grid.Column="2" VerticalAlignment="Center"
+                        Margin="8,0" HorizontalAlignment="Center"
+                        MinWidth="100">
+                <TextBlock x:Name="KdaText"
+                           FontSize="13" FontWeight="Bold"
+                           Foreground="{StaticResource PrimaryTextBrush}"
+                           HorizontalAlignment="Center"/>
+                <TextBlock x:Name="KdaRatioText"
+                           FontSize="11"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Stats -->
+            <StackPanel Grid.Column="3" VerticalAlignment="Center"
+                        Margin="8,0" Orientation="Horizontal" Spacing="12"
+                        MinWidth="200">
+                <TextBlock x:Name="CsText"
+                           FontSize="11"
+                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                <TextBlock x:Name="VisionText"
+                           FontSize="11"
+                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                <TextBlock x:Name="DamageText"
+                           FontSize="11"
+                           Foreground="{StaticResource SecondaryTextBrush}"/>
+            </StackPanel>
+
+            <!-- Review button / indicator -->
+            <StackPanel Grid.Column="4" VerticalAlignment="Center"
+                        Margin="8,0,12,0">
+                <Button x:Name="ReviewButton"
+                        Content="Review"
+                        Click="OnReviewClick"
+                        FontSize="11" Height="28"
+                        Padding="14,0" CornerRadius="6"
+                        Background="{StaticResource AccentBlueBrush}"
+                        Foreground="{StaticResource PrimaryTextBrush}"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

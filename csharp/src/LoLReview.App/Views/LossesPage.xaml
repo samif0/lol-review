@@ -1,0 +1,180 @@
+<Page
+    x:Class="LoLReview.App.Views.LossesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:LoLReview.App.ViewModels"
+    xmlns:converters="using:LoLReview.App.Converters"
+    mc:Ignorable="d"
+    Background="#0a0a0f"
+    Loaded="OnPageLoaded">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <Style x:Key="CardBorder" TargetType="Border">
+            <Setter Property="Background" Value="#12121a"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="BorderBrush" Value="#ef4444"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Padding" Value="14,12"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <Style x:Key="TagPill" TargetType="Border">
+            <Setter Property="Background" Value="#1e1e2e"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+        </Style>
+    </Page.Resources>
+
+    <Grid Padding="24,24,24,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,16">
+            <TextBlock Text="Loss Review" FontSize="22" FontWeight="Bold" Foreground="#e8e8f0"/>
+            <TextBlock Text="What to improve before your next game"
+                       FontSize="13" Foreground="#a0a0b8" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Filter -->
+        <Border Grid.Row="1" Background="#12121a" CornerRadius="8"
+                BorderBrush="#2a2a3a" BorderThickness="1"
+                Padding="12,10" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="Filter by Champion:" FontSize="13" Foreground="#e8e8f0"
+                           VerticalAlignment="Center"/>
+                <ComboBox ItemsSource="{x:Bind ViewModel.Champions, Mode=OneWay}"
+                          SelectedItem="{x:Bind ViewModel.SelectedChampion, Mode=TwoWay}"
+                          MinWidth="200"
+                          Background="#161622" Foreground="#e8e8f0"
+                          BorderBrush="#2a2a3a"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Loading indicator -->
+        <ProgressRing Grid.Row="2"
+                      IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                      Width="40" Height="40"
+                      Foreground="#8b5cf6"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+        <!-- Loss cards -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <ItemsRepeater ItemsSource="{x:Bind ViewModel.Losses, Mode=OneWay}">
+                <ItemsRepeater.Layout>
+                    <StackLayout Spacing="8"/>
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="vm:LossCardModel">
+                        <Border Background="#12121a" CornerRadius="8"
+                                BorderBrush="#ef4444" BorderThickness="2"
+                                Padding="14,12">
+                            <StackPanel Spacing="8">
+                                <!-- Top row: champ + KDA -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Left: champion + metadata -->
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{x:Bind ChampionName}"
+                                                   FontSize="18" FontWeight="Bold"
+                                                   Foreground="#c8aa6e"/>
+                                        <TextBlock Text="{x:Bind SubtitleDisplay}"
+                                                   FontSize="11" Foreground="#a0a0b8"/>
+                                    </StackPanel>
+
+                                    <!-- Right: KDA + review button -->
+                                    <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Bind KdaDisplay}"
+                                                       FontSize="16" FontWeight="Bold" Foreground="#e8e8f0"/>
+                                            <TextBlock Text="{x:Bind KdaRatioDisplay}"
+                                                       FontSize="14" Foreground="#a0a0b8"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <Button Content="{x:Bind ReviewButtonText}"
+                                                FontSize="11" Height="26" MinWidth="100"
+                                                CornerRadius="6"
+                                                Background="#3b82f6" Foreground="#e8e8f0"
+                                                HorizontalAlignment="Right"
+                                                Margin="0,4,0,0"
+                                                Tag="{x:Bind GameId}"
+                                                Click="OnReviewClick"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Tags row -->
+                                <ItemsRepeater ItemsSource="{x:Bind Tags}"
+                                               Visibility="{x:Bind HasTags, Converter={StaticResource BoolToVis}}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Horizontal" Spacing="4"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="x:String">
+                                            <Border Background="#1e1e2e" CornerRadius="12" Padding="10,4">
+                                                <TextBlock Text="{x:Bind}" FontSize="11" Foreground="#3b82f6"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+
+                                <!-- Separator -->
+                                <Border Height="1" Background="#2a2a3a"/>
+
+                                <!-- Mistakes section -->
+                                <StackPanel Visibility="{x:Bind HasMistakes, Converter={StaticResource BoolToVis}}" Spacing="4">
+                                    <TextBlock Text="What to improve:" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="#f59e0b"/>
+                                    <Border Background="#161622" BorderBrush="#2a2a3a" BorderThickness="1"
+                                            CornerRadius="6" Padding="12,10">
+                                        <TextBlock Text="{x:Bind Mistakes}" FontSize="12"
+                                                   Foreground="#e8e8f0" TextWrapping="Wrap"/>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- Focus for next game -->
+                                <StackPanel Visibility="{x:Bind HasFocusNext, Converter={StaticResource BoolToVis}}" Spacing="4">
+                                    <TextBlock Text="Focus for next game:" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="#3b82f6"/>
+                                    <Border Background="#161622" BorderBrush="#3b82f6" BorderThickness="2"
+                                            CornerRadius="6" Padding="12,10">
+                                        <TextBlock Text="{x:Bind FocusNext}" FontSize="13"
+                                                   Foreground="#e8e8f0" TextWrapping="Wrap"/>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- Spotted problems -->
+                                <StackPanel Visibility="{x:Bind HasSpottedProblems, Converter={StaticResource BoolToVis}}" Spacing="4">
+                                    <TextBlock Text="Spotted problems:" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="#f59e0b"/>
+                                    <Border Background="#161622" BorderBrush="#f59e0b" BorderThickness="2"
+                                            CornerRadius="6" Padding="12,10">
+                                        <TextBlock Text="{x:Bind SpottedProblems}" FontSize="13"
+                                                   Foreground="#e8e8f0" TextWrapping="Wrap"/>
+                                    </Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+        </ScrollViewer>
+
+        <!-- Empty state -->
+        <TextBlock Grid.Row="2"
+                   Text="No losses recorded yet."
+                   FontSize="14" Foreground="#a0a0b8"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Visibility="{x:Bind IsEmpty(ViewModel.Losses.Count, ViewModel.IsLoading), Mode=OneWay}"/>
+    </Grid>
+</Page>

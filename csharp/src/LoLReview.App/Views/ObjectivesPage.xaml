@@ -1,0 +1,338 @@
+<Page
+    x:Class="LoLReview.App.Views.ObjectivesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:LoLReview.App.Converters"
+    xmlns:vm="using:LoLReview.App.ViewModels"
+    mc:Ignorable="d"
+    Loaded="Page_Loaded">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <converters:InverseBoolConverter x:Key="InverseBool"/>
+    </Page.Resources>
+
+    <Grid Background="{StaticResource AppBackgroundBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Padding="24,20" Spacing="12" MaxWidth="900">
+
+                <!-- Header Row -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Text="Learning Objectives"
+                               FontSize="22" FontWeight="Bold"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               VerticalAlignment="Center"/>
+                    <Button Grid.Column="1"
+                            Content="+ New Objective"
+                            Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
+                            Background="{StaticResource AccentBlueBrush}"
+                            Foreground="White"
+                            CornerRadius="6" Height="34"
+                            BorderThickness="0"/>
+                </Grid>
+
+                <!-- Create Form (collapsible) -->
+                <Border Style="{StaticResource CardStyle}"
+                        BorderBrush="{StaticResource AccentBlueBrush}"
+                        Visibility="{x:Bind ViewModel.IsCreating, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="New Objective"
+                                   FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource PrimaryTextBrush}"/>
+
+                        <!-- Title -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Title *" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.NewTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="e.g., Improve wave management"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     CornerRadius="6"/>
+                        </StackPanel>
+
+                        <!-- Skill Area -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Skill Area" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.NewSkillArea, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="e.g., Laning, Macro, Teamfighting"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     CornerRadius="6"/>
+                        </StackPanel>
+
+                        <!-- Type -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Type" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <ComboBox SelectedIndex="{x:Bind ViewModel.NewTypeIndex, Mode=TwoWay}"
+                                      Background="{StaticResource InputBackgroundBrush}"
+                                      Foreground="{StaticResource PrimaryTextBrush}"
+                                      BorderBrush="{StaticResource SubtleBorderBrush}"
+                                      CornerRadius="6" MinWidth="200">
+                                <ComboBoxItem Content="Primary"/>
+                                <ComboBoxItem Content="Mental"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Completion Criteria -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Completion Criteria" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.NewCriteria, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="How will you know you've mastered this?"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     CornerRadius="6"/>
+                        </StackPanel>
+
+                        <!-- Description -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Description" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.NewDescription, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Additional notes..."
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     CornerRadius="6"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="60"/>
+                        </StackPanel>
+
+                        <!-- Action Buttons -->
+                        <StackPanel Orientation="Horizontal" Spacing="8"
+                                    HorizontalAlignment="Right">
+                            <Button Content="Cancel"
+                                    Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
+                                    Background="{StaticResource TagBackgroundBrush}"
+                                    Foreground="{StaticResource PrimaryTextBrush}"
+                                    CornerRadius="6" Height="32"
+                                    BorderThickness="0"/>
+                            <Button Content="Create"
+                                    Command="{x:Bind ViewModel.CreateObjectiveCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanCreate, Mode=OneWay}"
+                                    Background="{StaticResource AccentBlueBrush}"
+                                    Foreground="White"
+                                    CornerRadius="6" Height="32"
+                                    BorderThickness="0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Empty State -->
+                <Border Style="{StaticResource CardStyle}"
+                        Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+                    <TextBlock Text="No objectives yet.&#x0a;&#x0a;Create your first learning objective to start tracking progress."
+                               FontSize="14"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"
+                               Margin="20,30"/>
+                </Border>
+
+                <!-- Active Objectives Section Header -->
+                <TextBlock Text="ACTIVE"
+                           FontSize="11" FontWeight="Bold"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Visibility="{x:Bind ViewModel.HasActiveObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+                <!-- Active Objectives List -->
+                <ItemsRepeater ItemsSource="{x:Bind ViewModel.ActiveObjectives, Mode=OneWay}"
+                               Visibility="{x:Bind ViewModel.HasActiveObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="10"/>
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ObjectiveDisplayItem">
+                            <Border Background="{StaticResource CardBackgroundBrush}"
+                                    CornerRadius="10"
+                                    Padding="16,14"
+                                    BorderThickness="2"
+                                    BorderBrush="{x:Bind LevelColorBrush}">
+                                <StackPanel Spacing="6">
+                                    <!-- Title Row: Type Badge + Title -->
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Border Background="#1e40af"
+                                                CornerRadius="4" Padding="6,2">
+                                            <TextBlock Text="{x:Bind TypeBadge}"
+                                                       FontSize="9" FontWeight="Bold"
+                                                       Foreground="White"/>
+                                        </Border>
+                                        <TextBlock Text="{x:Bind Title}"
+                                                   FontSize="16" FontWeight="Bold"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <!-- Skill Area -->
+                                    <TextBlock Text="{x:Bind SkillArea}"
+                                               FontSize="12"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               Visibility="{x:Bind HasSkillArea, Converter={StaticResource BoolToVis}}"/>
+
+                                    <!-- Completion Criteria -->
+                                    <TextBlock Text="{x:Bind CriteriaText}"
+                                               FontSize="12"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               TextWrapping="Wrap"
+                                               Visibility="{x:Bind HasCriteria, Converter={StaticResource BoolToVis}}"/>
+
+                                    <!-- Level + Score Row -->
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{x:Bind LevelName}"
+                                                   FontSize="14" FontWeight="Bold"
+                                                   Foreground="{x:Bind LevelColorBrush}"/>
+                                        <TextBlock Text="{x:Bind ScoreText}"
+                                                   FontSize="13"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{x:Bind ProgressText}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource MutedTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <!-- Progress Bar -->
+                                    <ProgressBar Value="{x:Bind ProgressPercent}"
+                                                 Maximum="100"
+                                                 Height="8"
+                                                 Foreground="{x:Bind LevelColorBrush}"
+                                                 Background="{StaticResource SubtleBorderBrush}"
+                                                 CornerRadius="4"/>
+
+                                    <!-- Action Row -->
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Suggest Complete message -->
+                                        <TextBlock Grid.Column="0"
+                                                   Text="Ready to complete! You've mastered this objective."
+                                                   FontSize="12" FontWeight="Bold"
+                                                   Foreground="{StaticResource AccentGoldBrush}"
+                                                   VerticalAlignment="Center"
+                                                   Visibility="{x:Bind SuggestComplete, Converter={StaticResource BoolToVis}}"/>
+
+                                        <!-- Remaining games if not completable -->
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{x:Bind RemainingText}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   VerticalAlignment="Center"
+                                                   Visibility="{x:Bind CanComplete, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
+
+                                        <!-- Buttons -->
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                            <Button Content="Delete"
+                                                    Background="Transparent"
+                                                    Foreground="{StaticResource LossRedBrush}"
+                                                    BorderBrush="{StaticResource LossRedBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6" Height="30"
+                                                    FontSize="12"
+                                                    Tag="{x:Bind Id}"
+                                                    Click="DeleteObjective_Click"/>
+                                            <Button Content="Mark Complete"
+                                                    Background="{StaticResource WinGreenBrush}"
+                                                    Foreground="White"
+                                                    CornerRadius="6" Height="30"
+                                                    FontSize="12"
+                                                    BorderThickness="0"
+                                                    Visibility="{x:Bind CanComplete, Converter={StaticResource BoolToVis}}"
+                                                    Tag="{x:Bind Id}"
+                                                    Click="MarkComplete_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+
+                <!-- Completed Objectives Toggle -->
+                <Button Visibility="{x:Bind ViewModel.HasCompletedObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                        Command="{x:Bind ViewModel.ToggleCompletedCommand}"
+                        Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0"
+                        HorizontalAlignment="Left"
+                        Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE70D;" FontSize="12"/>
+                        <TextBlock Text="Show Completed"
+                                   FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                    </StackPanel>
+                </Button>
+
+                <!-- Completed Objectives List -->
+                <ItemsRepeater ItemsSource="{x:Bind ViewModel.CompletedObjectives, Mode=OneWay}"
+                               Visibility="{x:Bind ViewModel.ShowCompleted, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="6"/>
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CompletedObjectiveItem">
+                            <Border Background="{StaticResource CardBackgroundBrush}"
+                                    CornerRadius="8"
+                                    Padding="14,10"
+                                    BorderThickness="1"
+                                    BorderBrush="{StaticResource SubtleBorderBrush}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0"
+                                               Text="{x:Bind Title}"
+                                               FontSize="14"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{x:Bind SummaryText}"
+                                               FontSize="12"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               VerticalAlignment="Center"
+                                               Margin="12,0"/>
+                                    <Border Grid.Column="2"
+                                            Background="#1a3a1a"
+                                            CornerRadius="4" Padding="6,2">
+                                        <TextBlock Text="DONE"
+                                                   FontSize="10" FontWeight="Bold"
+                                                   Foreground="{StaticResource WinGreenBrush}"/>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+
+                <!-- Loading indicator -->
+                <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                              Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                              HorizontalAlignment="Center"
+                              Width="40" Height="40"
+                              Margin="0,20"/>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

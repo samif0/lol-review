@@ -1,0 +1,68 @@
+<UserControl
+    x:Class="LoLReview.App.Controls.TimelineControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    MinHeight="44"
+    PointerPressed="OnPointerPressed"
+    PointerMoved="OnPointerMoved"
+    PointerReleased="OnPointerReleased"
+    PointerExited="OnPointerExited"
+    SizeChanged="OnSizeChanged">
+
+    <Canvas x:Name="TimelineCanvas" Background="#0a0a0f">
+        <!-- Track background -->
+        <Border x:Name="TrackBg"
+                Canvas.Top="16"
+                Height="8"
+                CornerRadius="4"
+                Background="#1e1e2e" />
+
+        <!-- Clip range overlay (bright green) -->
+        <Border x:Name="ClipOverlay"
+                Canvas.Top="13"
+                Height="14"
+                Background="#22c55e"
+                Opacity="0.35"
+                Visibility="Collapsed" />
+
+        <!-- Clip-in marker (bright green line) -->
+        <Border x:Name="ClipInMarker"
+                Canvas.Top="10"
+                Width="2"
+                Height="20"
+                Background="#22c55e"
+                Visibility="Collapsed" />
+
+        <!-- Clip-out marker (bright green line) -->
+        <Border x:Name="ClipOutMarker"
+                Canvas.Top="10"
+                Width="2"
+                Height="20"
+                Background="#22c55e"
+                Visibility="Collapsed" />
+
+        <!-- Progress bar -->
+        <Border x:Name="ProgressBar"
+                Canvas.Top="16"
+                Height="8"
+                CornerRadius="4"
+                Background="#0099ff" />
+
+        <!-- Marker layer (populated in code) -->
+        <Canvas x:Name="MarkerCanvas" />
+
+        <!-- Hover tooltip -->
+        <Border x:Name="Tooltip"
+                Canvas.Top="0"
+                Padding="6,2"
+                CornerRadius="4"
+                Background="#1a1a24"
+                BorderBrush="#2a2a3a"
+                BorderThickness="1"
+                Visibility="Collapsed">
+            <TextBlock x:Name="TooltipText"
+                       FontSize="11"
+                       Foreground="#e8e8f0" />
+        </Border>
+    </Canvas>
+</UserControl>

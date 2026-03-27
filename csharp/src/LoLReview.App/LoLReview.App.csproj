@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>LoLReview.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <WindowsPackageType>None</WindowsPackageType>
+    <DefineConstants>DISABLE_XAML_GENERATED_MAIN;DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION</DefineConstants>
+    <Version>2.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="WinUIEx" Version="2.5.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+    <PackageReference Include="Velopack" Version="0.0.1298" />
+    <!-- LibVLCSharp causes heap corruption (0xc0000374) in unpackaged WinUI 3.
+         Using Windows.Media.Playback.MediaPlayer + MediaPlayerElement instead. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LoLReview.Core\LoLReview.Core.csproj" />
+  </ItemGroup>
+
+  <!-- WinUI 3 unpackaged apps need resources.pri in the output directory -->
+  <Target Name="CopyPriToResources" AfterTargets="Build;Rebuild">
+    <Copy SourceFiles="$(OutDir)$(AssemblyName).pri" DestinationFiles="$(OutDir)resources.pri"
+          SkipUnchangedFiles="false" Condition="Exists('$(OutDir)$(AssemblyName).pri')" />
+  </Target>
+
+</Project>

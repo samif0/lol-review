@@ -1,0 +1,116 @@
+name: Build & Release (C#)
+
+on:
+  push:
+    tags:
+      - 'v2.*'
+      - 'v3.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Extract version from tag
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "Building version $VERSION from tag $TAG"
+
+      - name: Stamp version in csproj
+        shell: pwsh
+        run: |
+          $version = "${{ env.VERSION }}"
+          $csproj = "csharp/src/LoLReview.App/LoLReview.App.csproj"
+          $content = Get-Content $csproj -Raw
+          $content = $content -replace '<Version>[^<]*</Version>', "<Version>$version</Version>"
+          Set-Content $csproj $content
+          Write-Host "Stamped version: $version"
+
+      - name: Download ffmpeg
+        shell: pwsh
+        run: |
+          try {
+            Write-Host "Downloading ffmpeg..."
+            $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+            Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip -TimeoutSec 180
+            Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
+            $exe = Get-ChildItem -Recurse -Filter "ffmpeg.exe" ffmpeg_tmp `
+                   | Where-Object { $_.DirectoryName -like "*bin*" } `
+                   | Select-Object -First 1
+            if ($exe) {
+              New-Item -ItemType Directory -Force -Path deps
+              Copy-Item $exe.FullName -Destination deps\ffmpeg.exe
+              $mb = [math]::Round((Get-Item deps\ffmpeg.exe).Length / 1MB, 1)
+              Write-Host "ffmpeg ready ($mb MB)"
+            } else {
+              Write-Warning "ffmpeg.exe not found in archive — building without it"
+            }
+          } catch {
+            Write-Warning "ffmpeg download failed: $_ — building without it"
+          } finally {
+            Remove-Item ffmpeg.zip, ffmpeg_tmp -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Publish self-contained
+        shell: pwsh
+        run: |
+          dotnet publish csharp/src/LoLReview.App/LoLReview.App.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -o publish
+
+      - name: Copy ffmpeg to publish output
+        shell: pwsh
+        run: |
+          if (Test-Path deps\ffmpeg.exe) {
+            Copy-Item deps\ffmpeg.exe publish\ffmpeg.exe
+            Write-Host "ffmpeg copied to publish output"
+          } else {
+            Write-Host "No ffmpeg to copy — clip extraction will be unavailable"
+          }
+
+      - name: Install vpk CLI
+        run: dotnet tool install -g vpk
+
+      - name: Download previous Velopack release (for delta generation)
+        shell: pwsh
+        run: |
+          vpk download github `
+            --repoUrl "https://github.com/${{ github.repository }}" `
+            --token "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Pack Velopack release
+        shell: pwsh
+        run: |
+          vpk pack `
+            --packId LoLReview `
+            --packVersion "${{ env.VERSION }}" `
+            --packDir publish `
+            --mainExe LoLReview.App.exe `
+            --outputDir Releases
+
+      - name: Upload Velopack release to GitHub
+        shell: pwsh
+        run: |
+          vpk upload github `
+            --repoUrl "https://github.com/${{ github.repository }}" `
+            --token "${{ secrets.GITHUB_TOKEN }}" `
+            --publish `
+            --releaseName "LoL Review v${{ env.VERSION }}" `
+            --tag "${{ env.TAG }}"

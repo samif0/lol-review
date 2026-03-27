@@ -20,6 +20,16 @@ data/
 # Downloaded dependencies (fetched by Scripts/download_mpv.py at build time)
 deps/
 
+# C# / .NET build artifacts
+bin/
+obj/
+publish/
+Releases/
+.vs/
+*.user
+*.suo
+packages/
+
 # OS junk
 .fuse_hidden*
 Thumbs.db
