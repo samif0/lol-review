@@ -22,6 +22,9 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
       - name: Extract version from tag
         shell: bash
         run: |
@@ -66,14 +69,22 @@ jobs:
             Remove-Item ffmpeg.zip, ffmpeg_tmp -Recurse -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Publish self-contained
+      - name: Restore NuGet packages
+        run: dotnet restore csharp/src/LoLReview.App/LoLReview.App.csproj -r win-x64
+
+      - name: Build and publish with MSBuild
         shell: pwsh
         run: |
-          dotnet publish csharp/src/LoLReview.App/LoLReview.App.csproj `
-            -c Release `
-            -r win-x64 `
-            --self-contained true `
-            -o publish
+          msbuild csharp/src/LoLReview.App/LoLReview.App.csproj `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:RuntimeIdentifier=win-x64 `
+            /p:SelfContained=true `
+            /p:PublishDir=${{ github.workspace }}/publish/ `
+            /p:PublishSingleFile=false `
+            /t:Publish `
+            /m `
+            /verbosity:minimal
 
       - name: Copy ffmpeg to publish output
         shell: pwsh
