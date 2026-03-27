@@ -174,10 +174,19 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             var modeLabel = _currentGameCasual ? "casual" : "ranked/normal";
             _logger.LogInformation("Champ select started (queue {QueueId} -- {Mode})", queueId, modeLabel);
 
-            if (!_currentGameCasual)
-            {
-                _messenger.Send(new ChampSelectStartedMessage(queueId));
-            }
+            // Always send champ select message (even for casual/practice) for testing
+            _messenger.Send(new ChampSelectStartedMessage(queueId));
+        }
+
+        // ── Detect champ select cancelled (dodge/leave) ──────────────────
+
+        if (_lastPhase == GamePhase.ChampSelect
+            && phase is not GamePhase.ChampSelect
+                and not GamePhase.InProgress
+                and not GamePhase.GameStart)
+        {
+            _logger.LogInformation("Champ select cancelled (went to {Phase})", phase);
+            _messenger.Send(new ChampSelectCancelledMessage());
         }
 
         // ── Detect transition into InProgress/GameStart ─────────────────

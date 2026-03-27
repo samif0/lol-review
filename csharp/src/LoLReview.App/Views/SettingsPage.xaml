@@ -67,16 +67,30 @@
                                    FontSize="11"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
 
-                        <!-- Clear button -->
-                        <Button Content="Clear Ascent Folder"
-                                Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
-                                FontSize="11" Height="30"
-                                Padding="12,0" CornerRadius="6"
-                                Background="Transparent"
-                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                BorderThickness="1"
-                                Foreground="{StaticResource SecondaryTextBrush}"
-                                HorizontalAlignment="Left"/>
+                        <!-- Action buttons -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Scan for VODs"
+                                    Click="OnScanVodsClick"
+                                    FontSize="11" Height="30"
+                                    Padding="12,0" CornerRadius="6"
+                                    Background="{StaticResource AccentBlueBrush}"
+                                    Foreground="White"
+                                    HorizontalAlignment="Left"/>
+                            <Button Content="Clear Ascent Folder"
+                                    Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
+                                    FontSize="11" Height="30"
+                                    Padding="12,0" CornerRadius="6"
+                                    Background="Transparent"
+                                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                                    BorderThickness="1"
+                                    Foreground="{StaticResource SecondaryTextBrush}"
+                                    HorizontalAlignment="Left"/>
+                        </StackPanel>
+
+                        <TextBlock x:Name="ScanResultText"
+                                   FontSize="11"
+                                   Foreground="{StaticResource WinGreenBrush}"
+                                   Visibility="Collapsed"/>
                     </StackPanel>
                 </Border>
 

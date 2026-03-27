@@ -22,15 +22,30 @@
             <StackPanel Padding="24,20" Spacing="12" Width="900" HorizontalAlignment="Center">
 
                 <!-- Page Header -->
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TextBlock Text="Session"
-                               FontSize="22" FontWeight="Bold"
-                               Foreground="{StaticResource PrimaryTextBrush}"/>
-                    <TextBlock Text="Track your mental state and adherence"
-                               FontSize="13"
-                               Foreground="{StaticResource SecondaryTextBrush}"
-                               VerticalAlignment="Center"/>
-                </StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="Session"
+                                   FontSize="22" FontWeight="Bold"
+                                   Foreground="{StaticResource PrimaryTextBrush}"/>
+                        <TextBlock Text="Track your mental state and adherence"
+                                   FontSize="13"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="+ Manual Entry"
+                            Click="OnManualEntryClick"
+                            Background="{StaticResource TagBackgroundBrush}"
+                            Foreground="{StaticResource AccentGoldBrush}"
+                            BorderBrush="{StaticResource AccentGoldBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6" Height="32" Padding="12,0"
+                            FontSize="12" IsTabStop="False"
+                            VerticalAlignment="Center"/>
+                </Grid>
 
                 <!-- Date Navigation Bar -->
                 <Border Style="{StaticResource CardStyle}">

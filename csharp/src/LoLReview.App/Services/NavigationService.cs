@@ -32,6 +32,9 @@ public sealed class NavigationService : INavigationService
         ["settings"] = typeof(SettingsPage),
         ["review"] = typeof(ReviewPage),
         ["vodplayer"] = typeof(VodPlayerPage),
+        ["pregame"] = typeof(PreGamePage),
+        ["postgame"] = typeof(PostGamePage),
+        ["manualentry"] = typeof(ManualEntryPage),
     };
 
     public string? CurrentPageKey => _currentPageKey;

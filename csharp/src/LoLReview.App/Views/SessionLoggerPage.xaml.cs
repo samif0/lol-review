@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Contracts;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -28,5 +29,11 @@ public sealed partial class SessionLoggerPage : Page
         {
             ViewModel.NavigateToReviewCommand.Execute(gameId);
         }
+    }
+
+    private void OnManualEntryClick(object sender, RoutedEventArgs e)
+    {
+        var nav = App.GetService<INavigationService>();
+        nav.NavigateTo("manualentry");
     }
 }

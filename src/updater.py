@@ -273,9 +273,9 @@ def check_for_update() -> Optional[dict]:
 
         clean_version = latest_tag.lstrip("vV")
 
-        # Migration path: if the release has a Setup.exe but no ZIP,
-        # this is a Velopack (C#) release and we need to migrate.
-        is_migration = bool(not download_url and setup_url)
+        # Migration path: if the release has a Setup.exe (Velopack),
+        # always prefer it over any ZIP that may also be present.
+        is_migration = bool(setup_url)
         if is_migration:
             logger.info(f"v{clean_version} is a Velopack migration release")
             return {
