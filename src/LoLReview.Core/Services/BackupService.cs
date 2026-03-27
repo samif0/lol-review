@@ -80,7 +80,7 @@ public sealed class BackupService : IBackupService
     {
         // The default database location
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var defaultPath = Path.Combine(localAppData, "LoLReview", "lol_review.db");
+        var defaultPath = Path.Combine(localAppData, "LoLReview", "data", "lol_review.db");
         if (File.Exists(defaultPath)) return defaultPath;
 
         return null;

@@ -1,25 +1,3 @@
-# Virtual environment
-Lib/
-Scripts/
-pyvenv.cfg
-Include/
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-
-# PyInstaller build artifacts
-/build/
-/dist/
-*.spec
-
-# Local data (database, logs) — root only, not csharp/src/.../Data/
-/data/
-
-# Downloaded dependencies (fetched by Scripts/download_mpv.py at build time)
-deps/
-
 # C# / .NET build artifacts
 **/bin/
 **/obj/
@@ -29,6 +7,9 @@ deps/
 *.user
 *.suo
 /packages/
+
+# Local data (database, logs)
+/data/
 
 # OS junk
 .fuse_hidden*

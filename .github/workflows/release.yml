@@ -1,35 +1,29 @@
-name: Build & Release
+name: Build & Release (C#)
 
 on:
   push:
     tags:
-      - 'v1.*'
-      - 'v2.0.*'
+      - 'v2.[1-9].*'
+      - 'v3.*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
         with:
-          python-version: '3.11'
+          dotnet-version: 8.0.x
 
-      - name: Create isolated build venv
-        shell: pwsh
-        run: |
-          # Use an isolated venv so PyInstaller only sees our Python 3.11
-          # and doesn't accidentally pick up DLLs from other Python versions
-          # on the runner (e.g. python314.dll from a pre-installed 3.14).
-          python -m venv build_venv
-          .\build_venv\Scripts\python -m pip install --upgrade pip
-          .\build_venv\Scripts\pip install -r requirements.txt pyinstaller
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
 
       - name: Extract version from tag
         shell: bash
@@ -40,42 +34,15 @@ jobs:
           echo "TAG=$TAG" >> $GITHUB_ENV
           echo "Building version $VERSION from tag $TAG"
 
-      - name: Stamp version.py
+      - name: Stamp version in csproj
         shell: pwsh
         run: |
           $version = "${{ env.VERSION }}"
-          $path = "src/version.py"
-          $content = Get-Content $path -Raw
-          $content = $content -replace '__version__ = "[^"]*"', "__version__ = `"$version`""
-          Set-Content $path $content
+          $csproj = "src/LoLReview.App/LoLReview.App.csproj"
+          $content = Get-Content $csproj -Raw
+          $content = $content -replace '<Version>[^<]*</Version>', "<Version>$version</Version>"
+          Set-Content $csproj $content
           Write-Host "Stamped version: $version"
-
-      - name: Build native launcher
-        shell: cmd
-        run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          if not exist launcher_out mkdir launcher_out
-          cl.exe /O2 /W3 /Fe:launcher_out\LoLReview.exe launcher\launcher.c /link kernel32.lib user32.lib
-          if %ERRORLEVEL% NEQ 0 (
-            echo Launcher build failed!
-            exit /b 1
-          )
-          echo Launcher built successfully
-
-      - name: Verify launcher
-        shell: pwsh
-        run: |
-          $exe = "launcher_out\LoLReview.exe"
-          if (Test-Path $exe) {
-            $kb = [math]::Round((Get-Item $exe).Length / 1KB, 1)
-            Write-Host "Launcher built: $kb KB"
-          } else {
-            Write-Error "Launcher build failed — LoLReview.exe not found in launcher_out"
-            exit 1
-          }
-
-      - name: Create deps directory
-        run: New-Item -ItemType Directory -Force -Path deps
 
       - name: Download ffmpeg
         shell: pwsh
@@ -89,6 +56,7 @@ jobs:
                    | Where-Object { $_.DirectoryName -like "*bin*" } `
                    | Select-Object -First 1
             if ($exe) {
+              New-Item -ItemType Directory -Force -Path deps
               Copy-Item $exe.FullName -Destination deps\ffmpeg.exe
               $mb = [math]::Round((Get-Item deps\ffmpeg.exe).Length / 1MB, 1)
               Write-Host "ffmpeg ready ($mb MB)"
@@ -101,106 +69,76 @@ jobs:
             Remove-Item ffmpeg.zip, ffmpeg_tmp -Recurse -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Download libmpv
+      - name: Restore NuGet packages
+        run: dotnet restore src/LoLReview.App/LoLReview.App.csproj -r win-x64
+
+      - name: Build and publish with MSBuild
         shell: pwsh
         run: |
-          try {
-            Write-Host "Fetching latest mpv release info..."
-            $headers = @{ "User-Agent" = "lol-review-ci" }
-            $release = Invoke-RestMethod `
-              -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" `
-              -Headers $headers -TimeoutSec 30
-            $asset = $release.assets `
-              | Where-Object { $_.name -like "mpv-dev-x86_64-*.7z" } `
-              | Select-Object -First 1
-            if ($asset) {
-              Write-Host "Downloading $($asset.name)..."
-              Invoke-WebRequest -Uri $asset.browser_download_url `
-                -OutFile mpv-dev.7z -TimeoutSec 180
-              & 7z e mpv-dev.7z libmpv-2.dll -odeps -y 2>&1 | Out-Null
-              if (Test-Path deps\libmpv-2.dll) {
-                $mb = [math]::Round((Get-Item deps\libmpv-2.dll).Length / 1MB, 1)
-                Write-Host "libmpv-2.dll ready ($mb MB)"
-              } else {
-                Write-Warning "libmpv-2.dll not found in archive — VOD playback will use system player"
-              }
-              Remove-Item mpv-dev.7z -Force -ErrorAction SilentlyContinue
-            } else {
-              Write-Warning "No mpv-dev-x86_64-*.7z asset found — building without libmpv"
-            }
-          } catch {
-            Write-Warning "libmpv download failed: $_ — building without it"
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "publish"
+          msbuild src/LoLReview.App/LoLReview.App.csproj `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:RuntimeIdentifier=win-x64 `
+            /p:SelfContained=true `
+            "/p:PublishDir=$publishDir\" `
+            /t:Publish `
+            /m `
+            /verbosity:minimal
+
+      - name: Copy ffmpeg to publish output
+        shell: pwsh
+        run: |
+          if (Test-Path deps\ffmpeg.exe) {
+            Copy-Item deps\ffmpeg.exe publish\ffmpeg.exe
+            Write-Host "ffmpeg copied to publish output"
+          } else {
+            Write-Host "No ffmpeg to copy — clip extraction will be unavailable"
           }
 
-      - name: Build with PyInstaller
+      - name: Verify publish output
         shell: pwsh
         run: |
-          # Use the venv Python so PyInstaller only bundles 3.11 DLLs
-          "y`ny" | .\build_venv\Scripts\python build.py
-
-      - name: Verify build output
-        shell: pwsh
-        run: |
-          $exe = "dist\LoLReview\LoLReview.exe"
-          if (Test-Path $exe) {
-            $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-            Write-Host "Build succeeded: LoLReview.exe ($mb MB)"
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "publish"
+          Write-Host "Publish dir: $publishDir"
+          Write-Host "Exists: $(Test-Path $publishDir)"
+          if (Test-Path $publishDir) {
+            $exe = Get-ChildItem $publishDir -Filter "LoLReview.App.exe" -ErrorAction SilentlyContinue
+            $pri = Get-ChildItem $publishDir -Filter "resources.pri" -ErrorAction SilentlyContinue
+            Write-Host "LoLReview.App.exe: $($exe.Length) bytes"
+            Write-Host "resources.pri: $($pri.Length) bytes"
+            Write-Host "Total files: $((Get-ChildItem $publishDir | Measure-Object).Count)"
           } else {
-            Write-Error "Build failed — LoLReview.exe not found"
+            Write-Error "Publish directory not found!"
             exit 1
           }
 
-      - name: Package SxS release
+      - name: Install vpk CLI
+        run: dotnet tool install -g vpk
+
+      - name: Download previous Velopack release (for delta generation)
         shell: pwsh
         run: |
-          $version = "${{ env.VERSION }}"
-          $tag = "${{ env.TAG }}"
-          $staging = "sxs_staging"
+          vpk download github `
+            --repoUrl "https://github.com/${{ github.repository }}" `
+            --token "${{ secrets.GITHUB_TOKEN }}"
 
-          # Create SxS directory structure:
-          #   LoLReview.exe          <- tiny native launcher
-          #   .current               <- points to active version
-          #   app-X.Y.Z/             <- versioned app directory
-          #     LoLReview.exe         <- actual PyInstaller app
-          #     _internal/
-          #     ...
-          New-Item -ItemType Directory -Force -Path $staging
-          New-Item -ItemType Directory -Force -Path "$staging\app-$version"
+      - name: Pack Velopack release
+        shell: pwsh
+        run: |
+          vpk pack `
+            --packId LoLReview `
+            --packVersion "${{ env.VERSION }}" `
+            --packDir publish `
+            --mainExe LoLReview.App.exe `
+            --outputDir Releases
 
-          # Copy launcher to root
-          Copy-Item "launcher_out\LoLReview.exe" "$staging\LoLReview.exe"
-
-          # Write .current pointer
-          Set-Content -Path "$staging\.current" -Value $version -NoNewline -Encoding UTF8
-
-          # Copy PyInstaller output into versioned subdirectory
-          Copy-Item -Path "dist\LoLReview\*" -Destination "$staging\app-$version" -Recurse
-
-          # Create the ZIP
-          $zipName = "LoLReview-$tag.zip"
-          Compress-Archive -Path "$staging\*" -DestinationPath $zipName
-          $mb = [math]::Round((Get-Item $zipName).Length / 1MB, 1)
-          Write-Host "Zipped: $zipName ($mb MB)"
-
-          # Verify structure
-          $entries = & 7z l $zipName
-          $launcherFound = $entries | Where-Object { $_ -match "^\s+\d.*LoLReview\.exe$" }
-          $appDirFound = $entries | Where-Object { $_ -like "*app-$version\LoLReview.exe*" }
-          $currentFound = $entries | Where-Object { $_ -like "*.current*" }
-          if ($launcherFound) { Write-Host "OK: Launcher at zip root" }
-          else { Write-Warning "Launcher not at zip root" }
-          if ($appDirFound) { Write-Host "OK: App in app-$version/" }
-          else { Write-Warning "App not in expected versioned directory" }
-          if ($currentFound) { Write-Host "OK: .current pointer present" }
-          else { Write-Warning ".current not found in zip" }
-
-          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          name: "LoL Review ${{ env.TAG }}"
-          files: ${{ env.ZIP_NAME }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+      - name: Upload Velopack release to GitHub
+        shell: pwsh
+        run: |
+          vpk upload github `
+            --repoUrl "https://github.com/${{ github.repository }}" `
+            --token "${{ secrets.GITHUB_TOKEN }}" `
+            --publish `
+            --releaseName "LoL Review v${{ env.VERSION }}" `
+            --tag "${{ env.TAG }}"

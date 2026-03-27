@@ -14,9 +14,22 @@ public sealed class ConfigService : IConfigService
 {
     private static readonly string ConfigDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "LoLReview");
+        "LoLReview", "data");
 
     private static readonly string ConfigFile = Path.Combine(ConfigDir, "config.json");
+
+    static ConfigService()
+    {
+        // Migrate config from old location if needed
+        var oldConfig = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "LoLReview", "config.json");
+        if (!File.Exists(ConfigFile) && File.Exists(oldConfig))
+        {
+            Directory.CreateDirectory(ConfigDir);
+            File.Copy(oldConfig, ConfigFile);
+        }
+    }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
