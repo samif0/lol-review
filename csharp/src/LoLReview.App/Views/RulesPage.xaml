@@ -64,7 +64,7 @@
                                         <TextBlock Text="{x:Bind RuleName}"
                                                    FontSize="12" FontWeight="SemiBold"
                                                    Foreground="{StaticResource PrimaryTextBrush}"/>
-                                        <TextBlock Text="\u2014"
+                                        <TextBlock Text="&#x2014;"
                                                    FontSize="12"
                                                    Foreground="{StaticResource SecondaryTextBrush}"/>
                                         <TextBlock Text="{x:Bind Reason}"

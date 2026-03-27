@@ -82,31 +82,40 @@
                 <StackPanel Grid.Column="0" Spacing="2">
                     <TextBlock Text="Kills" FontSize="11"
                                Foreground="{StaticResource SecondaryTextBrush}"/>
-                    <NumberBox Value="{x:Bind ViewModel.Kills, Mode=TwoWay}"
-                              Minimum="0" Maximum="99"
-                              SpinButtonPlacementMode="Compact"
-                              FontSize="13" Height="34"
-                              CornerRadius="6"/>
+                    <TextBox Text="{x:Bind ViewModel.KillsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="0"
+                             InputScope="Number"
+                             FontSize="13" Height="34"
+                             CornerRadius="6"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Spacing="2">
                     <TextBlock Text="Deaths" FontSize="11"
                                Foreground="{StaticResource SecondaryTextBrush}"/>
-                    <NumberBox Value="{x:Bind ViewModel.Deaths, Mode=TwoWay}"
-                              Minimum="0" Maximum="99"
-                              SpinButtonPlacementMode="Compact"
-                              FontSize="13" Height="34"
-                              CornerRadius="6"/>
+                    <TextBox Text="{x:Bind ViewModel.DeathsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="0"
+                             InputScope="Number"
+                             FontSize="13" Height="34"
+                             CornerRadius="6"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Spacing="2">
                     <TextBlock Text="Assists" FontSize="11"
                                Foreground="{StaticResource SecondaryTextBrush}"/>
-                    <NumberBox Value="{x:Bind ViewModel.Assists, Mode=TwoWay}"
-                              Minimum="0" Maximum="99"
-                              SpinButtonPlacementMode="Compact"
-                              FontSize="13" Height="34"
-                              CornerRadius="6"/>
+                    <TextBox Text="{x:Bind ViewModel.AssistsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="0"
+                             InputScope="Number"
+                             FontSize="13" Height="34"
+                             CornerRadius="6"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}"/>
                 </StackPanel>
             </Grid>
 

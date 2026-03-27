@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.Core.Data.Repositories;
@@ -7,11 +8,26 @@ using Microsoft.Extensions.Logging;
 
 namespace LoLReview.App.ViewModels;
 
-/// <summary>ViewModel for the manual game entry dialog.</summary>
+/// <summary>Display model for an objective assessment in the review flow.</summary>
+public partial class ObjectiveAssessment : ObservableObject
+{
+    public long ObjectiveId { get; init; }
+    public string Title { get; init; } = "";
+    public string Criteria { get; init; } = "";
+
+    [ObservableProperty]
+    private bool _practiced;
+
+    [ObservableProperty]
+    private string _executionNote = "";
+}
+
+/// <summary>ViewModel for the manual game entry page.</summary>
 public partial class ManualEntryDialogViewModel : ObservableObject
 {
     private readonly IGameRepository _gameRepo;
     private readonly ISessionLogRepository _sessionLogRepo;
+    private readonly IObjectivesRepository _objectivesRepo;
     private readonly ILogger<ManualEntryDialogViewModel> _logger;
 
     // ── Observable Properties ───────────────────────────────────────
@@ -31,6 +47,25 @@ public partial class ManualEntryDialogViewModel : ObservableObject
     [ObservableProperty]
     private int _assists;
 
+    // Text wrappers for TextBox binding (NumberBox removed to avoid XamlControlsResources dependency)
+    public string KillsText
+    {
+        get => Kills.ToString();
+        set { if (int.TryParse(value, out var v) && v >= 0) Kills = v; OnPropertyChanged(); }
+    }
+
+    public string DeathsText
+    {
+        get => Deaths.ToString();
+        set { if (int.TryParse(value, out var v) && v >= 0) Deaths = v; OnPropertyChanged(); }
+    }
+
+    public string AssistsText
+    {
+        get => Assists.ToString();
+        set { if (int.TryParse(value, out var v) && v >= 0) Assists = v; OnPropertyChanged(); }
+    }
+
     [ObservableProperty]
     private string _gameMode = "Manual Entry";
 
@@ -47,24 +82,61 @@ public partial class ManualEntryDialogViewModel : ObservableObject
     private string _focusNext = "";
 
     [ObservableProperty]
+    private int _mentalRating = 5;
+
+    [ObservableProperty]
     private bool _isValid;
 
     [ObservableProperty]
     private string _errorMessage = "";
+
+    [ObservableProperty]
+    private bool _hasError;
+
+    [ObservableProperty]
+    private bool _hasObjectives;
+
+    public ObservableCollection<ObjectiveAssessment> Objectives { get; } = new();
 
     // ── Constructor ─────────────────────────────────────────────────
 
     public ManualEntryDialogViewModel(
         IGameRepository gameRepo,
         ISessionLogRepository sessionLogRepo,
+        IObjectivesRepository objectivesRepo,
         ILogger<ManualEntryDialogViewModel> logger)
     {
         _gameRepo = gameRepo;
         _sessionLogRepo = sessionLogRepo;
+        _objectivesRepo = objectivesRepo;
         _logger = logger;
     }
 
     // ── Commands ────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private async Task LoadObjectivesAsync()
+    {
+        try
+        {
+            var active = await _objectivesRepo.GetActiveAsync();
+            Objectives.Clear();
+            foreach (var obj in active)
+            {
+                Objectives.Add(new ObjectiveAssessment
+                {
+                    ObjectiveId = Convert.ToInt64(obj.GetValueOrDefault("id", 0L)),
+                    Title = obj.GetValueOrDefault("title", "")?.ToString() ?? "",
+                    Criteria = obj.GetValueOrDefault("completion_criteria", "")?.ToString() ?? "",
+                });
+            }
+            HasObjectives = Objectives.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load objectives");
+        }
+    }
 
     public async Task<bool> SaveAsync()
     {
@@ -72,11 +144,13 @@ public partial class ManualEntryDialogViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(ChampionName))
         {
             ErrorMessage = "Champion name is required";
+            HasError = true;
             IsValid = false;
             return false;
         }
 
         ErrorMessage = "";
+        HasError = false;
         IsValid = true;
 
         try
@@ -100,8 +174,19 @@ public partial class ManualEntryDialogViewModel : ObservableObject
                 await _sessionLogRepo.LogGameAsync(
                     gameId: gameId,
                     championName: ChampionName.Trim(),
-                    win: IsVictory
+                    win: IsVictory,
+                    mentalRating: MentalRating
                 );
+
+                // Record objective assessments
+                foreach (var obj in Objectives)
+                {
+                    await _objectivesRepo.RecordGameAsync(
+                        gameId,
+                        obj.ObjectiveId,
+                        obj.Practiced,
+                        obj.ExecutionNote);
+                }
             }
 
             _logger.LogInformation("Manual game entry saved: {Champion} ({Result})",
@@ -125,6 +210,7 @@ public partial class ManualEntryDialogViewModel : ObservableObject
         if (IsValid)
         {
             ErrorMessage = "";
+            HasError = false;
         }
     }
 }

@@ -1,6 +1,7 @@
 #nullable enable
 
 using LoLReview.App.Contracts;
+using LoLReview.App.Dialogs;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -13,6 +14,8 @@ public sealed class DialogService : IDialogService
 {
     private XamlRoot? _xamlRoot;
 
+    public PreGameDialog? LastPreGameDialog { get; private set; }
+
     public void Initialize(XamlRoot xamlRoot)
     {
         _xamlRoot = xamlRoot;
@@ -20,21 +23,30 @@ public sealed class DialogService : IDialogService
 
     public async Task<ContentDialogResult> ShowPreGameDialogAsync()
     {
-        // TODO: Replace with actual PreGameDialog content
-        var dialog = CreateDialog("Pre-Game Check", "Review your objectives and rules before the game.");
-        dialog.PrimaryButtonText = "Ready";
-        dialog.CloseButtonText = "Skip";
+        var dialog = new PreGameDialog();
+        if (_xamlRoot is not null)
+            dialog.XamlRoot = _xamlRoot;
+        dialog.RequestedTheme = ElementTheme.Dark;
+        LastPreGameDialog = dialog;
         return await dialog.ShowAsync();
     }
 
     public async Task<ContentDialogResult> ShowGameReviewDialogAsync(long gameId)
     {
-        // TODO: Replace with actual GameReviewDialog content
-        var dialog = CreateDialog("Game Review", $"Review your performance for game #{gameId}.");
-        dialog.PrimaryButtonText = "Save";
-        dialog.SecondaryButtonText = "Skip";
-        dialog.CloseButtonText = "Cancel";
-        return await dialog.ShowAsync();
+        var dialog = new GameReviewDialog();
+        if (_xamlRoot is not null)
+            dialog.XamlRoot = _xamlRoot;
+        dialog.RequestedTheme = ElementTheme.Dark;
+        dialog.LoadGame(gameId);
+
+        var result = await dialog.ShowAsync();
+
+        if (result == ContentDialogResult.Primary)
+        {
+            dialog.Save();
+        }
+
+        return result;
     }
 
     public async Task<ContentDialogResult> ShowManualEntryDialogAsync()

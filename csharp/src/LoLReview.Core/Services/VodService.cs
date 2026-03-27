@@ -104,16 +104,16 @@ public sealed partial class VodService : IVodService
             if (rec.StartTs is not null)
             {
                 // Filename-based: compare recording start vs game start.
-                // game.Timestamp is actually game END time, derive start by subtracting duration.
-                var gameStart = game.Timestamp - game.GameDuration;
-                delta = Math.Abs(rec.StartTs.Value - gameStart);
+                // game.Timestamp is the game creation/start time from Riot API.
+                delta = Math.Abs(rec.StartTs.Value - game.Timestamp);
             }
             else
             {
                 // mtime fallback: compare file mtime vs game end
+                // game end ≈ game start + duration
                 var gameEnd = game.Timestamp + game.GameDuration;
                 var signedDelta = rec.Mtime - gameEnd;
-                // Recording should be AFTER game end (allow grace period)
+                // Recording mtime should be near or after game end (allow grace period)
                 if (signedDelta < -GameConstants.VodMtimeGraceS)
                     continue;
                 delta = Math.Abs(signedDelta);

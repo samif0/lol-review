@@ -107,6 +107,16 @@ public partial class App : Application
                 var dbInit = GetService<DatabaseInitializer>();
                 await dbInit.InitializeAsync();
 
+                // Load XamlControlsResources at runtime (not in App.xaml) to avoid heap corruption
+                try
+                {
+                    Current.Resources.MergedDictionaries.Add(new Microsoft.UI.Xaml.Controls.XamlControlsResources());
+                }
+                catch (Exception xcrEx)
+                {
+                    File.AppendAllText(logPath, $"[{DateTime.Now}] XamlControlsResources load failed: {xcrEx.Message}\n");
+                }
+
                 // Load custom app theme (overrides some WinUI defaults with app colors)
                 try
                 {
@@ -164,6 +174,8 @@ public partial class App : Application
                 services.AddSingleton<IConfigService, ConfigService>();
                 services.AddSingleton<IClipService, ClipService>();
                 services.AddSingleton<IAnalysisService, AnalysisService>();
+                services.AddSingleton<IVodService, VodService>();
+                services.AddSingleton<IGameService, GameService>();
 
                 // ── Messaging ──────────────────────────────────────
                 services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);

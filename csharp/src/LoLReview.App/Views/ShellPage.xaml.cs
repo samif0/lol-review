@@ -38,6 +38,13 @@ public sealed partial class ShellPage : Page
         _navigationService.NavigateTo("dashboard");
 
         WeakReferenceMessenger.Default.Register<LcuConnectionChangedMessage>(this, OnConnectionChanged);
+
+        // Initialize DialogService with XamlRoot once the page is loaded
+        Loaded += (_, _) =>
+        {
+            var dialogService = App.GetService<IDialogService>();
+            dialogService.Initialize(XamlRoot);
+        };
     }
 
     private void OnNavClick(object sender, RoutedEventArgs e)

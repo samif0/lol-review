@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Dialogs;
 using Microsoft.UI.Xaml.Controls;
 
 namespace LoLReview.App.Contracts;
@@ -16,6 +17,9 @@ public interface IDialogService
 
     /// <summary>Show the pre-game objectives/rules dialog during champion select.</summary>
     Task<ContentDialogResult> ShowPreGameDialogAsync();
+
+    /// <summary>The last shown PreGameDialog instance (for reading mood/focus after closing).</summary>
+    PreGameDialog? LastPreGameDialog { get; }
 
     /// <summary>Show the post-game review dialog after a match ends.</summary>
     Task<ContentDialogResult> ShowGameReviewDialogAsync(long gameId);
