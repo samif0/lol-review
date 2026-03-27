@@ -104,6 +104,19 @@ public partial class App : Application
                 _host = CreateHost();
                 DispatcherHelper.Initialize();
 
+                // 1. Pre-flight integrity check — logs DB path/size/game count,
+                //    refuses to proceed if DB was wiped but backups exist
+                var integrityChecker = GetService<DatabaseIntegrityChecker>();
+                integrityChecker.RunPreFlightChecks();
+
+                // 2. Safety backup — always-on, no config needed, keeps last 3
+                var backupService = GetService<IBackupService>();
+                await backupService.CreateSafetyBackupAsync("pre-migration startup");
+
+                // 3. User-configured backup (if enabled in settings)
+                await backupService.RunBackupAsync();
+
+                // 4. Schema init — CREATE TABLE IF NOT EXISTS, ALTER TABLE migrations, seed data
                 var dbInit = GetService<DatabaseInitializer>();
                 await dbInit.InitializeAsync();
 
@@ -154,7 +167,9 @@ public partial class App : Application
             {
                 // ── Data layer ─────────────────────────────────────
                 services.AddSingleton<IDbConnectionFactory, SqliteConnectionFactory>();
+                services.AddSingleton<DatabaseIntegrityChecker>();
                 services.AddSingleton<DatabaseInitializer>();
+                services.AddSingleton<IBackupService, BackupService>();
 
                 // ── Repositories ───────────────────────────────────
                 services.AddSingleton<IGameRepository, GameRepository>();

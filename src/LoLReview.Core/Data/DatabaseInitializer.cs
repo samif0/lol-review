@@ -28,10 +28,8 @@ public sealed class DatabaseInitializer
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        // Legacy exe-relative DB migration is disabled — all users have been migrated
-        // to %LOCALAPPDATA%\LoLReview\data\. The old-path → data/ migration is handled
-        // by SqliteConnectionFactory.GetDefaultDatabasePath() and ConfigService's static ctor.
-        // Keeping FindLegacyDatabase/MigrateFromLegacyAsync for reference but not calling them.
+        // The old-path → data/ migration is handled by SqliteConnectionFactory.GetDefaultDatabasePath()
+        // and ConfigService's static ctor. Legacy exe-relative migration code has been removed entirely.
 
         using var connection = _connectionFactory.CreateConnection();
 
@@ -157,105 +155,4 @@ public sealed class DatabaseInitializer
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    // ── Legacy database migration ────────────────────────────────────
-
-    /// <summary>
-    /// Searches common locations for a pre-AppData database file.
-    /// Returns the path if found, <c>null</c> otherwise.
-    /// </summary>
-    public string? FindLegacyDatabase()
-    {
-        var exePath = Environment.ProcessPath ?? typeof(DatabaseInitializer).Assembly.Location;
-        var exeDir = Path.GetDirectoryName(exePath) ?? ".";
-
-        var candidates = new[]
-        {
-            Path.Combine(exeDir, "data", "lol_review.db"),
-            Path.Combine(exeDir, "..", "..", "data", "lol_review.db"),
-            Path.Combine(exeDir, "..", "data", "lol_review.db"),
-            Path.Combine(Directory.GetCurrentDirectory(), "data", "lol_review.db"),
-        };
-
-        foreach (var candidate in candidates)
-        {
-            var resolved = Path.GetFullPath(candidate);
-            _logger.LogDebug("Legacy DB candidate: {Path} exists={Exists}", resolved, File.Exists(resolved));
-            if (File.Exists(resolved))
-            {
-                _logger.LogInformation("Found legacy DB at {Path}", resolved);
-                return resolved;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Copies the legacy database to the AppData location if it contains more games.
-    /// Creates a .db.bak backup of the existing database before replacing.
-    /// </summary>
-    public async Task MigrateFromLegacyAsync(string legacyPath, CancellationToken cancellationToken = default)
-    {
-        var targetPath = _connectionFactory.DatabasePath;
-
-        if (!File.Exists(targetPath))
-        {
-            File.Copy(legacyPath, targetPath, overwrite: false);
-            _logger.LogInformation("Migrated database from {Legacy} to {Target}", legacyPath, targetPath);
-            return;
-        }
-
-        try
-        {
-            var legacyCount = await CountGamesAsync(legacyPath, cancellationToken);
-            var targetCount = await CountGamesAsync(targetPath, cancellationToken);
-
-            if (legacyCount > targetCount)
-            {
-                var backupPath = targetPath + ".bak";
-                File.Copy(targetPath, backupPath, overwrite: true);
-                File.Copy(legacyPath, targetPath, overwrite: true);
-                _logger.LogInformation(
-                    "Legacy DB has more data ({LegacyCount} vs {TargetCount} games). " +
-                    "Replaced AppData DB. Backup at {Backup}",
-                    legacyCount, targetCount, backupPath);
-            }
-            else
-            {
-                _logger.LogInformation(
-                    "AppData DB is up-to-date ({TargetCount} >= {LegacyCount} games). No migration needed.",
-                    targetCount, legacyCount);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Migration comparison failed");
-        }
-    }
-
-    /// <summary>Counts the number of rows in the games table of a database file.</summary>
-    private static async Task<long> CountGamesAsync(string dbFilePath, CancellationToken ct)
-    {
-        var connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = dbFilePath,
-            Mode = SqliteOpenMode.ReadOnly,
-        }.ToString();
-
-        using var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync(ct);
-
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM games";
-
-        try
-        {
-            var result = await cmd.ExecuteScalarAsync(ct);
-            return result is long l ? l : 0;
-        }
-        catch (SqliteException)
-        {
-            return 0;
-        }
-    }
 }
