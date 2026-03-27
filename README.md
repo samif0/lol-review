@@ -125,7 +125,7 @@ requirements.txt
 
 All game data is stored in:
 ```
-%LOCALAPPDATA%\LoLReview\lol_review.db
+%LOCALAPPDATA%\LoLReview\data\lol_review.db
 ```
 
 Logs are written alongside the database as `lol_review.log`.

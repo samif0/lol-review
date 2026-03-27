@@ -14,8 +14,23 @@ public static class Program
     [STAThread]
     static void Main(string[] args)
     {
-        // Velopack MUST run first — handles install/update/uninstall hooks and exits early
-        VelopackApp.Build().Run();
+        // Velopack MUST run first — handles install/update/uninstall hooks and exits early.
+        // Explicit shortcut creation ensures Desktop + Start Menu shortcuts always exist,
+        // so the user never has to hunt for the exe after install/update.
+        VelopackApp.Build()
+            .OnAfterInstallFastCallback((v) =>
+            {
+                new Velopack.Windows.Shortcuts().CreateShortcutForThisExe(
+                    Velopack.Windows.ShortcutLocation.Desktop |
+                    Velopack.Windows.ShortcutLocation.StartMenu);
+            })
+            .OnAfterUpdateFastCallback((v) =>
+            {
+                new Velopack.Windows.Shortcuts().CreateShortcutForThisExe(
+                    Velopack.Windows.ShortcutLocation.Desktop |
+                    Velopack.Windows.ShortcutLocation.StartMenu);
+            })
+            .Run();
 
         var logPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

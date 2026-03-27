@@ -14,13 +14,16 @@ namespace LoLReview.Core.Data;
 public sealed class DatabaseIntegrityChecker
 {
     private readonly IDbConnectionFactory _connectionFactory;
+    private readonly LegacyDatabaseMigrationService _legacyMigration;
     private readonly ILogger<DatabaseIntegrityChecker> _logger;
 
     public DatabaseIntegrityChecker(
         IDbConnectionFactory connectionFactory,
+        LegacyDatabaseMigrationService legacyMigration,
         ILogger<DatabaseIntegrityChecker> logger)
     {
         _connectionFactory = connectionFactory;
+        _legacyMigration = legacyMigration;
         _logger = logger;
     }
 
@@ -46,7 +49,8 @@ public sealed class DatabaseIntegrityChecker
         long gameCount = CountGamesInFile(dbPath);
         _logger.LogInformation("DB game count: {Count}", gameCount);
 
-        // Check for the dangerous scenario: DB exists with 0 games but backups have data
+        // Check for the dangerous scenario: DB exists with 0 games but backups
+        // or an un-migrated legacy database still have data.
         if (gameCount == 0 && fileInfo.Length > 0)
         {
             var backupWithData = FindBackupWithGames(dbPath);
@@ -127,6 +131,12 @@ public sealed class DatabaseIntegrityChecker
         {
             if (CountGamesInFile(oldPathDb) > 0)
                 return oldPathDb;
+        }
+
+        var legacyWithMoreGames = _legacyMigration.FindLegacyDatabaseWithMoreGames(0);
+        if (legacyWithMoreGames is not null)
+        {
+            return legacyWithMoreGames;
         }
 
         return null;

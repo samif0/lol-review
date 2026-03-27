@@ -115,18 +115,30 @@ public partial class HistoryViewModel : ObservableObject
         if (IsLoading) return;
         IsLoading = true;
 
+        var diagPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "LoLReview", "history_diag.log");
+
         try
         {
+            System.IO.File.AppendAllText(diagPath, $"[{DateTime.Now}] LoadAsync START\n");
+
             CurrentPage = 0;
             DispatcherHelper.RunOnUIThread(() => Games.Clear());
 
             await LoadGamesPageAsync();
+
+            System.IO.File.AppendAllText(diagPath, $"[{DateTime.Now}] After LoadGamesPageAsync: Games.Count={Games.Count}, HasNoGames={HasNoGames}\n");
+
             await LoadStatsOverviewAsync();
             await LoadChampionStatsAsync();
             await LoadChampionFiltersAsync();
+
+            System.IO.File.AppendAllText(diagPath, $"[{DateTime.Now}] LoadAsync DONE: Games.Count={Games.Count}\n");
         }
         catch (Exception ex)
         {
+            System.IO.File.AppendAllText(diagPath, $"[{DateTime.Now}] LoadAsync ERROR: {ex}\n");
             _logger.LogError(ex, "Failed to load history data");
         }
         finally

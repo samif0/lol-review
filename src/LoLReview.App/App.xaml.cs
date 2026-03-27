@@ -104,6 +104,13 @@ public partial class App : Application
                 _host = CreateHost();
                 DispatcherHelper.Initialize();
 
+                var legacyMigrator = GetService<LegacyDatabaseMigrationService>();
+                var migratedFrom = legacyMigrator.TryMigrate();
+                if (migratedFrom is not null)
+                {
+                    File.AppendAllText(logPath, $"[{DateTime.Now}] Migrated legacy DB from: {migratedFrom}\n");
+                }
+
                 // 1. Pre-flight integrity check — logs DB path/size/game count,
                 //    refuses to proceed if DB was wiped but backups exist
                 var integrityChecker = GetService<DatabaseIntegrityChecker>();
@@ -119,6 +126,24 @@ public partial class App : Application
                 // 4. Schema init — CREATE TABLE IF NOT EXISTS, ALTER TABLE migrations, seed data
                 var dbInit = GetService<DatabaseInitializer>();
                 await dbInit.InitializeAsync();
+
+                // 5. Diagnostic: log DB path and game count to file for debugging
+                try
+                {
+                    var connFactory = GetService<IDbConnectionFactory>();
+                    using var diagConn = connFactory.CreateConnection();
+                    using var diagCmd = diagConn.CreateCommand();
+                    diagCmd.CommandText = "SELECT COUNT(*) FROM games";
+                    var gameCount = diagCmd.ExecuteScalar();
+                    File.AppendAllText(logPath,
+                        $"[{DateTime.Now}] DB path: {connFactory.DatabasePath}\n" +
+                        $"[{DateTime.Now}] DB game count: {gameCount}\n" +
+                        $"[{DateTime.Now}] DB file size: {new FileInfo(connFactory.DatabasePath).Length} bytes\n");
+                }
+                catch (Exception diagEx)
+                {
+                    File.AppendAllText(logPath, $"[{DateTime.Now}] DB diagnostic failed: {diagEx.Message}\n");
+                }
 
                 // Load XamlControlsResources at runtime (not in App.xaml) to avoid heap corruption
                 try
@@ -167,6 +192,7 @@ public partial class App : Application
             {
                 // ── Data layer ─────────────────────────────────────
                 services.AddSingleton<IDbConnectionFactory, SqliteConnectionFactory>();
+                services.AddSingleton<LegacyDatabaseMigrationService>();
                 services.AddSingleton<DatabaseIntegrityChecker>();
                 services.AddSingleton<DatabaseInitializer>();
                 services.AddSingleton<IBackupService, BackupService>();
