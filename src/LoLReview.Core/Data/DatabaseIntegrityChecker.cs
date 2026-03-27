@@ -104,8 +104,8 @@ public sealed class DatabaseIntegrityChecker
     }
 
     /// <summary>
-    /// Look for backup files that contain games. Checks safety backups in data/backups/
-    /// and the old-path DB at %LOCALAPPDATA%\LoLReview\lol_review.db.
+    /// Look for backup files that contain games. Checks safety backups next to the live DB
+    /// and any legacy database the migration service can still recover.
     /// Returns the path of the first backup with games, or null.
     /// </summary>
     private string? FindBackupWithGames(string dbPath)
@@ -122,15 +122,6 @@ public sealed class DatabaseIntegrityChecker
                 if (CountGamesInFile(backup) > 0)
                     return backup;
             }
-        }
-
-        // Check old-path DB
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var oldPathDb = Path.Combine(localAppData, "LoLReview", "lol_review.db");
-        if (File.Exists(oldPathDb) && !string.Equals(Path.GetFullPath(oldPathDb), Path.GetFullPath(dbPath), StringComparison.OrdinalIgnoreCase))
-        {
-            if (CountGamesInFile(oldPathDb) > 0)
-                return oldPathDb;
         }
 
         var legacyWithMoreGames = _legacyMigration.FindLegacyDatabaseWithMoreGames(0);

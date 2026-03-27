@@ -7,8 +7,8 @@ namespace LoLReview.Core.Data;
 
 /// <summary>
 /// Safely migrates legacy portable databases into the AppData location used by
-/// the installed app. Legacy candidates inside the Velopack install tree are
-/// ignored so stale install artifacts cannot replace live user data.
+/// the installed app. The target lives outside the Velopack install tree so
+/// reinstall/update cannot wipe live user data.
 /// </summary>
 public sealed class LegacyDatabaseMigrationService
 {
@@ -35,6 +35,8 @@ public sealed class LegacyDatabaseMigrationService
         var targetPath = Path.GetFullPath(_connectionFactory.DatabasePath);
         var targetCount = NormalizeGameCount(CountGamesInFile(targetPath));
         var candidate = FindBestLegacyDatabaseWithMoreGames(targetCount);
+
+        MigrateLegacyBackups();
 
         if (candidate is null)
         {
@@ -86,20 +88,9 @@ public sealed class LegacyDatabaseMigrationService
     private IEnumerable<string> EnumerateCandidatePaths()
     {
         var targetPath = Path.GetFullPath(_connectionFactory.DatabasePath);
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrEmpty(localAppData))
-        {
-            localAppData = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "AppData",
-                "Local");
-        }
-
-        var appRoot = Path.GetFullPath(Path.Combine(localAppData, "LoLReview"));
-        var installCurrentRoot = Path.Combine(appRoot, "current");
-        var installPackagesRoot = Path.Combine(appRoot, "packages");
-        var targetDataRoot = Path.Combine(appRoot, "data");
-        var oldAppDataPath = Path.Combine(appRoot, "lol_review.db");
+        var installCurrentRoot = Path.Combine(AppDataPaths.InstallRoot, "current");
+        var installPackagesRoot = Path.Combine(AppDataPaths.InstallRoot, "packages");
+        var userDataRoot = AppDataPaths.UserDataRoot;
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -116,25 +107,24 @@ public sealed class LegacyDatabaseMigrationService
                 return;
             }
 
-            if (!string.Equals(resolved, oldAppDataPath, StringComparison.OrdinalIgnoreCase))
+            if (IsUnderRoot(resolved, userDataRoot))
             {
-                if (IsUnderRoot(resolved, installCurrentRoot) ||
-                    IsUnderRoot(resolved, installPackagesRoot) ||
-                    IsUnderRoot(resolved, targetDataRoot))
-                {
-                    return;
-                }
+                return;
+            }
 
-                if (IsUnderRoot(resolved, appRoot))
-                {
-                    return;
-                }
+            if (IsUnderRoot(resolved, installCurrentRoot) ||
+                IsUnderRoot(resolved, installPackagesRoot))
+            {
+                return;
             }
 
             seen.Add(resolved);
         }
 
-        AddCandidate(oldAppDataPath);
+        foreach (var legacyPath in AppDataPaths.EnumerateLegacyDatabasePaths())
+        {
+            AddCandidate(legacyPath);
+        }
 
         var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -161,6 +151,38 @@ public sealed class LegacyDatabaseMigrationService
         foreach (var candidate in seen)
         {
             yield return candidate;
+        }
+    }
+
+    private void MigrateLegacyBackups()
+    {
+        Directory.CreateDirectory(AppDataPaths.BackupsDirectory);
+
+        foreach (var legacyBackupDir in AppDataPaths.EnumerateLegacyBackupDirectories())
+        {
+            if (!Directory.Exists(legacyBackupDir))
+            {
+                continue;
+            }
+
+            foreach (var legacyBackup in Directory.EnumerateFiles(legacyBackupDir, "*.db"))
+            {
+                var dest = Path.Combine(AppDataPaths.BackupsDirectory, Path.GetFileName(legacyBackup));
+                if (File.Exists(dest))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    File.Copy(legacyBackup, dest, overwrite: false);
+                    _logger.LogInformation("Migrated legacy backup {Source} to {Dest}", legacyBackup, dest);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not migrate legacy backup {Source}", legacyBackup);
+                }
+            }
         }
     }
 

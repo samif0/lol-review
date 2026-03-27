@@ -7,7 +7,8 @@ namespace LoLReview.Core.Services;
 
 /// <summary>
 /// Database backup service. Two modes:
-/// 1. Safety backups: always-on, stored in data/backups/, no config needed, keep last 3.
+/// 1. Safety backups: always-on, stored next to the live DB in the user data root,
+///    no config needed, keep last 3.
 /// 2. User backups: stored in user-configured folder, keep last 5.
 /// Safety backups run before every schema migration and on startup.
 /// NEVER overwrites, deletes, or modifies the live database file.
@@ -47,7 +48,7 @@ public sealed class BackupService : IBackupService
             return;
         }
 
-        // Safety backups go in data/backups/ next to the DB
+        // Safety backups go in the user-data backups directory next to the DB
         var dataDir = Path.GetDirectoryName(dbPath)!;
         var backupDir = Path.Combine(dataDir, "backups");
 

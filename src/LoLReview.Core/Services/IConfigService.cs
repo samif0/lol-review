@@ -5,7 +5,7 @@ using LoLReview.Core.Models;
 namespace LoLReview.Core.Services;
 
 /// <summary>
-/// Read/write application configuration stored in %LOCALAPPDATA%\LoLReview\data\config.json.
+/// Read/write application configuration stored in %LOCALAPPDATA%\LoLReviewData\config.json.
 /// Ported from Python config.py.
 /// </summary>
 public interface IConfigService

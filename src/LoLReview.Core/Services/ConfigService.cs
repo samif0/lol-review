@@ -1,33 +1,39 @@
 #nullable enable
 
 using System.Text.Json;
+using LoLReview.Core.Data;
 using LoLReview.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace LoLReview.Core.Services;
 
 /// <summary>
-/// Thread-safe config service that reads/writes %LOCALAPPDATA%\LoLReview\data\config.json.
+/// Thread-safe config service that reads/writes %LOCALAPPDATA%\LoLReviewData\config.json.
 /// Ported from Python config.py.
 /// </summary>
 public sealed class ConfigService : IConfigService
 {
-    private static readonly string ConfigDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "LoLReview", "data");
+    private static readonly string ConfigDir = Path.GetDirectoryName(AppDataPaths.ConfigPath)!;
 
-    private static readonly string ConfigFile = Path.Combine(ConfigDir, "config.json");
+    private static readonly string ConfigFile = AppDataPaths.ConfigPath;
 
     static ConfigService()
     {
-        // Migrate config from old location if needed
-        var oldConfig = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LoLReview", "config.json");
-        if (!File.Exists(ConfigFile) && File.Exists(oldConfig))
+        if (File.Exists(ConfigFile))
         {
+            return;
+        }
+
+        foreach (var legacyConfig in AppDataPaths.EnumerateLegacyConfigPaths())
+        {
+            if (!File.Exists(legacyConfig))
+            {
+                continue;
+            }
+
             Directory.CreateDirectory(ConfigDir);
-            File.Copy(oldConfig, ConfigFile);
+            File.Copy(legacyConfig, ConfigFile);
+            break;
         }
     }
 
@@ -172,8 +178,7 @@ public sealed class ConfigService : IConfigService
         var configured = GetValidatedFolder(GetCached().ClipsFolder);
         if (configured is not null) return configured;
 
-        // Default: LoLReview/clips next to the config dir
-        var defaultDir = Path.Combine(ConfigDir, "clips");
+        var defaultDir = AppDataPaths.ClipsDirectory;
         Directory.CreateDirectory(defaultDir);
         return defaultDir;
     }

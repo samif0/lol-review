@@ -3,7 +3,7 @@
 namespace LoLReview.Core.Models;
 
 /// <summary>
-/// Application configuration stored in %LOCALAPPDATA%\LoLReview\data\config.json.
+/// Application configuration stored in %LOCALAPPDATA%\LoLReviewData\config.json.
 /// </summary>
 public class AppConfig
 {

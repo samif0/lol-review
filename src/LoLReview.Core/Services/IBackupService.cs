@@ -9,7 +9,7 @@ namespace LoLReview.Core.Services;
 public interface IBackupService
 {
     /// <summary>
-    /// Create a timestamped safety backup of the DB in the data/backups/ directory.
+    /// Create a timestamped safety backup of the DB in the user-data backups directory.
     /// Called automatically before schema migrations and on startup.
     /// Keeps only the 3 most recent safety backups. Requires no user configuration.
     /// </summary>

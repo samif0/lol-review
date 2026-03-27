@@ -7,7 +7,7 @@ namespace LoLReview.Core.Data;
 
 /// <summary>
 /// Creates SQLite connections configured for WAL mode with shared cache.
-/// Default database location: %LOCALAPPDATA%\LoLReview\data\lol_review.db
+/// Default database location: %LOCALAPPDATA%\LoLReviewData\lol_review.db
 /// </summary>
 public sealed class SqliteConnectionFactory : IDbConnectionFactory
 {
@@ -18,7 +18,7 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
     /// <param name="logger">Logger instance.</param>
     /// <param name="dbPath">
     /// Optional override for the database file path.
-    /// When <c>null</c>, defaults to <c>%LOCALAPPDATA%\LoLReview\data\lol_review.db</c>.
+    /// When <c>null</c>, defaults to <c>%LOCALAPPDATA%\LoLReviewData\lol_review.db</c>.
     /// </param>
     public SqliteConnectionFactory(ILogger<SqliteConnectionFactory> logger, string? dbPath = null)
     {
@@ -66,39 +66,12 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
     }
 
     /// <summary>
-    /// Returns the default database path: %LOCALAPPDATA%\LoLReview\data\lol_review.db
-    /// The "data" subdirectory is used to keep user data separate from the Velopack
-    /// install directory (current/, packages/) so installs/updates never wipe the DB.
-    /// On first run, migrates the DB from the old location if it exists.
+    /// Returns the default database path: %LOCALAPPDATA%\LoLReviewData\lol_review.db
+    /// This path is outside the Velopack install root so reinstall/update cannot
+    /// wipe the live database.
     /// </summary>
     private static string GetDefaultDatabasePath()
     {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrEmpty(localAppData))
-        {
-            localAppData = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "AppData", "Local");
-        }
-
-        var newPath = Path.Combine(localAppData, "LoLReview", "data", "lol_review.db");
-        var oldPath = Path.Combine(localAppData, "LoLReview", "lol_review.db");
-
-        // Migrate from old location if new doesn't exist but old does
-        if (!File.Exists(newPath) && File.Exists(oldPath))
-        {
-            var dataDir = Path.GetDirectoryName(newPath)!;
-            Directory.CreateDirectory(dataDir);
-            File.Copy(oldPath, newPath);
-            // Also copy WAL/SHM if present
-            foreach (var ext in new[] { "-wal", "-shm" })
-            {
-                var src = oldPath + ext;
-                if (File.Exists(src))
-                    File.Copy(src, newPath + ext);
-            }
-        }
-
-        return newPath;
+        return AppDataPaths.DatabasePath;
     }
 }
