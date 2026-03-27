@@ -2,6 +2,7 @@
 
 using Microsoft.Extensions.Logging;
 using Velopack;
+using Velopack.Sources;
 
 namespace LoLReview.App.Services;
 
@@ -33,7 +34,8 @@ public sealed class UpdateService : IUpdateService
     public UpdateService(ILogger<UpdateService> logger)
     {
         _logger = logger;
-        _mgr = new UpdateManager(GitHubRepoUrl);
+        var source = new GithubSource(GitHubRepoUrl, null, false);
+        _mgr = new UpdateManager(source);
     }
 
     public bool IsInstalled => _mgr.IsInstalled;
@@ -52,11 +54,14 @@ public sealed class UpdateService : IUpdateService
                 return null;
             }
 
+            _logger.LogInformation("Checking for updates from {Url}, current version: {Version}",
+                GitHubRepoUrl, _mgr.CurrentVersion);
+
             var update = await _mgr.CheckForUpdatesAsync();
             if (update != null)
                 _logger.LogInformation("Update available: {Version}", update.TargetFullRelease.Version);
             else
-                _logger.LogInformation("App is up to date");
+                _logger.LogInformation("App is up to date (v{Version})", _mgr.CurrentVersion);
 
             return update;
         }

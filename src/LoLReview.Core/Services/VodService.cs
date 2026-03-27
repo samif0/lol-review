@@ -133,9 +133,16 @@ public sealed partial class VodService : IVodService
     public async Task<int> AutoMatchRecordingsAsync()
     {
         var folder = _config.AscentFolder;
-        if (string.IsNullOrEmpty(folder)) return 0;
+        if (string.IsNullOrEmpty(folder))
+        {
+            _logger.LogWarning("VOD scan skipped: no Ascent folder configured");
+            return 0;
+        }
+
+        _logger.LogInformation("VOD scan starting — folder: {Folder}", folder);
 
         var recordings = await FindRecordingsAsync(folder).ConfigureAwait(false);
+        _logger.LogInformation("VOD scan found {Count} recordings in {Folder}", recordings.Count, folder);
         if (recordings.Count == 0) return 0;
 
         // Get all VODs to find which games already have one
@@ -147,11 +154,16 @@ public sealed partial class VodService : IVodService
                 linkedGameIds.Add(id);
         }
 
-        // Get recent games to try matching
-        var recentGames = await _games.GetRecentAsync(limit: 50).ConfigureAwait(false);
+        _logger.LogInformation("VOD scan: {Linked} games already have linked VODs", linkedGameIds.Count);
+
+        // Get recent games to try matching — use larger limit to catch more
+        var recentGames = await _games.GetRecentAsync(limit: 100).ConfigureAwait(false);
         var unmatchedGames = recentGames
             .Where(g => !linkedGameIds.Contains(g.GameId))
             .ToList();
+
+        _logger.LogInformation("VOD scan: {Total} recent games, {Unmatched} without VODs",
+            recentGames.Count, unmatchedGames.Count);
 
         if (unmatchedGames.Count == 0) return 0;
 

@@ -36,11 +36,23 @@ public sealed partial class SettingsPage : Page
         try
         {
             var vodService = App.GetService<IVodService>();
+
+            // Show recording count for diagnostics
+            var recordings = await vodService.FindRecordingsAsync();
             var matched = await vodService.AutoMatchRecordingsAsync();
 
-            ScanResultText.Text = matched > 0
-                ? $"Matched {matched} VOD(s) to games!"
-                : "No new VODs matched. Check that your Ascent folder is correct.";
+            if (matched > 0)
+            {
+                ScanResultText.Text = $"Matched {matched} VOD(s) to games! ({recordings.Count} recordings found)";
+            }
+            else if (recordings.Count == 0)
+            {
+                ScanResultText.Text = "No video files found. Check that your Ascent folder is set and contains recordings.";
+            }
+            else
+            {
+                ScanResultText.Text = $"Found {recordings.Count} recordings but no new matches. Games may already be linked or outside the match window.";
+            }
             ScanResultText.Visibility = Visibility.Visible;
         }
         catch (Exception ex)

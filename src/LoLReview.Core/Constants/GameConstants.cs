@@ -159,8 +159,8 @@ public static class GameConstants
 
     // ── VOD matching ──────────────────────────────────────────────────────
 
-    /// <summary>10-minute window for matching VODs to games (seconds).</summary>
-    public const int VodMatchWindowS = 600;
+    /// <summary>15-minute window for matching VODs to games (seconds).</summary>
+    public const int VodMatchWindowS = 900;
 
     /// <summary>Grace period for mtime fallback matching (seconds).</summary>
     public const int VodMtimeGraceS = 30;
