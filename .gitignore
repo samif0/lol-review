@@ -10,25 +10,25 @@ __pycache__/
 *.pyo
 
 # PyInstaller build artifacts
-build/
-dist/
+/build/
+/dist/
 *.spec
 
-# Local data (database, logs)
-data/
+# Local data (database, logs) — root only, not csharp/src/.../Data/
+/data/
 
 # Downloaded dependencies (fetched by Scripts/download_mpv.py at build time)
 deps/
 
 # C# / .NET build artifacts
-bin/
-obj/
-publish/
-Releases/
+**/bin/
+**/obj/
+/publish/
+/Releases/
 .vs/
 *.user
 *.suo
-packages/
+/packages/
 
 # OS junk
 .fuse_hidden*
