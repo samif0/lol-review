@@ -263,12 +263,30 @@ def check_for_update() -> Optional[dict]:
             return None
 
         download_url = ""
+        setup_url = ""
         for asset in data.get("assets", []):
-            if asset["name"].endswith(".zip"):
+            name = asset.get("name", "")
+            if name.endswith(".zip"):
                 download_url = asset["browser_download_url"]
-                break
+            if "Setup" in name and name.endswith(".exe"):
+                setup_url = asset["browser_download_url"]
 
         clean_version = latest_tag.lstrip("vV")
+
+        # Migration path: if the release has a Setup.exe but no ZIP,
+        # this is a Velopack (C#) release and we need to migrate.
+        is_migration = bool(not download_url and setup_url)
+        if is_migration:
+            logger.info(f"v{clean_version} is a Velopack migration release")
+            return {
+                "version": latest_tag,
+                "clean_version": clean_version,
+                "download_url": setup_url,
+                "release_url": data.get("html_url", ""),
+                "release_notes": data.get("body", ""),
+                "already_installed": False,
+                "is_migration": True,
+            }
 
         # Check if this version is already installed locally
         # (previous download succeeded but restart failed)
@@ -287,6 +305,7 @@ def check_for_update() -> Optional[dict]:
             "release_url": data.get("html_url", ""),
             "release_notes": data.get("body", ""),
             "already_installed": already_installed,
+            "is_migration": False,
         }
 
     except Exception as e:
@@ -306,10 +325,12 @@ def download_and_install(
     target_version: str = "",
     on_progress: Optional[Callable[[int, int], None]] = None,
     on_done: Optional[Callable[[bool, str], None]] = None,
+    is_migration: bool = False,
 ):
     def _worker():
         try:
-            _do_download_and_install(download_url, target_version, on_progress)
+            _do_download_and_install(download_url, target_version, on_progress,
+                                     is_migration=is_migration)
             if on_done:
                 on_done(True, "Update ready — restarting...")
         except Exception as e:
@@ -320,10 +341,38 @@ def download_and_install(
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def _do_download_and_install(download_url, target_version="", on_progress=None):
+def _do_download_and_install(download_url, target_version="", on_progress=None,
+                             is_migration=False):
     headers = _get_auth_headers()
     dl_headers = {**headers, "Accept": "application/octet-stream"}
     clean_version = target_version.lstrip("vV") if target_version else "unknown"
+
+    if is_migration:
+        # Migration path: download the Velopack Setup.exe and run it
+        logger.info(f"Migrating to C# version v{clean_version} via Velopack Setup.exe")
+        resp = requests.get(download_url, headers=dl_headers, stream=True,
+                            timeout=UPDATE_DOWNLOAD_TIMEOUT_S)
+        resp.raise_for_status()
+
+        total = int(resp.headers.get("content-length", 0))
+        tmp_exe = Path(tempfile.mktemp(suffix=".exe", prefix="lolreview_setup_"))
+
+        downloaded = 0
+        with open(tmp_exe, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if on_progress:
+                    on_progress(downloaded, total)
+
+        logger.info(f"Launching Velopack installer: {tmp_exe}")
+        subprocess.Popen(
+            [str(tmp_exe)],
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        # Exit the Python app — Velopack takes over from here
+        os._exit(0)
+        return
 
     # Download
     resp = requests.get(download_url, headers=dl_headers, stream=True,

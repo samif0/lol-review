@@ -683,20 +683,28 @@ class App:
             return
 
         download_url = update_info.get("download_url", "")
+        is_migration = update_info.get("is_migration", False)
         if not download_url:
-            logger.warning("Update has no zip asset — skipping")
+            logger.warning("Update has no download asset — skipping")
             return
 
-        logger.info(f"Update available: {version} (current: {__version__})")
-        self.app_window.after(0, lambda: self._show_update_status(
-            f"Updating to {version}..."
-        ))
+        if is_migration:
+            logger.info(f"Migration to C# v{clean_version} detected")
+            self.app_window.after(0, lambda: self._show_update_status(
+                f"Migrating to v{clean_version}...", "#c89b3c"
+            ))
+        else:
+            logger.info(f"Update available: {version} (current: {__version__})")
+            self.app_window.after(0, lambda: self._show_update_status(
+                f"Updating to {version}..."
+            ))
 
         download_and_install(
             download_url,
             target_version=version,
             on_progress=self._on_update_progress,
             on_done=self._on_update_done,
+            is_migration=is_migration,
         )
 
     def _show_update_status(self, text, color="#a0a0b0"):
