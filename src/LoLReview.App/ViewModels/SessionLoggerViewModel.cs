@@ -206,9 +206,17 @@ public partial class SessionLoggerViewModel : ObservableObject
                 var game = await _gameRepo.GetAsync(entry.GameId.Value);
                 if (game != null)
                 {
-                    hasReview = !string.IsNullOrWhiteSpace(game.RawStats.GetValueOrDefault("mistakes") as string)
-                        || !string.IsNullOrWhiteSpace(game.RawStats.GetValueOrDefault("went_well") as string)
-                        || !string.IsNullOrWhiteSpace(game.RawStats.GetValueOrDefault("focus_next") as string);
+                    hasReview = !string.IsNullOrWhiteSpace(game.ReviewNotes)
+                        || !string.IsNullOrWhiteSpace(game.Mistakes)
+                        || !string.IsNullOrWhiteSpace(game.WentWell)
+                        || !string.IsNullOrWhiteSpace(game.FocusNext)
+                        || !string.IsNullOrWhiteSpace(game.SpottedProblems)
+                        || !string.IsNullOrWhiteSpace(game.OutsideControl)
+                        || !string.IsNullOrWhiteSpace(game.WithinControl)
+                        || !string.IsNullOrWhiteSpace(game.Attribution)
+                        || !string.IsNullOrWhiteSpace(game.PersonalContribution)
+                        || !string.IsNullOrWhiteSpace(entry.ImprovementNote)
+                        || !string.IsNullOrWhiteSpace(entry.MentalHandled);
                 }
             }
 

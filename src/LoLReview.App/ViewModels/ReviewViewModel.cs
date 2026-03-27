@@ -228,6 +228,8 @@ public partial class ReviewViewModel : ObservableObject
             if (sessionEntry != null)
             {
                 MentalRating = sessionEntry.MentalRating;
+                ImprovementNote = sessionEntry.ImprovementNote;
+                MentalHandled = sessionEntry.MentalHandled;
             }
             UpdateMentalColor();
 
@@ -293,8 +295,13 @@ public partial class ReviewViewModel : ObservableObject
 
             await _gameRepo.UpdateReviewAsync(GameId, review);
 
-            // Save mental rating
-            await _sessionLogRepo.UpdateMentalRatingAsync(GameId, MentalRating);
+            // Save the session-log side of the review.
+            await _sessionLogRepo.LogGameAsync(
+                GameId,
+                ChampionName,
+                Win,
+                MentalRating,
+                ImprovementNote);
 
             // Save mental handled if low mental
             if (!string.IsNullOrWhiteSpace(MentalHandled))
@@ -370,26 +377,15 @@ public partial class ReviewViewModel : ObservableObject
 
     private void LoadExistingReview(GameStats game)
     {
-        if (game.RawStats.TryGetValue("mistakes", out var m))
-            Mistakes = m?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("went_well", out var w))
-            WentWell = w?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("focus_next", out var f))
-            FocusNext = f?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("notes", out var n))
-            ReviewNotes = n?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("spotted_problems", out var sp))
-            SpottedProblems = sp?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("outside_control", out var oc))
-            OutsideControl = oc?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("within_control", out var wc))
-            WithinControl = wc?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("attribution", out var a))
-            Attribution = a?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("personal_contribution", out var pc))
-            PersonalContribution = pc?.ToString() ?? "";
-        if (game.RawStats.TryGetValue("mental_handled", out var mh))
-            MentalHandled = mh?.ToString() ?? "";
+        Mistakes = game.Mistakes;
+        WentWell = game.WentWell;
+        FocusNext = game.FocusNext;
+        ReviewNotes = game.ReviewNotes;
+        SpottedProblems = game.SpottedProblems;
+        OutsideControl = game.OutsideControl;
+        WithinControl = game.WithinControl;
+        Attribution = game.Attribution;
+        PersonalContribution = game.PersonalContribution;
     }
 
     private static string FormatNumber(int n) => n switch

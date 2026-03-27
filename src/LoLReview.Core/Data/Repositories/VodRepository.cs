@@ -40,6 +40,46 @@ public sealed class VodRepository : IVodRepository
         return await ReadSingleRowAsync(cmd);
     }
 
+    public async Task<Dictionary<long, string>> GetVodPathsAsync(IReadOnlyCollection<long> gameIds)
+    {
+        if (gameIds.Count == 0)
+        {
+            return [];
+        }
+
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+
+        var placeholders = new List<string>(gameIds.Count);
+        var index = 0;
+        foreach (var gameId in gameIds)
+        {
+            var parameterName = $"@gameId{index++}";
+            placeholders.Add(parameterName);
+            cmd.Parameters.AddWithValue(parameterName, gameId);
+        }
+
+        cmd.CommandText = $"""
+            SELECT game_id, file_path
+            FROM vod_files
+            WHERE game_id IN ({string.Join(", ", placeholders)})
+            """;
+
+        var paths = new Dictionary<long, string>(gameIds.Count);
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (reader.IsDBNull(1))
+            {
+                continue;
+            }
+
+            paths[reader.GetInt64(0)] = reader.GetString(1);
+        }
+
+        return paths;
+    }
+
     public async Task UnlinkVodAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();

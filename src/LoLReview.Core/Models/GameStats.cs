@@ -118,6 +118,10 @@ public class GameStats
     public string WentWell { get; set; } = "";
     public string FocusNext { get; set; } = "";
     public string SpottedProblems { get; set; } = "";
+    public string OutsideControl { get; set; } = "";
+    public string WithinControl { get; set; } = "";
+    public string Attribution { get; set; } = "";
+    public string PersonalContribution { get; set; } = "";
 
     // ── Raw JSON for anything we might have missed ───────────────────
 

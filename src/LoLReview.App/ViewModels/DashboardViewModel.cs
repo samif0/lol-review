@@ -213,9 +213,6 @@ public partial class DashboardViewModel : ObservableObject
 
             // Unreviewed games
             var unreviewed = await _gameRepo.GetUnreviewedGamesAsync(days: 3);
-            System.Diagnostics.Debug.WriteLine($"[Dashboard] Unreviewed games: {unreviewed.Count}");
-            foreach (var g in unreviewed.Take(3))
-                System.Diagnostics.Debug.WriteLine($"  - {g.ChampionName} {(g.Win ? "W" : "L")} id={g.GameId}");
             UnreviewedCount = unreviewed.Count;
             UnreviewedCountText = $"{unreviewed.Count} game{(unreviewed.Count != 1 ? "s" : "")}";
             AllReviewed = unreviewed.Count == 0;
@@ -349,11 +346,23 @@ public partial class DashboardViewModel : ObservableObject
             GameMode = game.GameMode,
             WinLossColorHex = game.Win ? "#22c55e" : "#ef4444",
             BorderColorHex = game.Win ? "#22c55e" : "#ef4444",
-            HasReview = !string.IsNullOrWhiteSpace(game.RawStats.TryGetValue("mistakes", out var m) ? m?.ToString() : null)
-                     || !string.IsNullOrWhiteSpace(game.RawStats.TryGetValue("went_well", out var w) ? w?.ToString() : null),
+            HasReview = HasPersistedReview(game),
             DamageText = FormatNumber(game.TotalDamageToChampions),
             StatsLine = $"CS {game.CsTotal} ({game.CsPerMin:F1}/m)  \u2022  Vision {game.VisionScore}  \u2022  {FormatNumber(game.TotalDamageToChampions)} dmg"
         };
+    }
+
+    private static bool HasPersistedReview(GameStats game)
+    {
+        return !string.IsNullOrWhiteSpace(game.ReviewNotes)
+               || !string.IsNullOrWhiteSpace(game.Mistakes)
+               || !string.IsNullOrWhiteSpace(game.WentWell)
+               || !string.IsNullOrWhiteSpace(game.FocusNext)
+               || !string.IsNullOrWhiteSpace(game.SpottedProblems)
+               || !string.IsNullOrWhiteSpace(game.OutsideControl)
+               || !string.IsNullOrWhiteSpace(game.WithinControl)
+               || !string.IsNullOrWhiteSpace(game.Attribution)
+               || !string.IsNullOrWhiteSpace(game.PersonalContribution);
     }
 
     private static string FormatNumber(int n) => n switch

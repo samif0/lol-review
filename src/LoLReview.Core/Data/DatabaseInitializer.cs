@@ -58,6 +58,9 @@ public sealed class DatabaseInitializer
             }
         }
 
+        // 2b. Normalize legacy/hybrid rules tables into the current schema.
+        await NormalizeRulesTableAsync(connection, cancellationToken);
+
         // 3. Seed default concept tags if the table is empty
         await SeedConceptTagsAsync(connection, cancellationToken);
 
@@ -74,6 +77,136 @@ public sealed class DatabaseInitializer
     }
 
     // ── Seeding helpers ──────────────────────────────────────────────
+
+    private async Task NormalizeRulesTableAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        var columns = await GetTableColumnsAsync(connection, "rules", ct);
+        if (columns.Count == 0)
+        {
+            return;
+        }
+
+        var needsRewrite =
+            columns.Contains("title") ||
+            columns.Contains("status") ||
+            !columns.Contains("name") ||
+            !columns.Contains("rule_type") ||
+            !columns.Contains("condition_value") ||
+            !columns.Contains("is_active");
+
+        if (!needsRewrite)
+        {
+            return;
+        }
+
+        var nameExpr = columns.Contains("name") && columns.Contains("title")
+            ? "COALESCE(NULLIF(name, ''), title, '')"
+            : columns.Contains("name")
+                ? "COALESCE(name, '')"
+                : columns.Contains("title")
+                    ? "COALESCE(title, '')"
+                    : "''";
+
+        var descriptionExpr = columns.Contains("description")
+            ? "COALESCE(description, '')"
+            : "''";
+
+        var ruleTypeExpr = columns.Contains("rule_type")
+            ? "COALESCE(NULLIF(rule_type, ''), 'custom')"
+            : "'custom'";
+
+        var conditionExpr = columns.Contains("condition_value")
+            ? "COALESCE(condition_value, '')"
+            : "''";
+
+        var isActiveExpr = columns.Contains("is_active") && columns.Contains("status")
+            ? "COALESCE(is_active, CASE WHEN lower(COALESCE(status, 'active')) = 'active' THEN 1 ELSE 0 END)"
+            : columns.Contains("is_active")
+                ? "COALESCE(is_active, 1)"
+                : columns.Contains("status")
+                    ? "CASE WHEN lower(COALESCE(status, 'active')) = 'active' THEN 1 ELSE 0 END"
+                    : "1";
+
+        var createdAtExpr = columns.Contains("created_at")
+            ? "created_at"
+            : "NULL";
+
+        using var tx = connection.BeginTransaction();
+
+        using (var createCmd = connection.CreateCommand())
+        {
+            createCmd.Transaction = tx;
+            createCmd.CommandText = """
+                CREATE TABLE rules__migrated (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name            TEXT NOT NULL,
+                    description     TEXT DEFAULT '',
+                    rule_type       TEXT DEFAULT 'custom',
+                    condition_value TEXT DEFAULT '',
+                    is_active       INTEGER DEFAULT 1,
+                    created_at      INTEGER
+                )
+                """;
+            await createCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using (var copyCmd = connection.CreateCommand())
+        {
+            copyCmd.Transaction = tx;
+            copyCmd.CommandText = $"""
+                INSERT INTO rules__migrated (id, name, description, rule_type, condition_value, is_active, created_at)
+                SELECT
+                    id,
+                    {nameExpr},
+                    {descriptionExpr},
+                    {ruleTypeExpr},
+                    {conditionExpr},
+                    {isActiveExpr},
+                    {createdAtExpr}
+                FROM rules
+                """;
+            await copyCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using (var dropCmd = connection.CreateCommand())
+        {
+            dropCmd.Transaction = tx;
+            dropCmd.CommandText = "DROP TABLE rules";
+            await dropCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using (var renameCmd = connection.CreateCommand())
+        {
+            renameCmd.Transaction = tx;
+            renameCmd.CommandText = "ALTER TABLE rules__migrated RENAME TO rules";
+            await renameCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+
+        _logger.LogInformation("Normalized legacy rules table to current schema");
+    }
+
+    private static async Task<HashSet<string>> GetTableColumnsAsync(
+        SqliteConnection connection,
+        string tableName,
+        CancellationToken ct)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({tableName})";
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (!reader.IsDBNull(1))
+            {
+                columns.Add(reader.GetString(1));
+            }
+        }
+
+        return columns;
+    }
 
     private static async Task SeedConceptTagsAsync(SqliteConnection connection, CancellationToken ct)
     {

@@ -16,17 +16,72 @@ public sealed class RulesRepository : IRulesRepository
         string conditionValue = "")
     {
         using var conn = _factory.CreateConnection();
+        var schema = await GetSchemaAsync(conn);
+        var createdAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        var columnNames = new List<string>();
+        var values = new List<string>();
+
+        if (schema.HasTitle)
+        {
+            columnNames.Add("title");
+            values.Add("@title");
+            cmd.Parameters.AddWithValue("@title", name);
+        }
+
+        if (schema.HasName)
+        {
+            columnNames.Add("name");
+            values.Add("@name");
+            cmd.Parameters.AddWithValue("@name", name);
+        }
+
+        if (schema.HasDescription)
+        {
+            columnNames.Add("description");
+            values.Add("@description");
+            cmd.Parameters.AddWithValue("@description", description);
+        }
+
+        if (schema.HasRuleType)
+        {
+            columnNames.Add("rule_type");
+            values.Add("@ruleType");
+            cmd.Parameters.AddWithValue("@ruleType", ruleType);
+        }
+
+        if (schema.HasConditionValue)
+        {
+            columnNames.Add("condition_value");
+            values.Add("@conditionValue");
+            cmd.Parameters.AddWithValue("@conditionValue", conditionValue);
+        }
+
+        if (schema.HasIsActive)
+        {
+            columnNames.Add("is_active");
+            values.Add("1");
+        }
+
+        if (schema.HasStatus)
+        {
+            columnNames.Add("status");
+            values.Add("'active'");
+        }
+
+        if (schema.HasCreatedAt)
+        {
+            columnNames.Add("created_at");
+            values.Add("@createdAt");
+            cmd.Parameters.AddWithValue("@createdAt", createdAt);
+        }
+
+        cmd.CommandText = $"""
             INSERT INTO rules
-                (name, description, rule_type, condition_value, is_active, created_at)
-            VALUES (@name, @description, @ruleType, @conditionValue, 1, @createdAt)
+                ({string.Join(", ", columnNames)})
+            VALUES ({string.Join(", ", values)})
             """;
-        cmd.Parameters.AddWithValue("@name", name);
-        cmd.Parameters.AddWithValue("@description", description);
-        cmd.Parameters.AddWithValue("@ruleType", ruleType);
-        cmd.Parameters.AddWithValue("@conditionValue", conditionValue);
-        cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await cmd.ExecuteNonQueryAsync();
 
         using var idCmd = conn.CreateCommand();
@@ -37,24 +92,28 @@ public sealed class RulesRepository : IRulesRepository
     public async Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync()
     {
         using var conn = _factory.CreateConnection();
+        var schema = await GetSchemaAsync(conn);
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM rules ORDER BY is_active DESC, created_at DESC";
+        cmd.CommandText = BuildCanonicalSelect(schema) + " ORDER BY is_active DESC, created_at DESC";
         return await ReadAllRowsAsync(cmd);
     }
 
     public async Task<IReadOnlyList<Dictionary<string, object?>>> GetActiveAsync()
     {
         using var conn = _factory.CreateConnection();
+        var schema = await GetSchemaAsync(conn);
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM rules WHERE is_active = 1 ORDER BY created_at ASC";
+        cmd.CommandText = BuildCanonicalSelect(schema) +
+                          $" WHERE {BuildIsActiveExpression(schema)} = 1 ORDER BY created_at ASC";
         return await ReadAllRowsAsync(cmd);
     }
 
     public async Task<Dictionary<string, object?>?> GetAsync(long ruleId)
     {
         using var conn = _factory.CreateConnection();
+        var schema = await GetSchemaAsync(conn);
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM rules WHERE id = @id";
+        cmd.CommandText = BuildCanonicalSelect(schema) + " WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", ruleId);
         return await ReadSingleRowAsync(cmd);
     }
@@ -62,8 +121,47 @@ public sealed class RulesRepository : IRulesRepository
     public async Task ToggleAsync(long ruleId)
     {
         using var conn = _factory.CreateConnection();
+        var schema = await GetSchemaAsync(conn);
+        var isActiveExpr = BuildIsActiveExpression(schema);
+
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE rules SET is_active = 1 - is_active WHERE id = @id";
+        if (schema.HasIsActive && schema.HasStatus)
+        {
+            cmd.CommandText = $"""
+                UPDATE rules
+                SET
+                    is_active = 1 - ({isActiveExpr}),
+                    status = CASE
+                        WHEN 1 - ({isActiveExpr}) = 1 THEN 'active'
+                        ELSE 'inactive'
+                    END
+                WHERE id = @id
+                """;
+        }
+        else if (schema.HasIsActive)
+        {
+            cmd.CommandText = $"""
+                UPDATE rules
+                SET is_active = 1 - ({isActiveExpr})
+                WHERE id = @id
+                """;
+        }
+        else if (schema.HasStatus)
+        {
+            cmd.CommandText = """
+                UPDATE rules
+                SET status = CASE
+                    WHEN lower(COALESCE(status, 'active')) = 'active' THEN 'inactive'
+                    ELSE 'active'
+                END
+                WHERE id = @id
+                """;
+        }
+        else
+        {
+            return;
+        }
+
         cmd.Parameters.AddWithValue("@id", ruleId);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -170,7 +268,106 @@ public sealed class RulesRepository : IRulesRepository
         return results;
     }
 
-    // ── Helpers ──────────────────────────────────────────────────
+    private static string BuildCanonicalSelect(RulesSchema schema)
+    {
+        return $"""
+            SELECT
+                id,
+                {BuildNameExpression(schema)} AS name,
+                {BuildDescriptionExpression(schema)} AS description,
+                {BuildRuleTypeExpression(schema)} AS rule_type,
+                {BuildConditionValueExpression(schema)} AS condition_value,
+                {BuildIsActiveExpression(schema)} AS is_active,
+                {BuildCreatedAtExpression(schema)} AS created_at
+            FROM rules
+            """;
+    }
+
+    private static string BuildNameExpression(RulesSchema schema)
+    {
+        if (schema.HasName && schema.HasTitle)
+        {
+            return "COALESCE(NULLIF(name, ''), title, '')";
+        }
+
+        if (schema.HasName)
+        {
+            return "COALESCE(name, '')";
+        }
+
+        if (schema.HasTitle)
+        {
+            return "COALESCE(title, '')";
+        }
+
+        return "''";
+    }
+
+    private static string BuildDescriptionExpression(RulesSchema schema)
+    {
+        return schema.HasDescription ? "COALESCE(description, '')" : "''";
+    }
+
+    private static string BuildRuleTypeExpression(RulesSchema schema)
+    {
+        return schema.HasRuleType ? "COALESCE(NULLIF(rule_type, ''), 'custom')" : "'custom'";
+    }
+
+    private static string BuildConditionValueExpression(RulesSchema schema)
+    {
+        return schema.HasConditionValue ? "COALESCE(condition_value, '')" : "''";
+    }
+
+    private static string BuildIsActiveExpression(RulesSchema schema)
+    {
+        if (schema.HasIsActive && schema.HasStatus)
+        {
+            return "COALESCE(is_active, CASE WHEN lower(COALESCE(status, 'active')) = 'active' THEN 1 ELSE 0 END)";
+        }
+
+        if (schema.HasIsActive)
+        {
+            return "COALESCE(is_active, 1)";
+        }
+
+        if (schema.HasStatus)
+        {
+            return "CASE WHEN lower(COALESCE(status, 'active')) = 'active' THEN 1 ELSE 0 END";
+        }
+
+        return "1";
+    }
+
+    private static string BuildCreatedAtExpression(RulesSchema schema)
+    {
+        return schema.HasCreatedAt ? "created_at" : "NULL";
+    }
+
+    private static async Task<RulesSchema> GetSchemaAsync(SqliteConnection connection)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "PRAGMA table_info(rules)";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(1))
+            {
+                columns.Add(reader.GetString(1));
+            }
+        }
+
+        return new RulesSchema(
+            HasTitle: columns.Contains("title"),
+            HasName: columns.Contains("name"),
+            HasDescription: columns.Contains("description"),
+            HasStatus: columns.Contains("status"),
+            HasRuleType: columns.Contains("rule_type"),
+            HasConditionValue: columns.Contains("condition_value"),
+            HasIsActive: columns.Contains("is_active"),
+            HasCreatedAt: columns.Contains("created_at"));
+    }
 
     private static async Task<IReadOnlyList<Dictionary<string, object?>>> ReadAllRowsAsync(SqliteCommand cmd)
     {
@@ -198,4 +395,14 @@ public sealed class RulesRepository : IRulesRepository
         }
         return dict;
     }
+
+    private sealed record RulesSchema(
+        bool HasTitle,
+        bool HasName,
+        bool HasDescription,
+        bool HasStatus,
+        bool HasRuleType,
+        bool HasConditionValue,
+        bool HasIsActive,
+        bool HasCreatedAt);
 }

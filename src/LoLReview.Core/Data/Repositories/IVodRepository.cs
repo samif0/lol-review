@@ -11,6 +11,8 @@ public interface IVodRepository
 
     Task<Dictionary<string, object?>?> GetVodAsync(long gameId);
 
+    Task<Dictionary<long, string>> GetVodPathsAsync(IReadOnlyCollection<long> gameIds);
+
     Task UnlinkVodAsync(long gameId);
 
     Task<IReadOnlyList<Dictionary<string, object?>>> GetAllVodsAsync();

@@ -115,30 +115,19 @@ public partial class HistoryViewModel : ObservableObject
         if (IsLoading) return;
         IsLoading = true;
 
-        var diagPath = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LoLReview", "history_diag.log");
-
         try
         {
-            System.IO.File.AppendAllText(diagPath, $"[{DateTime.Now}] LoadAsync START\n");
-
             CurrentPage = 0;
             DispatcherHelper.RunOnUIThread(() => Games.Clear());
 
             await LoadGamesPageAsync();
-
-            System.IO.File.AppendAllText(diagPath, $"[{DateTime.Now}] After LoadGamesPageAsync: Games.Count={Games.Count}, HasNoGames={HasNoGames}\n");
-
-            await LoadStatsOverviewAsync();
-            await LoadChampionStatsAsync();
-            await LoadChampionFiltersAsync();
-
-            System.IO.File.AppendAllText(diagPath, $"[{DateTime.Now}] LoadAsync DONE: Games.Count={Games.Count}\n");
+            await Task.WhenAll(
+                LoadStatsOverviewAsync(),
+                LoadChampionStatsAsync(),
+                LoadChampionFiltersAsync());
         }
         catch (Exception ex)
         {
-            System.IO.File.AppendAllText(diagPath, $"[{DateTime.Now}] LoadAsync ERROR: {ex}\n");
             _logger.LogError(ex, "Failed to load history data");
         }
         finally
@@ -205,40 +194,38 @@ public partial class HistoryViewModel : ObservableObject
     private async Task LoadGamesPageAsync()
     {
         var offset = CurrentPage * PageSize;
-        var allGames = await _gameRepo.GetRecentAsync(limit: PageSize, offset: offset);
-
-        // Apply filters
-        var filtered = allGames.AsEnumerable();
-
-        if (SelectedChampionFilter != "All Champions" && !string.IsNullOrEmpty(SelectedChampionFilter))
+        bool? selectedWin = SelectedWinLossFilter switch
         {
-            filtered = filtered.Where(g =>
-                string.Equals(g.ChampionName, SelectedChampionFilter, StringComparison.OrdinalIgnoreCase));
-        }
+            1 => true,
+            2 => false,
+            _ => null
+        };
 
-        if (SelectedWinLossFilter == 1)
+        var gamesTask = _gameRepo.GetRecentAsync(
+            limit: PageSize,
+            offset: offset,
+            champion: SelectedChampionFilter,
+            win: selectedWin);
+        var totalCountTask = _gameRepo.GetRecentCountAsync(
+            champion: SelectedChampionFilter,
+            win: selectedWin);
+
+        await Task.WhenAll(gamesTask, totalCountTask);
+
+        var games = gamesTask.Result;
+        var totalCount = totalCountTask.Result;
+
+        HasMorePages = offset + games.Count < totalCount;
+        HasNoGames = Games.Count == 0 && totalCount == 0;
+
+        var displayItems = games.Select(MapGameDisplay).ToList();
+        var vodPaths = await _vodRepo.GetVodPathsAsync(displayItems.Select(g => g.GameId).ToArray());
+        foreach (var item in displayItems)
         {
-            filtered = filtered.Where(g => g.Win);
-        }
-        else if (SelectedWinLossFilter == 2)
-        {
-            filtered = filtered.Where(g => !g.Win);
-        }
-
-        var games = filtered.ToList();
-
-        HasMorePages = allGames.Count >= PageSize;
-        HasNoGames = Games.Count == 0 && games.Count == 0;
-
-        // Check VOD existence for each game
-        var displayItems = new List<GameDisplayItem>();
-        foreach (var game in games)
-        {
-            var item = MapGameDisplay(game);
-            var vod = await _vodRepo.GetVodAsync(game.GameId);
-            if (vod != null && vod.TryGetValue("file_path", out var fp) && fp is string path && File.Exists(path))
+            if (vodPaths.TryGetValue(item.GameId, out var path) && File.Exists(path))
+            {
                 item.HasVod = true;
-            displayItems.Add(item);
+            }
         }
 
         DispatcherHelper.RunOnUIThread(() =>

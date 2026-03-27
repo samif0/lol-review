@@ -101,6 +101,10 @@ public sealed class GameRepository : IGameRepository
             WentWell = GetStringOrDefault(reader, "went_well"),
             FocusNext = GetStringOrDefault(reader, "focus_next"),
             SpottedProblems = GetStringOrDefault(reader, "spotted_problems"),
+            OutsideControl = GetStringOrDefault(reader, "outside_control"),
+            WithinControl = GetStringOrDefault(reader, "within_control"),
+            Attribution = GetStringOrDefault(reader, "attribution"),
+            PersonalContribution = GetStringOrDefault(reader, "personal_contribution"),
         };
 
         // items — JSON array of ints
@@ -179,6 +183,25 @@ public sealed class GameRepository : IGameRepository
         return list;
     }
 
+    private static void ApplyRecentFilters(
+        SqliteCommand cmd,
+        ICollection<string> whereClauses,
+        string? champion,
+        bool? win)
+    {
+        if (!string.IsNullOrWhiteSpace(champion) && champion != "All Champions")
+        {
+            whereClauses.Add("champion_name = @champion");
+            cmd.Parameters.AddWithValue("@champion", champion);
+        }
+
+        if (win.HasValue)
+        {
+            whereClauses.Add("win = @win");
+            cmd.Parameters.AddWithValue("@win", win.Value ? 1 : 0);
+        }
+    }
+
     // ── Save ─────────────────────────────────────────────────────────────
 
     public async Task<int> SaveAsync(GameStats stats)
@@ -188,7 +211,6 @@ public sealed class GameRepository : IGameRepository
             return -1;
 
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         // Check for duplicates
         using (var checkCmd = conn.CreateCommand())
@@ -347,7 +369,6 @@ public sealed class GameRepository : IGameRepository
         var dateStr = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
 
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -398,7 +419,6 @@ public sealed class GameRepository : IGameRepository
     public async Task UpdateReviewAsync(long gameId, GameReview review)
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -433,7 +453,6 @@ public sealed class GameRepository : IGameRepository
     public async Task UpdateEnemyLanerAsync(long gameId, string enemyLaner)
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE games SET enemy_laner = @enemy_laner WHERE game_id = @game_id";
@@ -448,7 +467,6 @@ public sealed class GameRepository : IGameRepository
     public async Task<GameStats?> GetAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM games WHERE game_id = @gameId";
@@ -460,23 +478,39 @@ public sealed class GameRepository : IGameRepository
 
     // ── List reads ───────────────────────────────────────────────────────
 
-    public async Task<List<GameStats>> GetRecentAsync(int limit = 50, int offset = 0)
+    public async Task<List<GameStats>> GetRecentAsync(
+        int limit = 50,
+        int offset = 0,
+        string? champion = null,
+        bool? win = null)
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
-
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT * FROM games WHERE 1=1 {CasualFilter} ORDER BY timestamp DESC LIMIT @limit OFFSET @offset";
+        var whereClauses = new List<string> { "1=1" };
+        ApplyRecentFilters(cmd, whereClauses, champion, win);
+        cmd.CommandText =
+            $"SELECT * FROM games WHERE {string.Join(" AND ", whereClauses)} {CasualFilter} " +
+            "ORDER BY timestamp DESC LIMIT @limit OFFSET @offset";
         cmd.Parameters.AddWithValue("@limit", limit);
         cmd.Parameters.AddWithValue("@offset", offset);
 
         return await ReadAllGamesAsync(cmd);
     }
 
+    public async Task<int> GetRecentCountAsync(string? champion = null, bool? win = null)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        var whereClauses = new List<string> { "1=1" };
+        ApplyRecentFilters(cmd, whereClauses, champion, win);
+        cmd.CommandText = $"SELECT COUNT(*) FROM games WHERE {string.Join(" AND ", whereClauses)} {CasualFilter}";
+        var result = await cmd.ExecuteScalarAsync();
+        return result is null ? 0 : Convert.ToInt32(result);
+    }
+
     public async Task<List<GameStats>> GetGamesForDateAsync(string dateStr)
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"SELECT * FROM games WHERE date_played LIKE @datePat {CasualFilter} ORDER BY timestamp ASC";
@@ -488,7 +522,6 @@ public sealed class GameRepository : IGameRepository
     public async Task<List<GameStats>> GetTodaysGamesAsync()
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         var todayStart = DateTime.Today;
         var todayTimestamp = new DateTimeOffset(todayStart).ToUnixTimeSeconds();
@@ -503,7 +536,6 @@ public sealed class GameRepository : IGameRepository
     public async Task<List<GameStats>> GetLossesAsync(string? champion = null)
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         if (!string.IsNullOrEmpty(champion) && champion != "All Champions")
@@ -522,7 +554,6 @@ public sealed class GameRepository : IGameRepository
     public async Task<List<GameStats>> GetUnreviewedGamesAsync(int days = 3)
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         var cutoff = DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeSeconds();
 
@@ -530,10 +561,32 @@ public sealed class GameRepository : IGameRepository
         cmd.CommandText = $@"
             SELECT * FROM games
             WHERE timestamp >= @cutoff
-              AND (rating IS NULL OR rating = 0)
-              AND (mistakes IS NULL OR mistakes = '')
-              AND (went_well IS NULL OR went_well = '')
-              AND (focus_next IS NULL OR focus_next = '')
+              AND NOT (
+                    COALESCE(rating, 0) > 0
+                 OR COALESCE(review_notes, '') != ''
+                 OR COALESCE(mistakes, '') != ''
+                 OR COALESCE(went_well, '') != ''
+                 OR COALESCE(focus_next, '') != ''
+                 OR COALESCE(spotted_problems, '') != ''
+                 OR COALESCE(outside_control, '') != ''
+                 OR COALESCE(within_control, '') != ''
+                 OR COALESCE(attribution, '') != ''
+                 OR COALESCE(personal_contribution, '') != ''
+                 OR EXISTS (
+                        SELECT 1
+                        FROM session_log
+                        WHERE session_log.game_id = games.game_id
+                          AND (
+                                COALESCE(session_log.improvement_note, '') != ''
+                             OR COALESCE(session_log.mental_handled, '') != ''
+                          )
+                    )
+                 OR EXISTS (
+                        SELECT 1
+                        FROM game_concept_tags
+                        WHERE game_concept_tags.game_id = games.game_id
+                    )
+              )
               {CasualFilter}
             ORDER BY timestamp DESC";
         cmd.Parameters.AddWithValue("@cutoff", cutoff);
@@ -544,7 +597,6 @@ public sealed class GameRepository : IGameRepository
     public async Task<List<string>> GetUniqueChampionsAsync(bool lossesOnly = false)
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         if (lossesOnly)
@@ -570,7 +622,6 @@ public sealed class GameRepository : IGameRepository
     public async Task<List<ChampionStats>> GetChampionStatsAsync()
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $@"
@@ -615,7 +666,6 @@ public sealed class GameRepository : IGameRepository
     public async Task<OverallStats> GetOverallStatsAsync()
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $@"
@@ -662,7 +712,6 @@ public sealed class GameRepository : IGameRepository
     public async Task<ReviewFocus?> GetLastReviewFocusAsync()
     {
         using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $@"

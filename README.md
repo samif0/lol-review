@@ -1,131 +1,154 @@
 # LoL Review
 
-A Windows desktop app that runs in the background and tracks your League of Legends ranked games. Pops up a review window after every game so you can reflect, take notes, and improve over time.
+LoL Review is a Windows desktop app for reviewing your League of Legends games locally. It watches for ranked game flow, surfaces pre-game and post-game prompts, and keeps your review history, notes, objectives, and session data in SQLite on your machine.
 
 ## What it does
 
-- Detects champ select and shows a pre-game focus window — your last review, recent form, and a space to set your gameplay focus for the game
-- After the game, pops up your full stats (KDA, CS, vision, damage, etc.) with fields for notes, tags, and mental reflection
-- Dashboard on startup recaps your session and flags unreviewed games
-- Game history, session logger, loss review, and Claude context export built in
-- ARAM and other casual modes are automatically filtered out
-- All data stored locally in SQLite — nothing leaves your machine
-- Auto-updates when a new release is published
+- Shows a pre-game focus window during champ select
+- Captures post-game stats and review notes after each match
+- Tracks dashboard, history, losses, analytics, rules, objectives, and VOD review
+- Filters out non-target game modes such as ARAM
+- Stores all user data locally in SQLite
+- Installs and updates through Velopack / GitHub Releases
 
 ## Install
 
-Download the latest zip from [Releases](https://github.com/samif0/lol-review/releases), extract it anywhere, and run `LoLReview.exe`. No Python needed.
+Use the latest `Setup.exe` from [Releases](https://github.com/samif0/lol-review/releases).
 
----
+1. Download the newest installer asset.
+2. Run `LoLReview-Setup.exe` or the release `Setup.exe`.
+3. Launch the installed app from Start Menu or Desktop.
+
+Notes:
+
+- Auto-update is handled by the installed app through GitHub Releases.
+- The install root is `%LOCALAPPDATA%\LoLReview`.
+- User data is stored separately in `%LOCALAPPDATA%\LoLReviewData` so reinstalling the app does not wipe the database.
+- On startup, the app migrates legacy DB / config / backup files forward from older locations when needed.
+
+## Data and logs
+
+Current user-data location:
+
+```text
+%LOCALAPPDATA%\LoLReviewData\
+```
+
+Important files:
+
+- Database: `%LOCALAPPDATA%\LoLReviewData\lol_review.db`
+- Config: `%LOCALAPPDATA%\LoLReviewData\config.json`
+- Safety backups: `%LOCALAPPDATA%\LoLReviewData\backups\`
+- Default clips folder: `%LOCALAPPDATA%\LoLReviewData\clips\`
+
+Install-owned files:
+
+- App binaries: `%LOCALAPPDATA%\LoLReview\current\`
+- Packages / updater files: `%LOCALAPPDATA%\LoLReview\packages\`
+
+Logs:
+
+- Startup log: `%LOCALAPPDATA%\LoLReview\startup.log`
+- Crash log: `%LOCALAPPDATA%\LoLReview\crash.log`
+- Velopack log: `%LOCALAPPDATA%\LoLReview\velopack.log`
 
 ## Development
 
 ### Requirements
 
 - Windows 10/11
-- Python 3.11+ (3.10 minimum)
-- League of Legends client (for live monitoring — not required to just run the app)
+- .NET 8 SDK
+- Visual Studio 2022 or MSBuild Build Tools
+- League of Legends client for live monitoring features
 
-### Setup
+Optional runtime dependency:
 
-```bash
-git clone https://github.com/samif0/lol-review.git
-cd lol-review
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+- `ffmpeg.exe` in `deps\` for clip extraction
+
+### Open the solution
+
+```powershell
+start LoLReview.sln
 ```
 
-### Run from source
+### Build from CLI
 
-```bash
-python run.pyw
+```powershell
+dotnet restore src\LoLReview.App\LoLReview.App.csproj -r win-x64
+msbuild LoLReview.sln /p:Configuration=Debug /p:Platform=x64 /p:RuntimeIdentifier=win-x64
 ```
 
-The app starts in the system tray. Right-click the tray icon for all options.
+### Run a local debug build
 
----
+After building `Debug|x64`, launch the app with:
 
-## Building
-
-### Prerequisites
-
-The build script bundles two optional dependencies for the embedded VOD player and clip features. Without them the app still works — VOD playback falls back to the system default player and clip extraction is unavailable.
-
-**ffmpeg** (clip extraction):
-```bash
-python scripts/download_ffmpeg.py   # if the script exists
-# or download manually from https://github.com/BtbN/FFmpeg-Builds/releases
-# and place ffmpeg.exe in deps/
+```powershell
+run.bat
 ```
 
-**libmpv** (embedded VOD player):
-```bash
-python scripts/download_mpv.py      # if the script exists
-# or download libmpv-2.dll from https://github.com/shinchiro/mpv-winbuild-cmake/releases
-# (grab the mpv-dev-x86_64-*.7z, extract libmpv-2.dll) and place it in deps/
+Or run the built executable directly:
+
+```text
+src\LoLReview.App\bin\x64\Debug\net8.0-windows10.0.19041.0\LoLReview.App.exe
 ```
 
-### Build
+## Building a release locally
 
-```bash
-pip install pyinstaller
-python build.py
+The GitHub Actions release workflow is the source of truth, but the local publish shape is:
+
+```powershell
+dotnet restore src\LoLReview.App\LoLReview.App.csproj -r win-x64
+msbuild src\LoLReview.App\LoLReview.App.csproj `
+  /p:Configuration=Release `
+  /p:Platform=x64 `
+  /p:RuntimeIdentifier=win-x64 `
+  /p:SelfContained=true `
+  /t:Publish
 ```
 
-Output lands in `dist/LoLReview/`. Run `dist/LoLReview/LoLReview.exe` to test the build locally before releasing.
-
----
+If `deps\ffmpeg.exe` exists, copy it into the publish output before packing.
 
 ## Releasing
 
-Releases are fully automated via GitHub Actions. To publish a new version:
+Releases are automated through `.github/workflows/release.yml`.
 
-1. **Bump the version** in `src/version.py`:
-   ```python
-   __version__ = "1.2.0"
-   ```
+To publish a new version:
 
-2. **Commit and tag:**
-   ```bash
-   git add src/version.py
-   git commit -m "chore: bump version to 1.2.0"
-   git tag v1.2.0
-   git push && git push --tags
-   ```
+1. Commit your changes to `main`.
+2. Create a version tag such as `v2.3.1`.
+3. Push `main` and the tag.
 
-The CI pipeline (`.github/workflows/release.yml`) will:
-- Stamp `version.py` from the tag before building
-- Download ffmpeg and libmpv automatically
-- Build the exe with PyInstaller on a Windows runner
-- Zip `dist/LoLReview/` and publish it as a GitHub Release
+Example:
 
-The built exe checks GitHub Releases on startup and auto-updates when a newer version is found.
+```powershell
+git add .
+git commit -m "fix: describe your release"
+git tag -a v2.3.1 -m "v2.3.1"
+git push origin main
+git push origin v2.3.1
+```
 
-> **Important:** The version tag must match `__version__` in `version.py`. If they're out of sync, the app will see itself as outdated and restart in a loop. The CI pipeline enforces this by overwriting `version.py` from the tag — so the tag is always the source of truth.
+The workflow will:
 
----
+- stamp `<Version>` in `src\LoLReview.App\LoLReview.App.csproj` from the tag
+- restore and publish the WinUI app for `win-x64`
+- include `ffmpeg.exe` if available
+- pack the release with `vpk`
+- publish the GitHub Release used by the in-app updater
+
+Tag rules currently accepted by the workflow:
+
+- `v2.[1-9].*`
+- `v3.*`
 
 ## Project structure
 
-```
+```text
 src/
-  main.py             # App entry point, tray icon, monitor wiring
-  gui/                # All UI windows (dashboard, review, pregame, history, etc.)
-  database/           # SQLite repositories and Claude context generator
-  lcu/                # League client API (monitor, credentials, stats parsing)
-  vod.py              # VOD auto-matching logic
-  updater.py          # Auto-update system
-  version.py          # Version string — bump this before tagging a release
-build.py              # PyInstaller build script
-requirements.txt
+  LoLReview.App/        WinUI 3 desktop app, DI wiring, views, view models, update flow
+  LoLReview.Core/       SQLite, repositories, domain services, LCU integration, migrations
+.github/workflows/
+  release.yml           GitHub Actions release pipeline
+run.bat                 Helper to launch the local debug build and print startup logs
+LoLReview.sln           Visual Studio solution
 ```
-
-## Data location
-
-All game data is stored in:
-```
-%LOCALAPPDATA%\LoLReviewData\lol_review.db
-```
-
-Logs are written alongside the database as `lol_review.log`.

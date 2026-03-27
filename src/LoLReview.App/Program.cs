@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using LoLReview.App.Helpers;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Velopack;
@@ -32,35 +33,30 @@ public static class Program
             })
             .Run();
 
-        var logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LoLReview", "startup.log");
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-
         try
         {
-            File.AppendAllText(logPath, $"\n[{DateTime.Now}] Program.Main starting\n");
+            AppDiagnostics.WriteVerbose("startup.log", "Program.Main starting");
 
             XamlCheckProcessRequirements();
-            File.AppendAllText(logPath, $"[{DateTime.Now}] XamlCheckProcessRequirements passed\n");
+            AppDiagnostics.WriteVerbose("startup.log", "XamlCheckProcessRequirements passed");
 
             ComWrappersSupport.InitializeComWrappers();
-            File.AppendAllText(logPath, $"[{DateTime.Now}] ComWrappers initialized\n");
+            AppDiagnostics.WriteVerbose("startup.log", "ComWrappers initialized");
 
             Application.Start(p =>
             {
-                File.AppendAllText(logPath, $"[{DateTime.Now}] Application.Start callback\n");
+                AppDiagnostics.WriteVerbose("startup.log", "Application.Start callback");
                 var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
                 SynchronizationContext.SetSynchronizationContext(context);
                 _ = new App();
-                File.AppendAllText(logPath, $"[{DateTime.Now}] App created\n");
+                AppDiagnostics.WriteVerbose("startup.log", "App created");
             });
 
-            File.AppendAllText(logPath, $"[{DateTime.Now}] Application.Start returned (app closed)\n");
+            AppDiagnostics.WriteVerbose("startup.log", "Application.Start returned (app closed)");
         }
         catch (Exception ex)
         {
-            File.AppendAllText(logPath, $"[{DateTime.Now}] FATAL: {ex}\n");
+            AppDiagnostics.WriteCrash(ex);
         }
     }
 }

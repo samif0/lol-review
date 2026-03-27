@@ -33,24 +33,22 @@ public partial class App : Application
 
     public App()
     {
-        var logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LoLReview", "startup.log");
         try
         {
-            File.AppendAllText(logPath, $"[{DateTime.Now}] App() constructor start\n");
+            AppDiagnostics.WriteVerbose("startup.log", "App() constructor start");
             InitializeComponent();
-            File.AppendAllText(logPath, $"[{DateTime.Now}] InitializeComponent done\n");
+            AppDiagnostics.WriteVerbose("startup.log", "InitializeComponent done");
 
             UnhandledException += (s, e) =>
             {
-                File.AppendAllText(logPath, $"[{DateTime.Now}] UnhandledException: {e.Exception}\n");
+                AppDiagnostics.WriteCrash(e.Exception);
                 e.Handled = true;
             };
         }
         catch (Exception ex)
         {
-            File.AppendAllText(logPath, $"[{DateTime.Now}] App() constructor FAILED: {ex}\n");
+            AppDiagnostics.WriteCrash(ex);
+            throw;
         }
     }
 
@@ -70,10 +68,7 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LoLReview", "startup.log");
-        File.AppendAllText(logPath, $"[{DateTime.Now}] OnLaunched START\n");
+        AppDiagnostics.WriteVerbose("startup.log", "OnLaunched START");
 
         // Show window immediately
         _mainWindow = new Window { Title = "LoL Review" };
@@ -108,7 +103,7 @@ public partial class App : Application
                 var migratedFrom = legacyMigrator.TryMigrate();
                 if (migratedFrom is not null)
                 {
-                    File.AppendAllText(logPath, $"[{DateTime.Now}] Migrated legacy DB from: {migratedFrom}\n");
+                    AppDiagnostics.WriteVerbose("startup.log", $"Migrated legacy DB from: {migratedFrom}");
                 }
 
                 // 1. Pre-flight integrity check — logs DB path/size/game count,
@@ -135,14 +130,15 @@ public partial class App : Application
                     using var diagCmd = diagConn.CreateCommand();
                     diagCmd.CommandText = "SELECT COUNT(*) FROM games";
                     var gameCount = diagCmd.ExecuteScalar();
-                    File.AppendAllText(logPath,
-                        $"[{DateTime.Now}] DB path: {connFactory.DatabasePath}\n" +
-                        $"[{DateTime.Now}] DB game count: {gameCount}\n" +
-                        $"[{DateTime.Now}] DB file size: {new FileInfo(connFactory.DatabasePath).Length} bytes\n");
+                    AppDiagnostics.WriteVerbose(
+                        "startup.log",
+                        $"DB path: {connFactory.DatabasePath}; " +
+                        $"DB game count: {gameCount}; " +
+                        $"DB file size: {new FileInfo(connFactory.DatabasePath).Length} bytes");
                 }
                 catch (Exception diagEx)
                 {
-                    File.AppendAllText(logPath, $"[{DateTime.Now}] DB diagnostic failed: {diagEx.Message}\n");
+                    AppDiagnostics.WriteVerbose("startup.log", $"DB diagnostic failed: {diagEx.Message}");
                 }
 
                 // Load XamlControlsResources at runtime (not in App.xaml) to avoid heap corruption
@@ -152,7 +148,7 @@ public partial class App : Application
                 }
                 catch (Exception xcrEx)
                 {
-                    File.AppendAllText(logPath, $"[{DateTime.Now}] XamlControlsResources load failed: {xcrEx.Message}\n");
+                    AppDiagnostics.WriteVerbose("startup.log", $"XamlControlsResources load failed: {xcrEx.Message}");
                 }
 
                 // Load custom app theme (overrides some WinUI defaults with app colors)
@@ -163,7 +159,7 @@ public partial class App : Application
                 }
                 catch (Exception themeEx)
                 {
-                    File.AppendAllText(logPath, $"[{DateTime.Now}] AppTheme load failed: {themeEx.Message}\n");
+                    AppDiagnostics.WriteVerbose("startup.log", $"AppTheme load failed: {themeEx.Message}");
                 }
 
                 var shell = new ShellPage();
@@ -174,8 +170,7 @@ public partial class App : Application
             catch (Exception ex)
             {
                 loadingText.Text = $"Startup error:\n{ex.Message}";
-                var crashPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LoLReview", "crash.log");
-                File.WriteAllText(crashPath, $"{DateTime.Now}\n{ex}");
+                AppDiagnostics.WriteCrash(ex);
             }
         });
     }

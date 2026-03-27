@@ -3,6 +3,7 @@
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Navigation;
 
 namespace LoLReview.App.Views;
 
@@ -23,15 +24,15 @@ public sealed partial class DashboardPage : Page
         InitializeComponent();
         DataContext = ViewModel;
 
-        Loaded += OnLoaded;
-
         // Update computed properties when collections change
         ViewModel.ActiveObjectives.CollectionChanged += (_, _) => Bindings.Update();
         ViewModel.TodaysGames.CollectionChanged += (_, _) => Bindings.Update();
     }
 
-    private async void OnLoaded(object sender, RoutedEventArgs e)
+    protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
+        base.OnNavigatedTo(e);
+
         if (ViewModel.LoadCommand.CanExecute(null))
         {
             await ViewModel.LoadCommand.ExecuteAsync(null);

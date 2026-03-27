@@ -104,8 +104,6 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     /// </summary>
     private async Task TickAsync(CancellationToken ct)
     {
-        System.Diagnostics.Debug.WriteLine($"[GameMonitor] tick - connected={_connected}, client={_lcuClient != null}");
-
         // ── Ensure we have a connected LCU client ───────────────────────
 
         if (!_connected)
@@ -317,21 +315,10 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
                 var stats = StatsExtractor.ExtractFromEog(eog, _logger);
                 if (stats is not null)
                 {
-                    // Try to get summoner name
-                    try
+                    var summonerName = await TryGetCurrentSummonerNameAsync(ct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(summonerName))
                     {
-                        var summoner = await _lcuClient.GetCurrentSummonerAsync(ct).ConfigureAwait(false);
-                        if (summoner is JsonElement summonerEl)
-                        {
-                            stats.SummonerName = summonerEl.GetPropertyOrDefault("displayName", "")
-                                is { Length: > 0 } displayName
-                                    ? displayName
-                                    : summonerEl.GetPropertyOrDefault("gameName", "Unknown");
-                        }
-                    }
-                    catch
-                    {
-                        // Ignored
+                        stats.SummonerName = summonerName;
                     }
 
                     // Attach live events
@@ -372,6 +359,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         if (matches.Count == 0)
             return;
 
+        var summonerName = await TryGetCurrentSummonerNameAsync(ct).ConfigureAwait(false);
         var backfilled = 0;
         foreach (var game in matches)
         {
@@ -387,21 +375,9 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             if (stats is null)
                 continue;
 
-            // Try to get summoner name
-            try
+            if (!string.IsNullOrEmpty(summonerName))
             {
-                var summoner = await _lcuClient.GetCurrentSummonerAsync(ct).ConfigureAwait(false);
-                if (summoner is JsonElement summonerEl)
-                {
-                    stats.SummonerName = summonerEl.GetPropertyOrDefault("displayName", "")
-                        is { Length: > 0 } displayName
-                            ? displayName
-                            : summonerEl.GetPropertyOrDefault("gameName", "Unknown");
-                }
-            }
-            catch
-            {
-                // Ignored
+                stats.SummonerName = summonerName;
             }
 
             _logger.LogInformation(
@@ -423,6 +399,26 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    private async Task<string?> TryGetCurrentSummonerNameAsync(CancellationToken ct)
+    {
+        try
+        {
+            var summoner = await _lcuClient.GetCurrentSummonerAsync(ct).ConfigureAwait(false);
+            if (summoner is not JsonElement summonerEl)
+            {
+                return null;
+            }
+
+            return summonerEl.GetPropertyOrDefault("displayName", "") is { Length: > 0 } displayName
+                ? displayName
+                : summonerEl.GetPropertyOrDefault("gameName", "Unknown");
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private static bool IsCasualQueue(int queueId) => CasualQueueIds.Contains(queueId);
 }

@@ -165,7 +165,14 @@ public interface IGameRepository
     Task<GameStats?> GetAsync(long gameId);
 
     /// <summary>Get recent ranked/normal games ordered by most recent first.</summary>
-    Task<List<GameStats>> GetRecentAsync(int limit = 50, int offset = 0);
+    Task<List<GameStats>> GetRecentAsync(
+        int limit = 50,
+        int offset = 0,
+        string? champion = null,
+        bool? win = null);
+
+    /// <summary>Count recent ranked/normal games for the given history filters.</summary>
+    Task<int> GetRecentCountAsync(string? champion = null, bool? win = null);
 
     /// <summary>Get ranked/normal games played on a specific date (YYYY-MM-DD).</summary>
     Task<List<GameStats>> GetGamesForDateAsync(string dateStr);
@@ -178,8 +185,8 @@ public interface IGameRepository
 
     /// <summary>
     /// Get recent ranked/normal games that haven't been reviewed yet.
-    /// A game counts as 'unreviewed' if it has no rating, no mistakes text,
-    /// no went_well text, and no focus_next text.
+    /// A game counts as 'reviewed' when it has any meaningful post-game review
+    /// content saved in the game row, related session_log row, or concept tags.
     /// </summary>
     Task<List<GameStats>> GetUnreviewedGamesAsync(int days = 3);
 
