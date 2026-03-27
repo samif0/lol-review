@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace LoLReview.Core.Services;
 
 /// <summary>
-/// Thread-safe config service that reads/writes %LOCALAPPDATA%\LoLReview\config.json.
+/// Thread-safe config service that reads/writes %LOCALAPPDATA%\LoLReview\data\config.json.
 /// Ported from Python config.py.
 /// </summary>
 public sealed class ConfigService : IConfigService

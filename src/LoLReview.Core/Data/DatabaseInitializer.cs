@@ -28,12 +28,10 @@ public sealed class DatabaseInitializer
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        // Check for legacy database before initialising
-        var legacyPath = FindLegacyDatabase();
-        if (legacyPath is not null)
-        {
-            await MigrateFromLegacyAsync(legacyPath, cancellationToken);
-        }
+        // Legacy exe-relative DB migration is disabled — all users have been migrated
+        // to %LOCALAPPDATA%\LoLReview\data\. The old-path → data/ migration is handled
+        // by SqliteConnectionFactory.GetDefaultDatabasePath() and ConfigService's static ctor.
+        // Keeping FindLegacyDatabase/MigrateFromLegacyAsync for reference but not calling them.
 
         using var connection = _connectionFactory.CreateConnection();
 
