@@ -75,13 +75,13 @@ jobs:
       - name: Build and publish with MSBuild
         shell: pwsh
         run: |
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "publish"
           msbuild csharp/src/LoLReview.App/LoLReview.App.csproj `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:RuntimeIdentifier=win-x64 `
             /p:SelfContained=true `
-            /p:PublishDir=${{ github.workspace }}/publish/ `
-            /p:PublishSingleFile=false `
+            "/p:PublishDir=$publishDir\" `
             /t:Publish `
             /m `
             /verbosity:minimal
@@ -94,6 +94,23 @@ jobs:
             Write-Host "ffmpeg copied to publish output"
           } else {
             Write-Host "No ffmpeg to copy — clip extraction will be unavailable"
+          }
+
+      - name: Verify publish output
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "publish"
+          Write-Host "Publish dir: $publishDir"
+          Write-Host "Exists: $(Test-Path $publishDir)"
+          if (Test-Path $publishDir) {
+            $exe = Get-ChildItem $publishDir -Filter "LoLReview.App.exe" -ErrorAction SilentlyContinue
+            $pri = Get-ChildItem $publishDir -Filter "resources.pri" -ErrorAction SilentlyContinue
+            Write-Host "LoLReview.App.exe: $($exe.Length) bytes"
+            Write-Host "resources.pri: $($pri.Length) bytes"
+            Write-Host "Total files: $((Get-ChildItem $publishDir | Measure-Object).Count)"
+          } else {
+            Write-Error "Publish directory not found!"
+            exit 1
           }
 
       - name: Install vpk CLI
