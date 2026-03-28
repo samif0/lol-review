@@ -2,6 +2,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LoLReview.App.Helpers;
 using LoLReview.App.Services;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -285,8 +286,11 @@ public partial class SettingsViewModel : ObservableObject
 
             await _updateService.DownloadUpdateAsync(_pendingUpdate, progress =>
             {
-                UpdateProgress = progress;
-                UpdateStatusText = $"Downloading... {progress}%";
+                DispatcherHelper.RunOnUIThread(() =>
+                {
+                    UpdateProgress = progress;
+                    UpdateStatusText = $"Downloading... {progress}%";
+                });
             });
 
             UpdateStatusText = "Restarting to apply update...";
