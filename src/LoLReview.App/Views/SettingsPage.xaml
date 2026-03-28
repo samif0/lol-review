@@ -236,6 +236,25 @@
                     </StackPanel>
                 </Border>
 
+                <!-- ═══ Review Save Behavior ═══ -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="REVIEW SAVE BEHAVIOR"
+                                   FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                        <TextBlock Text="Control whether the review screen requires written review content before save. When this is off, you can intentionally save a game as reviewed even if you leave the main review notes blank."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.RequireReviewNotes, Mode=TwoWay}"
+                                      Header="Require review notes before save"
+                                      OnContent="Required"
+                                      OffContent="Optional"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- ═══ App Version & Updates Section ═══ -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="8">

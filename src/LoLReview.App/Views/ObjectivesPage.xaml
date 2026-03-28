@@ -265,6 +265,47 @@
                     </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>
 
+                <Border Style="{StaticResource CardStyle}"
+                        Visibility="{x:Bind ViewModel.HasSpottedProblems, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="SPOTTED PROBLEMS"
+                                   FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource AccentGoldBrush}"/>
+                        <TextBlock Text="Problems noted in reviews. Use these as raw material for future learning objectives."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.SpottedProblems, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="8"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SpottedProblemItem">
+                                    <Border Background="{StaticResource InputBackgroundBrush}"
+                                            CornerRadius="8"
+                                            Padding="12"
+                                            BorderThickness="1"
+                                            BorderBrush="{StaticResource AccentGoldBrush}">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock FontSize="11"
+                                                       Foreground="{StaticResource SecondaryTextBrush}">
+                                                <Run Text="{x:Bind ChampionName}"/>
+                                                <Run Text="  •  "/>
+                                                <Run Text="{x:Bind DatePlayed}"/>
+                                            </TextBlock>
+                                            <TextBlock Text="{x:Bind ProblemText}"
+                                                       FontSize="13"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </Border>
+
                 <!-- Completed Objectives Toggle -->
                 <Button Visibility="{x:Bind ViewModel.HasCompletedObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                         Command="{x:Bind ViewModel.ToggleCompletedCommand}"

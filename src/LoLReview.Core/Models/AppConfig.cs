@@ -15,6 +15,7 @@ public class AppConfig
     public int ClipsMaxSizeMb { get; set; } = 2048;
     public bool BackupEnabled { get; set; }
     public string BackupFolder { get; set; } = "";
+    public bool RequireReviewNotes { get; set; }
 
     /// <summary>
     /// Default keybind map — each action maps to a key-event string.

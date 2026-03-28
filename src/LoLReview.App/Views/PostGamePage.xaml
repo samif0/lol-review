@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:converters="using:LoLReview.App.Converters"
     xmlns:controls="using:LoLReview.App.Controls"
+    xmlns:vm="using:LoLReview.App.ViewModels"
     mc:Ignorable="d"
     Background="Transparent">
 
@@ -56,6 +57,27 @@
 
             <!-- Separator -->
             <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
+
+            <Border Background="{StaticResource CardBackgroundBrush}"
+                    CornerRadius="8"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{StaticResource SubtleBorderBrush}">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="SAVE MODE"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <TextBlock Text="{x:Bind ReviewVM.SaveBehaviorText, Mode=OneWay}"
+                               FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{x:Bind ReviewVM.ValidationMessage, Mode=OneWay}"
+                               FontSize="12"
+                               Foreground="{StaticResource LossRedBrush}"
+                               TextWrapping="Wrap"
+                               Visibility="{x:Bind ReviewVM.HasValidationMessage, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                </StackPanel>
+            </Border>
 
             <!-- ═══ Stats Grid ═══ -->
             <TextBlock Text="GAME STATS"
@@ -183,6 +205,156 @@
             </StackPanel>
 
             <!-- ═══ Quick Note ═══ -->
+            <Border Background="{StaticResource CardBackgroundBrush}"
+                    CornerRadius="8"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{StaticResource SubtleBorderBrush}">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="REVIEW NOTES"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                    <TextBlock Text="Additional review notes"
+                               FontSize="13"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                    <TextBox Text="{x:Bind ReviewVM.ReviewNotes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="Anything else you want to remember from this game..."
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             MinHeight="70" FontSize="13"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+
+                    <TextBlock Text="Spotted problems"
+                               FontSize="13"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                    <TextBox Text="{x:Bind ReviewVM.SpottedProblems, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="Patterns or repeated issues worth turning into future objectives..."
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             MinHeight="70" FontSize="13"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource CardBackgroundBrush}"
+                    CornerRadius="8"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                    Visibility="{x:Bind ReviewVM.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="OBJECTIVE PRACTICE"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <TextBlock Text="Mark whether you actually practiced your active objectives in this game."
+                               FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
+
+                    <ItemsRepeater ItemsSource="{x:Bind ReviewVM.ObjectiveAssessments, Mode=OneWay}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="8"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ObjectiveAssessment">
+                                <Border Background="{StaticResource InputBackgroundBrush}"
+                                        CornerRadius="8"
+                                        BorderThickness="1"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                        Padding="12">
+                                    <StackPanel Spacing="8">
+                                        <CheckBox IsChecked="{x:Bind Practiced, Mode=TwoWay}"
+                                                  Content="{x:Bind Title}"
+                                                  FontSize="13"
+                                                  Foreground="{StaticResource PrimaryTextBrush}"/>
+                                        <TextBlock Text="{x:Bind Criteria}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBox Text="{x:Bind ExecutionNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 PlaceholderText="How did this objective go in the game?"
+                                                 TextWrapping="Wrap" AcceptsReturn="True"
+                                                 MinHeight="52" FontSize="12"
+                                                 Background="{StaticResource CardBackgroundBrush}"
+                                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                 Foreground="{StaticResource PrimaryTextBrush}"
+                                                 CornerRadius="6"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource CardBackgroundBrush}"
+                    CornerRadius="8"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{StaticResource SubtleBorderBrush}">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="MATCHUP NOTES"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <TextBlock Text="{x:Bind ReviewVM.MatchupHeading, Mode=OneWay}"
+                               FontSize="14"
+                               FontWeight="Bold"
+                               Foreground="{StaticResource AccentBlueBrush}"/>
+
+                    <TextBlock Text="Enemy champion"
+                               FontSize="13"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                    <TextBox Text="{x:Bind ReviewVM.EnemyLaner, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="Enemy laner or main matchup champion"
+                             FontSize="13"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}"
+                             CornerRadius="8"
+                             Height="36"/>
+
+                    <TextBlock Text="What should you remember for this matchup?"
+                               FontSize="13"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                    <TextBox Text="{x:Bind ReviewVM.MatchupNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="Lane-specific or matchup-specific reminders..."
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             MinHeight="70" FontSize="13"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+
+                    <ItemsRepeater ItemsSource="{x:Bind ReviewVM.MatchupHistory, Mode=OneWay}"
+                                   Visibility="{x:Bind ReviewVM.HasMatchupHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="6"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="vm:MatchupHistoryItem">
+                                <Border Background="{StaticResource InputBackgroundBrush}"
+                                        CornerRadius="8"
+                                        BorderThickness="1"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                        Padding="12">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="{x:Bind MetaText}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                        <TextBlock Text="{x:Bind Note}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </StackPanel>
+            </Border>
+
             <StackPanel Spacing="6">
                 <TextBlock Text="SESSION NOTE"
                            FontSize="11" FontWeight="Bold"

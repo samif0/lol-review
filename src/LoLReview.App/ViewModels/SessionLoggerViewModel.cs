@@ -206,7 +206,8 @@ public partial class SessionLoggerViewModel : ObservableObject
                 var game = await _gameRepo.GetAsync(entry.GameId.Value);
                 if (game != null)
                 {
-                    hasReview = !string.IsNullOrWhiteSpace(game.ReviewNotes)
+                    hasReview = game.Rating > 0
+                        || !string.IsNullOrWhiteSpace(game.ReviewNotes)
                         || !string.IsNullOrWhiteSpace(game.Mistakes)
                         || !string.IsNullOrWhiteSpace(game.WentWell)
                         || !string.IsNullOrWhiteSpace(game.FocusNext)

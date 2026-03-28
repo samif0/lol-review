@@ -96,6 +96,7 @@ public sealed class GameRepository : IGameRepository
 
             // Review fields
             ReviewNotes = GetStringOrDefault(reader, "review_notes"),
+            Rating = GetIntOrDefault(reader, "rating"),
             Tags = GetStringOrDefault(reader, "tags"),
             Mistakes = GetStringOrDefault(reader, "mistakes"),
             WentWell = GetStringOrDefault(reader, "went_well"),
@@ -423,6 +424,7 @@ public sealed class GameRepository : IGameRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
             UPDATE games SET
+                rating = @rating,
                 review_notes = @notes,
                 tags = @tags,
                 mistakes = @mistakes,
@@ -435,6 +437,7 @@ public sealed class GameRepository : IGameRepository
                 personal_contribution = @personal_contribution
             WHERE game_id = @game_id";
 
+        cmd.Parameters.AddWithValue("@rating", review.Rating);
         cmd.Parameters.AddWithValue("@notes", review.Notes);
         cmd.Parameters.AddWithValue("@tags", review.Tags);
         cmd.Parameters.AddWithValue("@mistakes", review.Mistakes);

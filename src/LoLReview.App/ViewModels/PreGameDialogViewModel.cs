@@ -4,9 +4,18 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Services;
+using System.Collections.ObjectModel;
 using Microsoft.Extensions.Logging;
 
 namespace LoLReview.App.ViewModels;
+
+public sealed class FocusObjectiveItem
+{
+    public long Id { get; init; }
+    public string Title { get; init; } = "";
+    public string Subtitle { get; init; } = "";
+    public bool HasSubtitle => !string.IsNullOrWhiteSpace(Subtitle);
+}
 
 /// <summary>ViewModel for the pre-game focus dialog shown during champion select.</summary>
 public partial class PreGameDialogViewModel : ObservableObject
@@ -58,6 +67,9 @@ public partial class PreGameDialogViewModel : ObservableObject
     [ObservableProperty]
     private bool _showMoodSelector;
 
+    [ObservableProperty]
+    private bool _hasObjectiveFocusOptions;
+
     // Mood button highlight state
     [ObservableProperty]
     private bool _isTiltedSelected;
@@ -90,6 +102,8 @@ public partial class PreGameDialogViewModel : ObservableObject
         "When tilted, I'll take 3 breaths",
         "When behind, I'll focus on farm"
     };
+
+    public ObservableCollection<FocusObjectiveItem> ObjectiveFocusOptions { get; } = new();
 
     // ── Constructor ─────────────────────────────────────────────────
 
@@ -135,8 +149,23 @@ public partial class PreGameDialogViewModel : ObservableObject
 
             // Get active objective
             var objectives = await _objectivesRepo.GetActiveAsync();
+            ObjectiveFocusOptions.Clear();
             if (objectives.Count > 0)
             {
+                foreach (var objective in objectives)
+                {
+                    ObjectiveFocusOptions.Add(new FocusObjectiveItem
+                    {
+                        Id = Convert.ToInt64(objective.GetValueOrDefault("id", 0L)),
+                        Title = objective.GetValueOrDefault("title", "")?.ToString() ?? "",
+                        Subtitle = objective.GetValueOrDefault("completion_criteria", "")?.ToString()
+                                   ?? objective.GetValueOrDefault("skill_area", "")?.ToString()
+                                   ?? ""
+                    });
+                }
+
+                HasObjectiveFocusOptions = ObjectiveFocusOptions.Count > 0;
+
                 var obj = objectives[0];
                 ActiveObjectiveTitle = obj.TryGetValue("title", out var t) ? t?.ToString() ?? "" : "";
                 ActiveObjectiveCriteria = obj.TryGetValue("completion_criteria", out var c) ? c?.ToString() ?? "" : "";
@@ -147,6 +176,10 @@ public partial class PreGameDialogViewModel : ObservableObject
                 {
                     FocusText = ActiveObjectiveTitle;
                 }
+            }
+            else
+            {
+                HasObjectiveFocusOptions = false;
             }
 
             // Check if first game of the day
@@ -186,6 +219,12 @@ public partial class PreGameDialogViewModel : ObservableObject
     private void SetQuickFocus(string text)
     {
         FocusText = text;
+    }
+
+    [RelayCommand]
+    private void SetObjectiveFocus(string title)
+    {
+        FocusText = title;
     }
 
     [RelayCommand]

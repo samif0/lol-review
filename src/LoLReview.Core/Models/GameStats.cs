@@ -113,6 +113,7 @@ public class GameStats
     // ── Review fields (populated from DB when present) ───────────────
 
     public string ReviewNotes { get; set; } = "";
+    public int Rating { get; set; }
     public string Tags { get; set; } = "[]";
     public string Mistakes { get; set; } = "";
     public string WentWell { get; set; } = "";

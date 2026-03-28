@@ -24,6 +24,12 @@ public sealed partial class VodService : IVodService
     [GeneratedRegex(@"(\d{1,2})-(\d{1,2})-(\d{4})-(\d{1,2})-(\d{2})")]
     private static partial Regex FilenameTimestampRegex();
 
+    [GeneratedRegex(@"(\d{4})[-_](\d{1,2})[-_](\d{1,2})[ _-](\d{1,2})[-_](\d{2})(?:[-_](\d{2}))?")]
+    private static partial Regex IsoFilenameTimestampRegex();
+
+    [GeneratedRegex(@"(\d{1,2})[-_](\d{1,2})[-_](\d{4})[ _-](\d{1,2})[-_](\d{2})(?:[-_](\d{2}))?")]
+    private static partial Regex AlternateFilenameTimestampRegex();
+
     private readonly IGameRepository _games;
     private readonly IVodRepository _vods;
     private readonly IConfigService _config;
@@ -51,13 +57,9 @@ public sealed partial class VodService : IVodService
         return Task.Run(() =>
         {
             var recordings = new List<VodRecordingInfo>();
-            var root = new DirectoryInfo(folder);
 
-            foreach (var file in root.EnumerateFiles("*", SearchOption.AllDirectories))
+            foreach (var file in EnumerateVideoFilesSafe(folder))
             {
-                if (!VideoExtensions.Contains(file.Extension))
-                    continue;
-
                 try
                 {
                     var startTs = ParseFilenameTimestamp(file.Name);
@@ -127,6 +129,41 @@ public sealed partial class VodService : IVodService
         }
 
         return bestPath;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryLinkRecordingAsync(GameStats game, string? folder = null)
+    {
+        if (game.GameId <= 0)
+        {
+            return false;
+        }
+
+        var existing = await _vods.GetVodAsync(game.GameId).ConfigureAwait(false);
+        if (existing != null
+            && existing.TryGetValue("file_path", out var existingPath)
+            && existingPath is string path
+            && File.Exists(path))
+        {
+            return true;
+        }
+
+        var recordings = await FindRecordingsAsync(folder).ConfigureAwait(false);
+        if (recordings.Count == 0)
+        {
+            return false;
+        }
+
+        var matchedPath = MatchRecordingToGame(game, recordings);
+        if (matchedPath is null)
+        {
+            return false;
+        }
+
+        var fi = new FileInfo(matchedPath);
+        await _vods.LinkVodAsync(game.GameId, matchedPath, fi.Length).ConfigureAwait(false);
+        _logger.LogInformation("Linked VOD {File} to game {GameId}", fi.Name, game.GameId);
+        return true;
     }
 
     /// <inheritdoc />
@@ -203,23 +240,125 @@ public sealed partial class VodService : IVodService
     /// </summary>
     private static double? ParseFilenameTimestamp(string filename)
     {
-        var match = FilenameTimestampRegex().Match(filename);
-        if (!match.Success) return null;
+        if (TryParseTimestamp(FilenameTimestampRegex().Match(filename), out var parsedTimestamp, monthFirst: true))
+        {
+            return parsedTimestamp;
+        }
+
+        if (TryParseTimestamp(IsoFilenameTimestampRegex().Match(filename), out parsedTimestamp, isoOrder: true))
+        {
+            return parsedTimestamp;
+        }
+
+        if (TryParseTimestamp(AlternateFilenameTimestampRegex().Match(filename), out parsedTimestamp, monthFirst: true))
+        {
+            return parsedTimestamp;
+        }
+
+        return null;
+    }
+
+    private static bool TryParseTimestamp(
+        Match match,
+        out double timestamp,
+        bool monthFirst = false,
+        bool isoOrder = false)
+    {
+        timestamp = 0;
+        if (!match.Success)
+        {
+            return false;
+        }
 
         try
         {
-            var month = int.Parse(match.Groups[1].Value);
-            var day = int.Parse(match.Groups[2].Value);
-            var year = int.Parse(match.Groups[3].Value);
+            int year;
+            int month;
+            int day;
+
+            if (isoOrder)
+            {
+                year = int.Parse(match.Groups[1].Value);
+                month = int.Parse(match.Groups[2].Value);
+                day = int.Parse(match.Groups[3].Value);
+            }
+            else if (monthFirst)
+            {
+                month = int.Parse(match.Groups[1].Value);
+                day = int.Parse(match.Groups[2].Value);
+                year = int.Parse(match.Groups[3].Value);
+            }
+            else
+            {
+                return false;
+            }
+
             var hour = int.Parse(match.Groups[4].Value);
             var minute = int.Parse(match.Groups[5].Value);
+            var second = match.Groups.Count > 6 && match.Groups[6].Success
+                ? int.Parse(match.Groups[6].Value)
+                : 0;
 
-            var dt = new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Local);
-            return new DateTimeOffset(dt).ToUnixTimeSeconds();
+            var dt = new DateTime(year, month, day, hour, minute, second, DateTimeKind.Local);
+            timestamp = new DateTimeOffset(dt).ToUnixTimeSeconds();
+            return true;
         }
-        catch (Exception)
+        catch
         {
-            return null;
+            return false;
+        }
+    }
+
+    private static IEnumerable<FileInfo> EnumerateVideoFilesSafe(string rootFolder)
+    {
+        var pending = new Stack<string>();
+        pending.Push(rootFolder);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            DirectoryInfo currentDir;
+            try
+            {
+                currentDir = new DirectoryInfo(current);
+            }
+            catch
+            {
+                continue;
+            }
+
+            FileInfo[] files;
+            try
+            {
+                files = currentDir.GetFiles();
+            }
+            catch
+            {
+                files = [];
+            }
+
+            foreach (var file in files)
+            {
+                if (VideoExtensions.Contains(file.Extension))
+                {
+                    yield return file;
+                }
+            }
+
+            DirectoryInfo[] directories;
+            try
+            {
+                directories = currentDir.GetDirectories();
+            }
+            catch
+            {
+                directories = [];
+            }
+
+            foreach (var directory in directories)
+            {
+                pending.Push(directory.FullName);
+            }
         }
     }
 }

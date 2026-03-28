@@ -354,7 +354,8 @@ public partial class DashboardViewModel : ObservableObject
 
     private static bool HasPersistedReview(GameStats game)
     {
-        return !string.IsNullOrWhiteSpace(game.ReviewNotes)
+        return game.Rating > 0
+               || !string.IsNullOrWhiteSpace(game.ReviewNotes)
                || !string.IsNullOrWhiteSpace(game.Mistakes)
                || !string.IsNullOrWhiteSpace(game.WentWell)
                || !string.IsNullOrWhiteSpace(game.FocusNext)
@@ -422,4 +423,20 @@ public class DashboardObjectiveItem
     public double Progress { get; set; }
     public string LevelColorHex { get; set; } = "#7070a0";
     public string InfoText { get; set; } = "";
+    public Microsoft.UI.Xaml.Media.SolidColorBrush LevelColorBrush
+    {
+        get
+        {
+            var hex = LevelColorHex.TrimStart('#');
+            if (hex.Length != 6)
+            {
+                return new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 112, 112, 160));
+            }
+
+            var r = Convert.ToByte(hex[..2], 16);
+            var g = Convert.ToByte(hex[2..4], 16);
+            var b = Convert.ToByte(hex[4..6], 16);
+            return new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, r, g, b));
+        }
+    }
 }

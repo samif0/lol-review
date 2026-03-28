@@ -10,6 +10,7 @@
 
 # Local data (database, logs)
 /data/
+/FEATURE_NOTES.local.md
 
 # OS junk
 .fuse_hidden*

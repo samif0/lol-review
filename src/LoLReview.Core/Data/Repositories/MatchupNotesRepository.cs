@@ -34,6 +34,20 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 
+    public async Task<Dictionary<string, object?>?> GetForGameAsync(long gameId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT * FROM matchup_notes
+            WHERE game_id = @gameId
+            ORDER BY created_at DESC
+            LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        return await ReadSingleRowAsync(cmd);
+    }
+
     public async Task<IReadOnlyList<Dictionary<string, object?>>> GetForMatchupAsync(string champion, string enemy)
     {
         using var conn = _factory.CreateConnection();
@@ -54,6 +68,54 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM matchup_notes ORDER BY created_at DESC";
         return await ReadAllRowsAsync(cmd);
+    }
+
+    public async Task<long?> UpsertForGameAsync(long gameId, string champion, string enemy, string note)
+    {
+        var trimmedNote = note.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedNote))
+        {
+            await DeleteForGameAsync(gameId);
+            return null;
+        }
+
+        using var conn = _factory.CreateConnection();
+
+        using var existingCmd = conn.CreateCommand();
+        existingCmd.CommandText = "SELECT id FROM matchup_notes WHERE game_id = @gameId LIMIT 1";
+        existingCmd.Parameters.AddWithValue("@gameId", gameId);
+        var existingId = await existingCmd.ExecuteScalarAsync();
+
+        if (existingId is not null)
+        {
+            using var updateCmd = conn.CreateCommand();
+            updateCmd.CommandText = """
+                UPDATE matchup_notes
+                SET champion = @champion,
+                    enemy = @enemy,
+                    note = @note,
+                    created_at = @createdAt
+                WHERE id = @id
+                """;
+            updateCmd.Parameters.AddWithValue("@champion", champion);
+            updateCmd.Parameters.AddWithValue("@enemy", enemy);
+            updateCmd.Parameters.AddWithValue("@note", trimmedNote);
+            updateCmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            updateCmd.Parameters.AddWithValue("@id", Convert.ToInt64(existingId));
+            await updateCmd.ExecuteNonQueryAsync();
+            return Convert.ToInt64(existingId);
+        }
+
+        return await CreateAsync(champion, enemy, trimmedNote, gameId: gameId);
+    }
+
+    public async Task DeleteForGameAsync(long gameId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM matchup_notes WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     public async Task UpdateHelpfulAsync(long noteId, int helpful)
@@ -103,6 +165,12 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
             results.Add(ReadRow(reader));
         }
         return results;
+    }
+
+    private static async Task<Dictionary<string, object?>?> ReadSingleRowAsync(SqliteCommand cmd)
+    {
+        using var reader = await cmd.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? ReadRow(reader) : null;
     }
 
     private static Dictionary<string, object?> ReadRow(SqliteDataReader reader)

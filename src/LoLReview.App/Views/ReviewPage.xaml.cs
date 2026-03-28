@@ -15,6 +15,13 @@ public sealed partial class ReviewPage : Page
     public ReviewPage()
     {
         ViewModel = App.GetService<ReviewViewModel>();
+        ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(ReviewViewModel.Attribution))
+            {
+                Bindings.Update();
+            }
+        };
         InitializeComponent();
     }
 

@@ -43,6 +43,15 @@ public sealed class GameService : IGameService
     /// <inheritdoc />
     public async Task<long?> ProcessGameEndAsync(GameStats stats, int mentalRating = 5, int preGameMood = 0)
     {
+        if (stats.GameId <= 0)
+        {
+            _logger.LogWarning(
+                "Skipping game-end processing for invalid game id {GameId} ({Champion})",
+                stats.GameId,
+                stats.ChampionName);
+            return null;
+        }
+
         _logger.LogInformation(
             "Game ended: {Champion} {Result} {Kills}/{Deaths}/{Assists} ({Mode})",
             stats.ChampionName,
@@ -116,7 +125,11 @@ public sealed class GameService : IGameService
         {
             try
             {
-                await _vodService.AutoMatchRecordingsAsync().ConfigureAwait(false);
+                var linkedNow = await _vodService.TryLinkRecordingAsync(stats).ConfigureAwait(false);
+                if (!linkedNow)
+                {
+                    _ = ScheduleVodRetryAsync(stats.GameId);
+                }
             }
             catch (Exception ex)
             {
@@ -182,5 +195,34 @@ public sealed class GameService : IGameService
             ["game_time_s"] = e.GameTimeS,
             ["details"] = e.Details,
         };
+    }
+
+    private async Task ScheduleVodRetryAsync(long gameId)
+    {
+        try
+        {
+            await Task.Delay(GameConstants.VodRetryDelayMs).ConfigureAwait(false);
+
+            if (!_config.IsAscentEnabled)
+            {
+                return;
+            }
+
+            var game = await _games.GetAsync(gameId).ConfigureAwait(false);
+            if (game == null)
+            {
+                return;
+            }
+
+            var linked = await _vodService.TryLinkRecordingAsync(game).ConfigureAwait(false);
+            if (linked)
+            {
+                _logger.LogInformation("Delayed VOD retry succeeded for game {GameId}", gameId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Delayed VOD retry failed for game {GameId}", gameId);
+        }
     }
 }

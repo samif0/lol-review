@@ -25,6 +25,12 @@ public interface IVodService
     string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings);
 
     /// <summary>
+    /// Try to link a recording to a specific game immediately.
+    /// Returns true when the game ends up with a linked VOD.
+    /// </summary>
+    Task<bool> TryLinkRecordingAsync(GameStats game, string? folder = null);
+
+    /// <summary>
     /// Scan for recordings and auto-match them to unlinked games.
     /// Returns the count of newly matched VODs.
     /// </summary>

@@ -12,5 +12,5 @@ public interface IGameMonitorService
     /// Callback to check whether a game with the given ID has already been saved.
     /// Used during match history reconciliation to avoid duplicates.
     /// </summary>
-    Func<int, bool>? CheckGameSaved { get; set; }
+    Func<long, bool>? CheckGameSaved { get; set; }
 }

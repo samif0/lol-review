@@ -82,9 +82,21 @@ public sealed class CompletedObjectiveItem
     public string SummaryText => $"{Score} pts  \u2022  {GameCount} games";
 }
 
+/// <summary>Recent spotted-problem note shown as backlog context for future objectives.</summary>
+public sealed class SpottedProblemItem
+{
+    public long GameId { get; init; }
+    public string ChampionName { get; init; } = "";
+    public string DatePlayed { get; init; } = "";
+    public string ProblemText { get; init; } = "";
+    public bool Win { get; init; }
+    public string ResultText => Win ? "W" : "L";
+}
+
 /// <summary>ViewModel for the Objectives page.</summary>
 public partial class ObjectivesViewModel : ObservableObject
 {
+    private readonly IGameRepository _gameRepo;
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly INavigationService _navigationService;
 
@@ -105,6 +117,9 @@ public partial class ObjectivesViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _showCompleted;
+
+    [ObservableProperty]
+    private bool _hasSpottedProblems;
 
     // Create form fields
     [ObservableProperty]
@@ -127,11 +142,14 @@ public partial class ObjectivesViewModel : ObservableObject
 
     public ObservableCollection<ObjectiveDisplayItem> ActiveObjectives { get; } = new();
     public ObservableCollection<CompletedObjectiveItem> CompletedObjectives { get; } = new();
+    public ObservableCollection<SpottedProblemItem> SpottedProblems { get; } = new();
 
     public ObjectivesViewModel(
+        IGameRepository gameRepo,
         IObjectivesRepository objectivesRepo,
         INavigationService navigationService)
     {
+        _gameRepo = gameRepo;
         _objectivesRepo = objectivesRepo;
         _navigationService = navigationService;
     }
@@ -215,9 +233,11 @@ public partial class ObjectivesViewModel : ObservableObject
     private async Task RefreshDataAsync()
     {
         var allObjectives = await _objectivesRepo.GetAllAsync();
+        var spottedProblems = await _gameRepo.GetRecentSpottedProblemsAsync(limit: 12);
 
         ActiveObjectives.Clear();
         CompletedObjectives.Clear();
+        SpottedProblems.Clear();
 
         foreach (var obj in allObjectives)
         {
@@ -268,6 +288,19 @@ public partial class ObjectivesViewModel : ObservableObject
 
         HasActiveObjectives = ActiveObjectives.Count > 0;
         HasCompletedObjectives = CompletedObjectives.Count > 0;
+        foreach (var problem in spottedProblems)
+        {
+            SpottedProblems.Add(new SpottedProblemItem
+            {
+                GameId = problem.GameId,
+                ChampionName = problem.ChampionName,
+                DatePlayed = problem.DatePlayed,
+                ProblemText = problem.SpottedProblems,
+                Win = problem.Win
+            });
+        }
+
+        HasSpottedProblems = SpottedProblems.Count > 0;
         HasObjectives = HasActiveObjectives || HasCompletedObjectives;
     }
 }

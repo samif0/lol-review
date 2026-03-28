@@ -31,10 +31,13 @@ public sealed partial class PostGamePage : Page
         }
     }
 
-    private void OnSaveClick(object sender, RoutedEventArgs e)
+    private async void OnSaveClick(object sender, RoutedEventArgs e)
     {
-        ReviewVM.SaveReviewCommand.Execute(null);
-        _navigationService.NavigateTo("session");
+        var saved = await ReviewVM.SaveForPostGameAsync();
+        if (saved)
+        {
+            _navigationService.NavigateTo("session");
+        }
     }
 
     private void OnSkipClick(object sender, RoutedEventArgs e)

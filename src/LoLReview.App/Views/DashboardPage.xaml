@@ -177,6 +177,7 @@
                                         <ProgressBar Value="{x:Bind Progress}"
                                                      Maximum="1" Minimum="0"
                                                      Height="6" CornerRadius="3"
+                                                     Foreground="{x:Bind LevelColorBrush}"
                                                      Background="{StaticResource SubtleBorderBrush}"/>
                                     </StackPanel>
                                 </DataTemplate>

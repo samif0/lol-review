@@ -363,8 +363,18 @@ internal static class JsonElementExtensions
 
     public static int GetPropertyIntOrDefault(this JsonElement el, string property, int defaultValue)
     {
-        if (el.TryGetProperty(property, out var prop) && prop.TryGetInt32(out var value))
-            return value;
+        if (el.TryGetProperty(property, out var prop))
+        {
+            if (prop.TryGetInt32(out var value))
+                return value;
+
+            if (prop.ValueKind == JsonValueKind.String &&
+                int.TryParse(prop.GetString(), out var parsed))
+            {
+                return parsed;
+            }
+        }
+
         return defaultValue;
     }
 

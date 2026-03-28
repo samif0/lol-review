@@ -142,6 +142,16 @@ public sealed class LcuClient : ILcuClient
                     return [.. games.EnumerateArray()];
                 }
 
+                // Riot currently nests match rows under { "games": { "games": [...] } }
+                if (dataEl.ValueKind == JsonValueKind.Object
+                    && dataEl.TryGetProperty("games", out var gamesWrapper)
+                    && gamesWrapper.ValueKind == JsonValueKind.Object
+                    && gamesWrapper.TryGetProperty("games", out var nestedGames)
+                    && nestedGames.ValueKind == JsonValueKind.Array)
+                {
+                    return [.. nestedGames.EnumerateArray()];
+                }
+
                 if (dataEl.ValueKind == JsonValueKind.Array)
                 {
                     return [.. dataEl.EnumerateArray()];

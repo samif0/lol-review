@@ -7,6 +7,7 @@ namespace LoLReview.Core.Models;
 /// </summary>
 public class GameReview
 {
+    public int Rating { get; set; }
     public string Notes { get; set; } = "";
     public string Tags { get; set; } = "[]";
     public string Mistakes { get; set; } = "";

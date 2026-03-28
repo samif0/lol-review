@@ -33,6 +33,12 @@ public static class StatsExtractor
 
             var stats = statsBlock.Value;
             var gameId = eogData.GetPropertyIntOrDefault("gameId", 0);
+            if (gameId <= 0)
+            {
+                logger?.LogWarning("Skipping EOG stats with invalid gameId {GameId}", gameId);
+                return null;
+            }
+
             var gameLength = eogData.GetPropertyIntOrDefault("gameLength", 0);
             var gameMode = eogData.GetPropertyOrDefault("gameMode", "");
             var gameType = eogData.GetPropertyOrDefault("gameType", "");
@@ -202,12 +208,14 @@ public static class StatsExtractor
 
         try
         {
-            var gameId = game.GetPropertyIntOrDefault("gameId", 0);
+            var gameId = game.GetPropertyLongOrDefault("gameId", 0);
             var gameCreation = game.GetPropertyLongOrDefault("gameCreation", 0);
             var gameDuration = game.GetPropertyIntOrDefault("gameDuration", 0);
             var gameMode = game.GetPropertyOrDefault("gameMode", "");
             var gameType = game.GetPropertyOrDefault("gameType", "");
             var queueId = game.GetPropertyIntOrDefault("queueId", 0);
+            var queueLabel = GetQueueLabel(queueId);
+            var displayMode = !string.IsNullOrWhiteSpace(queueLabel) ? queueLabel : gameMode;
 
             // Find the local player's participant data
             JsonElement? participant = null;
@@ -320,9 +328,9 @@ public static class StatsExtractor
                 GameId = gameId,
                 Timestamp = timestamp,
                 GameDuration = gameDuration,
-                GameMode = gameMode,
+                GameMode = displayMode,
                 GameType = gameType,
-                QueueType = queueId.ToString(),
+                QueueType = !string.IsNullOrWhiteSpace(queueLabel) ? queueLabel : queueId.ToString(),
                 ChampionName = championName,
                 ChampionId = p.GetPropertyIntOrDefault("championId", 0),
                 TeamId = teamId,
@@ -427,6 +435,16 @@ public static class StatsExtractor
 
         return items;
     }
+
+    private static string GetQueueLabel(int queueId) => queueId switch
+    {
+        420 => "Ranked Solo",
+        440 => "Ranked Flex",
+        400 => "Normal Draft",
+        430 => "Normal Blind",
+        490 => "Quickplay",
+        _ => "",
+    };
 }
 
 /// <summary>
@@ -443,8 +461,18 @@ internal static class StatsJsonExtensions
 
     public static long GetPropertyLongOrDefault(this JsonElement el, string property, long defaultValue)
     {
-        if (el.TryGetProperty(property, out var prop) && prop.TryGetInt64(out var value))
-            return value;
+        if (el.TryGetProperty(property, out var prop))
+        {
+            if (prop.TryGetInt64(out var value))
+                return value;
+
+            if (prop.ValueKind == JsonValueKind.String &&
+                long.TryParse(prop.GetString(), out var parsed))
+            {
+                return parsed;
+            }
+        }
+
         return defaultValue;
     }
 }

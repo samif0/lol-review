@@ -3,6 +3,7 @@
 using System.Text.Json;
 using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.Core.Constants;
+using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Models;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -24,6 +25,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private readonly ILcuCredentialDiscovery _credentialDiscovery;
     private readonly ILcuClient _lcuClient;
     private readonly ILiveEventApi _liveEventApi;
+    private readonly IGameRepository _gameRepository;
     private readonly IMessenger _messenger;
     private readonly ILogger<GameMonitorService> _logger;
 
@@ -38,7 +40,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private const int MaxCredBackoff = 6; // Skip up to 6 ticks (~30s at 5s intervals)
 
     /// <inheritdoc />
-    public Func<int, bool>? CheckGameSaved { get; set; }
+    public Func<long, bool>? CheckGameSaved { get; set; }
 
     /// <summary>Casual (non-ranked, non-normal) queue IDs.</summary>
     private static readonly HashSet<int> CasualQueueIds =
@@ -60,12 +62,14 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         ILcuCredentialDiscovery credentialDiscovery,
         ILcuClient lcuClient,
         ILiveEventApi liveEventApi,
+        IGameRepository gameRepository,
         IMessenger messenger,
         ILogger<GameMonitorService> logger)
     {
         _credentialDiscovery = credentialDiscovery;
         _lcuClient = lcuClient;
         _liveEventApi = liveEventApi;
+        _gameRepository = gameRepository;
         _messenger = messenger;
         _logger = logger;
     }
@@ -341,9 +345,6 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
     private async Task ReconcileMatchHistoryAsync(CancellationToken ct)
     {
-        if (CheckGameSaved is null)
-            return;
-
         List<JsonElement> matches;
         try
         {
@@ -363,12 +364,16 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         var backfilled = 0;
         foreach (var game in matches)
         {
-            var gameId = game.GetPropertyIntOrDefault("gameId", 0);
+            var gameId = game.GetPropertyLongOrDefault("gameId", 0);
             if (gameId == 0)
                 continue;
 
             // Already saved?
-            if (CheckGameSaved(gameId))
+            var alreadySaved = CheckGameSaved is not null
+                ? CheckGameSaved(gameId)
+                : await _gameRepository.GetAsync(gameId).ConfigureAwait(false) is not null;
+
+            if (alreadySaved)
                 continue;
 
             var stats = StatsExtractor.ExtractFromMatchHistory(game, _logger);

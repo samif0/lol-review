@@ -13,6 +13,15 @@ namespace LoLReview.App.ViewModels;
 /// <summary>ViewModel for the Settings page.</summary>
 public partial class SettingsViewModel : ObservableObject
 {
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4",
+        ".mkv",
+        ".webm",
+        ".avi",
+        ".mov"
+    };
+
     private readonly IConfigService _configService;
     private readonly IClipService _clipService;
     private readonly IUpdateService _updateService;
@@ -39,7 +48,7 @@ public partial class SettingsViewModel : ObservableObject
 
     public string ClipsMaxSizeMbText
     {
-        get => _clipsMaxSizeMb.ToString();
+        get => ClipsMaxSizeMb.ToString();
         set
         {
             if (int.TryParse(value, out var v) && v >= 100 && v <= 50000)
@@ -73,6 +82,9 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _tiltFixEnabled;
+
+    [ObservableProperty]
+    private bool _requireReviewNotes;
 
     [ObservableProperty]
     private string _appVersion = "";
@@ -127,6 +139,7 @@ public partial class SettingsViewModel : ObservableObject
             BackupEnabled = config.BackupEnabled;
             BackupFolder = config.BackupFolder;
             TiltFixEnabled = config.TiltFixMode;
+            RequireReviewNotes = config.RequireReviewNotes;
 
             // App version (from Velopack if installed, else assembly)
             AppVersion = _updateService.IsInstalled
@@ -171,6 +184,7 @@ public partial class SettingsViewModel : ObservableObject
             config.BackupEnabled = BackupEnabled;
             config.BackupFolder = BackupFolder;
             config.TiltFixMode = TiltFixEnabled;
+            config.RequireReviewNotes = RequireReviewNotes;
 
             await _configService.SaveAsync(config);
 
@@ -302,12 +316,8 @@ public partial class SettingsViewModel : ObservableObject
         {
             if (System.IO.Directory.Exists(folder))
             {
-                var videoExtensions = new[] { ".mp4", ".mkv", ".webm", ".avi", ".mov" };
-                var count = 0;
-                foreach (var ext in videoExtensions)
-                {
-                    count += System.IO.Directory.GetFiles(folder, $"*{ext}").Length;
-                }
+                var count = EnumerateFilesSafe(folder)
+                    .Count(path => VideoExtensions.Contains(System.IO.Path.GetExtension(path)));
 
                 if (count > 0)
                 {
@@ -339,9 +349,19 @@ public partial class SettingsViewModel : ObservableObject
         {
             if (!string.IsNullOrWhiteSpace(ClipsFolder) && System.IO.Directory.Exists(ClipsFolder))
             {
-                var dir = new System.IO.DirectoryInfo(ClipsFolder);
-                var totalBytes = dir.EnumerateFiles("*", System.IO.SearchOption.AllDirectories)
-                    .Sum(f => f.Length);
+                long totalBytes = 0;
+                foreach (var path in EnumerateFilesSafe(ClipsFolder))
+                {
+                    try
+                    {
+                        totalBytes += new System.IO.FileInfo(path).Length;
+                    }
+                    catch
+                    {
+                        // Ignore transient or locked files while totaling clip usage.
+                    }
+                }
+
                 var totalMb = totalBytes / (1024.0 * 1024.0);
                 var pct = ClipsMaxSizeMb > 0 ? totalMb / ClipsMaxSizeMb * 100 : 0;
 
@@ -364,6 +384,47 @@ public partial class SettingsViewModel : ObservableObject
         {
             CurrentClipUsage = "Error reading clips folder";
             ClipUsageColorHex = "#ef4444";
+        }
+    }
+
+    private static IEnumerable<string> EnumerateFilesSafe(string rootFolder)
+    {
+        var pending = new Stack<string>();
+        pending.Push(rootFolder);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+
+            string[] files;
+            try
+            {
+                files = System.IO.Directory.GetFiles(current);
+            }
+            catch
+            {
+                files = [];
+            }
+
+            foreach (var file in files)
+            {
+                yield return file;
+            }
+
+            string[] directories;
+            try
+            {
+                directories = System.IO.Directory.GetDirectories(current);
+            }
+            catch
+            {
+                directories = [];
+            }
+
+            foreach (var directory in directories)
+            {
+                pending.Push(directory);
+            }
         }
     }
 
