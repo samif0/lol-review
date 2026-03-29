@@ -6,11 +6,10 @@
     xmlns:converters="using:LoLReview.App.Converters"
     xmlns:vm="using:LoLReview.App.ViewModels"
     Background="#0a0a0f"
-    NavigationCacheMode="Disabled"
-    IsTabStop="True">
+    IsTabStop="True"
+    NavigationCacheMode="Disabled">
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibility" />
-        <!-- Flat button style: no WinUI hover chrome that fights XamlControlsResources -->
         <Style x:Key="FlatButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -59,111 +58,133 @@
     </Page.Resources>
 
     <Grid RowDefinitions="Auto,*,Auto,Auto,Auto">
-
-        <!-- ═══ Header bar ═══════════════════════════════════════════ -->
-        <Grid Grid.Row="0" Padding="16,12" Background="#0d0d15"
-              ColumnDefinitions="Auto,*">
+        <Grid Grid.Row="0" Padding="16,12" Background="#0d0d15" ColumnDefinitions="Auto,*">
             <Button Command="{x:Bind ViewModel.GoBackCommand}"
-                    Background="Transparent" BorderThickness="0"
-                    VerticalAlignment="Center" Padding="8,4"
-                    IsTabStop="False">
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsTabStop="False"
+                    Padding="8,4"
+                    VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon Glyph="&#xE72B;" FontSize="14" Foreground="#7070a0" />
                     <TextBlock Text="Back" Foreground="#7070a0" FontSize="13" />
                 </StackPanel>
             </Button>
             <TextBlock Grid.Column="1"
+                       Margin="12,0,0,0"
                        Text="{x:Bind ViewModel.HeaderText, Mode=OneWay}"
-                       Foreground="#e8e8f0" FontSize="16" FontWeight="SemiBold"
-                       VerticalAlignment="Center" Margin="12,0,0,0" />
+                       Foreground="#e8e8f0"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
         </Grid>
 
-        <!-- ═══ Video area ═══════════════════════════════════════════ -->
-        <Grid x:Name="VideoContainer" Grid.Row="1" Background="Black" MinHeight="300"
-              IsTabStop="True" AllowFocusOnInteraction="True"
+        <Grid x:Name="VideoContainer"
+              Grid.Row="1"
+              AllowFocusOnInteraction="True"
+              Background="Black"
+              IsTabStop="True"
+              MinHeight="300"
               Tapped="OnVideoTapped">
-            <!-- Focus sink: 1x1, fully transparent, non-interactive, off-screen margin -->
-            <Button x:Name="FocusSink" Width="1" Height="1" Opacity="0"
-                    IsTabStop="False" IsHitTestVisible="False" Padding="0" BorderThickness="0"
+            <Button x:Name="FocusSink"
+                    Width="1"
+                    Height="1"
                     Margin="-2,-2,0,0"
-                    HorizontalAlignment="Left" VerticalAlignment="Top" />
-            <!-- VideoView created in code-behind to avoid XAML type resolution crash in unpackaged mode -->
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsHitTestVisible="False"
+                    IsTabStop="False"
+                    Opacity="0"
+                    Padding="0" />
 
-            <!-- Loading overlay -->
-            <Grid x:Name="LoadingOverlay" Background="#80000000"
+            <Grid x:Name="LoadingOverlay"
+                  Background="#80000000"
                   Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
                 <ProgressRing IsActive="True" Width="48" Height="48" />
             </Grid>
 
-            <!-- No VOD message -->
             <TextBlock x:Name="NoVodText"
                        Text="No VOD linked to this game"
-                       Foreground="#7070a0" FontSize="16"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Foreground="#7070a0"
+                       FontSize="16"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
                        Visibility="Collapsed" />
         </Grid>
 
-        <!-- ═══ Timeline ═════════════════════════════════════════════ -->
-        <controls:TimelineControl Grid.Row="2" x:Name="Timeline"
-                                  Height="44" Margin="0"
-                                  Duration="{x:Bind ViewModel.GameDurationS, Mode=OneWay}"
-                                  Position="{x:Bind ViewModel.CurrentTimeS, Mode=OneWay}"
-                                  Events="{x:Bind ViewModel.GameEvents, Mode=OneWay}"
+        <controls:TimelineControl Grid.Row="2"
+                                  x:Name="Timeline"
+                                  Height="44"
+                                  Margin="0"
                                   Bookmarks="{x:Bind ViewModel.Bookmarks, Mode=OneWay}"
-                                  DerivedEvents="{x:Bind ViewModel.DerivedEvents, Mode=OneWay}"
+                                  ClipEnd="{x:Bind ViewModel.ClipEndS, Mode=OneWay}"
                                   ClipStart="{x:Bind ViewModel.ClipStartS, Mode=OneWay}"
-                                  ClipEnd="{x:Bind ViewModel.ClipEndS, Mode=OneWay}" />
+                                  DerivedEvents="{x:Bind ViewModel.DerivedEvents, Mode=OneWay}"
+                                  Duration="{x:Bind ViewModel.GameDurationS, Mode=OneWay}"
+                                  Events="{x:Bind ViewModel.GameEvents, Mode=OneWay}"
+                                  Position="{x:Bind ViewModel.CurrentTimeS, Mode=OneWay}" />
 
-        <!-- ═══ Transport controls ═══════════════════════════════════ -->
-        <Border Grid.Row="3" Background="#0d0d15" Padding="16,8"
-                BorderBrush="#1e1e2e" BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
-                <!-- Seek back -->
+        <Border Grid.Row="3"
+                Background="#0d0d15"
+                BorderBrush="#1e1e2e"
+                BorderThickness="0,1,0,0"
+                Padding="16,8">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto">
                 <Button Grid.Column="0"
                         Command="{x:Bind ViewModel.SeekBackwardCommand}"
                         Click="OnClipButtonClick"
-                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                        IsTabStop="False">
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsTabStop="False"
+                        Padding="8,4">
                     <FontIcon Glyph="&#xEB9E;" FontSize="18" Foreground="#e8e8f0" />
                 </Button>
 
-                <!-- Play/Pause -->
                 <Button Grid.Column="1"
                         Command="{x:Bind ViewModel.PlayPauseCommand}"
                         Click="OnClipButtonClick"
-                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                        IsTabStop="False">
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsTabStop="False"
+                        Padding="8,4">
                     <FontIcon x:Name="PlayPauseIcon" Glyph="&#xE768;" FontSize="22" Foreground="#e8e8f0" />
                 </Button>
 
-                <!-- Seek forward -->
                 <Button Grid.Column="2"
                         Command="{x:Bind ViewModel.SeekForwardCommand}"
                         Click="OnClipButtonClick"
-                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                        IsTabStop="False">
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsTabStop="False"
+                        Padding="8,4">
                     <FontIcon Glyph="&#xEB9D;" FontSize="18" Foreground="#e8e8f0" />
                 </Button>
 
-                <!-- Time display -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4"
-                            VerticalAlignment="Center" Margin="16,0,0,0">
+                <StackPanel Grid.Column="3"
+                            Margin="16,0,0,0"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
                     <TextBlock Text="{x:Bind ViewModel.CurrentTimeText, Mode=OneWay}"
-                               Foreground="#e8e8f0" FontSize="13" FontFamily="Consolas" />
+                               Foreground="#e8e8f0"
+                               FontFamily="Consolas"
+                               FontSize="13" />
                     <TextBlock Text="/" Foreground="#404060" FontSize="13" />
                     <TextBlock Text="{x:Bind ViewModel.TotalTimeText, Mode=OneWay}"
-                               Foreground="#7070a0" FontSize="13" FontFamily="Consolas" />
+                               Foreground="#7070a0"
+                               FontFamily="Consolas"
+                               FontSize="13" />
                 </StackPanel>
 
-                <!-- Speed selector -->
-                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8"
-                            VerticalAlignment="Center">
-                    <TextBlock Text="Speed:" Foreground="#7070a0" FontSize="12"
-                               VerticalAlignment="Center" />
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Speed:" Foreground="#7070a0" FontSize="12" VerticalAlignment="Center" />
                     <ComboBox x:Name="SpeedCombo"
-                              Width="80" FontSize="12"
-                              SelectedIndex="2"
+                              Width="80"
+                              FontSize="12"
                               IsTabStop="False"
+                              SelectedIndex="2"
                               SelectionChanged="OnSpeedChanged">
                         <ComboBoxItem Content="0.25x" Tag="0.25" />
                         <ComboBoxItem Content="0.5x" Tag="0.5" />
@@ -173,179 +194,318 @@
                     </ComboBox>
                 </StackPanel>
 
-                <!-- Volume -->
-                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6"
-                            VerticalAlignment="Center" Margin="16,0,0,0">
+                <StackPanel Grid.Column="5"
+                            Margin="16,0,0,0"
+                            Orientation="Horizontal"
+                            Spacing="6"
+                            VerticalAlignment="Center">
                     <Button x:Name="MuteButton"
                             Click="OnMuteClick"
-                            Background="Transparent" BorderThickness="0" Padding="4,0"
-                            IsTabStop="False">
+                            Background="Transparent"
+                            BorderThickness="0"
+                            IsTabStop="False"
+                            Padding="4,0">
                         <FontIcon x:Name="VolumeIcon" Glyph="&#xE767;" FontSize="14" Foreground="#7070a0" />
                     </Button>
                     <Slider x:Name="VolumeSlider"
-                            Width="80" Minimum="0" Maximum="100" Value="100"
+                            Width="80"
+                            Minimum="0"
+                            Maximum="100"
+                            Value="100"
                             IsTabStop="False"
                             ValueChanged="OnVolumeChanged" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="6"
+                            Margin="16,0,0,0"
+                            Orientation="Horizontal"
+                            Spacing="6"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="Seek:" Foreground="#7070a0" FontSize="12" VerticalAlignment="Center" />
+                    <Border Background="#1a1a24" CornerRadius="4" Padding="8,4">
+                        <TextBlock Text="{x:Bind ViewModel.SeekStepText, Mode=OneWay}"
+                                   Foreground="#22c55e"
+                                   FontSize="12"
+                                   FontWeight="SemiBold" />
+                    </Border>
+                    <TextBlock Text="↑/↓" Foreground="#7070a0" FontSize="12" VerticalAlignment="Center" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- ═══ Bottom panel: Bookmarks + Clips ══════════════════════ -->
-        <Border Grid.Row="4" Background="#0a0a0f" Padding="16,12"
-                BorderBrush="#1e1e2e" BorderThickness="0,1,0,0">
+        <Border Grid.Row="4"
+                Background="#0a0a0f"
+                BorderBrush="#1e1e2e"
+                BorderThickness="0,1,0,0"
+                Padding="16,12">
             <Grid RowDefinitions="Auto,Auto,Auto,Auto">
+                <Border Grid.Row="0"
+                        Background="#11111a"
+                        BorderBrush="#1f2937"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="14,12">
+                    <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="Clip Tool"
+                                           Foreground="#e8e8f0"
+                                           FontSize="15"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="Mark an in point, mark an out point, then save a clip with a note. This is the main review workflow."
+                                           Foreground="#9090b0"
+                                           FontSize="12"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" Spacing="4">
+                                <TextBlock Text="Navigation"
+                                           Foreground="#7070a0"
+                                           FontSize="11"
+                                           HorizontalAlignment="Right" />
+                                <TextBlock Text="{x:Bind ViewModel.SeekStepHintText, Mode=OneWay}"
+                                           Foreground="#22c55e"
+                                           FontSize="11"
+                                           HorizontalAlignment="Right" />
+                            </StackPanel>
+                        </Grid>
 
-                <!-- ── Row 0: Section headers ──────────────────────── -->
-                <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto">
-
-                    <!-- Bookmarks label + Add -->
-                    <TextBlock Grid.Column="0" Text="Bookmarks" Foreground="#e8e8f0"
-                               FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <Button Grid.Column="1"
-                            Command="{x:Bind ViewModel.AddBookmarkCommand}"
-                            Click="OnClipButtonClick"
-                            Style="{StaticResource FlatButton}"
-                            Background="#1a1a24" CornerRadius="4" Padding="10,4">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon Glyph="&#xE8A4;" FontSize="11" Foreground="#0099ff" />
-                            <TextBlock Text="Add" Foreground="#0099ff" FontSize="12" />
-                        </StackPanel>
-                    </Button>
-
-                    <!-- Clip controls inline -->
-                    <TextBlock Grid.Column="2" Text="Clip:" Foreground="#7070a0"
-                               FontSize="12" VerticalAlignment="Center" Margin="24,0,8,0" />
-                    <Button Grid.Column="3"
-                            Command="{x:Bind ViewModel.SetClipInCommand}"
-                            Click="OnClipButtonClick"
-                            Style="{StaticResource FlatButton}"
-                            Background="#1a1a24" CornerRadius="4" Padding="10,4" Margin="0,0,4,0">
-                        <TextBlock Text="[ In" Foreground="#22c55e" FontSize="12" />
-                    </Button>
-                    <Button Grid.Column="4"
-                            Command="{x:Bind ViewModel.SetClipOutCommand}"
-                            Click="OnClipButtonClick"
-                            Style="{StaticResource FlatButton}"
-                            Background="#1a1a24" CornerRadius="4" Padding="10,4" Margin="0,0,4,0">
-                        <TextBlock Text="Out ]" Foreground="#22c55e" FontSize="12" />
-                    </Button>
-                    <Button Grid.Column="5"
-                            Command="{x:Bind ViewModel.ExtractClipCommand}"
-                            Click="OnClipButtonClick"
-                            IsEnabled="{x:Bind ViewModel.HasClipRange, Mode=OneWay}"
-                            Style="{StaticResource FlatButton}"
-                            Background="#14532d" CornerRadius="4" Padding="10,4">
-                        <TextBlock Text="Save Clip" Foreground="#22c55e" FontSize="12" FontWeight="SemiBold" />
-                    </Button>
-                </Grid>
-
-                <!-- ── Row 1: note input + clip range/status ── -->
-                <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
-                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <TextBlock Text="Bookmark note:" Foreground="#7070a0" FontSize="12" VerticalAlignment="Center" />
-                            <TextBox x:Name="BookmarkNoteBox"
-                                     Text="{x:Bind ViewModel.BookmarkNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="optional bookmark note"
-                                     Width="220" FontSize="12"
-                                     Background="#12121a" Foreground="#e8e8f0"
-                                     BorderBrush="#2a2a3a" BorderThickness="1"
-                                     Padding="6,3" CornerRadius="4" />
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
-                                    Visibility="{x:Bind ViewModel.HasClipRange, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                            <TextBlock Text="Clip note:" Foreground="#7070a0" FontSize="12" VerticalAlignment="Center" />
-                            <TextBox x:Name="ClipNoteBox"
-                                     Text="{x:Bind ViewModel.ClipNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="optional clip note"
-                                     Width="200" FontSize="12"
-                                     Background="#12121a" Foreground="#e8e8f0"
-                                     BorderBrush="#2a2a3a" BorderThickness="1"
-                                     Padding="6,3" CornerRadius="4" />
-                        </StackPanel>
-                    </StackPanel>
-                    <!-- Range + status + clear -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                        <TextBlock Text="{x:Bind ViewModel.ClipStatusText, Mode=OneWay}"
-                                   Foreground="#22c55e" FontSize="11" VerticalAlignment="Center" />
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
-                                    Visibility="{x:Bind ViewModel.HasClipRange, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                            <TextBlock Foreground="#7070a0" FontSize="11" VerticalAlignment="Center">
-                                <Run Text="Range: " />
-                                <Run Text="{x:Bind ViewModel.ClipRangeText, Mode=OneWay}" Foreground="#22c55e" />
-                                <Run Text="  " />
-                                <Run Text="{x:Bind ViewModel.ClipDurationText, Mode=OneWay}" Foreground="#e8e8f0" />
-                            </TextBlock>
-                            <Button Command="{x:Bind ViewModel.ClearClipCommand}"
+                        <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="8">
+                            <Button Grid.Column="0"
+                                    Command="{x:Bind ViewModel.SetClipInCommand}"
                                     Click="OnClipButtonClick"
                                     Style="{StaticResource FlatButton}"
-                                    Padding="4,2" CornerRadius="3">
-                                <FontIcon Glyph="&#xE711;" FontSize="10" Foreground="#7070a0" />
+                                    Background="#1f2937"
+                                    CornerRadius="6"
+                                    Padding="14,8">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE8D2;" FontSize="12" Foreground="#22c55e" />
+                                    <TextBlock Text="Mark In (I)"
+                                               Foreground="#e8e8f0"
+                                               FontSize="12"
+                                               FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
+
+                            <Button Grid.Column="1"
+                                    Command="{x:Bind ViewModel.SetClipOutCommand}"
+                                    Click="OnClipButtonClick"
+                                    Style="{StaticResource FlatButton}"
+                                    Background="#1f2937"
+                                    CornerRadius="6"
+                                    Padding="14,8">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE8D3;" FontSize="12" Foreground="#22c55e" />
+                                    <TextBlock Text="Mark Out (O)"
+                                               Foreground="#e8e8f0"
+                                               FontSize="12"
+                                               FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
+
+                            <Button Grid.Column="2"
+                                    Command="{x:Bind ViewModel.ClearClipCommand}"
+                                    Click="OnClipButtonClick"
+                                    Style="{StaticResource FlatButton}"
+                                    Background="#1f2937"
+                                    CornerRadius="6"
+                                    Padding="14,8">
+                                <TextBlock Text="Clear" Foreground="#e8e8f0" FontSize="12" />
+                            </Button>
+
+                            <TextBox Grid.Column="3"
+                                     x:Name="ClipNoteBox"
+                                     Text="{x:Bind ViewModel.ClipNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     KeyDown="OnQuickClipKeyDown"
+                                     FontSize="12"
+                                     Background="#12121a"
+                                     BorderBrush="#2a2a3a"
+                                     BorderThickness="1"
+                                     CornerRadius="6"
+                                     Foreground="#e8e8f0"
+                                     MinWidth="340"
+                                     Padding="8,6"
+                                     PlaceholderText="Clip note for why this moment matters. Press Enter to save once In/Out are set." />
+
+                            <Button Grid.Column="4"
+                                    Command="{x:Bind ViewModel.ExtractClipCommand}"
+                                    Click="OnClipButtonClick"
+                                    IsEnabled="{x:Bind ViewModel.HasClipRange, Mode=OneWay}"
+                                    Style="{StaticResource FlatButton}"
+                                    Background="#14532d"
+                                    CornerRadius="6"
+                                    Padding="16,8">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE7C3;" FontSize="12" Foreground="#d1fae5" />
+                                    <TextBlock Text="Save Clip"
+                                               Foreground="#d1fae5"
+                                               FontSize="12"
+                                               FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <Border Background="#0f172a" CornerRadius="6" Padding="10,8">
+                                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <TextBlock Text="Current clip"
+                                               Foreground="#7070a0"
+                                               FontSize="11"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{x:Bind ViewModel.ClipRangeText, Mode=OneWay}"
+                                               Foreground="#22c55e"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{x:Bind ViewModel.ClipDurationText, Mode=OneWay}"
+                                               Foreground="#e8e8f0"
+                                               FontSize="12"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{x:Bind ViewModel.ClipStatusText, Mode=OneWay}"
+                                               Foreground="#22c55e"
+                                               FontSize="11"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Grid.Column="1"
+                                       Text="Shortcuts: I = in, O = out, Left/Right = seek, Up/Down = step"
+                                       Foreground="#7070a0"
+                                       FontSize="11"
+                                       VerticalAlignment="Center" />
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1"
+                        Margin="0,10,0,0"
+                        Background="#101019"
+                        BorderBrush="#1e1e2e"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="14,12">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Quick Bookmark"
+                                       Foreground="#e8e8f0"
+                                       FontSize="14"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="Add a marker at the current time. Type a note first, then press Enter or Add Bookmark."
+                                       Foreground="#9090b0"
+                                       FontSize="12"
+                                       TextWrapping="Wrap" />
+                            <TextBox x:Name="BookmarkNoteBox"
+                                     Text="{x:Bind ViewModel.BookmarkNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     KeyDown="OnQuickBookmarkKeyDown"
+                                     FontSize="12"
+                                     Background="#12121a"
+                                     BorderBrush="#2a2a3a"
+                                     BorderThickness="1"
+                                     CornerRadius="6"
+                                     Foreground="#e8e8f0"
+                                     Padding="8,6"
+                                     PlaceholderText="Bookmark note for this timestamp" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
+                            <TextBlock Text="{x:Bind ViewModel.CurrentTimeText, Mode=OneWay}"
+                                       Foreground="#0099ff"
+                                       FontFamily="Consolas"
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       HorizontalAlignment="Right" />
+                            <Button Command="{x:Bind ViewModel.AddBookmarkCommand}"
+                                    Click="OnClipButtonClick"
+                                    Style="{StaticResource FlatButton}"
+                                    Background="#1d4ed8"
+                                    CornerRadius="6"
+                                    Padding="16,10">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE8A4;" FontSize="12" Foreground="#dbeafe" />
+                                    <TextBlock Text="Add Bookmark (B)"
+                                               Foreground="#dbeafe"
+                                               FontSize="12"
+                                               FontWeight="SemiBold" />
+                                </StackPanel>
                             </Button>
                         </StackPanel>
-                    </StackPanel>
-                </Grid>
+                    </Grid>
+                </Border>
 
-                <!-- ── Row 2: ffmpeg warning ── -->
-                <TextBlock x:Name="FfmpegWarning" Grid.Row="2"
-                           Text="ffmpeg not found — install ffmpeg and add to PATH to enable clip extraction"
-                           Foreground="#ef4444" FontSize="11"
-                           Visibility="Collapsed"
-                           VerticalAlignment="Center" />
+                <TextBlock x:Name="FfmpegWarning"
+                           Grid.Row="2"
+                           Margin="0,10,0,0"
+                           Text="ffmpeg not found - install ffmpeg and add to PATH to enable clip extraction"
+                           Foreground="#ef4444"
+                           FontSize="11"
+                           VerticalAlignment="Center"
+                           Visibility="Collapsed" />
 
-                <!-- ── Row 3: Bookmark list ─────────────────────────── -->
-                <ScrollViewer Grid.Row="3" MaxHeight="100" VerticalScrollBarVisibility="Auto"
-                              Margin="0,8,0,0">
-                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.Bookmarks, Mode=OneWay}">
-                        <ItemsRepeater.Layout>
-                            <StackLayout Spacing="2" />
-                        </ItemsRepeater.Layout>
-                        <ItemsRepeater.ItemTemplate>
-                            <DataTemplate x:DataType="vm:BookmarkItem">
-                                <Border Background="#12121a" CornerRadius="4"
-                                        Padding="8,5" PointerPressed="OnBookmarkTapped">
-                                    <Grid ColumnDefinitions="Auto,*,Auto">
-                                        <TextBlock Text="{x:Bind TimeText}"
-                                                   Foreground="#0099ff" FontSize="12"
-                                                   FontFamily="Consolas"
-                                                   VerticalAlignment="Center" />
-                                        <TextBox Grid.Column="1"
-                                                 Text="{x:Bind Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                 PlaceholderText="bookmark note"
-                                                 LostFocus="OnBookmarkNoteLostFocus"
-                                                 KeyDown="OnBookmarkNoteKeyDown"
-                                                 Foreground="#e8e8f0" FontSize="12"
-                                                 Margin="8,0,0,0"
-                                                 VerticalAlignment="Center"
-                                                 Background="#0f0f18"
-                                                 BorderBrush="#2a2a3a"
-                                                 BorderThickness="1"
-                                                 CornerRadius="4"
-                                                 Padding="6,3" />
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal"
-                                                    Spacing="4" VerticalAlignment="Center">
-                                            <Border Visibility="{x:Bind IsClip, Converter={StaticResource BoolToVisibility}}"
-                                                    Background="#14532d" CornerRadius="3"
-                                                    Padding="4,1">
-                                                <TextBlock Text="CLIP" Foreground="#22c55e"
-                                                           FontSize="10" FontWeight="SemiBold" />
-                                            </Border>
-                                            <Button Tag="{x:Bind Id}"
-                                                    Click="OnDeleteBookmark"
-                                                    Background="Transparent"
-                                                    BorderThickness="0" Padding="4,2"
-                                                    IsTabStop="False">
-                                                <FontIcon Glyph="&#xE74D;" FontSize="11"
-                                                          Foreground="#404060" />
-                                            </Button>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsRepeater.ItemTemplate>
-                    </ItemsRepeater>
-                </ScrollViewer>
-
+                <StackPanel Grid.Row="3" Margin="0,10,0,0" Spacing="6">
+                    <TextBlock Text="Saved bookmarks and clips"
+                               Foreground="#e8e8f0"
+                               FontSize="13"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="Edit notes inline. Clips keep the CLIP badge."
+                               Foreground="#7070a0"
+                               FontSize="11" />
+                    <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto">
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.Bookmarks, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="2" />
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:BookmarkItem">
+                                    <Border Background="#12121a"
+                                            CornerRadius="4"
+                                            Padding="8,5"
+                                            PointerPressed="OnBookmarkTapped">
+                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <TextBlock Text="{x:Bind TimeText}"
+                                                       Foreground="#0099ff"
+                                                       FontFamily="Consolas"
+                                                       FontSize="12"
+                                                       VerticalAlignment="Center" />
+                                            <TextBox Grid.Column="1"
+                                                     Margin="8,0,0,0"
+                                                     Text="{x:Bind Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     Background="#0f0f18"
+                                                     BorderBrush="#2a2a3a"
+                                                     BorderThickness="1"
+                                                     CornerRadius="4"
+                                                     Foreground="#e8e8f0"
+                                                     FontSize="12"
+                                                     KeyDown="OnBookmarkNoteKeyDown"
+                                                     LostFocus="OnBookmarkNoteLostFocus"
+                                                     Padding="6,3"
+                                                     PlaceholderText="bookmark note"
+                                                     VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="2"
+                                                        Orientation="Horizontal"
+                                                        Spacing="4"
+                                                        VerticalAlignment="Center">
+                                                <Border Background="#14532d"
+                                                        CornerRadius="3"
+                                                        Padding="4,1"
+                                                        Visibility="{x:Bind IsClip, Converter={StaticResource BoolToVisibility}}">
+                                                    <TextBlock Text="CLIP"
+                                                               Foreground="#22c55e"
+                                                               FontSize="10"
+                                                               FontWeight="SemiBold" />
+                                                </Border>
+                                                <Button Tag="{x:Bind Id}"
+                                                        Click="OnDeleteBookmark"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        IsTabStop="False"
+                                                        Padding="4,2">
+                                                    <FontIcon Glyph="&#xE74D;" FontSize="11" Foreground="#404060" />
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </ScrollViewer>
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>

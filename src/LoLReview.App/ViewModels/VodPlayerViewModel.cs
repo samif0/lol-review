@@ -40,6 +40,7 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _currentTimeText = "0:00";
     [ObservableProperty] private string _totalTimeText = "0:00";
     [ObservableProperty] private double _playbackSpeed = 1.0;
+    [ObservableProperty] private int _seekStepSeconds = 10;
     [ObservableProperty] private bool _hasVod;
     [ObservableProperty] private bool _isLoading;
 
@@ -64,6 +65,12 @@ public partial class VodPlayerViewModel : ObservableObject
 
     public static IReadOnlyList<double> SpeedOptions { get; } =
         new[] { 0.25, 0.5, 1.0, 1.5, 2.0 };
+
+    public static IReadOnlyList<int> SeekStepOptions { get; } =
+        new[] { 1, 2, 5, 10, 15, 30, 60 };
+
+    public string SeekStepText => $"{SeekStepSeconds}s";
+    public string SeekStepHintText => $"Left/Right seek {SeekStepSeconds}s  •  Up/Down changes step";
 
     // ── Events for the view ─────────────────────────────────────────
 
@@ -209,13 +216,13 @@ public partial class VodPlayerViewModel : ObservableObject
     [RelayCommand]
     private void SeekForward()
     {
-        SeekRequested?.Invoke(CurrentTimeS + 10);
+        SeekRequested?.Invoke(CurrentTimeS + SeekStepSeconds);
     }
 
     [RelayCommand]
     private void SeekBackward()
     {
-        SeekRequested?.Invoke(Math.Max(0, CurrentTimeS - 10));
+        SeekRequested?.Invoke(Math.Max(0, CurrentTimeS - SeekStepSeconds));
     }
 
     [RelayCommand]
@@ -231,6 +238,18 @@ public partial class VodPlayerViewModel : ObservableObject
         SpeedChangeRequested?.Invoke(speed);
     }
 
+    [RelayCommand]
+    private void IncreaseSeekStep()
+    {
+        AdjustSeekStep(1);
+    }
+
+    [RelayCommand]
+    private void DecreaseSeekStep()
+    {
+        AdjustSeekStep(-1);
+    }
+
     // ── Bookmark commands ───────────────────────────────────────────
 
     [RelayCommand]
@@ -238,6 +257,7 @@ public partial class VodPlayerViewModel : ObservableObject
     {
         try
         {
+            await PersistVisibleBookmarkNotesAsync();
             var timeS = (int)CurrentTimeS;
             var note = BookmarkNote.Trim();
             await _vodRepo.AddBookmarkAsync(GameId, timeS, note);
@@ -256,6 +276,7 @@ public partial class VodPlayerViewModel : ObservableObject
     {
         try
         {
+            await PersistVisibleBookmarkNotesAsync();
             await _vodRepo.DeleteBookmarkAsync(bookmarkId);
             await RefreshBookmarksAsync();
         }
@@ -326,6 +347,7 @@ public partial class VodPlayerViewModel : ObservableObject
 
         try
         {
+            await PersistVisibleBookmarkNotesAsync();
             var startS = (int)Math.Min(ClipStartS, ClipEndS);
             var endS = (int)Math.Max(ClipStartS, ClipEndS);
             var clipsFolder = _configService.ClipsFolder;
@@ -440,6 +462,19 @@ public partial class VodPlayerViewModel : ObservableObject
         });
     }
 
+    private async Task PersistVisibleBookmarkNotesAsync()
+    {
+        foreach (var bookmark in Bookmarks)
+        {
+            if (bookmark.Id <= 0)
+            {
+                continue;
+            }
+
+            await _vodRepo.UpdateBookmarkAsync(bookmark.Id, note: bookmark.Note?.Trim() ?? "");
+        }
+    }
+
     private void UpdateClipRange()
     {
         if (ClipStartS >= 0 && ClipEndS >= 0)
@@ -465,6 +500,35 @@ public partial class VodPlayerViewModel : ObservableObject
         var m = totalSeconds / 60;
         var s = totalSeconds % 60;
         return $"{m}:{s:D2}";
+    }
+
+    partial void OnSeekStepSecondsChanged(int value)
+    {
+        OnPropertyChanged(nameof(SeekStepText));
+        OnPropertyChanged(nameof(SeekStepHintText));
+    }
+
+    private void AdjustSeekStep(int direction)
+    {
+        var currentIndex = -1;
+        for (var i = 0; i < SeekStepOptions.Count; i++)
+        {
+            if (SeekStepOptions[i] == SeekStepSeconds)
+            {
+                currentIndex = i;
+                break;
+            }
+        }
+
+        if (currentIndex < 0)
+        {
+            SeekStepSeconds = 10;
+            return;
+        }
+
+        var nextIndex = Math.Clamp(currentIndex + direction, 0, SeekStepOptions.Count - 1);
+        SeekStepSeconds = SeekStepOptions[nextIndex];
+        ClipStatusText = $"Seek step: {SeekStepText}";
     }
 }
 

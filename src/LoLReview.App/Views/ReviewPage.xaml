@@ -428,8 +428,8 @@
                             <ItemsRepeater ItemsSource="{x:Bind ViewModel.AllTags, Mode=OneWay}">
                                 <ItemsRepeater.Layout>
                                     <UniformGridLayout Orientation="Horizontal"
-                                                       MinItemWidth="120"
-                                                       MinItemHeight="34"
+                                                       MinItemWidth="150"
+                                                       MinItemHeight="36"
                                                        MinColumnSpacing="6"
                                                        MinRowSpacing="6"
                                                        ItemsStretch="Fill"/>
@@ -438,7 +438,7 @@
                                     <DataTemplate x:DataType="vm:ConceptTagItem">
                                         <ToggleButton IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
                                                       FontSize="12"
-                                                      Height="32"
+                                                      Height="34"
                                                       CornerRadius="16"
                                                       Padding="12,0"
                                                       HorizontalAlignment="Stretch"
@@ -447,7 +447,9 @@
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <Border Width="10" Height="10" CornerRadius="5"
                                                         Background="{x:Bind ColorBrush}"/>
-                                                <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{x:Bind Name}"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
                                         </ToggleButton>
                                     </DataTemplate>

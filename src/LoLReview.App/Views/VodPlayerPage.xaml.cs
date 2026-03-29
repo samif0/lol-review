@@ -310,6 +310,30 @@ public sealed partial class VodPlayerPage : Page
         }
     }
 
+    private void OnQuickBookmarkKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Enter)
+        {
+            return;
+        }
+
+        ViewModel.AddBookmarkCommand.Execute(null);
+        VideoContainer.Focus(FocusState.Programmatic);
+        e.Handled = true;
+    }
+
+    private void OnQuickClipKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Enter || !ViewModel.HasClipRange)
+        {
+            return;
+        }
+
+        ViewModel.ExtractClipCommand.Execute(null);
+        VideoContainer.Focus(FocusState.Programmatic);
+        e.Handled = true;
+    }
+
     private void OnBookmarkNoteKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != Windows.System.VirtualKey.Enter)
@@ -379,6 +403,14 @@ public sealed partial class VodPlayerPage : Page
                 break;
             case Windows.System.VirtualKey.Right:
                 ViewModel.SeekForwardCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Up:
+                ViewModel.IncreaseSeekStepCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Down:
+                ViewModel.DecreaseSeekStepCommand.Execute(null);
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.I:
