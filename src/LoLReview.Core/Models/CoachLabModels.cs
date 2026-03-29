@@ -46,16 +46,9 @@ public static class CoachLabFeature
 
     public static bool IsEnvironmentEnabled()
     {
-        var raw = Environment.GetEnvironmentVariable(EnableEnvVar);
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return false;
-        }
-
-        return raw.Equals("1", StringComparison.OrdinalIgnoreCase)
-            || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
-            || raw.Equals("yes", StringComparison.OrdinalIgnoreCase)
-            || raw.Equals("on", StringComparison.OrdinalIgnoreCase);
+        return IsTruthy(Environment.GetEnvironmentVariable(EnableEnvVar))
+            || IsTruthy(Environment.GetEnvironmentVariable(EnableEnvVar, EnvironmentVariableTarget.User))
+            || IsTruthy(Environment.GetEnvironmentVariable(EnableEnvVar, EnvironmentVariableTarget.Machine));
     }
 
     public static string AccessFilePath => Path.Combine(AppDataPaths.UserDataRoot, AccessFileName);
@@ -103,6 +96,19 @@ public static class CoachLabFeature
             value?.Trim(),
             candidate.Trim(),
             StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsTruthy(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return false;
+        }
+
+        return raw.Equals("1", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("on", StringComparison.OrdinalIgnoreCase);
     }
 }
 

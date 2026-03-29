@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Velopack;
 using Velopack.Sources;
@@ -27,6 +28,8 @@ public interface IUpdateService
 public sealed class UpdateService : IUpdateService
 {
     private const string GitHubRepoUrl = "https://github.com/samif0/lol-review";
+    private const string ReleaseFeedUrl = "https://github.com/samif0/lol-review/releases/latest/download";
+    private const string LatestReleasePageUrl = "https://github.com/samif0/lol-review/releases/latest";
 
     private readonly UpdateManager _mgr;
     private readonly ILogger<UpdateService> _logger;
@@ -34,7 +37,7 @@ public sealed class UpdateService : IUpdateService
     public UpdateService(ILogger<UpdateService> logger)
     {
         _logger = logger;
-        var source = new GithubSource(GitHubRepoUrl, null, false);
+        var source = new SimpleWebSource(ReleaseFeedUrl);
         _mgr = new UpdateManager(source);
     }
 
@@ -55,7 +58,7 @@ public sealed class UpdateService : IUpdateService
             }
 
             _logger.LogInformation("Checking for updates from {Url}, current version: {Version}",
-                GitHubRepoUrl, _mgr.CurrentVersion);
+                ReleaseFeedUrl, _mgr.CurrentVersion);
 
             var update = await _mgr.CheckForUpdatesAsync();
             if (update != null)
@@ -74,14 +77,39 @@ public sealed class UpdateService : IUpdateService
 
     public async Task DownloadUpdateAsync(UpdateInfo update, Action<int>? onProgress = null)
     {
-        _logger.LogInformation("Downloading update {Version}", update.TargetFullRelease.Version);
-        await _mgr.DownloadUpdatesAsync(update, progress => onProgress?.Invoke(progress));
-        _logger.LogInformation("Download complete");
+        try
+        {
+            _logger.LogInformation("Downloading update {Version}", update.TargetFullRelease.Version);
+            await _mgr.DownloadUpdatesAsync(update, progress => onProgress?.Invoke(progress));
+            _logger.LogInformation("Download complete");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Update download failed for {Version}", update.TargetFullRelease.Version);
+            TryOpenReleasePage();
+            throw;
+        }
     }
 
     public void ApplyUpdateAndRestart(UpdateInfo update)
     {
         _logger.LogInformation("Applying update and restarting");
         _mgr.ApplyUpdatesAndRestart(update);
+    }
+
+    private void TryOpenReleasePage()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = LatestReleasePageUrl,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to open the latest release page after update download failure");
+        }
     }
 }
