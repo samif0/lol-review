@@ -1,9 +1,13 @@
 #nullable enable
 
+using System.Linq;
+using Microsoft.UI.Text;
 using LoLReview.App.Contracts;
 using LoLReview.App.Dialogs;
+using LoLReview.Core.Models;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.Services;
 
@@ -85,6 +89,88 @@ public sealed class DialogService : IDialogService
         return result == ContentDialogResult.Primary;
     }
 
+    public async Task<IReadOnlyList<GameStats>> ShowMissedGamesSelectionAsync(IReadOnlyList<GameStats> games)
+    {
+        if (games.Count == 0)
+        {
+            return [];
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = games.Count == 1 ? "Missed Game Found" : "Missed Games Found",
+            PrimaryButtonText = "Ingest Selected",
+            CloseButtonText = "Not Now",
+            DefaultButton = ContentDialogButton.Primary,
+            RequestedTheme = ElementTheme.Dark,
+        };
+
+        if (_xamlRoot is not null)
+        {
+            dialog.XamlRoot = _xamlRoot;
+        }
+
+        var introText = new TextBlock
+        {
+            Text = games.Count == 1
+                ? "The app found 1 recent finished game that is not in your history yet. Choose whether to ingest it for review."
+                : $"The app found {games.Count} recent finished games that are not in your history yet. Choose which ones to ingest for review.",
+            TextWrapping = TextWrapping.WrapWholeWords,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+
+        var gamePanel = new StackPanel { Spacing = 8 };
+        var checkboxes = new List<CheckBox>();
+
+        void UpdatePrimaryState()
+        {
+            dialog.IsPrimaryButtonEnabled = checkboxes.Any(cb => cb.IsChecked == true);
+        }
+
+        foreach (var game in games.OrderByDescending(g => g.Timestamp))
+        {
+            var checkbox = new CheckBox
+            {
+                IsChecked = true,
+                Tag = game,
+                Content = BuildMissedGameCard(game),
+            };
+
+            checkbox.Checked += (_, _) => UpdatePrimaryState();
+            checkbox.Unchecked += (_, _) => UpdatePrimaryState();
+            checkboxes.Add(checkbox);
+            gamePanel.Children.Add(checkbox);
+        }
+
+        dialog.IsPrimaryButtonEnabled = checkboxes.Count > 0;
+        dialog.Content = new StackPanel
+        {
+            Spacing = 8,
+            Children =
+            {
+                introText,
+                new ScrollViewer
+                {
+                    MaxHeight = 420,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    Content = gamePanel,
+                },
+            },
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
+        {
+            return [];
+        }
+
+        return [.. checkboxes
+            .Where(cb => cb.IsChecked == true)
+            .Select(cb => cb.Tag)
+            .OfType<GameStats>()];
+    }
+
     private ContentDialog CreateDialog(string title, string content)
     {
         var dialog = new ContentDialog
@@ -103,5 +189,48 @@ public sealed class DialogService : IDialogService
         dialog.RequestedTheme = ElementTheme.Dark;
 
         return dialog;
+    }
+
+    private static UIElement BuildMissedGameCard(GameStats game)
+    {
+        var title = $"{game.ChampionName} {(game.Win ? "Win" : "Loss")}";
+        var subtitle = string.IsNullOrWhiteSpace(game.DatePlayed)
+            ? game.GameMode
+            : $"{game.DatePlayed}  ·  {game.GameMode}";
+        var detail = $"{game.Kills}/{game.Deaths}/{game.Assists} KDA  ·  {game.DurationFormatted}";
+
+        return new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 8, 12, 8),
+            Margin = new Thickness(0, 0, 0, 4),
+            Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(24, 255, 255, 255)),
+            BorderBrush = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(40, 255, 255, 255)),
+            BorderThickness = new Thickness(1),
+            Child = new StackPanel
+            {
+                Spacing = 2,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = title,
+                        FontSize = 14,
+                        FontWeight = FontWeights.SemiBold,
+                    },
+                    new TextBlock
+                    {
+                        Text = subtitle,
+                        Opacity = 0.8,
+                        TextWrapping = TextWrapping.WrapWholeWords,
+                    },
+                    new TextBlock
+                    {
+                        Text = detail,
+                        Opacity = 0.75,
+                    },
+                },
+            },
+        };
     }
 }

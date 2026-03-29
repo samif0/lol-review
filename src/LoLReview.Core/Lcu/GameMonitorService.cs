@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.Core.Constants;
 using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Models;
+using LoLReview.Core.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -36,6 +37,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private CancellationTokenSource? _collectorCts;
     private Task? _collectorTask;
     private bool _reconcilePending;
+    private bool _startupReconcilePending = true;
     private int _credFailCount;
     private const int MaxCredBackoff = 6; // Skip up to 6 ticks (~30s at 5s intervals)
 
@@ -80,6 +82,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Game monitor started");
+        CoreDiagnostics.WriteVerbose("LCU: GameMonitor ExecuteAsync started");
 
         using var timer = new PeriodicTimer(
             TimeSpan.FromSeconds(GameConstants.GameMonitorPollIntervalS));
@@ -97,10 +100,12 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Monitor tick error");
+                CoreDiagnostics.WriteVerbose($"LCU: Tick top-level exception={ex.GetType().Name}:{ex.Message}");
             }
         }
 
         _logger.LogInformation("Game monitor stopped");
+        CoreDiagnostics.WriteVerbose("LCU: GameMonitor ExecuteAsync stopped");
     }
 
     /// <summary>
@@ -108,6 +113,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     /// </summary>
     private async Task TickAsync(CancellationToken ct)
     {
+        CoreDiagnostics.WriteVerbose($"LCU: Tick start connected={_connected} credBackoff={_credFailCount}");
         // ── Ensure we have a connected LCU client ───────────────────────
 
         if (!_connected)
@@ -116,6 +122,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             if (_credFailCount > 0)
             {
                 _credFailCount--;
+                CoreDiagnostics.WriteVerbose($"LCU: Tick backing off remaining={_credFailCount}");
                 return;
             }
 
@@ -123,6 +130,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             if (creds is null)
             {
                 _credFailCount = Math.Min(_credFailCount + 2, MaxCredBackoff);
+                CoreDiagnostics.WriteVerbose($"LCU: Tick no credentials nextBackoff={_credFailCount}");
 
                 if (_connected)
                 {
@@ -137,15 +145,18 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
             _credFailCount = 0;
             _lcuClient.Configure(creds);
+            CoreDiagnostics.WriteVerbose($"LCU: Tick configured client port={creds.Port}");
 
             if (await _lcuClient.IsConnectedAsync(ct).ConfigureAwait(false))
             {
                 _connected = true;
                 _logger.LogInformation("Connected to League client");
+                CoreDiagnostics.WriteVerbose("LCU: Tick IsConnectedAsync=true");
                 _messenger.Send(new LcuConnectionChangedMessage(true));
             }
             else
             {
+                CoreDiagnostics.WriteVerbose("LCU: Tick IsConnectedAsync=false");
                 return;
             }
         }
@@ -161,6 +172,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         {
             // Client might have closed
             _logger.LogWarning(ex, "League client connection lost");
+            CoreDiagnostics.WriteVerbose($"LCU: Tick gameflow exception={ex.GetType().Name}:{ex.Message}");
             _connected = false;
             await StopEventCollectorAsync().ConfigureAwait(false);
             _messenger.Send(new LcuConnectionChangedMessage(false));
@@ -168,6 +180,12 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         }
 
         // ── Detect transition into ChampSelect ──────────────────────────
+
+        if (_startupReconcilePending && phase is GamePhase.Lobby or GamePhase.None or GamePhase.ReadyCheck)
+        {
+            await ReconcileMatchHistoryAsync(ct).ConfigureAwait(false);
+            _startupReconcilePending = false;
+        }
 
         if (phase == GamePhase.ChampSelect && _lastPhase != GamePhase.ChampSelect)
         {
@@ -348,7 +366,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         List<JsonElement> matches;
         try
         {
-            matches = await _lcuClient.GetMatchHistoryAsync(begin: 0, count: 5, ct: ct)
+            matches = await _lcuClient.GetMatchHistoryAsync(begin: 0, count: 10, ct: ct)
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -361,7 +379,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             return;
 
         var summonerName = await TryGetCurrentSummonerNameAsync(ct).ConfigureAwait(false);
-        var backfilled = 0;
+        var candidates = new List<GameStats>();
         foreach (var game in matches)
         {
             var gameId = game.GetPropertyLongOrDefault("gameId", 0);
@@ -380,22 +398,34 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             if (stats is null)
                 continue;
 
+            if ((string.IsNullOrWhiteSpace(stats.ChampionName)
+                    || stats.ChampionName.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+                && stats.ChampionId > 0)
+            {
+                var resolvedChampionName = await _lcuClient.GetChampionNameAsync(stats.ChampionId, ct)
+                    .ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(resolvedChampionName))
+                {
+                    stats.ChampionName = resolvedChampionName;
+                }
+            }
+
             if (!string.IsNullOrEmpty(summonerName))
             {
                 stats.SummonerName = summonerName;
             }
 
             _logger.LogInformation(
-                "Reconciliation: backfilling missed game {GameId} ({Champion} {Result})",
+                "Reconciliation: found unsaved recent game {GameId} ({Champion} {Result})",
                 gameId, stats.ChampionName, stats.Win ? "W" : "L");
 
-            _messenger.Send(new GameEndedMessage(stats));
-            backfilled++;
+            candidates.Add(stats);
         }
 
-        if (backfilled > 0)
+        if (candidates.Count > 0)
         {
-            _logger.LogInformation("Reconciliation: backfilled {Count} missed game(s)", backfilled);
+            _logger.LogInformation("Reconciliation: found {Count} missed recent game(s)", candidates.Count);
+            _messenger.Send(new MissedReviewsDetectedMessage(candidates));
         }
         else
         {

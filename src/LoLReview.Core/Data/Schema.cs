@@ -176,6 +176,7 @@ public static class Schema
             completion_criteria TEXT DEFAULT '',
             description         TEXT DEFAULT '',
             status              TEXT DEFAULT 'active',
+            is_priority         INTEGER DEFAULT 0,
             score               INTEGER DEFAULT 0,
             game_count          INTEGER DEFAULT 0,
             created_at          INTEGER,
@@ -320,6 +321,155 @@ public static class Schema
         );
         """;
 
+    public const string CreateCoachPlayersTable = """
+        CREATE TABLE IF NOT EXISTS coach_players (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            display_name    TEXT NOT NULL,
+            is_primary      INTEGER DEFAULT 1,
+            created_at      INTEGER,
+            updated_at      INTEGER
+        );
+        """;
+
+    public const string CreateCoachObjectiveBlocksTable = """
+        CREATE TABLE IF NOT EXISTS coach_objective_blocks (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id       INTEGER NOT NULL,
+            objective_id    INTEGER,
+            objective_title TEXT DEFAULT '',
+            objective_key   TEXT DEFAULT '',
+            status          TEXT DEFAULT 'active',
+            mode            TEXT DEFAULT 'assist',
+            started_at      INTEGER,
+            updated_at      INTEGER,
+            completed_at    INTEGER,
+            notes           TEXT DEFAULT '',
+            FOREIGN KEY (player_id) REFERENCES coach_players(id),
+            FOREIGN KEY (objective_id) REFERENCES objectives(id)
+        );
+        """;
+
+    public const string CreateCoachMomentsTable = """
+        CREATE TABLE IF NOT EXISTS coach_moments (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id       INTEGER NOT NULL,
+            game_id         INTEGER NOT NULL,
+            bookmark_id     INTEGER,
+            objective_block_id INTEGER,
+            source_type     TEXT NOT NULL,
+            patch_version   TEXT DEFAULT 'unknown',
+            champion        TEXT DEFAULT '',
+            role            TEXT DEFAULT '',
+            game_time_s     INTEGER NOT NULL,
+            clip_start_s    INTEGER,
+            clip_end_s      INTEGER,
+            clip_path       TEXT DEFAULT '',
+            storyboard_path TEXT DEFAULT '',
+            hud_strip_path  TEXT DEFAULT '',
+            minimap_strip_path TEXT DEFAULT '',
+            manifest_path   TEXT DEFAULT '',
+            note_text       TEXT DEFAULT '',
+            context_text    TEXT DEFAULT '',
+            dataset_version TEXT DEFAULT 'bootstrap-v1',
+            model_version   TEXT DEFAULT 'assist-heuristic-v1',
+            created_at      INTEGER,
+            reviewed_at     INTEGER,
+            FOREIGN KEY (player_id) REFERENCES coach_players(id),
+            FOREIGN KEY (game_id) REFERENCES games(game_id),
+            FOREIGN KEY (bookmark_id) REFERENCES vod_bookmarks(id),
+            FOREIGN KEY (objective_block_id) REFERENCES coach_objective_blocks(id),
+            UNIQUE(bookmark_id),
+            UNIQUE(game_id, source_type, game_time_s, clip_start_s, clip_end_s)
+        );
+        """;
+
+    public const string CreateCoachLabelsTable = """
+        CREATE TABLE IF NOT EXISTS coach_labels (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            moment_id       INTEGER NOT NULL,
+            player_id       INTEGER NOT NULL,
+            label_quality   TEXT NOT NULL,
+            primary_reason  TEXT DEFAULT '',
+            objective_key   TEXT DEFAULT '',
+            explanation     TEXT DEFAULT '',
+            confidence      REAL DEFAULT 0,
+            source          TEXT DEFAULT 'manual',
+            created_at      INTEGER,
+            updated_at      INTEGER,
+            FOREIGN KEY (moment_id) REFERENCES coach_moments(id),
+            FOREIGN KEY (player_id) REFERENCES coach_players(id),
+            UNIQUE(moment_id)
+        );
+        """;
+
+    public const string CreateCoachInferencesTable = """
+        CREATE TABLE IF NOT EXISTS coach_inferences (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            moment_id       INTEGER NOT NULL,
+            player_id       INTEGER NOT NULL,
+            model_version   TEXT DEFAULT '',
+            inference_mode  TEXT DEFAULT 'assist',
+            moment_quality  TEXT DEFAULT 'neutral',
+            primary_reason  TEXT DEFAULT '',
+            objective_key   TEXT DEFAULT '',
+            confidence      REAL DEFAULT 0,
+            rationale       TEXT DEFAULT '',
+            raw_payload     TEXT DEFAULT '{}',
+            created_at      INTEGER,
+            updated_at      INTEGER,
+            FOREIGN KEY (moment_id) REFERENCES coach_moments(id),
+            FOREIGN KEY (player_id) REFERENCES coach_players(id),
+            UNIQUE(moment_id)
+        );
+        """;
+
+    public const string CreateCoachRecommendationsTable = """
+        CREATE TABLE IF NOT EXISTS coach_recommendations (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            objective_block_id INTEGER NOT NULL,
+            player_id       INTEGER NOT NULL,
+            recommendation_type TEXT DEFAULT 'keep',
+            state           TEXT DEFAULT 'draft',
+            objective_key   TEXT DEFAULT '',
+            title           TEXT DEFAULT '',
+            summary         TEXT DEFAULT '',
+            confidence      REAL DEFAULT 0,
+            evidence_game_count INTEGER DEFAULT 0,
+            raw_payload     TEXT DEFAULT '{}',
+            created_at      INTEGER,
+            updated_at      INTEGER,
+            FOREIGN KEY (objective_block_id) REFERENCES coach_objective_blocks(id),
+            FOREIGN KEY (player_id) REFERENCES coach_players(id)
+        );
+        """;
+
+    public const string CreateCoachModelsTable = """
+        CREATE TABLE IF NOT EXISTS coach_models (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_version   TEXT NOT NULL UNIQUE,
+            model_kind      TEXT NOT NULL,
+            display_name    TEXT DEFAULT '',
+            provider        TEXT DEFAULT '',
+            is_active       INTEGER DEFAULT 0,
+            metadata_json   TEXT DEFAULT '{}',
+            created_at      INTEGER
+        );
+        """;
+
+    public const string CreateCoachDatasetVersionsTable = """
+        CREATE TABLE IF NOT EXISTS coach_dataset_versions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            dataset_version TEXT NOT NULL UNIQUE,
+            status          TEXT DEFAULT 'active',
+            gold_count      INTEGER DEFAULT 0,
+            silver_count    INTEGER DEFAULT 0,
+            bronze_count    INTEGER DEFAULT 0,
+            reviewed_games  INTEGER DEFAULT 0,
+            created_at      INTEGER,
+            updated_at      INTEGER
+        );
+        """;
+
     // ── Migration statements ─────────────────────────────────────────
 
     public static readonly string[] MigrateBookmarksClipColumns =
@@ -370,6 +520,23 @@ public static class Schema
         "ALTER TABLE session_log ADD COLUMN pre_game_mood INTEGER DEFAULT 0",
     ];
 
+    public static readonly string[] MigrateCoachLabelsAttachment =
+    [
+        "ALTER TABLE coach_labels ADD COLUMN attached_objective_id INTEGER",
+        "ALTER TABLE coach_labels ADD COLUMN attached_objective_title TEXT DEFAULT ''",
+    ];
+
+    public static readonly string[] MigrateCoachInferencesAttachment =
+    [
+        "ALTER TABLE coach_inferences ADD COLUMN attached_objective_id INTEGER",
+        "ALTER TABLE coach_inferences ADD COLUMN attached_objective_title TEXT DEFAULT ''",
+    ];
+
+    public static readonly string[] MigrateObjectivesPriority =
+    [
+        "ALTER TABLE objectives ADD COLUMN is_priority INTEGER DEFAULT 0",
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -397,6 +564,14 @@ public static class Schema
         CreateMatchupNotesTable,
         CreateSessionsTable,
         CreateTiltChecksTable,
+        CreateCoachPlayersTable,
+        CreateCoachObjectiveBlocksTable,
+        CreateCoachMomentsTable,
+        CreateCoachLabelsTable,
+        CreateCoachInferencesTable,
+        CreateCoachRecommendationsTable,
+        CreateCoachModelsTable,
+        CreateCoachDatasetVersionsTable,
     ];
 
     /// <summary>
@@ -413,6 +588,9 @@ public static class Schema
         .. MigrateSessionLogMood,
         .. MigrateBookmarksClipColumns,
         .. MigrateSessionLogMental,
+        .. MigrateObjectivesPriority,
+        .. MigrateCoachLabelsAttachment,
+        .. MigrateCoachInferencesAttachment,
     ];
 
     // ── Default seed data ────────────────────────────────────────────

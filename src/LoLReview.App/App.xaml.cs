@@ -212,6 +212,10 @@ public partial class App : Application
                 services.AddSingleton<IAnalysisService, AnalysisService>();
                 services.AddSingleton<IVodService, VodService>();
                 services.AddSingleton<IGameService, GameService>();
+                services.AddSingleton<ICoachSidecarClient, CoachSidecarClient>();
+                services.AddSingleton<ICoachRecommendationService, CoachRecommendationService>();
+                services.AddSingleton<ICoachTrainingService, CoachTrainingService>();
+                services.AddSingleton<ICoachLabService, CoachLabService>();
 
                 // ── Messaging ──────────────────────────────────────
                 services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
@@ -250,7 +254,6 @@ public partial class App : Application
                 services.AddTransient<RulesViewModel>();
                 services.AddTransient<TiltCheckViewModel>();
                 services.AddTransient<HistoryViewModel>();
-                services.AddTransient<LossesViewModel>();
                 services.AddTransient<AnalyticsViewModel>();
                 services.AddTransient<SettingsViewModel>();
                 services.AddTransient<ReviewViewModel>();
@@ -258,6 +261,7 @@ public partial class App : Application
                 services.AddTransient<ManualEntryDialogViewModel>();
                 services.AddTransient<GameReviewDialogViewModel>();
                 services.AddTransient<VodPlayerViewModel>();
+                services.AddTransient<CoachLabViewModel>();
             })
             .Build();
     }

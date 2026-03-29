@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -18,7 +19,8 @@ public partial class ShellViewModel : ObservableRecipient,
     IRecipient<ChampSelectStartedMessage>,
     IRecipient<ChampSelectCancelledMessage>,
     IRecipient<GameStartedMessage>,
-    IRecipient<GameEndedMessage>
+    IRecipient<GameEndedMessage>,
+    IRecipient<MissedReviewsDetectedMessage>
 {
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
@@ -104,15 +106,23 @@ public partial class ShellViewModel : ObservableRecipient,
             {
                 // 1. Save game stats to DB
                 var gameId = await _gameService.ProcessGameEndAsync(
-                    message.Stats, mentalRating: 5, preGameMood: _preGameMood);
-
-                _preGameMood = 0; // Reset for next game
+                    message.Stats,
+                    mentalRating: 5,
+                    preGameMood: message.IsRecovered ? 0 : _preGameMood);
 
                 if (gameId == null)
                 {
                     _logger.LogInformation("Game skipped (casual/remake)");
                     return;
                 }
+
+                if (message.IsRecovered)
+                {
+                    _logger.LogInformation("Recovered missed game {GameId} saved silently for later review", gameId.Value);
+                    return;
+                }
+
+                _preGameMood = 0; // Reset for next game
 
                 // 2. Navigate to post-game review page
                 _navigationService.NavigateTo("postgame", gameId.Value);
@@ -121,6 +131,58 @@ public partial class ShellViewModel : ObservableRecipient,
             {
                 _logger.LogError(ex, "Failed to process game end");
                 _navigationService.NavigateTo("session");
+            }
+        });
+    }
+
+    public void Receive(MissedReviewsDetectedMessage message)
+    {
+        Helpers.DispatcherHelper.RunOnUIThread(async () =>
+        {
+            try
+            {
+                var selectedGames = await _dialogService.ShowMissedGamesSelectionAsync(message.Games);
+                if (selectedGames.Count == 0)
+                {
+                    _logger.LogInformation(
+                        "Missed games dialog dismissed or no games selected out of {Count} candidates",
+                        message.Games.Count);
+                    return;
+                }
+
+                var ingested = 0;
+                foreach (var stats in selectedGames.OrderBy(s => s.Timestamp))
+                {
+                    var gameId = await _gameService.ProcessGameEndAsync(
+                        stats,
+                        mentalRating: 5,
+                        preGameMood: 0);
+
+                    if (gameId is not null)
+                    {
+                        ingested++;
+                    }
+                }
+
+                if (ingested > 0)
+                {
+                    await _dialogService.ShowMessageAsync(
+                        "Recent Games Ingested",
+                        ingested == 1
+                            ? "Ingested 1 recent game. It is ready for review."
+                            : $"Ingested {ingested} recent games. They are ready for review.");
+                    _navigationService.NavigateTo("dashboard");
+                }
+
+                _logger.LogInformation(
+                    "Missed games ingestion completed: selected={Selected} ingested={Ingested} candidates={Candidates}",
+                    selectedGames.Count,
+                    ingested,
+                    message.Games.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to process missed recent games");
             }
         });
     }

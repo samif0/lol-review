@@ -82,9 +82,6 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     private bool _allReviewed;
 
-    [ObservableProperty]
-    private string _claudeButtonText = "Copy Claude Context";
-
     public ObservableCollection<GameDisplayItem> TodaysGames { get; } = new();
     public ObservableCollection<GameDisplayItem> UnreviewedGames { get; } = new();
     public ObservableCollection<DashboardObjectiveItem> ActiveObjectives { get; } = new();
@@ -251,66 +248,6 @@ public partial class DashboardViewModel : ObservableObject
     private void NavigateToReview(long gameId)
     {
         _navigationService.NavigateTo("review", gameId);
-    }
-
-    [RelayCommand]
-    private async Task CopyClaudeContextAsync()
-    {
-        try
-        {
-            // Build a context string from recent games, objectives, and review focus
-            var recent = await _gameRepo.GetRecentAsync(limit: 5);
-            var focus = await _gameRepo.GetLastReviewFocusAsync();
-            var objectives = await _objectivesRepo.GetActiveAsync();
-
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("=== LoL Review Context ===");
-            sb.AppendLine();
-
-            if (focus != null && !string.IsNullOrWhiteSpace(focus.FocusNext))
-            {
-                sb.AppendLine($"Focus for next game: {focus.FocusNext}");
-                sb.AppendLine();
-            }
-
-            if (objectives.Count > 0)
-            {
-                sb.AppendLine("Active Objectives:");
-                foreach (var obj in objectives)
-                {
-                    var title = obj.TryGetValue("title", out var t) ? t?.ToString() ?? "" : "";
-                    sb.AppendLine($"  - {title}");
-                }
-                sb.AppendLine();
-            }
-
-            sb.AppendLine("Recent Games:");
-            foreach (var game in recent)
-            {
-                var wl = game.Win ? "W" : "L";
-                sb.AppendLine($"  {wl} {game.ChampionName} {game.Kills}/{game.Deaths}/{game.Assists} ({game.KdaRatio:F1} KDA)");
-            }
-
-            var context = sb.ToString();
-
-            DispatcherHelper.RunOnUIThread(() =>
-            {
-                var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
-                dataPackage.SetText(context);
-                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
-            });
-
-            ClaudeButtonText = "Copied!";
-            await Task.Delay(1500);
-            ClaudeButtonText = "Copy Claude Context";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to copy Claude context");
-            ClaudeButtonText = "Error";
-            await Task.Delay(1500);
-            ClaudeButtonText = "Copy Claude Context";
-        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────

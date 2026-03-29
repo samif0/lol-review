@@ -121,16 +121,16 @@
                                     <TextBlock Text="History" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Button x:Name="NavLosses" Tag="losses" Style="{StaticResource NavItemStyle}" Click="OnNavClick" IsTabStop="False">
-                                <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <FontIcon Glyph="&#xE7BA;" FontSize="14" FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
-                                    <TextBlock Text="Losses" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
                             <Button x:Name="NavAnalytics" Tag="analytics" Style="{StaticResource NavItemStyle}" Click="OnNavClick" IsTabStop="False">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <FontIcon Glyph="&#xE9D9;" FontSize="14" FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                                     <TextBlock Text="Analytics" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="NavCoachLab" Tag="coachlab" Style="{StaticResource NavItemStyle}" Click="OnNavClick" IsTabStop="False" Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <FontIcon Glyph="&#xE7EF;" FontSize="14" FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                    <TextBlock Text="Coach Lab" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                         </StackPanel>

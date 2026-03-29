@@ -11,6 +11,11 @@
 # Local data (database, logs)
 /data/
 /FEATURE_NOTES.local.md
+/experiments/sam3_vod/.venv/
+/experiments/sam3_vod/__pycache__/
+/experiments/sam3_vod/*.local.json
+/experiments/coach_lab/__pycache__/
+/.venv-coach-qwen/
 
 # OS junk
 .fuse_hidden*

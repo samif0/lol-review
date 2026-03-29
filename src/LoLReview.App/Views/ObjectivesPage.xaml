@@ -166,6 +166,13 @@
                                 <StackPanel Spacing="6">
                                     <!-- Title Row: Type Badge + Title -->
                                     <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Border Background="{StaticResource AccentGoldBrush}"
+                                                CornerRadius="4" Padding="6,2"
+                                                Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="{x:Bind PriorityBadge}"
+                                                       FontSize="9" FontWeight="Bold"
+                                                       Foreground="Black"/>
+                                        </Border>
                                         <Border Background="#1e40af"
                                                 CornerRadius="4" Padding="6,2">
                                             <TextBlock Text="{x:Bind TypeBadge}"
@@ -239,6 +246,16 @@
 
                                         <!-- Buttons -->
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                            <Button Content="Set Priority"
+                                                    Background="{StaticResource TagBackgroundBrush}"
+                                                    Foreground="{StaticResource AccentGoldBrush}"
+                                                    BorderBrush="{StaticResource AccentGoldBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6" Height="30"
+                                                    FontSize="12"
+                                                    Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"
+                                                    Tag="{x:Bind Id}"
+                                                    Click="SetPriority_Click"/>
                                             <Button Content="Delete"
                                                     Background="Transparent"
                                                     Foreground="{StaticResource LossRedBrush}"

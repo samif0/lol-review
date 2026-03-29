@@ -46,6 +46,12 @@ public interface ILcuClient
     Task<List<JsonElement>> GetMatchHistoryAsync(int begin = 0, int count = 5, CancellationToken ct = default);
 
     /// <summary>
+    /// Resolve a champion display name from a champion ID using the local game-data assets.
+    /// Returns null if the lookup fails or the ID is unknown.
+    /// </summary>
+    Task<string?> GetChampionNameAsync(int championId, CancellationToken ct = default);
+
+    /// <summary>
     /// Get current ranked stats for the player.
     /// </summary>
     Task<JsonElement?> GetRankedStatsAsync(CancellationToken ct = default);

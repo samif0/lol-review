@@ -4,10 +4,12 @@ using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.App.Contracts;
 using LoLReview.App.ViewModels;
 using LoLReview.Core.Lcu;
+using LoLReview.Core.Models;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using System.Text.Json;
 
 namespace LoLReview.App.Views;
 
@@ -16,6 +18,7 @@ public sealed partial class ShellPage : Page
     public ShellViewModel ViewModel { get; }
 
     private readonly INavigationService _navigationService;
+    private readonly ILcuClient _lcuClient;
     private Button? _activeNavButton;
 
     private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(255, 0, 153, 255)); // #0099ff
@@ -27,11 +30,14 @@ public sealed partial class ShellPage : Page
     {
         ViewModel = App.GetService<ShellViewModel>();
         _navigationService = App.GetService<INavigationService>();
+        _lcuClient = App.GetService<ILcuClient>();
 
         InitializeComponent();
 
         // Initialize the navigation service with the frame (no NavigationView needed)
         _navigationService.Initialize(ContentFrame);
+
+        RefreshCoachLabVisibility();
 
         // Select dashboard by default
         SetActiveNav(NavDashboard);
@@ -44,6 +50,7 @@ public sealed partial class ShellPage : Page
         {
             var dialogService = App.GetService<IDialogService>();
             dialogService.Initialize(XamlRoot);
+            _ = RefreshCoachLabVisibilityAsync();
         };
     }
 
@@ -106,5 +113,48 @@ public sealed partial class ShellPage : Page
             StatusDot.Fill = brush;
             ConnectionStatusText.Text = message.IsConnected ? "Connected" : "Waiting for League...";
         });
+
+        _ = RefreshCoachLabVisibilityAsync();
+    }
+
+    private void RefreshCoachLabVisibility()
+    {
+        NavCoachLab.Visibility = CoachLabFeature.IsEnabled()
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private async Task RefreshCoachLabVisibilityAsync()
+    {
+        string? puuid = null;
+        string? summonerName = null;
+
+        try
+        {
+            var summoner = await _lcuClient.GetCurrentSummonerAsync().ConfigureAwait(false);
+            if (summoner is JsonElement summonerEl)
+            {
+                if (summonerEl.TryGetProperty("puuid", out var puuidProp))
+                {
+                    puuid = puuidProp.GetString();
+                }
+
+                if (summonerEl.TryGetProperty("displayName", out var displayNameProp))
+                {
+                    summonerName = displayNameProp.GetString();
+                }
+                else if (summonerEl.TryGetProperty("gameName", out var gameNameProp))
+                {
+                    summonerName = gameNameProp.GetString();
+                }
+            }
+        }
+        catch
+        {
+            // Best effort. Local owner-file gating can still allow access without League running.
+        }
+
+        CoachLabFeature.UpdateRuntimeIdentity(puuid, summonerName);
+        DispatcherQueue.TryEnqueue(RefreshCoachLabVisibility);
     }
 }

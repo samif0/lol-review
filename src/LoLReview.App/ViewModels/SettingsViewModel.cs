@@ -189,8 +189,21 @@ public partial class SettingsViewModel : ObservableObject
 
             await _configService.SaveAsync(config);
 
-            SaveStatusText = "Settings saved!";
-            SaveStatusColorHex = "#22c55e";
+            var reloaded = await _configService.LoadAsync();
+            var verified =
+                string.Equals(reloaded.AscentFolder ?? "", AscentFolder ?? "", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(reloaded.ClipsFolder ?? "", ClipsFolder ?? "", StringComparison.OrdinalIgnoreCase) &&
+                reloaded.ClipsMaxSizeMb == ClipsMaxSizeMb &&
+                reloaded.BackupEnabled == BackupEnabled &&
+                string.Equals(reloaded.BackupFolder ?? "", BackupFolder ?? "", StringComparison.OrdinalIgnoreCase) &&
+                reloaded.TiltFixMode == TiltFixEnabled &&
+                reloaded.RequireReviewNotes == RequireReviewNotes;
+
+            UpdateAscentStatus(AscentFolder ?? "");
+            UpdateClipUsage();
+
+            SaveStatusText = verified ? "Settings saved and verified." : "Settings saved, but verification did not fully match.";
+            SaveStatusColorHex = verified ? "#22c55e" : "#c89b3c";
 
             _logger.LogInformation("Settings saved successfully");
 

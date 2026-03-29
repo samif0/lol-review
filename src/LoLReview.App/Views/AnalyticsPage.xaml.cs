@@ -22,26 +22,7 @@ public sealed partial class AnalyticsPage : Page
         await ViewModel.LoadCommand.ExecuteAsync(null);
     }
 
-    private async void OnCreateObjectiveClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button btn && btn.Tag is SuggestionCardModel suggestion)
-        {
-            await ViewModel.CreateObjectiveFromSuggestionCommand.ExecuteAsync(suggestion);
-        }
-    }
-
     /// <summary>Helper for x:Bind — returns Visible when count > 0.</summary>
     public Visibility HasItems(int count)
         => count > 0 ? Visibility.Visible : Visibility.Collapsed;
-
-    /// <summary>Helper for x:Bind — returns Visible when suggestions exist.</summary>
-    public Visibility HasSuggestions(int count)
-        => count > 0 ? Visibility.Visible : Visibility.Collapsed;
-
-    /// <summary>Helper for x:Bind — compute confidence bar width from percent.</summary>
-    public static double ConfidenceBarWidth(int percent)
-        => Math.Max(10, percent * 2.5);
-
-    /// <summary>Helper for x:Bind — boolean negation.</summary>
-    public static bool Not(bool value) => !value;
 }

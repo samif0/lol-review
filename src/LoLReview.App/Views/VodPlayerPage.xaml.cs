@@ -1,6 +1,7 @@
 #nullable enable
 
 using LoLReview.App.ViewModels;
+using LoLReview.Core.Models;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -26,6 +27,7 @@ public sealed partial class VodPlayerPage : Page
     // The ShellPage (window root content) — we hook KeyDown/KeyUp here so we sit above
     // the Frame in the visual tree and intercept before any button can act on Space.
     private UIElement? _windowRoot;
+    private int? _pendingSeekTimeS;
 
     public VodPlayerViewModel ViewModel { get; }
 
@@ -59,8 +61,17 @@ public sealed partial class VodPlayerPage : Page
 
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
 
-        if (e.Parameter is long gameId)
-            ViewModel.LoadCommand.Execute(gameId);
+        switch (e.Parameter)
+        {
+            case long gameId:
+                _pendingSeekTimeS = null;
+                ViewModel.LoadCommand.Execute(gameId);
+                break;
+            case VodPlayerNavigationRequest request:
+                _pendingSeekTimeS = request.SeekTimeS;
+                ViewModel.LoadCommand.Execute(request.GameId);
+                break;
+        }
 
         TryLoadMedia();
 
@@ -109,7 +120,10 @@ public sealed partial class VodPlayerPage : Page
             if (_mediaPlayer == null) return;
             var totalS = _mediaPlayer.PlaybackSession.NaturalDuration.TotalSeconds;
             if (totalS > 0)
+            {
                 ViewModel.UpdatePosition(0, totalS);
+                ApplyPendingSeek();
+            }
         });
         _mediaPlayer.MediaFailed += (s, ev) => DispatcherQueue.TryEnqueue(() =>
         {
@@ -236,6 +250,23 @@ public sealed partial class VodPlayerPage : Page
     }
 
     private void OnTimelineSeek(double seconds) => OnSeekRequested(seconds);
+
+    private void ApplyPendingSeek()
+    {
+        if (!_pendingSeekTimeS.HasValue || _mediaPlayer == null)
+        {
+            return;
+        }
+
+        var total = _mediaPlayer.PlaybackSession.NaturalDuration.TotalSeconds;
+        if (total <= 0)
+        {
+            return;
+        }
+
+        _mediaPlayer.PlaybackSession.Position = TimeSpan.FromSeconds(Math.Clamp(_pendingSeekTimeS.Value, 0, total));
+        _pendingSeekTimeS = null;
+    }
 
     // ── UI event handlers ───────────────────────────────────────────
 

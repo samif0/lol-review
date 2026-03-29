@@ -3,6 +3,7 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using LoLReview.Core.Models;
+using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
 
 namespace LoLReview.Core.Lcu;
@@ -15,6 +16,7 @@ public sealed class LcuClient : ILcuClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<LcuClient> _logger;
+    private Dictionary<int, string>? _championNamesById;
 
     /// <summary>
     /// Creates an LcuClient using a pre-configured HttpClient.
@@ -46,10 +48,12 @@ public sealed class LcuClient : ILcuClient
         try
         {
             await GetAsync("/lol-summoner/v1/current-summoner", ct).ConfigureAwait(false);
+            CoreDiagnostics.WriteVerbose("LCU: LcuClient IsConnectedAsync success");
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            CoreDiagnostics.WriteVerbose($"LCU: LcuClient IsConnectedAsync exception={ex.GetType().Name}:{ex.Message}");
             return false;
         }
     }
@@ -164,6 +168,58 @@ public sealed class LcuClient : ILcuClient
         }
 
         return [];
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> GetChampionNameAsync(int championId, CancellationToken ct = default)
+    {
+        if (championId <= 0)
+            return null;
+
+        if (_championNamesById is not null
+            && _championNamesById.TryGetValue(championId, out var cachedName))
+        {
+            return cachedName;
+        }
+
+        try
+        {
+            var data = await GetAsync("/lol-game-data/assets/v1/champion-summary.json", ct).ConfigureAwait(false);
+            if (data is not JsonElement dataEl || dataEl.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            var championNames = new Dictionary<int, string>();
+            foreach (var champion in dataEl.EnumerateArray())
+            {
+                var id = champion.GetPropertyIntOrDefault("id", 0);
+                if (id <= 0)
+                    continue;
+
+                var name = champion.GetPropertyOrDefault("alias", "");
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    name = champion.GetPropertyOrDefault("name", "");
+                }
+
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    championNames[id] = name;
+                }
+            }
+
+            _championNamesById = championNames;
+
+            return championNames.TryGetValue(championId, out var resolvedName)
+                ? resolvedName
+                : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to resolve champion name for championId {ChampionId}", championId);
+            return null;
+        }
     }
 
     /// <inheritdoc />

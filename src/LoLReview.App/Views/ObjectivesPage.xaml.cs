@@ -52,4 +52,12 @@ public sealed partial class ObjectivesPage : Page
             }
         }
     }
+
+    private async void SetPriority_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long objectiveId)
+        {
+            await ViewModel.SetPriorityCommand.ExecuteAsync(objectiveId);
+        }
+    }
 }

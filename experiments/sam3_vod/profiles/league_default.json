@@ -1,0 +1,46 @@
+{
+  "name": "league-default-v1",
+  "description": "Broad prompts for early League of Legends VOD experiments with SAM3.",
+  "sample_seconds": [
+    60,
+    180,
+    360,
+    600,
+    900,
+    1200
+  ],
+  "prompts": [
+    {
+      "id": "champion",
+      "text": "player champion"
+    },
+    {
+      "id": "enemy-champion",
+      "text": "enemy champion"
+    },
+    {
+      "id": "minion-wave",
+      "text": "minion wave"
+    },
+    {
+      "id": "turret",
+      "text": "turret"
+    },
+    {
+      "id": "ward",
+      "text": "ward"
+    },
+    {
+      "id": "neutral-monster",
+      "text": "neutral monster"
+    },
+    {
+      "id": "dragon",
+      "text": "dragon"
+    },
+    {
+      "id": "baron",
+      "text": "baron nashor"
+    }
+  ]
+}

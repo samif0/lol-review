@@ -20,6 +20,7 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly IDerivedEventsRepository _derivedEventsRepo;
     private readonly IClipService _clipService;
     private readonly IConfigService _configService;
+    private readonly ICoachLabService _coachLabService;
     private readonly INavigationService _navigationService;
     private readonly ILogger<VodPlayerViewModel> _logger;
 
@@ -83,6 +84,7 @@ public partial class VodPlayerViewModel : ObservableObject
         IDerivedEventsRepository derivedEventsRepo,
         IClipService clipService,
         IConfigService configService,
+        ICoachLabService coachLabService,
         INavigationService navigationService,
         ILogger<VodPlayerViewModel> logger)
     {
@@ -92,6 +94,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _derivedEventsRepo = derivedEventsRepo;
         _clipService = clipService;
         _configService = configService;
+        _coachLabService = coachLabService;
         _navigationService = navigationService;
         _logger = logger;
     }
@@ -325,6 +328,21 @@ public partial class VodPlayerViewModel : ObservableObject
                 // Enforce folder size limit
                 var maxBytes = (long)_configService.ClipsMaxSizeMb * 1024 * 1024;
                 await _clipService.EnforceFolderSizeLimitAsync(clipsFolder, maxBytes);
+
+                if (_coachLabService.IsEnabled)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _coachLabService.SyncMomentsAsync(includeAutoSamples: false);
+                        }
+                        catch (Exception syncEx)
+                        {
+                            _logger.LogDebug(syncEx, "Coach Lab clip sync failed after clip extraction");
+                        }
+                    });
+                }
 
                 ClipNote = "";
                 ClipStatusText = "Clip saved!";

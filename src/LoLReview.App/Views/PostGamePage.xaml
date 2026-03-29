@@ -58,6 +58,33 @@
             <!-- Separator -->
             <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
 
+            <!-- ═══ VOD Section ═══ -->
+            <Border Visibility="{x:Bind ReviewVM.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Background="{StaticResource CardBackgroundBrush}"
+                    CornerRadius="8"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{StaticResource AccentBlueBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button Command="{x:Bind ReviewVM.WatchVodCommand}"
+                            FontSize="13" FontWeight="SemiBold"
+                            Height="36" Padding="16,0"
+                            Background="{StaticResource AccentBlueBrush}"
+                            Foreground="{StaticResource PrimaryTextBrush}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE714;" FontSize="14"/>
+                            <TextBlock Text="Review VOD" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <TextBlock FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               VerticalAlignment="Center">
+                        <Run Text="{x:Bind ReviewVM.BookmarkCount, Mode=OneWay}"/>
+                        <Run Text=" bookmarks"/>
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
             <Border Background="{StaticResource CardBackgroundBrush}"
                     CornerRadius="8"
                     Padding="14,12"
@@ -76,6 +103,29 @@
                                Foreground="{StaticResource LossRedBrush}"
                                TextWrapping="Wrap"
                                Visibility="{x:Bind ReviewVM.HasValidationMessage, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                </StackPanel>
+            </Border>
+
+            <Border Visibility="{x:Bind ReviewVM.HasPriorityObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Background="{StaticResource CardBackgroundBrush}"
+                    BorderBrush="{StaticResource AccentGoldBrush}"
+                    BorderThickness="2"
+                    CornerRadius="8"
+                    Padding="14,12">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="PRIORITY OBJECTIVE"
+                               FontSize="11"
+                               FontWeight="Bold"
+                               Foreground="{StaticResource AccentGoldBrush}"/>
+                    <TextBlock Text="{x:Bind ReviewVM.PriorityObjectiveTitle, Mode=OneWay}"
+                               FontSize="14"
+                               FontWeight="Bold"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{x:Bind ReviewVM.PriorityObjectiveCriteria, Mode=OneWay}"
+                               FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
@@ -266,10 +316,21 @@
                                         BorderBrush="{StaticResource SubtleBorderBrush}"
                                         Padding="12">
                                     <StackPanel Spacing="8">
-                                        <CheckBox IsChecked="{x:Bind Practiced, Mode=TwoWay}"
-                                                  Content="{x:Bind Title}"
-                                                  FontSize="13"
-                                                  Foreground="{StaticResource PrimaryTextBrush}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Border Background="{StaticResource AccentGoldBrush}"
+                                                    CornerRadius="4"
+                                                    Padding="6,2"
+                                                    Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="PRIORITY"
+                                                           FontSize="9"
+                                                           FontWeight="Bold"
+                                                           Foreground="Black"/>
+                                            </Border>
+                                            <CheckBox IsChecked="{x:Bind Practiced, Mode=TwoWay}"
+                                                      Content="{x:Bind Title}"
+                                                      FontSize="13"
+                                                      Foreground="{StaticResource PrimaryTextBrush}"/>
+                                        </StackPanel>
                                         <TextBlock Text="{x:Bind Criteria}"
                                                    FontSize="12"
                                                    Foreground="{StaticResource SecondaryTextBrush}"

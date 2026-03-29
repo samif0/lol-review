@@ -170,6 +170,15 @@ public partial class ReviewViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasMatchupHistory;
 
+    [ObservableProperty]
+    private string _priorityObjectiveTitle = "";
+
+    [ObservableProperty]
+    private string _priorityObjectiveCriteria = "";
+
+    [ObservableProperty]
+    private bool _hasPriorityObjective;
+
     // ── Concept Tags ───────────────────────────────────────────────────
 
     public ObservableCollection<ConceptTagItem> AllTags { get; } = new();
@@ -546,6 +555,10 @@ public partial class ReviewViewModel : ObservableObject
     private async Task LoadObjectiveAssessmentsAsync(long gameId)
     {
         var activeObjectives = await _objectivesRepo.GetActiveAsync();
+        var priorityObjective = await _objectivesRepo.GetPriorityAsync();
+        var priorityObjectiveId = priorityObjective is null
+            ? 0L
+            : Convert.ToInt64(priorityObjective.GetValueOrDefault("id") ?? 0L);
         var savedObjectives = await _objectivesRepo.GetGameObjectivesAsync(gameId);
         var savedById = savedObjectives.ToDictionary(
             row => Convert.ToInt64(row.GetValueOrDefault("objective_id") ?? 0),
@@ -558,13 +571,14 @@ public partial class ReviewViewModel : ObservableObject
             var objectiveId = Convert.ToInt64(objective.GetValueOrDefault("id", 0L));
             savedById.TryGetValue(objectiveId, out var saved);
 
-            assessments.Add(CreateObjectiveAssessment(objective, saved));
+            assessments.Add(CreateObjectiveAssessment(objective, saved, objectiveId == priorityObjectiveId));
             savedById.Remove(objectiveId);
         }
 
         foreach (var saved in savedById.Values)
         {
-            assessments.Add(CreateObjectiveAssessment(saved, saved));
+            var objectiveId = Convert.ToInt64(saved.GetValueOrDefault("objective_id") ?? 0L);
+            assessments.Add(CreateObjectiveAssessment(saved, saved, objectiveId == priorityObjectiveId));
         }
 
         DispatcherHelper.RunOnUIThread(() =>
@@ -576,6 +590,9 @@ public partial class ReviewViewModel : ObservableObject
             }
 
             HasObjectives = ObjectiveAssessments.Count > 0;
+            PriorityObjectiveTitle = priorityObjective?.GetValueOrDefault("title")?.ToString() ?? "";
+            PriorityObjectiveCriteria = priorityObjective?.GetValueOrDefault("completion_criteria")?.ToString() ?? "";
+            HasPriorityObjective = !string.IsNullOrWhiteSpace(PriorityObjectiveTitle);
         });
     }
 
@@ -649,7 +666,8 @@ public partial class ReviewViewModel : ObservableObject
 
     private static ObjectiveAssessment CreateObjectiveAssessment(
         Dictionary<string, object?> objectiveRow,
-        Dictionary<string, object?>? savedRow)
+        Dictionary<string, object?>? savedRow,
+        bool isPriority)
     {
         return new ObjectiveAssessment
         {
@@ -659,6 +677,7 @@ public partial class ReviewViewModel : ObservableObject
                 ?? 0L),
             Title = objectiveRow.GetValueOrDefault("title")?.ToString() ?? "",
             Criteria = objectiveRow.GetValueOrDefault("completion_criteria")?.ToString() ?? "",
+            IsPriority = isPriority,
             Practiced = Convert.ToInt32(savedRow?.GetValueOrDefault("practiced") ?? 0) != 0,
             ExecutionNote = savedRow?.GetValueOrDefault("execution_note")?.ToString() ?? "",
         };

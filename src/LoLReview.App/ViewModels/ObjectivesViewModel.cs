@@ -22,6 +22,7 @@ public sealed class ObjectiveDisplayItem
     public int Score { get; init; }
     public int GameCount { get; init; }
     public string Status { get; init; } = "active";
+    public bool IsPriority { get; init; }
 
     // Level info
     public string LevelName { get; init; } = "Exploring";
@@ -44,6 +45,7 @@ public sealed class ObjectiveDisplayItem
     // Derived display properties
     public bool IsMental => Type == "mental";
     public string TypeBadge => IsMental ? "MENTAL" : "PRIMARY";
+    public string PriorityBadge => IsPriority ? "PRIORITY" : "";
     public string ScoreText => $"{Score} pts  \u2022  {GameCount} games";
     public string ProgressText
     {
@@ -209,6 +211,13 @@ public partial class ObjectivesViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task SetPriorityAsync(long objectiveId)
+    {
+        await _objectivesRepo.SetPriorityAsync(objectiveId);
+        await RefreshDataAsync();
+    }
+
+    [RelayCommand]
     private async Task DeleteObjectiveAsync(long objectiveId)
     {
         await _objectivesRepo.DeleteAsync(objectiveId);
@@ -250,6 +259,7 @@ public partial class ObjectivesViewModel : ObservableObject
             var description = obj.GetValueOrDefault("description")?.ToString() ?? "";
             var score = Convert.ToInt32(obj.GetValueOrDefault("score") ?? 0);
             var gameCount = Convert.ToInt32(obj.GetValueOrDefault("game_count") ?? 0);
+            var isPriority = Convert.ToInt32(obj.GetValueOrDefault("is_priority") ?? 0) != 0;
 
             if (status == "active")
             {
@@ -266,6 +276,7 @@ public partial class ObjectivesViewModel : ObservableObject
                     Score = score,
                     GameCount = gameCount,
                     Status = status,
+                    IsPriority = isPriority,
                     LevelName = levelInfo.LevelName,
                     LevelIndex = levelInfo.LevelIndex,
                     Progress = levelInfo.Progress,

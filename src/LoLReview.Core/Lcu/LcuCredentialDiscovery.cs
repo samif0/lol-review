@@ -3,6 +3,7 @@
 using System.Management;
 using System.Text.RegularExpressions;
 using LoLReview.Core.Models;
+using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
 
 namespace LoLReview.Core.Lcu;
@@ -23,10 +24,12 @@ public sealed class LcuCredentialDiscovery : ILcuCredentialDiscovery
     /// <inheritdoc />
     public LcuCredentials? FindCredentials()
     {
+        CoreDiagnostics.WriteVerbose("LCU: FindCredentials start");
         var creds = FindFromProcess();
         if (creds is not null)
         {
             _logger.LogInformation("Found LCU via process inspection (port {Port})", creds.Port);
+            CoreDiagnostics.WriteVerbose($"LCU: FindCredentials via process port={creds.Port}");
             return creds;
         }
 
@@ -34,9 +37,11 @@ public sealed class LcuCredentialDiscovery : ILcuCredentialDiscovery
         if (creds is not null)
         {
             _logger.LogInformation("Found LCU via lockfile (port {Port})", creds.Port);
+            CoreDiagnostics.WriteVerbose($"LCU: FindCredentials via lockfile port={creds.Port}");
             return creds;
         }
 
+        CoreDiagnostics.WriteVerbose("LCU: FindCredentials failed");
         return null;
     }
 
@@ -45,6 +50,7 @@ public sealed class LcuCredentialDiscovery : ILcuCredentialDiscovery
     {
         try
         {
+            CoreDiagnostics.WriteVerbose("LCU: FindFromProcess querying LeagueClientUx.exe");
             using var searcher = new ManagementObjectSearcher(
                 "SELECT CommandLine FROM Win32_Process WHERE Name = 'LeagueClientUx.exe'");
 
@@ -62,6 +68,7 @@ public sealed class LcuCredentialDiscovery : ILcuCredentialDiscovery
 
                 if (portMatch.Success && tokenMatch.Success)
                 {
+                    CoreDiagnostics.WriteVerbose($"LCU: FindFromProcess matched port={portMatch.Groups[1].Value}");
                     return new LcuCredentials
                     {
                         Pid = pidMatch.Success ? int.Parse(pidMatch.Groups[1].Value) : 0,
@@ -75,6 +82,7 @@ public sealed class LcuCredentialDiscovery : ILcuCredentialDiscovery
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Process inspection failed");
+            CoreDiagnostics.WriteVerbose($"LCU: FindFromProcess exception={ex.GetType().Name}:{ex.Message}");
         }
 
         return null;
@@ -107,11 +115,19 @@ public sealed class LcuCredentialDiscovery : ILcuCredentialDiscovery
 
             try
             {
-                var content = File.ReadAllText(lockfilePath).Trim();
+                CoreDiagnostics.WriteVerbose($"LCU: FindFromLockfile reading {lockfilePath}");
+                using var stream = new FileStream(
+                    lockfilePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream);
+                var content = reader.ReadToEnd().Trim();
                 var parts = content.Split(':');
 
                 if (parts.Length >= 5)
                 {
+                    CoreDiagnostics.WriteVerbose($"LCU: FindFromLockfile matched port={parts[2]}");
                     return new LcuCredentials
                     {
                         Pid = int.Parse(parts[1]),
@@ -124,6 +140,7 @@ public sealed class LcuCredentialDiscovery : ILcuCredentialDiscovery
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to read lockfile at {Path}", lockfilePath);
+                CoreDiagnostics.WriteVerbose($"LCU: FindFromLockfile exception={ex.GetType().Name}:{ex.Message}");
             }
         }
 

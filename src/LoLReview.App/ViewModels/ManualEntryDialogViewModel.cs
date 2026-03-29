@@ -14,6 +14,7 @@ public partial class ObjectiveAssessment : ObservableObject
     public long ObjectiveId { get; init; }
     public string Title { get; init; } = "";
     public string Criteria { get; init; } = "";
+    public bool IsPriority { get; init; }
 
     [ObservableProperty]
     private bool _practiced;

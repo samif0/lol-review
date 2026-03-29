@@ -125,8 +125,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
 
-        var today = DateTime.Now.ToString("yyyy-MM-dd");
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var (sessionDate, sessionTimestamp) = await ResolveGameSessionDateAsync(conn, gameId);
 
         // Check if entry already exists
         using (var checkCmd = conn.CreateCommand())
@@ -140,37 +139,86 @@ public sealed class SessionLogRepository : ISessionLogRepository
                 // Update existing entry
                 using var updateCmd = conn.CreateCommand();
                 updateCmd.CommandText = @"
-                    UPDATE session_log SET mental_rating = @mental, improvement_note = @note
+                    UPDATE session_log
+                    SET date = @date,
+                        champion_name = @champion_name,
+                        win = @win,
+                        mental_rating = @mental,
+                        improvement_note = @note,
+                        timestamp = @timestamp,
+                        pre_game_mood = @pre_game_mood
                     WHERE game_id = @gameId";
+                updateCmd.Parameters.AddWithValue("@date", sessionDate);
+                updateCmd.Parameters.AddWithValue("@champion_name", championName);
+                updateCmd.Parameters.AddWithValue("@win", win ? 1 : 0);
                 updateCmd.Parameters.AddWithValue("@mental", mentalRating);
                 updateCmd.Parameters.AddWithValue("@note", improvementNote);
+                updateCmd.Parameters.AddWithValue("@timestamp", sessionTimestamp);
+                updateCmd.Parameters.AddWithValue("@pre_game_mood", preGameMood);
                 updateCmd.Parameters.AddWithValue("@gameId", gameId);
                 await updateCmd.ExecuteNonQueryAsync();
                 return;
             }
         }
 
-        var ruleBroken = await CheckRuleBreakAsync(conn, today);
+        var ruleBroken = await CheckRuleBreakAsync(conn, sessionDate);
 
         using var insertCmd = conn.CreateCommand();
         insertCmd.CommandText = @"
             INSERT INTO session_log
             (date, game_id, champion_name, win, mental_rating, improvement_note,
-             rule_broken, timestamp, pre_game_mood)
+            rule_broken, timestamp, pre_game_mood)
             VALUES (@date, @game_id, @champion_name, @win, @mental_rating, @improvement_note,
                     @rule_broken, @timestamp, @pre_game_mood)";
 
-        insertCmd.Parameters.AddWithValue("@date", today);
+        insertCmd.Parameters.AddWithValue("@date", sessionDate);
         insertCmd.Parameters.AddWithValue("@game_id", gameId);
         insertCmd.Parameters.AddWithValue("@champion_name", championName);
         insertCmd.Parameters.AddWithValue("@win", win ? 1 : 0);
         insertCmd.Parameters.AddWithValue("@mental_rating", mentalRating);
         insertCmd.Parameters.AddWithValue("@improvement_note", improvementNote);
         insertCmd.Parameters.AddWithValue("@rule_broken", ruleBroken ? 1 : 0);
-        insertCmd.Parameters.AddWithValue("@timestamp", now);
+        insertCmd.Parameters.AddWithValue("@timestamp", sessionTimestamp);
         insertCmd.Parameters.AddWithValue("@pre_game_mood", preGameMood);
 
         await insertCmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<(string SessionDate, long SessionTimestamp)> ResolveGameSessionDateAsync(
+        SqliteConnection conn,
+        long gameId)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT date_played, timestamp
+            FROM games
+            WHERE game_id = @gameId
+            LIMIT 1";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            var datePlayed = reader.IsDBNull(0) ? "" : reader.GetString(0);
+            var timestamp = reader.IsDBNull(1) ? 0 : reader.GetInt64(1);
+
+            if (!string.IsNullOrWhiteSpace(datePlayed) && datePlayed.Length >= 10)
+            {
+                return (datePlayed[..10], timestamp > 0 ? timestamp : DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            }
+
+            if (timestamp > 0)
+            {
+                var localDate = DateTimeOffset
+                    .FromUnixTimeSeconds(timestamp)
+                    .ToLocalTime()
+                    .ToString("yyyy-MM-dd");
+                return (localDate, timestamp);
+            }
+        }
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return (DateTime.Now.ToString("yyyy-MM-dd"), now);
     }
 
     public async Task UpdateMentalRatingAsync(long gameId, int mentalRating)
@@ -352,7 +400,11 @@ public sealed class SessionLogRepository : ISessionLogRepository
             WHERE game_id IN (
                 SELECT sl.game_id FROM session_log sl
                 JOIN games g ON sl.game_id = g.game_id
-                WHERE sl.date != SUBSTR(g.date_played, 1, 10)
+                WHERE CASE
+                    WHEN COALESCE(g.date_played, '') != '' THEN sl.date != SUBSTR(g.date_played, 1, 10)
+                    WHEN COALESCE(g.timestamp, 0) > 0 THEN sl.date != DATE(g.timestamp, 'unixepoch', 'localtime')
+                    ELSE 0
+                END
             )";
 
         var deleted = await cmd.ExecuteNonQueryAsync();

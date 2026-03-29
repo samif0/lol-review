@@ -23,7 +23,11 @@ public interface IObjectivesRepository
 
     Task<IReadOnlyList<Dictionary<string, object?>>> GetActiveAsync();
 
+    Task<Dictionary<string, object?>?> GetPriorityAsync();
+
     Task<Dictionary<string, object?>?> GetAsync(long objectiveId);
+
+    Task SetPriorityAsync(long objectiveId);
 
     Task UpdateScoreAsync(long objectiveId, bool win);
 

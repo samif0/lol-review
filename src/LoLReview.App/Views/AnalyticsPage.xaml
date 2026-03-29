@@ -4,12 +4,14 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:LoLReview.App.Converters"
     xmlns:vm="using:LoLReview.App.ViewModels"
     mc:Ignorable="d"
     Background="#0a0a0f"
     Loaded="OnPageLoaded">
 
     <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
         <Style x:Key="SectionCard" TargetType="Border">
             <Setter Property="Background" Value="#12121a"/>
             <Setter Property="CornerRadius" Value="10"/>
@@ -82,65 +84,6 @@
         <!-- Content -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="0">
-
-                <!-- ═══════════════════════════════════════════
-                     SMART SUGGESTIONS
-                     ═══════════════════════════════════════════ -->
-                <Border Style="{StaticResource SectionCard}"
-                        BorderBrush="#c8aa6e"
-                        Visibility="{x:Bind HasSuggestions(ViewModel.Suggestions.Count), Mode=OneWay}">
-                    <StackPanel>
-                        <TextBlock Text="SUGGESTED OBJECTIVES" FontSize="11" FontWeight="Bold"
-                                   Foreground="#c8aa6e" Margin="0,0,0,4"/>
-                        <TextBlock Text="Based on your recent gameplay patterns"
-                                   FontSize="12" Foreground="#a0a0b8" Margin="0,0,0,10"/>
-
-                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.Suggestions, Mode=OneWay}">
-                            <ItemsRepeater.Layout>
-                                <StackLayout Spacing="8"/>
-                            </ItemsRepeater.Layout>
-                            <ItemsRepeater.ItemTemplate>
-                                <DataTemplate x:DataType="vm:SuggestionCardModel">
-                                    <Border Background="#161622" CornerRadius="8"
-                                            BorderBrush="#c8aa6e" BorderThickness="1"
-                                            Padding="12,10">
-                                        <StackPanel Spacing="6">
-                                            <Grid>
-                                                <TextBlock Text="{x:Bind Title}"
-                                                           FontSize="14" FontWeight="SemiBold"
-                                                           Foreground="#e8e8f0"/>
-                                                <Button Content="{x:Bind ButtonText, Mode=OneWay}"
-                                                        FontSize="11" Height="26" MinWidth="130"
-                                                        Background="#3b82f6" Foreground="#e8e8f0"
-                                                        CornerRadius="4"
-                                                        HorizontalAlignment="Right"
-                                                        IsEnabled="{x:Bind NotCreated, Mode=OneWay}"
-                                                        Tag="{x:Bind}"
-                                                        Click="OnCreateObjectiveClick"/>
-                                            </Grid>
-                                            <TextBlock Text="{x:Bind Reason}"
-                                                       FontSize="12" Foreground="#a0a0b8"
-                                                       TextWrapping="Wrap"/>
-                                            <!-- Confidence bar -->
-                                            <Grid Height="6" CornerRadius="3">
-                                                <Border Background="#2a2a3a" CornerRadius="3"/>
-                                                <Border Background="#c8aa6e" CornerRadius="3"
-                                                        HorizontalAlignment="Left"
-                                                        Width="{x:Bind ConfBarWidth}"/>
-                                            </Grid>
-                                            <TextBlock FontSize="10" Foreground="#666680">
-                                                <Run Text="Confidence: "/>
-                                                <Run Text="{x:Bind ConfidencePercent}"/>
-                                                <Run Text="%  |  "/>
-                                                <Run Text="{x:Bind SkillArea}"/>
-                                            </TextBlock>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsRepeater.ItemTemplate>
-                        </ItemsRepeater>
-                    </StackPanel>
-                </Border>
 
                 <!-- ═══════════════════════════════════════════
                      OVERALL STATS
@@ -224,6 +167,35 @@
                                 </DataTemplate>
                             </ItemsRepeater.ItemTemplate>
                         </ItemsRepeater>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionCard}"
+                        Visibility="{x:Bind ViewModel.HasTiltStats, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionHeader}" Text="TILT CHECK STATS"/>
+                        <StackPanel Orientation="Horizontal" Spacing="32">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource StatValue}" Text="{x:Bind ViewModel.TiltCheckCount, Mode=OneWay}"/>
+                                <TextBlock Style="{StaticResource StatLabel}" Text="Checks"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource StatValue}" Text="{x:Bind ViewModel.AvgTiltBefore, Mode=OneWay}" Foreground="#ef4444"/>
+                                <TextBlock Style="{StaticResource StatLabel}" Text="Avg Before"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource StatValue}" Text="{x:Bind ViewModel.AvgTiltAfter, Mode=OneWay}" Foreground="#22c55e"/>
+                                <TextBlock Style="{StaticResource StatLabel}" Text="Avg After"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource StatValue}" Text="{x:Bind ViewModel.AvgTiltReduction, Mode=OneWay}" Foreground="#3b82f6"/>
+                                <TextBlock Style="{StaticResource StatLabel}" Text="Avg Reduction"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource StatValue}" Text="{x:Bind ViewModel.TopTiltEmotion, Mode=OneWay}"/>
+                                <TextBlock Style="{StaticResource StatLabel}" Text="Top Emotion"/>
+                            </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

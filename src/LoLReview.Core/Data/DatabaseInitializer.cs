@@ -205,6 +205,7 @@ public sealed class DatabaseInitializer
             !columns.Contains("completion_criteria") ||
             !columns.Contains("description") ||
             !columns.Contains("status") ||
+            !columns.Contains("is_priority") ||
             !columns.Contains("score") ||
             !columns.Contains("game_count") ||
             !columns.Contains("created_at") ||
@@ -229,6 +230,7 @@ public sealed class DatabaseInitializer
                     completion_criteria TEXT DEFAULT '',
                     description         TEXT DEFAULT '',
                     status              TEXT DEFAULT 'active',
+                    is_priority         INTEGER DEFAULT 0,
                     score               INTEGER DEFAULT 0,
                     game_count          INTEGER DEFAULT 0,
                     created_at          INTEGER,
@@ -244,7 +246,7 @@ public sealed class DatabaseInitializer
             copyCmd.CommandText = $"""
                 INSERT INTO objectives__migrated (
                     id, title, skill_area, type, completion_criteria, description,
-                    status, score, game_count, created_at, completed_at
+                    status, is_priority, score, game_count, created_at, completed_at
                 )
                 SELECT
                     id,
@@ -260,6 +262,7 @@ public sealed class DatabaseInitializer
                         WHEN {GetTextColumnExpr(columns, "status")} = '' THEN 'active'
                         ELSE {GetTextColumnExpr(columns, "status")}
                     END,
+                    {GetIntColumnExpr(columns, "is_priority")},
                     {GetIntColumnExpr(columns, "score")},
                     {GetIntColumnExpr(columns, "game_count")},
                     {GetNullableColumnExpr(columns, "created_at")},

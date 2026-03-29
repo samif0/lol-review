@@ -12,28 +12,23 @@ using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.ViewModels;
 
-/// <summary>ViewModel for the Analytics page — player profiling, suggestions, and stats.</summary>
+/// <summary>ViewModel for the Analytics page — player profiling and stats.</summary>
 public partial class AnalyticsViewModel : ObservableObject
 {
     private readonly IAnalysisService _analysis;
-    private readonly IObjectivesRepository _objectives;
+    private readonly ITiltCheckRepository _tiltChecks;
 
     public AnalyticsViewModel()
     {
         _analysis = App.GetService<IAnalysisService>();
-        _objectives = App.GetService<IObjectivesRepository>();
+        _tiltChecks = App.GetService<ITiltCheckRepository>();
     }
-
-    // ── Properties ───────────────────────────────────────────────────
 
     [ObservableProperty]
     private bool _isLoading;
 
     [ObservableProperty]
     private PlayerProfile? _profile;
-
-    [ObservableProperty]
-    private ObservableCollection<SuggestionCardModel> _suggestions = [];
 
     [ObservableProperty]
     private ObservableCollection<ChampionStatRow> _championStats = [];
@@ -47,7 +42,23 @@ public partial class AnalyticsViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<MentalBracketRow> _mentalBrackets = [];
 
-    // ── Overall stat display ─────────────────────────────────────────
+    [ObservableProperty]
+    private bool _hasTiltStats;
+
+    [ObservableProperty]
+    private string _tiltCheckCount = "0";
+
+    [ObservableProperty]
+    private string _avgTiltBefore = "0.0";
+
+    [ObservableProperty]
+    private string _avgTiltAfter = "0.0";
+
+    [ObservableProperty]
+    private string _avgTiltReduction = "0.0";
+
+    [ObservableProperty]
+    private string _topTiltEmotion = "";
 
     [ObservableProperty]
     private string _totalGames = "0";
@@ -76,8 +87,6 @@ public partial class AnalyticsViewModel : ObservableObject
     [ObservableProperty]
     private string _losses = "0";
 
-    // ── Commands ─────────────────────────────────────────────────────
-
     [RelayCommand]
     private async Task LoadAsync()
     {
@@ -86,17 +95,17 @@ public partial class AnalyticsViewModel : ObservableObject
         try
         {
             var profile = await _analysis.GenerateProfileAsync();
-            var suggestions = _analysis.GenerateSuggestions(profile, limit: 3);
+            var tiltStats = await _tiltChecks.GetStatsAsync();
 
             DispatcherHelper.RunOnUIThread(() =>
             {
                 Profile = profile;
                 PopulateOverallStats(profile);
-                PopulateSuggestions(suggestions);
                 PopulateChampionStats(profile);
                 PopulateMatchupStats(profile);
                 PopulateTagFrequencies(profile);
                 PopulateMentalBrackets(profile);
+                PopulateTiltStats(tiltStats);
             });
         }
         catch
@@ -108,31 +117,6 @@ public partial class AnalyticsViewModel : ObservableObject
             IsLoading = false;
         }
     }
-
-    [RelayCommand]
-    private async Task CreateObjectiveFromSuggestion(SuggestionCardModel? suggestion)
-    {
-        if (suggestion is null) return;
-
-        try
-        {
-            await _objectives.CreateAsync(
-                title: suggestion.Title,
-                skillArea: suggestion.SkillArea,
-                type: suggestion.Type,
-                completionCriteria: suggestion.CompletionCriteria,
-                description: suggestion.Description);
-
-            // Mark as created in the UI
-            suggestion.IsCreated = true;
-        }
-        catch
-        {
-            // Best-effort
-        }
-    }
-
-    // ── Population helpers ───────────────────────────────────────────
 
     private void PopulateOverallStats(PlayerProfile p)
     {
@@ -146,25 +130,6 @@ public partial class AnalyticsViewModel : ObservableObject
         AvgDeaths = $"{o.AvgDeaths:F1}";
         Wins = o.Wins.ToString();
         Losses = o.Losses.ToString();
-    }
-
-    private void PopulateSuggestions(List<ObjectiveSuggestion> list)
-    {
-        Suggestions.Clear();
-        foreach (var s in list)
-        {
-            Suggestions.Add(new SuggestionCardModel
-            {
-                Title = s.Title,
-                SkillArea = s.SkillArea,
-                Type = s.Type,
-                CompletionCriteria = s.CompletionCriteria,
-                Description = s.Description,
-                Reason = s.Reason,
-                Confidence = s.Confidence,
-                ConfidencePercent = (int)(s.Confidence * 100),
-            });
-        }
     }
 
     private void PopulateChampionStats(PlayerProfile p)
@@ -257,7 +222,16 @@ public partial class AnalyticsViewModel : ObservableObject
         }
     }
 
-    /// <summary>Parse a hex color string like "#22c55e" into a SolidColorBrush.</summary>
+    private void PopulateTiltStats(TiltCheckStats stats)
+    {
+        HasTiltStats = stats.Total > 0;
+        TiltCheckCount = stats.Total.ToString();
+        AvgTiltBefore = $"{stats.AvgBefore:F1}";
+        AvgTiltAfter = $"{stats.AvgAfter:F1}";
+        AvgTiltReduction = $"{stats.AvgReduction:F1}";
+        TopTiltEmotion = stats.TopEmotions.FirstOrDefault()?.Emotion ?? "";
+    }
+
     internal static SolidColorBrush HexBrush(string hex)
     {
         hex = hex.TrimStart('#');
@@ -266,31 +240,6 @@ public partial class AnalyticsViewModel : ObservableObject
         var b = byte.Parse(hex[4..6], System.Globalization.NumberStyles.HexNumber);
         return new SolidColorBrush(ColorHelper.FromArgb(255, r, g, b));
     }
-}
-
-// ── Display model records ───────────────────────────────────────────────
-
-public sealed partial class SuggestionCardModel : ObservableObject
-{
-    public string Title { get; set; } = "";
-    public string SkillArea { get; set; } = "";
-    public string Type { get; set; } = "primary";
-    public string CompletionCriteria { get; set; } = "";
-    public string Description { get; set; } = "";
-    public string Reason { get; set; } = "";
-    public double Confidence { get; set; }
-    public int ConfidencePercent { get; set; }
-
-    [ObservableProperty]
-    private bool _isCreated;
-
-    public string ButtonText => IsCreated ? "Created" : "+ Create Objective";
-
-    /// <summary>Helper for x:Bind in DataTemplate -- boolean negation.</summary>
-    public bool NotCreated => !IsCreated;
-
-    /// <summary>Helper for x:Bind in DataTemplate -- compute bar width from percent.</summary>
-    public double ConfBarWidth => Math.Max(10, ConfidencePercent * 2.5);
 }
 
 public sealed class ChampionStatRow
