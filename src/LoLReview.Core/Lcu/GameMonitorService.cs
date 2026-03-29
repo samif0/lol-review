@@ -27,6 +27,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private readonly ILcuClient _lcuClient;
     private readonly ILiveEventApi _liveEventApi;
     private readonly IGameRepository _gameRepository;
+    private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
     private readonly IMessenger _messenger;
     private readonly ILogger<GameMonitorService> _logger;
 
@@ -65,6 +66,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         ILcuClient lcuClient,
         ILiveEventApi liveEventApi,
         IGameRepository gameRepository,
+        IMissedGameDecisionRepository missedGameDecisionRepository,
         IMessenger messenger,
         ILogger<GameMonitorService> logger)
     {
@@ -72,6 +74,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _lcuClient = lcuClient;
         _liveEventApi = liveEventApi;
         _gameRepository = gameRepository;
+        _missedGameDecisionRepository = missedGameDecisionRepository;
         _messenger = messenger;
         _logger = logger;
     }
@@ -378,12 +381,19 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         if (matches.Count == 0)
             return;
 
+        var dismissedIds = await _missedGameDecisionRepository.GetDismissedGameIdsAsync(
+            matches.Select(static game => game.GetPropertyLongOrDefault("gameId", 0)))
+            .ConfigureAwait(false);
+
         var summonerName = await TryGetCurrentSummonerNameAsync(ct).ConfigureAwait(false);
         var candidates = new List<GameStats>();
         foreach (var game in matches)
         {
             var gameId = game.GetPropertyLongOrDefault("gameId", 0);
             if (gameId == 0)
+                continue;
+
+            if (dismissedIds.Contains(gameId))
                 continue;
 
             // Already saved?

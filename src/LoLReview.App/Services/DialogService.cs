@@ -100,7 +100,7 @@ public sealed class DialogService : IDialogService
         {
             Title = games.Count == 1 ? "Missed Game Found" : "Missed Games Found",
             PrimaryButtonText = "Ingest Selected",
-            CloseButtonText = "Not Now",
+            CloseButtonText = games.Count == 1 ? "Dismiss" : "Dismiss All",
             DefaultButton = ContentDialogButton.Primary,
             RequestedTheme = ElementTheme.Dark,
         };
@@ -113,8 +113,8 @@ public sealed class DialogService : IDialogService
         var introText = new TextBlock
         {
             Text = games.Count == 1
-                ? "The app found 1 recent finished game that is not in your history yet. Choose whether to ingest it for review."
-                : $"The app found {games.Count} recent finished games that are not in your history yet. Choose which ones to ingest for review.",
+                ? "The app found 1 recent finished game that is not in your history yet. Ingest it for review, or dismiss it so it is not offered again."
+                : $"The app found {games.Count} recent finished games that are not in your history yet. Choose which ones to ingest. Unchecked or dismissed games will not be offered again automatically.",
             TextWrapping = TextWrapping.WrapWholeWords,
             Margin = new Thickness(0, 0, 0, 8),
         };

@@ -1,6 +1,7 @@
 #nullable enable
 
 using LoLReview.App.ViewModels;
+using LoLReview.App.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
@@ -45,5 +46,15 @@ public sealed partial class DashboardPage : Page
         {
             ViewModel.NavigateToReviewCommand.Execute(gameId);
         }
+    }
+
+    private void ReviewInboxButton_Click(object sender, RoutedEventArgs e)
+    {
+        App.GetService<INavigationService>().NavigateTo("session");
+    }
+
+    private void TiltResetButton_Click(object sender, RoutedEventArgs e)
+    {
+        App.GetService<INavigationService>().NavigateTo("tiltcheck");
     }
 }

@@ -28,10 +28,10 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
-                        <TextBlock Text="Session"
+                        <TextBlock Text="Review Inbox"
                                    FontSize="22" FontWeight="Bold"
                                    Foreground="{StaticResource PrimaryTextBrush}"/>
-                        <TextBlock Text="Track your mental state and adherence"
+                        <TextBlock Text="Review what still needs attention and keep the session moving."
                                    FontSize="13"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    VerticalAlignment="Center"/>
@@ -201,91 +201,192 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Games Heading -->
-                <TextBlock Text="{x:Bind ViewModel.GamesHeading, Mode=OneWay}"
+                <TextBlock Text="NEEDS REVIEW"
                            FontSize="11" FontWeight="Bold"
                            Foreground="{StaticResource SecondaryTextBrush}"
                            Margin="0,4,0,0"/>
 
-                <!-- Empty State -->
-                <TextBlock Text="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
-                           FontSize="13"
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="Open items from this session day"
+                                       FontSize="13"
+                                       Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind ViewModel.NeedsReviewCountText, Mode=OneWay}"
+                                       FontSize="11"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                        </Grid>
+
+                        <TextBlock Text="Everything for this day is already reviewed."
+                                   FontSize="12"
+                                   Foreground="{StaticResource WinGreenBrush}"
+                                   Visibility="{x:Bind ViewModel.HasNeedsReviewGames, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
+
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.NeedsReviewGames, Mode=OneWay}"
+                                       Visibility="{x:Bind ViewModel.HasNeedsReviewGames, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="6"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SessionGameEntry">
+                                    <Border Background="{StaticResource CardBackgroundBrush}"
+                                            CornerRadius="8"
+                                            Padding="14,12"
+                                            BorderThickness="2"
+                                            BorderBrush="{x:Bind Win, Converter={StaticResource WinLossColor}}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock FontSize="14" FontWeight="Bold"
+                                                               Foreground="{x:Bind Win, Converter={StaticResource WinLossColor}}">
+                                                        <Run Text="{x:Bind ResultText}"/>
+                                                        <Run Text="  "/>
+                                                        <Run Text="{x:Bind ChampionName}"/>
+                                                    </TextBlock>
+                                                    <Border Background="{StaticResource LossRedBrush}"
+                                                            CornerRadius="4" Padding="6,2"
+                                                            Visibility="{x:Bind RuleBroken, Converter={StaticResource BoolToVis}}">
+                                                        <TextBlock Text="RULE BREAK"
+                                                                   FontSize="9" FontWeight="Bold"
+                                                                   Foreground="White"/>
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{x:Bind ImprovementNote}"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                                           TextWrapping="Wrap"
+                                                           MaxWidth="400"
+                                                           Visibility="{x:Bind HasImprovementNote, Converter={StaticResource BoolToVis}}"/>
+                                            </StackPanel>
+
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center"
+                                                        HorizontalAlignment="Right" Spacing="6">
+                                                <TextBlock Text="{x:Bind MentalText}"
+                                                           FontSize="14" FontWeight="Bold"
+                                                           Foreground="{x:Bind MentalRating, Converter={StaticResource MentalColor}}"
+                                                           HorizontalAlignment="Right"/>
+                                                <Button Content="Review"
+                                                        Background="{StaticResource AccentBlueBrush}"
+                                                        Foreground="White"
+                                                        CornerRadius="6" Height="28"
+                                                        FontSize="11"
+                                                        BorderThickness="0"
+                                                        HorizontalAlignment="Right"
+                                                        Tag="{x:Bind GameId}"
+                                                        Click="ReviewButton_Click"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="REVIEWED"
+                           FontSize="11" FontWeight="Bold"
                            Foreground="{StaticResource SecondaryTextBrush}"
-                           HorizontalAlignment="Center"
-                           TextAlignment="Center"
-                           Margin="0,30"
-                           Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
+                           Margin="0,4,0,0"/>
 
-                <!-- Games List -->
-                <ItemsRepeater ItemsSource="{x:Bind ViewModel.Games, Mode=OneWay}"
-                               Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                    <ItemsRepeater.Layout>
-                        <StackLayout Spacing="6"/>
-                    </ItemsRepeater.Layout>
-                    <ItemsRepeater.ItemTemplate>
-                        <DataTemplate x:DataType="vm:SessionGameEntry">
-                            <Border Background="{StaticResource CardBackgroundBrush}"
-                                    CornerRadius="8"
-                                    Padding="14,12"
-                                    BorderThickness="2"
-                                    BorderBrush="{x:Bind Win, Converter={StaticResource WinLossColor}}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="Completed reviews from this session day"
+                                       FontSize="13"
+                                       Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind ViewModel.ReviewedCountText, Mode=OneWay}"
+                                       FontSize="11"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                        </Grid>
 
-                                    <!-- Left: Champion + Note -->
-                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock FontSize="14" FontWeight="Bold"
-                                                       Foreground="{x:Bind Win, Converter={StaticResource WinLossColor}}">
-                                                <Run Text="{x:Bind ResultText}"/>
-                                                <Run Text="  "/>
-                                                <Run Text="{x:Bind ChampionName}"/>
-                                            </TextBlock>
-                                            <Border Background="{StaticResource LossRedBrush}"
-                                                    CornerRadius="4" Padding="6,2"
-                                                    Visibility="{x:Bind RuleBroken, Converter={StaticResource BoolToVis}}">
-                                                <TextBlock Text="RULE BREAK"
-                                                           FontSize="9" FontWeight="Bold"
-                                                           Foreground="White"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <TextBlock Text="{x:Bind ImprovementNote}"
-                                                   FontSize="11"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"
-                                                   MaxWidth="400"
-                                                   Visibility="{x:Bind HasImprovementNote, Converter={StaticResource BoolToVis}}"/>
-                                        <TextBlock Text="Reviewed"
-                                                   FontSize="10"
-                                                   Foreground="{StaticResource WinGreenBrush}"
-                                                   Visibility="{x:Bind HasReview, Converter={StaticResource BoolToVis}}"/>
-                                    </StackPanel>
+                        <TextBlock Text="No reviewed games yet for this day."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   Visibility="{x:Bind ViewModel.HasReviewedGames, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
 
-                                    <!-- Right: Mental + Review Button -->
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center"
-                                                HorizontalAlignment="Right" Spacing="6">
-                                        <TextBlock Text="{x:Bind MentalText}"
-                                                   FontSize="14" FontWeight="Bold"
-                                                   Foreground="{x:Bind MentalRating, Converter={StaticResource MentalColor}}"
-                                                   HorizontalAlignment="Right"/>
-                                        <Button Content="Review"
-                                                Background="{StaticResource AccentBlueBrush}"
-                                                Foreground="White"
-                                                CornerRadius="6" Height="28"
-                                                FontSize="11"
-                                                BorderThickness="0"
-                                                HorizontalAlignment="Right"
-                                                Tag="{x:Bind GameId}"
-                                                Click="ReviewButton_Click"/>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsRepeater.ItemTemplate>
-                </ItemsRepeater>
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.ReviewedGames, Mode=OneWay}"
+                                       Visibility="{x:Bind ViewModel.HasReviewedGames, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="6"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SessionGameEntry">
+                                    <Border Background="{StaticResource CardBackgroundBrush}"
+                                            CornerRadius="8"
+                                            Padding="14,12"
+                                            BorderThickness="1"
+                                            BorderBrush="{StaticResource SubtleBorderBrush}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock FontSize="14" FontWeight="Bold"
+                                                               Foreground="{x:Bind Win, Converter={StaticResource WinLossColor}}">
+                                                        <Run Text="{x:Bind ResultText}"/>
+                                                        <Run Text="  "/>
+                                                        <Run Text="{x:Bind ChampionName}"/>
+                                                    </TextBlock>
+                                                    <Border Background="{StaticResource WinGreenBrush}"
+                                                            CornerRadius="4" Padding="6,2">
+                                                        <TextBlock Text="REVIEWED"
+                                                                   FontSize="9" FontWeight="Bold"
+                                                                   Foreground="White"/>
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{x:Bind ImprovementNote}"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                                           TextWrapping="Wrap"
+                                                           MaxWidth="400"
+                                                           Visibility="{x:Bind HasImprovementNote, Converter={StaticResource BoolToVis}}"/>
+                                            </StackPanel>
+
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center"
+                                                        HorizontalAlignment="Right" Spacing="6">
+                                                <TextBlock Text="{x:Bind MentalText}"
+                                                           FontSize="14" FontWeight="Bold"
+                                                           Foreground="{x:Bind MentalRating, Converter={StaticResource MentalColor}}"
+                                                           HorizontalAlignment="Right"/>
+                                                <Button Content="Open"
+                                                        Background="{StaticResource TagBackgroundBrush}"
+                                                        Foreground="{StaticResource PrimaryTextBrush}"
+                                                        CornerRadius="6" Height="28"
+                                                        FontSize="11"
+                                                        BorderThickness="0"
+                                                        HorizontalAlignment="Right"
+                                                        Tag="{x:Bind GameId}"
+                                                        Click="ReviewButton_Click"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </Border>
 
                 <!-- Loading indicator -->
                 <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"

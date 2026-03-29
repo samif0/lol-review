@@ -239,19 +239,30 @@
                     </Button>
                 </Grid>
 
-                <!-- ── Row 1: clip note input + clip range/status ── -->
+                <!-- ── Row 1: note input + clip range/status ── -->
                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
-                    <!-- Note input (shown when clip range set) -->
-                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
-                                Visibility="{x:Bind ViewModel.HasClipRange, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                        <TextBlock Text="Note:" Foreground="#7070a0" FontSize="12" VerticalAlignment="Center" />
-                        <TextBox x:Name="ClipNoteBox"
-                                 Text="{x:Bind ViewModel.ClipNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="optional clip note"
-                                 Width="200" FontSize="12"
-                                 Background="#12121a" Foreground="#e8e8f0"
-                                 BorderBrush="#2a2a3a" BorderThickness="1"
-                                 Padding="6,3" CornerRadius="4" />
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <TextBlock Text="Bookmark note:" Foreground="#7070a0" FontSize="12" VerticalAlignment="Center" />
+                            <TextBox x:Name="BookmarkNoteBox"
+                                     Text="{x:Bind ViewModel.BookmarkNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="optional bookmark note"
+                                     Width="220" FontSize="12"
+                                     Background="#12121a" Foreground="#e8e8f0"
+                                     BorderBrush="#2a2a3a" BorderThickness="1"
+                                     Padding="6,3" CornerRadius="4" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                    Visibility="{x:Bind ViewModel.HasClipRange, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="Clip note:" Foreground="#7070a0" FontSize="12" VerticalAlignment="Center" />
+                            <TextBox x:Name="ClipNoteBox"
+                                     Text="{x:Bind ViewModel.ClipNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="optional clip note"
+                                     Width="200" FontSize="12"
+                                     Background="#12121a" Foreground="#e8e8f0"
+                                     BorderBrush="#2a2a3a" BorderThickness="1"
+                                     Padding="6,3" CornerRadius="4" />
+                        </StackPanel>
                     </StackPanel>
                     <!-- Range + status + clear -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
@@ -298,12 +309,19 @@
                                                    Foreground="#0099ff" FontSize="12"
                                                    FontFamily="Consolas"
                                                    VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{x:Bind Note}"
-                                                   Foreground="#e8e8f0" FontSize="12"
-                                                   Margin="8,0,0,0"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBox Grid.Column="1"
+                                                 Text="{x:Bind Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 PlaceholderText="bookmark note"
+                                                 LostFocus="OnBookmarkNoteLostFocus"
+                                                 KeyDown="OnBookmarkNoteKeyDown"
+                                                 Foreground="#e8e8f0" FontSize="12"
+                                                 Margin="8,0,0,0"
+                                                 VerticalAlignment="Center"
+                                                 Background="#0f0f18"
+                                                 BorderBrush="#2a2a3a"
+                                                 BorderThickness="1"
+                                                 CornerRadius="4"
+                                                 Padding="6,3" />
                                         <StackPanel Grid.Column="2" Orientation="Horizontal"
                                                     Spacing="4" VerticalAlignment="Center">
                                             <Border Visibility="{x:Bind IsClip, Converter={StaticResource BoolToVisibility}}"

@@ -53,6 +53,7 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private bool _hasFfmpeg;
     [ObservableProperty] private bool _isExtractingClip;
     [ObservableProperty] private string _clipStatusText = "";
+    [ObservableProperty] private string _bookmarkNote = "";
     [ObservableProperty] private string _clipNote = "";
 
     // ── Collections ─────────────────────────────────────────────────
@@ -238,7 +239,9 @@ public partial class VodPlayerViewModel : ObservableObject
         try
         {
             var timeS = (int)CurrentTimeS;
-            await _vodRepo.AddBookmarkAsync(GameId, timeS, "");
+            var note = BookmarkNote.Trim();
+            await _vodRepo.AddBookmarkAsync(GameId, timeS, note);
+            BookmarkNote = "";
             await RefreshBookmarksAsync();
             _logger.LogInformation("Bookmark added at {Time}s for game {Id}", timeS, GameId);
         }
@@ -259,6 +262,24 @@ public partial class VodPlayerViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete bookmark {Id}", bookmarkId);
+        }
+    }
+
+    [RelayCommand]
+    private async Task SaveBookmarkNoteAsync(BookmarkItem? bookmark)
+    {
+        if (bookmark is null || bookmark.Id <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _vodRepo.UpdateBookmarkAsync(bookmark.Id, note: bookmark.Note?.Trim() ?? "");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save note for bookmark {Id}", bookmark.Id);
         }
     }
 

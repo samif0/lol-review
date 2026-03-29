@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.App.Contracts;
@@ -23,6 +24,7 @@ public partial class ReviewViewModel : ObservableObject
     private readonly IVodService _vodService;
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IObjectivesRepository _objectivesRepo;
+    private readonly IReviewDraftRepository _reviewDraftRepo;
     private readonly IMatchupNotesRepository _matchupNotesRepo;
     private readonly IConfigService _configService;
     private readonly INavigationService _navigationService;
@@ -209,6 +211,7 @@ public partial class ReviewViewModel : ObservableObject
         IVodService vodService,
         ISessionLogRepository sessionLogRepo,
         IObjectivesRepository objectivesRepo,
+        IReviewDraftRepository reviewDraftRepo,
         IMatchupNotesRepository matchupNotesRepo,
         IConfigService configService,
         INavigationService navigationService,
@@ -220,6 +223,7 @@ public partial class ReviewViewModel : ObservableObject
         _vodService = vodService;
         _sessionLogRepo = sessionLogRepo;
         _objectivesRepo = objectivesRepo;
+        _reviewDraftRepo = reviewDraftRepo;
         _matchupNotesRepo = matchupNotesRepo;
         _configService = configService;
         _navigationService = navigationService;
@@ -259,6 +263,7 @@ public partial class ReviewViewModel : ObservableObject
             await LoadConceptTagsAsync(gameId);
             await LoadObjectiveAssessmentsAsync(gameId);
             await LoadMatchupSectionAsync(gameId);
+            await LoadDraftStateAsync(gameId);
         }
         catch (Exception ex)
         {
@@ -284,8 +289,15 @@ public partial class ReviewViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void WatchVod()
+    private async Task WatchVodAsync()
     {
+        var saved = await SaveDraftAsync();
+        if (!saved)
+        {
+            SetValidation("Couldn't preserve your review draft before opening the VOD.");
+            return;
+        }
+
         _navigationService.NavigateTo("vodplayer", GameId);
     }
 
@@ -403,6 +415,7 @@ public partial class ReviewViewModel : ObservableObject
 
             ClearValidation();
             _logger.LogInformation("Review saved for game {GameId}", GameId);
+            await _reviewDraftRepo.DeleteAsync(GameId);
 
             if (navigateBackOnSuccess)
             {
@@ -453,6 +466,53 @@ public partial class ReviewViewModel : ObservableObject
                || !string.IsNullOrWhiteSpace(MatchupNote)
                || AllTags.Any(t => t.IsSelected)
                || ObjectiveAssessments.Any(o => o.Practiced || !string.IsNullOrWhiteSpace(o.ExecutionNote));
+    }
+
+    private async Task<bool> SaveDraftAsync()
+    {
+        if (GameId <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            await _reviewDraftRepo.UpsertAsync(new ReviewDraft
+            {
+                GameId = GameId,
+                MentalRating = MentalRating,
+                WentWell = WentWell.Trim(),
+                Mistakes = Mistakes.Trim(),
+                FocusNext = FocusNext.Trim(),
+                ReviewNotes = ReviewNotes.Trim(),
+                ImprovementNote = ImprovementNote.Trim(),
+                Attribution = Attribution.Trim(),
+                MentalHandled = MentalHandled.Trim(),
+                SpottedProblems = SpottedProblems.Trim(),
+                OutsideControl = OutsideControl.Trim(),
+                WithinControl = WithinControl.Trim(),
+                PersonalContribution = PersonalContribution.Trim(),
+                EnemyLaner = EnemyLaner.Trim(),
+                MatchupNote = MatchupNote.Trim(),
+                SelectedTagIdsJson = JsonSerializer.Serialize(
+                    AllTags.Where(static t => t.IsSelected).Select(static t => t.Id).ToList()),
+                ObjectiveAssessmentsJson = JsonSerializer.Serialize(
+                    ObjectiveAssessments.Select(static o => new ReviewDraftObjectiveAssessmentSnapshot
+                    {
+                        ObjectiveId = o.ObjectiveId,
+                        Practiced = o.Practiced,
+                        ExecutionNote = o.ExecutionNote
+                    }).ToList()),
+                UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            });
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save review draft for game {GameId}", GameId);
+            return false;
+        }
     }
 
     // ── Load helpers ────────────────────────────────────────────────────
@@ -613,6 +673,90 @@ public partial class ReviewViewModel : ObservableObject
         }
 
         await LoadMatchupHistoryOnlyAsync(ChampionName, EnemyLaner.Trim(), gameId);
+    }
+
+    private async Task LoadDraftStateAsync(long gameId)
+    {
+        var draft = await _reviewDraftRepo.GetAsync(gameId);
+        if (draft == null)
+        {
+            return;
+        }
+
+        WentWell = draft.WentWell;
+        Mistakes = draft.Mistakes;
+        FocusNext = draft.FocusNext;
+        ReviewNotes = draft.ReviewNotes;
+        ImprovementNote = draft.ImprovementNote;
+        Attribution = draft.Attribution;
+        MentalHandled = draft.MentalHandled;
+        SpottedProblems = draft.SpottedProblems;
+        OutsideControl = draft.OutsideControl;
+        WithinControl = draft.WithinControl;
+        PersonalContribution = draft.PersonalContribution;
+        EnemyLaner = draft.EnemyLaner;
+        MatchupNote = draft.MatchupNote;
+        MentalRating = draft.MentalRating;
+
+        ApplyDraftTags(draft.SelectedTagIdsJson);
+        ApplyDraftObjectiveAssessments(draft.ObjectiveAssessmentsJson);
+        await LoadMatchupHistoryOnlyAsync(ChampionName, EnemyLaner.Trim(), gameId);
+    }
+
+    private void ApplyDraftTags(string selectedTagIdsJson)
+    {
+        HashSet<long> selectedIds;
+        try
+        {
+            selectedIds = JsonSerializer.Deserialize<List<long>>(selectedTagIdsJson)?.ToHashSet() ?? [];
+        }
+        catch
+        {
+            selectedIds = [];
+        }
+
+        DispatcherHelper.RunOnUIThread(() =>
+        {
+            SelectedTagIds.Clear();
+            foreach (var tag in AllTags)
+            {
+                tag.IsSelected = selectedIds.Contains(tag.Id);
+                if (tag.IsSelected)
+                {
+                    SelectedTagIds.Add(tag.Id);
+                }
+            }
+        });
+    }
+
+    private void ApplyDraftObjectiveAssessments(string objectiveAssessmentsJson)
+    {
+        List<ReviewDraftObjectiveAssessmentSnapshot>? snapshots;
+        try
+        {
+            snapshots = JsonSerializer.Deserialize<List<ReviewDraftObjectiveAssessmentSnapshot>>(objectiveAssessmentsJson);
+        }
+        catch
+        {
+            snapshots = null;
+        }
+
+        if (snapshots == null || snapshots.Count == 0)
+        {
+            return;
+        }
+
+        var byId = snapshots.ToDictionary(static s => s.ObjectiveId, static s => s);
+        foreach (var assessment in ObjectiveAssessments)
+        {
+            if (!byId.TryGetValue(assessment.ObjectiveId, out var snapshot))
+            {
+                continue;
+            }
+
+            assessment.Practiced = snapshot.Practiced;
+            assessment.ExecutionNote = snapshot.ExecutionNote ?? "";
+        }
     }
 
     private async Task LoadMatchupHistoryOnlyAsync(string championName, string enemyLaner, long currentGameId)
@@ -823,4 +967,11 @@ public sealed class MatchupHistoryItem
     public string Note { get; init; } = "";
     public bool? Helpful { get; init; }
     public string MetaText { get; init; } = "";
+}
+
+internal sealed class ReviewDraftObjectiveAssessmentSnapshot
+{
+    public long ObjectiveId { get; set; }
+    public bool Practiced { get; set; }
+    public string? ExecutionNote { get; set; }
 }

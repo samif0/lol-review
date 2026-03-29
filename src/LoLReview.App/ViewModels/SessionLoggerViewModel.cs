@@ -84,9 +84,29 @@ public partial class SessionLoggerViewModel : ObservableObject
     private bool _hasGames;
 
     [ObservableProperty]
+    private bool _hasNeedsReviewGames;
+
+    [ObservableProperty]
+    private bool _hasReviewedGames;
+
+    [ObservableProperty]
+    private int _needsReviewCount;
+
+    [ObservableProperty]
+    private int _reviewedCount;
+
+    [ObservableProperty]
+    private string _needsReviewCountText = "0 games";
+
+    [ObservableProperty]
+    private string _reviewedCountText = "0 games";
+
+    [ObservableProperty]
     private string _emptyMessage = "No games logged today.\nGames are logged automatically when detected.";
 
     public ObservableCollection<SessionGameEntry> Games { get; } = new();
+    public ObservableCollection<SessionGameEntry> NeedsReviewGames { get; } = new();
+    public ObservableCollection<SessionGameEntry> ReviewedGames { get; } = new();
 
     public SessionLoggerViewModel(
         ISessionLogRepository sessionLogRepo,
@@ -233,14 +253,38 @@ public partial class SessionLoggerViewModel : ObservableObject
             });
         }
 
+        var needsReview = gameEntries.Where(static ge => !ge.HasReview).ToList();
+        var reviewed = gameEntries.Where(static ge => ge.HasReview).ToList();
+
+        NeedsReviewCount = needsReview.Count;
+        ReviewedCount = reviewed.Count;
+        NeedsReviewCountText = $"{NeedsReviewCount} game{(NeedsReviewCount == 1 ? "" : "s")}";
+        ReviewedCountText = $"{ReviewedCount} game{(ReviewedCount == 1 ? "" : "s")}";
+
         DispatcherHelper.RunOnUIThread(() =>
         {
             Games.Clear();
+            NeedsReviewGames.Clear();
+            ReviewedGames.Clear();
+
             foreach (var ge in gameEntries)
             {
                 Games.Add(ge);
             }
+
+            foreach (var ge in needsReview)
+            {
+                NeedsReviewGames.Add(ge);
+            }
+
+            foreach (var ge in reviewed)
+            {
+                ReviewedGames.Add(ge);
+            }
+
             HasGames = Games.Count > 0;
+            HasNeedsReviewGames = NeedsReviewGames.Count > 0;
+            HasReviewedGames = ReviewedGames.Count > 0;
         });
     }
 }

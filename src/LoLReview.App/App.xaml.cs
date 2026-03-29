@@ -200,6 +200,8 @@ public partial class App : Application
                 services.AddSingleton<IConceptTagRepository, ConceptTagRepository>();
                 services.AddSingleton<IVodRepository, VodRepository>();
                 services.AddSingleton<ISessionLogRepository, SessionLogRepository>();
+                services.AddSingleton<IReviewDraftRepository, ReviewDraftRepository>();
+                services.AddSingleton<IMissedGameDecisionRepository, MissedGameDecisionRepository>();
                 services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
                 services.AddSingleton<IMatchupNotesRepository, MatchupNotesRepository>();
                 services.AddSingleton<INotesRepository, NotesRepository>();

@@ -321,6 +321,39 @@ public static class Schema
         );
         """;
 
+    public const string CreateReviewDraftsTable = """
+        CREATE TABLE IF NOT EXISTS review_drafts (
+            game_id              INTEGER PRIMARY KEY,
+            mental_rating        INTEGER DEFAULT 5,
+            went_well            TEXT DEFAULT '',
+            mistakes             TEXT DEFAULT '',
+            focus_next           TEXT DEFAULT '',
+            review_notes         TEXT DEFAULT '',
+            improvement_note     TEXT DEFAULT '',
+            attribution          TEXT DEFAULT '',
+            mental_handled       TEXT DEFAULT '',
+            spotted_problems     TEXT DEFAULT '',
+            outside_control      TEXT DEFAULT '',
+            within_control       TEXT DEFAULT '',
+            personal_contribution TEXT DEFAULT '',
+            enemy_laner          TEXT DEFAULT '',
+            matchup_note         TEXT DEFAULT '',
+            selected_tag_ids     TEXT DEFAULT '[]',
+            objective_assessments TEXT DEFAULT '[]',
+            updated_at           INTEGER,
+            FOREIGN KEY (game_id) REFERENCES games(game_id)
+        );
+        """;
+
+    public const string CreateMissedGameDecisionsTable = """
+        CREATE TABLE IF NOT EXISTS missed_game_decisions (
+            game_id          INTEGER PRIMARY KEY,
+            decision         TEXT NOT NULL,
+            created_at       INTEGER,
+            updated_at       INTEGER
+        );
+        """;
+
     public const string CreateCoachPlayersTable = """
         CREATE TABLE IF NOT EXISTS coach_players (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -547,6 +580,7 @@ public static class Schema
     [
         CreateGamesTable,
         CreateSessionLogTable,
+        CreateReviewDraftsTable,
         CreatePersistentNotesTable,
         CreateVodFilesTable,
         CreateVodBookmarksTable,
@@ -564,6 +598,7 @@ public static class Schema
         CreateMatchupNotesTable,
         CreateSessionsTable,
         CreateTiltChecksTable,
+        CreateMissedGameDecisionsTable,
         CreateCoachPlayersTable,
         CreateCoachObjectiveBlocksTable,
         CreateCoachMomentsTable,

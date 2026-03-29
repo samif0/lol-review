@@ -5,6 +5,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.App.Contracts;
+using LoLReview.App.Helpers;
+using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Lcu;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -25,6 +27,7 @@ public partial class ShellViewModel : ObservableRecipient,
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
     private readonly IGameService _gameService;
+    private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
     private readonly ILogger<ShellViewModel> _logger;
 
     // Store pre-game mood from the page so we can pass it to ProcessGameEndAsync
@@ -40,11 +43,13 @@ public partial class ShellViewModel : ObservableRecipient,
         INavigationService navigationService,
         IDialogService dialogService,
         IGameService gameService,
+        IMissedGameDecisionRepository missedGameDecisionRepository,
         ILogger<ShellViewModel> logger)
     {
         _navigationService = navigationService;
         _dialogService = dialogService;
         _gameService = gameService;
+        _missedGameDecisionRepository = missedGameDecisionRepository;
         _logger = logger;
 
         // Activate the messenger so we receive messages
@@ -70,6 +75,8 @@ public partial class ShellViewModel : ObservableRecipient,
     {
         Helpers.DispatcherHelper.RunOnUIThread(() =>
         {
+            _logger.LogInformation("Champ select detected -- opening pre-game page");
+            WindowActivationHelper.BringMainWindowToFront();
             _navigationService.NavigateTo("pregame");
         });
     }
@@ -125,6 +132,8 @@ public partial class ShellViewModel : ObservableRecipient,
                 _preGameMood = 0; // Reset for next game
 
                 // 2. Navigate to post-game review page
+                _logger.LogInformation("Game end processed for {GameId} -- opening post-game page", gameId.Value);
+                WindowActivationHelper.BringMainWindowToFront();
                 _navigationService.NavigateTo("postgame", gameId.Value);
             }
             catch (Exception ex)
@@ -142,10 +151,22 @@ public partial class ShellViewModel : ObservableRecipient,
             try
             {
                 var selectedGames = await _dialogService.ShowMissedGamesSelectionAsync(message.Games);
+                var dismissedIds = message.Games
+                    .Select(static game => game.GameId)
+                    .Except(selectedGames.Select(static game => game.GameId))
+                    .Where(static gameId => gameId > 0)
+                    .ToArray();
+
+                if (dismissedIds.Length > 0)
+                {
+                    await _missedGameDecisionRepository.MarkDismissedAsync(dismissedIds);
+                }
+
                 if (selectedGames.Count == 0)
                 {
                     _logger.LogInformation(
-                        "Missed games dialog dismissed or no games selected out of {Count} candidates",
+                        "Missed games dialog dismissed; persisted {DismissedCount} declined game(s) out of {Count} candidates",
+                        dismissedIds.Length,
                         message.Games.Count);
                     return;
                 }
@@ -175,9 +196,10 @@ public partial class ShellViewModel : ObservableRecipient,
                 }
 
                 _logger.LogInformation(
-                    "Missed games ingestion completed: selected={Selected} ingested={Ingested} candidates={Candidates}",
+                    "Missed games ingestion completed: selected={Selected} ingested={Ingested} dismissed={Dismissed} candidates={Candidates}",
                     selectedGames.Count,
                     ingested,
+                    dismissedIds.Length,
                     message.Games.Count);
             }
             catch (Exception ex)

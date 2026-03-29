@@ -282,6 +282,342 @@
                     </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>
 
+                <TextBlock Text="GUARDRAILS"
+                           FontSize="11"
+                           FontWeight="Bold"
+                           Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="3">
+                                <TextBlock Text="Session rules now live here."
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                                <TextBlock Text="Use guardrails to protect the priority objective and shut down self-sabotage."
+                                           FontSize="12"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="+ New Guardrail"
+                                    Command="{x:Bind RulesVM.ToggleCreateFormCommand}"
+                                    Background="{StaticResource AccentBlueBrush}"
+                                    Foreground="White"
+                                    CornerRadius="6"
+                                    Height="34"
+                                    BorderThickness="0"/>
+                        </Grid>
+
+                        <Border Background="#3f1111"
+                                CornerRadius="8"
+                                Padding="16,12"
+                                BorderThickness="2"
+                                BorderBrush="{StaticResource LossRedBrush}"
+                                Visibility="{x:Bind RulesVM.HasViolations, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE7BA;" FontSize="16"
+                                              Foreground="{StaticResource LossRedBrush}"/>
+                                    <TextBlock Text="ACTIVE VIOLATIONS"
+                                               FontSize="13" FontWeight="Bold"
+                                               Foreground="{StaticResource LossRedBrush}"/>
+                                </StackPanel>
+                                <ItemsRepeater ItemsSource="{x:Bind RulesVM.Violations, Mode=OneWay}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Spacing="4"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ViolationBannerItem">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{x:Bind RuleName}"
+                                                           FontSize="12" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                                                <TextBlock Text="&#x2014;"
+                                                           FontSize="12"
+                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                <TextBlock Text="{x:Bind Reason}"
+                                                           FontSize="12"
+                                                           Foreground="{StaticResource LossRedBrush}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource InputBackgroundBrush}"
+                                CornerRadius="8"
+                                Padding="14"
+                                BorderThickness="1"
+                                BorderBrush="{StaticResource AccentBlueBrush}"
+                                Visibility="{x:Bind RulesVM.IsCreating, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="New Guardrail"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource PrimaryTextBrush}"/>
+
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Name *"
+                                               FontSize="12"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <TextBox Text="{x:Bind RulesVM.NewRuleName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="e.g., Stop after 2 losses"
+                                             Background="{StaticResource InputBackgroundBrush}"
+                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                             CornerRadius="6"/>
+                                </StackPanel>
+
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Type"
+                                               FontSize="12"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <ComboBox ItemsSource="{x:Bind RulesVM.RuleTypeOptions}"
+                                              SelectedIndex="{x:Bind RulesVM.NewRuleTypeIndex, Mode=TwoWay}"
+                                              Background="{StaticResource InputBackgroundBrush}"
+                                              Foreground="{StaticResource PrimaryTextBrush}"
+                                              BorderBrush="{StaticResource SubtleBorderBrush}"
+                                              CornerRadius="6"
+                                              MinWidth="250"/>
+                                </StackPanel>
+
+                                <StackPanel Spacing="4"
+                                            Visibility="{x:Bind RulesVM.ShowConditionField, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="{x:Bind RulesVM.ConditionLabel, Mode=OneWay}"
+                                               FontSize="12"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <TextBox Text="{x:Bind RulesVM.NewConditionValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="{x:Bind RulesVM.ConditionPlaceholder, Mode=OneWay}"
+                                             Background="{StaticResource InputBackgroundBrush}"
+                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                             CornerRadius="6"/>
+                                </StackPanel>
+
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Description"
+                                               FontSize="12"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <TextBox Text="{x:Bind RulesVM.NewDescription, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="Why this guardrail matters"
+                                             Background="{StaticResource InputBackgroundBrush}"
+                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                             CornerRadius="6"
+                                             AcceptsReturn="True"
+                                             TextWrapping="Wrap"
+                                             MinHeight="60"/>
+                                </StackPanel>
+
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="8"
+                                            HorizontalAlignment="Right">
+                                    <Button Content="Cancel"
+                                            Command="{x:Bind RulesVM.ToggleCreateFormCommand}"
+                                            Background="{StaticResource TagBackgroundBrush}"
+                                            Foreground="{StaticResource PrimaryTextBrush}"
+                                            CornerRadius="6"
+                                            Height="32"
+                                            BorderThickness="0"/>
+                                    <Button Content="Create"
+                                            Command="{x:Bind RulesVM.CreateRuleCommand}"
+                                            IsEnabled="{x:Bind RulesVM.CanCreate, Mode=OneWay}"
+                                            Background="{StaticResource AccentBlueBrush}"
+                                            Foreground="White"
+                                            CornerRadius="6"
+                                            Height="32"
+                                            BorderThickness="0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="No guardrails yet. Add one if you want structure around loss streaks, time limits, or mindset."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   Visibility="{x:Bind RulesVM.HasRules, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
+
+                        <ItemsRepeater ItemsSource="{x:Bind RulesVM.ActiveRules, Mode=OneWay}"
+                                       Visibility="{x:Bind RulesVM.HasActiveRules, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="8"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:RuleDisplayItem">
+                                    <Border Background="{StaticResource InputBackgroundBrush}"
+                                            CornerRadius="10"
+                                            Padding="14,12"
+                                            BorderThickness="1"
+                                            BorderBrush="{StaticResource SubtleBorderBrush}">
+                                        <StackPanel Spacing="4">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <Border Grid.Column="0"
+                                                        Background="#1e40af"
+                                                        CornerRadius="4"
+                                                        Padding="6,2"
+                                                        Margin="0,0,8,0">
+                                                    <TextBlock Text="{x:Bind TypeBadge}"
+                                                               FontSize="9"
+                                                               FontWeight="Bold"
+                                                               Foreground="White"/>
+                                                </Border>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{x:Bind Name}"
+                                                           FontSize="15"
+                                                           FontWeight="Bold"
+                                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <StackPanel Grid.Column="2"
+                                                            Orientation="Horizontal">
+                                                    <Border Background="{StaticResource LossRedBrush}"
+                                                            CornerRadius="4"
+                                                            Padding="8,2"
+                                                            Visibility="{x:Bind IsViolated, Converter={StaticResource BoolToVis}}">
+                                                        <TextBlock Text="VIOLATED"
+                                                                   FontSize="10"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="White"/>
+                                                    </Border>
+                                                    <Border Background="{StaticResource WinGreenBrush}"
+                                                            CornerRadius="4"
+                                                            Padding="8,2"
+                                                            Visibility="{x:Bind IsOk, Converter={StaticResource BoolToVis}}">
+                                                        <TextBlock Text="OK"
+                                                                   FontSize="10"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="White"/>
+                                                    </Border>
+                                                </StackPanel>
+                                            </Grid>
+
+                                            <TextBlock Text="{x:Bind ViolationReason}"
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource LossRedBrush}"
+                                                       Visibility="{x:Bind HasViolationReason, Converter={StaticResource BoolToVis}}"/>
+                                            <TextBlock Text="{x:Bind Description}"
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="{x:Bind HasDescription, Converter={StaticResource BoolToVis}}"/>
+                                            <TextBlock Text="{x:Bind ConditionText}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       Visibility="{x:Bind HasCondition, Converter={StaticResource BoolToVis}}"/>
+
+                                            <StackPanel Orientation="Horizontal"
+                                                        Spacing="6"
+                                                        HorizontalAlignment="Right"
+                                                        Margin="0,4,0,0">
+                                                <Button Content="Delete"
+                                                        Background="Transparent"
+                                                        Foreground="{StaticResource LossRedBrush}"
+                                                        BorderBrush="{StaticResource LossRedBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6"
+                                                        Height="28"
+                                                        FontSize="12"
+                                                        Tag="{x:Bind Id}"
+                                                        Click="DeleteRule_Click"/>
+                                                <Button Content="{x:Bind ToggleText}"
+                                                        Background="Transparent"
+                                                        Foreground="{StaticResource SecondaryTextBrush}"
+                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6"
+                                                        Height="28"
+                                                        FontSize="12"
+                                                        Tag="{x:Bind Id}"
+                                                        Click="ToggleRule_Click"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+
+                        <ItemsRepeater ItemsSource="{x:Bind RulesVM.InactiveRules, Mode=OneWay}"
+                                       Visibility="{x:Bind RulesVM.HasInactiveRules, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="8"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:RuleDisplayItem">
+                                    <Border Background="{StaticResource CardBackgroundBrush}"
+                                            CornerRadius="10"
+                                            Padding="14,12"
+                                            BorderThickness="1"
+                                            BorderBrush="{StaticResource SubtleBorderBrush}"
+                                            Opacity="0.7">
+                                        <StackPanel Spacing="4">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Border Background="#1e40af"
+                                                        CornerRadius="4"
+                                                        Padding="6,2"
+                                                        Opacity="0.6">
+                                                    <TextBlock Text="{x:Bind TypeBadge}"
+                                                               FontSize="9"
+                                                               FontWeight="Bold"
+                                                               Foreground="White"/>
+                                                </Border>
+                                                <TextBlock Text="{x:Bind Name}"
+                                                           FontSize="15"
+                                                           FontWeight="Bold"
+                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{x:Bind Description}"
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="{x:Bind HasDescription, Converter={StaticResource BoolToVis}}"/>
+                                            <TextBlock Text="{x:Bind ConditionText}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       Visibility="{x:Bind HasCondition, Converter={StaticResource BoolToVis}}"/>
+                                            <StackPanel Orientation="Horizontal"
+                                                        Spacing="6"
+                                                        HorizontalAlignment="Right"
+                                                        Margin="0,4,0,0">
+                                                <Button Content="Delete"
+                                                        Background="Transparent"
+                                                        Foreground="{StaticResource LossRedBrush}"
+                                                        BorderBrush="{StaticResource LossRedBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6"
+                                                        Height="28"
+                                                        FontSize="12"
+                                                        Tag="{x:Bind Id}"
+                                                        Click="DeleteRule_Click"/>
+                                                <Button Content="{x:Bind ToggleText}"
+                                                        Background="Transparent"
+                                                        Foreground="{StaticResource WinGreenBrush}"
+                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6"
+                                                        Height="28"
+                                                        FontSize="12"
+                                                        Tag="{x:Bind Id}"
+                                                        Click="ToggleRule_Click"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource CardStyle}"
                         Visibility="{x:Bind ViewModel.HasSpottedProblems, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <StackPanel Spacing="10">

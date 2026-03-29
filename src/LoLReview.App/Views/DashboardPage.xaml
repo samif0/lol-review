@@ -33,6 +33,8 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <TextBlock Grid.Column="0"
@@ -42,6 +44,29 @@
                                VerticalAlignment="Center"/>
 
                     <Button Grid.Column="1"
+                            Content="Review Inbox"
+                            Click="ReviewInboxButton_Click"
+                            Height="36"
+                            Margin="0,0,8,0"
+                            Padding="14,0"
+                            Background="{StaticResource AccentBlueBrush}"
+                            Foreground="White"
+                            BorderThickness="0"
+                            CornerRadius="8"/>
+
+                    <Button Grid.Column="2"
+                            Content="Tilt Reset"
+                            Click="TiltResetButton_Click"
+                            Height="36"
+                            Margin="0,0,8,0"
+                            Padding="14,0"
+                            Background="{StaticResource TagBackgroundBrush}"
+                            Foreground="{StaticResource PrimaryTextBrush}"
+                            BorderBrush="{StaticResource SubtleBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"/>
+
+                    <Button Grid.Column="3"
                             Command="{x:Bind ViewModel.LoadCommand}"
                             Height="36" Width="36" CornerRadius="18"
                             Padding="0"

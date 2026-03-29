@@ -302,6 +302,29 @@ public sealed partial class VodPlayerPage : Page
         VideoContainer.Focus(FocusState.Programmatic);
     }
 
+    private void OnBookmarkNoteLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is BookmarkItem bookmark)
+        {
+            ViewModel.SaveBookmarkNoteCommand.Execute(bookmark);
+        }
+    }
+
+    private void OnBookmarkNoteKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Enter)
+        {
+            return;
+        }
+
+        if (sender is FrameworkElement fe && fe.DataContext is BookmarkItem bookmark)
+        {
+            ViewModel.SaveBookmarkNoteCommand.Execute(bookmark);
+            VideoContainer.Focus(FocusState.Programmatic);
+            e.Handled = true;
+        }
+    }
+
     private void OnMuteClick(object sender, RoutedEventArgs e)
     {
         if (_mediaPlayer == null) return;
