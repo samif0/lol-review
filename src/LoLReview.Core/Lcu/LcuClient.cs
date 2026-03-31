@@ -17,6 +17,8 @@ public sealed class LcuClient : ILcuClient
     private readonly HttpClient _httpClient;
     private readonly ILogger<LcuClient> _logger;
     private Dictionary<int, string>? _championNamesById;
+    private string? _baseUrl;
+    private string? _authHeaderValue;
 
     /// <summary>
     /// Creates an LcuClient using a pre-configured HttpClient.
@@ -37,9 +39,8 @@ public sealed class LcuClient : ILcuClient
     /// <inheritdoc />
     public void Configure(LcuCredentials credentials)
     {
-        _httpClient.BaseAddress = new Uri(credentials.BaseUrl);
-        _httpClient.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Basic", credentials.AuthHeaderValue);
+        _baseUrl = credentials.BaseUrl;
+        _authHeaderValue = credentials.AuthHeaderValue;
     }
 
     /// <inheritdoc />
@@ -67,16 +68,11 @@ public sealed class LcuClient : ILcuClient
     /// <inheritdoc />
     public async Task<GamePhase> GetGameflowPhaseAsync(CancellationToken ct = default)
     {
-        try
-        {
-            var element = await GetAsync("/lol-gameflow/v1/gameflow-phase", ct).ConfigureAwait(false);
-            var phaseString = element?.GetString();
-            return GamePhaseExtensions.ParsePhase(phaseString);
-        }
-        catch
-        {
-            return GamePhase.None;
-        }
+        // Do NOT catch exceptions here — let them propagate so GameMonitorService
+        // can detect disconnection and reset state via HandleDisconnectedAsync.
+        var element = await GetAsync("/lol-gameflow/v1/gameflow-phase", ct).ConfigureAwait(false);
+        var phaseString = element?.GetString();
+        return GamePhaseExtensions.ParsePhase(phaseString);
     }
 
     /// <inheritdoc />
@@ -125,12 +121,18 @@ public sealed class LcuClient : ILcuClient
             if (summoner is not JsonElement summonerEl
                 || !summonerEl.TryGetProperty("puuid", out var puuidProp))
             {
+                CoreDiagnostics.WriteVerbose("LCU: GetMatchHistoryAsync missing current summoner puuid");
                 return [];
             }
 
             var puuid = puuidProp.GetString();
             if (string.IsNullOrEmpty(puuid))
+            {
+                CoreDiagnostics.WriteVerbose("LCU: GetMatchHistoryAsync empty current summoner puuid");
                 return [];
+            }
+
+            CoreDiagnostics.WriteVerbose($"LCU: GetMatchHistoryAsync requesting begin={begin} count={count}");
 
             var data = await GetAsync(
                 $"/lol-match-history/v1/products/lol/{puuid}/matches?begIndex={begin}&endIndex={begin + count}",
@@ -143,6 +145,7 @@ public sealed class LcuClient : ILcuClient
                     && dataEl.TryGetProperty("games", out var games)
                     && games.ValueKind == JsonValueKind.Array)
                 {
+                    CoreDiagnostics.WriteVerbose($"LCU: GetMatchHistoryAsync parsed flat games array count={games.GetArrayLength()}");
                     return [.. games.EnumerateArray()];
                 }
 
@@ -153,18 +156,23 @@ public sealed class LcuClient : ILcuClient
                     && gamesWrapper.TryGetProperty("games", out var nestedGames)
                     && nestedGames.ValueKind == JsonValueKind.Array)
                 {
+                    CoreDiagnostics.WriteVerbose($"LCU: GetMatchHistoryAsync parsed nested games array count={nestedGames.GetArrayLength()}");
                     return [.. nestedGames.EnumerateArray()];
                 }
 
                 if (dataEl.ValueKind == JsonValueKind.Array)
                 {
+                    CoreDiagnostics.WriteVerbose($"LCU: GetMatchHistoryAsync parsed raw array count={dataEl.GetArrayLength()}");
                     return [.. dataEl.EnumerateArray()];
                 }
+
+                CoreDiagnostics.WriteVerbose($"LCU: GetMatchHistoryAsync unexpected response kind={dataEl.ValueKind}");
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to fetch match history");
+            CoreDiagnostics.WriteVerbose($"LCU: GetMatchHistoryAsync exception={ex.GetType().Name}:{ex.Message}");
         }
 
         return [];
@@ -239,7 +247,15 @@ public sealed class LcuClient : ILcuClient
 
     private async Task<JsonElement?> GetAsync(string endpoint, CancellationToken ct)
     {
-        using var response = await _httpClient.GetAsync(endpoint, ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(_authHeaderValue))
+        {
+            throw new InvalidOperationException("LCU client has not been configured.");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(_baseUrl), endpoint));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", _authHeaderValue);
+
+        using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
