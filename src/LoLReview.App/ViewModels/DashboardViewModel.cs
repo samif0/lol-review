@@ -190,20 +190,17 @@ public partial class DashboardViewModel : ObservableObject
                 ActiveObjectives.Clear();
                 foreach (var obj in objectives)
                 {
-                    var title = obj.TryGetValue("title", out var t) ? t?.ToString() ?? "" : "";
-                    var score = obj.TryGetValue("score", out var s) ? System.Convert.ToInt32(s ?? 0) : 0;
-                    var gameCount = obj.TryGetValue("game_count", out var gc) ? System.Convert.ToInt32(gc ?? 0) : 0;
-                    var info = IObjectivesRepository.GetLevelInfo(score, gameCount);
+                    var info = IObjectivesRepository.GetLevelInfo(obj.Score, obj.GameCount);
 
                     ActiveObjectives.Add(new DashboardObjectiveItem
                     {
-                        Title = title,
+                        Title = obj.Title,
                         LevelName = info.LevelName,
-                        Score = score,
-                        GameCount = gameCount,
+                        Score = obj.Score,
+                        GameCount = obj.GameCount,
                         Progress = info.Progress,
                         LevelColorHex = GetLevelColor(info.LevelIndex),
-                        InfoText = $"{info.LevelName}  \u2022  {score} pts  \u2022  {gameCount} games"
+                        InfoText = $"{info.LevelName}  \u2022  {obj.Score} pts  \u2022  {obj.GameCount} games"
                     });
                 }
             });

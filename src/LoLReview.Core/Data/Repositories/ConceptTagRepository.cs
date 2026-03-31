@@ -11,7 +11,7 @@ public sealed class ConceptTagRepository : IConceptTagRepository
 
     public ConceptTagRepository(IDbConnectionFactory factory) => _factory = factory;
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync()
+    public async Task<IReadOnlyList<ConceptTagRecord>> GetAllAsync()
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -132,18 +132,17 @@ public sealed class ConceptTagRepository : IConceptTagRepository
 
     // ── Helpers ──────────────────────────────────────────────────
 
-    private static async Task<IReadOnlyList<Dictionary<string, object?>>> ReadAllRowsAsync(SqliteCommand cmd)
+    private static async Task<IReadOnlyList<ConceptTagRecord>> ReadAllRowsAsync(SqliteCommand cmd)
     {
-        var results = new List<Dictionary<string, object?>>();
+        var results = new List<ConceptTagRecord>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            var dict = new Dictionary<string, object?>(reader.FieldCount);
-            for (int i = 0; i < reader.FieldCount; i++)
-            {
-                dict[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-            }
-            results.Add(dict);
+            results.Add(new ConceptTagRecord(
+                Id: reader.IsDBNull(0) ? 0 : reader.GetInt64(0),
+                Name: reader.IsDBNull(1) ? "" : reader.GetString(1),
+                Polarity: reader.IsDBNull(2) ? "neutral" : reader.GetString(2),
+                Color: reader.IsDBNull(3) ? "#3b82f6" : reader.GetString(3)));
         }
         return results;
     }

@@ -126,9 +126,9 @@ public partial class ManualEntryDialogViewModel : ObservableObject
             {
                 Objectives.Add(new ObjectiveAssessment
                 {
-                    ObjectiveId = Convert.ToInt64(obj.GetValueOrDefault("id", 0L)),
-                    Title = obj.GetValueOrDefault("title", "")?.ToString() ?? "",
-                    Criteria = obj.GetValueOrDefault("completion_criteria", "")?.ToString() ?? "",
+                    ObjectiveId = obj.Id,
+                    Title = obj.Title,
+                    Criteria = obj.CompletionCriteria,
                 });
             }
             HasObjectives = Objectives.Count > 0;

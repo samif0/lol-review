@@ -1,103 +1,80 @@
 #nullable enable
 
-using System.Text.Json;
+using LoLReview.Core.Models;
 using Microsoft.Data.Sqlite;
 
 namespace LoLReview.Core.Data.Repositories;
 
-/// <summary>CRUD for game_events table -- timestamped in-game events.</summary>
+/// <summary>CRUD for game_events table.</summary>
 public sealed class GameEventsRepository : IGameEventsRepository
 {
     private readonly IDbConnectionFactory _factory;
 
     public GameEventsRepository(IDbConnectionFactory factory) => _factory = factory;
 
-    public async Task SaveEventsAsync(long gameId, IReadOnlyList<Dictionary<string, object?>> events)
+    public async Task SaveEventsAsync(long gameId, IReadOnlyList<GameEvent> events)
     {
         using var conn = _factory.CreateConnection();
         using var transaction = conn.BeginTransaction();
 
-        // Clear existing events
-        using (var delCmd = conn.CreateCommand())
+        using (var deleteCommand = conn.CreateCommand())
         {
-            delCmd.CommandText = "DELETE FROM game_events WHERE game_id = @gameId";
-            delCmd.Parameters.AddWithValue("@gameId", gameId);
-            delCmd.Transaction = transaction;
-            await delCmd.ExecuteNonQueryAsync();
+            deleteCommand.CommandText = "DELETE FROM game_events WHERE game_id = @gameId";
+            deleteCommand.Parameters.AddWithValue("@gameId", gameId);
+            deleteCommand.Transaction = transaction;
+            await deleteCommand.ExecuteNonQueryAsync();
         }
 
-        // Bulk insert
-        using (var insCmd = conn.CreateCommand())
+        using var insertCommand = conn.CreateCommand();
+        insertCommand.CommandText = """
+            INSERT INTO game_events (game_id, event_type, game_time_s, details)
+            VALUES (@gameId, @eventType, @gameTimeSeconds, @details)
+            """;
+        insertCommand.Transaction = transaction;
+
+        var gameIdParameter = insertCommand.Parameters.Add("@gameId", SqliteType.Integer);
+        var eventTypeParameter = insertCommand.Parameters.Add("@eventType", SqliteType.Text);
+        var gameTimeParameter = insertCommand.Parameters.Add("@gameTimeSeconds", SqliteType.Integer);
+        var detailsParameter = insertCommand.Parameters.Add("@details", SqliteType.Text);
+
+        foreach (var gameEvent in events)
         {
-            insCmd.CommandText = """
-                INSERT INTO game_events (game_id, event_type, game_time_s, details)
-                VALUES (@gameId, @eventType, @gameTimeS, @details)
-                """;
-            insCmd.Transaction = transaction;
-
-            var pGameId = insCmd.Parameters.Add("@gameId", SqliteType.Integer);
-            var pEventType = insCmd.Parameters.Add("@eventType", SqliteType.Text);
-            var pGameTimeS = insCmd.Parameters.Add("@gameTimeS", SqliteType.Integer);
-            var pDetails = insCmd.Parameters.Add("@details", SqliteType.Text);
-
-            foreach (var e in events)
-            {
-                pGameId.Value = gameId;
-                pEventType.Value = e.TryGetValue("event_type", out var et) ? et?.ToString() ?? "" : "";
-                pGameTimeS.Value = e.TryGetValue("game_time_s", out var gts) ? Convert.ToInt64(gts) : 0;
-
-                if (e.TryGetValue("details", out var details) && details is not null)
-                {
-                    pDetails.Value = details is string s ? s : JsonSerializer.Serialize(details);
-                }
-                else
-                {
-                    pDetails.Value = "{}";
-                }
-
-                await insCmd.ExecuteNonQueryAsync();
-            }
+            gameIdParameter.Value = gameId;
+            eventTypeParameter.Value = gameEvent.EventType;
+            gameTimeParameter.Value = gameEvent.GameTimeS;
+            detailsParameter.Value = string.IsNullOrWhiteSpace(gameEvent.Details) ? "{}" : gameEvent.Details;
+            await insertCommand.ExecuteNonQueryAsync();
         }
 
         await transaction.CommitAsync();
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetEventsAsync(long gameId)
+    public async Task<IReadOnlyList<GameEvent>> GetEventsAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT * FROM game_events
+            SELECT id, game_id, event_type, game_time_s, details
+            FROM game_events
             WHERE game_id = @gameId
             ORDER BY game_time_s ASC
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
 
-        var results = new List<Dictionary<string, object?>>();
+        var results = new List<GameEvent>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            var dict = ReadRow(reader);
-
-            // Parse JSON details
-            if (dict.TryGetValue("details", out var detailsObj) && detailsObj is string detailsStr)
+            results.Add(new GameEvent
             {
-                try
-                {
-                    dict["details"] = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(detailsStr);
-                }
-                catch
-                {
-                    dict["details"] = new Dictionary<string, JsonElement>();
-                }
-            }
-            else
-            {
-                dict["details"] = new Dictionary<string, JsonElement>();
-            }
-
-            results.Add(dict);
+                Id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
+                GameId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                EventType = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                GameTimeS = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                Details = reader.IsDBNull(4) ? "{}" : reader.GetString(4),
+            });
         }
+
         return results;
     }
 
@@ -128,17 +105,5 @@ public sealed class GameEventsRepository : IGameEventsRepository
         cmd.CommandText = "DELETE FROM game_events WHERE game_id = @gameId";
         cmd.Parameters.AddWithValue("@gameId", gameId);
         await cmd.ExecuteNonQueryAsync();
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────
-
-    private static Dictionary<string, object?> ReadRow(SqliteDataReader reader)
-    {
-        var dict = new Dictionary<string, object?>(reader.FieldCount);
-        for (int i = 0; i < reader.FieldCount; i++)
-        {
-            dict[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-        }
-        return dict;
     }
 }

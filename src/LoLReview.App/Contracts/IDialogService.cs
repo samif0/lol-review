@@ -1,7 +1,7 @@
 #nullable enable
 
 using LoLReview.App.Dialogs;
-using LoLReview.Core.Models;
+using LoLReview.Core.Services;
 using Microsoft.UI.Xaml.Controls;
 
 namespace LoLReview.App.Contracts;
@@ -38,5 +38,5 @@ public interface IDialogService
     Task<bool> ShowConfirmAsync(string title, string message);
 
     /// <summary>Show a selectable list of recent unsaved games and return the chosen games to ingest.</summary>
-    Task<IReadOnlyList<GameStats>> ShowMissedGamesSelectionAsync(IReadOnlyList<GameStats> games);
+    Task<IReadOnlyList<MissedGameCandidate>> ShowMissedGamesSelectionAsync(IReadOnlyList<MissedGameCandidate> games);
 }

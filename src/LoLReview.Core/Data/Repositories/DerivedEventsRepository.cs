@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Text.Json;
+using LoLReview.Core.Models;
 using Microsoft.Data.Sqlite;
 
 namespace LoLReview.Core.Data.Repositories;
@@ -12,8 +13,12 @@ public sealed class DerivedEventsRepository : IDerivedEventsRepository
 
     public DerivedEventsRepository(IDbConnectionFactory factory) => _factory = factory;
 
-    public async Task<long> CreateAsync(string name, IReadOnlyList<string> sourceTypes, int minCount,
-        int windowSeconds, string color = "#ff6b6b")
+    public async Task<long> CreateAsync(
+        string name,
+        IReadOnlyList<string> sourceTypes,
+        int minCount,
+        int windowSeconds,
+        string color = "#ff6b6b")
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -30,40 +35,36 @@ public sealed class DerivedEventsRepository : IDerivedEventsRepository
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await cmd.ExecuteNonQueryAsync();
 
-        using var idCmd = conn.CreateCommand();
-        idCmd.CommandText = "SELECT last_insert_rowid()";
-        return (long)(await idCmd.ExecuteScalarAsync())!;
+        using var idCommand = conn.CreateCommand();
+        idCommand.CommandText = "SELECT last_insert_rowid()";
+        return (long)(await idCommand.ExecuteScalarAsync())!;
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetAllDefinitionsAsync()
+    public async Task<IReadOnlyList<DerivedEventDefinitionRecord>> GetAllDefinitionsAsync()
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM derived_event_definitions ORDER BY is_default DESC, name ASC";
+        cmd.CommandText = """
+            SELECT id, name, source_types, min_count, window_seconds, color, is_default, created_at
+            FROM derived_event_definitions
+            ORDER BY is_default DESC, name ASC
+            """;
 
-        var results = new List<Dictionary<string, object?>>();
+        var results = new List<DerivedEventDefinitionRecord>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            var dict = ReadRow(reader);
-            // Parse source_types JSON
-            if (dict.TryGetValue("source_types", out var stObj) && stObj is string stStr)
-            {
-                try
-                {
-                    dict["source_types"] = JsonSerializer.Deserialize<List<string>>(stStr) ?? new List<string>();
-                }
-                catch
-                {
-                    dict["source_types"] = new List<string>();
-                }
-            }
-            else
-            {
-                dict["source_types"] = new List<string>();
-            }
-            results.Add(dict);
+            results.Add(new DerivedEventDefinitionRecord(
+                Id: reader.IsDBNull(0) ? 0 : reader.GetInt64(0),
+                Name: reader.IsDBNull(1) ? "" : reader.GetString(1),
+                SourceTypes: DeserializeStringList(reader.IsDBNull(2) ? "[]" : reader.GetString(2)),
+                MinCount: reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                WindowSeconds: reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                Color: reader.IsDBNull(5) ? "#ff6b6b" : reader.GetString(5),
+                IsDefault: !reader.IsDBNull(6) && reader.GetInt32(6) != 0,
+                CreatedAt: reader.IsDBNull(7) ? null : reader.GetInt64(7)));
         }
+
         return results;
     }
 
@@ -72,171 +73,150 @@ public sealed class DerivedEventsRepository : IDerivedEventsRepository
         using var conn = _factory.CreateConnection();
         using var transaction = conn.BeginTransaction();
 
-        using (var cmd1 = conn.CreateCommand())
+        using (var deleteInstancesCommand = conn.CreateCommand())
         {
-            cmd1.CommandText = "DELETE FROM derived_event_instances WHERE definition_id = @defId";
-            cmd1.Parameters.AddWithValue("@defId", definitionId);
-            cmd1.Transaction = transaction;
-            await cmd1.ExecuteNonQueryAsync();
+            deleteInstancesCommand.CommandText = "DELETE FROM derived_event_instances WHERE definition_id = @definitionId";
+            deleteInstancesCommand.Parameters.AddWithValue("@definitionId", definitionId);
+            deleteInstancesCommand.Transaction = transaction;
+            await deleteInstancesCommand.ExecuteNonQueryAsync();
         }
 
-        using (var cmd2 = conn.CreateCommand())
+        using (var deleteDefinitionCommand = conn.CreateCommand())
         {
-            cmd2.CommandText = "DELETE FROM derived_event_definitions WHERE id = @defId AND is_default = 0";
-            cmd2.Parameters.AddWithValue("@defId", definitionId);
-            cmd2.Transaction = transaction;
-            await cmd2.ExecuteNonQueryAsync();
+            deleteDefinitionCommand.CommandText = """
+                DELETE FROM derived_event_definitions
+                WHERE id = @definitionId AND is_default = 0
+                """;
+            deleteDefinitionCommand.Parameters.AddWithValue("@definitionId", definitionId);
+            deleteDefinitionCommand.Transaction = transaction;
+            await deleteDefinitionCommand.ExecuteNonQueryAsync();
         }
 
         await transaction.CommitAsync();
     }
 
-    public IReadOnlyList<Dictionary<string, object?>> ComputeInstances(
+    public IReadOnlyList<DerivedEventInstanceRecord> ComputeInstances(
         long gameId,
-        IReadOnlyList<Dictionary<string, object?>> events,
-        IReadOnlyList<Dictionary<string, object?>> definitions)
+        IReadOnlyList<GameEvent> events,
+        IReadOnlyList<DerivedEventDefinitionRecord> definitions)
     {
-        var allInstances = new List<Dictionary<string, object?>>();
+        var allInstances = new List<DerivedEventInstanceRecord>();
 
-        foreach (var defn in definitions)
+        foreach (var definition in definitions)
         {
-            var sourceTypes = new HashSet<string>();
-            if (defn.TryGetValue("source_types", out var stObj))
-            {
-                if (stObj is IEnumerable<string> stList)
-                {
-                    foreach (var s in stList) sourceTypes.Add(s);
-                }
-                else if (stObj is List<object> stObjList)
-                {
-                    foreach (var s in stObjList) sourceTypes.Add(s?.ToString() ?? "");
-                }
-            }
-
-            int minCount = defn.TryGetValue("min_count", out var mc) ? Convert.ToInt32(mc) : 1;
-            int window = defn.TryGetValue("window_seconds", out var ws) ? Convert.ToInt32(ws) : 30;
-
-            // Filter and sort matching events
+            var sourceTypes = new HashSet<string>(definition.SourceTypes, StringComparer.OrdinalIgnoreCase);
             var matching = events
-                .Where(e => e.TryGetValue("event_type", out var et) && sourceTypes.Contains(et?.ToString() ?? ""))
-                .OrderBy(e => e.TryGetValue("game_time_s", out var gts) ? Convert.ToInt64(gts) : 0L)
+                .Where(gameEvent => sourceTypes.Contains(gameEvent.EventType))
+                .OrderBy(gameEvent => gameEvent.GameTimeS)
                 .ToList();
 
-            if (matching.Count < minCount)
-                continue;
-
-            int i = 0;
-            while (i < matching.Count)
+            if (matching.Count < definition.MinCount)
             {
-                long startTime = matching[i].TryGetValue("game_time_s", out var st) ? Convert.ToInt64(st) : 0;
-                var cluster = new List<Dictionary<string, object?>> { matching[i] };
-                int j = i + 1;
+                continue;
+            }
 
-                while (j < matching.Count)
+            var index = 0;
+            while (index < matching.Count)
+            {
+                var startTime = matching[index].GameTimeS;
+                var cluster = new List<GameEvent> { matching[index] };
+                var nextIndex = index + 1;
+
+                while (nextIndex < matching.Count)
                 {
-                    long t = matching[j].TryGetValue("game_time_s", out var gt) ? Convert.ToInt64(gt) : 0;
-                    if (t - startTime <= window)
-                    {
-                        cluster.Add(matching[j]);
-                        j++;
-                    }
-                    else
+                    var eventTime = matching[nextIndex].GameTimeS;
+                    if (eventTime - startTime > definition.WindowSeconds)
                     {
                         break;
                     }
+
+                    cluster.Add(matching[nextIndex]);
+                    nextIndex++;
                 }
 
-                if (cluster.Count >= minCount)
+                if (cluster.Count >= definition.MinCount)
                 {
-                    long endTime = cluster[^1].TryGetValue("game_time_s", out var et) ? Convert.ToInt64(et) : 0;
-                    var sourceIds = cluster
-                        .Where(e => e.TryGetValue("id", out var id) && id is not null && Convert.ToInt64(id) != 0)
-                        .Select(e => Convert.ToInt64(e["id"]))
-                        .ToList();
+                    allInstances.Add(new DerivedEventInstanceRecord(
+                        Id: 0,
+                        GameId: gameId,
+                        DefinitionId: definition.Id,
+                        StartTimeSeconds: startTime,
+                        EndTimeSeconds: cluster[^1].GameTimeS,
+                        EventCount: cluster.Count,
+                        SourceEventIds: cluster.Where(static item => item.Id > 0).Select(static item => (long)item.Id).ToList(),
+                        DefinitionName: definition.Name,
+                        Color: definition.Color,
+                        SourceTypes: definition.SourceTypes));
 
-                    allInstances.Add(new Dictionary<string, object?>
-                    {
-                        ["game_id"] = gameId,
-                        ["definition_id"] = defn.TryGetValue("id", out var did) ? did : 0,
-                        ["start_time_s"] = startTime,
-                        ["end_time_s"] = endTime,
-                        ["event_count"] = cluster.Count,
-                        ["source_event_ids"] = sourceIds,
-                        ["definition_name"] = defn.TryGetValue("name", out var dn) ? dn : "",
-                        ["color"] = defn.TryGetValue("color", out var clr) ? clr : "#ff6b6b",
-                    });
+                    index = nextIndex;
+                    continue;
+                }
 
-                    i = j; // Advance past cluster (greedy non-overlapping)
-                }
-                else
-                {
-                    i++;
-                }
+                index++;
             }
         }
 
         return allInstances;
     }
 
-    public async Task SaveInstancesAsync(long gameId, IReadOnlyList<Dictionary<string, object?>> instances)
+    public async Task SaveInstancesAsync(long gameId, IReadOnlyList<DerivedEventInstanceRecord> instances)
     {
         using var conn = _factory.CreateConnection();
         using var transaction = conn.BeginTransaction();
 
-        using (var delCmd = conn.CreateCommand())
+        using (var deleteCommand = conn.CreateCommand())
         {
-            delCmd.CommandText = "DELETE FROM derived_event_instances WHERE game_id = @gameId";
-            delCmd.Parameters.AddWithValue("@gameId", gameId);
-            delCmd.Transaction = transaction;
-            await delCmd.ExecuteNonQueryAsync();
+            deleteCommand.CommandText = "DELETE FROM derived_event_instances WHERE game_id = @gameId";
+            deleteCommand.Parameters.AddWithValue("@gameId", gameId);
+            deleteCommand.Transaction = transaction;
+            await deleteCommand.ExecuteNonQueryAsync();
         }
 
-        using (var insCmd = conn.CreateCommand())
+        using var insertCommand = conn.CreateCommand();
+        insertCommand.CommandText = """
+            INSERT INTO derived_event_instances
+                (game_id, definition_id, start_time_s, end_time_s, event_count, source_event_ids)
+            VALUES (@gameId, @definitionId, @startTimeSeconds, @endTimeSeconds, @eventCount, @sourceEventIds)
+            """;
+        insertCommand.Transaction = transaction;
+
+        var gameIdParameter = insertCommand.Parameters.Add("@gameId", SqliteType.Integer);
+        var definitionParameter = insertCommand.Parameters.Add("@definitionId", SqliteType.Integer);
+        var startParameter = insertCommand.Parameters.Add("@startTimeSeconds", SqliteType.Integer);
+        var endParameter = insertCommand.Parameters.Add("@endTimeSeconds", SqliteType.Integer);
+        var countParameter = insertCommand.Parameters.Add("@eventCount", SqliteType.Integer);
+        var sourceIdsParameter = insertCommand.Parameters.Add("@sourceEventIds", SqliteType.Text);
+
+        foreach (var instance in instances)
         {
-            insCmd.CommandText = """
-                INSERT INTO derived_event_instances
-                    (game_id, definition_id, start_time_s, end_time_s, event_count, source_event_ids)
-                VALUES (@gameId, @defId, @startTimeS, @endTimeS, @eventCount, @sourceEventIds)
-                """;
-            insCmd.Transaction = transaction;
-
-            var pGameId = insCmd.Parameters.Add("@gameId", SqliteType.Integer);
-            var pDefId = insCmd.Parameters.Add("@defId", SqliteType.Integer);
-            var pStartTimeS = insCmd.Parameters.Add("@startTimeS", SqliteType.Integer);
-            var pEndTimeS = insCmd.Parameters.Add("@endTimeS", SqliteType.Integer);
-            var pEventCount = insCmd.Parameters.Add("@eventCount", SqliteType.Integer);
-            var pSourceEventIds = insCmd.Parameters.Add("@sourceEventIds", SqliteType.Text);
-
-            foreach (var inst in instances)
-            {
-                pGameId.Value = gameId;
-                pDefId.Value = inst.TryGetValue("definition_id", out var did) ? Convert.ToInt64(did) : 0;
-                pStartTimeS.Value = inst.TryGetValue("start_time_s", out var sts) ? Convert.ToInt64(sts) : 0;
-                pEndTimeS.Value = inst.TryGetValue("end_time_s", out var ets) ? Convert.ToInt64(ets) : 0;
-                pEventCount.Value = inst.TryGetValue("event_count", out var ec) ? Convert.ToInt32(ec) : 0;
-
-                if (inst.TryGetValue("source_event_ids", out var sids) && sids is not null)
-                {
-                    pSourceEventIds.Value = sids is string s ? s : JsonSerializer.Serialize(sids);
-                }
-                else
-                {
-                    pSourceEventIds.Value = "[]";
-                }
-
-                await insCmd.ExecuteNonQueryAsync();
-            }
+            gameIdParameter.Value = gameId;
+            definitionParameter.Value = instance.DefinitionId;
+            startParameter.Value = instance.StartTimeSeconds;
+            endParameter.Value = instance.EndTimeSeconds;
+            countParameter.Value = instance.EventCount;
+            sourceIdsParameter.Value = JsonSerializer.Serialize(instance.SourceEventIds);
+            await insertCommand.ExecuteNonQueryAsync();
         }
 
         await transaction.CommitAsync();
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetInstancesAsync(long gameId)
+    public async Task<IReadOnlyList<DerivedEventInstanceRecord>> GetInstancesAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT di.*, dd.name as definition_name, dd.color, dd.source_types
+            SELECT
+                di.id,
+                di.game_id,
+                di.definition_id,
+                di.start_time_s,
+                di.end_time_s,
+                di.event_count,
+                di.source_event_ids,
+                dd.name,
+                dd.color,
+                dd.source_types
             FROM derived_event_instances di
             JOIN derived_event_definitions dd ON dd.id = di.definition_id
             WHERE di.game_id = @gameId
@@ -244,47 +224,47 @@ public sealed class DerivedEventsRepository : IDerivedEventsRepository
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
 
-        var results = new List<Dictionary<string, object?>>();
+        var results = new List<DerivedEventInstanceRecord>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            var dict = ReadRow(reader);
-
-            // Parse JSON fields
-            if (dict.TryGetValue("source_event_ids", out var sids) && sids is string sidsStr)
-            {
-                try { dict["source_event_ids"] = JsonSerializer.Deserialize<List<long>>(sidsStr) ?? new List<long>(); }
-                catch { dict["source_event_ids"] = new List<long>(); }
-            }
-            else
-            {
-                dict["source_event_ids"] = new List<long>();
-            }
-
-            if (dict.TryGetValue("source_types", out var stObj) && stObj is string stStr)
-            {
-                try { dict["source_types"] = JsonSerializer.Deserialize<List<string>>(stStr) ?? new List<string>(); }
-                catch { dict["source_types"] = new List<string>(); }
-            }
-            else
-            {
-                dict["source_types"] = new List<string>();
-            }
-
-            results.Add(dict);
+            results.Add(new DerivedEventInstanceRecord(
+                Id: reader.IsDBNull(0) ? 0 : reader.GetInt64(0),
+                GameId: reader.IsDBNull(1) ? 0 : reader.GetInt64(1),
+                DefinitionId: reader.IsDBNull(2) ? 0 : reader.GetInt64(2),
+                StartTimeSeconds: reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                EndTimeSeconds: reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                EventCount: reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+                SourceEventIds: DeserializeLongList(reader.IsDBNull(6) ? "[]" : reader.GetString(6)),
+                DefinitionName: reader.IsDBNull(7) ? "" : reader.GetString(7),
+                Color: reader.IsDBNull(8) ? "#ff6b6b" : reader.GetString(8),
+                SourceTypes: DeserializeStringList(reader.IsDBNull(9) ? "[]" : reader.GetString(9))));
         }
+
         return results;
     }
 
-    // ── Helpers ──────────────────────────────────────────────────
-
-    private static Dictionary<string, object?> ReadRow(SqliteDataReader reader)
+    private static IReadOnlyList<string> DeserializeStringList(string json)
     {
-        var dict = new Dictionary<string, object?>(reader.FieldCount);
-        for (int i = 0; i < reader.FieldCount; i++)
+        try
         {
-            dict[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            return JsonSerializer.Deserialize<List<string>>(json) ?? [];
         }
-        return dict;
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static IReadOnlyList<long> DeserializeLongList(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<List<long>>(json) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
     }
 }

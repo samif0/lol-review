@@ -41,8 +41,11 @@ public sealed class GameService : IGameService
     }
 
     /// <inheritdoc />
-    public async Task<long?> ProcessGameEndAsync(GameStats stats, int mentalRating = 5, int preGameMood = 0)
+    public async Task<long?> ProcessGameEndAsync(
+        ProcessGameEndRequest request,
+        CancellationToken cancellationToken = default)
     {
+        var stats = request.Stats;
         if (stats.GameId <= 0)
         {
             _logger.LogWarning(
@@ -81,16 +84,15 @@ public sealed class GameService : IGameService
             stats.GameId,
             stats.ChampionName,
             stats.Win,
-            mentalRating,
-            preGameMood: preGameMood).ConfigureAwait(false);
+            request.MentalRating,
+            preGameMood: request.PreGameMood).ConfigureAwait(false);
 
         // 5. Save live events via IGameEventsRepository
         if (stats.LiveEvents is { Count: > 0 })
         {
             try
             {
-                var eventDicts = stats.LiveEvents.Select(ToEventDict).ToList();
-                await _gameEvents.SaveEventsAsync(stats.GameId, eventDicts).ConfigureAwait(false);
+                await _gameEvents.SaveEventsAsync(stats.GameId, stats.LiveEvents).ConfigureAwait(false);
                 _logger.LogInformation(
                     "Saved {Count} live events for game {GameId}",
                     stats.LiveEvents.Count, stats.GameId);
@@ -186,16 +188,6 @@ public sealed class GameService : IGameService
     }
 
     // ── Private helpers ─────────────────────────────────────────────
-
-    private static Dictionary<string, object?> ToEventDict(GameEvent e)
-    {
-        return new Dictionary<string, object?>
-        {
-            ["event_type"] = e.EventType,
-            ["game_time_s"] = e.GameTimeS,
-            ["details"] = e.Details,
-        };
-    }
 
     private async Task ScheduleVodRetryAsync(long gameId)
     {

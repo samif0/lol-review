@@ -1,6 +1,7 @@
 #nullable enable
 
 using LoLReview.Core.Models;
+using LoLReview.Core.Services;
 
 namespace LoLReview.Core.Lcu;
 
@@ -8,7 +9,7 @@ namespace LoLReview.Core.Lcu;
 public sealed record GameEndedMessage(GameStats Stats, bool IsRecovered = false);
 
 /// <summary>Sent when recent unsaved finished games are detected from match history.</summary>
-public sealed record MissedReviewsDetectedMessage(IReadOnlyList<GameStats> Games);
+public sealed record MissedReviewsDetectedMessage(IReadOnlyList<MissedGameCandidate> Games);
 
 /// <summary>Sent when champion select begins (non-casual queues only).</summary>
 public sealed record ChampSelectStartedMessage(int QueueId);

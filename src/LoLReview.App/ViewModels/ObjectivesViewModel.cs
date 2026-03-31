@@ -250,33 +250,22 @@ public partial class ObjectivesViewModel : ObservableObject
 
         foreach (var obj in allObjectives)
         {
-            var status = obj.GetValueOrDefault("status")?.ToString() ?? "active";
-            var id = Convert.ToInt64(obj.GetValueOrDefault("id") ?? 0);
-            var title = obj.GetValueOrDefault("title")?.ToString() ?? "";
-            var skillArea = obj.GetValueOrDefault("skill_area")?.ToString() ?? "";
-            var type = obj.GetValueOrDefault("type")?.ToString() ?? "primary";
-            var criteria = obj.GetValueOrDefault("completion_criteria")?.ToString() ?? "";
-            var description = obj.GetValueOrDefault("description")?.ToString() ?? "";
-            var score = Convert.ToInt32(obj.GetValueOrDefault("score") ?? 0);
-            var gameCount = Convert.ToInt32(obj.GetValueOrDefault("game_count") ?? 0);
-            var isPriority = Convert.ToInt32(obj.GetValueOrDefault("is_priority") ?? 0) != 0;
-
-            if (status == "active")
+            if (string.Equals(obj.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
-                var levelInfo = IObjectivesRepository.GetLevelInfo(score, gameCount);
+                var levelInfo = IObjectivesRepository.GetLevelInfo(obj.Score, obj.GameCount);
 
                 ActiveObjectives.Add(new ObjectiveDisplayItem
                 {
-                    Id = id,
-                    Title = title,
-                    SkillArea = skillArea,
-                    Type = type,
-                    CompletionCriteria = criteria,
-                    Description = description,
-                    Score = score,
-                    GameCount = gameCount,
-                    Status = status,
-                    IsPriority = isPriority,
+                    Id = obj.Id,
+                    Title = obj.Title,
+                    SkillArea = obj.SkillArea,
+                    Type = obj.Type,
+                    CompletionCriteria = obj.CompletionCriteria,
+                    Description = obj.Description,
+                    Score = obj.Score,
+                    GameCount = obj.GameCount,
+                    Status = obj.Status,
+                    IsPriority = obj.IsPriority,
                     LevelName = levelInfo.LevelName,
                     LevelIndex = levelInfo.LevelIndex,
                     Progress = levelInfo.Progress,
@@ -289,10 +278,10 @@ public partial class ObjectivesViewModel : ObservableObject
             {
                 CompletedObjectives.Add(new CompletedObjectiveItem
                 {
-                    Id = id,
-                    Title = title,
-                    Score = score,
-                    GameCount = gameCount,
+                    Id = obj.Id,
+                    Title = obj.Title,
+                    Score = obj.Score,
+                    GameCount = obj.GameCount,
                 });
             }
         }

@@ -151,31 +151,28 @@ public partial class PreGameDialogViewModel : ObservableObject
             // Get active objective
             var objectives = await _objectivesRepo.GetActiveAsync();
             var priorityObjective = await _objectivesRepo.GetPriorityAsync();
-            var priorityObjectiveId = priorityObjective is null
-                ? 0L
-                : Convert.ToInt64(priorityObjective.GetValueOrDefault("id") ?? 0L);
+            var priorityObjectiveId = priorityObjective?.Id ?? 0L;
             ObjectiveFocusOptions.Clear();
             if (objectives.Count > 0)
             {
                 foreach (var objective in objectives)
                 {
-                    var objectiveId = Convert.ToInt64(objective.GetValueOrDefault("id", 0L));
                     ObjectiveFocusOptions.Add(new FocusObjectiveItem
                     {
-                        Id = objectiveId,
-                        Title = objective.GetValueOrDefault("title", "")?.ToString() ?? "",
-                        Subtitle = objective.GetValueOrDefault("completion_criteria", "")?.ToString()
-                                   ?? objective.GetValueOrDefault("skill_area", "")?.ToString()
-                                   ?? "",
-                        IsPriority = objectiveId == priorityObjectiveId
+                        Id = objective.Id,
+                        Title = objective.Title,
+                        Subtitle = string.IsNullOrWhiteSpace(objective.CompletionCriteria)
+                            ? objective.SkillArea
+                            : objective.CompletionCriteria,
+                        IsPriority = objective.Id == priorityObjectiveId
                     });
                 }
 
                 HasObjectiveFocusOptions = ObjectiveFocusOptions.Count > 0;
 
                 var obj = priorityObjective ?? objectives[0];
-                ActiveObjectiveTitle = obj.TryGetValue("title", out var t) ? t?.ToString() ?? "" : "";
-                ActiveObjectiveCriteria = obj.TryGetValue("completion_criteria", out var c) ? c?.ToString() ?? "" : "";
+                ActiveObjectiveTitle = obj.Title;
+                ActiveObjectiveCriteria = obj.CompletionCriteria;
                 HasActiveObjective = true;
 
                 // Pre-fill focus with objective title if no prior focus

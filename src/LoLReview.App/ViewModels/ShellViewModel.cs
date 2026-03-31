@@ -6,7 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
-using LoLReview.Core.Data.Repositories;
+using LoLReview.App.Services;
 using LoLReview.Core.Lcu;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -26,9 +26,10 @@ public partial class ShellViewModel : ObservableRecipient,
 {
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
-    private readonly IGameService _gameService;
-    private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
+    private readonly IGameLifecycleWorkflowService _gameLifecycleWorkflow;
+    private readonly IUpdateService _updateService;
     private readonly ILogger<ShellViewModel> _logger;
+    private bool _hasInitialized;
 
     // Store pre-game mood from the page so we can pass it to ProcessGameEndAsync
     private int _preGameMood;
@@ -39,18 +40,30 @@ public partial class ShellViewModel : ObservableRecipient,
     [ObservableProperty]
     private string _connectionStatusText = "Waiting for League...";
 
+    [ObservableProperty]
+    private bool _showUpdateNotice;
+
+    [ObservableProperty]
+    private string _updateNoticeText = "";
+
+    [ObservableProperty]
+    private bool _showSettingsUpdateBadge;
+
     public ShellViewModel(
         INavigationService navigationService,
         IDialogService dialogService,
-        IGameService gameService,
-        IMissedGameDecisionRepository missedGameDecisionRepository,
+        IGameLifecycleWorkflowService gameLifecycleWorkflow,
+        IUpdateService updateService,
         ILogger<ShellViewModel> logger)
     {
         _navigationService = navigationService;
         _dialogService = dialogService;
-        _gameService = gameService;
-        _missedGameDecisionRepository = missedGameDecisionRepository;
+        _gameLifecycleWorkflow = gameLifecycleWorkflow;
+        _updateService = updateService;
         _logger = logger;
+
+        _updateService.StateChanged += OnUpdateStateChanged;
+        ApplyUpdateState();
 
         // Activate the messenger so we receive messages
         IsActive = true;
@@ -60,6 +73,31 @@ public partial class ShellViewModel : ObservableRecipient,
     private void Navigate(string pageKey)
     {
         _navigationService.NavigateTo(pageKey);
+    }
+
+    [RelayCommand]
+    private void OpenUpdateSettings()
+    {
+        _navigationService.NavigateTo("settings");
+    }
+
+    public async Task InitializeAsync()
+    {
+        if (_hasInitialized)
+        {
+            return;
+        }
+
+        _hasInitialized = true;
+
+        try
+        {
+            await _updateService.CheckForUpdateAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Background update check failed");
+        }
     }
 
     public void Receive(LcuConnectionChangedMessage message)
@@ -112,29 +150,31 @@ public partial class ShellViewModel : ObservableRecipient,
             try
             {
                 // 1. Save game stats to DB
-                var gameId = await _gameService.ProcessGameEndAsync(
-                    message.Stats,
-                    mentalRating: 5,
-                    preGameMood: message.IsRecovered ? 0 : _preGameMood);
+                var result = await _gameLifecycleWorkflow.ProcessGameEndAsync(
+                    new ProcessGameEndRequest(
+                        message.Stats,
+                        MentalRating: 5,
+                        PreGameMood: message.IsRecovered ? 0 : _preGameMood),
+                    isRecovered: message.IsRecovered);
 
-                if (gameId == null)
+                if (!result.WasSaved)
                 {
                     _logger.LogInformation("Game skipped (casual/remake)");
                     return;
                 }
 
-                if (message.IsRecovered)
+                if (result.IsRecovered)
                 {
-                    _logger.LogInformation("Recovered missed game {GameId} saved silently for later review", gameId.Value);
+                    _logger.LogInformation("Recovered missed game {GameId} saved silently for later review", result.GameId!.Value);
                     return;
                 }
 
                 _preGameMood = 0; // Reset for next game
 
                 // 2. Navigate to post-game review page
-                _logger.LogInformation("Game end processed for {GameId} -- opening post-game page", gameId.Value);
+                _logger.LogInformation("Game end processed for {GameId} -- opening post-game page", result.GameId!.Value);
                 WindowActivationHelper.BringMainWindowToFront();
-                _navigationService.NavigateTo("postgame", gameId.Value);
+                _navigationService.NavigateTo("postgame", result.GameId!.Value);
             }
             catch (Exception ex)
             {
@@ -157,11 +197,6 @@ public partial class ShellViewModel : ObservableRecipient,
                     .Where(static gameId => gameId > 0)
                     .ToArray();
 
-                if (dismissedIds.Length > 0)
-                {
-                    await _missedGameDecisionRepository.MarkDismissedAsync(dismissedIds);
-                }
-
                 if (selectedGames.Count == 0)
                 {
                     _logger.LogInformation(
@@ -171,34 +206,27 @@ public partial class ShellViewModel : ObservableRecipient,
                     return;
                 }
 
-                var ingested = 0;
-                foreach (var stats in selectedGames.OrderBy(s => s.Timestamp))
-                {
-                    var gameId = await _gameService.ProcessGameEndAsync(
-                        stats,
-                        mentalRating: 5,
-                        preGameMood: 0);
+                var result = await _gameLifecycleWorkflow.ReconcileMissedGamesAsync(
+                    new ReconcileMissedGamesRequest(
+                        SelectedGames: selectedGames,
+                        DismissedGameIds: dismissedIds,
+                        MentalRating: 5,
+                        PreGameMood: 0));
 
-                    if (gameId is not null)
-                    {
-                        ingested++;
-                    }
-                }
-
-                if (ingested > 0)
+                if (result.IngestedCount > 0)
                 {
                     await _dialogService.ShowMessageAsync(
                         "Recent Games Ingested",
-                        ingested == 1
+                        result.IngestedCount == 1
                             ? "Ingested 1 recent game. It is ready for review."
-                            : $"Ingested {ingested} recent games. They are ready for review.");
+                            : $"Ingested {result.IngestedCount} recent games. They are ready for review.");
                     _navigationService.NavigateTo("dashboard");
                 }
 
                 _logger.LogInformation(
                     "Missed games ingestion completed: selected={Selected} ingested={Ingested} dismissed={Dismissed} candidates={Candidates}",
                     selectedGames.Count,
-                    ingested,
+                    result.IngestedCount,
                     dismissedIds.Length,
                     message.Games.Count);
             }
@@ -207,5 +235,19 @@ public partial class ShellViewModel : ObservableRecipient,
                 _logger.LogError(ex, "Failed to process missed recent games");
             }
         });
+    }
+
+    private void OnUpdateStateChanged(object? sender, EventArgs e)
+    {
+        Helpers.DispatcherHelper.RunOnUIThread(ApplyUpdateState);
+    }
+
+    private void ApplyUpdateState()
+    {
+        ShowUpdateNotice = _updateService.IsUpdateAvailable;
+        ShowSettingsUpdateBadge = _updateService.IsUpdateAvailable;
+        UpdateNoticeText = _updateService.IsUpdateAvailable
+            ? $"Update ready: v{_updateService.AvailableVersion}"
+            : "";
     }
 }

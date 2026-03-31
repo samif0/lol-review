@@ -5,6 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:converters="using:LoLReview.App.Converters"
+    xmlns:controls="using:LoLReview.App.Controls"
     xmlns:vm="using:LoLReview.App.ViewModels"
     mc:Ignorable="d"
     Loaded="Page_Loaded">
@@ -214,12 +215,12 @@
                                     </StackPanel>
 
                                     <!-- Progress Bar -->
-                                    <ProgressBar Value="{x:Bind ProgressPercent}"
-                                                 Maximum="100"
-                                                 Height="8"
-                                                 Foreground="{x:Bind LevelColorBrush}"
-                                                 Background="{StaticResource SubtleBorderBrush}"
-                                                 CornerRadius="4"/>
+                                    <controls:ObjectiveProgressBar Progress="{x:Bind Progress}"
+                                                                   BarHeight="8"
+                                                                   BarCornerRadius="4"
+                                                                   MinimumVisibleFillWidth="6"
+                                                                   FillBrush="{x:Bind LevelColorBrush}"
+                                                                   TrackBrush="{StaticResource SubtleBorderBrush}"/>
 
                                     <!-- Action Row -->
                                     <Grid>

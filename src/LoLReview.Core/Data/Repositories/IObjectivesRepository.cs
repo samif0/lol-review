@@ -19,13 +19,13 @@ public interface IObjectivesRepository
     Task<long> CreateAsync(string title, string skillArea = "", string type = "primary",
         string completionCriteria = "", string description = "");
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync();
+    Task<IReadOnlyList<ObjectiveSummary>> GetAllAsync();
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetActiveAsync();
+    Task<IReadOnlyList<ObjectiveSummary>> GetActiveAsync();
 
-    Task<Dictionary<string, object?>?> GetPriorityAsync();
+    Task<ObjectiveSummary?> GetPriorityAsync();
 
-    Task<Dictionary<string, object?>?> GetAsync(long objectiveId);
+    Task<ObjectiveSummary?> GetAsync(long objectiveId);
 
     Task SetPriorityAsync(long objectiveId);
 
@@ -37,7 +37,7 @@ public interface IObjectivesRepository
 
     Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "");
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetGameObjectivesAsync(long gameId);
+    Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId);
 
     /// <summary>Return progression display info for a score + game count.</summary>
     static ObjectiveLevelInfo GetLevelInfo(int score, int gameCount)

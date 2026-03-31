@@ -13,7 +13,7 @@ public sealed record TagFrequency(
 /// <summary>CRUD for concept_tags and game_concept_tags tables.</summary>
 public interface IConceptTagRepository
 {
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync();
+    Task<IReadOnlyList<ConceptTagRecord>> GetAllAsync();
 
     /// <summary>Create a concept tag. Auto-assigns a color if not specified.</summary>
     Task<long> CreateAsync(string name, string polarity = "neutral", string color = "");

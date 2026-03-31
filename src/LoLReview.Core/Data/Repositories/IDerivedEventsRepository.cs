@@ -8,7 +8,7 @@ public interface IDerivedEventsRepository
     Task<long> CreateAsync(string name, IReadOnlyList<string> sourceTypes, int minCount,
         int windowSeconds, string color = "#ff6b6b");
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetAllDefinitionsAsync();
+    Task<IReadOnlyList<DerivedEventDefinitionRecord>> GetAllDefinitionsAsync();
 
     /// <summary>Delete a non-default definition and its instances.</summary>
     Task DeleteDefinitionAsync(long definitionId);
@@ -18,14 +18,14 @@ public interface IDerivedEventsRepository
     /// clustering algorithm. For each definition, filter events to matching source_types,
     /// sort by time, and use greedy non-overlapping windows.
     /// </summary>
-    IReadOnlyList<Dictionary<string, object?>> ComputeInstances(
+    IReadOnlyList<DerivedEventInstanceRecord> ComputeInstances(
         long gameId,
-        IReadOnlyList<Dictionary<string, object?>> events,
-        IReadOnlyList<Dictionary<string, object?>> definitions);
+        IReadOnlyList<LoLReview.Core.Models.GameEvent> events,
+        IReadOnlyList<DerivedEventDefinitionRecord> definitions);
 
     /// <summary>Save computed instances for a game, replacing existing ones.</summary>
-    Task SaveInstancesAsync(long gameId, IReadOnlyList<Dictionary<string, object?>> instances);
+    Task SaveInstancesAsync(long gameId, IReadOnlyList<DerivedEventInstanceRecord> instances);
 
     /// <summary>Get all derived event instances for a game, with definition info.</summary>
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetInstancesAsync(long gameId);
+    Task<IReadOnlyList<DerivedEventInstanceRecord>> GetInstancesAsync(long gameId);
 }

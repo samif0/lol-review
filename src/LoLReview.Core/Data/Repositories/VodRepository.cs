@@ -12,8 +12,6 @@ public sealed class VodRepository : IVodRepository
 
     public VodRepository(IDbConnectionFactory factory) => _factory = factory;
 
-    // ── VOD file linking ─────────────────────────────────────────
-
     public async Task LinkVodAsync(long gameId, string filePath, long fileSize = 0, long durationSeconds = 0)
     {
         using var conn = _factory.CreateConnection();
@@ -31,13 +29,13 @@ public sealed class VodRepository : IVodRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<Dictionary<string, object?>?> GetVodAsync(long gameId)
+    public async Task<VodSummary?> GetVodAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM vod_files WHERE game_id = @gameId";
         cmd.Parameters.AddWithValue("@gameId", gameId);
-        return await ReadSingleRowAsync(cmd);
+        return await ReadSingleVodAsync(cmd);
     }
 
     public async Task<Dictionary<long, string>> GetVodPathsAsync(IReadOnlyCollection<long> gameIds)
@@ -89,15 +87,13 @@ public sealed class VodRepository : IVodRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetAllVodsAsync()
+    public async Task<IReadOnlyList<VodSummary>> GetAllVodsAsync()
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM vod_files ORDER BY matched_at DESC";
-        return await ReadAllRowsAsync(cmd);
+        return await ReadAllVodsAsync(cmd);
     }
-
-    // ── Bookmarks ────────────────────────────────────────────────
 
     public async Task<long> AddBookmarkAsync(long gameId, int gameTimeSeconds, string note = "",
         IReadOnlyList<string>? tags = null, int? clipStartSeconds = null,
@@ -138,26 +134,31 @@ public sealed class VodRepository : IVodRepository
             updates.Add("note = @note");
             parameters.Add(new SqliteParameter("@note", note));
         }
+
         if (tags is not null)
         {
             updates.Add("tags = @tags");
             parameters.Add(new SqliteParameter("@tags", JsonSerializer.Serialize(tags)));
         }
+
         if (gameTimeSeconds is not null)
         {
             updates.Add("game_time_s = @gameTimeS");
             parameters.Add(new SqliteParameter("@gameTimeS", gameTimeSeconds.Value));
         }
+
         if (clipStartSeconds is not null)
         {
             updates.Add("clip_start_s = @clipStartS");
             parameters.Add(new SqliteParameter("@clipStartS", clipStartSeconds.Value));
         }
+
         if (clipEndSeconds is not null)
         {
             updates.Add("clip_end_s = @clipEndS");
             parameters.Add(new SqliteParameter("@clipEndS", clipEndSeconds.Value));
         }
+
         if (clipPath is not null)
         {
             updates.Add("clip_path = @clipPath");
@@ -165,13 +166,18 @@ public sealed class VodRepository : IVodRepository
         }
 
         if (updates.Count == 0)
+        {
             return;
+        }
 
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"UPDATE vod_bookmarks SET {string.Join(", ", updates)} WHERE id = @id";
-        foreach (var p in parameters)
-            cmd.Parameters.Add(p);
+        foreach (var parameter in parameters)
+        {
+            cmd.Parameters.Add(parameter);
+        }
+
         cmd.Parameters.AddWithValue("@id", bookmarkId);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -185,13 +191,13 @@ public sealed class VodRepository : IVodRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetBookmarksAsync(long gameId)
+    public async Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM vod_bookmarks WHERE game_id = @gameId ORDER BY game_time_s ASC";
         cmd.Parameters.AddWithValue("@gameId", gameId);
-        return await ReadAllRowsAsync(cmd);
+        return await ReadBookmarksAsync(cmd);
     }
 
     public async Task<int> GetBookmarkCountAsync(long gameId)
@@ -213,32 +219,58 @@ public sealed class VodRepository : IVodRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    // ── Helpers ──────────────────────────────────────────────────
-
-    private static async Task<IReadOnlyList<Dictionary<string, object?>>> ReadAllRowsAsync(SqliteCommand cmd)
+    private static async Task<IReadOnlyList<VodSummary>> ReadAllVodsAsync(SqliteCommand cmd)
     {
-        var results = new List<Dictionary<string, object?>>();
+        var results = new List<VodSummary>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            results.Add(ReadRow(reader));
+            results.Add(ReadVod(reader));
         }
+
         return results;
     }
 
-    private static async Task<Dictionary<string, object?>?> ReadSingleRowAsync(SqliteCommand cmd)
+    private static async Task<VodSummary?> ReadSingleVodAsync(SqliteCommand cmd)
     {
         using var reader = await cmd.ExecuteReaderAsync();
-        return await reader.ReadAsync() ? ReadRow(reader) : null;
+        return await reader.ReadAsync() ? ReadVod(reader) : null;
     }
 
-    private static Dictionary<string, object?> ReadRow(SqliteDataReader reader)
+    private static async Task<IReadOnlyList<VodBookmarkRecord>> ReadBookmarksAsync(SqliteCommand cmd)
     {
-        var dict = new Dictionary<string, object?>(reader.FieldCount);
-        for (int i = 0; i < reader.FieldCount; i++)
+        var results = new List<VodBookmarkRecord>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
         {
-            dict[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            results.Add(ReadBookmark(reader));
         }
-        return dict;
+
+        return results;
+    }
+
+    private static VodSummary ReadVod(SqliteDataReader reader)
+    {
+        return new VodSummary(
+            Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
+            GameId: reader.IsDBNull(reader.GetOrdinal("game_id")) ? 0 : reader.GetInt64(reader.GetOrdinal("game_id")),
+            FilePath: reader.IsDBNull(reader.GetOrdinal("file_path")) ? "" : reader.GetString(reader.GetOrdinal("file_path")),
+            FileSize: reader.IsDBNull(reader.GetOrdinal("file_size")) ? 0 : reader.GetInt64(reader.GetOrdinal("file_size")),
+            DurationSeconds: reader.IsDBNull(reader.GetOrdinal("duration_s")) ? 0 : reader.GetInt32(reader.GetOrdinal("duration_s")),
+            MatchedAt: reader.IsDBNull(reader.GetOrdinal("matched_at")) ? null : reader.GetInt64(reader.GetOrdinal("matched_at")));
+    }
+
+    private static VodBookmarkRecord ReadBookmark(SqliteDataReader reader)
+    {
+        return new VodBookmarkRecord(
+            Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
+            GameId: reader.IsDBNull(reader.GetOrdinal("game_id")) ? 0 : reader.GetInt64(reader.GetOrdinal("game_id")),
+            GameTimeSeconds: reader.IsDBNull(reader.GetOrdinal("game_time_s")) ? 0 : reader.GetInt32(reader.GetOrdinal("game_time_s")),
+            Note: reader.IsDBNull(reader.GetOrdinal("note")) ? "" : reader.GetString(reader.GetOrdinal("note")),
+            TagsJson: reader.IsDBNull(reader.GetOrdinal("tags")) ? "[]" : reader.GetString(reader.GetOrdinal("tags")),
+            ClipStartSeconds: reader.IsDBNull(reader.GetOrdinal("clip_start_s")) ? null : reader.GetInt32(reader.GetOrdinal("clip_start_s")),
+            ClipEndSeconds: reader.IsDBNull(reader.GetOrdinal("clip_end_s")) ? null : reader.GetInt32(reader.GetOrdinal("clip_end_s")),
+            ClipPath: reader.IsDBNull(reader.GetOrdinal("clip_path")) ? "" : reader.GetString(reader.GetOrdinal("clip_path")),
+            CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")));
     }
 }

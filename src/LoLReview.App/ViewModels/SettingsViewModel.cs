@@ -6,6 +6,8 @@ using LoLReview.App.Helpers;
 using LoLReview.App.Services;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI;
+using Microsoft.UI.Xaml.Media;
 using Velopack;
 using Windows.Storage.Pickers;
 
@@ -111,6 +113,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private int _updateProgress;
 
+    public SolidColorBrush UpdateStatusBrush => HexBrush(UpdateStatusColorHex);
+
     // ── Constructor ─────────────────────────────────────────────────
 
     public SettingsViewModel(
@@ -165,6 +169,12 @@ public partial class SettingsViewModel : ObservableObject
 
             // Clip usage (placeholder -- actual implementation would scan folder)
             UpdateClipUsage();
+
+            RefreshUpdateState();
+            if (_updateService.IsInstalled && !_updateService.HasChecked && !_updateService.IsChecking)
+            {
+                await RefreshUpdateStateAsync(force: false);
+            }
         }
         catch (Exception ex)
         {
@@ -253,38 +263,7 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task CheckForUpdateAsync()
     {
-        if (IsCheckingUpdate) return;
-        IsCheckingUpdate = true;
-        UpdateStatusText = "Checking for updates...";
-        UpdateStatusColorHex = "#7070a0";
-        IsUpdateAvailable = false;
-
-        try
-        {
-            _pendingUpdate = await _updateService.CheckForUpdateAsync();
-
-            if (_pendingUpdate != null)
-            {
-                UpdateStatusText = $"Update available: v{_pendingUpdate.TargetFullRelease.Version}";
-                UpdateStatusColorHex = "#c89b3c";
-                IsUpdateAvailable = true;
-            }
-            else
-            {
-                UpdateStatusText = "You're on the latest version";
-                UpdateStatusColorHex = "#22c55e";
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Update check failed");
-            UpdateStatusText = "Update check failed";
-            UpdateStatusColorHex = "#ef4444";
-        }
-        finally
-        {
-            IsCheckingUpdate = false;
-        }
+        await RefreshUpdateStateAsync(force: true);
     }
 
     [RelayCommand]
@@ -323,6 +302,59 @@ public partial class SettingsViewModel : ObservableObject
         AscentFolder = "";
         AscentStatus = "Ascent VOD disabled";
         AscentStatusColorHex = "#7070a0";
+    }
+
+    partial void OnUpdateStatusColorHexChanged(string value)
+    {
+        OnPropertyChanged(nameof(UpdateStatusBrush));
+    }
+
+    private async Task RefreshUpdateStateAsync(bool force)
+    {
+        IsCheckingUpdate = true;
+        RefreshUpdateState();
+
+        try
+        {
+            _pendingUpdate = await _updateService.CheckForUpdateAsync(force);
+        }
+        finally
+        {
+            RefreshUpdateState();
+        }
+    }
+
+    private void RefreshUpdateState()
+    {
+        _pendingUpdate = _updateService.AvailableUpdate;
+        IsCheckingUpdate = _updateService.IsChecking;
+        IsUpdateAvailable = _updateService.IsUpdateAvailable;
+
+        if (_updateService.IsChecking)
+        {
+            UpdateStatusText = "Checking for updates...";
+            UpdateStatusColorHex = "#7070a0";
+            return;
+        }
+
+        UpdateStatusText = _updateService.StatusText;
+
+        if (_updateService.IsUpdateAvailable)
+        {
+            UpdateStatusColorHex = "#c89b3c";
+        }
+        else if (_updateService.LastCheckFailed)
+        {
+            UpdateStatusColorHex = "#ef4444";
+        }
+        else if (_updateService.IsInstalled && _updateService.HasChecked)
+        {
+            UpdateStatusColorHex = "#22c55e";
+        }
+        else
+        {
+            UpdateStatusColorHex = "#7070a0";
+        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -442,6 +474,27 @@ public partial class SettingsViewModel : ObservableObject
             {
                 pending.Push(directory);
             }
+        }
+    }
+
+    private static SolidColorBrush HexBrush(string hex)
+    {
+        var normalized = (hex ?? "#7070a0").Trim().TrimStart('#');
+        if (normalized.Length != 6)
+        {
+            return new SolidColorBrush(ColorHelper.FromArgb(255, 112, 112, 160));
+        }
+
+        try
+        {
+            var r = byte.Parse(normalized[..2], System.Globalization.NumberStyles.HexNumber);
+            var g = byte.Parse(normalized[2..4], System.Globalization.NumberStyles.HexNumber);
+            var b = byte.Parse(normalized[4..6], System.Globalization.NumberStyles.HexNumber);
+            return new SolidColorBrush(ColorHelper.FromArgb(255, r, g, b));
+        }
+        catch
+        {
+            return new SolidColorBrush(ColorHelper.FromArgb(255, 112, 112, 160));
         }
     }
 

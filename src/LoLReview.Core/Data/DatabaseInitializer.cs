@@ -75,6 +75,7 @@ public sealed class DatabaseInitializer
 
         // 6. Backfill objectives.game_count from game_objectives for existing data
         await BackfillObjectiveGameCountAsync(connection, cancellationToken);
+        await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
 
         _logger.LogInformation("Database initialized at {Path}", _connectionFactory.DatabasePath);
     }
@@ -521,6 +522,23 @@ public sealed class DatabaseInitializer
                 SELECT COUNT(*) FROM game_objectives
                 WHERE game_objectives.objective_id = objectives.id
             ), 0)
+            """;
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task BackfillObjectiveScoreFromPracticedGamesAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE objectives
+            SET score = MAX(
+                COALESCE(score, 0),
+                COALESCE((
+                    SELECT SUM(CASE WHEN COALESCE(game_objectives.practiced, 0) != 0 THEN 2 ELSE 0 END)
+                    FROM game_objectives
+                    WHERE game_objectives.objective_id = objectives.id
+                ), 0)
+            )
             """;
         await cmd.ExecuteNonQueryAsync(ct);
     }

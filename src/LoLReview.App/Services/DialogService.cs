@@ -4,7 +4,7 @@ using System.Linq;
 using Microsoft.UI.Text;
 using LoLReview.App.Contracts;
 using LoLReview.App.Dialogs;
-using LoLReview.Core.Models;
+using LoLReview.Core.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -89,7 +89,7 @@ public sealed class DialogService : IDialogService
         return result == ContentDialogResult.Primary;
     }
 
-    public async Task<IReadOnlyList<GameStats>> ShowMissedGamesSelectionAsync(IReadOnlyList<GameStats> games)
+    public async Task<IReadOnlyList<MissedGameCandidate>> ShowMissedGamesSelectionAsync(IReadOnlyList<MissedGameCandidate> games)
     {
         if (games.Count == 0)
         {
@@ -168,7 +168,7 @@ public sealed class DialogService : IDialogService
         return [.. checkboxes
             .Where(cb => cb.IsChecked == true)
             .Select(cb => cb.Tag)
-            .OfType<GameStats>()];
+            .OfType<MissedGameCandidate>()];
     }
 
     private ContentDialog CreateDialog(string title, string content)
@@ -191,8 +191,9 @@ public sealed class DialogService : IDialogService
         return dialog;
     }
 
-    private static UIElement BuildMissedGameCard(GameStats game)
+    private static UIElement BuildMissedGameCard(MissedGameCandidate candidate)
     {
+        var game = candidate.Stats;
         var title = $"{game.ChampionName} {(game.Win ? "Win" : "Loss")}";
         var subtitle = string.IsNullOrWhiteSpace(game.DatePlayed)
             ? game.GameMode

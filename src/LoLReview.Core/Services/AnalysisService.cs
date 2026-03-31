@@ -159,14 +159,14 @@ public sealed class AnalysisService : IAnalysisService
         try
         {
             var allObjs = await _objectives.GetAllAsync().ConfigureAwait(false);
-            var active = allObjs.Where(o => ObjStr(o, "status") == "active").ToList();
-            var completed = allObjs.Where(o => ObjStr(o, "status") != "active").ToList();
+            var active = allObjs.Where(o => string.Equals(o.Status, "active", StringComparison.OrdinalIgnoreCase)).ToList();
+            var completed = allObjs.Where(o => !string.Equals(o.Status, "active", StringComparison.OrdinalIgnoreCase)).ToList();
 
             double avgGames = 0;
             if (completed.Count > 0)
             {
                 var counts = completed
-                    .Select(o => ObjInt(o, "game_count"))
+                    .Select(o => o.GameCount)
                     .Where(c => c > 0)
                     .ToList();
                 if (counts.Count > 0) avgGames = Math.Round(counts.Average(), 1);
@@ -179,9 +179,9 @@ public sealed class AnalysisService : IAnalysisService
                 AvgGamesToComplete = avgGames,
                 Active = active.Select(o => new ActiveObjectiveInfo
                 {
-                    Title = ObjStr(o, "title"),
-                    Score = ObjInt(o, "score"),
-                    GameCount = ObjInt(o, "game_count"),
+                    Title = o.Title,
+                    Score = o.Score,
+                    GameCount = o.GameCount,
                 }).ToList(),
             };
         }

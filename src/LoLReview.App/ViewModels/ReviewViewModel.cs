@@ -1,13 +1,10 @@
 #nullable enable
 
 using System.Collections.ObjectModel;
-using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
-using LoLReview.Core.Data.Repositories;
-using LoLReview.Core.Models;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI;
@@ -18,177 +15,62 @@ namespace LoLReview.App.ViewModels;
 /// <summary>ViewModel for the inline game review page.</summary>
 public partial class ReviewViewModel : ObservableObject
 {
-    private readonly IGameRepository _gameRepo;
-    private readonly IConceptTagRepository _conceptTagRepo;
-    private readonly IVodRepository _vodRepo;
-    private readonly IVodService _vodService;
-    private readonly ISessionLogRepository _sessionLogRepo;
-    private readonly IObjectivesRepository _objectivesRepo;
-    private readonly IReviewDraftRepository _reviewDraftRepo;
-    private readonly IMatchupNotesRepository _matchupNotesRepo;
-    private readonly IConfigService _configService;
+    private readonly IReviewWorkflowService _reviewWorkflowService;
     private readonly INavigationService _navigationService;
     private readonly ILogger<ReviewViewModel> _logger;
 
-    private string _loadedEnemyLaner = "";
-
-    // ── Game Data ──────────────────────────────────────────────────────
-
-    [ObservableProperty]
-    private long _gameId;
-
-    [ObservableProperty]
-    private string _championName = "";
-
-    [ObservableProperty]
-    private bool _win;
-
-    [ObservableProperty]
-    private string _resultText = "";
-
-    [ObservableProperty]
-    private string _resultColorHex = "#e8e8f0";
-
-    [ObservableProperty]
-    private string _kdaText = "";
-
-    [ObservableProperty]
-    private string _kdaRatioText = "";
-
-    [ObservableProperty]
-    private string _gameModeText = "";
-
-    [ObservableProperty]
-    private string _durationText = "";
-
-    [ObservableProperty]
-    private string _headerText = "Review";
-
-    [ObservableProperty]
-    private string _enemyLaner = "";
-
-    [ObservableProperty]
-    private bool _hasEnemyLaner;
-
-    // ── Stat display properties ───────────────────────────────────────
-
-    [ObservableProperty]
-    private string _damageText = "";
-
-    [ObservableProperty]
-    private string _csText = "";
-
-    [ObservableProperty]
-    private string _csPerMinText = "";
-
-    [ObservableProperty]
-    private string _visionText = "";
-
-    [ObservableProperty]
-    private string _goldText = "";
-
-    [ObservableProperty]
-    private string _killParticipationText = "";
-
-    [ObservableProperty]
-    private string _damageTakenText = "";
-
-    [ObservableProperty]
-    private string _wardsPlacedText = "";
-
-    // ── VOD ────────────────────────────────────────────────────────────
-
-    [ObservableProperty]
-    private bool _hasVod;
-
-    [ObservableProperty]
-    private int _bookmarkCount;
-
-    // ── Review Fields ──────────────────────────────────────────────────
-
-    [ObservableProperty]
-    private int _mentalRating = 5;
-
-    [ObservableProperty]
-    private string _mentalRatingColorHex = "#0099ff";
-
-    [ObservableProperty]
-    private string _wentWell = "";
-
-    [ObservableProperty]
-    private string _mistakes = "";
-
-    [ObservableProperty]
-    private string _focusNext = "";
-
-    [ObservableProperty]
-    private string _reviewNotes = "";
-
-    [ObservableProperty]
-    private string _improvementNote = "";
-
-    [ObservableProperty]
-    private string _attribution = "";
-
-    [ObservableProperty]
-    private string _mentalHandled = "";
-
-    [ObservableProperty]
-    private string _spottedProblems = "";
-
-    [ObservableProperty]
-    private string _outsideControl = "";
-
-    [ObservableProperty]
-    private string _withinControl = "";
-
-    [ObservableProperty]
-    private string _personalContribution = "";
-
-    [ObservableProperty]
-    private string _matchupNote = "";
-
-    [ObservableProperty]
-    private bool _requireReviewNotes;
-
-    [ObservableProperty]
-    private string _saveBehaviorText = "";
-
-    [ObservableProperty]
-    private string _validationMessage = "";
-
-    [ObservableProperty]
-    private bool _hasValidationMessage;
-
-    [ObservableProperty]
-    private bool _showMentalReflection;
-
-    [ObservableProperty]
-    private bool _isLoading;
-
-    [ObservableProperty]
-    private bool _hasObjectives;
-
-    [ObservableProperty]
-    private bool _hasMatchupHistory;
-
-    [ObservableProperty]
-    private string _priorityObjectiveTitle = "";
-
-    [ObservableProperty]
-    private string _priorityObjectiveCriteria = "";
-
-    [ObservableProperty]
-    private bool _hasPriorityObjective;
-
-    // ── Concept Tags ───────────────────────────────────────────────────
+    [ObservableProperty] private long _gameId;
+    [ObservableProperty] private string _championName = "";
+    [ObservableProperty] private bool _win;
+    [ObservableProperty] private string _resultText = "";
+    [ObservableProperty] private string _resultColorHex = "#e8e8f0";
+    [ObservableProperty] private string _kdaText = "";
+    [ObservableProperty] private string _kdaRatioText = "";
+    [ObservableProperty] private string _gameModeText = "";
+    [ObservableProperty] private string _durationText = "";
+    [ObservableProperty] private string _headerText = "Review";
+    [ObservableProperty] private string _enemyLaner = "";
+    [ObservableProperty] private bool _hasEnemyLaner;
+    [ObservableProperty] private string _damageText = "";
+    [ObservableProperty] private string _csText = "";
+    [ObservableProperty] private string _csPerMinText = "";
+    [ObservableProperty] private string _visionText = "";
+    [ObservableProperty] private string _goldText = "";
+    [ObservableProperty] private string _killParticipationText = "";
+    [ObservableProperty] private string _damageTakenText = "";
+    [ObservableProperty] private string _wardsPlacedText = "";
+    [ObservableProperty] private bool _hasVod;
+    [ObservableProperty] private int _bookmarkCount;
+    [ObservableProperty] private int _mentalRating = 5;
+    [ObservableProperty] private string _mentalRatingColorHex = "#0099ff";
+    [ObservableProperty] private string _wentWell = "";
+    [ObservableProperty] private string _mistakes = "";
+    [ObservableProperty] private string _focusNext = "";
+    [ObservableProperty] private string _reviewNotes = "";
+    [ObservableProperty] private string _improvementNote = "";
+    [ObservableProperty] private string _attribution = "";
+    [ObservableProperty] private string _mentalHandled = "";
+    [ObservableProperty] private string _spottedProblems = "";
+    [ObservableProperty] private string _outsideControl = "";
+    [ObservableProperty] private string _withinControl = "";
+    [ObservableProperty] private string _personalContribution = "";
+    [ObservableProperty] private string _matchupNote = "";
+    [ObservableProperty] private bool _requireReviewNotes;
+    [ObservableProperty] private string _saveBehaviorText = "";
+    [ObservableProperty] private string _validationMessage = "";
+    [ObservableProperty] private bool _hasValidationMessage;
+    [ObservableProperty] private bool _showMentalReflection;
+    [ObservableProperty] private bool _isLoading;
+    [ObservableProperty] private bool _hasObjectives;
+    [ObservableProperty] private bool _hasMatchupHistory;
+    [ObservableProperty] private string _priorityObjectiveTitle = "";
+    [ObservableProperty] private string _priorityObjectiveCriteria = "";
+    [ObservableProperty] private bool _hasPriorityObjective;
 
     public ObservableCollection<ConceptTagItem> AllTags { get; } = new();
     public ObservableCollection<long> SelectedTagIds { get; } = new();
     public ObservableCollection<ObjectiveAssessment> ObjectiveAssessments { get; } = new();
     public ObservableCollection<MatchupHistoryItem> MatchupHistory { get; } = new();
-
-    // ── Attribution Options ────────────────────────────────────────────
 
     public static IReadOnlyList<string> AttributionOptions { get; } =
     [
@@ -202,68 +84,48 @@ public partial class ReviewViewModel : ObservableObject
         ? $"{ChampionName} vs {EnemyLaner}"
         : $"{ChampionName} matchup notes";
 
-    // ── Constructor ────────────────────────────────────────────────────
-
     public ReviewViewModel(
-        IGameRepository gameRepo,
-        IConceptTagRepository conceptTagRepo,
-        IVodRepository vodRepo,
-        IVodService vodService,
-        ISessionLogRepository sessionLogRepo,
-        IObjectivesRepository objectivesRepo,
-        IReviewDraftRepository reviewDraftRepo,
-        IMatchupNotesRepository matchupNotesRepo,
-        IConfigService configService,
+        IReviewWorkflowService reviewWorkflowService,
         INavigationService navigationService,
         ILogger<ReviewViewModel> logger)
     {
-        _gameRepo = gameRepo;
-        _conceptTagRepo = conceptTagRepo;
-        _vodRepo = vodRepo;
-        _vodService = vodService;
-        _sessionLogRepo = sessionLogRepo;
-        _objectivesRepo = objectivesRepo;
-        _reviewDraftRepo = reviewDraftRepo;
-        _matchupNotesRepo = matchupNotesRepo;
-        _configService = configService;
+        _reviewWorkflowService = reviewWorkflowService;
         _navigationService = navigationService;
         _logger = logger;
     }
 
-    // ── Commands ────────────────────────────────────────────────────────
-
     [RelayCommand]
     private async Task LoadAsync(long gameId)
     {
-        if (IsLoading) return;
+        if (IsLoading)
+        {
+            return;
+        }
+
         IsLoading = true;
         ClearValidation();
 
         try
         {
-            GameId = gameId;
-
-            var config = await _configService.LoadAsync();
-            RequireReviewNotes = config.RequireReviewNotes;
-            UpdateSaveBehaviorText();
-
-            var game = await _gameRepo.GetAsync(gameId);
-            if (game == null)
+            var screenData = await _reviewWorkflowService.LoadAsync(gameId);
+            if (screenData is null)
             {
                 _logger.LogWarning("Game {GameId} not found", gameId);
+                SetValidation("Failed to load review data for this game.");
                 return;
             }
 
-            PopulateGameData(game);
+            GameId = gameId;
+            ApplyGameData(screenData);
+            ApplySnapshot(screenData.Snapshot);
+            ApplyTags(screenData.Tags);
+            ApplyObjectives(screenData.ObjectiveAssessments, screenData.PriorityObjective);
+            ApplyMatchupHistory(screenData.MatchupHistory);
 
-            LoadExistingReview(game);
-
-            await LoadVodStateAsync(game);
-            await LoadSessionStateAsync(gameId);
-            await LoadConceptTagsAsync(gameId);
-            await LoadObjectiveAssessmentsAsync(gameId);
-            await LoadMatchupSectionAsync(gameId);
-            await LoadDraftStateAsync(gameId);
+            RequireReviewNotes = screenData.RequireReviewNotes;
+            HasVod = screenData.HasVod;
+            BookmarkCount = screenData.BookmarkCount;
+            UpdateSaveBehaviorText();
         }
         catch (Exception ex)
         {
@@ -291,7 +153,7 @@ public partial class ReviewViewModel : ObservableObject
     [RelayCommand]
     private async Task WatchVodAsync()
     {
-        var saved = await SaveDraftAsync();
+        var saved = await _reviewWorkflowService.SaveDraftAsync(new ReviewDraftRequest(GameId, BuildSnapshot()));
         if (!saved)
         {
             SetValidation("Couldn't preserve your review draft before opening the VOD.");
@@ -320,8 +182,6 @@ public partial class ReviewViewModel : ObservableObject
 
     public Task<bool> SaveForPostGameAsync() => SaveCoreAsync(navigateBackOnSuccess: false);
 
-    // ── Property change handlers ───────────────────────────────────────
-
     partial void OnMentalRatingChanged(int value)
     {
         UpdateMentalColor();
@@ -340,82 +200,29 @@ public partial class ReviewViewModel : ObservableObject
 
         if (!IsLoading && GameId > 0)
         {
-            _ = LoadMatchupHistoryOnlyAsync(ChampionName, value.Trim(), GameId);
+            _ = LoadMatchupHistoryAsync(value.Trim());
         }
     }
 
-    // ── Save pipeline ───────────────────────────────────────────────────
-
     private async Task<bool> SaveCoreAsync(bool navigateBackOnSuccess)
     {
-        if (!ValidateBeforeSave())
-        {
-            return false;
-        }
-
         try
         {
-            var trimmedEnemy = EnemyLaner.Trim();
-            var trimmedMatchupNote = MatchupNote.Trim();
+            var result = await _reviewWorkflowService.SaveAsync(new SaveReviewRequest(
+                GameId: GameId,
+                ChampionName: ChampionName,
+                Win: Win,
+                RequireReviewNotes: RequireReviewNotes,
+                Snapshot: BuildSnapshot()));
 
-            var review = new GameReview
+            if (!result.Success)
             {
-                Rating = 1,
-                Notes = ReviewNotes.Trim(),
-                Mistakes = Mistakes.Trim(),
-                WentWell = WentWell.Trim(),
-                FocusNext = FocusNext.Trim(),
-                SpottedProblems = SpottedProblems.Trim(),
-                OutsideControl = OutsideControl.Trim(),
-                WithinControl = WithinControl.Trim(),
-                Attribution = Attribution.Trim(),
-                PersonalContribution = PersonalContribution.Trim(),
-            };
-
-            await _gameRepo.UpdateReviewAsync(GameId, review);
-
-            await _sessionLogRepo.LogGameAsync(
-                GameId,
-                ChampionName,
-                Win,
-                MentalRating,
-                ImprovementNote.Trim());
-
-            await _sessionLogRepo.UpdateMentalHandledAsync(GameId, MentalHandled.Trim());
-
-            if (!string.Equals(_loadedEnemyLaner, trimmedEnemy, StringComparison.Ordinal))
-            {
-                await _gameRepo.UpdateEnemyLanerAsync(GameId, trimmedEnemy);
-                _loadedEnemyLaner = trimmedEnemy;
+                SetValidation(result.ErrorMessage);
+                return false;
             }
 
-            if (!string.IsNullOrWhiteSpace(trimmedEnemy) || !string.IsNullOrWhiteSpace(trimmedMatchupNote))
-            {
-                await _matchupNotesRepo.UpsertForGameAsync(GameId, ChampionName, trimmedEnemy, trimmedMatchupNote);
-            }
-            else
-            {
-                await _matchupNotesRepo.DeleteForGameAsync(GameId);
-            }
-
-            foreach (var objective in ObjectiveAssessments)
-            {
-                await _objectivesRepo.RecordGameAsync(
-                    GameId,
-                    objective.ObjectiveId,
-                    objective.Practiced,
-                    objective.ExecutionNote.Trim());
-            }
-
-            var selectedIds = AllTags
-                .Where(t => t.IsSelected)
-                .Select(t => t.Id)
-                .ToList();
-            await _conceptTagRepo.SetForGameAsync(GameId, selectedIds);
-
+            EnemyLaner = result.SavedEnemyLaner;
             ClearValidation();
-            _logger.LogInformation("Review saved for game {GameId}", GameId);
-            await _reviewDraftRepo.DeleteAsync(GameId);
 
             if (navigateBackOnSuccess)
             {
@@ -432,93 +239,48 @@ public partial class ReviewViewModel : ObservableObject
         }
     }
 
-    private bool ValidateBeforeSave()
+    private async Task LoadMatchupHistoryAsync(string enemyLaner)
     {
-        if (!string.IsNullOrWhiteSpace(MatchupNote) && string.IsNullOrWhiteSpace(EnemyLaner))
-        {
-            SetValidation("Add the enemy champion before saving a matchup note.");
-            return false;
-        }
-
-        if (RequireReviewNotes && !HasMeaningfulReviewContent())
-        {
-            SetValidation("Review notes are required in Settings. Add review content before saving.");
-            return false;
-        }
-
-        ClearValidation();
-        return true;
-    }
-
-    private bool HasMeaningfulReviewContent()
-    {
-        return !string.IsNullOrWhiteSpace(WentWell)
-               || !string.IsNullOrWhiteSpace(Mistakes)
-               || !string.IsNullOrWhiteSpace(FocusNext)
-               || !string.IsNullOrWhiteSpace(ReviewNotes)
-               || !string.IsNullOrWhiteSpace(ImprovementNote)
-               || !string.IsNullOrWhiteSpace(MentalHandled)
-               || !string.IsNullOrWhiteSpace(SpottedProblems)
-               || !string.IsNullOrWhiteSpace(OutsideControl)
-               || !string.IsNullOrWhiteSpace(WithinControl)
-               || !string.IsNullOrWhiteSpace(PersonalContribution)
-               || !string.IsNullOrWhiteSpace(Attribution)
-               || !string.IsNullOrWhiteSpace(MatchupNote)
-               || AllTags.Any(t => t.IsSelected)
-               || ObjectiveAssessments.Any(o => o.Practiced || !string.IsNullOrWhiteSpace(o.ExecutionNote));
-    }
-
-    private async Task<bool> SaveDraftAsync()
-    {
-        if (GameId <= 0)
-        {
-            return false;
-        }
-
         try
         {
-            await _reviewDraftRepo.UpsertAsync(new ReviewDraft
-            {
-                GameId = GameId,
-                MentalRating = MentalRating,
-                WentWell = WentWell.Trim(),
-                Mistakes = Mistakes.Trim(),
-                FocusNext = FocusNext.Trim(),
-                ReviewNotes = ReviewNotes.Trim(),
-                ImprovementNote = ImprovementNote.Trim(),
-                Attribution = Attribution.Trim(),
-                MentalHandled = MentalHandled.Trim(),
-                SpottedProblems = SpottedProblems.Trim(),
-                OutsideControl = OutsideControl.Trim(),
-                WithinControl = WithinControl.Trim(),
-                PersonalContribution = PersonalContribution.Trim(),
-                EnemyLaner = EnemyLaner.Trim(),
-                MatchupNote = MatchupNote.Trim(),
-                SelectedTagIdsJson = JsonSerializer.Serialize(
-                    AllTags.Where(static t => t.IsSelected).Select(static t => t.Id).ToList()),
-                ObjectiveAssessmentsJson = JsonSerializer.Serialize(
-                    ObjectiveAssessments.Select(static o => new ReviewDraftObjectiveAssessmentSnapshot
-                    {
-                        ObjectiveId = o.ObjectiveId,
-                        Practiced = o.Practiced,
-                        ExecutionNote = o.ExecutionNote
-                    }).ToList()),
-                UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-            });
-
-            return true;
+            var history = await _reviewWorkflowService.GetMatchupHistoryAsync(ChampionName, enemyLaner, GameId);
+            ApplyMatchupHistory(history);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save review draft for game {GameId}", GameId);
-            return false;
+            _logger.LogDebug(ex, "Failed to load matchup history for game {GameId}", GameId);
         }
     }
 
-    // ── Load helpers ────────────────────────────────────────────────────
-
-    private void PopulateGameData(GameStats game)
+    private ReviewSnapshot BuildSnapshot()
     {
+        return new ReviewSnapshot(
+            MentalRating: MentalRating,
+            WentWell: WentWell,
+            Mistakes: Mistakes,
+            FocusNext: FocusNext,
+            ReviewNotes: ReviewNotes,
+            ImprovementNote: ImprovementNote,
+            Attribution: Attribution,
+            MentalHandled: MentalHandled,
+            SpottedProblems: SpottedProblems,
+            OutsideControl: OutsideControl,
+            WithinControl: WithinControl,
+            PersonalContribution: PersonalContribution,
+            EnemyLaner: EnemyLaner,
+            MatchupNote: MatchupNote,
+            SelectedTagIds: AllTags.Where(static tag => tag.IsSelected).Select(static tag => tag.Id).ToList(),
+            ObjectivePractices: ObjectiveAssessments
+                .Select(static assessment => new SaveObjectivePracticeRequest(
+                    ObjectiveId: assessment.ObjectiveId,
+                    Practiced: assessment.Practiced,
+                    ExecutionNote: assessment.ExecutionNote))
+                .ToList());
+    }
+
+    private void ApplyGameData(ReviewScreenData screenData)
+    {
+        var game = screenData.Game;
         ChampionName = game.ChampionName;
         Win = game.Win;
         ResultText = game.Win ? "VICTORY" : "DEFEAT";
@@ -526,12 +288,8 @@ public partial class ReviewViewModel : ObservableObject
         KdaText = $"{game.Kills} / {game.Deaths} / {game.Assists}";
         KdaRatioText = $"{game.KdaRatio:F2} KDA";
         GameModeText = game.GameMode;
-        DurationText = game.GameDuration > 0
-            ? $"{game.GameDuration / 60}:{game.GameDuration % 60:D2}"
-            : "";
+        DurationText = game.GameDuration > 0 ? $"{game.GameDuration / 60}:{game.GameDuration % 60:D2}" : "";
         HeaderText = $"Review -- {game.ChampionName} ({(game.Win ? "W" : "L")})";
-        EnemyLaner = game.EnemyLaner;
-        _loadedEnemyLaner = game.EnemyLaner;
 
         DamageText = FormatNumber(game.TotalDamageToChampions);
         CsText = game.CsTotal.ToString();
@@ -543,184 +301,43 @@ public partial class ReviewViewModel : ObservableObject
         WardsPlacedText = game.WardsPlaced.ToString();
     }
 
-    private async Task LoadVodStateAsync(GameStats game)
+    private void ApplySnapshot(ReviewSnapshot snapshot)
     {
-        var vod = await _vodRepo.GetVodAsync(GameId);
-        if (vod == null && _configService.IsAscentEnabled)
-        {
-            try
-            {
-                await _vodService.TryLinkRecordingAsync(game);
-                vod = await _vodRepo.GetVodAsync(GameId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "VOD lookup retry failed for game {GameId}", GameId);
-            }
-        }
-
-        HasVod = vod != null;
-        BookmarkCount = HasVod
-            ? await _vodRepo.GetBookmarkCountAsync(GameId)
-            : 0;
-    }
-
-    private async Task LoadSessionStateAsync(long gameId)
-    {
-        var sessionEntry = await _sessionLogRepo.GetEntryAsync(gameId);
-        if (sessionEntry != null)
-        {
-            MentalRating = sessionEntry.MentalRating;
-            ImprovementNote = sessionEntry.ImprovementNote;
-            MentalHandled = sessionEntry.MentalHandled;
-        }
-
+        MentalRating = snapshot.MentalRating;
+        WentWell = snapshot.WentWell;
+        Mistakes = snapshot.Mistakes;
+        FocusNext = snapshot.FocusNext;
+        ReviewNotes = snapshot.ReviewNotes;
+        ImprovementNote = snapshot.ImprovementNote;
+        Attribution = snapshot.Attribution;
+        MentalHandled = snapshot.MentalHandled;
+        SpottedProblems = snapshot.SpottedProblems;
+        OutsideControl = snapshot.OutsideControl;
+        WithinControl = snapshot.WithinControl;
+        PersonalContribution = snapshot.PersonalContribution;
+        EnemyLaner = snapshot.EnemyLaner;
+        MatchupNote = snapshot.MatchupNote;
         UpdateMentalColor();
         ShowMentalReflection = MentalRating <= 3;
     }
 
-    private async Task LoadConceptTagsAsync(long gameId)
+    private void ApplyTags(IReadOnlyList<ReviewTagState> tags)
     {
-        var allTags = await _conceptTagRepo.GetAllAsync();
-        var existingTagIds = await _conceptTagRepo.GetIdsForGameAsync(gameId);
-
         DispatcherHelper.RunOnUIThread(() =>
         {
             AllTags.Clear();
             SelectedTagIds.Clear();
 
-            foreach (var tag in allTags)
+            foreach (var tag in tags)
             {
-                var id = tag.TryGetValue("id", out var idVal) ? Convert.ToInt64(idVal ?? 0) : 0;
-                var name = tag.TryGetValue("name", out var n) ? n?.ToString() ?? "" : "";
-                var color = tag.TryGetValue("color", out var c) ? c?.ToString() ?? "#3b82f6" : "#3b82f6";
-                var isSelected = existingTagIds.Contains(id);
-
                 AllTags.Add(new ConceptTagItem
                 {
-                    Id = id,
-                    Name = name,
-                    ColorHex = color,
-                    IsSelected = isSelected
+                    Id = tag.Id,
+                    Name = tag.Name,
+                    ColorHex = tag.ColorHex,
+                    IsSelected = tag.IsSelected
                 });
 
-                if (isSelected)
-                {
-                    SelectedTagIds.Add(id);
-                }
-            }
-        });
-    }
-
-    private async Task LoadObjectiveAssessmentsAsync(long gameId)
-    {
-        var activeObjectives = await _objectivesRepo.GetActiveAsync();
-        var priorityObjective = await _objectivesRepo.GetPriorityAsync();
-        var priorityObjectiveId = priorityObjective is null
-            ? 0L
-            : Convert.ToInt64(priorityObjective.GetValueOrDefault("id") ?? 0L);
-        var savedObjectives = await _objectivesRepo.GetGameObjectivesAsync(gameId);
-        var savedById = savedObjectives.ToDictionary(
-            row => Convert.ToInt64(row.GetValueOrDefault("objective_id") ?? 0),
-            row => row);
-
-        var assessments = new List<ObjectiveAssessment>();
-
-        foreach (var objective in activeObjectives)
-        {
-            var objectiveId = Convert.ToInt64(objective.GetValueOrDefault("id", 0L));
-            savedById.TryGetValue(objectiveId, out var saved);
-
-            assessments.Add(CreateObjectiveAssessment(objective, saved, objectiveId == priorityObjectiveId));
-            savedById.Remove(objectiveId);
-        }
-
-        foreach (var saved in savedById.Values)
-        {
-            var objectiveId = Convert.ToInt64(saved.GetValueOrDefault("objective_id") ?? 0L);
-            assessments.Add(CreateObjectiveAssessment(saved, saved, objectiveId == priorityObjectiveId));
-        }
-
-        DispatcherHelper.RunOnUIThread(() =>
-        {
-            ObjectiveAssessments.Clear();
-            foreach (var assessment in assessments)
-            {
-                ObjectiveAssessments.Add(assessment);
-            }
-
-            HasObjectives = ObjectiveAssessments.Count > 0;
-            PriorityObjectiveTitle = priorityObjective?.GetValueOrDefault("title")?.ToString() ?? "";
-            PriorityObjectiveCriteria = priorityObjective?.GetValueOrDefault("completion_criteria")?.ToString() ?? "";
-            HasPriorityObjective = !string.IsNullOrWhiteSpace(PriorityObjectiveTitle);
-        });
-    }
-
-    private async Task LoadMatchupSectionAsync(long gameId)
-    {
-        MatchupNote = "";
-
-        var savedForGame = await _matchupNotesRepo.GetForGameAsync(gameId);
-        if (savedForGame != null)
-        {
-            MatchupNote = savedForGame.GetValueOrDefault("note")?.ToString() ?? "";
-
-            if (string.IsNullOrWhiteSpace(EnemyLaner))
-            {
-                EnemyLaner = savedForGame.GetValueOrDefault("enemy")?.ToString() ?? "";
-                _loadedEnemyLaner = EnemyLaner;
-            }
-        }
-
-        await LoadMatchupHistoryOnlyAsync(ChampionName, EnemyLaner.Trim(), gameId);
-    }
-
-    private async Task LoadDraftStateAsync(long gameId)
-    {
-        var draft = await _reviewDraftRepo.GetAsync(gameId);
-        if (draft == null)
-        {
-            return;
-        }
-
-        WentWell = draft.WentWell;
-        Mistakes = draft.Mistakes;
-        FocusNext = draft.FocusNext;
-        ReviewNotes = draft.ReviewNotes;
-        ImprovementNote = draft.ImprovementNote;
-        Attribution = draft.Attribution;
-        MentalHandled = draft.MentalHandled;
-        SpottedProblems = draft.SpottedProblems;
-        OutsideControl = draft.OutsideControl;
-        WithinControl = draft.WithinControl;
-        PersonalContribution = draft.PersonalContribution;
-        EnemyLaner = draft.EnemyLaner;
-        MatchupNote = draft.MatchupNote;
-        MentalRating = draft.MentalRating;
-
-        ApplyDraftTags(draft.SelectedTagIdsJson);
-        ApplyDraftObjectiveAssessments(draft.ObjectiveAssessmentsJson);
-        await LoadMatchupHistoryOnlyAsync(ChampionName, EnemyLaner.Trim(), gameId);
-    }
-
-    private void ApplyDraftTags(string selectedTagIdsJson)
-    {
-        HashSet<long> selectedIds;
-        try
-        {
-            selectedIds = JsonSerializer.Deserialize<List<long>>(selectedTagIdsJson)?.ToHashSet() ?? [];
-        }
-        catch
-        {
-            selectedIds = [];
-        }
-
-        DispatcherHelper.RunOnUIThread(() =>
-        {
-            SelectedTagIds.Clear();
-            foreach (var tag in AllTags)
-            {
-                tag.IsSelected = selectedIds.Contains(tag.Id);
                 if (tag.IsSelected)
                 {
                     SelectedTagIds.Add(tag.Id);
@@ -729,58 +346,43 @@ public partial class ReviewViewModel : ObservableObject
         });
     }
 
-    private void ApplyDraftObjectiveAssessments(string objectiveAssessmentsJson)
+    private void ApplyObjectives(
+        IReadOnlyList<ReviewObjectiveState> objectives,
+        LoLReview.Core.Data.Repositories.ObjectiveSummary? priorityObjective)
     {
-        List<ReviewDraftObjectiveAssessmentSnapshot>? snapshots;
-        try
+        DispatcherHelper.RunOnUIThread(() =>
         {
-            snapshots = JsonSerializer.Deserialize<List<ReviewDraftObjectiveAssessmentSnapshot>>(objectiveAssessmentsJson);
-        }
-        catch
-        {
-            snapshots = null;
-        }
-
-        if (snapshots == null || snapshots.Count == 0)
-        {
-            return;
-        }
-
-        var byId = snapshots.ToDictionary(static s => s.ObjectiveId, static s => s);
-        foreach (var assessment in ObjectiveAssessments)
-        {
-            if (!byId.TryGetValue(assessment.ObjectiveId, out var snapshot))
+            ObjectiveAssessments.Clear();
+            foreach (var objective in objectives)
             {
-                continue;
+                ObjectiveAssessments.Add(new ObjectiveAssessment
+                {
+                    ObjectiveId = objective.ObjectiveId,
+                    Title = objective.Title,
+                    Criteria = objective.Criteria,
+                    IsPriority = objective.IsPriority,
+                    Practiced = objective.Practiced,
+                    ExecutionNote = objective.ExecutionNote,
+                });
             }
 
-            assessment.Practiced = snapshot.Practiced;
-            assessment.ExecutionNote = snapshot.ExecutionNote ?? "";
-        }
+            HasObjectives = ObjectiveAssessments.Count > 0;
+            PriorityObjectiveTitle = priorityObjective?.Title ?? "";
+            PriorityObjectiveCriteria = priorityObjective?.CompletionCriteria ?? "";
+            HasPriorityObjective = !string.IsNullOrWhiteSpace(PriorityObjectiveTitle);
+        });
     }
 
-    private async Task LoadMatchupHistoryOnlyAsync(string championName, string enemyLaner, long currentGameId)
+    private void ApplyMatchupHistory(IReadOnlyList<ReviewMatchupHistoryItem> history)
     {
-        if (string.IsNullOrWhiteSpace(championName) || string.IsNullOrWhiteSpace(enemyLaner))
-        {
-            DispatcherHelper.RunOnUIThread(() =>
+        var items = history
+            .Select(item => new MatchupHistoryItem
             {
-                MatchupHistory.Clear();
-                HasMatchupHistory = false;
-            });
-            return;
-        }
-
-        var notes = await _matchupNotesRepo.GetForMatchupAsync(championName, enemyLaner);
-        var items = notes
-            .Where(n => Convert.ToInt64(n.GetValueOrDefault("game_id") ?? 0) != currentGameId)
-            .Select(n => new MatchupHistoryItem
-            {
-                Note = n.GetValueOrDefault("note")?.ToString() ?? "",
-                Helpful = ParseHelpful(n.GetValueOrDefault("helpful")),
-                MetaText = BuildMatchupMetaText(n)
+                Note = item.Note,
+                Helpful = item.Helpful,
+                MetaText = BuildMatchupMetaText(item)
             })
-            .Where(n => !string.IsNullOrWhiteSpace(n.Note))
+            .Where(static item => !string.IsNullOrWhiteSpace(item.Note))
             .ToList();
 
         DispatcherHelper.RunOnUIThread(() =>
@@ -794,40 +396,6 @@ public partial class ReviewViewModel : ObservableObject
             HasMatchupHistory = MatchupHistory.Count > 0;
         });
     }
-
-    private void LoadExistingReview(GameStats game)
-    {
-        Mistakes = game.Mistakes;
-        WentWell = game.WentWell;
-        FocusNext = game.FocusNext;
-        ReviewNotes = game.ReviewNotes;
-        SpottedProblems = game.SpottedProblems;
-        OutsideControl = game.OutsideControl;
-        WithinControl = game.WithinControl;
-        Attribution = game.Attribution;
-        PersonalContribution = game.PersonalContribution;
-    }
-
-    private static ObjectiveAssessment CreateObjectiveAssessment(
-        Dictionary<string, object?> objectiveRow,
-        Dictionary<string, object?>? savedRow,
-        bool isPriority)
-    {
-        return new ObjectiveAssessment
-        {
-            ObjectiveId = Convert.ToInt64(
-                objectiveRow.GetValueOrDefault("id")
-                ?? objectiveRow.GetValueOrDefault("objective_id")
-                ?? 0L),
-            Title = objectiveRow.GetValueOrDefault("title")?.ToString() ?? "",
-            Criteria = objectiveRow.GetValueOrDefault("completion_criteria")?.ToString() ?? "",
-            IsPriority = isPriority,
-            Practiced = Convert.ToInt32(savedRow?.GetValueOrDefault("practiced") ?? 0) != 0,
-            ExecutionNote = savedRow?.GetValueOrDefault("execution_note")?.ToString() ?? "",
-        };
-    }
-
-    // ── Presentation helpers ───────────────────────────────────────────
 
     private void UpdateMentalColor()
     {
@@ -859,39 +427,21 @@ public partial class ReviewViewModel : ObservableObject
         HasValidationMessage = false;
     }
 
-    private static string BuildMatchupMetaText(IReadOnlyDictionary<string, object?> row)
+    private static string BuildMatchupMetaText(ReviewMatchupHistoryItem item)
     {
-        var gameId = Convert.ToInt64(row.GetValueOrDefault("game_id") ?? 0);
-        var helpful = ParseHelpful(row.GetValueOrDefault("helpful"));
-        var createdAt = Convert.ToInt64(row.GetValueOrDefault("created_at") ?? 0);
-        var createdText = createdAt > 0
-            ? DateTimeOffset.FromUnixTimeSeconds(createdAt).LocalDateTime.ToString("MMM d, yyyy HH:mm")
+        var createdText = item.CreatedAt > 0
+            ? DateTimeOffset.FromUnixTimeSeconds(item.CreatedAt.Value).LocalDateTime.ToString("MMM d, yyyy HH:mm")
             : "Unknown date";
-        var helpfulText = helpful switch
+        var helpfulText = item.Helpful switch
         {
             true => "Helpful",
             false => "Not helpful",
             null => "Unrated",
         };
 
-        return gameId > 0
-            ? $"Game {gameId}  •  {createdText}  •  {helpfulText}"
+        return item.GameId > 0
+            ? $"Game {item.GameId}  •  {createdText}  •  {helpfulText}"
             : $"{createdText}  •  {helpfulText}";
-    }
-
-    private static bool? ParseHelpful(object? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        return Convert.ToInt32(value) switch
-        {
-            1 => true,
-            0 => false,
-            _ => null,
-        };
     }
 
     private static string FormatNumber(int n) => n switch
@@ -901,8 +451,6 @@ public partial class ReviewViewModel : ObservableObject
         _ => n.ToString()
     };
 }
-
-// ── Display models ──────────────────────────────────────────────────────
 
 /// <summary>Concept tag item with selection state for the tag selector.</summary>
 public class ConceptTagItem : ObservableObject
@@ -967,11 +515,4 @@ public sealed class MatchupHistoryItem
     public string Note { get; init; } = "";
     public bool? Helpful { get; init; }
     public string MetaText { get; init; } = "";
-}
-
-internal sealed class ReviewDraftObjectiveAssessmentSnapshot
-{
-    public long ObjectiveId { get; set; }
-    public bool Practiced { get; set; }
-    public string? ExecutionNote { get; set; }
 }

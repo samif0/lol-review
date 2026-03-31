@@ -281,24 +281,21 @@ public partial class RulesViewModel : ObservableObject
 
         // Check violations for active rules
         var todaysGames = await _gameRepo.GetTodaysGamesAsync();
-        var gamesDicts = new List<Dictionary<string, object?>>();
+        var games = new List<RuleCheckGame>();
         foreach (var g in todaysGames)
         {
-            gamesDicts.Add(new Dictionary<string, object?>
-            {
-                ["game_id"] = g.GameId,
-                ["win"] = g.Win,
-                ["champion_name"] = g.ChampionName,
-                ["timestamp"] = g.Timestamp,
-            });
+            games.Add(new RuleCheckGame(
+                GameId: g.GameId,
+                Win: g.Win,
+                ChampionName: g.ChampionName,
+                Timestamp: g.Timestamp));
         }
 
-        var violations = await _rulesRepo.CheckViolationsAsync(gamesDicts);
+        var violations = await _rulesRepo.CheckViolationsAsync(games);
         var violationMap = new Dictionary<long, RuleViolation>();
         foreach (var v in violations)
         {
-            var ruleId = Convert.ToInt64(v.Rule.GetValueOrDefault("id") ?? 0);
-            violationMap[ruleId] = v;
+            violationMap[v.Rule.Id] = v;
         }
 
         ActiveRules.Clear();
@@ -307,36 +304,29 @@ public partial class RulesViewModel : ObservableObject
 
         foreach (var rule in allRules)
         {
-            var id = Convert.ToInt64(rule.GetValueOrDefault("id") ?? 0);
-            var name = rule.GetValueOrDefault("name")?.ToString() ?? "";
-            var description = rule.GetValueOrDefault("description")?.ToString() ?? "";
-            var ruleType = rule.GetValueOrDefault("rule_type")?.ToString() ?? "custom";
-            var conditionValue = rule.GetValueOrDefault("condition_value")?.ToString() ?? "";
-            var isActive = Convert.ToBoolean(rule.GetValueOrDefault("is_active") ?? false);
-
-            violationMap.TryGetValue(id, out var violation);
+            violationMap.TryGetValue(rule.Id, out var violation);
 
             var item = new RuleDisplayItem
             {
-                Id = id,
-                Name = name,
-                Description = description,
-                RuleType = ruleType,
-                ConditionValue = conditionValue,
-                IsActive = isActive,
+                Id = rule.Id,
+                Name = rule.Name,
+                Description = rule.Description,
+                RuleType = rule.RuleType,
+                ConditionValue = rule.ConditionValue,
+                IsActive = rule.IsActive,
                 IsViolated = violation?.Violated ?? false,
                 ViolationReason = violation?.Reason ?? "",
-                IsChecked = violation != null && ruleType != "custom",
+                IsChecked = violation != null && rule.RuleType != "custom",
             };
 
-            if (isActive)
+            if (rule.IsActive)
             {
                 ActiveRules.Add(item);
                 if (item.IsViolated)
                 {
                     Violations.Add(new ViolationBannerItem
                     {
-                        RuleName = name,
+                        RuleName = rule.Name,
                         Reason = violation!.Reason,
                     });
                 }

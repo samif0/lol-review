@@ -15,7 +15,9 @@ public interface IGameService
     /// Process an end-of-game event from the LCU monitor.
     /// Returns the game id if saved, or null if skipped (casual/remake).
     /// </summary>
-    Task<long?> ProcessGameEndAsync(GameStats stats, int mentalRating = 5, int preGameMood = 0);
+    Task<long?> ProcessGameEndAsync(
+        ProcessGameEndRequest request,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Save a manually entered game with minimal fields.

@@ -39,23 +39,23 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync()
+    public async Task<IReadOnlyList<ObjectiveSummary>> GetAllAsync()
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM objectives ORDER BY status ASC, is_priority DESC, type ASC, created_at DESC";
-        return await ReadAllRowsAsync(cmd);
+        return await ReadObjectivesAsync(cmd);
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetActiveAsync()
+    public async Task<IReadOnlyList<ObjectiveSummary>> GetActiveAsync()
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM objectives WHERE status = 'active' ORDER BY is_priority DESC, type ASC, created_at ASC";
-        return await ReadAllRowsAsync(cmd);
+        return await ReadObjectivesAsync(cmd);
     }
 
-    public async Task<Dictionary<string, object?>?> GetPriorityAsync()
+    public async Task<ObjectiveSummary?> GetPriorityAsync()
     {
         using var conn = _factory.CreateConnection();
 
@@ -68,7 +68,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
                 ORDER BY created_at ASC, id ASC
                 LIMIT 1
                 """;
-            var row = await ReadSingleRowAsync(cmd);
+            var row = await ReadSingleObjectiveAsync(cmd);
             if (row is not null)
             {
                 return row;
@@ -85,16 +85,16 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             ORDER BY is_priority DESC, type ASC, created_at ASC
             LIMIT 1
             """;
-        return await ReadSingleRowAsync(fallbackCmd);
+        return await ReadSingleObjectiveAsync(fallbackCmd);
     }
 
-    public async Task<Dictionary<string, object?>?> GetAsync(long objectiveId)
+    public async Task<ObjectiveSummary?> GetAsync(long objectiveId)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM objectives WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", objectiveId);
-        return await ReadSingleRowAsync(cmd);
+        return await ReadSingleObjectiveAsync(cmd);
     }
 
     public async Task SetPriorityAsync(long objectiveId)
@@ -170,35 +170,82 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     public async Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "")
     {
         using var conn = _factory.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT OR REPLACE INTO game_objectives
-                (game_id, objective_id, practiced, execution_note)
-            VALUES (@gameId, @objectiveId, @practiced, @executionNote)
-            """;
-        cmd.Parameters.AddWithValue("@gameId", gameId);
-        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
-        cmd.Parameters.AddWithValue("@practiced", practiced ? 1 : 0);
-        cmd.Parameters.AddWithValue("@executionNote", executionNote);
-        await cmd.ExecuteNonQueryAsync();
+        using var tx = conn.BeginTransaction();
+
+        var newScoreContribution = practiced ? 2 : 0;
+        var existingPracticed = default(bool?);
+
+        using (var existingCmd = conn.CreateCommand())
+        {
+            existingCmd.Transaction = tx;
+            existingCmd.CommandText = """
+                SELECT practiced
+                FROM game_objectives
+                WHERE game_id = @gameId AND objective_id = @objectiveId
+                LIMIT 1
+                """;
+            existingCmd.Parameters.AddWithValue("@gameId", gameId);
+            existingCmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+            var existing = await existingCmd.ExecuteScalarAsync();
+            if (existing is not null && existing != DBNull.Value)
+            {
+                existingPracticed = Convert.ToInt32(existing) != 0;
+            }
+        }
+
+        using (var upsertCmd = conn.CreateCommand())
+        {
+            upsertCmd.Transaction = tx;
+            upsertCmd.CommandText = """
+                INSERT OR REPLACE INTO game_objectives
+                    (game_id, objective_id, practiced, execution_note)
+                VALUES (@gameId, @objectiveId, @practiced, @executionNote)
+                """;
+            upsertCmd.Parameters.AddWithValue("@gameId", gameId);
+            upsertCmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+            upsertCmd.Parameters.AddWithValue("@practiced", practiced ? 1 : 0);
+            upsertCmd.Parameters.AddWithValue("@executionNote", executionNote);
+            await upsertCmd.ExecuteNonQueryAsync();
+        }
+
+        var previousScoreContribution = existingPracticed == true ? 2 : 0;
+        var scoreDelta = newScoreContribution - previousScoreContribution;
+        var gameCountDelta = existingPracticed.HasValue ? 0 : 1;
+
+        if (scoreDelta != 0 || gameCountDelta != 0)
+        {
+            using var objectiveCmd = conn.CreateCommand();
+            objectiveCmd.Transaction = tx;
+            objectiveCmd.CommandText = """
+                UPDATE objectives
+                SET score = MAX(0, score + @scoreDelta),
+                    game_count = MAX(0, game_count + @gameCountDelta)
+                WHERE id = @objectiveId
+                """;
+            objectiveCmd.Parameters.AddWithValue("@scoreDelta", scoreDelta);
+            objectiveCmd.Parameters.AddWithValue("@gameCountDelta", gameCountDelta);
+            objectiveCmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+            await objectiveCmd.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetGameObjectivesAsync(long gameId)
+    public async Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT go.*, o.title, o.completion_criteria, o.type, o.is_priority
+            SELECT go.game_id, go.objective_id, go.practiced, go.execution_note,
+                   o.title, o.completion_criteria, o.type, o.is_priority
             FROM game_objectives go
             JOIN objectives o ON o.id = go.objective_id
             WHERE go.game_id = @gameId
             ORDER BY o.is_priority DESC, o.created_at ASC, o.id ASC
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
-        return await ReadAllRowsAsync(cmd);
+        return await ReadGameObjectivesAsync(cmd);
     }
-
-    // ── Helpers ────────────────────────────────────────────────────────
 
     private static async Task<bool> ShouldNewObjectiveBecomePriorityAsync(SqliteConnection conn)
     {
@@ -248,30 +295,58 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         await promoteCmd.ExecuteNonQueryAsync();
     }
 
-    private static async Task<IReadOnlyList<Dictionary<string, object?>>> ReadAllRowsAsync(SqliteCommand cmd)
+    private static async Task<IReadOnlyList<ObjectiveSummary>> ReadObjectivesAsync(SqliteCommand cmd)
     {
-        var results = new List<Dictionary<string, object?>>();
+        var results = new List<ObjectiveSummary>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            results.Add(ReadRow(reader));
+            results.Add(ReadObjective(reader));
         }
+
         return results;
     }
 
-    private static async Task<Dictionary<string, object?>?> ReadSingleRowAsync(SqliteCommand cmd)
+    private static async Task<ObjectiveSummary?> ReadSingleObjectiveAsync(SqliteCommand cmd)
     {
         using var reader = await cmd.ExecuteReaderAsync();
-        return await reader.ReadAsync() ? ReadRow(reader) : null;
+        return await reader.ReadAsync() ? ReadObjective(reader) : null;
     }
 
-    private static Dictionary<string, object?> ReadRow(SqliteDataReader reader)
+    private static async Task<IReadOnlyList<GameObjectiveRecord>> ReadGameObjectivesAsync(SqliteCommand cmd)
     {
-        var dict = new Dictionary<string, object?>(reader.FieldCount);
-        for (int i = 0; i < reader.FieldCount; i++)
+        var results = new List<GameObjectiveRecord>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
         {
-            dict[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            results.Add(new GameObjectiveRecord(
+                GameId: reader.IsDBNull(0) ? 0 : reader.GetInt64(0),
+                ObjectiveId: reader.IsDBNull(1) ? 0 : reader.GetInt64(1),
+                Practiced: !reader.IsDBNull(2) && reader.GetInt64(2) != 0,
+                ExecutionNote: reader.IsDBNull(3) ? "" : reader.GetString(3),
+                Title: reader.IsDBNull(4) ? "" : reader.GetString(4),
+                CompletionCriteria: reader.IsDBNull(5) ? "" : reader.GetString(5),
+                Type: reader.IsDBNull(6) ? "primary" : reader.GetString(6),
+                IsPriority: !reader.IsDBNull(7) && reader.GetInt64(7) != 0));
         }
-        return dict;
+
+        return results;
+    }
+
+    private static ObjectiveSummary ReadObjective(SqliteDataReader reader)
+    {
+        return new ObjectiveSummary(
+            Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
+            Title: reader.IsDBNull(reader.GetOrdinal("title")) ? "" : reader.GetString(reader.GetOrdinal("title")),
+            SkillArea: reader.IsDBNull(reader.GetOrdinal("skill_area")) ? "" : reader.GetString(reader.GetOrdinal("skill_area")),
+            Type: reader.IsDBNull(reader.GetOrdinal("type")) ? "primary" : reader.GetString(reader.GetOrdinal("type")),
+            CompletionCriteria: reader.IsDBNull(reader.GetOrdinal("completion_criteria")) ? "" : reader.GetString(reader.GetOrdinal("completion_criteria")),
+            Description: reader.IsDBNull(reader.GetOrdinal("description")) ? "" : reader.GetString(reader.GetOrdinal("description")),
+            Status: reader.IsDBNull(reader.GetOrdinal("status")) ? "active" : reader.GetString(reader.GetOrdinal("status")),
+            IsPriority: !reader.IsDBNull(reader.GetOrdinal("is_priority")) && reader.GetInt64(reader.GetOrdinal("is_priority")) != 0,
+            Score: reader.IsDBNull(reader.GetOrdinal("score")) ? 0 : reader.GetInt32(reader.GetOrdinal("score")),
+            GameCount: reader.IsDBNull(reader.GetOrdinal("game_count")) ? 0 : reader.GetInt32(reader.GetOrdinal("game_count")),
+            CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")),
+            CompletedAt: reader.IsDBNull(reader.GetOrdinal("completed_at")) ? null : reader.GetInt64(reader.GetOrdinal("completed_at")));
     }
 }

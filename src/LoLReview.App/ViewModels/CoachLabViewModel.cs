@@ -623,18 +623,15 @@ public partial class CoachLabViewModel : ObservableObject
 
         foreach (var row in rows)
         {
-            var idValue = row.GetValueOrDefault("id");
-            var title = row.GetValueOrDefault("title")?.ToString() ?? "";
-            if (idValue is null || string.IsNullOrWhiteSpace(title))
+            if (row.Id <= 0 || string.IsNullOrWhiteSpace(row.Title))
             {
                 continue;
             }
 
-            var key = Convert.ToInt64(idValue).ToString();
-            var status = row.GetValueOrDefault("status")?.ToString() ?? "active";
-            var label = status.Equals("active", StringComparison.OrdinalIgnoreCase)
-                ? title
-                : $"{title} [{status}]";
+            var key = row.Id.ToString();
+            var label = row.Status.Equals("active", StringComparison.OrdinalIgnoreCase)
+                ? row.Title
+                : $"{row.Title} [{row.Status}]";
 
             options.Add(new CoachOptionItem
             {

@@ -34,7 +34,7 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 
-    public async Task<Dictionary<string, object?>?> GetForGameAsync(long gameId)
+    public async Task<MatchupNoteRecord?> GetForGameAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -45,10 +45,10 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
             LIMIT 1
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
-        return await ReadSingleRowAsync(cmd);
+        return await ReadSingleAsync(cmd);
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetForMatchupAsync(string champion, string enemy)
+    public async Task<IReadOnlyList<MatchupNoteRecord>> GetForMatchupAsync(string champion, string enemy)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -59,15 +59,15 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
             """;
         cmd.Parameters.AddWithValue("@champion", champion);
         cmd.Parameters.AddWithValue("@enemy", enemy);
-        return await ReadAllRowsAsync(cmd);
+        return await ReadAllAsync(cmd);
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync()
+    public async Task<IReadOnlyList<MatchupNoteRecord>> GetAllAsync()
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM matchup_notes ORDER BY created_at DESC";
-        return await ReadAllRowsAsync(cmd);
+        return await ReadAllAsync(cmd);
     }
 
     public async Task<long?> UpsertForGameAsync(long gameId, string champion, string enemy, string note)
@@ -154,32 +154,33 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
         return new HelpfulnessStats(0, 0, 0, 0);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────
-
-    private static async Task<IReadOnlyList<Dictionary<string, object?>>> ReadAllRowsAsync(SqliteCommand cmd)
+    private static async Task<IReadOnlyList<MatchupNoteRecord>> ReadAllAsync(SqliteCommand cmd)
     {
-        var results = new List<Dictionary<string, object?>>();
+        var results = new List<MatchupNoteRecord>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             results.Add(ReadRow(reader));
         }
+
         return results;
     }
 
-    private static async Task<Dictionary<string, object?>?> ReadSingleRowAsync(SqliteCommand cmd)
+    private static async Task<MatchupNoteRecord?> ReadSingleAsync(SqliteCommand cmd)
     {
         using var reader = await cmd.ExecuteReaderAsync();
         return await reader.ReadAsync() ? ReadRow(reader) : null;
     }
 
-    private static Dictionary<string, object?> ReadRow(SqliteDataReader reader)
+    private static MatchupNoteRecord ReadRow(SqliteDataReader reader)
     {
-        var dict = new Dictionary<string, object?>(reader.FieldCount);
-        for (int i = 0; i < reader.FieldCount; i++)
-        {
-            dict[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-        }
-        return dict;
+        return new MatchupNoteRecord(
+            Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
+            Champion: reader.IsDBNull(reader.GetOrdinal("champion")) ? "" : reader.GetString(reader.GetOrdinal("champion")),
+            Enemy: reader.IsDBNull(reader.GetOrdinal("enemy")) ? "" : reader.GetString(reader.GetOrdinal("enemy")),
+            Note: reader.IsDBNull(reader.GetOrdinal("note")) ? "" : reader.GetString(reader.GetOrdinal("note")),
+            Helpful: reader.IsDBNull(reader.GetOrdinal("helpful")) ? null : reader.GetInt32(reader.GetOrdinal("helpful")),
+            GameId: reader.IsDBNull(reader.GetOrdinal("game_id")) ? null : reader.GetInt64(reader.GetOrdinal("game_id")),
+            CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")));
     }
 }

@@ -9,13 +9,13 @@ public interface IVodRepository
 
     Task LinkVodAsync(long gameId, string filePath, long fileSize = 0, long durationSeconds = 0);
 
-    Task<Dictionary<string, object?>?> GetVodAsync(long gameId);
+    Task<VodSummary?> GetVodAsync(long gameId);
 
     Task<Dictionary<long, string>> GetVodPathsAsync(IReadOnlyCollection<long> gameIds);
 
     Task UnlinkVodAsync(long gameId);
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetAllVodsAsync();
+    Task<IReadOnlyList<VodSummary>> GetAllVodsAsync();
 
     // ── Bookmarks ────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ public interface IVodRepository
 
     Task DeleteBookmarkAsync(long bookmarkId);
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetBookmarksAsync(long gameId);
+    Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId);
 
     Task<int> GetBookmarkCountAsync(long gameId);
 

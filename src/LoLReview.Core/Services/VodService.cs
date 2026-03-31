@@ -141,9 +141,7 @@ public sealed partial class VodService : IVodService
 
         var existing = await _vods.GetVodAsync(game.GameId).ConfigureAwait(false);
         if (existing != null
-            && existing.TryGetValue("file_path", out var existingPath)
-            && existingPath is string path
-            && File.Exists(path))
+            && File.Exists(existing.FilePath))
         {
             return true;
         }
@@ -187,8 +185,7 @@ public sealed partial class VodService : IVodService
         var linkedGameIds = new HashSet<long>();
         foreach (var vod in allVods)
         {
-            if (vod.TryGetValue("game_id", out var gid) && gid is long id)
-                linkedGameIds.Add(id);
+            linkedGameIds.Add(vod.GameId);
         }
 
         _logger.LogInformation("VOD scan: {Linked} games already have linked VODs", linkedGameIds.Count);

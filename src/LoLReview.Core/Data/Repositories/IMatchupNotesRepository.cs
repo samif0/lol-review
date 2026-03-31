@@ -16,12 +16,12 @@ public interface IMatchupNotesRepository
         int? helpful = null, long? gameId = null);
 
     /// <summary>Get the matchup note associated with a specific game, if one exists.</summary>
-    Task<Dictionary<string, object?>?> GetForGameAsync(long gameId);
+    Task<MatchupNoteRecord?> GetForGameAsync(long gameId);
 
     /// <summary>Get notes for an exact champion vs enemy matchup.</summary>
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetForMatchupAsync(string champion, string enemy);
+    Task<IReadOnlyList<MatchupNoteRecord>> GetForMatchupAsync(string champion, string enemy);
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync();
+    Task<IReadOnlyList<MatchupNoteRecord>> GetAllAsync();
 
     /// <summary>Create or update the note attached to a specific game.</summary>
     Task<long?> UpsertForGameAsync(long gameId, string champion, string enemy, string note);

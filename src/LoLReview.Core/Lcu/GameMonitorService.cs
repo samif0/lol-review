@@ -1,9 +1,7 @@
 #nullable enable
 
-using System.Text.Json;
 using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.Core.Constants;
-using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Models;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Hosting;
@@ -13,83 +11,68 @@ namespace LoLReview.Core.Lcu;
 
 /// <summary>
 /// Background service that monitors the League client for game phase transitions.
-/// Ported from Python monitor.py GameMonitor class.
-///
-/// Uses a 5-second polling interval to detect phase transitions and sends messages via IMessenger:
-/// - <see cref="ChampSelectStartedMessage"/> when champ select begins (non-casual only)
-/// - <see cref="GameStartedMessage"/> when game enters loading/in-progress
-/// - <see cref="GameEndedMessage"/> when end-of-game stats are extracted
-/// - <see cref="LcuConnectionChangedMessage"/> when connection state changes
 /// </summary>
 public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 {
     private readonly ILcuCredentialDiscovery _credentialDiscovery;
     private readonly ILcuClient _lcuClient;
     private readonly ILiveEventApi _liveEventApi;
-    private readonly IGameRepository _gameRepository;
-    private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
+    private readonly IGameEndCaptureService _gameEndCaptureService;
+    private readonly IMatchHistoryReconciliationService _matchHistoryReconciliationService;
     private readonly IMessenger _messenger;
     private readonly ILogger<GameMonitorService> _logger;
+    private readonly GameMonitorTransitionEvaluator _transitionEvaluator = new();
+    private readonly GameMonitorRuntimeState _state = new();
 
-    private GamePhase _lastPhase = GamePhase.None;
-    private bool _connected;
-    private bool _currentGameCasual;
     private LiveEventCollector? _eventCollector;
     private CancellationTokenSource? _collectorCts;
     private Task? _collectorTask;
-    private bool _reconcilePending;
-    private bool _startupReconcilePending = true;
-    private int _credFailCount;
-    private const int MaxCredBackoff = 6; // Skip up to 6 ticks (~30s at 5s intervals)
 
-    /// <inheritdoc />
-    public Func<long, bool>? CheckGameSaved { get; set; }
+    private const int MaxCredentialBackoffTicks = 6;
 
     /// <summary>Casual (non-ranked, non-normal) queue IDs.</summary>
     private static readonly HashSet<int> CasualQueueIds =
     [
-        450,   // ARAM
-        1700,  // Arena (Cherry)
-        1900,  // URF
-        900,   // ARURF
-        1010,  // Snow ARURF
-        1020,  // One for All
-        2070,  // ARAM Mayhem (Kiwi)
-        2000,  // Tutorial 1
-        2010,  // Tutorial 2
-        2020,  // Tutorial 3
-        0,     // Custom / Practice Tool
+        450,
+        1700,
+        1900,
+        900,
+        1010,
+        1020,
+        2070,
+        2000,
+        2010,
+        2020,
+        0,
     ];
 
     public GameMonitorService(
         ILcuCredentialDiscovery credentialDiscovery,
         ILcuClient lcuClient,
         ILiveEventApi liveEventApi,
-        IGameRepository gameRepository,
-        IMissedGameDecisionRepository missedGameDecisionRepository,
+        IGameEndCaptureService gameEndCaptureService,
+        IMatchHistoryReconciliationService matchHistoryReconciliationService,
         IMessenger messenger,
         ILogger<GameMonitorService> logger)
     {
         _credentialDiscovery = credentialDiscovery;
         _lcuClient = lcuClient;
         _liveEventApi = liveEventApi;
-        _gameRepository = gameRepository;
-        _missedGameDecisionRepository = missedGameDecisionRepository;
+        _gameEndCaptureService = gameEndCaptureService;
+        _matchHistoryReconciliationService = matchHistoryReconciliationService;
         _messenger = messenger;
         _logger = logger;
     }
 
-    /// <summary>
-    /// Main background loop — polls every 5 seconds.
-    /// </summary>
+    /// <inheritdoc />
+    public Func<long, bool>? CheckGameSaved { get; set; }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Game monitor started");
         CoreDiagnostics.WriteVerbose("LCU: GameMonitor ExecuteAsync started");
 
-        using var timer = new PeriodicTimer(
-            TimeSpan.FromSeconds(GameConstants.GameMonitorPollIntervalS));
-
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(GameConstants.GameMonitorPollIntervalS));
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
         {
             try
@@ -111,161 +94,146 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         CoreDiagnostics.WriteVerbose("LCU: GameMonitor ExecuteAsync stopped");
     }
 
-    /// <summary>
-    /// Single monitoring cycle: ensure connection + check phase transitions.
-    /// </summary>
-    private async Task TickAsync(CancellationToken ct)
+    internal Task TickOnceAsync(CancellationToken cancellationToken = default) => TickAsync(cancellationToken);
+
+    private async Task TickAsync(CancellationToken cancellationToken)
     {
-        CoreDiagnostics.WriteVerbose($"LCU: Tick start connected={_connected} credBackoff={_credFailCount}");
-        // ── Ensure we have a connected LCU client ───────────────────────
+        CoreDiagnostics.WriteVerbose(
+            $"LCU: Tick start connected={_state.IsConnected} credBackoff={_state.CredentialBackoffTicks}");
 
-        if (!_connected)
+        if (!await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false))
         {
-            // Backoff: skip ticks when repeatedly failing to find credentials
-            if (_credFailCount > 0)
-            {
-                _credFailCount--;
-                CoreDiagnostics.WriteVerbose($"LCU: Tick backing off remaining={_credFailCount}");
-                return;
-            }
-
-            var creds = _credentialDiscovery.FindCredentials();
-            if (creds is null)
-            {
-                _credFailCount = Math.Min(_credFailCount + 2, MaxCredBackoff);
-                CoreDiagnostics.WriteVerbose($"LCU: Tick no credentials nextBackoff={_credFailCount}");
-
-                if (_connected)
-                {
-                    _connected = false;
-                    _logger.LogInformation("League client disconnected -- credentials not found");
-                    await StopEventCollectorAsync().ConfigureAwait(false);
-                    _messenger.Send(new LcuConnectionChangedMessage(false));
-                }
-
-                return;
-            }
-
-            _credFailCount = 0;
-            _lcuClient.Configure(creds);
-            CoreDiagnostics.WriteVerbose($"LCU: Tick configured client port={creds.Port}");
-
-            if (await _lcuClient.IsConnectedAsync(ct).ConfigureAwait(false))
-            {
-                _connected = true;
-                _logger.LogInformation("Connected to League client");
-                CoreDiagnostics.WriteVerbose("LCU: Tick IsConnectedAsync=true");
-                _messenger.Send(new LcuConnectionChangedMessage(true));
-            }
-            else
-            {
-                CoreDiagnostics.WriteVerbose("LCU: Tick IsConnectedAsync=false");
-                return;
-            }
+            return;
         }
-
-        // ── Check current gameflow phase ────────────────────────────────
 
         GamePhase phase;
         try
         {
-            phase = await _lcuClient.GetGameflowPhaseAsync(ct).ConfigureAwait(false);
+            phase = await _lcuClient.GetGameflowPhaseAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            // Client might have closed
             _logger.LogWarning(ex, "League client connection lost");
             CoreDiagnostics.WriteVerbose($"LCU: Tick gameflow exception={ex.GetType().Name}:{ex.Message}");
-            _connected = false;
-            await StopEventCollectorAsync().ConfigureAwait(false);
-            _messenger.Send(new LcuConnectionChangedMessage(false));
+            await HandleDisconnectedAsync().ConfigureAwait(false);
             return;
         }
 
-        // ── Detect transition into ChampSelect ──────────────────────────
-
-        if (_startupReconcilePending && phase is GamePhase.Lobby or GamePhase.None or GamePhase.ReadyCheck)
+        if (phase != _state.LastPhase)
         {
-            await ReconcileMatchHistoryAsync(ct).ConfigureAwait(false);
-            _startupReconcilePending = false;
+            _logger.LogInformation("Gameflow phase changed {PreviousPhase} -> {CurrentPhase}", _state.LastPhase, phase);
+            CoreDiagnostics.WriteVerbose($"LCU: Phase changed {_state.LastPhase} -> {phase}");
         }
 
-        if (phase == GamePhase.ChampSelect && _lastPhase != GamePhase.ChampSelect)
-        {
-            var queueId = await _lcuClient.GetLobbyQueueIdAsync(ct).ConfigureAwait(false);
-            _currentGameCasual = IsCasualQueue(queueId);
-            var modeLabel = _currentGameCasual ? "casual" : "ranked/normal";
-            _logger.LogInformation("Champ select started (queue {QueueId} -- {Mode})", queueId, modeLabel);
+        var plan = _transitionEvaluator.Evaluate(_state, phase);
 
-            // Always send champ select message (even for casual/practice) for testing
-            _messenger.Send(new ChampSelectStartedMessage(queueId));
+        if (plan.ReconcileOnStartup)
+        {
+            await PublishMissedGamesAsync(cancellationToken).ConfigureAwait(false);
+            _state.StartupReconcilePending = false;
         }
 
-        // ── Detect champ select cancelled (dodge/leave) ──────────────────
+        if (plan.NotifyChampSelectStarted)
+        {
+            await HandleChampSelectStartedAsync(cancellationToken).ConfigureAwait(false);
+        }
 
-        if (_lastPhase == GamePhase.ChampSelect
-            && phase is not GamePhase.ChampSelect
-                and not GamePhase.InProgress
-                and not GamePhase.GameStart)
+        if (plan.NotifyChampSelectCancelled)
         {
             _logger.LogInformation("Champ select cancelled (went to {Phase})", phase);
             _messenger.Send(new ChampSelectCancelledMessage());
         }
 
-        // ── Detect transition into InProgress/GameStart ─────────────────
-
-        if (phase is GamePhase.InProgress or GamePhase.GameStart
-            && _lastPhase is not GamePhase.InProgress and not GamePhase.GameStart)
+        if (plan.NotifyGameStarted)
         {
-            _logger.LogInformation("Game loading -- closing pre-game window");
+            _logger.LogInformation("Game loading - closing pre-game window");
             _messenger.Send(new GameStartedMessage());
 
-            if (!_currentGameCasual)
+            if (!_state.CurrentGameIsCasual)
             {
                 StartEventCollector();
             }
         }
 
-        // ── Detect transition into EndOfGame ────────────────────────────
-
-        if (phase == GamePhase.EndOfGame && _lastPhase != GamePhase.EndOfGame)
+        if (plan.HandleGameEnded)
         {
-            if (_currentGameCasual)
+            if (_state.CurrentGameIsCasual)
             {
-                _logger.LogInformation("Casual game ended -- skipping");
+                _logger.LogInformation("Casual game ended - skipping");
             }
             else
             {
-                _logger.LogInformation("Game ended -- fetching stats");
-                await HandleGameEndAsync(ct).ConfigureAwait(false);
-                _reconcilePending = true;
+                _logger.LogInformation("Game ended - fetching stats");
+                await PublishGameEndedAsync(cancellationToken).ConfigureAwait(false);
+                _state.ReconcilePending = true;
             }
 
-            _currentGameCasual = false;
-        }
-
-        // ── Reconcile match history when returning to lobby ─────────────
-
-        if (_lastPhase is GamePhase.EndOfGame or GamePhase.InProgress
-                or GamePhase.GameStart or GamePhase.WaitingForStats
-            && phase is GamePhase.Lobby or GamePhase.None
-                or GamePhase.ReadyCheck or GamePhase.ChampSelect)
-        {
-            if (_reconcilePending || _lastPhase == GamePhase.InProgress)
+            if (plan.ResetCurrentGameCasual)
             {
-                await ReconcileMatchHistoryAsync(ct).ConfigureAwait(false);
-                _reconcilePending = false;
+                _state.CurrentGameIsCasual = false;
             }
         }
 
-        _lastPhase = phase;
+        if (plan.ReconcileMatchHistory)
+        {
+            await PublishMissedGamesAsync(cancellationToken).ConfigureAwait(false);
+            _state.ReconcilePending = false;
+        }
+
+        _state.LastPhase = phase;
     }
 
-    // ── Event collector management ──────────────────────────────────────
+    private async Task<bool> EnsureConnectedAsync(CancellationToken cancellationToken)
+    {
+        if (_state.IsConnected)
+        {
+            return true;
+        }
+
+        if (_state.CredentialBackoffTicks > 0)
+        {
+            _state.CredentialBackoffTicks--;
+            CoreDiagnostics.WriteVerbose($"LCU: Tick backing off remaining={_state.CredentialBackoffTicks}");
+            return false;
+        }
+
+        var credentials = _credentialDiscovery.FindCredentials();
+        if (credentials is null)
+        {
+            _state.CredentialBackoffTicks = Math.Min(_state.CredentialBackoffTicks + 2, MaxCredentialBackoffTicks);
+            CoreDiagnostics.WriteVerbose($"LCU: Tick no credentials nextBackoff={_state.CredentialBackoffTicks}");
+            return false;
+        }
+
+        _state.CredentialBackoffTicks = 0;
+        _lcuClient.Configure(credentials);
+        CoreDiagnostics.WriteVerbose($"LCU: Tick configured client port={credentials.Port}");
+
+        if (!await _lcuClient.IsConnectedAsync(cancellationToken).ConfigureAwait(false))
+        {
+            CoreDiagnostics.WriteVerbose("LCU: Tick IsConnectedAsync=false");
+            return false;
+        }
+
+        _state.IsConnected = true;
+        _logger.LogInformation("Connected to League client");
+        CoreDiagnostics.WriteVerbose("LCU: Tick IsConnectedAsync=true");
+        _messenger.Send(new LcuConnectionChangedMessage(true));
+        return true;
+    }
+
+    private async Task HandleChampSelectStartedAsync(CancellationToken cancellationToken)
+    {
+        var queueId = await _lcuClient.GetLobbyQueueIdAsync(cancellationToken).ConfigureAwait(false);
+        _state.CurrentGameIsCasual = IsCasualQueue(queueId);
+
+        var modeLabel = _state.CurrentGameIsCasual ? "casual" : "ranked/normal";
+        _logger.LogInformation("Champ select started (queue {QueueId} - {Mode})", queueId, modeLabel);
+        _messenger.Send(new ChampSelectStartedMessage(queueId));
+    }
 
     private void StartEventCollector()
     {
-        // Clean up any previous collector first
         _ = StopEventCollectorAsync();
 
         _collectorCts = new CancellationTokenSource();
@@ -284,13 +252,11 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         if (_eventCollector is not null)
         {
-            // Signal cancellation first
             if (_collectorCts is not null)
             {
                 await _collectorCts.CancelAsync().ConfigureAwait(false);
             }
 
-            // Wait for the collector task to finish
             if (_collectorTask is not null)
             {
                 try
@@ -304,11 +270,9 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
                 }
                 catch (OperationCanceledException)
                 {
-                    // Expected
                 }
             }
 
-            // Get the final events
             events = await _eventCollector.StopAsync().ConfigureAwait(false);
             _eventCollector = null;
         }
@@ -320,148 +284,45 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         return events;
     }
 
-    // ── Game end handling ────────────────────────────────────────────────
-
-    private async Task HandleGameEndAsync(CancellationToken ct)
+    private async Task PublishGameEndedAsync(CancellationToken cancellationToken)
     {
-        // Stop the live event collector and grab events
         var liveEvents = await StopEventCollectorAsync().ConfigureAwait(false);
         if (liveEvents.Count > 0)
         {
             _logger.LogInformation("Collected {Count} live events during game", liveEvents.Count);
         }
 
-        // The EOG data might take a moment to be ready -- retry a few times
-        for (var attempt = 0; attempt < GameConstants.EogStatsRetryAttempts; attempt++)
+        var stats = await _gameEndCaptureService.CaptureAsync(liveEvents, cancellationToken).ConfigureAwait(false);
+        if (stats is null)
         {
-            var eogData = await _lcuClient.GetEndOfGameStatsAsync(ct).ConfigureAwait(false);
-            if (eogData is JsonElement eog)
-            {
-                var stats = StatsExtractor.ExtractFromEog(eog, _logger);
-                if (stats is not null)
-                {
-                    var summonerName = await TryGetCurrentSummonerNameAsync(ct).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(summonerName))
-                    {
-                        stats.SummonerName = summonerName;
-                    }
-
-                    // Attach live events
-                    stats.LiveEvents = liveEvents;
-
-                    _messenger.Send(new GameEndedMessage(stats));
-                    return;
-                }
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+            _state.ReconcilePending = true;
+            return;
         }
 
-        _logger.LogWarning("Could not retrieve end-of-game stats after retries");
-        // Mark for reconciliation since we failed to get EOG stats
-        _reconcilePending = true;
+        _messenger.Send(new GameEndedMessage(stats));
     }
 
-    // ── Match history reconciliation ────────────────────────────────────
-
-    private async Task ReconcileMatchHistoryAsync(CancellationToken ct)
+    private async Task PublishMissedGamesAsync(CancellationToken cancellationToken)
     {
-        List<JsonElement> matches;
-        try
-        {
-            matches = await _lcuClient.GetMatchHistoryAsync(begin: 0, count: 10, ct: ct)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Reconciliation: failed to fetch match history");
-            return;
-        }
-
-        if (matches.Count == 0)
-            return;
-
-        var dismissedIds = await _missedGameDecisionRepository.GetDismissedGameIdsAsync(
-            matches.Select(static game => game.GetPropertyLongOrDefault("gameId", 0)))
+        var candidates = await _matchHistoryReconciliationService
+            .FindMissedGamesAsync(CheckGameSaved, cancellationToken)
             .ConfigureAwait(false);
-
-        var summonerName = await TryGetCurrentSummonerNameAsync(ct).ConfigureAwait(false);
-        var candidates = new List<GameStats>();
-        foreach (var game in matches)
-        {
-            var gameId = game.GetPropertyLongOrDefault("gameId", 0);
-            if (gameId == 0)
-                continue;
-
-            if (dismissedIds.Contains(gameId))
-                continue;
-
-            // Already saved?
-            var alreadySaved = CheckGameSaved is not null
-                ? CheckGameSaved(gameId)
-                : await _gameRepository.GetAsync(gameId).ConfigureAwait(false) is not null;
-
-            if (alreadySaved)
-                continue;
-
-            var stats = StatsExtractor.ExtractFromMatchHistory(game, _logger);
-            if (stats is null)
-                continue;
-
-            if ((string.IsNullOrWhiteSpace(stats.ChampionName)
-                    || stats.ChampionName.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
-                && stats.ChampionId > 0)
-            {
-                var resolvedChampionName = await _lcuClient.GetChampionNameAsync(stats.ChampionId, ct)
-                    .ConfigureAwait(false);
-                if (!string.IsNullOrWhiteSpace(resolvedChampionName))
-                {
-                    stats.ChampionName = resolvedChampionName;
-                }
-            }
-
-            if (!string.IsNullOrEmpty(summonerName))
-            {
-                stats.SummonerName = summonerName;
-            }
-
-            _logger.LogInformation(
-                "Reconciliation: found unsaved recent game {GameId} ({Champion} {Result})",
-                gameId, stats.ChampionName, stats.Win ? "W" : "L");
-
-            candidates.Add(stats);
-        }
 
         if (candidates.Count > 0)
         {
-            _logger.LogInformation("Reconciliation: found {Count} missed recent game(s)", candidates.Count);
             _messenger.Send(new MissedReviewsDetectedMessage(candidates));
-        }
-        else
-        {
-            _logger.LogDebug("Reconciliation: no missed games found");
         }
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────
-
-    private async Task<string?> TryGetCurrentSummonerNameAsync(CancellationToken ct)
+    private async Task HandleDisconnectedAsync()
     {
-        try
-        {
-            var summoner = await _lcuClient.GetCurrentSummonerAsync(ct).ConfigureAwait(false);
-            if (summoner is not JsonElement summonerEl)
-            {
-                return null;
-            }
+        var wasConnected = _state.IsConnected;
+        _state.IsConnected = false;
+        await StopEventCollectorAsync().ConfigureAwait(false);
 
-            return summonerEl.GetPropertyOrDefault("displayName", "") is { Length: > 0 } displayName
-                ? displayName
-                : summonerEl.GetPropertyOrDefault("gameName", "Unknown");
-        }
-        catch
+        if (wasConnected)
         {
-            return null;
+            _messenger.Send(new LcuConnectionChangedMessage(false));
         }
     }
 

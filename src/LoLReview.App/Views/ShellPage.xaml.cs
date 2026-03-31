@@ -50,6 +50,7 @@ public sealed partial class ShellPage : Page
         {
             var dialogService = App.GetService<IDialogService>();
             dialogService.Initialize(XamlRoot);
+            _ = ViewModel.InitializeAsync();
             _ = RefreshCoachLabVisibilityAsync();
         };
     }

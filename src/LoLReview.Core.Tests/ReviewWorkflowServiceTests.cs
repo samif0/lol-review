@@ -1,0 +1,209 @@
+using System.Text.Json;
+using LoLReview.Core.Models;
+using LoLReview.Core.Services;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace LoLReview.Core.Tests;
+
+public sealed class ReviewWorkflowServiceTests
+{
+    [Fact]
+    public async Task LoadAsync_RestoresDraftAndLoadsMatchupHistory()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var previousGameId = 2001L;
+        var currentGameId = 2002L;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(previousGameId, champion: "Ahri", timestamp: 1_710_000_000));
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(currentGameId, champion: "Ahri", timestamp: 1_710_000_600));
+
+        var objectiveId = await scope.Objectives.CreateAsync("Trade around cooldowns", "lane", completionCriteria: "Punish after spell use");
+        var tagId = (await scope.ConceptTags.GetAllAsync()).First().Id;
+
+        await scope.MatchupNotes.UpsertForGameAsync(previousGameId, "Ahri", "Syndra", "Respect level 1 spacing");
+        await scope.ReviewDrafts.UpsertAsync(new ReviewDraft
+        {
+            GameId = currentGameId,
+            ReviewNotes = "Draft note",
+            EnemyLaner = "Syndra",
+            MatchupNote = "Save wave for level 6",
+            SelectedTagIdsJson = JsonSerializer.Serialize(new[] { tagId }),
+            ObjectiveAssessmentsJson = JsonSerializer.Serialize(new[]
+            {
+                new SaveObjectivePracticeRequest(objectiveId, true, "Tracked her E")
+            }),
+            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        });
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
+        var screenData = await workflow.LoadAsync(currentGameId);
+
+        Assert.NotNull(screenData);
+        Assert.Equal("Draft note", screenData!.Snapshot.ReviewNotes);
+        Assert.Equal("Syndra", screenData.Snapshot.EnemyLaner);
+        Assert.Equal("Save wave for level 6", screenData.Snapshot.MatchupNote);
+        Assert.Contains(tagId, screenData.Snapshot.SelectedTagIds);
+
+        var objective = Assert.Single(screenData.ObjectiveAssessments);
+        Assert.True(objective.Practiced);
+        Assert.Equal("Tracked her E", objective.ExecutionNote);
+
+        var history = Assert.Single(screenData.MatchupHistory);
+        Assert.Equal("Respect level 1 spacing", history.Note);
+        Assert.Equal(previousGameId, history.GameId);
+    }
+
+    [Fact]
+    public async Task SaveAsync_RejectsMatchupNoteWithoutEnemyChampion()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 3001;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId));
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
+        var result = await workflow.SaveAsync(new SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: "Ahri",
+            Win: true,
+            RequireReviewNotes: false,
+            Snapshot: EmptySnapshot with { MatchupNote = "Need a note first" }));
+
+        Assert.False(result.Success);
+        Assert.Equal("Add the enemy champion before saving a matchup note.", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task SaveAsync_RejectsEmptyReviewWhenReviewNotesAreRequired()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 3002;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId));
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: true);
+        var result = await workflow.SaveAsync(new SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: "Ahri",
+            Win: true,
+            RequireReviewNotes: true,
+            Snapshot: EmptySnapshot));
+
+        Assert.False(result.Success);
+        Assert.Equal("Review notes are required in Settings. Add review content before saving.", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task SaveAsync_PersistsReviewSessionTagsObjectivesAndMatchupNote()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 4001;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Orianna", win: false));
+
+        var objectiveId = await scope.Objectives.CreateAsync("Hold TP window", "macro", completionCriteria: "Crash before roam");
+        var tagId = (await scope.ConceptTags.GetAllAsync()).First().Id;
+        await scope.ReviewDrafts.UpsertAsync(new ReviewDraft { GameId = gameId, ReviewNotes = "stale draft" });
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: true);
+        var snapshot = EmptySnapshot with
+        {
+            MentalRating = 7,
+            WentWell = "Played waves well",
+            Mistakes = "Missed one flash punish",
+            FocusNext = "Track jungle timers",
+            ReviewNotes = "Strong reset discipline overall",
+            ImprovementNote = "Keep lane warded",
+            Attribution = "Own mistakes",
+            MentalHandled = "Reset after death",
+            SpottedProblems = "Late swap to side lane",
+            OutsideControl = "Enemy jungle pathing",
+            WithinControl = "Wave state",
+            PersonalContribution = "Did not cover flank",
+            EnemyLaner = "Syndra",
+            MatchupNote = "Respect level 3 burst",
+            SelectedTagIds = [tagId],
+            ObjectivePractices =
+            [
+                new SaveObjectivePracticeRequest(objectiveId, true, "Held wave before base")
+            ],
+        };
+
+        var result = await workflow.SaveAsync(new SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: "Orianna",
+            Win: false,
+            RequireReviewNotes: true,
+            Snapshot: snapshot));
+
+        Assert.True(result.Success);
+        Assert.Equal("Syndra", result.SavedEnemyLaner);
+
+        var savedGame = await scope.Games.GetAsync(gameId);
+        var sessionEntry = await scope.SessionLog.GetEntryAsync(gameId);
+        var tagIds = await scope.ConceptTags.GetIdsForGameAsync(gameId);
+        var matchupNote = await scope.MatchupNotes.GetForGameAsync(gameId);
+        var objectiveRecords = await scope.Objectives.GetGameObjectivesAsync(gameId);
+        var draft = await scope.ReviewDrafts.GetAsync(gameId);
+
+        Assert.NotNull(savedGame);
+        Assert.Equal("Strong reset discipline overall", savedGame!.ReviewNotes);
+        Assert.Equal("Played waves well", savedGame.WentWell);
+        Assert.Equal("Track jungle timers", savedGame.FocusNext);
+        Assert.Equal("Syndra", savedGame.EnemyLaner);
+
+        Assert.NotNull(sessionEntry);
+        Assert.Equal(7, sessionEntry!.MentalRating);
+        Assert.Equal("Keep lane warded", sessionEntry.ImprovementNote);
+        Assert.Equal("Reset after death", sessionEntry.MentalHandled);
+
+        Assert.Equal([tagId], tagIds);
+
+        Assert.NotNull(matchupNote);
+        Assert.Equal("Respect level 3 burst", matchupNote!.Note);
+
+        var objective = Assert.Single(objectiveRecords);
+        Assert.Equal(objectiveId, objective.ObjectiveId);
+        Assert.True(objective.Practiced);
+        Assert.Equal("Held wave before base", objective.ExecutionNote);
+
+        Assert.Null(draft);
+    }
+
+    private static ReviewWorkflowService CreateWorkflow(TestDatabaseScope scope, bool requireReviewNotes)
+    {
+        return new ReviewWorkflowService(
+            scope.Games,
+            scope.ConceptTags,
+            scope.Vod,
+            new StubVodService(),
+            scope.SessionLog,
+            scope.Objectives,
+            scope.ReviewDrafts,
+            scope.MatchupNotes,
+            new TestConfigService(new AppConfig { RequireReviewNotes = requireReviewNotes }),
+            NullLogger<ReviewWorkflowService>.Instance);
+    }
+
+    private static readonly ReviewSnapshot EmptySnapshot = new(
+        MentalRating: 5,
+        WentWell: "",
+        Mistakes: "",
+        FocusNext: "",
+        ReviewNotes: "",
+        ImprovementNote: "",
+        Attribution: "",
+        MentalHandled: "",
+        SpottedProblems: "",
+        OutsideControl: "",
+        WithinControl: "",
+        PersonalContribution: "",
+        EnemyLaner: "",
+        MatchupNote: "",
+        SelectedTagIds: [],
+        ObjectivePractices: []);
+}

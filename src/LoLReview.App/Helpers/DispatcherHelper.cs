@@ -58,4 +58,71 @@ public static class DispatcherHelper
 
         return _dispatcherQueue.TryEnqueue(() => action());
     }
+
+    /// <summary>
+    /// Run an action on the UI thread and complete when it has finished.
+    /// </summary>
+    public static Task RunOnUIThreadAsync(Action action)
+    {
+        if (_dispatcherQueue is null || _dispatcherQueue.HasThreadAccess)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        var completionSource = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        if (!_dispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    action();
+                    completionSource.SetResult();
+                }
+                catch (Exception ex)
+                {
+                    completionSource.SetException(ex);
+                }
+            }))
+        {
+            completionSource.SetException(
+                new InvalidOperationException("Failed to enqueue work onto the UI thread."));
+        }
+
+        return completionSource.Task;
+    }
+
+    /// <summary>
+    /// Run asynchronous work on the UI thread and complete when it has finished.
+    /// </summary>
+    public static Task RunOnUIThreadAsync(Func<Task> action)
+    {
+        if (_dispatcherQueue is null || _dispatcherQueue.HasThreadAccess)
+        {
+            return action();
+        }
+
+        var completionSource = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        if (!_dispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    await action();
+                    completionSource.SetResult();
+                }
+                catch (Exception ex)
+                {
+                    completionSource.SetException(ex);
+                }
+            }))
+        {
+            completionSource.SetException(
+                new InvalidOperationException("Failed to enqueue work onto the UI thread."));
+        }
+
+        return completionSource.Task;
+    }
 }

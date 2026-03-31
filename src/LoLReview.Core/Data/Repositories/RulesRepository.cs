@@ -89,33 +89,33 @@ public sealed class RulesRepository : IRulesRepository
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync()
+    public async Task<IReadOnlyList<RuleRecord>> GetAllAsync()
     {
         using var conn = _factory.CreateConnection();
         var schema = await GetSchemaAsync(conn);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = BuildCanonicalSelect(schema) + " ORDER BY is_active DESC, created_at DESC";
-        return await ReadAllRowsAsync(cmd);
+        return await ReadAllAsync(cmd);
     }
 
-    public async Task<IReadOnlyList<Dictionary<string, object?>>> GetActiveAsync()
+    public async Task<IReadOnlyList<RuleRecord>> GetActiveAsync()
     {
         using var conn = _factory.CreateConnection();
         var schema = await GetSchemaAsync(conn);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = BuildCanonicalSelect(schema) +
                           $" WHERE {BuildIsActiveExpression(schema)} = 1 ORDER BY created_at ASC";
-        return await ReadAllRowsAsync(cmd);
+        return await ReadAllAsync(cmd);
     }
 
-    public async Task<Dictionary<string, object?>?> GetAsync(long ruleId)
+    public async Task<RuleRecord?> GetAsync(long ruleId)
     {
         using var conn = _factory.CreateConnection();
         var schema = await GetSchemaAsync(conn);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = BuildCanonicalSelect(schema) + " WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", ruleId);
-        return await ReadSingleRowAsync(cmd);
+        return await ReadSingleAsync(cmd);
     }
 
     public async Task ToggleAsync(long ruleId)
@@ -176,7 +176,7 @@ public sealed class RulesRepository : IRulesRepository
     }
 
     public async Task<IReadOnlyList<RuleViolation>> CheckViolationsAsync(
-        IReadOnlyList<Dictionary<string, object?>>? todaysGames = null,
+        IReadOnlyList<RuleCheckGame>? todaysGames = null,
         int? mentalRating = null)
     {
         var rules = await GetActiveAsync();
@@ -185,17 +185,15 @@ public sealed class RulesRepository : IRulesRepository
 
         foreach (var rule in rules)
         {
-            var ruleType = rule.TryGetValue("rule_type", out var rt) ? rt?.ToString() ?? "" : "";
-            var conditionValue = rule.TryGetValue("condition_value", out var cv) ? cv?.ToString() ?? "" : "";
             bool violated = false;
             string reason = "";
 
-            switch (ruleType)
+            switch (rule.RuleType)
             {
                 case "no_play_day":
                 {
-                    var days = conditionValue.Split(',', StringSplitOptions.TrimEntries)
-                        .Select(d => d.ToLowerInvariant())
+                    var days = rule.ConditionValue.Split(',', StringSplitOptions.TrimEntries)
+                        .Select(static day => day.ToLowerInvariant())
                         .ToList();
                     var todayName = now.ToString("dddd", CultureInfo.InvariantCulture).ToLowerInvariant();
                     if (days.Contains(todayName))
@@ -203,63 +201,69 @@ public sealed class RulesRepository : IRulesRepository
                         violated = true;
                         reason = $"Today is {now.ToString("dddd", CultureInfo.InvariantCulture)}";
                     }
+
                     break;
                 }
 
                 case "no_play_after":
                 {
-                    if (int.TryParse(conditionValue, out int hour) && now.Hour >= hour)
+                    if (int.TryParse(rule.ConditionValue, out var hour) && now.Hour >= hour)
                     {
                         violated = true;
                         reason = $"It's past {hour}:00";
                     }
+
                     break;
                 }
 
                 case "loss_streak" when todaysGames is not null:
                 {
-                    if (int.TryParse(conditionValue, out int threshold))
+                    if (int.TryParse(rule.ConditionValue, out var threshold))
                     {
-                        int consecutive = 0;
-                        for (int i = todaysGames.Count - 1; i >= 0; i--)
+                        var consecutive = 0;
+                        for (var i = todaysGames.Count - 1; i >= 0; i--)
                         {
-                            var game = todaysGames[i];
-                            bool isWin = game.TryGetValue("win", out var w) && w is not null &&
-                                         (w is bool b ? b : Convert.ToInt64(w) != 0);
-                            if (!isWin)
+                            if (!todaysGames[i].Win)
+                            {
                                 consecutive++;
+                            }
                             else
+                            {
                                 break;
+                            }
                         }
+
                         if (consecutive >= threshold)
                         {
                             violated = true;
                             reason = $"{consecutive} consecutive losses";
                         }
                     }
+
                     break;
                 }
 
                 case "max_games" when todaysGames is not null:
                 {
-                    if (int.TryParse(conditionValue, out int maxGames) && todaysGames.Count >= maxGames)
+                    if (int.TryParse(rule.ConditionValue, out var maxGames) && todaysGames.Count >= maxGames)
                     {
                         violated = true;
                         reason = $"{todaysGames.Count}/{maxGames} games played";
                     }
+
                     break;
                 }
 
                 case "min_mental" when mentalRating is not null:
                 {
-                    if (int.TryParse(conditionValue, out int minMental) && mentalRating.Value < minMental)
+                    if (int.TryParse(rule.ConditionValue, out var minMental) && mentalRating.Value < minMental)
                     {
                         violated = true;
                         reason = $"Mental at {mentalRating.Value}, minimum is {minMental}";
                     }
+
                     break;
                 }
-                // custom rules can't be auto-checked
             }
 
             results.Add(new RuleViolation(rule, violated, reason));
@@ -369,31 +373,34 @@ public sealed class RulesRepository : IRulesRepository
             HasCreatedAt: columns.Contains("created_at"));
     }
 
-    private static async Task<IReadOnlyList<Dictionary<string, object?>>> ReadAllRowsAsync(SqliteCommand cmd)
+    private static async Task<IReadOnlyList<RuleRecord>> ReadAllAsync(SqliteCommand cmd)
     {
-        var results = new List<Dictionary<string, object?>>();
+        var results = new List<RuleRecord>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            results.Add(ReadRow(reader));
+            results.Add(ReadRule(reader));
         }
+
         return results;
     }
 
-    private static async Task<Dictionary<string, object?>?> ReadSingleRowAsync(SqliteCommand cmd)
+    private static async Task<RuleRecord?> ReadSingleAsync(SqliteCommand cmd)
     {
         using var reader = await cmd.ExecuteReaderAsync();
-        return await reader.ReadAsync() ? ReadRow(reader) : null;
+        return await reader.ReadAsync() ? ReadRule(reader) : null;
     }
 
-    private static Dictionary<string, object?> ReadRow(SqliteDataReader reader)
+    private static RuleRecord ReadRule(SqliteDataReader reader)
     {
-        var dict = new Dictionary<string, object?>(reader.FieldCount);
-        for (int i = 0; i < reader.FieldCount; i++)
-        {
-            dict[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-        }
-        return dict;
+        return new RuleRecord(
+            Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
+            Name: reader.IsDBNull(reader.GetOrdinal("name")) ? "" : reader.GetString(reader.GetOrdinal("name")),
+            Description: reader.IsDBNull(reader.GetOrdinal("description")) ? "" : reader.GetString(reader.GetOrdinal("description")),
+            RuleType: reader.IsDBNull(reader.GetOrdinal("rule_type")) ? "custom" : reader.GetString(reader.GetOrdinal("rule_type")),
+            ConditionValue: reader.IsDBNull(reader.GetOrdinal("condition_value")) ? "" : reader.GetString(reader.GetOrdinal("condition_value")),
+            IsActive: !reader.IsDBNull(reader.GetOrdinal("is_active")) && reader.GetInt64(reader.GetOrdinal("is_active")) != 0,
+            CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")));
     }
 
     private sealed record RulesSchema(

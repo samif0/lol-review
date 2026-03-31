@@ -4,7 +4,7 @@ namespace LoLReview.Core.Data.Repositories;
 
 /// <summary>Result of checking a single rule for violations.</summary>
 public sealed record RuleViolation(
-    Dictionary<string, object?> Rule,
+    RuleRecord Rule,
     bool Violated,
     string Reason);
 
@@ -14,11 +14,11 @@ public interface IRulesRepository
     Task<long> CreateAsync(string name, string description = "", string ruleType = "custom",
         string conditionValue = "");
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetAllAsync();
+    Task<IReadOnlyList<RuleRecord>> GetAllAsync();
 
-    Task<IReadOnlyList<Dictionary<string, object?>>> GetActiveAsync();
+    Task<IReadOnlyList<RuleRecord>> GetActiveAsync();
 
-    Task<Dictionary<string, object?>?> GetAsync(long ruleId);
+    Task<RuleRecord?> GetAsync(long ruleId);
 
     Task ToggleAsync(long ruleId);
 
@@ -29,6 +29,6 @@ public interface IRulesRepository
     /// Rule types: no_play_day, no_play_after, loss_streak, max_games, min_mental, custom.
     /// </summary>
     Task<IReadOnlyList<RuleViolation>> CheckViolationsAsync(
-        IReadOnlyList<Dictionary<string, object?>>? todaysGames = null,
+        IReadOnlyList<RuleCheckGame>? todaysGames = null,
         int? mentalRating = null);
 }

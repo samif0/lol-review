@@ -134,16 +134,12 @@ public partial class VodPlayerViewModel : ObservableObject
             if (vod == null) { HasVod = false; return; }
 
             HasVod = true;
-            VodPath = vod.TryGetValue("file_path", out var fp) ? fp?.ToString() ?? "" : "";
+            VodPath = vod.FilePath;
 
-            if (vod.TryGetValue("duration_s", out var dur) && dur != null)
+            if (vod.DurationSeconds > 0)
             {
-                var vodDuration = Convert.ToInt32(dur);
-                if (vodDuration > 0)
-                {
-                    GameDurationS = vodDuration;
-                    TotalTimeText = FormatTime(vodDuration);
-                }
+                GameDurationS = vod.DurationSeconds;
+                TotalTimeText = FormatTime(vod.DurationSeconds);
             }
 
             // Load game events for timeline
@@ -153,15 +149,11 @@ public partial class VodPlayerViewModel : ObservableObject
                 GameEvents.Clear();
                 foreach (var e in events)
                 {
-                    var eventType = e.TryGetValue("event_type", out var et) ? et?.ToString() ?? "" : "";
-                    var timeS = e.TryGetValue("game_time_s", out var ts) ? Convert.ToDouble(ts ?? 0) : 0;
-                    var details = e.TryGetValue("details", out var d) ? d?.ToString() ?? "" : "";
-
                     GameEvents.Add(new TimelineEvent
                     {
-                        EventType = eventType,
-                        GameTimeS = timeS,
-                        Details = details,
+                        EventType = e.EventType,
+                        GameTimeS = e.GameTimeS,
+                        Details = e.Details,
                     });
                 }
             });
@@ -173,17 +165,12 @@ public partial class VodPlayerViewModel : ObservableObject
                 DerivedEvents.Clear();
                 foreach (var de in derived)
                 {
-                    var startS = de.TryGetValue("start_time_s", out var ss) ? Convert.ToDouble(ss ?? 0) : 0;
-                    var endS = de.TryGetValue("end_time_s", out var es) ? Convert.ToDouble(es ?? 0) : 0;
-                    var color = de.TryGetValue("color", out var c) ? c?.ToString() ?? "#ff6b6b" : "#ff6b6b";
-                    var name = de.TryGetValue("name", out var n) ? n?.ToString() ?? "" : "";
-
                     DerivedEvents.Add(new DerivedEventRegion
                     {
-                        StartTimeS = startS,
-                        EndTimeS = endS,
-                        Color = color,
-                        Name = name,
+                        StartTimeS = de.StartTimeSeconds,
+                        EndTimeS = de.EndTimeSeconds,
+                        Color = de.Color,
+                        Name = de.DefinitionName,
                     });
                 }
             });
@@ -440,12 +427,12 @@ public partial class VodPlayerViewModel : ObservableObject
             Bookmarks.Clear();
             foreach (var b in bookmarks)
             {
-                var id = b.TryGetValue("id", out var idVal) ? Convert.ToInt64(idVal ?? 0) : 0;
-                var timeS = b.TryGetValue("game_time_s", out var ts) ? Convert.ToInt32(ts ?? 0) : 0;
-                var note = b.TryGetValue("note", out var n) ? n?.ToString() ?? "" : "";
-                var clipPath = b.TryGetValue("clip_path", out var cp) ? cp?.ToString() ?? "" : "";
-                var clipStartS = b.TryGetValue("clip_start_s", out var cs) ? (cs != null ? Convert.ToInt32(cs) : (int?)null) : null;
-                var clipEndS = b.TryGetValue("clip_end_s", out var ce) ? (ce != null ? Convert.ToInt32(ce) : (int?)null) : null;
+                var id = b.Id;
+                var timeS = b.GameTimeSeconds;
+                var note = b.Note;
+                var clipPath = b.ClipPath;
+                var clipStartS = b.ClipStartSeconds;
+                var clipEndS = b.ClipEndSeconds;
 
                 Bookmarks.Add(new BookmarkItem
                 {

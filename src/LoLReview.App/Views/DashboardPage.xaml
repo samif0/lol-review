@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:LoLReview.App.Controls"
     xmlns:vm="using:LoLReview.App.ViewModels"
     xmlns:converters="using:LoLReview.App.Converters"
     mc:Ignorable="d"
@@ -190,11 +191,12 @@
                                                        FontSize="11"
                                                        Foreground="{StaticResource SecondaryTextBrush}"/>
                                         </Grid>
-                                        <ProgressBar Value="{x:Bind Progress}"
-                                                     Maximum="1" Minimum="0"
-                                                     Height="6" CornerRadius="3"
-                                                     Foreground="{x:Bind LevelColorBrush}"
-                                                     Background="{StaticResource SubtleBorderBrush}"/>
+                                        <controls:ObjectiveProgressBar Progress="{x:Bind Progress}"
+                                                                       BarHeight="6"
+                                                                       BarCornerRadius="3"
+                                                                       MinimumVisibleFillWidth="4"
+                                                                       FillBrush="{x:Bind LevelColorBrush}"
+                                                                       TrackBrush="{StaticResource SubtleBorderBrush}"/>
                                     </StackPanel>
                                 </DataTemplate>
                             </ItemsRepeater.ItemTemplate>
