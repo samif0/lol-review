@@ -10,8 +10,24 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Run critical tests
+        run: dotnet test src/LoLReview.Core.Tests/LoLReview.Core.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
+
   build:
     runs-on: windows-latest
+    needs: test
 
     steps:
       - name: Checkout

@@ -163,7 +163,7 @@ public sealed class GameMonitorServiceTests
         var lcuClient = new FakeLcuClient
         {
             IsConnected = true,
-            Phases = new Queue<GamePhase>([GamePhase.Lobby]),
+            Phases = new Queue<GamePhase>([GamePhase.Lobby, GamePhase.Lobby]),
         };
         var candidate = new MissedGameCandidate(7001, 1_710_000_000, TestGameStatsFactory.Create(7001));
         var reconciliationService = new FakeMatchHistoryReconciliationService
@@ -179,10 +179,140 @@ public sealed class GameMonitorServiceTests
             reconciliationService);
 
         await service.TickOnceAsync();
+        Assert.Empty(collector.MissedGamesDetected);
+
+        await service.TickOnceAsync();
 
         var detected = Assert.Single(collector.MissedGamesDetected);
         var missedCandidate = Assert.Single(detected.Games);
         Assert.Equal(7001, missedCandidate.GameId);
+    }
+
+    [Fact]
+    public async Task TickOnceAsync_DetectsDisconnectAndReconnects()
+    {
+        // Regression test for the bug where GetGameflowPhaseAsync swallowed exceptions,
+        // leaving IsConnected=true permanently and blocking credential re-discovery.
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            Phases = new Queue<GamePhase>([GamePhase.Lobby]),
+        };
+
+        var service = CreateService(credentialDiscovery, lcuClient, messenger,
+            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService());
+
+        // First tick — connects and gets Lobby phase
+        await service.TickOnceAsync();
+        Assert.Single(collector.ConnectionChanges, m => m.IsConnected);
+
+        // Simulate client going away: next GetGameflowPhaseAsync will throw
+        lcuClient.ThrowOnNextPhase = true;
+
+        // Second tick — phase call throws, must detect disconnect
+        await service.TickOnceAsync();
+        Assert.Contains(collector.ConnectionChanges, m => !m.IsConnected);
+
+        // Third tick — credentials found again, reconnects
+        lcuClient.ThrowOnNextPhase = false;
+        lcuClient.IsConnected = true;
+        lcuClient.Phases = new Queue<GamePhase>([GamePhase.Lobby]);
+        await service.TickOnceAsync();
+
+        Assert.Equal(2, collector.ConnectionChanges.Count(static m => m.IsConnected));
+    }
+
+    [Fact]
+    public async Task TickOnceAsync_FullGameLifecycle_FiresEventsInOrder()
+    {
+        // Covers the critical path: app start → champ select → in game → post game
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            QueueId = 420,
+            Phases = new Queue<GamePhase>([
+                GamePhase.Lobby,
+                GamePhase.ChampSelect,
+                GamePhase.InProgress,
+                GamePhase.InProgress,
+                GamePhase.EndOfGame,
+                GamePhase.Lobby,
+            ]),
+        };
+        var captureService = new FakeGameEndCaptureService
+        {
+            Result = TestGameStatsFactory.Create(5001, champion: "Jinx")
+        };
+
+        var service = CreateService(credentialDiscovery, lcuClient, messenger,
+            captureService, new FakeMatchHistoryReconciliationService());
+
+        // Tick 1 — Lobby (connect, no events yet except connection)
+        await service.TickOnceAsync();
+        Assert.Empty(collector.ChampSelectStarted);
+
+        // Tick 2 — ChampSelect entered → pre-game should fire
+        await service.TickOnceAsync();
+        Assert.Single(collector.ChampSelectStarted);
+        Assert.Equal(420, collector.ChampSelectStarted[0].QueueId);
+        Assert.Empty(collector.GameEnded);
+
+        // Tick 3 — InProgress entered → game started
+        await service.TickOnceAsync();
+        Assert.Empty(collector.GameEnded);
+
+        // Tick 4 — still InProgress → nothing new
+        await service.TickOnceAsync();
+        Assert.Empty(collector.GameEnded);
+
+        // Tick 5 — EndOfGame entered → post-game fires exactly once
+        await service.TickOnceAsync();
+        var ended = Assert.Single(collector.GameEnded);
+        Assert.Equal(5001, ended.Stats.GameId);
+        Assert.Equal("Jinx", ended.Stats.ChampionName);
+
+        // Tick 6 — back to Lobby → no second GameEnded
+        await service.TickOnceAsync();
+        Assert.Single(collector.GameEnded);
+    }
+
+    [Fact]
+    public async Task TickOnceAsync_PostGameFiresOnce_NotOnEveryPostGameTick()
+    {
+        // Post-game page must appear exactly once, not re-trigger on each poll
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            Phases = new Queue<GamePhase>([
+                GamePhase.InProgress,
+                GamePhase.WaitingForStats,
+                GamePhase.EndOfGame,
+                GamePhase.EndOfGame,
+            ]),
+        };
+        var captureService = new FakeGameEndCaptureService
+        {
+            Result = TestGameStatsFactory.Create(5002, champion: "Lux")
+        };
+
+        var service = CreateService(credentialDiscovery, lcuClient, messenger,
+            captureService, new FakeMatchHistoryReconciliationService());
+
+        await service.TickOnceAsync(); // InProgress
+        await service.TickOnceAsync(); // WaitingForStats → post-game fires
+        await service.TickOnceAsync(); // EndOfGame (still post-game) → no second fire
+        await service.TickOnceAsync(); // EndOfGame again → still no second fire
+
+        Assert.Single(collector.GameEnded);
     }
 
     private static GameMonitorService CreateService(
@@ -254,6 +384,9 @@ public sealed class GameMonitorServiceTests
 
         public int QueueId { get; set; }
 
+        /// <summary>When true, GetGameflowPhaseAsync throws to simulate a lost connection.</summary>
+        public bool ThrowOnNextPhase { get; set; }
+
         public void Configure(LcuCredentials credentials)
         {
         }
@@ -265,10 +398,11 @@ public sealed class GameMonitorServiceTests
 
         public Task<GamePhase> GetGameflowPhaseAsync(CancellationToken ct = default)
         {
+            if (ThrowOnNextPhase)
+                throw new HttpRequestException("Simulated LCU connection loss");
+
             if (Phases.Count == 0)
-            {
                 return Task.FromResult(GamePhase.None);
-            }
 
             var phase = Phases.Count > 1 ? Phases.Dequeue() : Phases.Peek();
             return Task.FromResult(phase);

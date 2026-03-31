@@ -174,6 +174,79 @@ public sealed class ReviewWorkflowServiceTests
         Assert.Null(draft);
     }
 
+    [Fact]
+    public async Task SaveAsync_PersistsMentalRatingToDb_ReviewIsReadableAfterSave()
+    {
+        // Critical: verifies the mental_rating column is written on save — the field
+        // that marks a game as reviewed and gates the post-game page transition.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 5001;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Ahri", win: true));
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
+        var result = await workflow.SaveAsync(new SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: "Ahri",
+            Win: true,
+            RequireReviewNotes: false,
+            Snapshot: EmptySnapshot with { MentalRating = 8, WentWell = "Good wave reads" }));
+
+        Assert.True(result.Success);
+
+        // Read back from DB — went_well must be persisted on the game row
+        var savedGame = await scope.Games.GetAsync(gameId);
+        Assert.NotNull(savedGame);
+        Assert.Equal("Good wave reads", savedGame!.WentWell);
+
+        // Session log entry must exist with mental_rating (drives session summary + "has review" flag)
+        var sessionEntry = await scope.SessionLog.GetEntryAsync(gameId);
+        Assert.NotNull(sessionEntry);
+        Assert.Equal(8, sessionEntry!.MentalRating);
+    }
+
+    [Fact]
+    public async Task SaveAsync_ObjectivePracticeUpdatesScoreInDb()
+    {
+        // Critical: verifies that marking an objective as practiced during review
+        // actually increments the score in the objectives table.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 5002;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Jinx", win: true));
+        var objectiveId = await scope.Objectives.CreateAsync("Improve wave management", "laning");
+
+        var initialObjective = await scope.Objectives.GetAsync(objectiveId);
+        Assert.Equal(0, initialObjective!.Score);
+        Assert.Equal(0, initialObjective.GameCount);
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
+        var result = await workflow.SaveAsync(new SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: "Jinx",
+            Win: true,
+            RequireReviewNotes: false,
+            Snapshot: EmptySnapshot with
+            {
+                MentalRating = 7,
+                ObjectivePractices = [new SaveObjectivePracticeRequest(objectiveId, true, "Crashed before roam")],
+            }));
+
+        Assert.True(result.Success);
+
+        var updatedObjective = await scope.Objectives.GetAsync(objectiveId);
+        Assert.Equal(1, updatedObjective!.GameCount);
+        Assert.True(updatedObjective.Score > 0); // practiced win = +2 pts
+
+        var gameObjectives = await scope.Objectives.GetGameObjectivesAsync(gameId);
+        var record = Assert.Single(gameObjectives);
+        Assert.Equal(objectiveId, record.ObjectiveId);
+        Assert.True(record.Practiced);
+        Assert.Equal("Crashed before roam", record.ExecutionNote);
+    }
+
     private static ReviewWorkflowService CreateWorkflow(TestDatabaseScope scope, bool requireReviewNotes)
     {
         return new ReviewWorkflowService(
