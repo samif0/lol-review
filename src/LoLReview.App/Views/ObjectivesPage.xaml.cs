@@ -64,6 +64,14 @@ public sealed partial class ObjectivesPage : Page
         }
     }
 
+    private void ViewObjectiveGames_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long objectiveId)
+        {
+            ViewModel.ViewGamesCommand.Execute(objectiveId);
+        }
+    }
+
     private async void ToggleRule_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is long ruleId)

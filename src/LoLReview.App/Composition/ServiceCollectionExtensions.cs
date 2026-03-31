@@ -75,11 +75,16 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IGameEndCaptureService, GameEndCaptureService>();
         services.AddSingleton<IMatchHistoryReconciliationService, MatchHistoryReconciliationService>();
 
-        services.AddHttpClient<ILcuClient, LcuClient>("LcuClient")
+        services.AddHttpClient("LcuClient")
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = bypassSslValidation
             });
+
+        services.AddSingleton<ILcuClient>(sp =>
+            new LcuClient(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("LcuClient"),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LcuClient>>()));
 
         services.AddHttpClient<ILiveEventApi, LiveEventApi>("LiveEventApi")
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
@@ -117,6 +122,7 @@ internal static class ServiceCollectionExtensions
         services.AddTransient<GameReviewDialogViewModel>();
         services.AddTransient<VodPlayerViewModel>();
         services.AddTransient<CoachLabViewModel>();
+        services.AddTransient<ObjectiveGamesViewModel>();
         return services;
     }
 

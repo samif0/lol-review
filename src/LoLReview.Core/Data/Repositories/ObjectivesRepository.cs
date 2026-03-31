@@ -231,6 +231,46 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         await tx.CommitAsync();
     }
 
+    public async Task<IReadOnlyList<ObjectiveGameEntry>> GetGamesForObjectiveAsync(long objectiveId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT go.game_id, go.objective_id, go.practiced, go.execution_note,
+                   g.champion_name, g.win, g.timestamp,
+                   g.kills, g.deaths, g.assists, g.kda_ratio,
+                   COALESCE(g.review_notes, '') AS review_notes,
+                   CASE WHEN g.mental_rating IS NOT NULL THEN 1 ELSE 0 END AS has_review
+            FROM game_objectives go
+            JOIN games g ON g.game_id = go.game_id
+            WHERE go.objective_id = @objectiveId
+            ORDER BY g.timestamp DESC
+            """;
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+
+        var results = new List<ObjectiveGameEntry>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(new ObjectiveGameEntry(
+                GameId: reader.GetInt64(0),
+                ObjectiveId: reader.GetInt64(1),
+                Practiced: !reader.IsDBNull(2) && reader.GetInt64(2) != 0,
+                ExecutionNote: reader.IsDBNull(3) ? "" : reader.GetString(3),
+                ChampionName: reader.IsDBNull(4) ? "" : reader.GetString(4),
+                Win: !reader.IsDBNull(5) && reader.GetInt64(5) != 0,
+                Timestamp: reader.IsDBNull(6) ? 0 : reader.GetInt64(6),
+                Kills: reader.IsDBNull(7) ? 0 : reader.GetDouble(7),
+                Deaths: reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
+                Assists: reader.IsDBNull(9) ? 0 : reader.GetDouble(9),
+                KdaRatio: reader.IsDBNull(10) ? 0 : reader.GetDouble(10),
+                ReviewNotes: reader.IsDBNull(11) ? "" : reader.GetString(11),
+                HasReview: !reader.IsDBNull(12) && reader.GetInt64(12) != 0));
+        }
+
+        return results;
+    }
+
     public async Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();

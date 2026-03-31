@@ -39,6 +39,8 @@ public interface IObjectivesRepository
 
     Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId);
 
+    Task<IReadOnlyList<ObjectiveGameEntry>> GetGamesForObjectiveAsync(long objectiveId);
+
     /// <summary>Return progression display info for a score + game count.</summary>
     static ObjectiveLevelInfo GetLevelInfo(int score, int gameCount)
     {
@@ -80,7 +82,7 @@ public interface IObjectivesRepository
             GameCount: gameCount,
             Progress: progress,
             NextThreshold: nextThreshold,
-            CanComplete: gameCount >= 30,
-            SuggestComplete: score >= 50 && gameCount >= 30);
+            CanComplete: score >= 50,
+            SuggestComplete: score >= 50);
     }
 }

@@ -35,6 +35,7 @@ public sealed class NavigationService : INavigationService
         ["pregame"] = typeof(PreGamePage),
         ["postgame"] = typeof(PostGamePage),
         ["manualentry"] = typeof(ManualEntryPage),
+        ["objectivegames"] = typeof(ObjectiveGamesPage),
     };
 
     public string? CurrentPageKey => _currentPageKey;
@@ -59,8 +60,8 @@ public sealed class NavigationService : INavigationService
             return false;
         }
 
-        // Don't navigate to the same page
-        if (_currentPageKey == pageKey && _frame.Content is not null)
+        // Don't navigate to the same page (skip for parameterized detail pages)
+        if (_currentPageKey == pageKey && parameter is null && _frame.Content is not null)
         {
             return false;
         }

@@ -85,6 +85,21 @@ public sealed record DerivedEventDefinitionRecord(
     bool IsDefault,
     long? CreatedAt);
 
+public sealed record ObjectiveGameEntry(
+    long GameId,
+    long ObjectiveId,
+    bool Practiced,
+    string ExecutionNote,
+    string ChampionName,
+    bool Win,
+    long Timestamp,
+    double Kills,
+    double Deaths,
+    double Assists,
+    double KdaRatio,
+    string ReviewNotes,
+    bool HasReview);
+
 public sealed record DerivedEventInstanceRecord(
     long Id,
     long GameId,

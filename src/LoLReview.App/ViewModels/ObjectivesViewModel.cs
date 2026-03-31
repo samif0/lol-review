@@ -68,8 +68,8 @@ public sealed class ObjectiveDisplayItem
         get
         {
             if (CanComplete) return "";
-            var remaining = Math.Max(0, 30 - GameCount);
-            return $"{remaining} more games to unlock completion";
+            var needed = Math.Max(0, 50 - Score);
+            return $"{needed} more pts to unlock completion (reach Ready level)";
         }
     }
 }
@@ -228,6 +228,12 @@ public partial class ObjectivesViewModel : ObservableObject
     private void ToggleCompleted()
     {
         ShowCompleted = !ShowCompleted;
+    }
+
+    [RelayCommand]
+    private void ViewGames(long objectiveId)
+    {
+        _navigationService.NavigateTo("objectivegames", objectiveId);
     }
 
     private void ClearForm()
