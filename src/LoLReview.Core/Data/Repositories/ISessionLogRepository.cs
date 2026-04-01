@@ -76,6 +76,8 @@ public interface ISessionLogRepository
     /// <summary>
     /// Log a game in the session log with mental rating and notes.
     /// If an entry already exists for this game_id, updates it instead.
+    /// <paramref name="ruleBroken"/> should only be true when a user-defined rule
+    /// was violated — it is never auto-detected by the repository.
     /// </summary>
     Task LogGameAsync(
         long gameId,
@@ -83,7 +85,8 @@ public interface ISessionLogRepository
         bool win,
         int mentalRating = 5,
         string improvementNote = "",
-        int preGameMood = 0
+        int preGameMood = 0,
+        bool ruleBroken = false
     );
 
     /// <summary>Update the mental rating for a specific game.</summary>

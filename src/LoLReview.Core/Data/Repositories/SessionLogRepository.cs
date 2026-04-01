@@ -1,7 +1,6 @@
 #nullable enable
 
 using Microsoft.Data.Sqlite;
-using LoLReview.Core.Constants;
 using LoLReview.Core.Models;
 
 namespace LoLReview.Core.Data.Repositories;
@@ -82,36 +81,6 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return list;
     }
 
-    // ── Rule-break check (private) ───────────────────────────────────────
-
-    /// <summary>
-    /// Check if playing this game breaks the 2-loss stop rule.
-    /// Only counts real losses — excludes remakes (games under 5 min).
-    /// </summary>
-    private async Task<bool> CheckRuleBreakAsync(SqliteConnection conn, string today)
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = $@"
-            SELECT sl.win FROM session_log sl
-            JOIN games g ON sl.game_id = g.game_id
-            WHERE sl.date = @today
-            AND g.game_duration >= {GameConstants.SessionMinGameDurationS}
-            ORDER BY sl.id DESC LIMIT {GameConstants.ConsecutiveLossWarning}";
-        cmd.Parameters.AddWithValue("@today", today);
-
-        var results = new List<int>();
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            results.Add(reader.IsDBNull(0) ? 0 : reader.GetInt32(0));
-        }
-
-        if (results.Count < GameConstants.ConsecutiveLossWarning)
-            return false;
-
-        return results.Take(GameConstants.ConsecutiveLossWarning).All(w => w == 0);
-    }
-
     // ── Write operations ─────────────────────────────────────────────────
 
     public async Task LogGameAsync(
@@ -120,7 +89,8 @@ public sealed class SessionLogRepository : ISessionLogRepository
         bool win,
         int mentalRating = 5,
         string improvementNote = "",
-        int preGameMood = 0)
+        int preGameMood = 0,
+        bool ruleBroken = false)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -160,8 +130,6 @@ public sealed class SessionLogRepository : ISessionLogRepository
                 return;
             }
         }
-
-        var ruleBroken = await CheckRuleBreakAsync(conn, sessionDate);
 
         using var insertCmd = conn.CreateCommand();
         insertCmd.CommandText = @"

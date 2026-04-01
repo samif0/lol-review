@@ -16,6 +16,7 @@ public sealed class GameService : IGameService
 {
     private readonly IGameRepository _games;
     private readonly ISessionLogRepository _sessionLog;
+    private readonly IRulesRepository _rules;
     private readonly IGameEventsRepository _gameEvents;
     private readonly IDerivedEventsRepository _derivedEvents;
     private readonly IVodService _vodService;
@@ -25,6 +26,7 @@ public sealed class GameService : IGameService
     public GameService(
         IGameRepository games,
         ISessionLogRepository sessionLog,
+        IRulesRepository rules,
         IGameEventsRepository gameEvents,
         IDerivedEventsRepository derivedEvents,
         IVodService vodService,
@@ -33,6 +35,7 @@ public sealed class GameService : IGameService
     {
         _games = games;
         _sessionLog = sessionLog;
+        _rules = rules;
         _gameEvents = gameEvents;
         _derivedEvents = derivedEvents;
         _vodService = vodService;
@@ -87,13 +90,30 @@ public sealed class GameService : IGameService
         // 3. Save game via IGameRepository
         await _games.SaveAsync(stats).ConfigureAwait(false);
 
-        // 4. Log session via ISessionLogRepository
+        // 4. Check user-defined rule violations, then log the session
+        var ruleBroken = false;
+        try
+        {
+            var todaysGames = await _sessionLog.GetTodayAsync().ConfigureAwait(false);
+            var gameChecks = todaysGames
+                .Select(e => new RuleCheckGame(e.GameId ?? 0, e.Win, e.ChampionName, e.Timestamp))
+                .ToList();
+            var violations = await _rules.CheckViolationsAsync(gameChecks, request.MentalRating)
+                .ConfigureAwait(false);
+            ruleBroken = violations.Any(v => v.Violated);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Rule violation check failed for game {GameId} — defaulting to no violation", stats.GameId);
+        }
+
         await _sessionLog.LogGameAsync(
             stats.GameId,
             stats.ChampionName,
             stats.Win,
             request.MentalRating,
-            preGameMood: request.PreGameMood).ConfigureAwait(false);
+            preGameMood: request.PreGameMood,
+            ruleBroken: ruleBroken).ConfigureAwait(false);
 
         // 5. Save live events via IGameEventsRepository
         if (stats.LiveEvents is { Count: > 0 })
