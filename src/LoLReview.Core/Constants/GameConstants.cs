@@ -32,10 +32,10 @@ public static class GameConstants
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// SQL fragment for excluding casual modes in queries.
+    /// SQL fragment for excluding casual modes and hidden games in queries.
     /// </summary>
     public static readonly string CasualModeSqlFilter =
-        "AND game_mode NOT IN ("
+        "AND COALESCE(is_hidden, 0) = 0 AND game_mode NOT IN ("
         + string.Join(",", CasualModes.Order().Select(m => $"'{m}'"))
         + ")";
 

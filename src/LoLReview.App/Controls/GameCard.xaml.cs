@@ -27,6 +27,7 @@ public sealed partial class GameCard : UserControl
     // ── Events ──────────────────────────────────────────────────────
 
     public event EventHandler<long>? ReviewRequested;
+    public event EventHandler<long>? HideRequested;
 
     // ── Dependency Properties ───────────────────────────────────────
 
@@ -238,6 +239,11 @@ public sealed partial class GameCard : UserControl
     private void OnReviewClick(object sender, RoutedEventArgs e)
     {
         ReviewRequested?.Invoke(this, GameId);
+    }
+
+    private void OnHideClick(object sender, RoutedEventArgs e)
+    {
+        HideRequested?.Invoke(this, GameId);
     }
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)

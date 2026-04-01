@@ -1,5 +1,6 @@
 <Page
     x:Class="LoLReview.App.Views.RulesPage"
+    x:Name="RulesPageRoot"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -159,16 +160,72 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Empty State -->
-                <Border Style="{StaticResource CardStyle}"
-                        Visibility="{x:Bind ViewModel.HasRules, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
-                    <TextBlock Text="No rules yet.&#x0a;&#x0a;Set rules to keep yourself accountable.&#x0a;e.g., &quot;Don't play on Sunday&quot;, &quot;Stop after 2 losses&quot;"
-                               FontSize="14"
+                <!-- Empty State: suggested starter rules -->
+                <StackPanel Spacing="8"
+                            Visibility="{x:Bind ViewModel.HasRules, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+
+                    <TextBlock Text="NO RULES YET"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <TextBlock Text="Add a rule to start tracking your adherence streak. Here are some common starting points:"
+                               FontSize="13"
                                Foreground="{StaticResource SecondaryTextBrush}"
-                               HorizontalAlignment="Center"
-                               TextAlignment="Center"
-                               Margin="20,30"/>
-                </Border>
+                               TextWrapping="Wrap"/>
+
+                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.SuggestedRules}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="8"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SuggestedRule">
+                                <Border Background="{StaticResource CardBackgroundBrush}"
+                                        CornerRadius="10"
+                                        Padding="16,12"
+                                        BorderThickness="1"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                        Opacity="0.85">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="4">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Border Background="#1e3a5f"
+                                                        CornerRadius="4" Padding="6,2">
+                                                    <TextBlock Text="{x:Bind BadgeText}"
+                                                               FontSize="9" FontWeight="Bold"
+                                                               Foreground="#60a0ff"/>
+                                                </Border>
+                                                <TextBlock Text="{x:Bind Name}"
+                                                           FontSize="14" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{x:Bind Description}"
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock Text="{x:Bind ConditionText}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource MutedTextBrush}"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1"
+                                                Content="+ Add"
+                                                FontSize="12" Height="30"
+                                                Padding="14,0" CornerRadius="6"
+                                                Background="{StaticResource AccentBlueBrush}"
+                                                Foreground="White"
+                                                BorderThickness="0"
+                                                VerticalAlignment="Center"
+                                                Command="{Binding ElementName=RulesPageRoot, Path=ViewModel.AddSuggestedRuleCommand}"
+                                                CommandParameter="{x:Bind}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </StackPanel>
 
                 <!-- Active Rules Section Header -->
                 <TextBlock Text="ACTIVE"

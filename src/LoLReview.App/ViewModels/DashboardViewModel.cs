@@ -247,6 +247,16 @@ public partial class DashboardViewModel : ObservableObject
         _navigationService.NavigateTo("review", gameId);
     }
 
+    [RelayCommand]
+    private async Task HideGameAsync(long gameId)
+    {
+        await _gameRepo.SetHiddenAsync(gameId, hidden: true);
+        var unreviewedItem = UnreviewedGames.FirstOrDefault(g => g.GameId == gameId);
+        if (unreviewedItem is not null) UnreviewedGames.Remove(unreviewedItem);
+        var todayItem = TodaysGames.FirstOrDefault(g => g.GameId == gameId);
+        if (todayItem is not null) TodaysGames.Remove(todayItem);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static GameDisplayItem MapGameDisplay(GameStats game)

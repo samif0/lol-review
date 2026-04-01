@@ -75,6 +75,17 @@ public sealed class ViolationBannerItem
     public string Reason { get; init; } = "";
 }
 
+/// <summary>A pre-built rule suggestion shown in the empty state.</summary>
+public sealed class SuggestedRule
+{
+    public string Name { get; init; } = "";
+    public string Description { get; init; } = "";
+    public string RuleType { get; init; } = "custom";
+    public string ConditionValue { get; init; } = "";
+    public string BadgeText { get; init; } = "";
+    public string ConditionText { get; init; } = "";
+}
+
 /// <summary>ViewModel for the Rules page.</summary>
 public partial class RulesViewModel : ObservableObject
 {
@@ -128,6 +139,46 @@ public partial class RulesViewModel : ObservableObject
     public ObservableCollection<RuleDisplayItem> ActiveRules { get; } = new();
     public ObservableCollection<RuleDisplayItem> InactiveRules { get; } = new();
     public ObservableCollection<ViolationBannerItem> Violations { get; } = new();
+
+    public IReadOnlyList<SuggestedRule> SuggestedRules { get; } =
+    [
+        new SuggestedRule
+        {
+            Name = "Stop after 2 losses",
+            Description = "Tilt compounds quickly — two losses in a row is a good signal to take a break.",
+            RuleType = "loss_streak",
+            ConditionValue = "2",
+            BadgeText = "LOSS STREAK",
+            ConditionText = "Stop after 2 consecutive losses",
+        },
+        new SuggestedRule
+        {
+            Name = "Max 5 games per day",
+            Description = "Marathon sessions rarely improve your play. Keep it focused.",
+            RuleType = "max_games",
+            ConditionValue = "5",
+            BadgeText = "MAX GAMES/DAY",
+            ConditionText = "Max 5 games per day",
+        },
+        new SuggestedRule
+        {
+            Name = "No ranked after midnight",
+            Description = "Late-night games hurt decision-making and sleep quality.",
+            RuleType = "no_play_after",
+            ConditionValue = "0",
+            BadgeText = "NO PLAY AFTER",
+            ConditionText = "No play after 12:00 AM",
+        },
+        new SuggestedRule
+        {
+            Name = "Don't queue below mental 4",
+            Description = "Playing on tilt is the fastest way to lose LP and reinforce bad habits.",
+            RuleType = "min_mental",
+            ConditionValue = "4",
+            BadgeText = "MINIMUM MENTAL",
+            ConditionText = "Don't queue below mental 4",
+        },
+    ];
 
     /// <summary>Rule type options for the ComboBox.</summary>
     public List<string> RuleTypeOptions { get; } =
@@ -257,6 +308,17 @@ public partial class RulesViewModel : ObservableObject
     private async Task ToggleRuleAsync(long ruleId)
     {
         await _rulesRepo.ToggleAsync(ruleId);
+        await RefreshDataAsync();
+    }
+
+    [RelayCommand]
+    private async Task AddSuggestedRuleAsync(SuggestedRule suggestion)
+    {
+        await _rulesRepo.CreateAsync(
+            suggestion.Name,
+            suggestion.Description,
+            suggestion.RuleType,
+            suggestion.ConditionValue);
         await RefreshDataAsync();
     }
 

@@ -161,6 +161,9 @@ public interface IGameRepository
     /// <summary>Update the enemy_laner field for a game.</summary>
     Task UpdateEnemyLanerAsync(long gameId, string enemyLaner);
 
+    /// <summary>Soft-delete (or restore) a game. Hidden games are excluded from all views.</summary>
+    Task SetHiddenAsync(long gameId, bool hidden);
+
     /// <summary>Get a single game by game_id, or null if not found.</summary>
     Task<GameStats?> GetAsync(long gameId);
 

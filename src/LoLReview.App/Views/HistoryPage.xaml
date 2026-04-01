@@ -162,6 +162,17 @@
                                                                 Foreground="{StaticResource PrimaryTextBrush}"
                                                                 Tag="{x:Bind GameId}"
                                                                 Click="ReviewButton_Click"/>
+                                                        <Button Content="&#xE74D;"
+                                                                FontFamily="Segoe MDL2 Assets"
+                                                                FontSize="11" Height="26" Width="26"
+                                                                Padding="0" CornerRadius="6"
+                                                                Background="Transparent"
+                                                                Foreground="{StaticResource SecondaryTextBrush}"
+                                                                BorderThickness="1"
+                                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                                Tag="{x:Bind GameId}"
+                                                                ToolTipService.ToolTip="Hide this game"
+                                                                Click="HideGameButton_Click"/>
                                                     </StackPanel>
                                                 </StackPanel>
                                             </Grid>

@@ -48,6 +48,14 @@ public sealed partial class DashboardPage : Page
         }
     }
 
+    private void HideGameButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long gameId)
+        {
+            ViewModel.HideGameCommand.Execute(gameId);
+        }
+    }
+
     private void ReviewInboxButton_Click(object sender, RoutedEventArgs e)
     {
         App.GetService<INavigationService>().NavigateTo("session");

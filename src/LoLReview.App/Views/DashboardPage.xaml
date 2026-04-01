@@ -284,6 +284,17 @@
                                                         Foreground="{StaticResource PrimaryTextBrush}"
                                                         Tag="{x:Bind GameId}"
                                                         Click="ReviewButton_Click"/>
+                                                <Button Content="&#xE74D;"
+                                                        FontFamily="Segoe MDL2 Assets"
+                                                        FontSize="10" Height="24" Width="24"
+                                                        Padding="0" CornerRadius="5"
+                                                        Background="Transparent"
+                                                        Foreground="{StaticResource SecondaryTextBrush}"
+                                                        BorderThickness="1"
+                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                        Tag="{x:Bind GameId}"
+                                                        ToolTipService.ToolTip="Hide this game"
+                                                        Click="HideGameButton_Click"/>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
@@ -352,16 +363,28 @@
                                                 </TextBlock>
                                             </StackPanel>
 
-                                            <!-- Review button -->
-                                            <Button Grid.Column="2"
-                                                    Content="Review"
-                                                    FontSize="11" Height="28"
-                                                    Padding="14,0" CornerRadius="6"
-                                                    Background="{StaticResource AccentBlueBrush}"
-                                                    Foreground="{StaticResource PrimaryTextBrush}"
-                                                    VerticalAlignment="Center"
-                                                    Tag="{x:Bind GameId}"
-                                                    Click="ReviewButton_Click"/>
+                                            <!-- Review + Hide buttons -->
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                                        Spacing="6" VerticalAlignment="Center">
+                                                <Button Content="Review"
+                                                        FontSize="11" Height="28"
+                                                        Padding="14,0" CornerRadius="6"
+                                                        Background="{StaticResource AccentBlueBrush}"
+                                                        Foreground="{StaticResource PrimaryTextBrush}"
+                                                        Tag="{x:Bind GameId}"
+                                                        Click="ReviewButton_Click"/>
+                                                <Button Content="&#xE74D;"
+                                                        FontFamily="Segoe MDL2 Assets"
+                                                        FontSize="11" Height="28" Width="28"
+                                                        Padding="0" CornerRadius="6"
+                                                        Background="Transparent"
+                                                        Foreground="{StaticResource SecondaryTextBrush}"
+                                                        BorderThickness="1"
+                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                        Tag="{x:Bind GameId}"
+                                                        ToolTipService.ToolTip="Hide this game"
+                                                        Click="HideGameButton_Click"/>
+                                            </StackPanel>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

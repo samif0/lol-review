@@ -189,6 +189,16 @@ public partial class HistoryViewModel : ObservableObject
         _navigationService.NavigateTo("vodplayer", gameId);
     }
 
+    [RelayCommand]
+    private async Task HideGameAsync(long gameId)
+    {
+        await _gameRepo.SetHiddenAsync(gameId, hidden: true);
+        // Remove from current list immediately without a full reload
+        var item = Games.FirstOrDefault(g => g.GameId == gameId);
+        if (item is not null)
+            Games.Remove(item);
+    }
+
     // ── Private load methods ────────────────────────────────────────
 
     private async Task LoadGamesPageAsync()

@@ -547,6 +547,12 @@ public static class Schema
         "ALTER TABLE games ADD COLUMN personal_contribution TEXT DEFAULT ''",
     ];
 
+    /// <summary>Soft-delete: hidden games are excluded from all queries.</summary>
+    public static readonly string[] MigrateGamesHidden =
+    [
+        "ALTER TABLE games ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0",
+    ];
+
     /// <summary>Pre-game mood / affect labeling (Lieberman et al. 2007).</summary>
     public static readonly string[] MigrateSessionLogMood =
     [
@@ -626,6 +632,7 @@ public static class Schema
         .. MigrateObjectivesPriority,
         .. MigrateCoachLabelsAttachment,
         .. MigrateCoachInferencesAttachment,
+        .. MigrateGamesHidden,
     ];
 
     // ── Default seed data ────────────────────────────────────────────

@@ -87,9 +87,9 @@
                            Foreground="{StaticResource SecondaryTextBrush}"/>
             </StackPanel>
 
-            <!-- Review button / indicator -->
+            <!-- Review + Hide buttons -->
             <StackPanel Grid.Column="4" VerticalAlignment="Center"
-                        Margin="8,0,12,0">
+                        Margin="8,0,12,0" Orientation="Horizontal" Spacing="6">
                 <Button x:Name="ReviewButton"
                         Content="Review"
                         Click="OnReviewClick"
@@ -97,6 +97,17 @@
                         Padding="14,0" CornerRadius="6"
                         Background="{StaticResource AccentBlueBrush}"
                         Foreground="{StaticResource PrimaryTextBrush}"/>
+                <Button x:Name="HideButton"
+                        Content="&#xE74D;"
+                        FontFamily="Segoe MDL2 Assets"
+                        Click="OnHideClick"
+                        FontSize="11" Height="28" Width="28"
+                        Padding="0" CornerRadius="6"
+                        Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="1"
+                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                        ToolTipService.ToolTip="Hide this game"/>
             </StackPanel>
         </Grid>
     </Border>

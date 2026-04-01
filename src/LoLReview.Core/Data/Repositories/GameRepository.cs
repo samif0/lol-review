@@ -106,6 +106,7 @@ public sealed class GameRepository : IGameRepository
             WithinControl = GetStringOrDefault(reader, "within_control"),
             Attribution = GetStringOrDefault(reader, "attribution"),
             PersonalContribution = GetStringOrDefault(reader, "personal_contribution"),
+            IsHidden = GetIntOrDefault(reader, "is_hidden") != 0,
         };
 
         // items — JSON array of ints
@@ -461,6 +462,18 @@ public sealed class GameRepository : IGameRepository
         cmd.CommandText = "UPDATE games SET enemy_laner = @enemy_laner WHERE game_id = @game_id";
         cmd.Parameters.AddWithValue("@enemy_laner", enemyLaner);
         cmd.Parameters.AddWithValue("@game_id", gameId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task SetHiddenAsync(long gameId, bool hidden)
+    {
+        using var conn = _factory.CreateConnection();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE games SET is_hidden = @hidden WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@hidden", hidden ? 1 : 0);
+        cmd.Parameters.AddWithValue("@gameId", gameId);
 
         await cmd.ExecuteNonQueryAsync();
     }

@@ -124,6 +124,11 @@ public class GameStats
     public string Attribution { get; set; } = "";
     public string PersonalContribution { get; set; } = "";
 
+    // ── Visibility ───────────────────────────────────────────────────
+
+    /// <summary>When true the game is soft-deleted and hidden from all views.</summary>
+    public bool IsHidden { get; set; }
+
     // ── Raw JSON for anything we might have missed ───────────────────
 
     public Dictionary<string, object> RawStats { get; set; } = [];
