@@ -45,12 +45,16 @@ public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliat
 
         if (matches.Count == 0)
         {
+            CoreDiagnostics.WriteVerbose("LCU: Reconciliation match history returned 0 matches");
             return [];
         }
+
+        CoreDiagnostics.WriteVerbose($"LCU: Reconciliation match history returned {matches.Count} matches");
 
         var dismissedIds = await _missedGameDecisionRepository.GetDismissedGameIdsAsync(
             matches.Select(static game => game.GetPropertyLongOrDefault("gameId", 0)))
             .ConfigureAwait(false);
+        CoreDiagnostics.WriteVerbose($"LCU: Reconciliation dismissed ids count={dismissedIds.Count}");
 
         var summonerName = await TryGetCurrentSummonerNameAsync(cancellationToken).ConfigureAwait(false);
         var candidates = new List<MissedGameCandidate>();
@@ -60,6 +64,7 @@ public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliat
             var gameId = game.GetPropertyLongOrDefault("gameId", 0);
             if (gameId <= 0 || dismissedIds.Contains(gameId))
             {
+                CoreDiagnostics.WriteVerbose($"LCU: Reconciliation skipping gameId={gameId} reason={(gameId <= 0 ? "invalid" : "dismissed")}");
                 continue;
             }
 
@@ -69,12 +74,14 @@ public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliat
 
             if (alreadySaved)
             {
+                CoreDiagnostics.WriteVerbose($"LCU: Reconciliation skipping gameId={gameId} reason=saved");
                 continue;
             }
 
             var stats = StatsExtractor.ExtractFromMatchHistory(game, _logger);
             if (stats is null)
             {
+                CoreDiagnostics.WriteVerbose($"LCU: Reconciliation skipping gameId={gameId} reason=stats-null");
                 continue;
             }
 
@@ -100,6 +107,7 @@ public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliat
                 gameId,
                 stats.ChampionName,
                 stats.Win ? "W" : "L");
+            CoreDiagnostics.WriteVerbose($"LCU: Reconciliation candidate gameId={gameId} champion={stats.ChampionName} win={stats.Win}");
 
             candidates.Add(new MissedGameCandidate(gameId, stats.Timestamp, stats));
         }

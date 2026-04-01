@@ -16,7 +16,9 @@ internal sealed class GameMonitorTransitionEvaluator
     public GameMonitorTransitionPlan Evaluate(GameMonitorRuntimeState state, GamePhase phase)
     {
         var reconcileOnStartup = state.StartupReconcilePending
-            && state.LastPhase == GamePhase.None
+            && !state.ReconcilePending
+            && !IsPostGamePhase(state.LastPhase)
+            && state.ConnectedTicks >= 2
             && IsIdlePhase(phase);
 
         var notifyChampSelectStarted =
@@ -38,9 +40,15 @@ internal sealed class GameMonitorTransitionEvaluator
             && !IsPostGamePhase(state.LastPhase);
 
         var reconcileMatchHistory =
-            state.LastPhase is GamePhase.EndOfGame or GamePhase.PreEndOfGame or GamePhase.InProgress or GamePhase.GameStart or GamePhase.WaitingForStats
-            && IsIdlePhase(phase)
-            && (state.ReconcilePending || state.LastPhase == GamePhase.InProgress);
+            IsIdlePhase(phase)
+            && !handleGameEnded  // don't reconcile on the same tick we just triggered EOG capture
+            && (
+                // Transition from a game-related phase → idle (first time after game ends)
+                state.LastPhase is GamePhase.EndOfGame or GamePhase.PreEndOfGame
+                    or GamePhase.InProgress or GamePhase.GameStart or GamePhase.WaitingForStats
+                // OR match history not yet available — keep retrying until monitor clears the flag
+                || state.ReconcilePending
+            );
 
         return new GameMonitorTransitionPlan(
             ReconcileOnStartup: reconcileOnStartup,

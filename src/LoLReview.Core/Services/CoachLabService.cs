@@ -258,18 +258,9 @@ public sealed class CoachLabService : ICoachLabService
         using var connection = _connectionFactory.CreateConnection();
         var bootstrap = await EnsureBootstrapStateAsync(connection, cancellationToken);
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var momentContext = await LoadMomentContextForLabelAsync(connection, momentId, cancellationToken);
         var attachedObjectiveTitle = await LookupObjectiveTitleAsync(connection, input.AttachedObjectiveId, cancellationToken);
-        var inferredPrimaryReason = await InferPrimaryReasonAsync(momentContext, attachedObjectiveTitle, input, cancellationToken);
-        var inferredObjectiveKey = !string.IsNullOrWhiteSpace(input.ObjectiveKey)
-            ? input.ObjectiveKey.Trim()
-            : CoachObjectiveCatalog.Find(inferredPrimaryReason)?.Key
-                ?? CoachDraftHeuristics.InferObjectiveKey(
-                    attachedObjectiveTitle,
-                    momentContext.ActiveObjectiveTitle,
-                    momentContext.NoteText,
-                    momentContext.ContextText,
-                    input.Explanation);
+        var manualPrimaryReason = input.PrimaryReason.Trim();
+        var manualObjectiveKey = CoachObjectiveCatalog.NormalizeKey(input.ObjectiveKey);
 
         using var tx = connection.BeginTransaction();
 
@@ -293,8 +284,8 @@ public sealed class CoachLabService : ICoachLabService
             insertCmd.Parameters.AddWithValue("@momentId", momentId);
             insertCmd.Parameters.AddWithValue("@playerId", bootstrap.Player.Id);
             insertCmd.Parameters.AddWithValue("@labelQuality", input.LabelQuality.Trim().ToLowerInvariant());
-            insertCmd.Parameters.AddWithValue("@primaryReason", inferredPrimaryReason);
-            insertCmd.Parameters.AddWithValue("@objectiveKey", inferredObjectiveKey);
+            insertCmd.Parameters.AddWithValue("@primaryReason", manualPrimaryReason);
+            insertCmd.Parameters.AddWithValue("@objectiveKey", manualObjectiveKey);
             insertCmd.Parameters.AddWithValue("@attachedObjectiveId", input.AttachedObjectiveId.HasValue ? input.AttachedObjectiveId.Value : DBNull.Value);
             insertCmd.Parameters.AddWithValue("@attachedObjectiveTitle", attachedObjectiveTitle);
             insertCmd.Parameters.AddWithValue("@explanation", input.Explanation.Trim());
@@ -1609,101 +1600,6 @@ public sealed class CoachLabService : ICoachLabService
         return $"Emerging theme: {title}. {recommendation.Summary}";
     }
 
-    private async Task<MomentLabelContext> LoadMomentContextForLabelAsync(
-        SqliteConnection connection,
-        long momentId,
-        CancellationToken cancellationToken)
-    {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT
-                COALESCE(m.note_text, ''),
-                COALESCE(m.context_text, ''),
-                COALESCE(m.champion, ''),
-                COALESCE(m.role, ''),
-                COALESCE(m.source_type, 'manual_clip'),
-                COALESCE(m.game_time_s, 0),
-                COALESCE(m.storyboard_path, ''),
-                COALESCE(m.minimap_strip_path, ''),
-                COALESCE(b.objective_title, '')
-            FROM coach_moments m
-            LEFT JOIN coach_objective_blocks b ON b.id = m.objective_block_id
-            WHERE m.id = @momentId
-            LIMIT 1
-            """;
-        cmd.Parameters.AddWithValue("@momentId", momentId);
-
-        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return new MomentLabelContext();
-        }
-
-        return new MomentLabelContext
-        {
-            NoteText = reader.IsDBNull(0) ? "" : reader.GetString(0),
-            ContextText = reader.IsDBNull(1) ? "" : reader.GetString(1),
-            Champion = reader.IsDBNull(2) ? "" : reader.GetString(2),
-            Role = reader.IsDBNull(3) ? "" : reader.GetString(3),
-            SourceType = reader.IsDBNull(4) ? "manual_clip" : reader.GetString(4),
-            GameTimeS = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
-            StoryboardPath = reader.IsDBNull(6) ? "" : reader.GetString(6),
-            MinimapStripPath = reader.IsDBNull(7) ? "" : reader.GetString(7),
-            ActiveObjectiveTitle = reader.IsDBNull(8) ? "" : reader.GetString(8),
-        };
-    }
-
-    private async Task<string> InferPrimaryReasonAsync(
-        MomentLabelContext context,
-        string attachedObjectiveTitle,
-        CoachManualLabelInput input,
-        CancellationToken cancellationToken)
-    {
-        if (!string.IsNullOrWhiteSpace(input.PrimaryReason))
-        {
-            return input.PrimaryReason.Trim();
-        }
-
-        var draft = await _sidecarClient.DraftMomentAsync(new CoachDraftRequest
-        {
-            NoteText = string.Join(Environment.NewLine, new[]
-            {
-                context.NoteText,
-                input.Explanation
-            }.Where(value => !string.IsNullOrWhiteSpace(value))),
-            ReviewContext = string.Join(Environment.NewLine, new[]
-            {
-                context.ContextText,
-                attachedObjectiveTitle
-            }.Where(value => !string.IsNullOrWhiteSpace(value))),
-            ActiveObjectiveTitle = !string.IsNullOrWhiteSpace(attachedObjectiveTitle)
-                ? attachedObjectiveTitle
-                : context.ActiveObjectiveTitle,
-            Champion = context.Champion,
-            Role = context.Role,
-            SourceType = context.SourceType,
-            GameTimeS = context.GameTimeS,
-            StoryboardPath = context.StoryboardPath,
-            MinimapStripPath = context.MinimapStripPath,
-        }, cancellationToken);
-
-        if (!string.IsNullOrWhiteSpace(draft.PrimaryReason))
-        {
-            return draft.PrimaryReason.Trim();
-        }
-
-        var fallback = CoachDraftHeuristics.InferObjectiveKey(
-            context.NoteText,
-            context.ContextText,
-            input.Explanation,
-            attachedObjectiveTitle,
-            context.ActiveObjectiveTitle);
-
-        return string.IsNullOrWhiteSpace(fallback)
-            ? (context.SourceType == "manual_clip" ? "manual_clip_review" : "lane_checkpoint")
-            : fallback;
-    }
-
     private static string HumanizeKey(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1741,16 +1637,4 @@ public sealed class CoachLabService : ICoachLabService
         public string ManifestPath { get; set; } = "";
     }
 
-    private sealed class MomentLabelContext
-    {
-        public string NoteText { get; set; } = "";
-        public string ContextText { get; set; } = "";
-        public string Champion { get; set; } = "";
-        public string Role { get; set; } = "";
-        public string SourceType { get; set; } = "manual_clip";
-        public int GameTimeS { get; set; }
-        public string StoryboardPath { get; set; } = "";
-        public string MinimapStripPath { get; set; } = "";
-        public string ActiveObjectiveTitle { get; set; } = "";
-    }
 }

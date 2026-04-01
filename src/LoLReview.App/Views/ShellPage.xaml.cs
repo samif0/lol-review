@@ -2,6 +2,7 @@
 
 using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.App.Contracts;
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using LoLReview.Core.Lcu;
 using LoLReview.Core.Models;
@@ -20,6 +21,7 @@ public sealed partial class ShellPage : Page
     private readonly INavigationService _navigationService;
     private readonly ILcuClient _lcuClient;
     private Button? _activeNavButton;
+    private bool _startupInitialized;
 
     private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(255, 0, 153, 255)); // #0099ff
     private static readonly SolidColorBrush ActiveFg = new(Colors.White);
@@ -46,13 +48,28 @@ public sealed partial class ShellPage : Page
         WeakReferenceMessenger.Default.Register<LcuConnectionChangedMessage>(this, OnConnectionChanged);
 
         // Initialize DialogService with XamlRoot once the page is loaded
-        Loaded += (_, _) =>
+        Loaded += OnLoaded;
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_startupInitialized)
         {
-            var dialogService = App.GetService<IDialogService>();
-            dialogService.Initialize(XamlRoot);
-            _ = ViewModel.InitializeAsync();
-            _ = RefreshCoachLabVisibilityAsync();
-        };
+            return;
+        }
+
+        _startupInitialized = true;
+        AppDiagnostics.WriteVerbose("startup.log", "ShellPage.Loaded start");
+
+        var dialogService = App.GetService<IDialogService>();
+        dialogService.Initialize(XamlRoot);
+        AppDiagnostics.WriteVerbose("startup.log", "ShellPage.Loaded dialog service initialized");
+
+        await ViewModel.InitializeAsync();
+        AppDiagnostics.WriteVerbose("startup.log", "ShellPage.Loaded view model initialized");
+
+        await RefreshCoachLabVisibilityAsync();
+        AppDiagnostics.WriteVerbose("startup.log", "ShellPage.Loaded coach lab visibility refreshed");
     }
 
     private void OnNavClick(object sender, RoutedEventArgs e)

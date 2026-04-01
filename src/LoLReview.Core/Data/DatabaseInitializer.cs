@@ -63,6 +63,7 @@ public sealed class DatabaseInitializer
         await NormalizeObjectivesTableAsync(connection, cancellationToken);
         await BackfillObjectiveScoreFromLegacyGameObjectivesAsync(connection, cancellationToken);
         await NormalizeGameObjectivesTableAsync(connection, cancellationToken);
+        await RequeueLegacyCoachManualLabelsAsync(connection, cancellationToken);
 
         // 3. Seed default concept tags if the table is empty
         await SeedConceptTagsAsync(connection, cancellationToken);
@@ -405,6 +406,76 @@ public sealed class DatabaseInitializer
         await tx.CommitAsync(ct);
 
         _logger.LogInformation("Normalized legacy game_objectives table to current schema");
+    }
+
+    private async Task RequeueLegacyCoachManualLabelsAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        var labelColumns = await GetTableColumnsAsync(connection, "coach_labels", ct);
+        var momentColumns = await GetTableColumnsAsync(connection, "coach_moments", ct);
+        if (labelColumns.Count == 0 || momentColumns.Count == 0 || !momentColumns.Contains("reviewed_at"))
+        {
+            return;
+        }
+
+        var contaminationChecks = new List<string>();
+        if (labelColumns.Contains("primary_reason"))
+        {
+            contaminationChecks.Add("COALESCE(TRIM(primary_reason), '') <> ''");
+        }
+
+        if (labelColumns.Contains("objective_key"))
+        {
+            contaminationChecks.Add("COALESCE(TRIM(objective_key), '') <> ''");
+        }
+
+        if (contaminationChecks.Count == 0)
+        {
+            return;
+        }
+
+        var sourceFilter = labelColumns.Contains("source")
+            ? "AND COALESCE(source, 'manual') = 'manual'"
+            : "";
+        var contaminationFilter = string.Join(" OR ", contaminationChecks);
+        var whereClause = $"({contaminationFilter}) {sourceFilter}";
+
+        using var countCmd = connection.CreateCommand();
+        countCmd.CommandText = $"SELECT COUNT(*) FROM coach_labels WHERE {whereClause}";
+        var requeuedCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync(ct) ?? 0);
+        if (requeuedCount == 0)
+        {
+            return;
+        }
+
+        using var tx = connection.BeginTransaction();
+
+        using (var resetReviewCmd = connection.CreateCommand())
+        {
+            resetReviewCmd.Transaction = tx;
+            resetReviewCmd.CommandText = $"""
+                UPDATE coach_moments
+                SET reviewed_at = NULL
+                WHERE id IN (
+                    SELECT moment_id
+                    FROM coach_labels
+                    WHERE {whereClause}
+                )
+                """;
+            await resetReviewCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using (var deleteCmd = connection.CreateCommand())
+        {
+            deleteCmd.Transaction = tx;
+            deleteCmd.CommandText = $"DELETE FROM coach_labels WHERE {whereClause}";
+            await deleteCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+
+        _logger.LogInformation(
+            "Requeued {Count} coach moment(s) after removing inferred manual label fields",
+            requeuedCount);
     }
 
     private static async Task<HashSet<string>> GetTableColumnsAsync(

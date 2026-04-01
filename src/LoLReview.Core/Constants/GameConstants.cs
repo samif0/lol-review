@@ -21,6 +21,17 @@ public static class GameConstants
     }.ToFrozenSet();
 
     /// <summary>
+    /// Queue type labels (from StatsExtractor.GetQueueLabel) that are non-ranked and should
+    /// be skipped by the review flow. Ranked Solo/Flex are the only reviewable queues.
+    /// </summary>
+    public static readonly FrozenSet<string> CasualQueueTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "Normal Draft",
+        "Normal Blind",
+        "Quickplay",
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// SQL fragment for excluding casual modes in queries.
     /// </summary>
     public static readonly string CasualModeSqlFilter =
@@ -40,7 +51,10 @@ public static class GameConstants
     public const int MonitorStopTimeoutS = 5;
 
     /// <summary>Retries for fetching end-of-game stats.</summary>
-    public const int EogStatsRetryAttempts = 5;
+    public const int EogStatsRetryAttempts = 12;
+
+    /// <summary>Delay between end-of-game stats retries (seconds).</summary>
+    public const int EogStatsRetryDelayS = 2;
 
     /// <summary>UI auto-refresh interval (session page, overlay) in milliseconds.</summary>
     public const int AutoRefreshIntervalMs = 30_000;

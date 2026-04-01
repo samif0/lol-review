@@ -3,6 +3,7 @@
 using System.Text.Json;
 using LoLReview.Core.Constants;
 using LoLReview.Core.Models;
+using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
 
 namespace LoLReview.Core.Lcu;
@@ -26,6 +27,8 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
     {
         for (var attempt = 0; attempt < GameConstants.EogStatsRetryAttempts; attempt++)
         {
+            CoreDiagnostics.WriteVerbose(
+                $"LCU: GameEndCapture attempt={attempt + 1}/{GameConstants.EogStatsRetryAttempts}");
             var eogData = await _lcuClient.GetEndOfGameStatsAsync(cancellationToken).ConfigureAwait(false);
             if (eogData is JsonElement eog)
             {
@@ -39,14 +42,22 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
                     }
 
                     stats.LiveEvents = [.. liveEvents];
+                    CoreDiagnostics.WriteVerbose(
+                        $"LCU: GameEndCapture success gameId={stats.GameId} attempt={attempt + 1}");
                     return stats;
                 }
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            if (attempt + 1 < GameConstants.EogStatsRetryAttempts)
+            {
+                await Task.Delay(
+                    TimeSpan.FromSeconds(GameConstants.EogStatsRetryDelayS),
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
 
         _logger.LogWarning("Could not retrieve end-of-game stats after retries");
+        CoreDiagnostics.WriteVerbose("LCU: GameEndCapture failed after retries");
         return null;
     }
 

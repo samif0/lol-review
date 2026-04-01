@@ -214,13 +214,27 @@
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
 
-                                    <!-- Progress Bar -->
-                                    <controls:ObjectiveProgressBar Progress="{x:Bind Progress}"
-                                                                   BarHeight="8"
-                                                                   BarCornerRadius="4"
-                                                                   MinimumVisibleFillWidth="6"
-                                                                   FillBrush="{x:Bind LevelColorBrush}"
-                                                                   TrackBrush="{StaticResource SubtleBorderBrush}"/>
+                                    <!-- Progress Bar + Sparkline -->
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="80"/>
+                                        </Grid.ColumnDefinitions>
+                                        <controls:ObjectiveProgressBar Grid.Column="0"
+                                                                       Progress="{x:Bind Progress}"
+                                                                       BarHeight="8"
+                                                                       BarCornerRadius="4"
+                                                                       MinimumVisibleFillWidth="6"
+                                                                       FillBrush="{x:Bind LevelColorBrush}"
+                                                                       TrackBrush="{StaticResource SubtleBorderBrush}"/>
+                                        <controls:MiniSparkline Grid.Column="1"
+                                                                DataPoints="{x:Bind ScoreHistory}"
+                                                                LineColor="{x:Bind LevelColorBrush}"
+                                                                LineThickness="1.5"
+                                                                Height="28"
+                                                                Margin="8,0,0,0"
+                                                                Visibility="{x:Bind HasScoreHistory, Converter={StaticResource BoolToVis}}"/>
+                                    </Grid>
 
                                     <!-- Action Row -->
                                     <Grid>

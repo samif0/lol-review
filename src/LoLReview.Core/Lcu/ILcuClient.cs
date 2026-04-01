@@ -55,4 +55,10 @@ public interface ILcuClient
     /// Get current ranked stats for the player.
     /// </summary>
     Task<JsonElement?> GetRankedStatsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Get champion select info for the current session.
+    /// Returns (myChampion, enemyLanerChampion) — either may be empty if unavailable.
+    /// </summary>
+    Task<(string MyChampion, string EnemyLaner)> GetChampSelectInfoAsync(CancellationToken ct = default);
 }

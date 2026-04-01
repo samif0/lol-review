@@ -20,6 +20,7 @@ public sealed partial class PreGamePage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        ViewModel.LoadCommand.Execute(null);
+        var champInfo = e.Parameter as PreGameChampInfo;
+        ViewModel.LoadCommand.Execute(champInfo);
     }
 }

@@ -146,6 +146,80 @@ public sealed class DatabaseInitializerTests
         Assert.Equal(1, refreshed.GameCount);
     }
 
+    [Fact]
+    public async Task InitializeAsync_RequeuesLegacyCoachLabelsThatStoredInferredReasonData()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var gameId = await scope.Games.SaveManualAsync("Caitlyn", true);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        await using (var connection = scope.OpenConnection())
+        {
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_players (id, display_name, is_primary, created_at, updated_at)
+                VALUES (1, 'Tester', 1, @now, @now)
+                """,
+                ("@now", now));
+
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_moments (
+                    id, player_id, game_id, source_type, patch_version, champion, role, game_time_s,
+                    clip_path, storyboard_path, minimap_strip_path, manifest_path, note_text, context_text,
+                    dataset_version, model_version, created_at, reviewed_at
+                )
+                VALUES
+                    (101, 1, @gameId, 'manual_clip', 'unknown', 'Caitlyn', 'BOTTOM', 180,
+                     'clip-a.mp4', '', '', '', 'Clip A', '', 'bootstrap-v1', 'assist-heuristic-v1', @now, 555),
+                    (102, 1, @gameId, 'manual_clip', 'unknown', 'Caitlyn', 'BOTTOM', 240,
+                     'clip-b.mp4', '', '', '', 'Clip B', '', 'bootstrap-v1', 'assist-heuristic-v1', @now, 777)
+                """,
+                ("@gameId", gameId),
+                ("@now", now));
+
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_labels (
+                    moment_id, player_id, label_quality, primary_reason, objective_key, explanation,
+                    confidence, source, created_at, updated_at
+                )
+                VALUES
+                    (101, 1, 'bad', 'manual_clip_review', 'safe_lane_spacing', '', 0.8, 'manual', @now, @now),
+                    (102, 1, 'good', '', '', 'real manual explanation', 0.9, 'manual', @now, @now)
+                """,
+                ("@now", now));
+        }
+
+        await scope.InitializeAsync();
+
+        await using var verificationConnection = scope.OpenConnection();
+        var requeuedLabelCount = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT COUNT(*)
+            FROM coach_labels
+            WHERE moment_id = 101
+            """);
+        var preservedLabelCount = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT COUNT(*)
+            FROM coach_labels
+            WHERE moment_id = 102
+            """);
+        var firstReviewedAt = await ExecuteScalarObjectAsync(verificationConnection, """
+            SELECT reviewed_at
+            FROM coach_moments
+            WHERE id = 101
+            """);
+        var secondReviewedAt = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT reviewed_at
+            FROM coach_moments
+            WHERE id = 102
+            """);
+
+        Assert.Equal(0, requeuedLabelCount);
+        Assert.Equal(1, preservedLabelCount);
+        Assert.True(firstReviewedAt is null || firstReviewedAt is DBNull);
+        Assert.Equal(777, secondReviewedAt);
+    }
+
     private static async Task ExecuteNonQueryAsync(
         SqliteConnection connection,
         string commandText,
@@ -167,6 +241,13 @@ public sealed class DatabaseInitializerTests
         command.CommandText = commandText;
         var value = await command.ExecuteScalarAsync();
         return (T)Convert.ChangeType(value!, typeof(T));
+    }
+
+    private static async Task<object?> ExecuteScalarObjectAsync(SqliteConnection connection, string commandText)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = commandText;
+        return await command.ExecuteScalarAsync();
     }
 
     private static async Task<HashSet<string>> GetColumnNamesAsync(SqliteConnection connection, string tableName)

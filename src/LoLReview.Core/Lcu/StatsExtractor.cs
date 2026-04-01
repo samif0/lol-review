@@ -105,7 +105,10 @@ public static class StatsExtractor
             }
 
             var kda = (kills + assists) / Math.Max(deaths, 1.0);
-            var kp = (kills + assists) / Math.Max(teamKillsTotal, 1.0) * 100.0;
+            // Cap KP at 100% — teamKillsTotal can be 0 or under-counted in some game modes
+            var kp = teamKillsTotal > 0
+                ? Math.Min((kills + assists) / (double)teamKillsTotal * 100.0, 100.0)
+                : 0.0;
 
             // Determine win: the stats block WIN field can be a string "0"/"1" or a number
             var win = false;
@@ -299,7 +302,10 @@ public static class StatsExtractor
             }
 
             var kda = (kills + assists) / Math.Max(deaths, 1.0);
-            var kp = (kills + assists) / Math.Max(teamKillsTotal, 1.0) * 100.0;
+            // Cap KP at 100% — teamKillsTotal can be 0 or under-counted in some game modes
+            var kp = teamKillsTotal > 0
+                ? Math.Min((kills + assists) / (double)teamKillsTotal * 100.0, 100.0)
+                : 0.0;
 
             // Use game creation timestamp (milliseconds) converted to seconds
             var timestamp = gameCreation > 1_000_000_000_000L

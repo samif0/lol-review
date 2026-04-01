@@ -9,6 +9,9 @@ using Microsoft.Extensions.Logging;
 
 namespace LoLReview.App.ViewModels;
 
+/// <summary>Parameter passed to the pre-game page carrying champion select info.</summary>
+public sealed record PreGameChampInfo(string MyChampion, string EnemyLaner);
+
 public sealed class FocusObjectiveItem
 {
     public long Id { get; init; }
@@ -18,12 +21,22 @@ public sealed class FocusObjectiveItem
     public bool HasSubtitle => !string.IsNullOrWhiteSpace(Subtitle);
 }
 
+/// <summary>A previous matchup note shown in the pre-game panel.</summary>
+public sealed class PreGameMatchupItem
+{
+    public string Note { get; init; } = "";
+    public string DateText { get; init; } = "";
+    public bool WasHelpful { get; init; }
+    public bool HasHelpfulRating { get; init; }
+}
+
 /// <summary>ViewModel for the pre-game focus dialog shown during champion select.</summary>
 public partial class PreGameDialogViewModel : ObservableObject
 {
     private readonly IGameRepository _gameRepo;
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly ISessionLogRepository _sessionLogRepo;
+    private readonly IMatchupNotesRepository _matchupNotesRepo;
     private readonly IConfigService _configService;
     private readonly ILogger<PreGameDialogViewModel> _logger;
 
@@ -105,6 +118,13 @@ public partial class PreGameDialogViewModel : ObservableObject
     };
 
     public ObservableCollection<FocusObjectiveItem> ObjectiveFocusOptions { get; } = new();
+    public ObservableCollection<PreGameMatchupItem> MatchupHistory { get; } = new();
+
+    [ObservableProperty]
+    private bool _hasMatchupHistory;
+
+    [ObservableProperty]
+    private string _matchupHeaderText = "";
 
     // ── Constructor ─────────────────────────────────────────────────
 
@@ -112,12 +132,14 @@ public partial class PreGameDialogViewModel : ObservableObject
         IGameRepository gameRepo,
         IObjectivesRepository objectivesRepo,
         ISessionLogRepository sessionLogRepo,
+        IMatchupNotesRepository matchupNotesRepo,
         IConfigService configService,
         ILogger<PreGameDialogViewModel> logger)
     {
         _gameRepo = gameRepo;
         _objectivesRepo = objectivesRepo;
         _sessionLogRepo = sessionLogRepo;
+        _matchupNotesRepo = matchupNotesRepo;
         _configService = configService;
         _logger = logger;
     }
@@ -125,7 +147,7 @@ public partial class PreGameDialogViewModel : ObservableObject
     // ── Commands ────────────────────────────────────────────────────
 
     [RelayCommand]
-    private async Task LoadAsync()
+    private async Task LoadAsync(PreGameChampInfo? champInfo)
     {
         try
         {
@@ -202,6 +224,35 @@ public partial class PreGameDialogViewModel : ObservableObject
                 if (session != null && !string.IsNullOrWhiteSpace(session.Intention))
                 {
                     SessionIntention = session.Intention;
+                }
+            }
+
+            // Load matchup history if we have champion info
+            MatchupHistory.Clear();
+            HasMatchupHistory = false;
+            MatchupHeaderText = "";
+            if (champInfo != null
+                && !string.IsNullOrEmpty(champInfo.MyChampion)
+                && !string.IsNullOrEmpty(champInfo.EnemyLaner))
+            {
+                var notes = await _matchupNotesRepo.GetForMatchupAsync(champInfo.MyChampion, champInfo.EnemyLaner);
+                if (notes.Count > 0)
+                {
+                    MatchupHeaderText = $"YOUR NOTES vs {champInfo.EnemyLaner.ToUpperInvariant()}";
+                    foreach (var note in notes)
+                    {
+                        var dateText = note.CreatedAt.HasValue
+                            ? DateTimeOffset.FromUnixTimeSeconds(note.CreatedAt.Value).LocalDateTime.ToString("MMM d")
+                            : "";
+                        MatchupHistory.Add(new PreGameMatchupItem
+                        {
+                            Note = note.Note,
+                            DateText = dateText,
+                            WasHelpful = note.Helpful == 1,
+                            HasHelpfulRating = note.Helpful.HasValue
+                        });
+                    }
+                    HasMatchupHistory = MatchupHistory.Count > 0;
                 }
             }
         }

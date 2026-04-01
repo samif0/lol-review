@@ -62,6 +62,10 @@ public sealed class ObjectiveDisplayItem
     public double ProgressPercent => Progress * 100;
     public bool HasSkillArea => !string.IsNullOrWhiteSpace(SkillArea);
     public bool HasCriteria => !string.IsNullOrWhiteSpace(CompletionCriteria);
+
+    /// <summary>Cumulative score per game, oldest→newest, for sparkline rendering.</summary>
+    public IReadOnlyList<int> ScoreHistory { get; init; } = [];
+    public bool HasScoreHistory => ScoreHistory.Count >= 2;
     public string CriteriaText => $"Success: {CompletionCriteria}";
     public string RemainingText
     {
@@ -259,6 +263,7 @@ public partial class ObjectivesViewModel : ObservableObject
             if (string.Equals(obj.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
                 var levelInfo = IObjectivesRepository.GetLevelInfo(obj.Score, obj.GameCount);
+                var scoreHistory = await _objectivesRepo.GetScoreHistoryAsync(obj.Id);
 
                 ActiveObjectives.Add(new ObjectiveDisplayItem
                 {
@@ -278,6 +283,7 @@ public partial class ObjectivesViewModel : ObservableObject
                     NextThreshold = levelInfo.NextThreshold,
                     CanComplete = levelInfo.CanComplete,
                     SuggestComplete = levelInfo.SuggestComplete,
+                    ScoreHistory = scoreHistory,
                 });
             }
             else

@@ -243,6 +243,67 @@ public sealed class LcuClient : ILcuClient
         }
     }
 
+    /// <inheritdoc />
+    public async Task<(string MyChampion, string EnemyLaner)> GetChampSelectInfoAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var session = await GetAsync("/lol-champ-select/v1/session", ct).ConfigureAwait(false);
+            if (session is not JsonElement el || el.ValueKind != JsonValueKind.Object)
+                return ("", "");
+
+            // Find local player's cell ID
+            var localCellId = -1;
+            if (el.TryGetProperty("localPlayerCellId", out var cellIdProp))
+                localCellId = cellIdProp.GetInt32();
+
+            var myChampion = "";
+            var myPosition = "";
+            var enemyLaner = "";
+
+            // myTeam: find local player's champion + position
+            if (el.TryGetProperty("myTeam", out var myTeam) && myTeam.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var member in myTeam.EnumerateArray())
+                {
+                    var cellId = member.GetPropertyIntOrDefault("cellId", -99);
+                    if (cellId == localCellId)
+                    {
+                        var champId = member.GetPropertyIntOrDefault("championId", 0);
+                        if (champId > 0)
+                            myChampion = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
+                        myPosition = member.GetPropertyOrDefault("assignedPosition", "");
+                        break;
+                    }
+                }
+            }
+
+            // theirTeam: find enemy in same position as local player
+            if (!string.IsNullOrEmpty(myPosition)
+                && el.TryGetProperty("theirTeam", out var theirTeam)
+                && theirTeam.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var member in theirTeam.EnumerateArray())
+                {
+                    var pos = member.GetPropertyOrDefault("assignedPosition", "");
+                    if (pos.Equals(myPosition, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var champId = member.GetPropertyIntOrDefault("championId", 0);
+                        if (champId > 0)
+                            enemyLaner = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
+                        break;
+                    }
+                }
+            }
+
+            return (myChampion, enemyLaner);
+        }
+        catch
+        {
+            return ("", "");
+        }
+    }
+
     // ── Internal helper ─────────────────────────────────────────────────
 
     private async Task<JsonElement?> GetAsync(string endpoint, CancellationToken ct)

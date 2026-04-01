@@ -54,7 +54,7 @@ public sealed class CoachMomentItem : ObservableObject
     public string TimeText => $"{GameTimeS / 60}:{GameTimeS % 60:D2}";
     public string DraftSummary => $"{DraftQuality} | {DisplayOrFallback(DraftPrimaryReason)} | {(int)Math.Round(DraftConfidence * 100)}%";
     public string LabelSummary => HasManualLabel
-        ? $"{LabelQuality} | {DisplayOrFallback(LabelPrimaryReason)} | {(int)Math.Round(LabelConfidence * 100)}%"
+        ? BuildManualLabelSummary(LabelQuality, LabelAttachedObjectiveTitle, LabelConfidence)
         : "No manual label yet";
     public long? AttachedObjectiveId => LabelAttachedObjectiveId ?? DraftAttachedObjectiveId;
     public string AttachedObjectiveTitle =>
@@ -71,6 +71,22 @@ public sealed class CoachMomentItem : ObservableObject
 
     private static string DisplayOrFallback(string value) =>
         string.IsNullOrWhiteSpace(value) ? "needs review" : value.Replace('_', ' ');
+
+    private static string BuildManualLabelSummary(string quality, string attachedObjectiveTitle, double confidence)
+    {
+        var parts = new List<string>
+        {
+            quality
+        };
+
+        if (!string.IsNullOrWhiteSpace(attachedObjectiveTitle))
+        {
+            parts.Add(attachedObjectiveTitle);
+        }
+
+        parts.Add($"{(int)Math.Round(confidence * 100)}%");
+        return string.Join(" | ", parts);
+    }
 }
 
 public partial class CoachLabViewModel : ObservableObject
@@ -103,13 +119,13 @@ public partial class CoachLabViewModel : ObservableObject
     [ObservableProperty] private string _modelOutputSummary = "Train the coach on a few reviewed clips, then ask it what recurring problems it sees or whether your current objective still looks right.";
     [ObservableProperty] private CoachMomentItem? _selectedMoment;
     [ObservableProperty] private string _selectedLabelQuality = "neutral";
-    [ObservableProperty] private string _selectedPrimaryReason = "";
     [ObservableProperty] private string _selectedAttachedObjectiveId = "";
     [ObservableProperty] private string _selectedExplanation = "";
     [ObservableProperty] private double _selectedConfidence = 0.7;
     [ObservableProperty] private BitmapImage? _selectedStoryboardImage;
     [ObservableProperty] private BitmapImage? _selectedMinimapImage;
     [ObservableProperty] private string _selectedQueueObjectiveKey = "__all__";
+    [ObservableProperty] private string _selectedQueueManualLabelKey = "__none__";
     [ObservableProperty] private bool _canCreateSuggestedObjective;
 
     public ObservableCollection<CoachMomentItem> Moments { get; } = new();
@@ -121,6 +137,12 @@ public partial class CoachLabViewModel : ObservableObject
     ];
     public ObservableCollection<CoachOptionItem> ObjectiveOptions { get; } = new();
     public ObservableCollection<CoachOptionItem> QueueObjectiveOptions { get; } = new();
+    public ObservableCollection<CoachOptionItem> QueueManualLabelOptions { get; } =
+    [
+        new() { Key = "__all__", Label = "All Labels" },
+        new() { Key = "__none__", Label = "No Manual Label" },
+        new() { Key = "__has__", Label = "Has Manual Label" },
+    ];
 
     public bool HasSelection => SelectedMoment is not null;
     public bool IsWorking => IsBusy || IsTrainingInProgress;
@@ -131,9 +153,6 @@ public partial class CoachLabViewModel : ObservableObject
     public string SelectedMomentTimeText => SelectedMoment?.TimeText ?? "";
     public string SelectedMomentSourceText => SelectedMoment?.SourceBadge ?? "";
     public string SelectedConfidenceText => $"Confidence: {SelectedConfidence:F2}";
-    public string SelectedPrimaryReasonText => string.IsNullOrWhiteSpace(SelectedPrimaryReason)
-        ? "Needs review"
-        : SelectedPrimaryReason.Replace('_', ' ');
     public string SuggestedObjectiveButtonText => "Add Suggested Objective";
 
     private CoachObjectiveSuggestion? _latestSuggestion;
@@ -166,7 +185,6 @@ public partial class CoachLabViewModel : ObservableObject
         if (value is null)
         {
             SelectedLabelQuality = "neutral";
-            SelectedPrimaryReason = "";
             SelectedAttachedObjectiveId = "";
             SelectedExplanation = "";
             SelectedConfidence = 0.7;
@@ -176,7 +194,6 @@ public partial class CoachLabViewModel : ObservableObject
         }
 
         SelectedLabelQuality = value.HasManualLabel ? value.LabelQuality : value.DraftQuality;
-        SelectedPrimaryReason = value.HasManualLabel ? value.LabelPrimaryReason : value.DraftPrimaryReason;
         SelectedAttachedObjectiveId = value.AttachedObjectiveId?.ToString() ?? "";
         SelectedExplanation = value.HasManualLabel ? value.LabelExplanation : "";
         SelectedConfidence = value.HasManualLabel
@@ -184,17 +201,11 @@ public partial class CoachLabViewModel : ObservableObject
             : Math.Clamp(value.DraftConfidence, 0.2, 1.0);
         SelectedStoryboardImage = LoadBitmap(value.StoryboardPath);
         SelectedMinimapImage = LoadBitmap(value.MinimapStripPath);
-        OnPropertyChanged(nameof(SelectedPrimaryReasonText));
     }
 
     partial void OnSelectedConfidenceChanged(double value)
     {
         OnPropertyChanged(nameof(SelectedConfidenceText));
-    }
-
-    partial void OnSelectedPrimaryReasonChanged(string value)
-    {
-        OnPropertyChanged(nameof(SelectedPrimaryReasonText));
     }
 
     partial void OnIsBusyChanged(bool value)
@@ -208,6 +219,11 @@ public partial class CoachLabViewModel : ObservableObject
     }
 
     partial void OnSelectedQueueObjectiveKeyChanged(string value)
+    {
+        ApplyMomentFilter(SelectedMoment?.Id);
+    }
+
+    partial void OnSelectedQueueManualLabelKeyChanged(string value)
     {
         ApplyMomentFilter(SelectedMoment?.Id);
     }
@@ -583,7 +599,7 @@ public partial class CoachLabViewModel : ObservableObject
     private void ApplyMomentFilter(long? preserveMomentId = null)
     {
         var filtered = _allMoments
-            .Where(MatchesSelectedObjective)
+            .Where(MatchesQueueFilters)
             .ToList();
 
         Moments.Clear();
@@ -595,6 +611,11 @@ public partial class CoachLabViewModel : ObservableObject
         SelectedMoment = preserveMomentId.HasValue
             ? Moments.FirstOrDefault(moment => moment.Id == preserveMomentId.Value) ?? Moments.FirstOrDefault()
             : Moments.FirstOrDefault();
+    }
+
+    private bool MatchesQueueFilters(CoachMomentItem moment)
+    {
+        return MatchesSelectedObjective(moment) && MatchesSelectedManualLabel(moment);
     }
 
     private bool MatchesSelectedObjective(CoachMomentItem moment)
@@ -611,6 +632,17 @@ public partial class CoachLabViewModel : ObservableObject
         }
 
         return string.Equals(attachedObjective, SelectedQueueObjectiveKey, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool MatchesSelectedManualLabel(CoachMomentItem moment)
+    {
+        return SelectedQueueManualLabelKey switch
+        {
+            "__all__" => true,
+            "__none__" => !moment.HasManualLabel,
+            "__has__" => moment.HasManualLabel,
+            _ => true,
+        };
     }
 
     private async Task<List<CoachOptionItem>> LoadObjectiveOptionsAsync()

@@ -9,10 +9,15 @@ namespace LoLReview.Core.Lcu;
 public sealed record GameEndedMessage(GameStats Stats, bool IsRecovered = false);
 
 /// <summary>Sent when recent unsaved finished games are detected from match history.</summary>
-public sealed record MissedReviewsDetectedMessage(IReadOnlyList<MissedGameCandidate> Games);
+/// <param name="Games">Candidates that need review.</param>
+/// <param name="IsPostGameReconcile">
+/// True when reconciliation fired immediately after a game the monitor tracked (InProgress → idle),
+/// meaning the user just finished a game. The shell should skip the selection dialog and open post-game directly.
+/// </param>
+public sealed record MissedReviewsDetectedMessage(IReadOnlyList<MissedGameCandidate> Games, bool IsPostGameReconcile = false);
 
 /// <summary>Sent when champion select begins (non-casual queues only).</summary>
-public sealed record ChampSelectStartedMessage(int QueueId);
+public sealed record ChampSelectStartedMessage(int QueueId, string MyChampion = "", string EnemyLaner = "");
 
 /// <summary>Sent when the game transitions to loading/in-progress.</summary>
 public sealed record GameStartedMessage;

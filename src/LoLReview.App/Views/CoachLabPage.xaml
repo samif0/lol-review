@@ -242,6 +242,7 @@
                                 <Grid ColumnSpacing="10">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="170"/>
                                         <ColumnDefinition Width="210"/>
                                     </Grid.ColumnDefinitions>
 
@@ -253,6 +254,14 @@
                                                VerticalAlignment="Center"/>
 
                                     <ComboBox Grid.Column="1"
+                                              Header="Manual Label"
+                                              ItemsSource="{x:Bind ViewModel.QueueManualLabelOptions, Mode=OneWay}"
+                                              DisplayMemberPath="Label"
+                                              SelectedValuePath="Key"
+                                              SelectedValue="{x:Bind ViewModel.SelectedQueueManualLabelKey, Mode=TwoWay}"
+                                              Background="{StaticResource InputBackgroundBrush}"/>
+
+                                    <ComboBox Grid.Column="2"
                                               Header="Attached Objective"
                                               ItemsSource="{x:Bind ViewModel.QueueObjectiveOptions, Mode=OneWay}"
                                               DisplayMemberPath="Label"
@@ -470,26 +479,10 @@
                                                           SelectedValuePath="Key"
                                                           SelectedValue="{x:Bind ViewModel.SelectedLabelQuality, Mode=TwoWay}"
                                                           Background="{StaticResource InputBackgroundBrush}"/>
-                                                <Border Background="{StaticResource InputBackgroundBrush}"
-                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                        BorderThickness="1"
-                                                        CornerRadius="6"
-                                                        Padding="12,10">
-                                                    <StackPanel Spacing="4">
-                                                        <TextBlock Text="Primary Reason (Inferred)"
-                                                                   FontSize="12"
-                                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                        <TextBlock Text="{x:Bind ViewModel.SelectedPrimaryReasonText, Mode=OneWay}"
-                                                                   FontSize="13"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                                                   TextWrapping="Wrap"/>
-                                                        <TextBlock Text="This is inferred from the clip note, review context, and optional manual rationale."
-                                                                   FontSize="11"
-                                                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                                                   TextWrapping="Wrap"/>
-                                                    </StackPanel>
-                                                </Border>
+                                                <TextBlock Text="Manual labels now save only quality, optional objective attachment, rationale, and confidence."
+                                                           FontSize="12"
+                                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                                           TextWrapping="Wrap"/>
                                                 <ComboBox Header="Objective Attachment"
                                                           ItemsSource="{x:Bind ViewModel.ObjectiveOptions, Mode=OneWay}"
                                                           DisplayMemberPath="Label"

@@ -30,20 +30,26 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
     private const int MaxCredentialBackoffTicks = 6;
 
-    /// <summary>Casual (non-ranked, non-normal) queue IDs.</summary>
+    /// <summary>
+    /// Queue IDs that skip the review flow — everything except ranked solo (420) and ranked flex (440).
+    /// Normal Draft (400), Normal Blind (430), Quickplay (490), ARAM (450), Arena (1700), URF, etc.
+    /// </summary>
     private static readonly HashSet<int> CasualQueueIds =
     [
-        450,
-        1700,
-        1900,
-        900,
-        1010,
-        1020,
-        2070,
-        2000,
-        2010,
-        2020,
-        0,
+        400,  // Normal Draft
+        430,  // Normal Blind
+        490,  // Quickplay / Normal
+        450,  // ARAM
+        1700, // Arena
+        1900, // URF (pick)
+        900,  // URF
+        1010, // Snow URF
+        1020, // One for All
+        2070, // Swarm
+        2000, // Tutorial
+        2010, // Tutorial
+        2020, // Tutorial
+        0,    // Custom / unknown
     ];
 
     public GameMonitorService(
@@ -119,6 +125,8 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             return;
         }
 
+        _state.ConnectedTicks++;
+
         if (phase != _state.LastPhase)
         {
             _logger.LogInformation("Gameflow phase changed {PreviousPhase} -> {CurrentPhase}", _state.LastPhase, phase);
@@ -129,7 +137,8 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         if (plan.ReconcileOnStartup)
         {
-            await PublishMissedGamesAsync(cancellationToken).ConfigureAwait(false);
+            CoreDiagnostics.WriteVerbose($"LCU: Startup reconcile triggered at connectedTicks={_state.ConnectedTicks} phase={phase}");
+            await PublishMissedGamesAsync(cancellationToken, "startup").ConfigureAwait(false);
             _state.StartupReconcilePending = false;
         }
 
@@ -176,8 +185,39 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         if (plan.ReconcileMatchHistory)
         {
-            await PublishMissedGamesAsync(cancellationToken).ConfigureAwait(false);
-            _state.ReconcilePending = false;
+            // Attempt to find and report the just-finished game from match history.
+            // If nothing is found (Riot's API hasn't processed it yet), keep retrying for up to 3 min.
+            var found = await TryPublishPostGameReconcileAsync(cancellationToken).ConfigureAwait(false);
+            if (found)
+            {
+                _state.ReconcilePending = false;
+                _state.PostGameReconcileRetriesRemaining = 0;
+            }
+            else
+            {
+                // Nothing in match history yet — schedule retries via the ReconcilePending flag
+                if (_state.PostGameReconcileRetriesRemaining <= 0)
+                {
+                    // First miss: allow up to ~36 retries × 5s poll = ~3 minutes of waiting
+                    _state.PostGameReconcileRetriesRemaining = 36;
+                }
+                else
+                {
+                    _state.PostGameReconcileRetriesRemaining--;
+                    if (_state.PostGameReconcileRetriesRemaining <= 0)
+                    {
+                        // Gave up — stop retrying
+                        _state.ReconcilePending = false;
+                        CoreDiagnostics.WriteVerbose("LCU: PostGameReconcile gave up after retries");
+                    }
+                    else
+                    {
+                        // Keep ReconcilePending = true so the next idle tick retries
+                        CoreDiagnostics.WriteVerbose(
+                            $"LCU: PostGameReconcile not found yet, retries left={_state.PostGameReconcileRetriesRemaining}");
+                    }
+                }
+            }
         }
 
         _state.LastPhase = phase;
@@ -229,7 +269,12 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         var modeLabel = _state.CurrentGameIsCasual ? "casual" : "ranked/normal";
         _logger.LogInformation("Champ select started (queue {QueueId} - {Mode})", queueId, modeLabel);
-        _messenger.Send(new ChampSelectStartedMessage(queueId));
+
+        // Best-effort: fetch champion picks to surface matchup history in pre-game
+        var (myChampion, enemyLaner) = await _lcuClient.GetChampSelectInfoAsync(cancellationToken).ConfigureAwait(false);
+        _logger.LogDebug("Champ select info: myChamp={MyChamp} enemy={Enemy}", myChampion, enemyLaner);
+
+        _messenger.Send(new ChampSelectStartedMessage(queueId, myChampion, enemyLaner));
     }
 
     private void StartEventCollector()
@@ -302,15 +347,42 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _messenger.Send(new GameEndedMessage(stats));
     }
 
-    private async Task PublishMissedGamesAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Attempt to find the just-finished game from match history and publish it as a post-game reconcile.
+    /// Returns true if at least one candidate was found and published, false if match history is empty.
+    /// </summary>
+    private async Task<bool> TryPublishPostGameReconcileAsync(CancellationToken cancellationToken)
     {
+        CoreDiagnostics.WriteVerbose("LCU: TryPublishPostGameReconcile start");
         var candidates = await _matchHistoryReconciliationService
             .FindMissedGamesAsync(CheckGameSaved, cancellationToken)
             .ConfigureAwait(false);
 
+        CoreDiagnostics.WriteVerbose($"LCU: TryPublishPostGameReconcile count={candidates.Count}");
+
+        if (candidates.Count == 0)
+            return false;
+
+        _messenger.Send(new MissedReviewsDetectedMessage(candidates, IsPostGameReconcile: true));
+        return true;
+    }
+
+    private async Task PublishMissedGamesAsync(CancellationToken cancellationToken, string reason)
+    {
+        // "postgame" reconcile fires right after InProgress → idle, meaning the user just finished
+        // a game. Flag it so the shell can skip the selection dialog and go straight to post-game.
+        var isPostGameReconcile = string.Equals(reason, "postgame", StringComparison.Ordinal);
+
+        CoreDiagnostics.WriteVerbose($"LCU: PublishMissedGames start reason={reason} isPostGame={isPostGameReconcile}");
+        var candidates = await _matchHistoryReconciliationService
+            .FindMissedGamesAsync(CheckGameSaved, cancellationToken)
+            .ConfigureAwait(false);
+
+        CoreDiagnostics.WriteVerbose($"LCU: PublishMissedGames result reason={reason} count={candidates.Count}");
+
         if (candidates.Count > 0)
         {
-            _messenger.Send(new MissedReviewsDetectedMessage(candidates));
+            _messenger.Send(new MissedReviewsDetectedMessage(candidates, isPostGameReconcile));
         }
     }
 
@@ -318,6 +390,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     {
         var wasConnected = _state.IsConnected;
         _state.IsConnected = false;
+        _state.ConnectedTicks = 0;
         await StopEventCollectorAsync().ConfigureAwait(false);
 
         if (wasConnected)

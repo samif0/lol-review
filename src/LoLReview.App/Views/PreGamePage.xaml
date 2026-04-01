@@ -201,6 +201,49 @@
                 </StackPanel>
             </Border>
 
+            <!-- ═══ Matchup History ═══ -->
+            <Border Visibility="{x:Bind ViewModel.HasMatchupHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Background="{StaticResource CardBackgroundBrush}"
+                    BorderBrush="{StaticResource AccentGoldBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="14,12">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{x:Bind ViewModel.MatchupHeaderText, Mode=OneWay}"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource AccentGoldBrush}"/>
+                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.MatchupHistory, Mode=OneWay}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="8"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PreGameMatchupItem">
+                                <Border Background="{StaticResource InputBackgroundBrush}"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                        BorderThickness="1" CornerRadius="6" Padding="10,8">
+                                    <StackPanel Spacing="4">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Bind DateText}"
+                                                       FontSize="10"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                                            <Border Background="{StaticResource AccentGoldBrush}"
+                                                    CornerRadius="3" Padding="5,1"
+                                                    Visibility="{x:Bind WasHelpful, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="HELPFUL"
+                                                           FontSize="9" FontWeight="Bold"
+                                                           Foreground="Black"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{x:Bind Note}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </StackPanel>
+            </Border>
+
             <!-- Separator -->
             <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
 

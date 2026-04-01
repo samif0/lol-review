@@ -271,6 +271,50 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         return results;
     }
 
+    public async Task<IReadOnlyList<int>> GetScoreHistoryAsync(long objectiveId, int limit = 20)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        // Fetch per-game score contributions ordered oldest-first, capped to `limit` most-recent games.
+        // Score contribution: +3 practiced, +1 unpracticed (win), -1 unpracticed (loss).
+        // We reconstruct cumulative scores in C# from the raw contributions.
+        cmd.CommandText = """
+            SELECT go.practiced, g.win
+            FROM game_objectives go
+            JOIN games g ON g.game_id = go.game_id
+            WHERE go.objective_id = @objectiveId
+            ORDER BY g.timestamp DESC
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+        cmd.Parameters.AddWithValue("@limit", limit);
+
+        var contributions = new List<int>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var practiced = !reader.IsDBNull(0) && reader.GetInt64(0) != 0;
+            var win = !reader.IsDBNull(1) && reader.GetInt64(1) != 0;
+            contributions.Add(practiced ? 3 : win ? 1 : -1);
+        }
+
+        // Contributions are newest-first; reverse to oldest-first for sparkline
+        contributions.Reverse();
+
+        // Build cumulative series starting from (currentScore - sum of contributions)
+        // That way the last point = current score
+        var total = contributions.Sum();
+        // We only have the delta; normalise so the line shows relative trend from 0
+        var cumulative = new List<int>(contributions.Count);
+        var running = 0;
+        foreach (var c in contributions)
+        {
+            running += c;
+            cumulative.Add(running);
+        }
+        return cumulative;
+    }
+
     public async Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();

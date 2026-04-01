@@ -41,6 +41,12 @@ public interface IObjectivesRepository
 
     Task<IReadOnlyList<ObjectiveGameEntry>> GetGamesForObjectiveAsync(long objectiveId);
 
+    /// <summary>
+    /// Return cumulative score values per game, oldest first, capped at the last <paramref name="limit"/> games.
+    /// Used to render the sparkline trend on the objective card.
+    /// </summary>
+    Task<IReadOnlyList<int>> GetScoreHistoryAsync(long objectiveId, int limit = 20);
+
     /// <summary>Return progression display info for a score + game count.</summary>
     static ObjectiveLevelInfo GetLevelInfo(int score, int gameCount)
     {
