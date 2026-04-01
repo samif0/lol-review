@@ -468,12 +468,34 @@ public sealed class SessionLogRepository : ISessionLogRepository
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
 
+        // Only count adherence from the date the first user-defined rule was created.
+        // Before that point rule_broken flags were stamped by a since-removed heuristic
+        // and don't reflect real rule violations.
+        string? rulesExistSince = null;
+        using (var rulesCmd = conn.CreateCommand())
+        {
+            rulesCmd.CommandText = "SELECT MIN(DATE(created_at, 'unixepoch', 'localtime')) FROM rules";
+            var val = await rulesCmd.ExecuteScalarAsync();
+            if (val is string s && !string.IsNullOrEmpty(s))
+                rulesExistSince = s;
+        }
+
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            SELECT date, SUM(rule_broken) as breaks
-            FROM session_log
-            GROUP BY date
-            ORDER BY date DESC";
+        if (rulesExistSince is not null)
+        {
+            cmd.CommandText = @"
+                SELECT date, SUM(rule_broken) as breaks
+                FROM session_log
+                WHERE date >= @since
+                GROUP BY date
+                ORDER BY date DESC";
+            cmd.Parameters.AddWithValue("@since", rulesExistSince);
+        }
+        else
+        {
+            // No rules ever created — adherence streak is always 0
+            return 0;
+        }
 
         var streak = 0;
         await using var reader = await cmd.ExecuteReaderAsync();
