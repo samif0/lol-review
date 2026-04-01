@@ -78,11 +78,6 @@ public sealed class DatabaseInitializer
         await BackfillObjectiveGameCountAsync(connection, cancellationToken);
         await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
 
-        // 7. Clear auto-stamped rule_broken flags — rule breaks are now only set when a
-        //    user-defined rule is violated. Any existing flags came from the old hardcoded
-        //    2-consecutive-loss heuristic and should be cleared.
-        await ClearLegacyAutoRuleBreaksAsync(connection, cancellationToken);
-
         _logger.LogInformation("Database initialized at {Path}", _connectionFactory.DatabasePath);
     }
 
@@ -481,29 +476,6 @@ public sealed class DatabaseInitializer
         _logger.LogInformation(
             "Requeued {Count} coach moment(s) after removing inferred manual label fields",
             requeuedCount);
-    }
-
-    /// <summary>
-    /// Clears rule_broken flags that were auto-stamped by the old hardcoded 2-consecutive-loss
-    /// heuristic. Rule breaks are now only set when a user-defined rule is actually violated.
-    /// Only runs if there are session_log rows with rule_broken=1 — idempotent.
-    /// </summary>
-    private async Task ClearLegacyAutoRuleBreaksAsync(SqliteConnection connection, CancellationToken ct)
-    {
-        // Fast-path: nothing to fix
-        using var checkCmd = connection.CreateCommand();
-        checkCmd.CommandText = "SELECT COUNT(*) FROM session_log WHERE rule_broken = 1";
-        var broken = (long)(await checkCmd.ExecuteScalarAsync(ct))!;
-        if (broken == 0)
-            return;
-
-        using var clearCmd = connection.CreateCommand();
-        clearCmd.CommandText = "UPDATE session_log SET rule_broken = 0 WHERE rule_broken = 1";
-        var cleared = await clearCmd.ExecuteNonQueryAsync(ct);
-
-        _logger.LogInformation(
-            "Cleared {Count} legacy auto-rule-break flag(s) from session_log (old 2-loss heuristic removed)",
-            cleared);
     }
 
     private static async Task<HashSet<string>> GetTableColumnsAsync(
