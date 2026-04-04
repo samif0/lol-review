@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
 using LoLReview.App.Services;
+using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Lcu;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -28,6 +29,7 @@ public partial class ShellViewModel : ObservableRecipient,
     private readonly IDialogService _dialogService;
     private readonly IGameLifecycleWorkflowService _gameLifecycleWorkflow;
     private readonly IMatchHistoryReconciliationService _matchHistoryReconciliationService;
+    private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
     private readonly IUpdateService _updateService;
     private readonly ILogger<ShellViewModel> _logger;
     private bool _hasInitialized;
@@ -58,6 +60,7 @@ public partial class ShellViewModel : ObservableRecipient,
         IDialogService dialogService,
         IGameLifecycleWorkflowService gameLifecycleWorkflow,
         IMatchHistoryReconciliationService matchHistoryReconciliationService,
+        IMissedGameDecisionRepository missedGameDecisionRepository,
         IUpdateService updateService,
         ILogger<ShellViewModel> logger)
     {
@@ -65,6 +68,7 @@ public partial class ShellViewModel : ObservableRecipient,
         _dialogService = dialogService;
         _gameLifecycleWorkflow = gameLifecycleWorkflow;
         _matchHistoryReconciliationService = matchHistoryReconciliationService;
+        _missedGameDecisionRepository = missedGameDecisionRepository;
         _updateService = updateService;
         _logger = logger;
 
@@ -317,6 +321,13 @@ public partial class ShellViewModel : ObservableRecipient,
 
             if (selectedGames.Count == 0)
             {
+                // Persist dismissals even when every game was declined so they don't
+                // reappear on the next startup.
+                if (dismissedIds.Length > 0)
+                {
+                    await _missedGameDecisionRepository.MarkDismissedAsync(dismissedIds).ConfigureAwait(false);
+                }
+
                 _logger.LogInformation(
                     "Missed games dialog dismissed; persisted {DismissedCount} declined game(s) out of {Count} candidates",
                     dismissedIds.Length,

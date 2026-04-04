@@ -9,6 +9,7 @@ namespace LoLReview.Core.Data.Repositories;
 public sealed class RulesRepository : IRulesRepository
 {
     private readonly IDbConnectionFactory _factory;
+    private RulesSchema? _cachedSchema;
 
     public RulesRepository(IDbConnectionFactory factory) => _factory = factory;
 
@@ -245,10 +246,12 @@ public sealed class RulesRepository : IRulesRepository
 
                 case "max_games" when todaysGames is not null:
                 {
+                    // todaysGames is games already logged today (before this game).
+                    // If that count already equals or exceeds the limit, this game is the violation.
                     if (int.TryParse(rule.ConditionValue, out var maxGames) && todaysGames.Count >= maxGames)
                     {
                         violated = true;
-                        reason = $"{todaysGames.Count}/{maxGames} games played";
+                        reason = $"Already played {todaysGames.Count}/{maxGames} games today";
                     }
 
                     break;
@@ -347,8 +350,11 @@ public sealed class RulesRepository : IRulesRepository
         return schema.HasCreatedAt ? "created_at" : "NULL";
     }
 
-    private static async Task<RulesSchema> GetSchemaAsync(SqliteConnection connection)
+    private async Task<RulesSchema> GetSchemaAsync(SqliteConnection connection)
     {
+        if (_cachedSchema is not null)
+            return _cachedSchema;
+
         var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         using var cmd = connection.CreateCommand();
@@ -362,7 +368,7 @@ public sealed class RulesRepository : IRulesRepository
             }
         }
 
-        return new RulesSchema(
+        _cachedSchema = new RulesSchema(
             HasTitle: columns.Contains("title"),
             HasName: columns.Contains("name"),
             HasDescription: columns.Contains("description"),
@@ -371,6 +377,8 @@ public sealed class RulesRepository : IRulesRepository
             HasConditionValue: columns.Contains("condition_value"),
             HasIsActive: columns.Contains("is_active"),
             HasCreatedAt: columns.Contains("created_at"));
+
+        return _cachedSchema;
     }
 
     private static async Task<IReadOnlyList<RuleRecord>> ReadAllAsync(SqliteCommand cmd)

@@ -2,6 +2,7 @@
 
 using LoLReview.App.ViewModels;
 using LoLReview.Core.Models;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -87,6 +88,11 @@ public sealed partial class VodPlayerPage : Page
         _windowRoot?.RemoveHandler(KeyDownEvent, _keyDownHandler);
         _windowRoot?.RemoveHandler(KeyUpEvent, _keyUpHandler);
         _windowRoot = null;
+
+        // Exit fullscreen if active when navigating away.
+        var appWindow = App.MainWindow?.AppWindow;
+        if (appWindow?.Presenter.Kind == AppWindowPresenterKind.FullScreen)
+            appWindow.SetPresenter(AppWindowPresenterKind.Default);
 
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         Cleanup();
@@ -357,6 +363,29 @@ public sealed partial class VodPlayerPage : Page
         VideoContainer.Focus(FocusState.Programmatic);
     }
 
+    private void OnFullscreenClick(object sender, RoutedEventArgs e)
+    {
+        ToggleFullscreen();
+        VideoContainer.Focus(FocusState.Programmatic);
+    }
+
+    private void ToggleFullscreen()
+    {
+        var appWindow = App.MainWindow?.AppWindow;
+        if (appWindow == null) return;
+
+        if (appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
+        {
+            appWindow.SetPresenter(AppWindowPresenterKind.Default);
+            FullscreenIcon.Glyph = "\uE740"; // EnterFullScreen
+        }
+        else
+        {
+            appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            FullscreenIcon.Glyph = "\uE73F"; // ExitFullScreen
+        }
+    }
+
     private void OnVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
         if (_mediaPlayer == null) return;
@@ -423,6 +452,10 @@ public sealed partial class VodPlayerPage : Page
                 break;
             case Windows.System.VirtualKey.B:
                 ViewModel.AddBookmarkCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Windows.System.VirtualKey.F:
+                ToggleFullscreen();
                 e.Handled = true;
                 break;
         }

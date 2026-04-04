@@ -98,7 +98,9 @@ public sealed class GameService : IGameService
             var gameChecks = todaysGames
                 .Select(e => new RuleCheckGame(e.GameId ?? 0, e.Win, e.ChampionName, e.Timestamp))
                 .ToList();
-            var violations = await _rules.CheckViolationsAsync(gameChecks, request.MentalRating)
+            // Pass null for mentalRating: min_mental is a pre-queue gate and cannot
+            // be evaluated retroactively from the post-game review rating.
+            var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null)
                 .ConfigureAwait(false);
             ruleBroken = violations.Any(v => v.Violated);
         }
