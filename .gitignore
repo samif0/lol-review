@@ -3,6 +3,8 @@
 **/obj/
 /publish/
 /Releases/
+/.tmp-build/
+**/.tmp-build/
 .vs/
 *.user
 *.suo

@@ -64,13 +64,15 @@
                     CornerRadius="8"
                     Padding="14,12"
                     BorderThickness="1"
-                    BorderBrush="{StaticResource AccentBlueBrush}">
+                    BorderBrush="{StaticResource AccentGoldBrush}">
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Button Command="{x:Bind ReviewVM.WatchVodCommand}"
                             FontSize="13" FontWeight="SemiBold"
                             Height="36" Padding="16,0"
-                            Background="{StaticResource AccentBlueBrush}"
-                            Foreground="{StaticResource PrimaryTextBrush}">
+                            Background="{StaticResource AccentGoldDimBrush}"
+                            Foreground="{StaticResource AccentGoldBrush}"
+                            BorderBrush="{StaticResource AccentGoldBrush}"
+                            BorderThickness="1">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <FontIcon Glyph="&#xE714;" FontSize="14"/>
                             <TextBlock Text="Review VOD" VerticalAlignment="Center"/>
@@ -435,7 +437,7 @@
                         FontSize="14" Height="36" Padding="24,0"
                         CornerRadius="8"
                         Background="{StaticResource AccentBlueBrush}"
-                        Foreground="White" IsTabStop="False"/>
+                        Foreground="{StaticResource ActionPrimaryForegroundBrush}" IsTabStop="False"/>
                 <Button Content="Skip" Click="OnSkipClick"
                         FontSize="14" Height="36" Padding="24,0"
                         CornerRadius="8"

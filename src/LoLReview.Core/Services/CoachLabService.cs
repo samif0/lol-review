@@ -52,6 +52,7 @@ public sealed class CoachLabService : ICoachLabService
 
         using var connection = _connectionFactory.CreateConnection();
         var bootstrap = await EnsureBootstrapStateAsync(connection, cancellationToken);
+        await ApplyReviewNotesAsFinalTagsAsync(connection, bootstrap.Player.Id, cancellationToken);
         await UpdateDatasetVersionAsync(connection, bootstrap.Player.Id, cancellationToken);
 
         var counts = await GetDatasetCountsAsync(connection, cancellationToken);
@@ -90,7 +91,8 @@ public sealed class CoachLabService : ICoachLabService
         }
 
         using var connection = _connectionFactory.CreateConnection();
-        await EnsureBootstrapStateAsync(connection, cancellationToken);
+        var bootstrap = await EnsureBootstrapStateAsync(connection, cancellationToken);
+        await ApplyReviewNotesAsFinalTagsAsync(connection, bootstrap.Player.Id, cancellationToken);
 
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
@@ -132,8 +134,8 @@ public sealed class CoachLabService : ICoachLabService
             LEFT JOIN coach_labels l ON l.moment_id = m.id
             LEFT JOIN coach_objective_blocks b ON b.id = m.objective_block_id
             ORDER BY
-                CASE WHEN COALESCE(l.label_quality, '') = '' THEN 0 ELSE 1 END ASC,
                 CASE WHEN m.source_type = 'manual_clip' THEN 0 ELSE 1 END ASC,
+                CASE WHEN COALESCE(l.label_quality, '') = '' THEN 0 ELSE 1 END ASC,
                 m.created_at DESC
             LIMIT @limit
             """;
@@ -157,7 +159,8 @@ public sealed class CoachLabService : ICoachLabService
         }
 
         using var connection = _connectionFactory.CreateConnection();
-        await EnsureBootstrapStateAsync(connection, cancellationToken);
+        var bootstrap = await EnsureBootstrapStateAsync(connection, cancellationToken);
+        await ApplyReviewNotesAsFinalTagsAsync(connection, bootstrap.Player.Id, cancellationToken);
 
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
@@ -228,6 +231,7 @@ public sealed class CoachLabService : ICoachLabService
                 ? await SyncAutoSampleMomentsAsync(connection, bootstrap, cancellationToken)
                 : 0;
             var draftsCreated = await EnsureDraftsAsync(connection, bootstrap.Player.Id, cancellationToken);
+            var reviewNoteLabelsApplied = await ApplyReviewNotesAsFinalTagsAsync(connection, bootstrap.Player.Id, cancellationToken);
             await RefreshArtifactsIfNeededAsync(connection, cancellationToken);
 
             await UpdateDatasetVersionAsync(connection, bootstrap.Player.Id, cancellationToken);
@@ -237,6 +241,7 @@ public sealed class CoachLabService : ICoachLabService
                 ManualClipsImported = manualImported,
                 AutoSamplesCreated = autoCreated,
                 DraftsCreated = draftsCreated,
+                ReviewNoteLabelsApplied = reviewNoteLabelsApplied,
             };
         }
         finally
@@ -259,8 +264,8 @@ public sealed class CoachLabService : ICoachLabService
         var bootstrap = await EnsureBootstrapStateAsync(connection, cancellationToken);
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var attachedObjectiveTitle = await LookupObjectiveTitleAsync(connection, input.AttachedObjectiveId, cancellationToken);
-        var manualPrimaryReason = input.PrimaryReason.Trim();
-        var manualObjectiveKey = CoachObjectiveCatalog.NormalizeKey(input.ObjectiveKey);
+        var manualPrimaryReason = await ResolveManualPrimaryReasonAsync(connection, momentId, input.PrimaryReason, cancellationToken);
+        var manualObjectiveKey = await ResolveManualObjectiveKeyAsync(connection, momentId, input.ObjectiveKey, cancellationToken);
 
         using var tx = connection.BeginTransaction();
 
@@ -1051,6 +1056,114 @@ public sealed class CoachLabService : ICoachLabService
         return created;
     }
 
+    private async Task<int> ApplyReviewNotesAsFinalTagsAsync(
+        SqliteConnection connection,
+        long playerId,
+        CancellationToken cancellationToken)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                m.id,
+                COALESCE(g.review_notes, ''),
+                COALESCE(m.note_text, ''),
+                COALESCE(m.context_text, ''),
+                COALESCE(i.moment_quality, ''),
+                COALESCE(i.objective_key, ''),
+                COALESCE(i.confidence, 0),
+                i.attached_objective_id,
+                COALESCE(i.attached_objective_title, '')
+            FROM coach_moments m
+            INNER JOIN games g ON g.game_id = m.game_id
+            LEFT JOIN coach_inferences i ON i.moment_id = m.id
+            LEFT JOIN coach_labels l ON l.moment_id = m.id
+            WHERE m.player_id = @playerId
+              AND m.source_type = 'manual_clip'
+              AND COALESCE(l.label_quality, '') = ''
+              AND COALESCE(TRIM(g.review_notes), '') <> ''
+            ORDER BY m.created_at DESC
+            """;
+        cmd.Parameters.AddWithValue("@playerId", playerId);
+
+        var candidates = new List<ReviewNoteLabelCandidate>();
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                candidates.Add(new ReviewNoteLabelCandidate
+                {
+                    MomentId = reader.GetInt64(0),
+                    ReviewNotes = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                    NoteText = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    ContextText = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                    DraftQuality = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    DraftObjectiveKey = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                    DraftConfidence = reader.IsDBNull(6) ? 0 : reader.GetDouble(6),
+                    AttachedObjectiveId = reader.IsDBNull(7) ? null : reader.GetInt64(7),
+                    AttachedObjectiveTitle = reader.IsDBNull(8) ? "" : reader.GetString(8),
+                });
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return 0;
+        }
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        using var tx = connection.BeginTransaction();
+
+        foreach (var candidate in candidates)
+        {
+            var labelQuality = ResolveAutoLabelQuality(
+                candidate.DraftQuality,
+                candidate.ReviewNotes,
+                candidate.NoteText,
+                candidate.ContextText);
+            var objectiveKey = ResolveAutoLabelObjectiveKey(
+                candidate.DraftObjectiveKey,
+                candidate.ReviewNotes,
+                candidate.NoteText,
+                candidate.ContextText);
+
+            using (var insertCmd = connection.CreateCommand())
+            {
+                insertCmd.Transaction = tx;
+                insertCmd.CommandText = """
+                    INSERT INTO coach_labels
+                        (moment_id, player_id, label_quality, primary_reason, objective_key, attached_objective_id, attached_objective_title, explanation, confidence, source, created_at, updated_at)
+                    VALUES
+                        (@momentId, @playerId, @labelQuality, @primaryReason, @objectiveKey, @attachedObjectiveId, @attachedObjectiveTitle, '', @confidence, 'manual', @createdAt, @updatedAt)
+                    """;
+                insertCmd.Parameters.AddWithValue("@momentId", candidate.MomentId);
+                insertCmd.Parameters.AddWithValue("@playerId", playerId);
+                insertCmd.Parameters.AddWithValue("@labelQuality", labelQuality);
+                insertCmd.Parameters.AddWithValue("@primaryReason", candidate.ReviewNotes.Trim());
+                insertCmd.Parameters.AddWithValue("@objectiveKey", objectiveKey);
+                insertCmd.Parameters.AddWithValue("@attachedObjectiveId", candidate.AttachedObjectiveId.HasValue ? candidate.AttachedObjectiveId.Value : DBNull.Value);
+                insertCmd.Parameters.AddWithValue("@attachedObjectiveTitle", candidate.AttachedObjectiveTitle);
+                insertCmd.Parameters.AddWithValue("@confidence", ResolveAutoLabelConfidence(candidate.DraftConfidence));
+                insertCmd.Parameters.AddWithValue("@createdAt", now);
+                insertCmd.Parameters.AddWithValue("@updatedAt", now);
+                await insertCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            using var reviewCmd = connection.CreateCommand();
+            reviewCmd.Transaction = tx;
+            reviewCmd.CommandText = """
+                UPDATE coach_moments
+                SET reviewed_at = COALESCE(reviewed_at, @reviewedAt)
+                WHERE id = @momentId
+                """;
+            reviewCmd.Parameters.AddWithValue("@reviewedAt", now);
+            reviewCmd.Parameters.AddWithValue("@momentId", candidate.MomentId);
+            await reviewCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+        return candidates.Count;
+    }
+
     private async Task<int> RefreshArtifactsIfNeededAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         using var cmd = connection.CreateCommand();
@@ -1309,6 +1422,121 @@ public sealed class CoachLabService : ICoachLabService
         };
 
         return string.Join(" | ", parts.Where(part => !string.IsNullOrWhiteSpace(part)).Select(part => part.Trim()));
+    }
+
+    private async Task<string> ResolveManualPrimaryReasonAsync(
+        SqliteConnection connection,
+        long momentId,
+        string? requestedPrimaryReason,
+        CancellationToken cancellationToken)
+    {
+        var trimmed = requestedPrimaryReason?.Trim() ?? "";
+        if (!string.IsNullOrWhiteSpace(trimmed))
+        {
+            return trimmed;
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                COALESCE(l.primary_reason, ''),
+                COALESCE(g.review_notes, ''),
+                COALESCE(m.source_type, '')
+            FROM coach_moments m
+            LEFT JOIN coach_labels l ON l.moment_id = m.id
+            LEFT JOIN games g ON g.game_id = m.game_id
+            WHERE m.id = @momentId
+            LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("@momentId", momentId);
+
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return "";
+        }
+
+        var existingPrimaryReason = reader.IsDBNull(0) ? "" : reader.GetString(0);
+        if (!string.IsNullOrWhiteSpace(existingPrimaryReason))
+        {
+            return existingPrimaryReason.Trim();
+        }
+
+        var reviewNotes = reader.IsDBNull(1) ? "" : reader.GetString(1);
+        var sourceType = reader.IsDBNull(2) ? "" : reader.GetString(2);
+        return string.Equals(sourceType, "manual_clip", StringComparison.OrdinalIgnoreCase)
+            ? reviewNotes.Trim()
+            : "";
+    }
+
+    private async Task<string> ResolveManualObjectiveKeyAsync(
+        SqliteConnection connection,
+        long momentId,
+        string? requestedObjectiveKey,
+        CancellationToken cancellationToken)
+    {
+        var normalizedRequestedKey = CoachObjectiveCatalog.NormalizeKey(requestedObjectiveKey);
+        if (!string.IsNullOrWhiteSpace(normalizedRequestedKey))
+        {
+            return normalizedRequestedKey;
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                COALESCE(l.objective_key, ''),
+                COALESCE(g.review_notes, ''),
+                COALESCE(m.note_text, ''),
+                COALESCE(m.context_text, '')
+            FROM coach_moments m
+            LEFT JOIN coach_labels l ON l.moment_id = m.id
+            LEFT JOIN games g ON g.game_id = m.game_id
+            WHERE m.id = @momentId
+            LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("@momentId", momentId);
+
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return "";
+        }
+
+        var existingObjectiveKey = CoachObjectiveCatalog.NormalizeKey(reader.IsDBNull(0) ? "" : reader.GetString(0));
+        if (!string.IsNullOrWhiteSpace(existingObjectiveKey))
+        {
+            return existingObjectiveKey;
+        }
+
+        var reviewNotes = reader.IsDBNull(1) ? "" : reader.GetString(1);
+        var noteText = reader.IsDBNull(2) ? "" : reader.GetString(2);
+        var contextText = reader.IsDBNull(3) ? "" : reader.GetString(3);
+        return CoachDraftHeuristics.InferObjectiveKey(reviewNotes, noteText, contextText);
+    }
+
+    private static string ResolveAutoLabelQuality(
+        string? draftQuality,
+        params string?[] values)
+    {
+        var normalized = draftQuality?.Trim().ToLowerInvariant() ?? "";
+        return normalized is "good" or "neutral" or "bad"
+            ? normalized
+            : CoachDraftHeuristics.InferMomentQuality(values);
+    }
+
+    private static string ResolveAutoLabelObjectiveKey(
+        string? draftObjectiveKey,
+        params string?[] values)
+    {
+        var normalized = CoachObjectiveCatalog.NormalizeKey(draftObjectiveKey);
+        return !string.IsNullOrWhiteSpace(normalized)
+            ? normalized
+            : CoachDraftHeuristics.InferObjectiveKey(values);
+    }
+
+    private static double ResolveAutoLabelConfidence(double draftConfidence)
+    {
+        return Math.Clamp(draftConfidence > 0 ? Math.Max(draftConfidence, 0.85) : 0.9, 0.2, 1.0);
     }
 
     private static IReadOnlyList<int> GetAutoSampleSeconds(int gameDurationSeconds)
@@ -1627,6 +1855,19 @@ public sealed class CoachLabService : ICoachLabService
         public string ClipPath { get; set; } = "";
         public string NoteText { get; set; } = "";
         public string ContextText { get; set; } = "";
+    }
+
+    private sealed class ReviewNoteLabelCandidate
+    {
+        public long MomentId { get; set; }
+        public string ReviewNotes { get; set; } = "";
+        public string NoteText { get; set; } = "";
+        public string ContextText { get; set; } = "";
+        public string DraftQuality { get; set; } = "";
+        public string DraftObjectiveKey { get; set; } = "";
+        public double DraftConfidence { get; set; }
+        public long? AttachedObjectiveId { get; set; }
+        public string AttachedObjectiveTitle { get; set; } = "";
     }
 
     private sealed class CoachArtifacts

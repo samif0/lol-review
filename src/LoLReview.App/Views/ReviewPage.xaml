@@ -94,13 +94,15 @@
                     <!-- ═══ VOD Section ═══ -->
                     <Border Visibility="{x:Bind ViewModel.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                             Style="{StaticResource CardStyle}"
-                            BorderBrush="{StaticResource AccentBlueBrush}">
+                            BorderBrush="{StaticResource AccentGoldBrush}">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <Button Command="{x:Bind ViewModel.WatchVodCommand}"
                                     FontSize="13" FontWeight="SemiBold"
                                     Height="36" Padding="16,0" CornerRadius="8"
-                                    Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="{StaticResource PrimaryTextBrush}">
+                                    Background="{StaticResource AccentGoldDimBrush}"
+                                    Foreground="{StaticResource AccentGoldBrush}"
+                                    BorderBrush="{StaticResource AccentGoldBrush}"
+                                    BorderThickness="1">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xE714;" FontSize="14"/>
                                     <TextBlock Text="Review VOD" VerticalAlignment="Center"/>
@@ -205,14 +207,14 @@
 
                     <!-- ═══ Mental Reflection (shown when mental <= 3) ═══ -->
                     <Border Visibility="{x:Bind ViewModel.ShowMentalReflection, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                            Background="{StaticResource CardBackgroundBrush}"
-                            BorderBrush="{StaticResource AccentPurpleBrush}"
+                            Background="{StaticResource WarningSurfaceBrush}"
+                            BorderBrush="{StaticResource AccentGoldBrush}"
                             BorderThickness="2"
                             CornerRadius="8" Padding="16">
                         <StackPanel Spacing="8">
                             <TextBlock Text="MENTAL REFLECTION"
                                        FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource AccentPurpleBrush}"/>
+                                       Foreground="{StaticResource AccentGoldBrush}"/>
 
                             <TextBlock Text="What triggered the tilt?"
                                        FontSize="13"
@@ -442,11 +444,13 @@
                                                       CornerRadius="16"
                                                       Padding="12,0"
                                                       HorizontalAlignment="Stretch"
-                                                      BorderBrush="{x:Bind ColorBrush}"
-                                                      BorderThickness="2">
+                                                      Background="{x:Bind TagBackgroundBrush}"
+                                                      Foreground="{StaticResource PrimaryTextBrush}"
+                                                      BorderBrush="{x:Bind TagBorderBrush}"
+                                                      BorderThickness="1">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <Border Width="10" Height="10" CornerRadius="5"
-                                                        Background="{x:Bind ColorBrush}"/>
+                                                        Background="{x:Bind TagAccentBrush}"/>
                                                 <TextBlock Text="{x:Bind Name}"
                                                            VerticalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis"/>
@@ -538,7 +542,7 @@
                                 Height="44" MinWidth="160"
                                 Padding="24,0" CornerRadius="8"
                                 Background="{StaticResource AccentBlueBrush}"
-                                Foreground="{StaticResource PrimaryTextBrush}"/>
+                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
                     </Grid>
 
                     <!-- Bottom spacer -->

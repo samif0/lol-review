@@ -23,11 +23,11 @@
 
         <!-- ═══ Header ═══ -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,16">
-            <TextBlock Text="History"
+            <TextBlock Text="Archive"
                        FontSize="22" FontWeight="Bold"
                        Foreground="{StaticResource PrimaryTextBrush}"
                        VerticalAlignment="Center"/>
-            <TextBlock Text="All recorded games"
+            <TextBlock Text="Recorded matches and VOD access"
                        FontSize="13"
                        Foreground="{StaticResource SecondaryTextBrush}"
                        VerticalAlignment="Center"/>
@@ -52,7 +52,7 @@
             <!-- ═══════════════════════════════════════════════════════ -->
             <!-- Tab 1: Recent Games                                    -->
             <!-- ═══════════════════════════════════════════════════════ -->
-            <PivotItem Header="Recent Games">
+            <PivotItem Header="Archive">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -150,8 +150,10 @@
                                                         <Button Content="Watch VOD"
                                                                 FontSize="11" Height="26"
                                                                 Padding="14,0" CornerRadius="6"
-                                                                Background="{StaticResource AccentGoldBrush}"
-                                                                Foreground="#0a0a0f"
+                                                                Background="{StaticResource AccentGoldDimBrush}"
+                                                                Foreground="{StaticResource AccentGoldBrush}"
+                                                                BorderBrush="{StaticResource AccentGoldBrush}"
+                                                                BorderThickness="1"
                                                                 Tag="{x:Bind GameId}"
                                                                 Visibility="{x:Bind HasVod, Converter={StaticResource BoolToVis}}"
                                                                 Click="WatchVodButton_Click"/>
@@ -159,7 +161,7 @@
                                                                 FontSize="11" Height="26"
                                                                 Padding="14,0" CornerRadius="6"
                                                                 Background="{StaticResource AccentBlueBrush}"
-                                                                Foreground="{StaticResource PrimaryTextBrush}"
+                                                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                                                 Tag="{x:Bind GameId}"
                                                                 Click="ReviewButton_Click"/>
                                                         <Button Content="&#xE74D;"
@@ -191,7 +193,7 @@
                                     CornerRadius="8"
                                     FontSize="13"
                                     Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -200,7 +202,7 @@
             <!-- ═══════════════════════════════════════════════════════ -->
             <!-- Tab 2: Stats Overview                                  -->
             <!-- ═══════════════════════════════════════════════════════ -->
-            <PivotItem Header="Stats Overview">
+            <PivotItem Header="Stats Overview" Visibility="Collapsed">
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
                               Padding="0,8,0,24">
@@ -379,7 +381,7 @@
             <!-- ═══════════════════════════════════════════════════════ -->
             <!-- Tab 3: By Champion                                     -->
             <!-- ═══════════════════════════════════════════════════════ -->
-            <PivotItem Header="By Champion">
+            <PivotItem Header="By Champion" Visibility="Collapsed">
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
                               Padding="0,8,0,24">

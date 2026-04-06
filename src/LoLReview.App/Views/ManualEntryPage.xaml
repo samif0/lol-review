@@ -237,7 +237,7 @@
                         FontSize="14" Height="36" Padding="24,0"
                         CornerRadius="8"
                         Background="{StaticResource AccentBlueBrush}"
-                        Foreground="White" IsTabStop="False"/>
+                        Foreground="{StaticResource ActionPrimaryForegroundBrush}" IsTabStop="False"/>
                 <Button Content="Cancel" Click="OnCancelClick"
                         FontSize="14" Height="36" Padding="24,0"
                         CornerRadius="8"

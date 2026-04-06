@@ -74,7 +74,7 @@
                                     FontSize="11" Height="30"
                                     Padding="12,0" CornerRadius="6"
                                     Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="White"
+                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                     HorizontalAlignment="Left"/>
                             <Button Content="Clear Ascent Folder"
                                     Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
@@ -313,7 +313,7 @@
                             Height="40" Padding="24,0"
                             CornerRadius="8"
                             Background="{StaticResource AccentBlueBrush}"
-                            Foreground="{StaticResource PrimaryTextBrush}"/>
+                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
                 </Grid>
 
                 <!-- Bottom spacer -->

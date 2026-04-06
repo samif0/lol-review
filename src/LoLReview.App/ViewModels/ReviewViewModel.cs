@@ -5,9 +5,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
+using LoLReview.App.Styling;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.ViewModels;
@@ -23,7 +23,7 @@ public partial class ReviewViewModel : ObservableObject
     [ObservableProperty] private string _championName = "";
     [ObservableProperty] private bool _win;
     [ObservableProperty] private string _resultText = "";
-    [ObservableProperty] private string _resultColorHex = "#e8e8f0";
+    [ObservableProperty] private string _resultColorHex = AppSemanticPalette.PrimaryTextHex;
     [ObservableProperty] private string _kdaText = "";
     [ObservableProperty] private string _kdaRatioText = "";
     [ObservableProperty] private string _gameModeText = "";
@@ -42,7 +42,7 @@ public partial class ReviewViewModel : ObservableObject
     [ObservableProperty] private bool _hasVod;
     [ObservableProperty] private int _bookmarkCount;
     [ObservableProperty] private int _mentalRating = 5;
-    [ObservableProperty] private string _mentalRatingColorHex = "#0099ff";
+    [ObservableProperty] private string _mentalRatingColorHex = AppSemanticPalette.AccentBlueHex;
     [ObservableProperty] private string _wentWell = "";
     [ObservableProperty] private string _mistakes = "";
     [ObservableProperty] private string _focusNext = "";
@@ -284,7 +284,7 @@ public partial class ReviewViewModel : ObservableObject
         ChampionName = game.ChampionName;
         Win = game.Win;
         ResultText = game.Win ? "VICTORY" : "DEFEAT";
-        ResultColorHex = game.Win ? "#22c55e" : "#ef4444";
+        ResultColorHex = game.Win ? AppSemanticPalette.PositiveHex : AppSemanticPalette.NegativeHex;
         KdaText = $"{game.Kills} / {game.Deaths} / {game.Assists}";
         KdaRatioText = $"{game.KdaRatio:F2} KDA";
         GameModeText = game.GameMode;
@@ -296,7 +296,7 @@ public partial class ReviewViewModel : ObservableObject
         CsPerMinText = $"{game.CsPerMin:F1}/m";
         VisionText = game.VisionScore.ToString();
         GoldText = FormatNumber(game.GoldEarned);
-        KillParticipationText = $"{game.KillParticipation:F0}%";
+        KillParticipationText = game.KillParticipation > 0 ? $"{game.KillParticipation:F0}%" : "—";
         DamageTakenText = FormatNumber(game.TotalDamageTaken);
         WardsPlacedText = game.WardsPlaced.ToString();
     }
@@ -334,6 +334,7 @@ public partial class ReviewViewModel : ObservableObject
                 {
                     Id = tag.Id,
                     Name = tag.Name,
+                    Polarity = tag.Polarity,
                     ColorHex = tag.ColorHex,
                     IsSelected = tag.IsSelected
                 });
@@ -399,13 +400,7 @@ public partial class ReviewViewModel : ObservableObject
 
     private void UpdateMentalColor()
     {
-        MentalRatingColorHex = MentalRating switch
-        {
-            >= 8 => "#22c55e",
-            >= 5 => "#0099ff",
-            >= 4 => "#c89b3c",
-            _ => "#ef4444"
-        };
+        MentalRatingColorHex = AppSemanticPalette.MentalRatingHex(MentalRating);
     }
 
     private void UpdateSaveBehaviorText()
@@ -457,55 +452,41 @@ public class ConceptTagItem : ObservableObject
 {
     public long Id { get; set; }
     public string Name { get; set; } = "";
+    public string Polarity { get; set; } = "neutral";
 
-    private string _colorHex = "#3b82f6";
+    private string _colorHex = AppSemanticPalette.AccentBlueHex;
     public string ColorHex
     {
         get => _colorHex;
         set
         {
             _colorHex = value;
-            _colorBrush = null;
+            OnPropertyChanged(nameof(TagAccentBrush));
+            OnPropertyChanged(nameof(TagBackgroundBrush));
+            OnPropertyChanged(nameof(TagBorderBrush));
         }
     }
 
-    private SolidColorBrush? _colorBrush;
-    public SolidColorBrush ColorBrush
-    {
-        get
-        {
-            if (_colorBrush == null)
-            {
-                try
-                {
-                    var hex = ColorHex.TrimStart('#');
-                    if (hex.Length == 6)
-                    {
-                        var r = Convert.ToByte(hex[..2], 16);
-                        var g = Convert.ToByte(hex[2..4], 16);
-                        var b = Convert.ToByte(hex[4..6], 16);
-                        _colorBrush = new SolidColorBrush(ColorHelper.FromArgb(255, r, g, b));
-                    }
-                    else
-                    {
-                        _colorBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 59, 130, 246));
-                    }
-                }
-                catch
-                {
-                    _colorBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 59, 130, 246));
-                }
-            }
-
-            return _colorBrush;
-        }
-    }
+    public SolidColorBrush TagAccentBrush => AppSemanticPalette.TagAccentBrush(Polarity, ColorHex);
+    public SolidColorBrush TagBackgroundBrush => IsSelected
+        ? AppSemanticPalette.TagSurfaceBrush(Polarity, ColorHex)
+        : AppSemanticPalette.Brush(AppSemanticPalette.TagSurfaceHex);
+    public SolidColorBrush TagBorderBrush => IsSelected
+        ? AppSemanticPalette.TagAccentBrush(Polarity, ColorHex)
+        : AppSemanticPalette.Brush(AppSemanticPalette.SubtleBorderHex);
 
     private bool _isSelected;
     public bool IsSelected
     {
         get => _isSelected;
-        set => SetProperty(ref _isSelected, value);
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+            {
+                OnPropertyChanged(nameof(TagBackgroundBrush));
+                OnPropertyChanged(nameof(TagBorderBrush));
+            }
+        }
     }
 }
 

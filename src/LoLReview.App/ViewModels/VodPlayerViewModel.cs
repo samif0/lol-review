@@ -1,13 +1,16 @@
-#nullable enable
+﻿#nullable enable
 
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
+using LoLReview.App.Styling;
 using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.ViewModels;
 
@@ -23,8 +26,9 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly ICoachLabService _coachLabService;
     private readonly INavigationService _navigationService;
     private readonly ILogger<VodPlayerViewModel> _logger;
+    private readonly SemaphoreSlim _bookmarkMutationLock = new(1, 1);
 
-    // ── Game info ────────────────────────────────────────────────────
+    // â”€â”€ Game info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [ObservableProperty] private long _gameId;
     [ObservableProperty] private string _championName = "";
@@ -33,7 +37,7 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _vodPath = "";
     [ObservableProperty] private int _gameDurationS;
 
-    // ── Playback state ──────────────────────────────────────────────
+    // â”€â”€ Playback state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [ObservableProperty] private bool _isPlaying;
     [ObservableProperty] private double _currentTimeS;
@@ -43,8 +47,10 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private int _seekStepSeconds = 10;
     [ObservableProperty] private bool _hasVod;
     [ObservableProperty] private bool _isLoading;
+    [ObservableProperty] private bool _hasGameEvents;
+    [ObservableProperty] private string _gameEventsStatusText = "No live events.";
 
-    // ── Clip extraction ─────────────────────────────────────────────
+    // â”€â”€ Clip extraction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [ObservableProperty] private double _clipStartS = -1;
     [ObservableProperty] private double _clipEndS = -1;
@@ -53,11 +59,11 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _clipDurationText = "";
     [ObservableProperty] private bool _hasFfmpeg;
     [ObservableProperty] private bool _isExtractingClip;
-    [ObservableProperty] private string _clipStatusText = "";
+    [ObservableProperty] private string _clipStatusText = "Start, end, save.";
     [ObservableProperty] private string _bookmarkNote = "";
     [ObservableProperty] private string _clipNote = "";
 
-    // ── Collections ─────────────────────────────────────────────────
+    // â”€â”€ Collections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public ObservableCollection<BookmarkItem> Bookmarks { get; } = new();
     public ObservableCollection<TimelineEvent> GameEvents { get; } = new();
@@ -70,9 +76,15 @@ public partial class VodPlayerViewModel : ObservableObject
         new[] { 1, 2, 5, 10, 15, 30, 60 };
 
     public string SeekStepText => $"{SeekStepSeconds}s";
-    public string SeekStepHintText => $"Left/Right seek {SeekStepSeconds}s  •  Up/Down changes step";
+    public string SeekStepHintText => $"Left/Right {SeekStepText} | Up/Down step";
+    public string ClipStartActionText => ClipStartS >= 0 ? "Move Start" : "Start Clip";
+    public string ClipEndActionText => ClipEndS >= 0 ? "Move End" : "End Clip";
 
-    // ── Events for the view ─────────────────────────────────────────
+    // â”€â”€ Events for the view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    public string OutcomeLabel => Win ? "Victory" : "Defeat";
+    public string VodStatusLabel => HasVod ? "VOD linked" : "No recording";
+    public string PlaybackStateLabel => IsPlaying ? "Playing" : "Paused";
 
     /// <summary>Raised when the view should seek the media player.</summary>
     public event Action<double>? SeekRequested;
@@ -83,7 +95,7 @@ public partial class VodPlayerViewModel : ObservableObject
     /// <summary>Raised when play/pause should toggle.</summary>
     public event Action? PlayPauseRequested;
 
-    // ── Constructor ─────────────────────────────────────────────────
+    // â”€â”€ Constructor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public VodPlayerViewModel(
         IVodRepository vodRepo,
@@ -107,7 +119,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _logger = logger;
     }
 
-    // ── Load ────────────────────────────────────────────────────────
+    // â”€â”€ Load â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [RelayCommand]
     private async Task LoadAsync(long gameId)
@@ -125,7 +137,7 @@ public partial class VodPlayerViewModel : ObservableObject
 
             ChampionName = game.ChampionName;
             Win = game.Win;
-            HeaderText = $"VOD Review — {game.ChampionName} ({(game.Win ? "W" : "L")})";
+            HeaderText = $"VOD Review - {game.ChampionName} ({(game.Win ? "W" : "L")})";
             GameDurationS = game.GameDuration;
             TotalTimeText = FormatTime(game.GameDuration);
 
@@ -156,6 +168,11 @@ public partial class VodPlayerViewModel : ObservableObject
                         Details = e.Details,
                     });
                 }
+
+                HasGameEvents = GameEvents.Count > 0;
+                GameEventsStatusText = HasGameEvents
+                    ? $"{GameEvents.Count} event(s). Click a marker to jump."
+                    : "No live events.";
             });
 
             // Load derived events for timeline regions
@@ -192,7 +209,7 @@ public partial class VodPlayerViewModel : ObservableObject
         }
     }
 
-    // ── Playback commands ───────────────────────────────────────────
+    // â”€â”€ Playback commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [RelayCommand]
     private void PlayPause()
@@ -237,11 +254,12 @@ public partial class VodPlayerViewModel : ObservableObject
         AdjustSeekStep(-1);
     }
 
-    // ── Bookmark commands ───────────────────────────────────────────
+    // â”€â”€ Bookmark commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [RelayCommand]
     private async Task AddBookmarkAsync()
     {
+        await _bookmarkMutationLock.WaitAsync();
         try
         {
             await PersistVisibleBookmarkNotesAsync();
@@ -256,20 +274,49 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             _logger.LogError(ex, "Failed to add bookmark");
         }
+        finally
+        {
+            _bookmarkMutationLock.Release();
+        }
     }
 
     [RelayCommand]
     private async Task DeleteBookmarkAsync(long bookmarkId)
     {
+        await _bookmarkMutationLock.WaitAsync();
         try
         {
+            var bookmark = Bookmarks.FirstOrDefault(item => item.Id == bookmarkId);
+            var bookmarkKind = bookmark?.IsClip == true ? "clip" : "note";
+            AppDiagnostics.WriteVerbose(
+                "vod-delete.log",
+                $"delete requested bookmarkId={bookmarkId} kind={bookmarkKind} gameId={GameId}");
+            _logger.LogInformation(
+                "Deleting {Kind} bookmark {BookmarkId} for game {GameId}",
+                bookmarkKind,
+                bookmarkId,
+                GameId);
             await PersistVisibleBookmarkNotesAsync();
             await _vodRepo.DeleteBookmarkAsync(bookmarkId);
             await RefreshBookmarksAsync();
+            AppDiagnostics.WriteVerbose(
+                "vod-delete.log",
+                $"delete completed bookmarkId={bookmarkId} remaining={Bookmarks.Count}");
+            _logger.LogInformation(
+                "Deleted bookmark {BookmarkId}; remaining bookmark count is {Count}",
+                bookmarkId,
+                Bookmarks.Count);
         }
         catch (Exception ex)
         {
+            AppDiagnostics.WriteVerbose(
+                "vod-delete.log",
+                $"delete failed bookmarkId={bookmarkId} error={ex.GetType().Name}: {ex.Message}");
             _logger.LogError(ex, "Failed to delete bookmark {Id}", bookmarkId);
+        }
+        finally
+        {
+            _bookmarkMutationLock.Release();
         }
     }
 
@@ -281,6 +328,7 @@ public partial class VodPlayerViewModel : ObservableObject
             return;
         }
 
+        await _bookmarkMutationLock.WaitAsync();
         try
         {
             await _vodRepo.UpdateBookmarkAsync(bookmark.Id, note: bookmark.Note?.Trim() ?? "");
@@ -288,6 +336,10 @@ public partial class VodPlayerViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save note for bookmark {Id}", bookmark.Id);
+        }
+        finally
+        {
+            _bookmarkMutationLock.Release();
         }
     }
 
@@ -297,7 +349,18 @@ public partial class VodPlayerViewModel : ObservableObject
         SeekRequested?.Invoke(bookmark.GameTimeS);
     }
 
-    // ── Clip commands ───────────────────────────────────────────────
+    [RelayCommand]
+    private void SeekToEvent(TimelineEvent? timelineEvent)
+    {
+        if (timelineEvent is null)
+        {
+            return;
+        }
+
+        SeekRequested?.Invoke(timelineEvent.GameTimeS);
+    }
+
+    // â”€â”€ Clip commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [RelayCommand]
     private void SetClipIn()
@@ -321,6 +384,7 @@ public partial class VodPlayerViewModel : ObservableObject
         HasClipRange = false;
         ClipRangeText = "";
         ClipDurationText = "";
+        ClipStatusText = "Clip cleared.";
     }
 
     [RelayCommand]
@@ -330,7 +394,8 @@ public partial class VodPlayerViewModel : ObservableObject
         if (IsExtractingClip) return;
 
         IsExtractingClip = true;
-        ClipStatusText = "Extracting clip...";
+        ClipStatusText = "Saving clip...";
+        await _bookmarkMutationLock.WaitAsync();
 
         try
         {
@@ -375,26 +440,27 @@ public partial class VodPlayerViewModel : ObservableObject
                 }
 
                 ClipNote = "";
-                ClipStatusText = "Clip saved!";
+                ClipStatusText = "Clip saved.";
                 _logger.LogInformation("Clip extracted: {Path}", clipPath);
             }
             else
             {
-                ClipStatusText = "Clip extraction failed.";
+                ClipStatusText = "Clip save failed.";
             }
         }
         catch (Exception ex)
         {
-            ClipStatusText = "Error extracting clip.";
+            ClipStatusText = "Clip save error.";
             _logger.LogError(ex, "Clip extraction failed");
         }
         finally
         {
+            _bookmarkMutationLock.Release();
             IsExtractingClip = false;
         }
     }
 
-    // ── Navigation ──────────────────────────────────────────────────
+    // â”€â”€ Navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [RelayCommand]
     private void GoBack()
@@ -402,7 +468,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _navigationService.GoBack();
     }
 
-    // ── Public methods for the view ─────────────────────────────────
+    // â”€â”€ Public methods for the view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>Called by the view's position timer to update display.</summary>
     public void UpdatePosition(double seconds, double totalSeconds)
@@ -417,7 +483,7 @@ public partial class VodPlayerViewModel : ObservableObject
         }
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────
+    // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async Task RefreshBookmarksAsync()
     {
@@ -442,7 +508,7 @@ public partial class VodPlayerViewModel : ObservableObject
                     Note = note,
                     IsClip = !string.IsNullOrEmpty(clipPath),
                     ClipRangeText = clipStartS != null && clipEndS != null
-                        ? $"{FormatTime(clipStartS.Value)} – {FormatTime(clipEndS.Value)}"
+                        ? $"{FormatTime(clipStartS.Value)} - {FormatTime(clipEndS.Value)}"
                         : "",
                 });
             }
@@ -451,7 +517,10 @@ public partial class VodPlayerViewModel : ObservableObject
 
     private async Task PersistVisibleBookmarkNotesAsync()
     {
-        foreach (var bookmark in Bookmarks)
+        // Snapshot to avoid InvalidOperationException if the collection is
+        // modified while we yield (e.g. LostFocus triggers during Clear).
+        var snapshot = Bookmarks.ToList();
+        foreach (var bookmark in snapshot)
         {
             if (bookmark.Id <= 0)
             {
@@ -471,14 +540,26 @@ public partial class VodPlayerViewModel : ObservableObject
             var duration = endS - startS;
 
             HasClipRange = duration >= 1;
-            ClipRangeText = $"{FormatTime((int)startS)} – {FormatTime((int)endS)}";
+            ClipRangeText = $"{FormatTime((int)startS)} - {FormatTime((int)endS)}";
             ClipDurationText = $"{FormatTime((int)duration)}";
+            ClipStatusText = HasClipRange
+                ? "Clip ready."
+                : "Clip too short.";
         }
         else
         {
             HasClipRange = false;
-            ClipRangeText = ClipStartS >= 0 ? $"{FormatTime((int)ClipStartS)} – ?" : "";
+            ClipRangeText = ClipStartS >= 0
+                ? $"{FormatTime((int)ClipStartS)} - ?"
+                : ClipEndS >= 0
+                    ? $"? - {FormatTime((int)ClipEndS)}"
+                    : "";
             ClipDurationText = "";
+            ClipStatusText = ClipStartS >= 0
+                ? "Start set. Move forward and end the clip."
+                : ClipEndS >= 0
+                    ? "End set. Move back and set the start."
+                    : "Start, end, save.";
         }
     }
 
@@ -494,6 +575,22 @@ public partial class VodPlayerViewModel : ObservableObject
         OnPropertyChanged(nameof(SeekStepText));
         OnPropertyChanged(nameof(SeekStepHintText));
     }
+
+    partial void OnClipStartSChanged(double value)
+    {
+        OnPropertyChanged(nameof(ClipStartActionText));
+    }
+
+    partial void OnClipEndSChanged(double value)
+    {
+        OnPropertyChanged(nameof(ClipEndActionText));
+    }
+
+    partial void OnWinChanged(bool value) => OnPropertyChanged(nameof(OutcomeLabel));
+
+    partial void OnHasVodChanged(bool value) => OnPropertyChanged(nameof(VodStatusLabel));
+
+    partial void OnIsPlayingChanged(bool value) => OnPropertyChanged(nameof(PlaybackStateLabel));
 
     private void AdjustSeekStep(int direction)
     {
@@ -519,7 +616,7 @@ public partial class VodPlayerViewModel : ObservableObject
     }
 }
 
-// ── Display models ──────────────────────────────────────────────────
+// â”€â”€ Display models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 public class BookmarkItem
 {
@@ -529,6 +626,12 @@ public class BookmarkItem
     public string Note { get; set; } = "";
     public bool IsClip { get; set; }
     public string ClipRangeText { get; set; } = "";
+    public string KindLabel => IsClip ? "CLIP" : "NOTE";
+    public string MarkerColorHex => IsClip ? AppSemanticPalette.AccentGoldHex : AppSemanticPalette.NeutralHex;
+    public SolidColorBrush AccentBrush => AppSemanticPalette.Brush(MarkerColorHex);
+    public SolidColorBrush SurfaceBrush => IsClip
+        ? AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldDimHex)
+        : AppSemanticPalette.Brush(AppSemanticPalette.TagSurfaceHex);
 }
 
 public class TimelineEvent
@@ -536,22 +639,44 @@ public class TimelineEvent
     public string EventType { get; set; } = "";
     public double GameTimeS { get; set; }
     public string Details { get; set; } = "";
+    public string TimeText => VodPlayerViewModel.FormatTime((int)GameTimeS);
+    public string Summary => FormatSummary();
+    public string DisplayText => string.IsNullOrEmpty(Summary) ? Label : $"{Label}: {Summary}";
+    public string TooltipText => $"{TimeText} {DisplayText}";
+    public SolidColorBrush AccentBrush => AppSemanticPalette.Brush(Color);
+    public SolidColorBrush SurfaceBrush => AppSemanticPalette.Brush(SurfaceColor);
 
     /// <summary>Get the display color for this event type.</summary>
     public string Color => EventType.ToUpperInvariant() switch
     {
-        "KILL" => "#28c76f",
-        "DEATH" => "#ea5455",
-        "ASSIST" => "#0099ff",
-        "DRAGON" => "#c89b3c",
-        "BARON" => "#8b5cf6",
-        "HERALD" => "#06b6d4",
-        "TURRET" => "#f97316",
-        "INHIBITOR" => "#ec4899",
-        "FIRST_BLOOD" => "#ef4444",
-        "MULTI_KILL" => "#fbbf24",
-        "LEVEL_UP" => "#6366f1",
-        _ => "#7070a0",
+        "KILL" => AppSemanticPalette.PositiveHex,
+        "DEATH" => AppSemanticPalette.NegativeHex,
+        "ASSIST" => AppSemanticPalette.AccentBlueHex,
+        "DRAGON" => AppSemanticPalette.AccentGoldHex,
+        "BARON" => AppSemanticPalette.AccentGoldHex,
+        "HERALD" => AppSemanticPalette.AccentTealHex,
+        "TURRET" => AppSemanticPalette.AccentTealHex,
+        "INHIBITOR" => AppSemanticPalette.AccentGoldHex,
+        "FIRST_BLOOD" => AppSemanticPalette.NegativeHex,
+        "MULTI_KILL" => AppSemanticPalette.AccentGoldHex,
+        "LEVEL_UP" => AppSemanticPalette.NeutralHex,
+        _ => AppSemanticPalette.NeutralHex,
+    };
+
+    public string SurfaceColor => EventType.ToUpperInvariant() switch
+    {
+        "KILL" => AppSemanticPalette.PositiveDimHex,
+        "DEATH" => AppSemanticPalette.NegativeDimHex,
+        "ASSIST" => AppSemanticPalette.AccentBlueDimHex,
+        "DRAGON" => AppSemanticPalette.AccentGoldDimHex,
+        "BARON" => AppSemanticPalette.AccentGoldDimHex,
+        "HERALD" => AppSemanticPalette.AccentTealDimHex,
+        "TURRET" => AppSemanticPalette.AccentTealDimHex,
+        "INHIBITOR" => AppSemanticPalette.AccentGoldDimHex,
+        "FIRST_BLOOD" => AppSemanticPalette.NegativeDimHex,
+        "MULTI_KILL" => AppSemanticPalette.AccentGoldDimHex,
+        "LEVEL_UP" => AppSemanticPalette.TagSurfaceHex,
+        _ => AppSemanticPalette.TagSurfaceHex,
     };
 
     /// <summary>Get the marker shape for this event type.</summary>
@@ -559,11 +684,11 @@ public class TimelineEvent
     {
         "KILL" or "FIRST_BLOOD" => MarkerShape.TriangleUp,
         "DEATH" => MarkerShape.TriangleDown,
-        "ASSIST" => MarkerShape.Circle,
+        "ASSIST" => MarkerShape.Diamond,
         "DRAGON" or "BARON" or "HERALD" => MarkerShape.Diamond,
         "TURRET" or "INHIBITOR" => MarkerShape.Square,
         "MULTI_KILL" => MarkerShape.Star,
-        _ => MarkerShape.Circle,
+        _ => MarkerShape.Square,
     };
 
     public string Label => EventType.ToUpperInvariant() switch
@@ -581,6 +706,84 @@ public class TimelineEvent
         "LEVEL_UP" => "Level Up",
         _ => EventType,
     };
+
+    private string FormatSummary()
+    {
+        if (string.IsNullOrWhiteSpace(Details) || Details == "{}")
+        {
+            return "";
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(Details);
+            var root = doc.RootElement;
+
+            return EventType.ToUpperInvariant() switch
+            {
+                "KILL" => ReadValue(root, "victim"),
+                "DEATH" => ReadValue(root, "killer"),
+                "ASSIST" => ReadValue(root, "victim"),
+                "DRAGON" => FormatDragonSummary(root),
+                "BARON" => FormatObjectiveSummary(root, "killer"),
+                "HERALD" => FormatObjectiveSummary(root, "killer"),
+                "TURRET" => FormatObjectiveSummary(root, "killer"),
+                "INHIBITOR" => FormatObjectiveSummary(root, "killer"),
+                "MULTI_KILL" => ReadValue(root, "label"),
+                _ => "",
+            };
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static string FormatDragonSummary(JsonElement root)
+    {
+        var dragonType = ReadValue(root, "dragon_type");
+        var killer = ReadValue(root, "killer");
+        var stolen = root.TryGetProperty("stolen", out var stolenProp)
+            && stolenProp.ValueKind == JsonValueKind.True;
+
+        var summary = string.IsNullOrWhiteSpace(dragonType)
+            ? killer
+            : string.IsNullOrWhiteSpace(killer)
+                ? dragonType
+                : $"{dragonType} by {killer}";
+
+        return stolen && !string.IsNullOrWhiteSpace(summary)
+            ? $"{summary} (stolen)"
+            : summary;
+    }
+
+    private static string FormatObjectiveSummary(JsonElement root, string actorProperty)
+    {
+        var actor = ReadValue(root, actorProperty);
+        if (string.IsNullOrWhiteSpace(actor))
+        {
+            return "";
+        }
+
+        return $"by {actor}";
+    }
+
+    private static string ReadValue(JsonElement root, string property)
+    {
+        if (!root.TryGetProperty(property, out var value))
+        {
+            return "";
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? "",
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => "",
+        };
+    }
 }
 
 public enum MarkerShape
@@ -600,3 +803,5 @@ public class DerivedEventRegion
     public string Color { get; set; } = "#ff6b6b";
     public string Name { get; set; } = "";
 }
+
+

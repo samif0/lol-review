@@ -416,6 +416,9 @@ public sealed class GameMonitorServiceTests
         public Task<List<System.Text.Json.JsonElement>> GetMatchHistoryAsync(int begin = 0, int count = 5, CancellationToken ct = default) =>
             Task.FromResult<List<System.Text.Json.JsonElement>>([]);
 
+        public Task<System.Text.Json.JsonElement?> GetMatchDetailsAsync(long gameId, CancellationToken ct = default) =>
+            Task.FromResult<System.Text.Json.JsonElement?>(null);
+
         public Task<string?> GetChampionNameAsync(int championId, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
         public Task<System.Text.Json.JsonElement?> GetRankedStatsAsync(CancellationToken ct = default) =>

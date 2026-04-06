@@ -128,13 +128,12 @@
                                                    Foreground="{StaticResource MutedTextBrush}"
                                                    VerticalAlignment="Center"/>
                                         <!-- Practiced badge -->
-                                        <Border CornerRadius="4" Padding="6,2">
-                                            <Border.Background>
-                                                <SolidColorBrush Color="{x:Bind PracticedColor}"/>
-                                            </Border.Background>
+                                        <Border CornerRadius="4"
+                                                Padding="6,2"
+                                                Background="{x:Bind PracticedBackgroundBrush}">
                                             <TextBlock Text="{x:Bind PracticedText}"
                                                        FontSize="10" FontWeight="Bold"
-                                                       Foreground="White"/>
+                                                       Foreground="{x:Bind PracticedForegroundBrush}"/>
                                         </Border>
                                     </StackPanel>
 

@@ -35,7 +35,7 @@
                             Content="+ New Objective"
                             Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
                             Background="{StaticResource AccentBlueBrush}"
-                            Foreground="White"
+                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                             CornerRadius="6" Height="34"
                             BorderThickness="0"/>
                 </Grid>
@@ -127,7 +127,7 @@
                                     Command="{x:Bind ViewModel.CreateObjectiveCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanCreate, Mode=OneWay}"
                                     Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="White"
+                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                     CornerRadius="6" Height="32"
                                     BorderThickness="0"/>
                         </StackPanel>
@@ -167,18 +167,18 @@
                                 <StackPanel Spacing="6">
                                     <!-- Title Row: Type Badge + Title -->
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Border Background="{StaticResource AccentGoldBrush}"
+                                        <Border Background="{x:Bind PriorityBadgeBackgroundBrush}"
                                                 CornerRadius="4" Padding="6,2"
                                                 Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}}">
                                             <TextBlock Text="{x:Bind PriorityBadge}"
                                                        FontSize="9" FontWeight="Bold"
-                                                       Foreground="Black"/>
+                                                       Foreground="{x:Bind PriorityBadgeForegroundBrush}"/>
                                         </Border>
-                                        <Border Background="#1e40af"
+                                        <Border Background="{x:Bind TypeBadgeBackgroundBrush}"
                                                 CornerRadius="4" Padding="6,2">
                                             <TextBlock Text="{x:Bind TypeBadge}"
                                                        FontSize="9" FontWeight="Bold"
-                                                       Foreground="White"/>
+                                                       Foreground="{x:Bind TypeBadgeForegroundBrush}"/>
                                         </Border>
                                         <TextBlock Text="{x:Bind Title}"
                                                    FontSize="16" FontWeight="Bold"
@@ -332,13 +332,13 @@
                                     Content="+ New Guardrail"
                                     Command="{x:Bind RulesVM.ToggleCreateFormCommand}"
                                     Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="White"
+                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                     CornerRadius="6"
                                     Height="34"
                                     BorderThickness="0"/>
                         </Grid>
 
-                        <Border Background="#3f1111"
+                        <Border Background="{StaticResource DangerSurfaceBrush}"
                                 CornerRadius="8"
                                 Padding="16,12"
                                 BorderThickness="2"
@@ -454,7 +454,7 @@
                                             Command="{x:Bind RulesVM.CreateRuleCommand}"
                                             IsEnabled="{x:Bind RulesVM.CanCreate, Mode=OneWay}"
                                             Background="{StaticResource AccentBlueBrush}"
-                                            Foreground="White"
+                                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                             CornerRadius="6"
                                             Height="32"
                                             BorderThickness="0"/>
@@ -488,14 +488,14 @@
                                                 </Grid.ColumnDefinitions>
 
                                                 <Border Grid.Column="0"
-                                                        Background="#1e40af"
+                                                        Background="{StaticResource InfoSurfaceBrush}"
                                                         CornerRadius="4"
                                                         Padding="6,2"
                                                         Margin="0,0,8,0">
                                                     <TextBlock Text="{x:Bind TypeBadge}"
                                                                FontSize="9"
                                                                FontWeight="Bold"
-                                                               Foreground="White"/>
+                                                               Foreground="{StaticResource AccentBlueBrush}"/>
                                                 </Border>
                                                 <TextBlock Grid.Column="1"
                                                            Text="{x:Bind Name}"
@@ -586,14 +586,14 @@
                                             Opacity="0.7">
                                         <StackPanel Spacing="4">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <Border Background="#1e40af"
+                                                <Border Background="{StaticResource InfoSurfaceBrush}"
                                                         CornerRadius="4"
                                                         Padding="6,2"
                                                         Opacity="0.6">
                                                     <TextBlock Text="{x:Bind TypeBadge}"
                                                                FontSize="9"
                                                                FontWeight="Bold"
-                                                               Foreground="White"/>
+                                                               Foreground="{StaticResource AccentBlueBrush}"/>
                                                 </Border>
                                                 <TextBlock Text="{x:Bind Name}"
                                                            FontSize="15"
@@ -740,7 +740,7 @@
                                                 FontSize="11"
                                                 Tag="{x:Bind Id}"
                                                 Click="ViewObjectiveGames_Click"/>
-                                        <Border Background="#1a3a1a"
+                                        <Border Background="{StaticResource SuccessSurfaceBrush}"
                                                 CornerRadius="4" Padding="6,2">
                                             <TextBlock Text="DONE"
                                                        FontSize="10" FontWeight="Bold"

@@ -17,7 +17,6 @@ public sealed class LiveEventCollector
     private readonly TimeSpan _pollInterval;
 
     private readonly List<JsonElement> _rawEvents = [];
-    private int _lastEventId = -1;
     private string? _playerName;
 
     public LiveEventCollector(
@@ -45,7 +44,6 @@ public sealed class LiveEventCollector
     public async Task StartAsync(CancellationToken ct)
     {
         _rawEvents.Clear();
-        _lastEventId = -1;
         _playerName = null;
         _logger.LogInformation("Live event collector started");
 
@@ -141,21 +139,19 @@ public sealed class LiveEventCollector
         if (raw is null)
             return;
 
-        // Only process events we haven't seen yet
-        foreach (var evt in raw)
-        {
-            var eid = -1;
-            if (evt.TryGetProperty("EventID", out var eventIdProp)
-                && eventIdProp.TryGetInt32(out var eventId))
-            {
-                eid = eventId;
-            }
+        AppendNewRawEvents(_rawEvents, raw);
+    }
 
-            if (eid > _lastEventId)
-            {
-                _rawEvents.Add(evt.Clone());
-                _lastEventId = eid;
-            }
+    internal static void AppendNewRawEvents(List<JsonElement> destination, IReadOnlyList<JsonElement> snapshot)
+    {
+        if (snapshot.Count <= destination.Count)
+        {
+            return;
+        }
+
+        for (var i = destination.Count; i < snapshot.Count; i++)
+        {
+            destination.Add(snapshot[i].Clone());
         }
     }
 

@@ -68,7 +68,7 @@ public sealed class GameEventsRepository : IGameEventsRepository
             results.Add(new GameEvent
             {
                 Id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
-                GameId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                GameId = reader.IsDBNull(1) ? 0 : reader.GetInt64(1),
                 EventType = reader.IsDBNull(2) ? "" : reader.GetString(2),
                 GameTimeS = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
                 Details = reader.IsDBNull(4) ? "{}" : reader.GetString(4),

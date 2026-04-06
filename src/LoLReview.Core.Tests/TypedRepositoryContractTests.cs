@@ -1,4 +1,5 @@
 using LoLReview.Core.Models;
+using Microsoft.Data.Sqlite;
 
 namespace LoLReview.Core.Tests;
 
@@ -93,5 +94,186 @@ public sealed class TypedRepositoryContractTests
         Assert.Equal(130, instance.EndTimeSeconds);
         Assert.Equal("Back-to-back kills", instance.DefinitionName);
         Assert.Equal("#ffaa00", instance.Color);
+    }
+
+    [Fact]
+    public async Task GameEventsRepository_RoundTrips64BitGameIds()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 5_531_387_189;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId));
+
+        var events = new List<GameEvent>
+        {
+            new() { EventType = GameEvent.EventTypes.Dragon, GameTimeS = 334, Details = """{"dragon_type":"Chemtech"}""" },
+        };
+
+        await scope.GameEvents.SaveEventsAsync(gameId, events);
+        var savedEvents = await scope.GameEvents.GetEventsAsync(gameId);
+
+        var savedEvent = Assert.Single(savedEvents);
+        Assert.Equal(gameId, savedEvent.GameId);
+        Assert.Equal(GameEvent.EventTypes.Dragon, savedEvent.EventType);
+        Assert.Equal(334, savedEvent.GameTimeS);
+    }
+
+    [Fact]
+    public async Task VodRepository_DeleteBookmarkAsync_RemovesSavedBookmarksAndClips()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var gameId = await scope.Games.SaveManualAsync("Jinx", true);
+        var noteBookmarkId = await scope.Vod.AddBookmarkAsync(gameId, 95, "Trade setup");
+        var clipBookmarkId = await scope.Vod.AddBookmarkAsync(
+            gameId,
+            180,
+            "Dragon fight",
+            clipStartSeconds: 176,
+            clipEndSeconds: 190,
+            clipPath: @"C:\clips\dragon-fight.mp4");
+
+        await scope.Vod.DeleteBookmarkAsync(noteBookmarkId);
+        var remainingAfterFirstDelete = await scope.Vod.GetBookmarksAsync(gameId);
+
+        var remainingBookmark = Assert.Single(remainingAfterFirstDelete);
+        Assert.Equal(clipBookmarkId, remainingBookmark.Id);
+        Assert.Equal(@"C:\clips\dragon-fight.mp4", remainingBookmark.ClipPath);
+
+        await scope.Vod.DeleteBookmarkAsync(clipBookmarkId);
+        var remainingAfterSecondDelete = await scope.Vod.GetBookmarksAsync(gameId);
+
+        Assert.Empty(remainingAfterSecondDelete);
+    }
+
+    [Fact]
+    public async Task VodRepository_DeleteBookmarkAsync_RemovesClipBackedCoachRows()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var gameId = await scope.Games.SaveManualAsync("Jinx", true);
+        var clipBookmarkId = await scope.Vod.AddBookmarkAsync(
+            gameId,
+            180,
+            "Dragon fight",
+            clipStartSeconds: 176,
+            clipEndSeconds: 190,
+            clipPath: @"C:\clips\dragon-fight.mp4");
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        await using (var connection = scope.OpenConnection())
+        {
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_players (id, display_name, is_primary, created_at, updated_at)
+                VALUES (1, 'Tester', 1, @now, @now)
+                """,
+                ("@now", now));
+
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_moments (
+                    id, player_id, game_id, bookmark_id, source_type, patch_version, champion, role, game_time_s,
+                    clip_start_s, clip_end_s, clip_path, storyboard_path, hud_strip_path, minimap_strip_path, manifest_path,
+                    note_text, context_text, dataset_version, model_version, created_at
+                )
+                VALUES (
+                    501, 1, @gameId, @bookmarkId, 'manual_clip', 'unknown', 'Jinx', 'BOTTOM', 180,
+                    176, 190, @clipPath, '', '', '', '', 'Dragon fight', '',
+                    'bootstrap-v1', 'assist-heuristic-v1', @now
+                )
+                """,
+                ("@gameId", gameId),
+                ("@bookmarkId", clipBookmarkId),
+                ("@clipPath", @"C:\clips\dragon-fight.mp4"),
+                ("@now", now));
+
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_labels (
+                    moment_id, player_id, label_quality, primary_reason, objective_key, explanation,
+                    confidence, source, created_at, updated_at
+                )
+                VALUES (
+                    501, 1, 'good', 'manual_clip_review', 'dragon_setup', 'good setup',
+                    0.8, 'manual', @now, @now
+                )
+                """,
+                ("@now", now));
+
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_inferences (
+                    moment_id, player_id, model_version, inference_mode, moment_quality, primary_reason,
+                    objective_key, confidence, rationale, raw_payload, created_at, updated_at
+                )
+                VALUES (
+                    501, 1, 'assist-heuristic-v1', 'assist', 'good', 'manual_clip_review',
+                    'dragon_setup', 0.7, 'looked clean', '{}', @now, @now
+                )
+                """,
+                ("@now", now));
+        }
+
+        await scope.Vod.DeleteBookmarkAsync(clipBookmarkId);
+
+        await using var verificationConnection = scope.OpenConnection();
+        var bookmarkCount = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT COUNT(*)
+            FROM vod_bookmarks
+            WHERE id = @bookmarkId
+            """,
+            ("@bookmarkId", clipBookmarkId));
+        var momentCount = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT COUNT(*)
+            FROM coach_moments
+            WHERE bookmark_id = @bookmarkId
+            """,
+            ("@bookmarkId", clipBookmarkId));
+        var labelCount = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT COUNT(*)
+            FROM coach_labels
+            WHERE moment_id = 501
+            """);
+        var inferenceCount = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT COUNT(*)
+            FROM coach_inferences
+            WHERE moment_id = 501
+            """);
+
+        Assert.Equal(0, bookmarkCount);
+        Assert.Equal(0, momentCount);
+        Assert.Equal(0, labelCount);
+        Assert.Equal(0, inferenceCount);
+    }
+
+    private static async Task ExecuteNonQueryAsync(
+        SqliteConnection connection,
+        string commandText,
+        params (string Name, object Value)[] parameters)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = commandText;
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<T> ExecuteScalarAsync<T>(
+        SqliteConnection connection,
+        string commandText,
+        params (string Name, object Value)[] parameters)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = commandText;
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        var scalarValue = await command.ExecuteScalarAsync();
+        return (T)Convert.ChangeType(scalarValue!, typeof(T));
     }
 }

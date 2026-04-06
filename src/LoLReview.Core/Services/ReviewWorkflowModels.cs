@@ -8,6 +8,7 @@ namespace LoLReview.Core.Services;
 public sealed record ReviewTagState(
     long Id,
     string Name,
+    string Polarity,
     string ColorHex,
     bool IsSelected);
 

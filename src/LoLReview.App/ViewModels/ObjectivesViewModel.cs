@@ -4,8 +4,8 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.App.Contracts;
+using LoLReview.App.Styling;
 using LoLReview.Core.Data.Repositories;
-using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.ViewModels;
@@ -33,14 +33,11 @@ public sealed class ObjectiveDisplayItem
     public bool SuggestComplete { get; init; }
 
     /// <summary>Color brush for the current level, distinct per progression stage.</summary>
-    public SolidColorBrush LevelColorBrush => LevelIndex switch
-    {
-        0 => new SolidColorBrush(ColorHelper.FromArgb(255, 107, 114, 128)),  // Exploring: Gray #6b7280
-        1 => new SolidColorBrush(ColorHelper.FromArgb(255, 59, 130, 246)),   // Drilling: Blue #3b82f6
-        2 => new SolidColorBrush(ColorHelper.FromArgb(255, 139, 92, 246)),   // Ingraining: Purple #8b5cf6
-        3 => new SolidColorBrush(ColorHelper.FromArgb(255, 200, 155, 60)),   // Ready: Gold #c89b3c
-        _ => new SolidColorBrush(ColorHelper.FromArgb(255, 107, 114, 128)),  // fallback Gray
-    };
+    public SolidColorBrush LevelColorBrush => AppSemanticPalette.ObjectiveLevelBrush(LevelIndex);
+    public SolidColorBrush TypeBadgeBackgroundBrush => AppSemanticPalette.TagSurfaceBrush(IsMental ? "neutral" : null, IsMental ? AppSemanticPalette.AccentTealHex : AppSemanticPalette.AccentBlueHex);
+    public SolidColorBrush TypeBadgeForegroundBrush => AppSemanticPalette.TagAccentBrush(IsMental ? "neutral" : null, IsMental ? AppSemanticPalette.AccentTealHex : AppSemanticPalette.AccentBlueHex);
+    public SolidColorBrush PriorityBadgeBackgroundBrush => AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldDimHex);
+    public SolidColorBrush PriorityBadgeForegroundBrush => AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldHex);
 
     // Derived display properties
     public bool IsMental => Type == "mental";

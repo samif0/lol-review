@@ -54,7 +54,7 @@ public sealed class CoachMomentItem : ObservableObject
     public string TimeText => $"{GameTimeS / 60}:{GameTimeS % 60:D2}";
     public string DraftSummary => $"{DraftQuality} | {DisplayOrFallback(DraftPrimaryReason)} | {(int)Math.Round(DraftConfidence * 100)}%";
     public string LabelSummary => HasManualLabel
-        ? BuildManualLabelSummary(LabelQuality, LabelAttachedObjectiveTitle, LabelConfidence)
+        ? BuildManualLabelSummary(LabelQuality, LabelPrimaryReason, AttachedObjectiveTitle, LabelConfidence)
         : "No manual label yet";
     public long? AttachedObjectiveId => LabelAttachedObjectiveId ?? DraftAttachedObjectiveId;
     public string AttachedObjectiveTitle =>
@@ -72,12 +72,18 @@ public sealed class CoachMomentItem : ObservableObject
     private static string DisplayOrFallback(string value) =>
         string.IsNullOrWhiteSpace(value) ? "needs review" : value.Replace('_', ' ');
 
-    private static string BuildManualLabelSummary(string quality, string attachedObjectiveTitle, double confidence)
+    private static string BuildManualLabelSummary(string quality, string primaryReason, string attachedObjectiveTitle, double confidence)
     {
         var parts = new List<string>
         {
             quality
         };
+
+        var reason = SummarizeReason(primaryReason);
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            parts.Add(reason);
+        }
 
         if (!string.IsNullOrWhiteSpace(attachedObjectiveTitle))
         {
@@ -87,16 +93,33 @@ public sealed class CoachMomentItem : ObservableObject
         parts.Add($"{(int)Math.Round(confidence * 100)}%");
         return string.Join(" | ", parts);
     }
+
+    private static string SummarizeReason(string value)
+    {
+        var cleaned = (value ?? string.Empty).Trim().Replace('_', ' ');
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return "";
+        }
+
+        return cleaned.Length <= 72
+            ? cleaned
+            : $"{cleaned[..69]}...";
+    }
 }
 
 public partial class CoachLabViewModel : ObservableObject
 {
+    private const int MomentQueueFetchLimit = 250;
+    private const int MomentPageSize = 12;
+
     private readonly ICoachLabService _coachLabService;
     private readonly ICoachTrainingService _coachTrainingService;
     private readonly IObjectivesRepository _objectivesRepository;
     private readonly INavigationService _navigationService;
     private readonly ILogger<CoachLabViewModel> _logger;
     private readonly List<CoachMomentItem> _allMoments = [];
+    private readonly List<CoachMomentItem> _filteredMoments = [];
     private Task? _trainingMonitorTask;
     private long? _lastSeenTrainingCompletedAt;
 
@@ -125,8 +148,11 @@ public partial class CoachLabViewModel : ObservableObject
     [ObservableProperty] private BitmapImage? _selectedStoryboardImage;
     [ObservableProperty] private BitmapImage? _selectedMinimapImage;
     [ObservableProperty] private string _selectedQueueObjectiveKey = "__all__";
-    [ObservableProperty] private string _selectedQueueManualLabelKey = "__none__";
+    [ObservableProperty] private string _selectedQueueManualLabelKey = "__all__";
     [ObservableProperty] private bool _canCreateSuggestedObjective;
+    [ObservableProperty] private int _currentMomentPage = 1;
+    [ObservableProperty] private int _totalMomentPages = 1;
+    [ObservableProperty] private string _momentPageSummary = "0 moments";
 
     public ObservableCollection<CoachMomentItem> Moments { get; } = new();
     public ObservableCollection<CoachOptionItem> QualityOptions { get; } =
@@ -139,9 +165,9 @@ public partial class CoachLabViewModel : ObservableObject
     public ObservableCollection<CoachOptionItem> QueueObjectiveOptions { get; } = new();
     public ObservableCollection<CoachOptionItem> QueueManualLabelOptions { get; } =
     [
-        new() { Key = "__all__", Label = "All Labels" },
-        new() { Key = "__none__", Label = "No Manual Label" },
-        new() { Key = "__has__", Label = "Has Manual Label" },
+        new() { Key = "__all__", Label = "All Moments" },
+        new() { Key = "__none__", Label = "Needs Review" },
+        new() { Key = "__has__", Label = "Reviewed" },
     ];
 
     public bool HasSelection => SelectedMoment is not null;
@@ -154,6 +180,9 @@ public partial class CoachLabViewModel : ObservableObject
     public string SelectedMomentSourceText => SelectedMoment?.SourceBadge ?? "";
     public string SelectedConfidenceText => $"Confidence: {SelectedConfidence:F2}";
     public string SuggestedObjectiveButtonText => "Add Suggested Objective";
+    public bool CanGoToPreviousMomentPage => CurrentMomentPage > 1;
+    public bool CanGoToNextMomentPage => CurrentMomentPage < TotalMomentPages;
+    public bool HasMultipleMomentPages => TotalMomentPages > 1;
 
     private CoachObjectiveSuggestion? _latestSuggestion;
 
@@ -220,12 +249,12 @@ public partial class CoachLabViewModel : ObservableObject
 
     partial void OnSelectedQueueObjectiveKeyChanged(string value)
     {
-        ApplyMomentFilter(SelectedMoment?.Id);
+        ApplyMomentFilter(resetPage: true);
     }
 
     partial void OnSelectedQueueManualLabelKeyChanged(string value)
     {
-        ApplyMomentFilter(SelectedMoment?.Id);
+        ApplyMomentFilter(resetPage: true);
     }
 
     [RelayCommand]
@@ -274,7 +303,9 @@ public partial class CoachLabViewModel : ObservableObject
             StatusText = "Syncing manual clips...";
             var result = await _coachLabService.SyncMomentsAsync(includeAutoSamples: false);
             await RefreshAsync();
-            StatusText = $"Imported {result.ManualClipsImported} manual clip(s) and drafted {result.DraftsCreated} assist label(s).";
+            StatusText = result.ReviewNoteLabelsApplied > 0
+                ? $"Imported {result.ManualClipsImported} manual clip(s), applied {result.ReviewNoteLabelsApplied} final tag(s) from review notes, and drafted {result.DraftsCreated} assist label(s)."
+                : $"Imported {result.ManualClipsImported} manual clip(s) and drafted {result.DraftsCreated} assist label(s).";
         }
         catch (Exception ex)
         {
@@ -521,7 +552,7 @@ public partial class CoachLabViewModel : ObservableObject
     private async Task RefreshAsync(long? preserveMomentId = null)
     {
         var dashboard = await _coachLabService.GetDashboardAsync();
-        var queue = await _coachLabService.GetMomentQueueAsync();
+        var queue = await _coachLabService.GetMomentQueueAsync(MomentQueueFetchLimit);
         var objectiveOptions = await LoadObjectiveOptionsAsync();
 
         ActiveObjectiveTitle = dashboard.ActiveObjectiveTitle;
@@ -593,17 +624,45 @@ public partial class CoachLabViewModel : ObservableObject
             });
         }
 
-        ApplyMomentFilter(preserveMomentId);
+        ApplyMomentFilter(preserveMomentId, resetPage: !preserveMomentId.HasValue);
     }
 
-    private void ApplyMomentFilter(long? preserveMomentId = null)
+    private void ApplyMomentFilter(long? preserveMomentId = null, bool resetPage = false)
     {
-        var filtered = _allMoments
+        _filteredMoments.Clear();
+        _filteredMoments.AddRange(_allMoments
             .Where(MatchesQueueFilters)
-            .ToList();
+            .ToList());
+
+        var targetPage = resetPage ? 1 : CurrentMomentPage;
+        if (preserveMomentId.HasValue)
+        {
+            var preservedIndex = _filteredMoments.FindIndex(moment => moment.Id == preserveMomentId.Value);
+            if (preservedIndex >= 0)
+            {
+                targetPage = (preservedIndex / MomentPageSize) + 1;
+            }
+        }
+
+        ApplyMomentPage(targetPage, preserveMomentId);
+    }
+
+    private void ApplyMomentPage(int requestedPage, long? preserveMomentId = null)
+    {
+        var totalFiltered = _filteredMoments.Count;
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalFiltered / (double)MomentPageSize));
+        var currentPage = Math.Clamp(requestedPage, 1, totalPages);
+
+        CurrentMomentPage = currentPage;
+        TotalMomentPages = totalPages;
+        MomentPageSummary = totalFiltered == 0
+            ? "0 moments"
+            : $"{((currentPage - 1) * MomentPageSize) + 1}-{Math.Min(totalFiltered, currentPage * MomentPageSize)} of {totalFiltered} moments";
 
         Moments.Clear();
-        foreach (var moment in filtered)
+        foreach (var moment in _filteredMoments
+                     .Skip((currentPage - 1) * MomentPageSize)
+                     .Take(MomentPageSize))
         {
             Moments.Add(moment);
         }
@@ -611,6 +670,12 @@ public partial class CoachLabViewModel : ObservableObject
         SelectedMoment = preserveMomentId.HasValue
             ? Moments.FirstOrDefault(moment => moment.Id == preserveMomentId.Value) ?? Moments.FirstOrDefault()
             : Moments.FirstOrDefault();
+
+        OnPropertyChanged(nameof(CanGoToPreviousMomentPage));
+        OnPropertyChanged(nameof(CanGoToNextMomentPage));
+        OnPropertyChanged(nameof(HasMultipleMomentPages));
+        PreviousMomentPageCommand.NotifyCanExecuteChanged();
+        NextMomentPageCommand.NotifyCanExecuteChanged();
     }
 
     private bool MatchesQueueFilters(CoachMomentItem moment)
@@ -643,6 +708,28 @@ public partial class CoachLabViewModel : ObservableObject
             "__has__" => moment.HasManualLabel,
             _ => true,
         };
+    }
+
+    [RelayCommand(CanExecute = nameof(CanGoToPreviousMomentPage))]
+    private void PreviousMomentPage()
+    {
+        if (!CanGoToPreviousMomentPage)
+        {
+            return;
+        }
+
+        ApplyMomentPage(CurrentMomentPage - 1);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanGoToNextMomentPage))]
+    private void NextMomentPage()
+    {
+        if (!CanGoToNextMomentPage)
+        {
+            return;
+        }
+
+        ApplyMomentPage(CurrentMomentPage + 1);
     }
 
     private async Task<List<CoachOptionItem>> LoadObjectiveOptionsAsync()

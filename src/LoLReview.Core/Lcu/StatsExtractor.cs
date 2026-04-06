@@ -32,7 +32,7 @@ public static class StatsExtractor
                 return null;
 
             var stats = statsBlock.Value;
-            var gameId = eogData.GetPropertyIntOrDefault("gameId", 0);
+            var gameId = eogData.GetPropertyLongOrDefault("gameId", 0);
             if (gameId <= 0)
             {
                 logger?.LogWarning("Skipping EOG stats with invalid gameId {GameId}", gameId);
@@ -52,26 +52,84 @@ public static class StatsExtractor
             var csTotal = minions + jungle;
             var durationMin = Math.Max(gameLength / 60.0, 1.0);
 
-            // Sum kills of all players on our team for kill participation
+            // Prefer the explicit team kill total when the payload exposes it.
+            // Player-level rows are still a useful fallback, but they have been
+            // observed to under-count in some EOG payload shapes.
             var teamKillsTotal = 0;
+            var teamKillsFromTeamStats = 0;
+            var teamKillsFromPlayers = 0;
+            var teamPlayerCount = 0;
             if (eogData.TryGetProperty("teams", out var teams) && teams.ValueKind == JsonValueKind.Array)
             {
                 foreach (var teamData in teams.EnumerateArray())
                 {
-                    if (teamData.GetPropertyIntOrDefault("teamId", 0) == teamId
-                        && teamData.TryGetProperty("players", out var players)
-                        && players.ValueKind == JsonValueKind.Array)
+                    var dataTeamId = teamData.GetPropertyIntOrDefault("teamId", 0);
+                    if (dataTeamId != teamId)
                     {
-                        foreach (var p in players.EnumerateArray())
+                        continue;
+                    }
+
+                    var teamStats = teamData.GetPropertyObjectOrDefault("stats");
+                    if (teamStats is not null)
+                    {
+                        teamKillsFromTeamStats = GetStatInt(teamStats.Value, "CHAMPIONS_KILLED");
+                        if (teamKillsFromTeamStats == 0)
                         {
-                            var pStats = p.GetPropertyObjectOrDefault("stats");
-                            if (pStats is not null)
-                            {
-                                teamKillsTotal += GetStatInt(pStats.Value, "CHAMPIONS_KILLED");
-                            }
+                            teamKillsFromTeamStats = teamStats.Value.GetPropertyIntOrDefault("kills", 0);
                         }
                     }
+
+                    if (!teamData.TryGetProperty("players", out var players)
+                        || players.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    foreach (var p in players.EnumerateArray())
+                    {
+                        teamPlayerCount++;
+                        var playerKills = 0;
+                        var pStats = p.GetPropertyObjectOrDefault("stats");
+                        if (pStats is not null)
+                        {
+                            playerKills = GetStatInt(pStats.Value, "CHAMPIONS_KILLED");
+                            if (playerKills == 0)
+                                playerKills = pStats.Value.GetPropertyIntOrDefault("kills", 0);
+                        }
+
+                        // Fallback: kills directly on the player object
+                        if (playerKills == 0)
+                            playerKills = GetStatInt(p, "CHAMPIONS_KILLED");
+                        if (playerKills == 0)
+                            playerKills = p.GetPropertyIntOrDefault("kills", 0);
+
+                        teamKillsFromPlayers += playerKills;
+                    }
                 }
+            }
+
+            if (teamKillsFromTeamStats > 0)
+            {
+                if (teamKillsFromPlayers > 0 && teamKillsFromPlayers != teamKillsFromTeamStats)
+                {
+                    logger?.LogWarning(
+                        "EOG KP mismatch: teamStatsKills={TeamStatsKills}, playerSumKills={PlayerSumKills}, playerTeamId={TeamId}",
+                        teamKillsFromTeamStats, teamKillsFromPlayers, teamId);
+                }
+
+                teamKillsTotal = teamKillsFromTeamStats;
+            }
+            else if (teamPlayerCount < 5
+                || (teamKillsFromPlayers > 0 && kills + assists > teamKillsFromPlayers))
+            {
+                logger?.LogWarning(
+                    "EOG KP issue: teamPlayerCount={TeamPlayerCount}, playerSumKills={PlayerSumKills}, playerK={Kills}, playerA={Assists}, playerTeamId={TeamId}",
+                    teamPlayerCount, teamKillsFromPlayers, kills, assists, teamId);
+                teamKillsTotal = 0;
+            }
+            else
+            {
+                teamKillsTotal = teamKillsFromPlayers;
             }
 
             // Extract enemy team champion names and positions for matchup reference
@@ -204,7 +262,10 @@ public static class StatsExtractor
     /// Extract GameStats from an LCU match history entry.
     /// Match history entries use camelCase field names in the stats sub-object.
     /// </summary>
-    public static GameStats? ExtractFromMatchHistory(JsonElement game, ILogger? logger = null)
+    public static GameStats? ExtractFromMatchHistory(
+        JsonElement game,
+        ILogger? logger = null,
+        int? preferredParticipantId = null)
     {
         if (game.ValueKind != JsonValueKind.Object)
             return null;
@@ -232,7 +293,21 @@ public static class StatsExtractor
                 {
                     participant = participantList[0];
                 }
-                else if (game.TryGetProperty("participantIdentities", out var identities)
+
+                if (participant is null && preferredParticipantId is int participantId && participantId > 0)
+                {
+                    foreach (var part in participantList)
+                    {
+                        if (part.GetPropertyIntOrDefault("participantId", -2) == participantId)
+                        {
+                            participant = part;
+                            break;
+                        }
+                    }
+                }
+
+                if (participant is null
+                    && game.TryGetProperty("participantIdentities", out var identities)
                     && identities.ValueKind == JsonValueKind.Array)
                 {
                     // Find the current player's participantId

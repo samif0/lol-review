@@ -476,6 +476,7 @@ public sealed class CoachSyncResult
     public int ManualClipsImported { get; set; }
     public int AutoSamplesCreated { get; set; }
     public int DraftsCreated { get; set; }
+    public int ReviewNoteLabelsApplied { get; set; }
 }
 
 public sealed class CoachTrainingStatus

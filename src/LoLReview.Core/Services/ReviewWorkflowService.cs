@@ -86,6 +86,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             .Select(tag => new ReviewTagState(
                 Id: tag.Id,
                 Name: tag.Name,
+                Polarity: tag.Polarity,
                 ColorHex: tag.Color,
                 IsSelected: snapshot.SelectedTagIds.Contains(tag.Id)))
             .ToList();

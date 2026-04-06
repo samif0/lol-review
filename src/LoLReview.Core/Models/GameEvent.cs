@@ -8,7 +8,7 @@ namespace LoLReview.Core.Models;
 public class GameEvent
 {
     public int Id { get; set; }
-    public int GameId { get; set; }
+    public long GameId { get; set; }
     public string EventType { get; set; } = "";
     public int GameTimeS { get; set; }
     public string Details { get; set; } = "{}";

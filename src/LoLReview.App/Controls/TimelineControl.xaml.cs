@@ -2,6 +2,8 @@
 
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Linq;
+using LoLReview.App.Styling;
 using LoLReview.App.ViewModels;
 using Microsoft.UI;
 using Microsoft.UI.Input;
@@ -20,11 +22,12 @@ namespace LoLReview.App.Controls;
 /// </summary>
 public sealed partial class TimelineControl : UserControl
 {
-    private const double TrackTop = 16;
-    private const double TrackHeight = 8;
-    private const double MarkerSize = 7;
-    private const double Padding = 8;
-    private const string BookmarkColor = "#8b5cf6";
+    private const double TrackTop = 34;
+    private const double TrackHeight = 12;
+    private const double MarkerSize = 10;
+    private const double TrackPadding = 16;
+    private const double EventMarkerTop = TrackTop - MarkerSize - 10;
+    private const double BookmarkMarkerTop = TrackTop + TrackHeight + 10;
 
     private bool _isDragging;
     private readonly List<MarkerHitInfo> _markerHitAreas = new();
@@ -149,18 +152,18 @@ public sealed partial class TimelineControl : UserControl
 
     // ── Rendering ───────────────────────────────────────────────────
 
-    private double TrackWidth => Math.Max(1, ActualWidth - 2 * Padding);
+    private double TrackWidth => Math.Max(1, ActualWidth - 2 * TrackPadding);
 
     private double TimeToX(double seconds)
     {
         var dur = Math.Max(Duration, 1);
-        return Padding + (seconds / dur) * TrackWidth;
+        return TrackPadding + (seconds / dur) * TrackWidth;
     }
 
     private double XToTime(double x)
     {
         var dur = Math.Max(Duration, 1);
-        var ratio = Math.Clamp((x - Padding) / TrackWidth, 0, 1);
+        var ratio = Math.Clamp((x - TrackPadding) / TrackWidth, 0, 1);
         return ratio * dur;
     }
 
@@ -168,9 +171,19 @@ public sealed partial class TimelineControl : UserControl
     {
         if (ActualWidth <= 0) return;
 
+        MarkerCanvas.Width = ActualWidth;
+        MarkerCanvas.Height = ActualHeight;
+
+        TimelineFrame.Width = ActualWidth;
+        TimelineFrame.Height = ActualHeight;
+        Canvas.SetLeft(TimelineFrame, 0);
+
+        TrackShell.Width = TrackWidth;
+        Canvas.SetLeft(TrackShell, TrackPadding);
+
         // Track background
         TrackBg.Width = TrackWidth;
-        Canvas.SetLeft(TrackBg, Padding);
+        Canvas.SetLeft(TrackBg, TrackPadding);
 
         // Clip overlay
         UpdateClipOverlay();
@@ -188,7 +201,7 @@ public sealed partial class TimelineControl : UserControl
         var dur = Math.Max(Duration, 1);
         var ratio = Math.Clamp(Position / dur, 0, 1);
         ProgressBar.Width = Math.Max(0, ratio * TrackWidth);
-        Canvas.SetLeft(ProgressBar, Padding);
+        Canvas.SetLeft(ProgressBar, TrackPadding);
     }
 
     private void UpdateClipOverlay()
@@ -246,7 +259,7 @@ public sealed partial class TimelineControl : UserControl
                 {
                     Width = Math.Max(2, x2 - x1),
                     Height = TrackHeight + 4,
-                    Background = new SolidColorBrush(ParseColor(de.Color, 80)),
+                    Background = new SolidColorBrush(ParseColor(NormalizeTimelineColor(de.Color), 64)),
                     CornerRadius = new CornerRadius(2),
                 };
                 Canvas.SetLeft(rect, x1);
@@ -258,18 +271,19 @@ public sealed partial class TimelineControl : UserControl
         // Game event markers
         if (Events != null)
         {
-            foreach (var evt in Events)
+            foreach (var evt in Events.OrderBy(static evt => evt.GameTimeS))
             {
-                var x = TimeToX(evt.GameTimeS);
+                var maxMarkerX = Math.Max(TrackPadding, ActualWidth - TrackPadding);
+                var x = Math.Clamp(TimeToX(evt.GameTimeS), TrackPadding, maxMarkerX);
                 var shape = CreateMarkerShape(evt.Shape, evt.Color);
-                Canvas.SetLeft(shape, x - MarkerSize / 2);
-                Canvas.SetTop(shape, TrackTop - MarkerSize - 2);
+                Canvas.SetLeft(shape, Math.Clamp(x - MarkerSize / 2, 1, Math.Max(1, ActualWidth - MarkerSize - 1)));
+                Canvas.SetTop(shape, EventMarkerTop);
                 MarkerCanvas.Children.Add(shape);
 
                 _markerHitAreas.Add(new MarkerHitInfo
                 {
                     X = x,
-                    Label = $"{VodPlayerViewModel.FormatTime((int)evt.GameTimeS)} {evt.Label}",
+                    Label = evt.TooltipText,
                 });
             }
         }
@@ -279,14 +293,15 @@ public sealed partial class TimelineControl : UserControl
         {
             foreach (var bm in Bookmarks)
             {
-                var x = TimeToX(bm.GameTimeS);
-                var shape = CreateMarkerShape(MarkerShape.Diamond, BookmarkColor);
-                Canvas.SetLeft(shape, x - MarkerSize / 2);
-                Canvas.SetTop(shape, TrackTop + TrackHeight + 2);
+                var maxMarkerX = Math.Max(TrackPadding, ActualWidth - TrackPadding);
+                var x = Math.Clamp(TimeToX(bm.GameTimeS), TrackPadding, maxMarkerX);
+                var shape = CreateMarkerShape(MarkerShape.Diamond, bm.MarkerColorHex);
+                Canvas.SetLeft(shape, Math.Clamp(x - MarkerSize / 2, 1, Math.Max(1, ActualWidth - MarkerSize - 1)));
+                Canvas.SetTop(shape, BookmarkMarkerTop);
                 MarkerCanvas.Children.Add(shape);
 
                 var label = string.IsNullOrEmpty(bm.Note)
-                    ? $"{bm.TimeText} Bookmark"
+                    ? $"{bm.TimeText} Note"
                     : $"{bm.TimeText} {bm.Note}";
                 if (bm.IsClip) label += " [CLIP]";
 
@@ -299,6 +314,7 @@ public sealed partial class TimelineControl : UserControl
     {
         var color = ParseColor(colorHex);
         var brush = new SolidColorBrush(color);
+        var stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(180, 4, 8, 8));
         var size = MarkerSize;
 
         switch (shape)
@@ -309,6 +325,8 @@ public sealed partial class TimelineControl : UserControl
                 {
                     Points = { new Point(size / 2, 0), new Point(size, size), new Point(0, size) },
                     Fill = brush,
+                    Stroke = stroke,
+                    StrokeThickness = 1,
                     Width = size,
                     Height = size,
                 };
@@ -320,6 +338,8 @@ public sealed partial class TimelineControl : UserControl
                 {
                     Points = { new Point(0, 0), new Point(size, 0), new Point(size / 2, size) },
                     Fill = brush,
+                    Stroke = stroke,
+                    StrokeThickness = 1,
                     Width = size,
                     Height = size,
                 };
@@ -337,6 +357,8 @@ public sealed partial class TimelineControl : UserControl
                         new Point(0, size / 2),
                     },
                     Fill = brush,
+                    Stroke = stroke,
+                    StrokeThickness = 1,
                     Width = size,
                     Height = size,
                 };
@@ -346,32 +368,62 @@ public sealed partial class TimelineControl : UserControl
             {
                 var rect = new Border
                 {
-                    Width = size - 1,
-                    Height = size - 1,
+                    Width = size,
+                    Height = size,
                     Background = brush,
+                    BorderBrush = stroke,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(2),
                 };
                 return rect;
             }
             case ViewModels.MarkerShape.Star:
             {
-                // Simplified star as a larger circle with glow
-                var ell = new Ellipse
+                var star = new Polygon
                 {
-                    Width = size + 2,
-                    Height = size + 2,
+                    Points =
+                    {
+                        new Point(size * 0.5, 0),
+                        new Point(size * 0.65, size * 0.32),
+                        new Point(size, size * 0.36),
+                        new Point(size * 0.74, size * 0.58),
+                        new Point(size * 0.82, size),
+                        new Point(size * 0.5, size * 0.78),
+                        new Point(size * 0.18, size),
+                        new Point(size * 0.26, size * 0.58),
+                        new Point(0, size * 0.36),
+                        new Point(size * 0.35, size * 0.32),
+                    },
                     Fill = brush,
+                    Stroke = stroke,
+                    StrokeThickness = 1,
+                    Width = size,
+                    Height = size,
                 };
-                return ell;
+                return star;
             }
             default: // Circle
             {
-                var ell = new Ellipse
+                var octagon = new Polygon
                 {
+                    Points =
+                    {
+                        new Point(size * 0.3, 0),
+                        new Point(size * 0.7, 0),
+                        new Point(size, size * 0.3),
+                        new Point(size, size * 0.7),
+                        new Point(size * 0.7, size),
+                        new Point(size * 0.3, size),
+                        new Point(0, size * 0.7),
+                        new Point(0, size * 0.3),
+                    },
+                    Fill = brush,
+                    Stroke = stroke,
+                    StrokeThickness = 1,
                     Width = size,
                     Height = size,
-                    Fill = brush,
                 };
-                return ell;
+                return octagon;
             }
         }
     }
@@ -439,7 +491,7 @@ public sealed partial class TimelineControl : UserControl
         if (closest != null)
         {
             TooltipText.Text = closest.Label;
-            Canvas.SetLeft(Tooltip, Math.Max(0, closest.X - 40));
+            Canvas.SetLeft(Tooltip, Math.Clamp(closest.X - 44, 0, Math.Max(0, ActualWidth - 180)));
             Tooltip.Visibility = Visibility.Visible;
         }
         else
@@ -449,7 +501,7 @@ public sealed partial class TimelineControl : UserControl
             if (time >= 0 && time <= Duration)
             {
                 TooltipText.Text = VodPlayerViewModel.FormatTime((int)time);
-                Canvas.SetLeft(Tooltip, Math.Max(0, pos.X - 20));
+                Canvas.SetLeft(Tooltip, Math.Clamp(pos.X - 28, 0, Math.Max(0, ActualWidth - 120)));
                 Tooltip.Visibility = Visibility.Visible;
             }
             else
@@ -472,6 +524,36 @@ public sealed partial class TimelineControl : UserControl
             return Windows.UI.Color.FromArgb(alpha, r, g, b);
         }
         return Windows.UI.Color.FromArgb(alpha, 112, 112, 160); // fallback
+    }
+
+    private static string NormalizeTimelineColor(string? colorHex)
+    {
+        var normalized = (colorHex ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return AppSemanticPalette.NeutralHex;
+        }
+
+        if (string.Equals(normalized, AppSemanticPalette.AccentBlueHex, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, AppSemanticPalette.AccentGoldHex, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, AppSemanticPalette.AccentTealHex, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, AppSemanticPalette.PositiveHex, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, AppSemanticPalette.NegativeHex, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, AppSemanticPalette.NeutralHex, StringComparison.OrdinalIgnoreCase))
+        {
+            return normalized;
+        }
+
+        return normalized.ToLowerInvariant() switch
+        {
+            "#22c55e" or "#28c76f" => AppSemanticPalette.PositiveHex,
+            "#ef4444" or "#ea5455" => AppSemanticPalette.NegativeHex,
+            "#0099ff" or "#3b82f6" => AppSemanticPalette.AccentBlueHex,
+            "#c89b3c" or "#fbbf24" => AppSemanticPalette.AccentGoldHex,
+            "#06b6d4" or "#f97316" => AppSemanticPalette.AccentTealHex,
+            "#8b5cf6" or "#6366f1" => AppSemanticPalette.NeutralHex,
+            _ => AppSemanticPalette.NeutralHex,
+        };
     }
 
     private class MarkerHitInfo

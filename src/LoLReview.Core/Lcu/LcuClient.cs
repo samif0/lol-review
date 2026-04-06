@@ -179,6 +179,21 @@ public sealed class LcuClient : ILcuClient
     }
 
     /// <inheritdoc />
+    public async Task<JsonElement?> GetMatchDetailsAsync(long gameId, CancellationToken ct = default)
+    {
+        try
+        {
+            return await GetAsync($"/lol-match-history/v1/games/{gameId}", ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch match details for game {GameId}", gameId);
+            CoreDiagnostics.WriteVerbose($"LCU: GetMatchDetailsAsync exception gameId={gameId} type={ex.GetType().Name}:{ex.Message}");
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<string?> GetChampionNameAsync(int championId, CancellationToken ct = default)
     {
         if (championId <= 0)

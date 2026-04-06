@@ -50,10 +50,10 @@ public partial class DashboardViewModel : ObservableObject
     private string _sessionBannerText = "";
 
     [ObservableProperty]
-    private string _sessionBannerColorHex = "#12121a";
+    private string _sessionBannerColorHex = "#111b27";
 
     [ObservableProperty]
-    private string _sessionBannerTextColorHex = "#e8e8f0";
+    private string _sessionBannerTextColorHex = "#f2f5fa";
 
     [ObservableProperty]
     private bool _showSessionBanner;
@@ -68,10 +68,10 @@ public partial class DashboardViewModel : ObservableObject
     private string _winLossText = "0 / 0";
 
     [ObservableProperty]
-    private string _winLossColorHex = "#e8e8f0";
+    private string _winLossColorHex = "#f2f5fa";
 
     [ObservableProperty]
-    private string _adherenceColorHex = "#e8e8f0";
+    private string _adherenceColorHex = "#f2f5fa";
 
     [ObservableProperty]
     private int _unreviewedCount;
@@ -128,16 +128,16 @@ public partial class DashboardViewModel : ObservableObject
             WinLossText = $"{Wins} / {Losses}";
             if (TotalGames > 0)
             {
-                WinLossColorHex = Wins > Losses ? "#22c55e" : Losses > Wins ? "#ef4444" : "#e8e8f0";
+                WinLossColorHex = Wins > Losses ? "#3bc98d" : Losses > Wins ? "#ea7a73" : "#f2f5fa";
             }
             else
             {
-                WinLossColorHex = "#e8e8f0";
+                WinLossColorHex = "#f2f5fa";
             }
 
             // Adherence streak
             AdherenceStreak = await _sessionLogRepo.GetAdherenceStreakAsync();
-            AdherenceColorHex = AdherenceStreak >= 3 ? "#22c55e" : "#e8e8f0";
+            AdherenceColorHex = AdherenceStreak >= 3 ? "#3bc98d" : "#f2f5fa";
 
             // Win streak
             WinStreak = await _gameRepo.GetWinStreakAsync();
@@ -149,20 +149,20 @@ public partial class DashboardViewModel : ObservableObject
                 if (AvgMental >= 7)
                 {
                     SessionBannerText = "Locked in";
-                    SessionBannerColorHex = "#0d2a1a";
-                    SessionBannerTextColorHex = "#22c55e";
+                    SessionBannerColorHex = "#17382d";
+                    SessionBannerTextColorHex = "#3bc98d";
                 }
                 else if (AvgMental >= 4)
                 {
                     SessionBannerText = "Decent session";
-                    SessionBannerColorHex = "#2a2a0a";
-                    SessionBannerTextColorHex = "#d4c017";
+                    SessionBannerColorHex = "#302513";
+                    SessionBannerTextColorHex = "#c9a86a";
                 }
                 else
                 {
                     SessionBannerText = "Consider a break";
-                    SessionBannerColorHex = "#7f1d1d";
-                    SessionBannerTextColorHex = "#ef4444";
+                    SessionBannerColorHex = "#48262b";
+                    SessionBannerTextColorHex = "#ea7a73";
                 }
             }
             else
@@ -207,9 +207,7 @@ public partial class DashboardViewModel : ObservableObject
 
             // Unreviewed games
             var unreviewed = await _gameRepo.GetUnreviewedGamesAsync(days: 3);
-            UnreviewedCount = unreviewed.Count;
-            UnreviewedCountText = $"{unreviewed.Count} game{(unreviewed.Count != 1 ? "s" : "")}";
-            AllReviewed = unreviewed.Count == 0;
+            UpdateUnreviewedSummary(unreviewed.Count);
 
             DispatcherHelper.RunOnUIThread(() =>
             {
@@ -255,6 +253,7 @@ public partial class DashboardViewModel : ObservableObject
         if (unreviewedItem is not null) UnreviewedGames.Remove(unreviewedItem);
         var todayItem = TodaysGames.FirstOrDefault(g => g.GameId == gameId);
         if (todayItem is not null) TodaysGames.Remove(todayItem);
+        UpdateUnreviewedSummary(UnreviewedGames.Count);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -288,8 +287,8 @@ public partial class DashboardViewModel : ObservableObject
             Duration = duration,
             DatePlayed = date,
             GameMode = game.GameMode,
-            WinLossColorHex = game.Win ? "#22c55e" : "#ef4444",
-            BorderColorHex = game.Win ? "#22c55e" : "#ef4444",
+            WinLossColorHex = game.Win ? "#3bc98d" : "#ea7a73",
+            BorderColorHex = game.Win ? "#3bc98d" : "#ea7a73",
             HasReview = HasPersistedReview(game),
             DamageText = FormatNumber(game.TotalDamageToChampions),
             StatsLine = $"CS {game.CsTotal} ({game.CsPerMin:F1}/m)  \u2022  Vision {game.VisionScore}  \u2022  {FormatNumber(game.TotalDamageToChampions)} dmg"
@@ -317,13 +316,20 @@ public partial class DashboardViewModel : ObservableObject
         _ => n.ToString()
     };
 
+    private void UpdateUnreviewedSummary(int count)
+    {
+        UnreviewedCount = count;
+        UnreviewedCountText = $"{count} game{(count != 1 ? "s" : "")}";
+        AllReviewed = count == 0;
+    }
+
     private static string GetLevelColor(int levelIndex) => levelIndex switch
     {
-        0 => "#6b7280",  // Exploring: Gray
-        1 => "#3b82f6",  // Drilling: Blue
-        2 => "#8b5cf6",  // Ingraining: Purple
-        3 => "#c89b3c",  // Ready: Gold
-        _ => "#6b7280"
+        0 => "#718094",  // Exploring: Slate
+        1 => "#78d2f7",  // Drilling: Ice blue
+        2 => "#8a7af2",  // Ingraining: Violet
+        3 => "#c9a86a",  // Ready: Brass
+        _ => "#718094"
     };
 }
 
@@ -349,8 +355,8 @@ public class GameDisplayItem
     public string Duration { get; set; } = "";
     public string DatePlayed { get; set; } = "";
     public string GameMode { get; set; } = "";
-    public string WinLossColorHex { get; set; } = "#e8e8f0";
-    public string BorderColorHex { get; set; } = "#1e1e2e";
+    public string WinLossColorHex { get; set; } = "#f2f5fa";
+    public string BorderColorHex { get; set; } = "#24364a";
     public bool HasReview { get; set; }
     public bool HasVod { get; set; }
     public string DamageText { get; set; } = "";
@@ -365,7 +371,7 @@ public class DashboardObjectiveItem
     public int Score { get; set; }
     public int GameCount { get; set; }
     public double Progress { get; set; }
-    public string LevelColorHex { get; set; } = "#7070a0";
+    public string LevelColorHex { get; set; } = "#a6b5c7";
     public string InfoText { get; set; } = "";
     public Microsoft.UI.Xaml.Media.SolidColorBrush LevelColorBrush
     {

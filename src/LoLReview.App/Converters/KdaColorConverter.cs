@@ -3,6 +3,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
+using LoLReview.App.Styling;
 
 namespace LoLReview.App.Converters;
 
@@ -12,14 +13,9 @@ namespace LoLReview.App.Converters;
 /// </summary>
 public sealed class KdaColorConverter : IValueConverter
 {
-    private static readonly SolidColorBrush GreenBrush =
-        new(ColorHelper.FromArgb(255, 34, 197, 94));    // #22c55e
-
-    private static readonly SolidColorBrush GoldBrush =
-        new(ColorHelper.FromArgb(255, 200, 155, 60));   // #c89b3c
-
-    private static readonly SolidColorBrush DefaultBrush =
-        new(ColorHelper.FromArgb(255, 232, 232, 240));  // #e8e8f0
+    private static readonly SolidColorBrush GreenBrush = AppSemanticPalette.Brush(AppSemanticPalette.PositiveHex);
+    private static readonly SolidColorBrush GoldBrush = AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldHex);
+    private static readonly SolidColorBrush DefaultBrush = AppSemanticPalette.Brush(AppSemanticPalette.PrimaryTextHex);
 
     public object Convert(object value, Type targetType, object parameter, string language)
     {

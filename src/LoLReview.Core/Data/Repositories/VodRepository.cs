@@ -185,10 +185,19 @@ public sealed class VodRepository : IVodRepository
     public async Task DeleteBookmarkAsync(long bookmarkId)
     {
         using var conn = _factory.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM vod_bookmarks WHERE id = @id";
-        cmd.Parameters.AddWithValue("@id", bookmarkId);
-        await cmd.ExecuteNonQueryAsync();
+        using var tx = conn.BeginTransaction();
+
+        await DeleteCoachRowsForBookmarkAsync(conn, tx, bookmarkId);
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = "DELETE FROM vod_bookmarks WHERE id = @id";
+            cmd.Parameters.AddWithValue("@id", bookmarkId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
     }
 
     public async Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId)
@@ -213,10 +222,147 @@ public sealed class VodRepository : IVodRepository
     public async Task DeleteAllBookmarksAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM vod_bookmarks WHERE game_id = @gameId";
-        cmd.Parameters.AddWithValue("@gameId", gameId);
-        await cmd.ExecuteNonQueryAsync();
+        using var tx = conn.BeginTransaction();
+
+        await DeleteCoachRowsForGameAsync(conn, tx, gameId);
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = "DELETE FROM vod_bookmarks WHERE game_id = @gameId";
+            cmd.Parameters.AddWithValue("@gameId", gameId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
+    }
+
+    private static async Task DeleteCoachRowsForBookmarkAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long bookmarkId)
+    {
+        await DeleteCoachLabelsAsync(
+            connection,
+            transaction,
+            """
+            DELETE FROM coach_labels
+            WHERE moment_id IN (
+                SELECT id
+                FROM coach_moments
+                WHERE bookmark_id = @bookmarkId
+            )
+            """,
+            ("@bookmarkId", bookmarkId));
+
+        await DeleteCoachInferencesAsync(
+            connection,
+            transaction,
+            """
+            DELETE FROM coach_inferences
+            WHERE moment_id IN (
+                SELECT id
+                FROM coach_moments
+                WHERE bookmark_id = @bookmarkId
+            )
+            """,
+            ("@bookmarkId", bookmarkId));
+
+        using var deleteMomentsCommand = connection.CreateCommand();
+        deleteMomentsCommand.Transaction = transaction;
+        deleteMomentsCommand.CommandText = """
+            DELETE FROM coach_moments
+            WHERE bookmark_id = @bookmarkId
+            """;
+        deleteMomentsCommand.Parameters.AddWithValue("@bookmarkId", bookmarkId);
+        await deleteMomentsCommand.ExecuteNonQueryAsync();
+    }
+
+    private static async Task DeleteCoachRowsForGameAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long gameId)
+    {
+        await DeleteCoachLabelsAsync(
+            connection,
+            transaction,
+            """
+            DELETE FROM coach_labels
+            WHERE moment_id IN (
+                SELECT id
+                FROM coach_moments
+                WHERE bookmark_id IN (
+                    SELECT id
+                    FROM vod_bookmarks
+                    WHERE game_id = @gameId
+                )
+            )
+            """,
+            ("@gameId", gameId));
+
+        await DeleteCoachInferencesAsync(
+            connection,
+            transaction,
+            """
+            DELETE FROM coach_inferences
+            WHERE moment_id IN (
+                SELECT id
+                FROM coach_moments
+                WHERE bookmark_id IN (
+                    SELECT id
+                    FROM vod_bookmarks
+                    WHERE game_id = @gameId
+                )
+            )
+            """,
+            ("@gameId", gameId));
+
+        using var deleteMomentsCommand = connection.CreateCommand();
+        deleteMomentsCommand.Transaction = transaction;
+        deleteMomentsCommand.CommandText = """
+            DELETE FROM coach_moments
+            WHERE bookmark_id IN (
+                SELECT id
+                FROM vod_bookmarks
+                WHERE game_id = @gameId
+            )
+            """;
+        deleteMomentsCommand.Parameters.AddWithValue("@gameId", gameId);
+        await deleteMomentsCommand.ExecuteNonQueryAsync();
+    }
+
+    private static async Task DeleteCoachLabelsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string commandText,
+        params (string Name, object Value)[] parameters)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = commandText;
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task DeleteCoachInferencesAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string commandText,
+        params (string Name, object Value)[] parameters)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = commandText;
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        await command.ExecuteNonQueryAsync();
     }
 
     private static async Task<IReadOnlyList<VodSummary>> ReadAllVodsAsync(SqliteCommand cmd)

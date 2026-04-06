@@ -66,13 +66,12 @@ public sealed class NavigationService : INavigationService
             return false;
         }
 
+        // Use a light in-place entrance transition inside the shell workspace.
+        // The previous slide transition dragged full page surfaces across the nav rail.
         var navigated = _frame.Navigate(
             pageType,
             parameter,
-            new SlideNavigationTransitionInfo
-            {
-                Effect = SlideNavigationTransitionEffect.FromRight
-            });
+            new EntranceNavigationTransitionInfo());
 
         if (navigated)
         {
@@ -92,7 +91,7 @@ public sealed class NavigationService : INavigationService
         }
 
         // Direct navigation by type even if not in the map
-        return _frame?.Navigate(typeof(TPage), parameter) ?? false;
+        return _frame?.Navigate(typeof(TPage), parameter, new EntranceNavigationTransitionInfo()) ?? false;
     }
 
     public void GoBack()

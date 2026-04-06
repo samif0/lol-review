@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.App.Helpers;
+using LoLReview.App.Styling;
 using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Models;
 using LoLReview.Core.Services;
@@ -67,7 +68,7 @@ public partial class AnalyticsViewModel : ObservableObject
     private string _winrate = "0%";
 
     [ObservableProperty]
-    private SolidColorBrush _winrateColor = HexBrush("#a0a0b8");
+    private SolidColorBrush _winrateColor = AppSemanticPalette.Brush(AppSemanticPalette.SecondaryTextHex);
 
     [ObservableProperty]
     private string _avgKda = "0.00";
@@ -123,7 +124,9 @@ public partial class AnalyticsViewModel : ObservableObject
         var o = p.Overall;
         TotalGames = o.TotalGames.ToString();
         Winrate = $"{o.Winrate:F1}%";
-        WinrateColor = HexBrush(o.Winrate >= 50 ? "#22c55e" : "#ef4444");
+        WinrateColor = AppSemanticPalette.Brush(o.Winrate >= 50
+            ? AppSemanticPalette.PositiveHex
+            : AppSemanticPalette.NegativeHex);
         AvgKda = $"{o.AvgKda:F2}";
         AvgCsMin = $"{o.AvgCsMin:F1}";
         AvgVision = $"{o.AvgVision:F0}";
@@ -146,7 +149,7 @@ public partial class AnalyticsViewModel : ObservableObject
                 Games = c.Games,
                 Winrate = c.Winrate,
                 WinrateDisplay = $"{c.Winrate:F0}%",
-                WinrateColor = HexBrush(c.Winrate >= 55 ? "#22c55e" : c.Winrate < 45 ? "#ef4444" : "#e8e8f0"),
+                WinrateColor = AppSemanticPalette.Brush(AppSemanticPalette.WinRateHex(c.Winrate)),
                 AvgKda = $"{c.AvgKda:F1}",
                 AvgCsMin = $"{c.AvgCsMin:F1}",
             });
@@ -168,7 +171,7 @@ public partial class AnalyticsViewModel : ObservableObject
                 EnemyChampion = m.EnemyLaner,
                 Games = m.Games,
                 WinrateDisplay = $"{m.Winrate:F0}%",
-                WinrateColor = HexBrush(m.Winrate >= 55 ? "#22c55e" : m.Winrate < 45 ? "#ef4444" : "#e8e8f0"),
+                WinrateColor = AppSemanticPalette.Brush(AppSemanticPalette.WinRateHex(m.Winrate)),
                 AvgKda = $"{m.AvgKda:F1}",
             });
         }
@@ -184,8 +187,7 @@ public partial class AnalyticsViewModel : ObservableObject
                 Name = t.Name,
                 Count = t.Count,
                 Polarity = t.Polarity,
-                BarColor = HexBrush(t.Polarity == "negative" ? "#ef4444" :
-                           t.Polarity == "positive" ? "#22c55e" : "#3b82f6"),
+                BarColor = AppSemanticPalette.TagAccentBrush(t.Polarity),
                 BarWidth = Math.Max(20, Math.Min(300, t.Count * 20)),
             });
         }
@@ -202,21 +204,27 @@ public partial class AnalyticsViewModel : ObservableObject
             {
                 Bracket = "Low (1-3)",
                 WinrateDisplay = $"{m.LowWr:F1}%",
-                WinrateColor = HexBrush(m.LowWr >= 50 ? "#22c55e" : "#ef4444"),
+                WinrateColor = AppSemanticPalette.Brush(m.LowWr >= 50
+                    ? AppSemanticPalette.PositiveHex
+                    : AppSemanticPalette.NegativeHex),
                 BarWidth = Math.Max(20, (int)(m.LowWr * 3)),
             });
             MentalBrackets.Add(new MentalBracketRow
             {
                 Bracket = "Mid (4-6)",
                 WinrateDisplay = $"{m.MidWr:F1}%",
-                WinrateColor = HexBrush(m.MidWr >= 50 ? "#22c55e" : "#ef4444"),
+                WinrateColor = AppSemanticPalette.Brush(m.MidWr >= 50
+                    ? AppSemanticPalette.PositiveHex
+                    : AppSemanticPalette.NegativeHex),
                 BarWidth = Math.Max(20, (int)(m.MidWr * 3)),
             });
             MentalBrackets.Add(new MentalBracketRow
             {
                 Bracket = "High (7-10)",
                 WinrateDisplay = $"{m.HighWr:F1}%",
-                WinrateColor = HexBrush(m.HighWr >= 50 ? "#22c55e" : "#ef4444"),
+                WinrateColor = AppSemanticPalette.Brush(m.HighWr >= 50
+                    ? AppSemanticPalette.PositiveHex
+                    : AppSemanticPalette.NegativeHex),
                 BarWidth = Math.Max(20, (int)(m.HighWr * 3)),
             });
         }
@@ -248,7 +256,7 @@ public sealed class ChampionStatRow
     public int Games { get; set; }
     public double Winrate { get; set; }
     public string WinrateDisplay { get; set; } = "";
-    public SolidColorBrush WinrateColor { get; set; } = new(ColorHelper.FromArgb(255, 232, 232, 240));
+    public SolidColorBrush WinrateColor { get; set; } = AppSemanticPalette.Brush(AppSemanticPalette.PrimaryTextHex);
     public string AvgKda { get; set; } = "";
     public string AvgCsMin { get; set; } = "";
 }
@@ -259,7 +267,7 @@ public sealed class MatchupStatRow
     public string EnemyChampion { get; set; } = "";
     public int Games { get; set; }
     public string WinrateDisplay { get; set; } = "";
-    public SolidColorBrush WinrateColor { get; set; } = new(ColorHelper.FromArgb(255, 232, 232, 240));
+    public SolidColorBrush WinrateColor { get; set; } = AppSemanticPalette.Brush(AppSemanticPalette.PrimaryTextHex);
     public string AvgKda { get; set; } = "";
 }
 
@@ -268,7 +276,7 @@ public sealed class TagFrequencyRow
     public string Name { get; set; } = "";
     public int Count { get; set; }
     public string Polarity { get; set; } = "";
-    public SolidColorBrush BarColor { get; set; } = new(ColorHelper.FromArgb(255, 59, 130, 246));
+    public SolidColorBrush BarColor { get; set; } = AppSemanticPalette.Brush(AppSemanticPalette.AccentBlueHex);
     public double BarWidth { get; set; } = 20;
 }
 
@@ -276,6 +284,6 @@ public sealed class MentalBracketRow
 {
     public string Bracket { get; set; } = "";
     public string WinrateDisplay { get; set; } = "";
-    public SolidColorBrush WinrateColor { get; set; } = new(ColorHelper.FromArgb(255, 232, 232, 240));
+    public SolidColorBrush WinrateColor { get; set; } = AppSemanticPalette.Brush(AppSemanticPalette.PrimaryTextHex);
     public double BarWidth { get; set; } = 20;
 }

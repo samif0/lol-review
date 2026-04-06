@@ -32,6 +32,20 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
             var eogData = await _lcuClient.GetEndOfGameStatsAsync(cancellationToken).ConfigureAwait(false);
             if (eogData is JsonElement eog)
             {
+                // Dump full EOG JSON on first successful fetch so we can debug team kill parsing
+                if (attempt == 0)
+                {
+                    try
+                    {
+                        var raw = eog.GetRawText();
+                        var dumpPath = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "LoLReviewData", "last_eog_dump.json");
+                        await File.WriteAllTextAsync(dumpPath, raw, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch { /* best-effort diagnostic */ }
+                }
+
                 var stats = StatsExtractor.ExtractFromEog(eog, _logger);
                 if (stats is not null)
                 {

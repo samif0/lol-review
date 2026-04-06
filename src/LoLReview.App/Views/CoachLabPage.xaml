@@ -50,7 +50,7 @@
                             Command="{x:Bind ViewModel.SyncCommand}"
                             Margin="8,0,0,0"
                             Background="{StaticResource AccentBlueBrush}"
-                            Foreground="White"
+                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                             BorderThickness="0"
                             CornerRadius="6"/>
                     <Button Grid.Column="3"
@@ -205,7 +205,7 @@
                                         Command="{x:Bind ViewModel.SuggestObjectiveCommand}"
                                         Margin="8,0,0,0"
                                         Background="{StaticResource AccentBlueBrush}"
-                                        Foreground="White"
+                                        Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                         BorderThickness="0"
                                         CornerRadius="6"
                                         IsEnabled="{x:Bind ViewModel.HasPrototypeModel, Mode=OneWay}"/>
@@ -254,7 +254,7 @@
                                                VerticalAlignment="Center"/>
 
                                     <ComboBox Grid.Column="1"
-                                              Header="Manual Label"
+                                              Header="State"
                                               ItemsSource="{x:Bind ViewModel.QueueManualLabelOptions, Mode=OneWay}"
                                               DisplayMemberPath="Label"
                                               SelectedValuePath="Key"
@@ -268,6 +268,38 @@
                                               SelectedValuePath="Key"
                                               SelectedValue="{x:Bind ViewModel.SelectedQueueObjectiveKey, Mode=TwoWay}"
                                               Background="{StaticResource InputBackgroundBrush}"/>
+                                </Grid>
+
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0"
+                                               Text="{x:Bind ViewModel.MomentPageSummary, Mode=OneWay}"
+                                               FontSize="12"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               VerticalAlignment="Center"/>
+
+                                    <Button Grid.Column="1"
+                                            Content="Previous"
+                                            Command="{x:Bind ViewModel.PreviousMomentPageCommand}"
+                                            Background="{StaticResource TagBackgroundBrush}"
+                                            Foreground="{StaticResource PrimaryTextBrush}"
+                                            BorderBrush="{StaticResource SubtleBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6"/>
+
+                                    <Button Grid.Column="2"
+                                            Content="Next"
+                                            Command="{x:Bind ViewModel.NextMomentPageCommand}"
+                                            Background="{StaticResource TagBackgroundBrush}"
+                                            Foreground="{StaticResource PrimaryTextBrush}"
+                                            BorderBrush="{StaticResource SubtleBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6"/>
                                 </Grid>
 
                                 <ListView ItemsSource="{x:Bind ViewModel.Moments, Mode=OneWay}"
@@ -317,7 +349,9 @@
                                                                MaxLines="3"/>
                                                     <TextBlock Text="{x:Bind LabelSummary}"
                                                                FontSize="11"
-                                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                                               TextWrapping="Wrap"
+                                                               MaxLines="2"/>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>
@@ -372,7 +406,7 @@
                                                     Command="{x:Bind ViewModel.OpenSelectedClipCommand}"
                                                     Margin="8,0,0,0"
                                                     Background="{StaticResource AccentBlueBrush}"
-                                                    Foreground="White"
+                                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                                     BorderThickness="0"
                                                     CornerRadius="6"/>
                                         </Grid>
@@ -479,7 +513,7 @@
                                                           SelectedValuePath="Key"
                                                           SelectedValue="{x:Bind ViewModel.SelectedLabelQuality, Mode=TwoWay}"
                                                           Background="{StaticResource InputBackgroundBrush}"/>
-                                                <TextBlock Text="Manual labels now save only quality, optional objective attachment, rationale, and confidence."
+                                                <TextBlock Text="Manual clips now use the game's review note as the default final tag. Use this panel to adjust quality, objective attachment, rationale, and confidence."
                                                            FontSize="12"
                                                            Foreground="{StaticResource SecondaryTextBrush}"
                                                            TextWrapping="Wrap"/>
@@ -496,7 +530,7 @@
                                                            FontSize="13"
                                                            FontWeight="SemiBold"
                                                            Foreground="{StaticResource PrimaryTextBrush}"/>
-                                                <TextBlock Text="Only use this when the clip note and review context still leave the moment ambiguous."
+                                                <TextBlock Text="Only use this when the saved review note and clip context still leave the moment ambiguous."
                                                            FontSize="12"
                                                            Foreground="{StaticResource SecondaryTextBrush}"
                                                            TextWrapping="Wrap"/>

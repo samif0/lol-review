@@ -33,22 +33,53 @@ public sealed class LiveEventApi : ILiveEventApi
     /// <inheritdoc />
     public async Task<string?> GetActivePlayerNameAsync(CancellationToken ct = default)
     {
+        var activePlayerName = await GetAsync("/liveclientdata/activeplayername", ct).ConfigureAwait(false);
+        if (activePlayerName is JsonElement activePlayerNameEl
+            && activePlayerNameEl.ValueKind == JsonValueKind.String)
+        {
+            var name = activePlayerNameEl.GetString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
+        }
+
         var data = await GetAsync("/liveclientdata/activeplayer", ct).ConfigureAwait(false);
         if (data is not JsonElement el)
             return null;
 
-        // Try riotId first (modern), fall back to summonerName
-        if (el.TryGetProperty("riotId", out var riotId) && riotId.ValueKind == JsonValueKind.String)
+        return ResolveActivePlayerName(el);
+    }
+
+    internal static string? ResolveActivePlayerName(JsonElement el)
+    {
+        if (el.TryGetProperty("riotIdGameName", out var riotIdGameName)
+            && riotIdGameName.ValueKind == JsonValueKind.String)
         {
-            var name = riotId.GetString();
-            if (!string.IsNullOrEmpty(name))
+            var name = riotIdGameName.GetString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
                 return name;
+            }
         }
 
         if (el.TryGetProperty("summonerName", out var summonerName)
             && summonerName.ValueKind == JsonValueKind.String)
         {
-            return summonerName.GetString() ?? "";
+            var name = summonerName.GetString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
+        }
+
+        if (el.TryGetProperty("riotId", out var riotId) && riotId.ValueKind == JsonValueKind.String)
+        {
+            var name = riotId.GetString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
         }
 
         return null;

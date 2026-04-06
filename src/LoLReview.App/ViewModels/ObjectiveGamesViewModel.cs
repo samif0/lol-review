@@ -4,7 +4,9 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.App.Contracts;
+using LoLReview.App.Styling;
 using LoLReview.Core.Data.Repositories;
+using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.ViewModels;
 
@@ -23,7 +25,12 @@ public sealed class ObjectiveGameRow
 
     public string ResultText => Win ? "W" : "L";
     public string PracticedText => Practiced ? "Practiced" : "Skipped";
-    public string PracticedColor => Practiced ? "#22c55e" : "#6b7280";
+    public SolidColorBrush PracticedBackgroundBrush => Practiced
+        ? AppSemanticPalette.Brush(AppSemanticPalette.PositiveDimHex)
+        : AppSemanticPalette.Brush(AppSemanticPalette.NeutralDimHex);
+    public SolidColorBrush PracticedForegroundBrush => Practiced
+        ? AppSemanticPalette.Brush(AppSemanticPalette.PositiveHex)
+        : AppSemanticPalette.Brush(AppSemanticPalette.NeutralHex);
 }
 
 /// <summary>ViewModel for the Objective Games page — shows all games linked to one objective.</summary>

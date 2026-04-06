@@ -1,11 +1,12 @@
 #nullable enable
 
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using LoLReview.Core.Models;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -89,10 +90,10 @@ public sealed partial class VodPlayerPage : Page
         _windowRoot?.RemoveHandler(KeyUpEvent, _keyUpHandler);
         _windowRoot = null;
 
-        // Exit fullscreen if active when navigating away.
-        var appWindow = App.MainWindow?.AppWindow;
-        if (appWindow?.Presenter.Kind == AppWindowPresenterKind.FullScreen)
-            appWindow.SetPresenter(AppWindowPresenterKind.Default);
+        if (_playerElement is { IsFullWindow: true })
+        {
+            _playerElement.IsFullWindow = false;
+        }
 
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         Cleanup();
@@ -110,8 +111,8 @@ public sealed partial class VodPlayerPage : Page
             VerticalAlignment = VerticalAlignment.Stretch,
             Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
             AreTransportControlsEnabled = false,
-            IsHitTestVisible = false,
-            AllowFocusOnInteraction = false,
+            IsHitTestVisible = true,
+            AllowFocusOnInteraction = true,
             IsTabStop = false,
         };
         _playerElement.SetMediaPlayer(_mediaPlayer);
@@ -134,21 +135,27 @@ public sealed partial class VodPlayerPage : Page
         _mediaPlayer.MediaFailed += (s, ev) => DispatcherQueue.TryEnqueue(() =>
         {
             NoVodText.Text = $"Media error: {ev.Error} — {ev.ErrorMessage}";
-            NoVodText.Visibility = Visibility.Visible;
+            NoVodBorder.Visibility = Visibility.Visible;
         });
         _mediaPlayer.PlaybackSession.PlaybackStateChanged += (s, _) => DispatcherQueue.TryEnqueue(() =>
         {
             if (_mediaPlayer == null) return;
             var playing = _mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
             ViewModel.IsPlaying = playing;
-            PlayPauseIcon.Glyph = playing ? "\uE769" : "\uE768";
+            UpdatePlayPauseButtons(playing);
         });
+
+        UpdatePlayPauseButtons(playing: false);
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(ViewModel.VodPath) or nameof(ViewModel.HasVod))
-            DispatcherQueue.TryEnqueue(TryLoadMedia);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                TryLoadMedia();
+                UpdatePlayPauseButtons(ViewModel.IsPlaying);
+            });
 
         if (e.PropertyName is nameof(ViewModel.HasFfmpeg))
             DispatcherQueue.TryEnqueue(() =>
@@ -160,16 +167,18 @@ public sealed partial class VodPlayerPage : Page
         if (_mediaPlayer == null) return;
         if (string.IsNullOrEmpty(ViewModel.VodPath) || !ViewModel.HasVod)
         {
-            NoVodText.Visibility = ViewModel.IsLoading ? Visibility.Collapsed : Visibility.Visible;
+            NoVodBorder.Visibility = ViewModel.IsLoading ? Visibility.Collapsed : Visibility.Visible;
+            VideoPlayPauseButton.Visibility = Visibility.Collapsed;
             return;
         }
 
-        NoVodText.Visibility = Visibility.Collapsed;
+        NoVodBorder.Visibility = Visibility.Collapsed;
 
         if (!System.IO.File.Exists(ViewModel.VodPath))
         {
             NoVodText.Text = "VOD file not found";
-            NoVodText.Visibility = Visibility.Visible;
+            NoVodBorder.Visibility = Visibility.Visible;
+            VideoPlayPauseButton.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -255,6 +264,16 @@ public sealed partial class VodPlayerPage : Page
             _mediaPlayer.Play();
     }
 
+    private void UpdatePlayPauseButtons(bool playing)
+    {
+        PlayPauseIcon.Glyph = playing ? "\uE769" : "\uE768";
+        VideoPlayPauseIcon.Glyph = playing ? "\uE769" : "\uE768";
+        VideoPlayPauseButton.Visibility =
+            ViewModel.HasVod && !ViewModel.IsLoading && NoVodBorder.Visibility != Visibility.Visible && !playing
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
     private void OnTimelineSeek(double seconds) => OnSeekRequested(seconds);
 
     private void ApplyPendingSeek()
@@ -276,10 +295,19 @@ public sealed partial class VodPlayerPage : Page
 
     // ── UI event handlers ───────────────────────────────────────────
 
-    private void OnVideoTapped(object sender, TappedRoutedEventArgs e) => OnPlayPauseRequested();
+    private void OnVideoTapped(object sender, TappedRoutedEventArgs e)
+    {
+        VideoContainer.Focus(FocusState.Programmatic);
+    }
 
     private void OnClipButtonClick(object sender, RoutedEventArgs e)
     {
+        VideoContainer.Focus(FocusState.Programmatic);
+    }
+
+    private void OnVideoPlayPauseClick(object sender, RoutedEventArgs e)
+    {
+        OnPlayPauseRequested();
         VideoContainer.Focus(FocusState.Programmatic);
     }
 
@@ -294,25 +322,71 @@ public sealed partial class VodPlayerPage : Page
         }
     }
 
-    private void OnBookmarkTapped(object sender, PointerRoutedEventArgs e)
+    private void OnBookmarkTapped(object sender, TappedRoutedEventArgs e)
     {
-        if (sender is FrameworkElement fe && fe.DataContext is BookmarkItem bookmark)
-            ViewModel.SeekToBookmarkCommand.Execute(bookmark);
-        VideoContainer.Focus(FocusState.Programmatic);
-    }
-
-    private void OnDeleteBookmark(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button btn && btn.Tag is long id)
-            ViewModel.DeleteBookmarkCommand.Execute(id);
-        VideoContainer.Focus(FocusState.Programmatic);
-    }
-
-    private void OnBookmarkNoteLostFocus(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe && fe.DataContext is BookmarkItem bookmark)
+        if (IsInteractiveChildTap(e.OriginalSource as DependencyObject))
         {
-            ViewModel.SaveBookmarkNoteCommand.Execute(bookmark);
+            return;
+        }
+
+        if (ResolveBookmarkItem(sender) is { } bookmark)
+        {
+            ViewModel.SeekToBookmarkCommand.Execute(bookmark);
+        }
+
+        VideoContainer.Focus(FocusState.Programmatic);
+    }
+
+    private void OnTimelineEventTapped(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is TimelineEvent timelineEvent)
+            ViewModel.SeekToEventCommand.Execute(timelineEvent);
+        VideoContainer.Focus(FocusState.Programmatic);
+    }
+
+    private async void OnDeleteBookmark(object sender, RoutedEventArgs e)
+    {
+        var bookmark = ResolveBookmarkItem(sender);
+        var bookmarkId = ResolveBookmarkId(sender);
+        AppDiagnostics.WriteVerbose(
+            "vod-delete.log",
+            $"delete click bookmarkId={bookmarkId?.ToString() ?? "null"} isClip={bookmark?.IsClip.ToString() ?? "unknown"}");
+
+        if (bookmarkId is > 0)
+        {
+            await ViewModel.DeleteBookmarkCommand.ExecuteAsync(bookmarkId);
+        }
+        else
+        {
+            AppDiagnostics.WriteVerbose("vod-delete.log", "delete click ignored because bookmarkId was not resolved");
+        }
+
+        VideoContainer.Focus(FocusState.Programmatic);
+    }
+
+    private void OnDeleteBookmarkPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        var bookmark = ResolveBookmarkItem(sender);
+        var bookmarkId = ResolveBookmarkId(sender);
+        AppDiagnostics.WriteVerbose(
+            "vod-delete.log",
+            $"delete pressed bookmarkId={bookmarkId?.ToString() ?? "null"} isClip={bookmark?.IsClip.ToString() ?? "unknown"}");
+    }
+
+    private void OnDeleteBookmarkPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        var bookmark = ResolveBookmarkItem(sender);
+        var bookmarkId = ResolveBookmarkId(sender);
+        AppDiagnostics.WriteVerbose(
+            "vod-delete.log",
+            $"delete released bookmarkId={bookmarkId?.ToString() ?? "null"} isClip={bookmark?.IsClip.ToString() ?? "unknown"}");
+    }
+
+    private async void OnBookmarkNoteLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (ResolveBookmarkItem(sender) is { Id: > 0 } bookmark)
+        {
+            await ViewModel.SaveBookmarkNoteCommand.ExecuteAsync(bookmark);
         }
     }
 
@@ -340,16 +414,16 @@ public sealed partial class VodPlayerPage : Page
         e.Handled = true;
     }
 
-    private void OnBookmarkNoteKeyDown(object sender, KeyRoutedEventArgs e)
+    private async void OnBookmarkNoteKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != Windows.System.VirtualKey.Enter)
         {
             return;
         }
 
-        if (sender is FrameworkElement fe && fe.DataContext is BookmarkItem bookmark)
+        if (ResolveBookmarkItem(sender) is { Id: > 0 } bookmark)
         {
-            ViewModel.SaveBookmarkNoteCommand.Execute(bookmark);
+            await ViewModel.SaveBookmarkNoteCommand.ExecuteAsync(bookmark);
             VideoContainer.Focus(FocusState.Programmatic);
             e.Handled = true;
         }
@@ -371,17 +445,19 @@ public sealed partial class VodPlayerPage : Page
 
     private void ToggleFullscreen()
     {
-        var appWindow = App.MainWindow?.AppWindow;
-        if (appWindow == null) return;
-
-        if (appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
+        if (_playerElement == null)
         {
-            appWindow.SetPresenter(AppWindowPresenterKind.Default);
+            return;
+        }
+
+        if (_playerElement.IsFullWindow)
+        {
+            _playerElement.IsFullWindow = false;
             FullscreenIcon.Glyph = "\uE740"; // EnterFullScreen
         }
         else
         {
-            appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            _playerElement.IsFullWindow = true;
             FullscreenIcon.Glyph = "\uE73F"; // ExitFullScreen
         }
     }
@@ -400,6 +476,48 @@ public sealed partial class VodPlayerPage : Page
         < 0.5 => "\uE993",  // low volume
         _ => "\uE767",       // full volume
     };
+
+    private static bool IsInteractiveChildTap(DependencyObject? source)
+    {
+        var current = source;
+        while (current != null)
+        {
+            if (current is Button or TextBox)
+            {
+                return true;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
+    }
+
+    private static BookmarkItem? ResolveBookmarkItem(object sender)
+    {
+        if (sender is not FrameworkElement element)
+        {
+            return null;
+        }
+
+        return element.Tag as BookmarkItem ?? element.DataContext as BookmarkItem;
+    }
+
+    private static long? ResolveBookmarkId(object sender)
+    {
+        if (sender is not Button button)
+        {
+            return null;
+        }
+
+        return button.CommandParameter switch
+        {
+            long bookmarkId => bookmarkId,
+            int bookmarkId => bookmarkId,
+            BookmarkItem bookmark => bookmark.Id,
+            _ => (button.DataContext as BookmarkItem)?.Id
+        };
+    }
 
     // ── Global key handlers (hooked on window root) ─────────────────
 
@@ -448,6 +566,11 @@ public sealed partial class VodPlayerPage : Page
                 break;
             case Windows.System.VirtualKey.O:
                 ViewModel.SetClipOutCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Windows.System.VirtualKey.S:
+                if (ViewModel.HasClipRange)
+                    ViewModel.ExtractClipCommand.Execute(null);
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.B:

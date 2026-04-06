@@ -35,7 +35,7 @@
                             Content="+ New Rule"
                             Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
                             Background="{StaticResource AccentBlueBrush}"
-                            Foreground="White"
+                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                             CornerRadius="6" Height="34"
                             BorderThickness="0"/>
                 </Grid>
@@ -153,7 +153,7 @@
                                     Command="{x:Bind ViewModel.CreateRuleCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanCreate, Mode=OneWay}"
                                     Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="White"
+                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                     CornerRadius="6" Height="32"
                                     BorderThickness="0"/>
                         </StackPanel>
@@ -215,7 +215,7 @@
                                                 FontSize="12" Height="30"
                                                 Padding="14,0" CornerRadius="6"
                                                 Background="{StaticResource AccentBlueBrush}"
-                                                Foreground="White"
+                                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                                 BorderThickness="0"
                                                 VerticalAlignment="Center"
                                                 Command="{Binding ElementName=RulesPageRoot, Path=ViewModel.AddSuggestedRuleCommand}"

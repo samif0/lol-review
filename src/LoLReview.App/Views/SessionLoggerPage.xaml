@@ -73,7 +73,7 @@
                         <Button Content="Today"
                                 Command="{x:Bind ViewModel.GoTodayCommand}"
                                 Background="{StaticResource AccentBlueBrush}"
-                                Foreground="White"
+                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                 CornerRadius="6" Height="32" Width="80"
                                 BorderThickness="0"/>
                     </StackPanel>
@@ -279,7 +279,7 @@
                                                            HorizontalAlignment="Right"/>
                                                 <Button Content="Review"
                                                         Background="{StaticResource AccentBlueBrush}"
-                                                        Foreground="White"
+                                                        Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                                         CornerRadius="6" Height="28"
                                                         FontSize="11"
                                                         BorderThickness="0"

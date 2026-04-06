@@ -121,10 +121,7 @@ public partial class HistoryViewModel : ObservableObject
             DispatcherHelper.RunOnUIThread(() => Games.Clear());
 
             await LoadGamesPageAsync();
-            await Task.WhenAll(
-                LoadStatsOverviewAsync(),
-                LoadChampionStatsAsync(),
-                LoadChampionFiltersAsync());
+            await LoadChampionFiltersAsync();
         }
         catch (Exception ex)
         {

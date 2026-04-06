@@ -6,10 +6,13 @@ using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using LoLReview.Core.Lcu;
 using LoLReview.Core.Models;
+using Microsoft.UI.Composition;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
+using System.Numerics;
 using System.Text.Json;
 
 namespace LoLReview.App.Views;
@@ -22,11 +25,15 @@ public sealed partial class ShellPage : Page
     private readonly ILcuClient _lcuClient;
     private Button? _activeNavButton;
     private bool _startupInitialized;
+    private CompositionRoundedRectangleGeometry? _contentViewportGeometry;
+    private CompositionGeometricClip? _contentViewportClip;
 
-    private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(255, 0, 153, 255)); // #0099ff
-    private static readonly SolidColorBrush ActiveFg = new(Colors.White);
-    private static readonly SolidColorBrush InactiveBg = new(Colors.Transparent);
-    private static readonly SolidColorBrush InactiveFg = new(ColorHelper.FromArgb(255, 192, 192, 216)); // #c0c0d8
+    private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(255, 16, 28, 26));
+    private static readonly SolidColorBrush ActiveFg = new(ColorHelper.FromArgb(255, 237, 243, 240));
+    private static readonly SolidColorBrush ActiveBorder = new(ColorHelper.FromArgb(255, 137, 243, 199));
+    private static readonly SolidColorBrush InactiveBg = new(ColorHelper.FromArgb(24, 13, 21, 20));
+    private static readonly SolidColorBrush InactiveBorder = new(ColorHelper.FromArgb(255, 36, 49, 46));
+    private static readonly SolidColorBrush InactiveFg = new(ColorHelper.FromArgb(255, 160, 177, 171));
 
     public ShellPage()
     {
@@ -70,6 +77,8 @@ public sealed partial class ShellPage : Page
 
         await RefreshCoachLabVisibilityAsync();
         AppDiagnostics.WriteVerbose("startup.log", "ShellPage.Loaded coach lab visibility refreshed");
+
+        UpdateContentViewportClip();
     }
 
     private void OnNavClick(object sender, RoutedEventArgs e)
@@ -83,16 +92,16 @@ public sealed partial class ShellPage : Page
 
     private void SetActiveNav(Button btn)
     {
-        // Deactivate previous
         if (_activeNavButton is not null)
         {
             _activeNavButton.Background = InactiveBg;
             _activeNavButton.Foreground = InactiveFg;
+            _activeNavButton.BorderBrush = InactiveBorder;
         }
 
-        // Activate new
-        btn.Background = new SolidColorBrush(ColorHelper.FromArgb(40, 0, 153, 255)); // subtle blue
+        btn.Background = ActiveBg;
         btn.Foreground = ActiveFg;
+        btn.BorderBrush = ActiveBorder;
         _activeNavButton = btn;
     }
 
@@ -101,7 +110,6 @@ public sealed partial class ShellPage : Page
     /// </summary>
     public void SyncSelection(string pageKey)
     {
-        // Find the button with the matching tag
         foreach (var child in NavPanel.Children)
         {
             if (child is Button btn && btn.Tag is string tag &&
@@ -112,7 +120,6 @@ public sealed partial class ShellPage : Page
             }
         }
 
-        // Check settings button
         if (string.Equals(NavSettings.Tag as string, pageKey, StringComparison.OrdinalIgnoreCase))
         {
             SetActiveNav(NavSettings);
@@ -124,12 +131,12 @@ public sealed partial class ShellPage : Page
         DispatcherQueue.TryEnqueue(() =>
         {
             var brush = message.IsConnected
-                ? new SolidColorBrush(ColorHelper.FromArgb(255, 34, 197, 94))
-                : new SolidColorBrush(ColorHelper.FromArgb(255, 239, 68, 68));
+                ? new SolidColorBrush(ColorHelper.FromArgb(255, 120, 214, 174))
+                : new SolidColorBrush(ColorHelper.FromArgb(255, 211, 140, 144));
 
             ConnectionIndicator.Fill = brush;
-            StatusDot.Fill = brush;
-            ConnectionStatusText.Text = message.IsConnected ? "Connected" : "Waiting for League...";
+            StatusDot.Background = brush;
+            ConnectionStatusText.Text = message.IsConnected ? "Connected" : "Waiting...";
         });
 
         _ = RefreshCoachLabVisibilityAsync();
@@ -174,5 +181,28 @@ public sealed partial class ShellPage : Page
 
         CoachLabFeature.UpdateRuntimeIdentity(puuid, summonerName);
         DispatcherQueue.TryEnqueue(RefreshCoachLabVisibility);
+    }
+
+    private void OnContentViewportSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateContentViewportClip();
+    }
+
+    private void UpdateContentViewportClip()
+    {
+        if (ContentViewport.ActualWidth <= 0 || ContentViewport.ActualHeight <= 0)
+        {
+            return;
+        }
+
+        var visual = ElementCompositionPreview.GetElementVisual(ContentViewport);
+        var compositor = visual.Compositor;
+
+        _contentViewportGeometry ??= compositor.CreateRoundedRectangleGeometry();
+        _contentViewportClip ??= compositor.CreateGeometricClip(_contentViewportGeometry);
+
+        _contentViewportGeometry.CornerRadius = new Vector2(16f, 16f);
+        _contentViewportGeometry.Size = new Vector2((float)ContentViewport.ActualWidth, (float)ContentViewport.ActualHeight);
+        visual.Clip = _contentViewportClip;
     }
 }

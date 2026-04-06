@@ -78,7 +78,27 @@ public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliat
                 continue;
             }
 
-            var stats = StatsExtractor.ExtractFromMatchHistory(game, _logger);
+            var preferredParticipantId = TryGetPreferredParticipantId(game);
+            var statsSource = game;
+            if (preferredParticipantId > 0)
+            {
+                var detailedGame = await _lcuClient.GetMatchDetailsAsync(gameId, cancellationToken)
+                    .ConfigureAwait(false);
+                if (detailedGame is JsonElement detail)
+                {
+                    statsSource = detail;
+                }
+                else
+                {
+                    CoreDiagnostics.WriteVerbose(
+                        $"LCU: Reconciliation missing detailed match payload gameId={gameId}; using summary payload");
+                }
+            }
+
+            var stats = StatsExtractor.ExtractFromMatchHistory(
+                statsSource,
+                _logger,
+                preferredParticipantId > 0 ? preferredParticipantId : null);
             if (stats is null)
             {
                 CoreDiagnostics.WriteVerbose($"LCU: Reconciliation skipping gameId={gameId} reason=stats-null");
@@ -120,6 +140,31 @@ public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliat
 
         _logger.LogInformation("Reconciliation: found {Count} missed recent game(s)", candidates.Count);
         return candidates;
+    }
+
+    private static int TryGetPreferredParticipantId(JsonElement game)
+    {
+        if (game.TryGetProperty("participants", out var participants)
+            && participants.ValueKind == JsonValueKind.Array)
+        {
+            var participantList = participants.EnumerateArray().ToList();
+            if (participantList.Count == 1)
+            {
+                return participantList[0].GetPropertyIntOrDefault("participantId", 0);
+            }
+        }
+
+        if (game.TryGetProperty("participantIdentities", out var identities)
+            && identities.ValueKind == JsonValueKind.Array)
+        {
+            var identityList = identities.EnumerateArray().ToList();
+            if (identityList.Count == 1)
+            {
+                return identityList[0].GetPropertyIntOrDefault("participantId", 0);
+            }
+        }
+
+        return 0;
     }
 
     private async Task<string?> TryGetCurrentSummonerNameAsync(CancellationToken cancellationToken)
