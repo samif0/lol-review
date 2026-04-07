@@ -61,6 +61,7 @@ public partial class ReviewViewModel : ObservableObject
     [ObservableProperty] private bool _hasValidationMessage;
     [ObservableProperty] private bool _showMentalReflection;
     [ObservableProperty] private bool _isLoading;
+    private CancellationTokenSource? _vodRetryCts;
     [ObservableProperty] private bool _hasObjectives;
     [ObservableProperty] private bool _hasMatchupHistory;
     [ObservableProperty] private string _priorityObjectiveTitle = "";
@@ -103,6 +104,7 @@ public partial class ReviewViewModel : ObservableObject
         }
 
         IsLoading = true;
+        _vodRetryCts?.Cancel();
         ClearValidation();
 
         try
@@ -126,6 +128,11 @@ public partial class ReviewViewModel : ObservableObject
             HasVod = screenData.HasVod;
             BookmarkCount = screenData.BookmarkCount;
             UpdateSaveBehaviorText();
+
+            if (!HasVod)
+            {
+                ScheduleVodRecheck(gameId);
+            }
         }
         catch (Exception ex)
         {
@@ -147,6 +154,7 @@ public partial class ReviewViewModel : ObservableObject
     [RelayCommand]
     private void Cancel()
     {
+        _vodRetryCts?.Cancel();
         _navigationService.GoBack();
     }
 
@@ -437,6 +445,45 @@ public partial class ReviewViewModel : ObservableObject
         return item.GameId > 0
             ? $"Game {item.GameId}  •  {createdText}  •  {helpfulText}"
             : $"{createdText}  •  {helpfulText}";
+    }
+
+    private void ScheduleVodRecheck(long gameId)
+    {
+        _vodRetryCts?.Cancel();
+        _vodRetryCts = new CancellationTokenSource();
+        var token = _vodRetryCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            // Retry a few times with increasing delays to catch recordings that
+            // are still being finalized when the post-game page first loads.
+            int[] delaysMs = [15_000, 30_000, 60_000];
+            foreach (var delay in delaysMs)
+            {
+                try
+                {
+                    await Task.Delay(delay, token).ConfigureAwait(false);
+                    var result = await _reviewWorkflowService.CheckVodAsync(gameId, token).ConfigureAwait(false);
+                    if (result.HasVod)
+                    {
+                        Helpers.DispatcherHelper.RunOnUIThread(() =>
+                        {
+                            HasVod = true;
+                            BookmarkCount = result.BookmarkCount;
+                        });
+                        return;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "VOD recheck failed for game {GameId}", gameId);
+                }
+            }
+        }, token);
     }
 
     private static string FormatNumber(int n) => n switch

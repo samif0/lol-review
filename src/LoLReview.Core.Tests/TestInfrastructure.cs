@@ -128,7 +128,8 @@ internal sealed class StubVodService : IVodService
     public Task<List<VodRecordingInfo>> FindRecordingsAsync(string? folder = null) =>
         Task.FromResult<List<VodRecordingInfo>>([]);
 
-    public string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings) => null;
+    public string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings,
+        IReadOnlySet<string>? excludePaths = null) => null;
 
     public Task<bool> TryLinkRecordingAsync(GameStats game, string? folder = null) => Task.FromResult(TryLinkResult);
 

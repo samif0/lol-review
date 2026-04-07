@@ -65,12 +65,11 @@
 
                         <Grid ColumnSpacing="24">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="396"/>
+                                <ColumnDefinition Width="1.2*"/>
+                                <ColumnDefinition Width="*" MaxWidth="396"/>
                             </Grid.ColumnDefinitions>
 
                             <StackPanel Grid.Column="0"
-                                        MaxWidth="580"
                                         Spacing="14">
                                 <StackPanel Orientation="Horizontal"
                                             Spacing="10">
@@ -102,12 +101,10 @@
 
                                 <TextBlock Text="{x:Bind ViewModel.Greeting, Mode=OneWay}"
                                            Style="{StaticResource HeroTitleStyle}"
-                                           MaxWidth="560"
                                            TextWrapping="Wrap"/>
 
                                 <TextBlock Text="Clear the review inbox, keep your mental visible, and leave yourself one sharp instruction for the next queue."
                                            FontSize="14"
-                                           MaxWidth="540"
                                            TextWrapping="Wrap"
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
 

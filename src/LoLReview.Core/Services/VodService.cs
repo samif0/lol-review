@@ -92,7 +92,8 @@ public sealed partial class VodService : IVodService
     }
 
     /// <inheritdoc />
-    public string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings)
+    public string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings,
+        IReadOnlySet<string>? excludePaths = null)
     {
         if (game.Timestamp == 0) return null;
 
@@ -101,6 +102,8 @@ public sealed partial class VodService : IVodService
 
         foreach (var rec in recordings)
         {
+            if (excludePaths is not null && excludePaths.Contains(rec.Path))
+                continue;
             double delta;
 
             if (rec.StartTs is not null)
@@ -180,12 +183,14 @@ public sealed partial class VodService : IVodService
         _logger.LogInformation("VOD scan found {Count} recordings in {Folder}", recordings.Count, folder);
         if (recordings.Count == 0) return 0;
 
-        // Get all VODs to find which games already have one
+        // Get all VODs to find which games already have one and which paths are taken
         var allVods = await _vods.GetAllVodsAsync().ConfigureAwait(false);
         var linkedGameIds = new HashSet<long>();
+        var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var vod in allVods)
         {
             linkedGameIds.Add(vod.GameId);
+            usedPaths.Add(vod.FilePath);
         }
 
         _logger.LogInformation("VOD scan: {Linked} games already have linked VODs", linkedGameIds.Count);
@@ -208,7 +213,7 @@ public sealed partial class VodService : IVodService
         {
             if (matchedGameIds.Contains(game.GameId)) continue;
 
-            var matchedPath = MatchRecordingToGame(game, recordings);
+            var matchedPath = MatchRecordingToGame(game, recordings, usedPaths);
             if (matchedPath is null) continue;
 
             try
@@ -216,6 +221,7 @@ public sealed partial class VodService : IVodService
                 var fi = new FileInfo(matchedPath);
                 await _vods.LinkVodAsync(game.GameId, matchedPath, fi.Length).ConfigureAwait(false);
                 matchedGameIds.Add(game.GameId);
+                usedPaths.Add(matchedPath);
                 matched++;
                 _logger.LogInformation("Auto-matched VOD {File} to game {GameId}", fi.Name, game.GameId);
             }

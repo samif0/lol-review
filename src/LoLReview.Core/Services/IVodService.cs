@@ -22,7 +22,8 @@ public interface IVodService
     /// Fallback: compare file mtime vs game end (30s grace).
     /// Returns the matched file path or null.
     /// </summary>
-    string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings);
+    string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings,
+        IReadOnlySet<string>? excludePaths = null);
 
     /// <summary>
     /// Try to link a recording to a specific game immediately.

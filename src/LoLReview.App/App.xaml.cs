@@ -59,6 +59,10 @@ public partial class App : Application
         _mainWindow = new Window { Title = "LoL Review" };
         _mainWindow.SetWindowSize(1100, 700);
 
+        var manager = WinUIEx.WindowManager.Get(_mainWindow);
+        manager.MinWidth = 1024;
+        manager.MinHeight = 640;
+
         var loadingText = new Microsoft.UI.Xaml.Controls.TextBlock
         {
             Text = "LoL Review - Loading...",

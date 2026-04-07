@@ -19,7 +19,7 @@
     <Grid Background="{StaticResource AppBackgroundBrush}">
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Padding="24,20" Spacing="12" Width="900" HorizontalAlignment="Center">
+            <StackPanel Padding="24,20" Spacing="12" MaxWidth="900" HorizontalAlignment="Stretch">
 
                 <!-- Page Header -->
                 <Grid>

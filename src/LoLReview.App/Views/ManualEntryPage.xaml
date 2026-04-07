@@ -16,7 +16,7 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12" Padding="24,20"
-                    Width="700" HorizontalAlignment="Center">
+                    MaxWidth="700" HorizontalAlignment="Stretch">
 
             <!-- ═══ Champion + Result Header ═══ -->
             <Grid>

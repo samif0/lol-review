@@ -107,6 +107,32 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             Snapshot: snapshot);
     }
 
+    public async Task<VodCheckResult> CheckVodAsync(long gameId, CancellationToken cancellationToken = default)
+    {
+        var game = await _gameRepository.GetAsync(gameId);
+        if (game is null)
+        {
+            return new VodCheckResult(false, 0);
+        }
+
+        var vod = await _vodRepository.GetVodAsync(gameId);
+        if (vod is null && _configService.IsAscentEnabled)
+        {
+            try
+            {
+                await _vodService.TryLinkRecordingAsync(game);
+                vod = await _vodRepository.GetVodAsync(gameId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "VOD re-check failed for game {GameId}", gameId);
+            }
+        }
+
+        var bookmarkCount = vod is null ? 0 : await _vodRepository.GetBookmarkCountAsync(gameId);
+        return new VodCheckResult(vod is not null, bookmarkCount);
+    }
+
     public async Task<ReviewSaveResult> SaveAsync(SaveReviewRequest request, CancellationToken cancellationToken = default)
     {
         if (request.GameId <= 0)

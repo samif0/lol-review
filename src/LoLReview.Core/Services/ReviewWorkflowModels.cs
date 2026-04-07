@@ -71,6 +71,8 @@ public sealed record SaveReviewRequest(
     bool RequireReviewNotes,
     ReviewSnapshot Snapshot);
 
+public sealed record VodCheckResult(bool HasVod, int BookmarkCount);
+
 public sealed record ReviewSaveResult(
     bool Success,
     string ErrorMessage,

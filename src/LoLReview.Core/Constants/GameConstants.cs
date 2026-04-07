@@ -173,8 +173,11 @@ public static class GameConstants
 
     // ── VOD matching ──────────────────────────────────────────────────────
 
-    /// <summary>15-minute window for matching VODs to games (seconds).</summary>
-    public const int VodMatchWindowS = 900;
+    /// <summary>40-minute window for matching VODs to games (seconds).
+    /// Ascent starts recording at queue/champ-select time, but Riot's gameCreation
+    /// is at loading-screen start. Queue waits, champ select, and dodges can add
+    /// 20-30+ minutes between the two timestamps.</summary>
+    public const int VodMatchWindowS = 2400;
 
     /// <summary>Grace period for mtime fallback matching (seconds).</summary>
     public const int VodMtimeGraceS = 30;
