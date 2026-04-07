@@ -17,7 +17,7 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <ApplicationIcon>Assets\lolreview.ico</ApplicationIcon>
-    <Version>2.4.8</Version>
+    <Version>2.4.9</Version>
   </PropertyGroup>
 
   <ItemGroup>
