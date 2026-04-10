@@ -1,10 +1,10 @@
 name: Build & Release (C#)
 
 on:
+  workflow_dispatch:
   push:
     tags:
-      - 'v2.[1-9].*'
-      - 'v3.*'
+      - 'v*'
 
 permissions:
   contents: write
