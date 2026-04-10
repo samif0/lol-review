@@ -2,6 +2,7 @@
 
 using System.Text.Json;
 using LoLReview.Core.Models;
+using LoLReview.Core.Constants;
 using Microsoft.Extensions.Logging;
 
 namespace LoLReview.Core.Lcu;
@@ -42,6 +43,11 @@ public static class StatsExtractor
             var gameLength = eogData.GetPropertyIntOrDefault("gameLength", 0);
             var gameMode = eogData.GetPropertyOrDefault("gameMode", "");
             var gameType = eogData.GetPropertyOrDefault("gameType", "");
+            var rawQueueType = eogData.GetPropertyOrDefault("queueType", "");
+            var normalizedQueueType = GameConstants.NormalizeQueueLabel(rawQueueType);
+            var displayMode = !string.IsNullOrWhiteSpace(normalizedQueueType)
+                ? normalizedQueueType
+                : GameConstants.GetDisplayGameMode(gameMode, rawQueueType);
             var teamId = localPlayer.Value.GetPropertyIntOrDefault("teamId", 100);
 
             var kills = GetStatInt(stats, "CHAMPIONS_KILLED");
@@ -185,8 +191,9 @@ public static class StatsExtractor
                 GameId = gameId,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 GameDuration = gameLength,
-                GameMode = gameMode,
+                GameMode = displayMode,
                 GameType = gameType,
+                QueueType = normalizedQueueType,
                 ChampionName = localPlayer.Value.GetPropertyOrDefault("championName", "Unknown"),
                 ChampionId = localPlayer.Value.GetPropertyIntOrDefault("championId", 0),
                 TeamId = teamId,
@@ -242,6 +249,10 @@ public static class StatsExtractor
             // Store enemy info in raw stats
             gs.RawStats["_enemy_champions"] = enemyChampions;
             gs.RawStats["_enemy_by_position"] = enemyByPosition;
+            if (!string.IsNullOrWhiteSpace(rawQueueType))
+            {
+                gs.RawStats["_queue_type_raw"] = rawQueueType;
+            }
 
             // Auto-detect lane opponent by matching positions
             if (!string.IsNullOrEmpty(myPosition) && enemyByPosition.TryGetValue(myPosition, out var laneOpponent))
@@ -278,7 +289,7 @@ public static class StatsExtractor
             var gameMode = game.GetPropertyOrDefault("gameMode", "");
             var gameType = game.GetPropertyOrDefault("gameType", "");
             var queueId = game.GetPropertyIntOrDefault("queueId", 0);
-            var queueLabel = GetQueueLabel(queueId);
+            var queueLabel = GameConstants.GetQueueLabel(queueId);
             var displayMode = !string.IsNullOrWhiteSpace(queueLabel) ? queueLabel : gameMode;
 
             // Find the local player's participant data
@@ -517,15 +528,6 @@ public static class StatsExtractor
         return items;
     }
 
-    private static string GetQueueLabel(int queueId) => queueId switch
-    {
-        420 => "Ranked Solo",
-        440 => "Ranked Flex",
-        400 => "Normal Draft",
-        430 => "Normal Blind",
-        490 => "Quickplay",
-        _ => "",
-    };
 }
 
 /// <summary>

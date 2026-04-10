@@ -10,6 +10,8 @@ using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.ViewModels;
 
+public sealed record ObjectivePhaseUpdateRequest(long ObjectiveId, string Phase);
+
 /// <summary>Display model for an objective card.</summary>
 public sealed class ObjectiveDisplayItem
 {
@@ -19,6 +21,7 @@ public sealed class ObjectiveDisplayItem
     public string Type { get; init; } = "primary";
     public string CompletionCriteria { get; init; } = "";
     public string Description { get; init; } = "";
+    public string Phase { get; init; } = ObjectivePhases.InGame;
     public int Score { get; init; }
     public int GameCount { get; init; }
     public string Status { get; init; } = "active";
@@ -59,6 +62,8 @@ public sealed class ObjectiveDisplayItem
     public double ProgressPercent => Progress * 100;
     public bool HasSkillArea => !string.IsNullOrWhiteSpace(SkillArea);
     public bool HasCriteria => !string.IsNullOrWhiteSpace(CompletionCriteria);
+    public int PhaseIndex => ObjectivePhases.ToIndex(Phase);
+    public string PhaseLabel => ObjectivePhases.ToDisplayLabel(Phase);
 
     /// <summary>Cumulative score per game, oldest→newest, for sparkline rendering.</summary>
     public IReadOnlyList<int> ScoreHistory { get; init; } = [];
@@ -80,6 +85,7 @@ public sealed class CompletedObjectiveItem
 {
     public long Id { get; init; }
     public string Title { get; init; } = "";
+    public string PhaseLabel { get; init; } = "";
     public int Score { get; init; }
     public int GameCount { get; init; }
     public string SummaryText => $"{Score} pts  \u2022  {GameCount} games";
@@ -110,6 +116,9 @@ public partial class ObjectivesViewModel : ObservableObject
     private bool _isCreating;
 
     [ObservableProperty]
+    private long? _editingObjectiveId;
+
+    [ObservableProperty]
     private bool _hasObjectives;
 
     [ObservableProperty]
@@ -124,6 +133,16 @@ public partial class ObjectivesViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasSpottedProblems;
 
+    // Celebration overlay state
+    [ObservableProperty]
+    private bool _showCelebration;
+
+    [ObservableProperty]
+    private string _celebrationTitle = "";
+
+    [ObservableProperty]
+    private string _celebrationStats = "";
+
     // Create form fields
     [ObservableProperty]
     private string _newTitle = "";
@@ -135,6 +154,9 @@ public partial class ObjectivesViewModel : ObservableObject
     private int _newTypeIndex; // 0 = primary, 1 = mental
 
     [ObservableProperty]
+    private int _newPhaseIndex = 1; // 0 = pre-game, 1 = in-game, 2 = post-game
+
+    [ObservableProperty]
     private string _newCriteria = "";
 
     [ObservableProperty]
@@ -142,6 +164,10 @@ public partial class ObjectivesViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _canCreate;
+
+    public bool IsEditingObjective => EditingObjectiveId.HasValue;
+    public string ObjectiveFormTitle => IsEditingObjective ? "Edit Objective" : "New Objective";
+    public string SaveObjectiveButtonText => IsEditingObjective ? "Save Changes" : "Create";
 
     public ObservableCollection<ObjectiveDisplayItem> ActiveObjectives { get; } = new();
     public ObservableCollection<CompletedObjectiveItem> CompletedObjectives { get; } = new();
@@ -160,6 +186,13 @@ public partial class ObjectivesViewModel : ObservableObject
     partial void OnNewTitleChanged(string value)
     {
         CanCreate = !string.IsNullOrWhiteSpace(value);
+    }
+
+    partial void OnEditingObjectiveIdChanged(long? value)
+    {
+        OnPropertyChanged(nameof(IsEditingObjective));
+        OnPropertyChanged(nameof(ObjectiveFormTitle));
+        OnPropertyChanged(nameof(SaveObjectiveButtonText));
     }
 
     [RelayCommand]
@@ -183,7 +216,11 @@ public partial class ObjectivesViewModel : ObservableObject
         if (!IsCreating)
         {
             ClearForm();
+            return;
         }
+
+        EditingObjectiveId = null;
+        ResetFormFields();
     }
 
     [RelayCommand]
@@ -192,12 +229,27 @@ public partial class ObjectivesViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(NewTitle)) return;
 
         var type = NewTypeIndex == 1 ? "mental" : "primary";
-        await _objectivesRepo.CreateAsync(
-            NewTitle.Trim(),
-            NewSkillArea.Trim(),
-            type,
-            NewCriteria.Trim(),
-            NewDescription.Trim());
+        if (EditingObjectiveId.HasValue)
+        {
+            await _objectivesRepo.UpdateAsync(
+                EditingObjectiveId.Value,
+                NewTitle.Trim(),
+                NewSkillArea.Trim(),
+                type,
+                NewCriteria.Trim(),
+                NewDescription.Trim(),
+                phase: ObjectivePhases.FromIndex(NewPhaseIndex));
+        }
+        else
+        {
+            await _objectivesRepo.CreateAsync(
+                NewTitle.Trim(),
+                NewSkillArea.Trim(),
+                type,
+                NewCriteria.Trim(),
+                NewDescription.Trim(),
+                phase: ObjectivePhases.FromIndex(NewPhaseIndex));
+        }
 
         ClearForm();
         IsCreating = false;
@@ -207,8 +259,30 @@ public partial class ObjectivesViewModel : ObservableObject
     [RelayCommand]
     private async Task MarkCompleteAsync(long objectiveId)
     {
+        var objective = ActiveObjectives.FirstOrDefault(o => o.Id == objectiveId);
+
         await _objectivesRepo.MarkCompleteAsync(objectiveId);
         await RefreshDataAsync();
+
+        if (objective is not null)
+        {
+            CelebrationTitle = objective.Title;
+            CelebrationStats = $"{objective.Score} pts  \u2022  {objective.GameCount} games played";
+            ShowCelebration = true;
+            _ = AutoDismissCelebrationAsync();
+        }
+    }
+
+    [RelayCommand]
+    private void DismissCelebration()
+    {
+        ShowCelebration = false;
+    }
+
+    private async Task AutoDismissCelebrationAsync()
+    {
+        await Task.Delay(5000);
+        ShowCelebration = false;
     }
 
     [RelayCommand]
@@ -226,6 +300,33 @@ public partial class ObjectivesViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task UpdateObjectivePhaseAsync(ObjectivePhaseUpdateRequest request)
+    {
+        await _objectivesRepo.UpdatePhaseAsync(request.ObjectiveId, request.Phase);
+        await RefreshDataAsync();
+    }
+
+    [RelayCommand]
+    private async Task BeginEditObjectiveAsync(long objectiveId)
+    {
+        var objective = await _objectivesRepo.GetAsync(objectiveId);
+        if (objective is null)
+        {
+            return;
+        }
+
+        EditingObjectiveId = objective.Id;
+        NewTitle = objective.Title;
+        NewSkillArea = objective.SkillArea;
+        NewTypeIndex = string.Equals(objective.Type, "mental", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        NewPhaseIndex = ObjectivePhases.ToIndex(objective.Phase);
+        NewCriteria = objective.CompletionCriteria;
+        NewDescription = objective.Description;
+        CanCreate = !string.IsNullOrWhiteSpace(NewTitle);
+        IsCreating = true;
+    }
+
+    [RelayCommand]
     private void ToggleCompleted()
     {
         ShowCompleted = !ShowCompleted;
@@ -239,9 +340,16 @@ public partial class ObjectivesViewModel : ObservableObject
 
     private void ClearForm()
     {
+        EditingObjectiveId = null;
+        ResetFormFields();
+    }
+
+    private void ResetFormFields()
+    {
         NewTitle = "";
         NewSkillArea = "";
         NewTypeIndex = 0;
+        NewPhaseIndex = 1;
         NewCriteria = "";
         NewDescription = "";
     }
@@ -270,6 +378,7 @@ public partial class ObjectivesViewModel : ObservableObject
                     Type = obj.Type,
                     CompletionCriteria = obj.CompletionCriteria,
                     Description = obj.Description,
+                    Phase = obj.Phase,
                     Score = obj.Score,
                     GameCount = obj.GameCount,
                     Status = obj.Status,
@@ -289,6 +398,7 @@ public partial class ObjectivesViewModel : ObservableObject
                 {
                     Id = obj.Id,
                     Title = obj.Title,
+                    PhaseLabel = ObjectivePhases.ToDisplayLabel(obj.Phase),
                     Score = obj.Score,
                     GameCount = obj.GameCount,
                 });

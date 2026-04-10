@@ -21,12 +21,13 @@ public interface IVodRepository
 
     Task<long> AddBookmarkAsync(long gameId, int gameTimeSeconds, string note = "",
         IReadOnlyList<string>? tags = null, int? clipStartSeconds = null,
-        int? clipEndSeconds = null, string clipPath = "");
+        int? clipEndSeconds = null, string clipPath = "", long? objectiveId = null,
+        string quality = "");
 
     Task UpdateBookmarkAsync(long bookmarkId, string? note = null,
         IReadOnlyList<string>? tags = null, int? gameTimeSeconds = null,
         int? clipStartSeconds = null, int? clipEndSeconds = null,
-        string? clipPath = null);
+        string? clipPath = null, string? quality = null);
 
     Task DeleteBookmarkAsync(long bookmarkId);
 

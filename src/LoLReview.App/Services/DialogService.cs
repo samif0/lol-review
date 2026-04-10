@@ -200,8 +200,8 @@ public sealed class DialogService : IDialogService
         var game = candidate.Stats;
         var title = $"{game.ChampionName} {(game.Win ? "Win" : "Loss")}";
         var subtitle = string.IsNullOrWhiteSpace(game.DatePlayed)
-            ? game.GameMode
-            : $"{game.DatePlayed}  ·  {game.GameMode}";
+            ? game.DisplayGameMode
+            : $"{game.DatePlayed}  ·  {game.DisplayGameMode}";
         var detail = $"{game.Kills}/{game.Deaths}/{game.Assists} KDA  ·  {game.DurationFormatted}";
 
         return new Border

@@ -80,12 +80,15 @@ public static class AppSemanticPalette
 
     public static SolidColorBrush ObjectiveLevelBrush(int levelIndex) => Brush(ObjectiveLevelHex(levelIndex));
 
+    public const string ObjectivePurpleHex = "#8a7af2";
+    public const string ObjectiveOrangeHex = "#e8935a";
+
     public static string ObjectiveLevelHex(int levelIndex) => levelIndex switch
     {
-        0 => NeutralHex,
-        1 => AccentBlueHex,
-        2 => AccentTealHex,
-        3 => AccentGoldHex,
+        0 => "#718094",         // Exploring: Slate
+        1 => "#78d2f7",         // Drilling: Ice blue
+        2 => ObjectivePurpleHex, // Ingraining: Violet
+        3 => ObjectiveOrangeHex, // Ready: Orange
         _ => NeutralHex,
     };
 

@@ -16,57 +16,44 @@
     <Grid Background="{StaticResource AppBackgroundBrush}">
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Padding="24,20" Spacing="14" MaxWidth="1220">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+            <StackPanel Padding="28,24" Spacing="16" MaxWidth="1240">
+                <Border Style="{StaticResource EmphasisCardStyle}"
+                        Background="{StaticResource HeroPanelBrush}">
+                    <Grid ColumnSpacing="18">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="0" Spacing="4">
-                        <TextBlock Text="Coach Lab"
-                                   FontSize="24"
-                                   FontWeight="Bold"
-                                   Foreground="{StaticResource PrimaryTextBrush}"/>
-                        <TextBlock Text="Clip-first hidden coach bootstrap. Manual clips and clip notes become the seed dataset."
-                                   FontSize="13"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-                    </StackPanel>
+                        <StackPanel Grid.Column="0" Spacing="8">
+                            <TextBlock Text="Coach Lab"
+                                       Style="{StaticResource HeroTitleStyle}"/>
+                            <TextBlock Text="Review clips fast, save the right note, and move straight to the next one."
+                                       FontSize="14"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
 
-                    <Button Grid.Column="1"
-                            Content="Refresh Assist"
-                            Command="{x:Bind ViewModel.RefreshAssistCommand}"
-                            Margin="8,0,0,0"
-                            Background="{StaticResource TagBackgroundBrush}"
-                            Foreground="{StaticResource PrimaryTextBrush}"
-                            BorderThickness="0"
-                            CornerRadius="6"/>
-                    <Button Grid.Column="2"
-                            Content="Sync Moments"
-                            Command="{x:Bind ViewModel.SyncCommand}"
-                            Margin="8,0,0,0"
-                            Background="{StaticResource AccentBlueBrush}"
-                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                            BorderThickness="0"
-                            CornerRadius="6"/>
-                    <Button Grid.Column="3"
-                            Content="Train"
-                            Command="{x:Bind ViewModel.TrainCommand}"
-                            Margin="8,0,0,0"
-                            Background="{StaticResource WinGreenBrush}"
-                            Foreground="White"
-                            BorderThickness="0"
-                            CornerRadius="6"/>
-                    <ProgressRing Grid.Column="4"
-                                  Margin="12,0,0,0"
-                                  Width="28"
-                                  Height="28"
-                                  IsActive="{x:Bind ViewModel.IsWorking, Mode=OneWay}"/>
-                </Grid>
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    VerticalAlignment="Center">
+                            <Button Content="Refresh Read"
+                                    Command="{x:Bind ViewModel.RefreshRecommendationCommand}"
+                                    Style="{StaticResource ToolbarButtonStyle}"/>
+                            <Button Content="Sync Clips"
+                                    Command="{x:Bind ViewModel.SyncCommand}"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"/>
+                            <Button Content="Train Model"
+                                    Command="{x:Bind ViewModel.TrainCommand}"
+                                    Style="{StaticResource SecondaryActionButtonStyle}"/>
+                            <ProgressRing Width="28"
+                                          Height="28"
+                                          Margin="4,0,0,0"
+                                          IsActive="{x:Bind ViewModel.IsWorking, Mode=OneWay}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
 
                 <Border Style="{StaticResource CardStyle}"
                         Visibility="{x:Bind ViewModel.IsEnabled, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
@@ -175,7 +162,7 @@
                                Foreground="{StaticResource SecondaryTextBrush}"
                                TextWrapping="Wrap"/>
 
-                    <Border Style="{StaticResource CardStyle}">
+                    <Border Style="{StaticResource ElevatedCardStyle}">
                         <StackPanel Spacing="10">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -185,39 +172,28 @@
                                 </Grid.ColumnDefinitions>
 
                                 <TextBlock Grid.Column="0"
-                                           Text="Coach Read"
-                                           FontSize="16"
-                                           FontWeight="SemiBold"
-                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                           Text="Pattern Read"
+                                           Style="{StaticResource PanelTitleStyle}"
                                            VerticalAlignment="Center"/>
 
                                 <Button Grid.Column="1"
                                         Content="Find Problems"
                                         Command="{x:Bind ViewModel.FindProblemsCommand}"
                                         Margin="8,0,0,0"
-                                        Background="{StaticResource TagBackgroundBrush}"
-                                        Foreground="{StaticResource PrimaryTextBrush}"
-                                        BorderThickness="0"
-                                        CornerRadius="6"
-                                        IsEnabled="{x:Bind ViewModel.HasPrototypeModel, Mode=OneWay}"/>
+                                        Style="{StaticResource ToolbarButtonStyle}"
+                                        IsEnabled="{x:Bind ViewModel.HasGemmaModel, Mode=OneWay}"/>
                                 <Button Grid.Column="2"
                                         Content="Suggest Objective"
                                         Command="{x:Bind ViewModel.SuggestObjectiveCommand}"
                                         Margin="8,0,0,0"
-                                        Background="{StaticResource AccentBlueBrush}"
-                                        Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                                        BorderThickness="0"
-                                        CornerRadius="6"
-                                        IsEnabled="{x:Bind ViewModel.HasPrototypeModel, Mode=OneWay}"/>
+                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        IsEnabled="{x:Bind ViewModel.HasGemmaModel, Mode=OneWay}"/>
                             </Grid>
 
                             <Button Content="{x:Bind ViewModel.SuggestedObjectiveButtonText, Mode=OneWay}"
                                     Command="{x:Bind ViewModel.AddSuggestedObjectiveCommand}"
                                     HorizontalAlignment="Left"
-                                    Background="{StaticResource WinGreenBrush}"
-                                    Foreground="White"
-                                    BorderThickness="0"
-                                    CornerRadius="6"
+                                    Style="{StaticResource SecondaryActionButtonStyle}"
                                     Visibility="{x:Bind ViewModel.CanCreateSuggestedObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
                             <TextBlock Text="{x:Bind ViewModel.ModelOutputTitle, Mode=OneWay}"
@@ -233,24 +209,24 @@
 
                     <Grid ColumnSpacing="14">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="420"/>
+                            <ColumnDefinition Width="390"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Grid.Column="0" Style="{StaticResource CardStyle}">
-                            <StackPanel Spacing="10">
+                        <Border Grid.Column="0"
+                                Style="{StaticResource ElevatedCardStyle}"
+                                Background="{StaticResource QueuePanelBrush}">
+                            <StackPanel Spacing="12">
                                 <Grid ColumnSpacing="10">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="170"/>
-                                        <ColumnDefinition Width="210"/>
+                                        <ColumnDefinition Width="150"/>
+                                        <ColumnDefinition Width="180"/>
                                     </Grid.ColumnDefinitions>
 
                                     <TextBlock Grid.Column="0"
-                                               Text="Moment Queue"
-                                               FontSize="16"
-                                               FontWeight="SemiBold"
-                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                               Text="Clip Queue"
+                                               Style="{StaticResource PanelTitleStyle}"
                                                VerticalAlignment="Center"/>
 
                                     <ComboBox Grid.Column="1"
@@ -262,7 +238,7 @@
                                               Background="{StaticResource InputBackgroundBrush}"/>
 
                                     <ComboBox Grid.Column="2"
-                                              Header="Attached Objective"
+                                              Header="Objective"
                                               ItemsSource="{x:Bind ViewModel.QueueObjectiveOptions, Mode=OneWay}"
                                               DisplayMemberPath="Label"
                                               SelectedValuePath="Key"
@@ -286,72 +262,113 @@
                                     <Button Grid.Column="1"
                                             Content="Previous"
                                             Command="{x:Bind ViewModel.PreviousMomentPageCommand}"
-                                            Background="{StaticResource TagBackgroundBrush}"
-                                            Foreground="{StaticResource PrimaryTextBrush}"
-                                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="6"/>
+                                            Style="{StaticResource ToolbarButtonStyle}"/>
 
                                     <Button Grid.Column="2"
                                             Content="Next"
                                             Command="{x:Bind ViewModel.NextMomentPageCommand}"
-                                            Background="{StaticResource TagBackgroundBrush}"
-                                            Foreground="{StaticResource PrimaryTextBrush}"
-                                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="6"/>
+                                            Style="{StaticResource ToolbarButtonStyle}"/>
                                 </Grid>
 
                                 <ListView ItemsSource="{x:Bind ViewModel.Moments, Mode=OneWay}"
                                           SelectedItem="{x:Bind ViewModel.SelectedMoment, Mode=TwoWay}"
                                           Background="Transparent"
                                           BorderThickness="0"
-                                          MinHeight="520">
+                                          MinHeight="580">
                                     <ListView.ItemTemplate>
                                         <DataTemplate x:DataType="vm:CoachMomentItem">
-                                            <Border Background="{StaticResource InputBackgroundBrush}"
-                                                    CornerRadius="8"
-                                                    Padding="12"
-                                                    Margin="0,0,0,8"
-                                                    BorderThickness="1"
-                                                    BorderBrush="{StaticResource SubtleBorderBrush}">
-                                                <StackPanel Spacing="4">
-                                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <Border Background="#1e40af"
-                                                                CornerRadius="4"
-                                                                Padding="6,2">
-                                                                    <TextBlock Text="{x:Bind SourceBadge}"
+                                            <Border Style="{StaticResource QueueItemCardStyle}"
+                                                    Margin="0,0,0,10">
+                                                <StackPanel Spacing="8">
+                                                    <Grid ColumnSpacing="6">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <Border Grid.Column="0"
+                                                                Background="{StaticResource AccentBlueDimBrush}"
+                                                                CornerRadius="6"
+                                                                Padding="7,3">
+                                                            <TextBlock Text="{x:Bind SourceBadge}"
                                                                        FontSize="10"
-                                                                       Foreground="White"/>
+                                                                       Foreground="{StaticResource AccentBlueBrush}"/>
                                                         </Border>
-                                                        <Border Background="{StaticResource TagBackgroundBrush}"
-                                                                CornerRadius="4"
-                                                                Padding="6,2">
+
+                                                        <Border Grid.Column="1"
+                                                                Background="{StaticResource WarningSurfaceBrush}"
+                                                                CornerRadius="6"
+                                                                Padding="7,3"
+                                                                Visibility="{x:Bind HasManualLabel, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+                                                            <TextBlock Text="Needs review"
+                                                                       FontSize="10"
+                                                                       Foreground="{StaticResource AccentGoldBrush}"/>
+                                                        </Border>
+
+                                                        <Border Grid.Column="1"
+                                                                Background="{StaticResource SuccessSurfaceBrush}"
+                                                                CornerRadius="6"
+                                                                Padding="7,3"
+                                                                Visibility="{x:Bind HasManualLabel, Converter={StaticResource BoolToVis}}">
+                                                            <TextBlock Text="Reviewed"
+                                                                       FontSize="10"
+                                                                       Foreground="{StaticResource WinGreenBrush}"/>
+                                                        </Border>
+
+                                                        <TextBlock Grid.Column="2"
+                                                                   Text="{x:Bind Champion}"
+                                                                   FontSize="14"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                                   VerticalAlignment="Center"/>
+
+                                                        <TextBlock Grid.Column="3"
+                                                                   Text="{x:Bind TimeText}"
+                                                                   FontSize="12"
+                                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                                   VerticalAlignment="Center"/>
+                                                    </Grid>
+
+                                                    <TextBlock Text="{x:Bind NoteText}"
+                                                               FontSize="13"
+                                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                                               TextWrapping="Wrap"
+                                                               MaxLines="3"/>
+
+                                                    <Border Background="{StaticResource TagBackgroundBrush}"
+                                                            CornerRadius="8"
+                                                            Padding="8,6">
+                                                        <TextBlock Text="{x:Bind DraftSummary}"
+                                                                   FontSize="11"
+                                                                   Foreground="{StaticResource AccentGoldBrush}"
+                                                                   TextWrapping="Wrap"
+                                                                   MaxLines="2"/>
+                                                    </Border>
+
+                                                    <Grid ColumnSpacing="8">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <Border Grid.Column="0"
+                                                                Background="{StaticResource TagBackgroundBrush}"
+                                                                CornerRadius="6"
+                                                                Padding="7,3">
                                                             <TextBlock Text="{x:Bind QueueObjectiveBadgeText}"
                                                                        FontSize="10"
                                                                        Foreground="{StaticResource PrimaryTextBrush}"/>
                                                         </Border>
-                                                        <TextBlock Text="{x:Bind Champion}"
-                                                                   FontSize="14"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="{StaticResource PrimaryTextBrush}"/>
-                                                        <TextBlock Text="{x:Bind TimeText}"
-                                                                   FontSize="12"
-                                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                    </StackPanel>
-                                                    <TextBlock Text="{x:Bind DraftSummary}"
-                                                               FontSize="12"
-                                                               Foreground="{StaticResource AccentGoldBrush}"/>
-                                                    <TextBlock Text="{x:Bind NoteText}"
-                                                               FontSize="12"
-                                                               Foreground="{StaticResource PrimaryTextBrush}"
-                                                               TextWrapping="Wrap"
-                                                               MaxLines="3"/>
-                                                    <TextBlock Text="{x:Bind LabelSummary}"
-                                                               FontSize="11"
-                                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                                               TextWrapping="Wrap"
-                                                               MaxLines="2"/>
+
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{x:Bind LabelSummary}"
+                                                                   FontSize="11"
+                                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                                   TextWrapping="Wrap"
+                                                                   MaxLines="2"/>
+                                                    </Grid>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>
@@ -360,55 +377,108 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Column="1" Style="{StaticResource CardStyle}">
+                        <Border Grid.Column="1"
+                                Style="{StaticResource EmphasisCardStyle}"
+                                Background="{StaticResource FocusPanelBrush}">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <StackPanel Spacing="10">
-                                    <TextBlock Text="Moment Detail"
-                                               FontSize="16"
-                                               FontWeight="SemiBold"
-                                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                                <StackPanel Spacing="14">
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" Spacing="4">
+                                            <TextBlock Text="Review Station"
+                                                       Style="{StaticResource PanelTitleStyle}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.SelectedMomentProgressText, Mode=OneWay}"
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                                        </StackPanel>
+
+                                        <Button Grid.Column="1"
+                                                Content="Previous Clip"
+                                                Command="{x:Bind ViewModel.SelectPreviousMomentCommand}"
+                                                Style="{StaticResource ToolbarButtonStyle}"/>
+
+                                        <Button Grid.Column="2"
+                                                Content="Next Clip"
+                                                Command="{x:Bind ViewModel.SelectNextMomentCommand}"
+                                                Style="{StaticResource ToolbarButtonStyle}"/>
+                                    </Grid>
 
                                     <StackPanel Visibility="{x:Bind ViewModel.HasSelection, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                                                Spacing="10">
-                                        <Grid>
+                                                Spacing="14">
+                                        <Border Style="{StaticResource InsetCardStyle}">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Spacing="5">
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedMomentChampion, Mode=OneWay}"
+                                                               FontSize="20"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedMomentSourceText, Mode=OneWay}"
+                                                               FontSize="11"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource AccentBlueBrush}"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedMomentTimeText, Mode=OneWay}"
+                                                               FontSize="12"
+                                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedMomentDraftRationale, Mode=OneWay}"
+                                                               FontSize="13"
+                                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1"
+                                                        Content="Play Clip"
+                                                        Command="{x:Bind ViewModel.PlayClipFileCommand}"
+                                                        Style="{StaticResource SecondaryActionButtonStyle}"/>
+                                                <Button Grid.Column="2"
+                                                        Content="Open Clip In VOD"
+                                                        Command="{x:Bind ViewModel.OpenSelectedClipCommand}"
+                                                        Style="{StaticResource SecondaryActionButtonStyle}"/>
+                                                <Button Grid.Column="3"
+                                                        Content="Open VOD"
+                                                        Command="{x:Bind ViewModel.OpenSelectedVodCommand}"
+                                                        Style="{StaticResource ToolbarButtonStyle}"/>
+                                            </Grid>
+                                        </Border>
+
+                                        <Grid ColumnSpacing="10">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" Spacing="4">
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedMomentChampion, Mode=OneWay}"
-                                                           FontSize="18"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="{StaticResource PrimaryTextBrush}"/>
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedMomentSourceText, Mode=OneWay}"
-                                                           FontSize="11"
-                                                           FontWeight="Bold"
-                                                           Foreground="{StaticResource AccentBlueBrush}"/>
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedMomentTimeText, Mode=OneWay}"
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedMomentDraftRationale, Mode=OneWay}"
-                                                           FontSize="13"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                            <Button Grid.Column="1"
-                                                    Content="Open VOD"
-                                                    Command="{x:Bind ViewModel.OpenSelectedVodCommand}"
-                                                    Margin="8,0,0,0"
-                                                    Background="{StaticResource TagBackgroundBrush}"
-                                                    Foreground="{StaticResource PrimaryTextBrush}"
-                                                    BorderThickness="0"
-                                                    CornerRadius="6"/>
-                                            <Button Grid.Column="2"
-                                                    Content="Open Clip In VOD"
-                                                    Command="{x:Bind ViewModel.OpenSelectedClipCommand}"
-                                                    Margin="8,0,0,0"
-                                                    Background="{StaticResource AccentBlueBrush}"
-                                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                                                    BorderThickness="0"
-                                                    CornerRadius="6"/>
+
+                                            <Border Grid.Column="0"
+                                                    Style="{StaticResource InsetCardStyle}">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Draft Read"
+                                                               Style="{StaticResource PanelEyebrowStyle}"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedMomentDraftSummary, Mode=OneWay}"
+                                                               FontSize="13"
+                                                               Foreground="{StaticResource AccentGoldBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Grid.Column="1"
+                                                    Style="{StaticResource InsetCardStyle}">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Saved Review"
+                                                               Style="{StaticResource PanelEyebrowStyle}"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedMomentLabelSummary, Mode=OneWay}"
+                                                               FontSize="13"
+                                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
                                         </Grid>
 
                                         <Grid ColumnSpacing="10">
@@ -418,9 +488,7 @@
                                             </Grid.ColumnDefinitions>
 
                                             <Border Grid.Column="0"
-                                                    Background="{StaticResource InputBackgroundBrush}"
-                                                    CornerRadius="8"
-                                                    Padding="10">
+                                                    Style="{StaticResource InsetCardStyle}">
                                                 <Button Command="{x:Bind ViewModel.OpenStoryboardCommand}"
                                                         Background="Transparent"
                                                         BorderThickness="0"
@@ -428,13 +496,11 @@
                                                         HorizontalAlignment="Stretch">
                                                     <StackPanel Spacing="6">
                                                         <TextBlock Text="Storyboard"
-                                                                   FontSize="11"
-                                                                   FontWeight="Bold"
-                                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                                   Style="{StaticResource PanelEyebrowStyle}"/>
                                                         <Image Source="{x:Bind ViewModel.SelectedStoryboardImage, Mode=OneWay}"
-                                                               Height="200"
+                                                               Height="220"
                                                                Stretch="Uniform"/>
-                                                        <TextBlock Text="Click to open the full storyboard image"
+                                                        <TextBlock Text="Open full image"
                                                                    FontSize="11"
                                                                    Foreground="{StaticResource AccentBlueBrush}"/>
                                                     </StackPanel>
@@ -442,23 +508,19 @@
                                             </Border>
 
                                             <Border Grid.Column="1"
-                                                    Background="{StaticResource InputBackgroundBrush}"
-                                                    CornerRadius="8"
-                                                    Padding="10">
+                                                    Style="{StaticResource InsetCardStyle}">
                                                 <Button Command="{x:Bind ViewModel.OpenMinimapCommand}"
                                                         Background="Transparent"
                                                         BorderThickness="0"
                                                         Padding="0"
                                                         HorizontalAlignment="Stretch">
                                                     <StackPanel Spacing="6">
-                                                        <TextBlock Text="Minimap Strip"
-                                                                   FontSize="11"
-                                                                   FontWeight="Bold"
-                                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                        <TextBlock Text="Minimap"
+                                                                   Style="{StaticResource PanelEyebrowStyle}"/>
                                                         <Image Source="{x:Bind ViewModel.SelectedMinimapImage, Mode=OneWay}"
-                                                               Height="200"
+                                                               Height="220"
                                                                Stretch="Uniform"/>
-                                                        <TextBlock Text="Click to open the full minimap strip"
+                                                        <TextBlock Text="Open full image"
                                                                    FontSize="11"
                                                                    Foreground="{StaticResource AccentBlueBrush}"/>
                                                     </StackPanel>
@@ -466,35 +528,36 @@
                                             </Border>
                                         </Grid>
 
-                                        <Border Background="{StaticResource InputBackgroundBrush}"
-                                                CornerRadius="8"
-                                                Padding="12">
-                                            <StackPanel Spacing="6">
-                                                <TextBlock Text="Clip Note"
-                                                           FontSize="11"
-                                                           FontWeight="Bold"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedMomentNoteText, Mode=OneWay}"
-                                                           FontSize="13"
-                                                           Foreground="{StaticResource PrimaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                        </Border>
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
 
-                                        <Border Background="{StaticResource InputBackgroundBrush}"
-                                                CornerRadius="8"
-                                                Padding="12">
-                                            <StackPanel Spacing="6">
-                                                <TextBlock Text="Review Context"
-                                                           FontSize="11"
-                                                           FontWeight="Bold"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedMomentContextText, Mode=OneWay}"
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource PrimaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                        </Border>
+                                            <Border Grid.Column="0"
+                                                    Style="{StaticResource InsetCardStyle}">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Clip Note"
+                                                               Style="{StaticResource PanelEyebrowStyle}"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedMomentNoteText, Mode=OneWay}"
+                                                               FontSize="13"
+                                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Grid.Column="1"
+                                                    Style="{StaticResource InsetCardStyle}">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Review Context"
+                                                               Style="{StaticResource PanelEyebrowStyle}"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedMomentContextText, Mode=OneWay}"
+                                                               FontSize="12"
+                                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
 
                                         <Grid ColumnSpacing="10">
                                             <Grid.ColumnDefinitions>
@@ -502,66 +565,70 @@
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
 
-                                            <StackPanel Grid.Column="0" Spacing="8">
-                                                <TextBlock Text="Normalize Label"
-                                                           FontSize="13"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="{StaticResource PrimaryTextBrush}"/>
-                                                <ComboBox Header="Moment Quality"
-                                                          ItemsSource="{x:Bind ViewModel.QualityOptions, Mode=OneWay}"
-                                                          DisplayMemberPath="Label"
-                                                          SelectedValuePath="Key"
-                                                          SelectedValue="{x:Bind ViewModel.SelectedLabelQuality, Mode=TwoWay}"
-                                                          Background="{StaticResource InputBackgroundBrush}"/>
-                                                <TextBlock Text="Manual clips now use the game's review note as the default final tag. Use this panel to adjust quality, objective attachment, rationale, and confidence."
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
-                                                <ComboBox Header="Objective Attachment"
-                                                          ItemsSource="{x:Bind ViewModel.ObjectiveOptions, Mode=OneWay}"
-                                                          DisplayMemberPath="Label"
-                                                          SelectedValuePath="Key"
-                                                          SelectedValue="{x:Bind ViewModel.SelectedAttachedObjectiveId, Mode=TwoWay}"
-                                                          Background="{StaticResource InputBackgroundBrush}"/>
-                                            </StackPanel>
+                                            <Border Grid.Column="0"
+                                                    Style="{StaticResource InsetCardStyle}">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="{x:Bind ViewModel.ReviewActionTitle, Mode=OneWay}"
+                                                               Style="{StaticResource PanelTitleStyle}"/>
+                                                    <ComboBox Header="Moment Quality"
+                                                              ItemsSource="{x:Bind ViewModel.QualityOptions, Mode=OneWay}"
+                                                              DisplayMemberPath="Label"
+                                                              SelectedValuePath="Key"
+                                                              SelectedValue="{x:Bind ViewModel.SelectedLabelQuality, Mode=TwoWay}"
+                                                              Background="{StaticResource InputBackgroundBrush}"/>
+                                                    <ComboBox Header="Objective Attachment"
+                                                              ItemsSource="{x:Bind ViewModel.ObjectiveOptions, Mode=OneWay}"
+                                                              DisplayMemberPath="Label"
+                                                              SelectedValuePath="Key"
+                                                              SelectedValue="{x:Bind ViewModel.SelectedAttachedObjectiveId, Mode=TwoWay}"
+                                                              Background="{StaticResource InputBackgroundBrush}"/>
+                                                    <TextBlock Text="The clip note is the main explanation. Attach an objective only when it clearly helps."
+                                                               FontSize="12"
+                                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
 
-                                            <StackPanel Grid.Column="1" Spacing="8">
-                                                <TextBlock Text="Manual Rationale (Optional)"
-                                                           FontSize="13"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="{StaticResource PrimaryTextBrush}"/>
-                                                <TextBlock Text="Only use this when the saved review note and clip context still leave the moment ambiguous."
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
-                                                <TextBox Text="{x:Bind ViewModel.SelectedExplanation, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="Optional per-moment clarification"
-                                                         AcceptsReturn="True"
-                                                         TextWrapping="Wrap"
-                                                         MinHeight="130"
-                                                         Background="{StaticResource InputBackgroundBrush}"/>
-                                                <Slider Minimum="0.2"
-                                                        Maximum="1.0"
-                                                        SmallChange="0.05"
-                                                        StepFrequency="0.05"
-                                                        Value="{x:Bind ViewModel.SelectedConfidence, Mode=TwoWay}"/>
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedConfidenceText, Mode=OneWay}"
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                                            </StackPanel>
+                                            <Border Grid.Column="1"
+                                                    Style="{StaticResource InsetCardStyle}">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="Optional Clarifier"
+                                                               Style="{StaticResource PanelTitleStyle}"/>
+                                                    <TextBlock Text="Use this only when the clip note and context still leave the moment ambiguous."
+                                                               FontSize="12"
+                                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                    <TextBox Text="{x:Bind ViewModel.SelectedExplanation, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="Short clarifying note"
+                                                             AcceptsReturn="True"
+                                                             TextWrapping="Wrap"
+                                                             MinHeight="120"
+                                                             Background="{StaticResource InputBackgroundBrush}"/>
+                                                    <Slider Minimum="0.2"
+                                                            Maximum="1.0"
+                                                            SmallChange="0.05"
+                                                            StepFrequency="0.05"
+                                                            Value="{x:Bind ViewModel.SelectedConfidence, Mode=TwoWay}"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.SelectedConfidenceText, Mode=OneWay}"
+                                                               FontSize="12"
+                                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                </StackPanel>
+                                            </Border>
                                         </Grid>
 
-                                        <Button Content="Save Manual Label"
-                                                Command="{x:Bind ViewModel.SaveLabelCommand}"
-                                                Background="{StaticResource WinGreenBrush}"
-                                                Foreground="White"
-                                                HorizontalAlignment="Left"
-                                                BorderThickness="0"
-                                                CornerRadius="6"/>
+                                        <StackPanel Orientation="Horizontal"
+                                                    Spacing="10">
+                                            <Button Content="Save Review"
+                                                    Command="{x:Bind ViewModel.SaveLabelCommand}"
+                                                    Style="{StaticResource PrimaryActionButtonStyle}"/>
+                                            <Button Content="Save + Next"
+                                                    Command="{x:Bind ViewModel.SaveAndNextCommand}"
+                                                    Style="{StaticResource SecondaryActionButtonStyle}"/>
+                                        </StackPanel>
                                     </StackPanel>
 
                                     <TextBlock Visibility="{x:Bind ViewModel.HasSelection, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"
-                                               Text="Select a moment from the queue to review the draft, inspect the clip, and save a manual label."
+                                               Text="Pick a clip from the queue to inspect it, save a review, and move to the next one."
                                                FontSize="13"
                                                Foreground="{StaticResource SecondaryTextBrush}"
                                                TextWrapping="Wrap"/>

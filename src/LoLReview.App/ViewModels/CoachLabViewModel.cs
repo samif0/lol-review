@@ -128,8 +128,8 @@ public partial class CoachLabViewModel : ObservableObject
     [ObservableProperty] private bool _isTrainingInProgress;
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private string _activeObjectiveTitle = "Observe lane phase";
-    [ObservableProperty] private string _modeText = "Assist mode";
-    [ObservableProperty] private string _recommendationTitle = "Assist mode active";
+    [ObservableProperty] private string _modeText = "Model setup required";
+    [ObservableProperty] private string _recommendationTitle = "Model setup required";
     [ObservableProperty] private string _recommendationSummary = "";
     [ObservableProperty] private string _watchItemTitle = "Clip-backed evidence";
     [ObservableProperty] private string _watchItemSummary = "";
@@ -137,9 +137,9 @@ public partial class CoachLabViewModel : ObservableObject
     [ObservableProperty] private int _reviewedMoments;
     [ObservableProperty] private int _pendingMoments;
     [ObservableProperty] private string _trainingSummary = "";
-    [ObservableProperty] private bool _hasPrototypeModel;
+    [ObservableProperty] private bool _hasGemmaModel;
     [ObservableProperty] private string _modelOutputTitle = "Coach Read";
-    [ObservableProperty] private string _modelOutputSummary = "Train the coach on a few reviewed clips, then ask it what recurring problems it sees or whether your current objective still looks right.";
+    [ObservableProperty] private string _modelOutputSummary = "Register or train the coach model, then use it to summarize recurring problems or suggest the next objective.";
     [ObservableProperty] private CoachMomentItem? _selectedMoment;
     [ObservableProperty] private string _selectedLabelQuality = "neutral";
     [ObservableProperty] private string _selectedAttachedObjectiveId = "";
@@ -178,8 +178,18 @@ public partial class CoachLabViewModel : ObservableObject
     public string SelectedMomentContextText => SelectedMoment?.ContextText ?? "";
     public string SelectedMomentTimeText => SelectedMoment?.TimeText ?? "";
     public string SelectedMomentSourceText => SelectedMoment?.SourceBadge ?? "";
+    public string SelectedMomentDraftSummary => SelectedMoment?.DraftSummary ?? "No draft yet";
+    public string SelectedMomentLabelSummary => SelectedMoment is null
+        ? ""
+        : SelectedMoment.HasManualLabel
+            ? SelectedMoment.LabelSummary
+            : "Not reviewed yet";
+    public string SelectedMomentProgressText => BuildSelectionProgressText();
+    public string ReviewActionTitle => SelectedMoment?.HasManualLabel == true ? "Update review" : "Review clip";
     public string SelectedConfidenceText => $"Confidence: {SelectedConfidence:F2}";
     public string SuggestedObjectiveButtonText => "Add Suggested Objective";
+    public bool CanGoToPreviousMoment => GetSelectedFilteredIndex() > 0;
+    public bool CanGoToNextMoment => GetSelectedFilteredIndex() is var index && index >= 0 && index < _filteredMoments.Count - 1;
     public bool CanGoToPreviousMomentPage => CurrentMomentPage > 1;
     public bool CanGoToNextMomentPage => CurrentMomentPage < TotalMomentPages;
     public bool HasMultipleMomentPages => TotalMomentPages > 1;
@@ -210,6 +220,10 @@ public partial class CoachLabViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedMomentContextText));
         OnPropertyChanged(nameof(SelectedMomentTimeText));
         OnPropertyChanged(nameof(SelectedMomentSourceText));
+        OnPropertyChanged(nameof(SelectedMomentDraftSummary));
+        OnPropertyChanged(nameof(SelectedMomentLabelSummary));
+        OnPropertyChanged(nameof(SelectedMomentProgressText));
+        OnPropertyChanged(nameof(ReviewActionTitle));
 
         if (value is null)
         {
@@ -219,6 +233,8 @@ public partial class CoachLabViewModel : ObservableObject
             SelectedConfidence = 0.7;
             SelectedStoryboardImage = null;
             SelectedMinimapImage = null;
+            SelectPreviousMomentCommand.NotifyCanExecuteChanged();
+            SelectNextMomentCommand.NotifyCanExecuteChanged();
             return;
         }
 
@@ -230,6 +246,8 @@ public partial class CoachLabViewModel : ObservableObject
             : Math.Clamp(value.DraftConfidence, 0.2, 1.0);
         SelectedStoryboardImage = LoadBitmap(value.StoryboardPath);
         SelectedMinimapImage = LoadBitmap(value.MinimapStripPath);
+        SelectPreviousMomentCommand.NotifyCanExecuteChanged();
+        SelectNextMomentCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnSelectedConfidenceChanged(double value)
@@ -304,8 +322,8 @@ public partial class CoachLabViewModel : ObservableObject
             var result = await _coachLabService.SyncMomentsAsync(includeAutoSamples: false);
             await RefreshAsync();
             StatusText = result.ReviewNoteLabelsApplied > 0
-                ? $"Imported {result.ManualClipsImported} manual clip(s), applied {result.ReviewNoteLabelsApplied} final tag(s) from review notes, and drafted {result.DraftsCreated} assist label(s)."
-                : $"Imported {result.ManualClipsImported} manual clip(s) and drafted {result.DraftsCreated} assist label(s).";
+                ? $"Imported {result.ManualClipsImported} clip(s), applied {result.ReviewNoteLabelsApplied} automatic final tag(s), and created {result.DraftsCreated} draft read(s)."
+                : $"Imported {result.ManualClipsImported} clip(s) and created {result.DraftsCreated} draft read(s).";
         }
         catch (Exception ex)
         {
@@ -319,22 +337,22 @@ public partial class CoachLabViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task RefreshAssistAsync()
+    private async Task RefreshRecommendationAsync()
     {
         if (!IsEnabled) return;
 
         IsBusy = true;
         try
         {
-            StatusText = "Refreshing assist-mode recommendation...";
+            StatusText = "Refreshing the latest coach read...";
             await _coachLabService.RefreshRecommendationAsync();
             await RefreshAsync();
-            StatusText = "Assist-mode summary refreshed.";
+            StatusText = "Coach read refreshed.";
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Assist refresh failed");
-            StatusText = $"Assist refresh failed: {ex.Message}";
+            _logger.LogError(ex, "Coach recommendation refresh failed");
+            StatusText = $"Coach read refresh failed: {ex.Message}";
         }
         finally
         {
@@ -350,18 +368,18 @@ public partial class CoachLabViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            StatusText = "Training premature prototype from prepared clips...";
-            var result = await _coachTrainingService.TrainPrematureModelAsync();
+            StatusText = "Registering or training the coach model from prepared clips...";
+            var result = await _coachTrainingService.TrainGemmaModelAsync();
             await RefreshAsync();
             EnsureTrainingMonitor();
-            ModelOutputTitle = result.AlreadyRunning ? "Training already running" : "Premature prototype training";
-            ModelOutputSummary = result.Summary;
-            StatusText = result.Summary;
+            ModelOutputTitle = result.AlreadyRunning ? "Training already running" : "Coach training";
+            ModelOutputSummary = ToUiCopy(result.Summary);
+            StatusText = ToUiCopy(result.Summary);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Premature coach training failed");
-            StatusText = $"Premature coach training failed: {ex.Message}";
+            _logger.LogError(ex, "Coach training failed");
+            StatusText = $"Coach training failed: {ex.Message}";
         }
         finally
         {
@@ -372,33 +390,25 @@ public partial class CoachLabViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveLabelAsync()
     {
-        if (!IsEnabled || SelectedMoment is null) return;
+        if (!IsEnabled || SelectedMoment is null)
+        {
+            StatusText = SelectedMoment is null
+                ? "No moment selected — click a clip first."
+                : "Coach Lab is not enabled.";
+            return;
+        }
 
-        IsBusy = true;
-        try
-        {
-            await _coachLabService.SaveManualLabelAsync(SelectedMoment.Id, new CoachManualLabelInput
-            {
-                LabelQuality = SelectedLabelQuality,
-                PrimaryReason = "",
-                ObjectiveKey = "",
-                AttachedObjectiveId = ParseObjectiveId(SelectedAttachedObjectiveId),
-                Explanation = SelectedExplanation,
-                Confidence = SelectedConfidence,
-            });
+        var momentId = SelectedMoment?.Id;
+        await SaveReviewInternalAsync(momentId, momentId is null ? "Review saved." : $"Review saved on clip {momentId}.");
+    }
 
-            await RefreshAsync(SelectedMoment.Id);
-            StatusText = "Manual coach label saved.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Saving coach label failed");
-            StatusText = $"Saving coach label failed: {ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
-        }
+    [RelayCommand]
+    private async Task SaveAndNextAsync()
+    {
+        var nextMomentId = GetAdjacentMomentId(1);
+        await SaveReviewInternalAsync(
+            nextMomentId ?? SelectedMoment?.Id,
+            nextMomentId.HasValue ? "Review saved. Moved to the next clip." : "Review saved.");
     }
 
     [RelayCommand]
@@ -413,16 +423,16 @@ public partial class CoachLabViewModel : ObservableObject
             var report = await _coachLabService.GetModelProblemsAsync();
             _latestSuggestion = null;
             CanCreateSuggestedObjective = false;
-            ModelOutputTitle = report.Title;
-            ModelOutputSummary = report.Summary;
+            ModelOutputTitle = ToUiCopy(report.Title);
+            ModelOutputSummary = ToUiCopy(report.Summary);
             StatusText = report.UsesTrainedModel
-                ? "Model problem read generated."
-                : report.Title;
+                ? "Problem read generated."
+                : ToUiCopy(report.Title);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Model problem query failed");
-            StatusText = $"Model problem query failed: {ex.Message}";
+            _logger.LogError(ex, "Coach problem query failed");
+            StatusText = $"Problem read failed: {ex.Message}";
         }
         finally
         {
@@ -442,8 +452,8 @@ public partial class CoachLabViewModel : ObservableObject
             var suggestion = await _coachLabService.GenerateObjectiveSuggestionAsync();
             _latestSuggestion = suggestion;
             CanCreateSuggestedObjective = suggestion.CanCreateObjective;
-            ModelOutputTitle = suggestion.Title;
-            ModelOutputSummary = suggestion.Summary;
+            ModelOutputTitle = ToUiCopy(suggestion.Title);
+            ModelOutputSummary = ToUiCopy(suggestion.Summary);
 
             if (suggestion.AttachedObjectiveId.HasValue)
             {
@@ -455,8 +465,8 @@ public partial class CoachLabViewModel : ObservableObject
             }
 
             StatusText = suggestion.UsesTrainedModel
-                ? "Coach objective read generated."
-                : suggestion.Title;
+                ? "Objective read generated."
+                : ToUiCopy(suggestion.Title);
         }
         catch (Exception ex)
         {
@@ -485,7 +495,8 @@ public partial class CoachLabViewModel : ObservableObject
                 skillArea: "Coach Lab",
                 type: "primary",
                 completionCriteria: _latestSuggestion.CandidateCompletionCriteria,
-                description: _latestSuggestion.CandidateDescription);
+                description: _latestSuggestion.CandidateDescription,
+                phase: ObjectivePhases.InGame);
 
             await RefreshAsync(SelectedMoment?.Id);
             SelectedAttachedObjectiveId = objectiveId.ToString();
@@ -529,6 +540,39 @@ public partial class CoachLabViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private Task PlayClipFileAsync()
+    {
+        var clipPath = SelectedMoment?.ClipPath;
+        if (string.IsNullOrWhiteSpace(clipPath))
+        {
+            StatusText = "No clip file associated with this moment.";
+            return Task.CompletedTask;
+        }
+
+        if (!File.Exists(clipPath))
+        {
+            StatusText = "Clip file no longer exists on disk.";
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = clipPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to play clip file {Path}", clipPath);
+            StatusText = $"Failed to play clip: {ex.Message}";
+        }
+
+        return Task.CompletedTask;
+    }
+
+    [RelayCommand]
     private Task OpenStoryboardAsync() => OpenImagePathAsync(
         SelectedMoment?.StoryboardPath,
         "Storyboard image no longer exists on disk.");
@@ -556,34 +600,28 @@ public partial class CoachLabViewModel : ObservableObject
         var objectiveOptions = await LoadObjectiveOptionsAsync();
 
         ActiveObjectiveTitle = dashboard.ActiveObjectiveTitle;
-        ModeText = dashboard.TrainingStatus.HasPersonalAdapter
-            ? "Personalized coach"
-            : dashboard.TrainingStatus.HasBaseJudge
-                ? "Trained coach"
-                : dashboard.TrainingStatus.HasTeacherModel
-                    ? "Teacher-assisted coach"
-                    : dashboard.TrainingStatus.HasPrematurePrototype
-                        ? "Prototype coach"
-                        : "Assist mode";
-        RecommendationTitle = dashboard.RecommendationTitle;
-        RecommendationSummary = dashboard.RecommendationSummary;
+        ModeText = dashboard.TrainingStatus.HasGemmaAdapter
+            ? "Adapter active"
+            : dashboard.TrainingStatus.HasGemmaBaseModel
+                ? "Base model active"
+                : "Model setup required";
+        RecommendationTitle = ToUiCopy(dashboard.RecommendationTitle);
+        RecommendationSummary = ToUiCopy(dashboard.RecommendationSummary);
         WatchItemTitle = dashboard.WatchItemTitle;
-        WatchItemSummary = dashboard.WatchItemSummary;
+        WatchItemSummary = ToUiCopy(dashboard.WatchItemSummary);
         TotalMoments = dashboard.TotalMoments;
         ReviewedMoments = dashboard.GoldMoments;
         PendingMoments = dashboard.PendingMoments;
-        TrainingSummary = dashboard.TrainingStatus.Summary;
-        HasPrototypeModel = dashboard.TrainingStatus.HasPrematurePrototype
-            || dashboard.TrainingStatus.HasTeacherModel
-            || dashboard.TrainingStatus.HasBaseJudge
-            || dashboard.TrainingStatus.HasPersonalAdapter;
+        TrainingSummary = ToUiCopy(dashboard.TrainingStatus.Summary);
+        HasGemmaModel = dashboard.TrainingStatus.HasGemmaBaseModel
+            || dashboard.TrainingStatus.HasGemmaAdapter;
         ApplyTrainingStatus(dashboard.TrainingStatus);
         RebuildObjectiveCollections(objectiveOptions);
 
-        if (!HasPrototypeModel)
+        if (!HasGemmaModel)
         {
-            ModelOutputTitle = "Coach Read";
-            ModelOutputSummary = "Train the coach on a few reviewed clips, then ask it what recurring problems it sees or whether your current objective still looks right.";
+            ModelOutputTitle = "Coach read";
+            ModelOutputSummary = "Register or train the coach model, then use it to summarize recurring problems or suggest the next objective.";
             CanCreateSuggestedObjective = false;
             _latestSuggestion = null;
         }
@@ -674,8 +712,11 @@ public partial class CoachLabViewModel : ObservableObject
         OnPropertyChanged(nameof(CanGoToPreviousMomentPage));
         OnPropertyChanged(nameof(CanGoToNextMomentPage));
         OnPropertyChanged(nameof(HasMultipleMomentPages));
+        OnPropertyChanged(nameof(SelectedMomentProgressText));
         PreviousMomentPageCommand.NotifyCanExecuteChanged();
         NextMomentPageCommand.NotifyCanExecuteChanged();
+        SelectPreviousMomentCommand.NotifyCanExecuteChanged();
+        SelectNextMomentCommand.NotifyCanExecuteChanged();
     }
 
     private bool MatchesQueueFilters(CoachMomentItem moment)
@@ -732,6 +773,18 @@ public partial class CoachLabViewModel : ObservableObject
         ApplyMomentPage(CurrentMomentPage + 1);
     }
 
+    [RelayCommand(CanExecute = nameof(CanGoToPreviousMoment))]
+    private void SelectPreviousMoment()
+    {
+        MoveSelection(-1);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanGoToNextMoment))]
+    private void SelectNextMoment()
+    {
+        MoveSelection(1);
+    }
+
     private async Task<List<CoachOptionItem>> LoadObjectiveOptionsAsync()
     {
         var rows = await _objectivesRepository.GetAllAsync();
@@ -748,9 +801,10 @@ public partial class CoachLabViewModel : ObservableObject
             }
 
             var key = row.Id.ToString();
+            var phaseLabel = ObjectivePhases.ToDisplayLabel(row.Phase);
             var label = row.Status.Equals("active", StringComparison.OrdinalIgnoreCase)
-                ? row.Title
-                : $"{row.Title} [{row.Status}]";
+                ? $"{row.Title} ({phaseLabel})"
+                : $"{row.Title} ({phaseLabel}) [{row.Status}]";
 
             options.Add(new CoachOptionItem
             {
@@ -795,7 +849,7 @@ public partial class CoachLabViewModel : ObservableObject
 
         if (status.IsTrainingInProgress && !string.IsNullOrWhiteSpace(status.ActiveTrainingStatusText))
         {
-            StatusText = status.ActiveTrainingStatusText;
+            StatusText = ToUiCopy(status.ActiveTrainingStatusText);
         }
 
         if (status.LastTrainingCompletedAt.HasValue
@@ -804,8 +858,10 @@ public partial class CoachLabViewModel : ObservableObject
         {
             _lastSeenTrainingCompletedAt = status.LastTrainingCompletedAt;
             ModelOutputTitle = status.LastTrainingSucceeded ? "Coach model ready" : "Training failed";
-            ModelOutputSummary = status.LastTrainingSummary;
-            StatusText = status.LastTrainingSummary;
+            ModelOutputSummary = ToUiCopy(status.LastTrainingSummary);
+            StatusText = status.LastTrainingSucceeded
+                ? ToUiCopy(status.Summary)
+                : ToUiCopy(status.LastTrainingSummary);
         }
     }
 
@@ -844,6 +900,93 @@ public partial class CoachLabViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Coach training monitor stopped unexpectedly");
+        }
+    }
+
+    private int GetSelectedFilteredIndex()
+    {
+        if (SelectedMoment is null)
+        {
+            return -1;
+        }
+
+        return _filteredMoments.FindIndex(moment => moment.Id == SelectedMoment.Id);
+    }
+
+    private long? GetAdjacentMomentId(int offset)
+    {
+        var index = GetSelectedFilteredIndex();
+        if (index < 0)
+        {
+            return null;
+        }
+
+        var targetIndex = index + offset;
+        if (targetIndex < 0 || targetIndex >= _filteredMoments.Count)
+        {
+            return null;
+        }
+
+        return _filteredMoments[targetIndex].Id;
+    }
+
+    private void MoveSelection(int offset)
+    {
+        var targetMomentId = GetAdjacentMomentId(offset);
+        if (!targetMomentId.HasValue)
+        {
+            return;
+        }
+
+        ApplyMomentFilter(targetMomentId.Value, resetPage: false);
+    }
+
+    private string BuildSelectionProgressText()
+    {
+        if (SelectedMoment is null)
+        {
+            return "";
+        }
+
+        var index = GetSelectedFilteredIndex();
+        return index < 0 ? "" : $"Clip {index + 1} of {_filteredMoments.Count}";
+    }
+
+    private async Task SaveReviewInternalAsync(long? preserveMomentId, string successMessage)
+    {
+        if (!IsEnabled || SelectedMoment is null)
+        {
+            StatusText = SelectedMoment is null
+                ? "No clip selected. Pick one from the queue first."
+                : "Coach Lab is not enabled.";
+            return;
+        }
+
+        var momentId = SelectedMoment.Id;
+        IsBusy = true;
+        try
+        {
+            await _coachLabService.SaveManualLabelAsync(momentId, new CoachManualLabelInput
+            {
+                LabelQuality = SelectedLabelQuality,
+                PrimaryReason = "",
+                ObjectiveKey = "",
+                AttachedObjectiveId = ParseObjectiveId(SelectedAttachedObjectiveId),
+                Explanation = SelectedExplanation,
+                Confidence = SelectedConfidence,
+            });
+
+            await RefreshAsync(preserveMomentId ?? momentId);
+            StatusText = successMessage;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Saving coach label failed for moment {MomentId}", momentId);
+            StatusText = $"Saving review failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
         }
     }
 
@@ -900,5 +1043,22 @@ public partial class CoachLabViewModel : ObservableObject
         }
 
         return Task.CompletedTask;
+    }
+
+    private static string ToUiCopy(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "";
+        }
+
+        return text
+            .Replace("Gemma 4 E4B", "the coach model", StringComparison.OrdinalIgnoreCase)
+            .Replace("Gemma-only", "coach", StringComparison.OrdinalIgnoreCase)
+            .Replace("Gemma clip card", "draft", StringComparison.OrdinalIgnoreCase)
+            .Replace("Gemma coach", "coach", StringComparison.OrdinalIgnoreCase)
+            .Replace("Gemma model", "coach model", StringComparison.OrdinalIgnoreCase)
+            .Replace("Gemma", "model", StringComparison.OrdinalIgnoreCase)
+            .Replace("gemma", "model", StringComparison.OrdinalIgnoreCase);
     }
 }

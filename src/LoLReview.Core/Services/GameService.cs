@@ -65,18 +65,10 @@ public sealed class GameService : IGameService
             stats.Kills, stats.Deaths, stats.Assists,
             stats.GameMode);
 
-        // 1. Skip casual modes entirely (ARAM, Cherry, etc.)
-        if (GameConstants.CasualModes.Contains(stats.GameMode.ToUpperInvariant()))
+        // 1. Only Ranked Solo/Duo games go through review
+        if (!GameConstants.RankedQueueTypes.Contains(stats.QueueType ?? ""))
         {
-            _logger.LogInformation("Casual game ({Mode}) -- skipping", stats.GameMode);
-            return null;
-        }
-
-        // 1b. Skip normal/quickplay queues — only ranked (Solo/Flex) go through review
-        if (!string.IsNullOrEmpty(stats.QueueType)
-            && GameConstants.CasualQueueTypes.Contains(stats.QueueType))
-        {
-            _logger.LogInformation("Normal/quickplay queue ({Queue}) -- skipping", stats.QueueType);
+            _logger.LogInformation("Non-ranked game ({Queue}, {Mode}) -- skipping", stats.QueueType, stats.GameMode);
             return null;
         }
 

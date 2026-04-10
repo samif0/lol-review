@@ -295,7 +295,7 @@ public partial class ReviewViewModel : ObservableObject
         ResultColorHex = game.Win ? AppSemanticPalette.PositiveHex : AppSemanticPalette.NegativeHex;
         KdaText = $"{game.Kills} / {game.Deaths} / {game.Assists}";
         KdaRatioText = $"{game.KdaRatio:F2} KDA";
-        GameModeText = game.GameMode;
+        GameModeText = game.DisplayGameMode;
         DurationText = game.GameDuration > 0 ? $"{game.GameDuration / 60}:{game.GameDuration % 60:D2}" : "";
         HeaderText = $"Review -- {game.ChampionName} ({(game.Win ? "W" : "L")})";
 
@@ -369,6 +369,7 @@ public partial class ReviewViewModel : ObservableObject
                     ObjectiveId = objective.ObjectiveId,
                     Title = objective.Title,
                     Criteria = objective.Criteria,
+                    Phase = objective.Phase,
                     IsPriority = objective.IsPriority,
                     Practiced = objective.Practiced,
                     ExecutionNote = objective.ExecutionNote,

@@ -173,6 +173,7 @@ public static class Schema
             title               TEXT NOT NULL,
             skill_area          TEXT DEFAULT '',
             type                TEXT DEFAULT 'primary',
+            phase               TEXT DEFAULT 'ingame',
             completion_criteria TEXT DEFAULT '',
             description         TEXT DEFAULT '',
             status              TEXT DEFAULT 'active',
@@ -372,7 +373,7 @@ public static class Schema
             objective_title TEXT DEFAULT '',
             objective_key   TEXT DEFAULT '',
             status          TEXT DEFAULT 'active',
-            mode            TEXT DEFAULT 'assist',
+            mode            TEXT DEFAULT 'gemma',
             started_at      INTEGER,
             updated_at      INTEGER,
             completed_at    INTEGER,
@@ -404,7 +405,7 @@ public static class Schema
             note_text       TEXT DEFAULT '',
             context_text    TEXT DEFAULT '',
             dataset_version TEXT DEFAULT 'bootstrap-v1',
-            model_version   TEXT DEFAULT 'assist-heuristic-v1',
+            model_version   TEXT DEFAULT '',
             created_at      INTEGER,
             reviewed_at     INTEGER,
             FOREIGN KEY (player_id) REFERENCES coach_players(id),
@@ -441,7 +442,7 @@ public static class Schema
             moment_id       INTEGER NOT NULL,
             player_id       INTEGER NOT NULL,
             model_version   TEXT DEFAULT '',
-            inference_mode  TEXT DEFAULT 'assist',
+            inference_mode  TEXT DEFAULT 'gemma',
             moment_quality  TEXT DEFAULT 'neutral',
             primary_reason  TEXT DEFAULT '',
             objective_key   TEXT DEFAULT '',
@@ -468,6 +469,13 @@ public static class Schema
             summary         TEXT DEFAULT '',
             confidence      REAL DEFAULT 0,
             evidence_game_count INTEGER DEFAULT 0,
+            candidate_snapshot TEXT DEFAULT '[]',
+            applied_objective_id INTEGER,
+            applied_objective_title TEXT DEFAULT '',
+            rejection_reason TEXT DEFAULT '',
+            evaluation_window_games INTEGER DEFAULT 0,
+            outcome_summary TEXT DEFAULT '',
+            feedback_updated_at INTEGER,
             raw_payload     TEXT DEFAULT '{}',
             created_at      INTEGER,
             updated_at      INTEGER,
@@ -571,9 +579,27 @@ public static class Schema
         "ALTER TABLE coach_inferences ADD COLUMN attached_objective_title TEXT DEFAULT ''",
     ];
 
+    public static readonly string[] MigrateCoachRecommendationsFeedback =
+    [
+        "ALTER TABLE coach_recommendations ADD COLUMN candidate_snapshot TEXT DEFAULT '[]'",
+        "ALTER TABLE coach_recommendations ADD COLUMN applied_objective_id INTEGER",
+        "ALTER TABLE coach_recommendations ADD COLUMN applied_objective_title TEXT DEFAULT ''",
+        "ALTER TABLE coach_recommendations ADD COLUMN rejection_reason TEXT DEFAULT ''",
+        "ALTER TABLE coach_recommendations ADD COLUMN evaluation_window_games INTEGER DEFAULT 0",
+        "ALTER TABLE coach_recommendations ADD COLUMN outcome_summary TEXT DEFAULT ''",
+        "ALTER TABLE coach_recommendations ADD COLUMN feedback_updated_at INTEGER",
+    ];
+
     public static readonly string[] MigrateObjectivesPriority =
     [
         "ALTER TABLE objectives ADD COLUMN is_priority INTEGER DEFAULT 0",
+        "ALTER TABLE objectives ADD COLUMN phase TEXT DEFAULT 'ingame'",
+    ];
+
+    public static readonly string[] MigrateBookmarksObjective =
+    [
+        "ALTER TABLE vod_bookmarks ADD COLUMN objective_id INTEGER",
+        "ALTER TABLE vod_bookmarks ADD COLUMN quality TEXT DEFAULT ''",
     ];
 
     // ── Aggregated arrays for initialisation ─────────────────────────
@@ -632,7 +658,9 @@ public static class Schema
         .. MigrateObjectivesPriority,
         .. MigrateCoachLabelsAttachment,
         .. MigrateCoachInferencesAttachment,
+        .. MigrateCoachRecommendationsFeedback,
         .. MigrateGamesHidden,
+        .. MigrateBookmarksObjective,
     ];
 
     // ── Default seed data ────────────────────────────────────────────

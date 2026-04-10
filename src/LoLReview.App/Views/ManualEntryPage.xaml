@@ -152,6 +152,9 @@
                                                        FontSize="13" FontWeight="Bold"
                                                        Foreground="{StaticResource PrimaryTextBrush}"
                                                        TextWrapping="Wrap"/>
+                                            <TextBlock Text="{x:Bind PhaseLabel}"
+                                                       FontSize="10"
+                                                       Foreground="{StaticResource AccentBlueBrush}"/>
                                             <TextBlock Text="{x:Bind Criteria}"
                                                        FontSize="11"
                                                        Foreground="{StaticResource SecondaryTextBrush}"

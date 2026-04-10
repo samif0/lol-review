@@ -97,14 +97,15 @@ public sealed class VodRepository : IVodRepository
 
     public async Task<long> AddBookmarkAsync(long gameId, int gameTimeSeconds, string note = "",
         IReadOnlyList<string>? tags = null, int? clipStartSeconds = null,
-        int? clipEndSeconds = null, string clipPath = "")
+        int? clipEndSeconds = null, string clipPath = "", long? objectiveId = null,
+        string quality = "")
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO vod_bookmarks
-                (game_id, game_time_s, note, tags, clip_start_s, clip_end_s, clip_path, created_at)
-            VALUES (@gameId, @gameTimeS, @note, @tags, @clipStartS, @clipEndS, @clipPath, @createdAt)
+                (game_id, game_time_s, note, tags, clip_start_s, clip_end_s, clip_path, objective_id, quality, created_at)
+            VALUES (@gameId, @gameTimeS, @note, @tags, @clipStartS, @clipEndS, @clipPath, @objectiveId, @quality, @createdAt)
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
         cmd.Parameters.AddWithValue("@gameTimeS", gameTimeSeconds);
@@ -113,6 +114,8 @@ public sealed class VodRepository : IVodRepository
         cmd.Parameters.AddWithValue("@clipStartS", clipStartSeconds.HasValue ? clipStartSeconds.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@clipEndS", clipEndSeconds.HasValue ? clipEndSeconds.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@clipPath", clipPath);
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId.HasValue ? objectiveId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@quality", quality);
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await cmd.ExecuteNonQueryAsync();
 
@@ -124,7 +127,7 @@ public sealed class VodRepository : IVodRepository
     public async Task UpdateBookmarkAsync(long bookmarkId, string? note = null,
         IReadOnlyList<string>? tags = null, int? gameTimeSeconds = null,
         int? clipStartSeconds = null, int? clipEndSeconds = null,
-        string? clipPath = null)
+        string? clipPath = null, string? quality = null)
     {
         var updates = new List<string>();
         var parameters = new List<SqliteParameter>();
@@ -163,6 +166,12 @@ public sealed class VodRepository : IVodRepository
         {
             updates.Add("clip_path = @clipPath");
             parameters.Add(new SqliteParameter("@clipPath", clipPath));
+        }
+
+        if (quality is not null)
+        {
+            updates.Add("quality = @quality");
+            parameters.Add(new SqliteParameter("@quality", quality));
         }
 
         if (updates.Count == 0)
@@ -417,6 +426,7 @@ public sealed class VodRepository : IVodRepository
             ClipStartSeconds: reader.IsDBNull(reader.GetOrdinal("clip_start_s")) ? null : reader.GetInt32(reader.GetOrdinal("clip_start_s")),
             ClipEndSeconds: reader.IsDBNull(reader.GetOrdinal("clip_end_s")) ? null : reader.GetInt32(reader.GetOrdinal("clip_end_s")),
             ClipPath: reader.IsDBNull(reader.GetOrdinal("clip_path")) ? "" : reader.GetString(reader.GetOrdinal("clip_path")),
+            Quality: reader.IsDBNull(reader.GetOrdinal("quality")) ? "" : reader.GetString(reader.GetOrdinal("quality")),
             CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")));
     }
 }

@@ -50,32 +50,21 @@ public sealed class CoachTrainingService : ICoachTrainingService
             WHERE status = 'active'
             """, cancellationToken);
 
-        var activeTeacher = await GetLatestActiveModelAsync(connection, "qwen_teacher", cancellationToken);
-        var activeBaseJudge = await GetLatestActiveModelAsync(connection, "qwen_base", cancellationToken);
-        var activePersonalAdapter = await GetLatestActiveModelAsync(connection, "personal_adapter", cancellationToken);
-        var activePrototype = await GetLatestActivePrototypeAsync(connection, cancellationToken);
+        var activeAdapter = await GetLatestActiveModelAsync(connection, "gemma_adapter", cancellationToken);
+        var activeBase = await GetLatestActiveModelAsync(connection, "gemma_base", cancellationToken);
         var runtimeState = GetRuntimeStateSnapshot();
-        var prematureExamples = gold + silver;
-        var activeModelVersion =
-            activePersonalAdapter?.ModelVersion
-            ?? activeBaseJudge?.ModelVersion
-            ?? activeTeacher?.ModelVersion
-            ?? activePrototype?.ModelVersion
-            ?? "assist-heuristic-v1";
-        var mode =
-            activePersonalAdapter is not null ? "personal_adapter" :
-            activeBaseJudge is not null ? "qwen_base" :
-            activeTeacher is not null ? "qwen_teacher" :
-            activePrototype is not null ? "premature_prototype" :
-            gold >= 250 && reviewedGames >= 50 ? "ready_for_adapter" : "assist";
+        var labeledMoments = gold + silver;
 
         return new CoachTrainingStatus
         {
-            Mode = mode,
-            ActiveModelVersion = activeModelVersion,
-            ActiveTeacherVersion = activeTeacher?.ModelVersion ?? "",
-            ActiveBaseJudgeVersion = activeBaseJudge?.ModelVersion ?? "",
-            ActivePersonalAdapterVersion = activePersonalAdapter?.ModelVersion ?? "",
+            Mode = activeAdapter is not null
+                ? "gemma_adapter"
+                : activeBase is not null
+                    ? "gemma_base"
+                    : "gemma_setup_required",
+            ActiveModelVersion = activeAdapter?.ModelVersion ?? activeBase?.ModelVersion ?? "",
+            ActiveAdapterVersion = activeAdapter?.ModelVersion ?? "",
+            ActiveBaseModelVersion = activeBase?.ModelVersion ?? "",
             IsTrainingInProgress = runtimeState.IsTrainingInProgress,
             ActiveTrainingKind = runtimeState.ActiveTrainingKind,
             ActiveTrainingStatusText = runtimeState.ActiveTrainingStatusText,
@@ -84,27 +73,18 @@ public sealed class CoachTrainingService : ICoachTrainingService
             LastTrainingCompletedAt = runtimeState.LastTrainingCompletedAt,
             LastTrainingSucceeded = runtimeState.LastTrainingSucceeded,
             GoldMoments = gold,
-            AcceptedMoments = prematureExamples,
+            LabeledMoments = labeledMoments,
             ReviewedGames = reviewedGames,
-            PrematureTrainingExamples = prematureExamples,
-            CanTrainPrematurePrototype = prematureExamples >= 2,
-            CanTrainFirstAdapter = gold >= 250 && reviewedGames >= 50,
-            CanTrainBaseModel = gold >= 500 && prematureExamples >= 1500 && reviewedGames >= 200,
-            HasPrematurePrototype = activePrototype is not null,
-            HasTeacherModel = activeTeacher is not null,
-            HasBaseJudge = activeBaseJudge is not null,
-            HasPersonalAdapter = activePersonalAdapter is not null,
+            CanPrepareGemmaDataset = labeledMoments >= 2,
+            CanFineTuneGemma = gold >= 20 && reviewedGames >= 5,
+            HasGemmaBaseModel = activeBase is not null,
+            HasGemmaAdapter = activeAdapter is not null,
         };
     }
 
-    public async Task<CoachTrainResult> TrainPrematureModelAsync(CancellationToken cancellationToken = default)
+    public async Task<CoachTrainResult> TrainGemmaModelAsync(CancellationToken cancellationToken = default)
     {
         var status = await GetStatusAsync(cancellationToken);
-        if (!status.CanTrainPrematurePrototype)
-        {
-            throw new InvalidOperationException(
-                $"Need at least 2 accepted clip-backed moments to train a premature prototype. Current accepted moments: {status.AcceptedMoments}.");
-        }
 
         lock (_stateLock)
         {
@@ -116,7 +96,7 @@ public sealed class CoachTrainingService : ICoachTrainingService
                     StartedInBackground = true,
                     AlreadyRunning = true,
                     Summary = string.IsNullOrWhiteSpace(_runtimeState.ActiveTrainingStatusText)
-                        ? "Premature prototype training is already running in the background."
+                        ? "Gemma training is already running in the background."
                         : _runtimeState.ActiveTrainingStatusText,
                 };
             }
@@ -125,125 +105,117 @@ public sealed class CoachTrainingService : ICoachTrainingService
             _runtimeState = new TrainingRuntimeState
             {
                 IsTrainingInProgress = true,
-                ActiveTrainingKind = "premature_prototype",
-                ActiveTrainingStatusText = "Training premature prototype in the background...",
+                ActiveTrainingKind = "gemma",
+                ActiveTrainingStatusText = "Registering Gemma 4 E4B and preparing Coach Lab training artifacts...",
                 ActiveTrainingStartedAt = startedAt,
                 LastTrainingSummary = "",
                 LastTrainingCompletedAt = null,
                 LastTrainingSucceeded = false,
             };
 
-            _activeTrainingTask = Task.Run(() => RunPrematureTrainingWorkflowAsync());
+            _activeTrainingTask = Task.Run(() => RunGemmaTrainingWorkflowAsync(status.CanPrepareGemmaDataset));
         }
 
         return new CoachTrainResult
         {
             Success = true,
             StartedInBackground = true,
-            Summary = "Premature prototype training started in the background. You can leave Coach Lab and come back while it keeps running.",
+            Summary = "Gemma training started in the background. Coach Lab will register the base model, prepare or train the adapter, then re-score saved moments.",
         };
     }
 
-    private async Task RunPrematureTrainingWorkflowAsync()
+    private async Task RunGemmaTrainingWorkflowAsync(bool canPrepareDataset)
     {
         try
         {
-            UpdateRuntimeState("Exporting accepted clips for premature prototype training...");
-            var result = await TrainPrematureModelCoreAsync(CancellationToken.None);
+            UpdateRuntimeState("Registering Gemma 4 E4B as the active Coach Lab base model...");
+            var result = await TrainGemmaCoreAsync(canPrepareDataset, CancellationToken.None);
 
-            UpdateRuntimeState("Re-scoring saved coach moments with the newly trained prototype...");
+            UpdateRuntimeState("Re-scoring saved coach moments with the active Gemma model...");
             var rescored = await RedraftAllMomentsAsync(CancellationToken.None);
             result.RescoredMoments = rescored;
-            result.Summary = $"{result.Summary} Re-scored {rescored} clip(s) with the active prototype.";
+            result.Summary = $"{result.Summary} Re-scored {rescored} clip(s) with the active Gemma model.";
 
             CompleteRuntimeState(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Background premature prototype training failed");
+            _logger.LogError(ex, "Background Gemma coach training failed");
             CompleteRuntimeState(ex);
         }
     }
 
-    private async Task<CoachTrainResult> TrainPrematureModelCoreAsync(CancellationToken cancellationToken)
+    private async Task<CoachTrainResult> TrainGemmaCoreAsync(
+        bool canPrepareDataset,
+        CancellationToken cancellationToken)
     {
-        using var connection = _connectionFactory.CreateConnection();
+        var registerScript = CoachPythonRuntime.ResolveCoachLabScriptPath("register_gemma_e4b.py");
         var exportScript = CoachPythonRuntime.ResolveCoachLabScriptPath("export_dataset.py");
-        var trainerScript = CoachPythonRuntime.ResolveCoachLabScriptPath("train_premature_model.py");
+        var trainerScript = CoachPythonRuntime.ResolveCoachLabScriptPath("train_gemma_e4b.py");
         var exportDirectory = Path.Combine(AppDataPaths.CoachAnalysisDirectory, "exports", "bootstrap-v1");
-        var modelsDirectory = Path.Combine(AppDataPaths.CoachAnalysisDirectory, "models", "premature");
+        var modelsDirectory = Path.Combine(AppDataPaths.CoachAnalysisDirectory, "models", "gemma");
         Directory.CreateDirectory(exportDirectory);
         Directory.CreateDirectory(modelsDirectory);
 
-        await RunPythonScriptAsync(
-            exportScript,
-            $"--output \"{exportDirectory}\"",
-            cancellationToken);
+        var registerOutput = await RunPythonScriptAsync(registerScript, "--activate", cancellationToken);
+        var registerPayload = JsonSerializer.Deserialize<GemmaRegisterPayload>(registerOutput, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? throw new InvalidOperationException("Gemma register script did not return valid JSON.");
 
-        UpdateRuntimeState("Fitting the premature prototype on accepted coach clips...");
-        var trainerOutput = await RunPythonScriptAsync(
-            trainerScript,
-            $"--input \"{Path.Combine(exportDirectory, "moments.jsonl")}\" --output \"{modelsDirectory}\"",
-            cancellationToken);
-
-        var payload = JsonSerializer.Deserialize<PrematureTrainPayload>(trainerOutput)
-            ?? throw new InvalidOperationException("Premature trainer did not return valid JSON.");
-
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var rawPayload = JsonSerializer.Serialize(payload);
-
-        using var tx = connection.BeginTransaction();
-        using (var deactivateCmd = connection.CreateCommand())
+        GemmaTrainPayload? trainPayload = null;
+        if (canPrepareDataset)
         {
-            deactivateCmd.Transaction = tx;
-            deactivateCmd.CommandText = """
-                UPDATE coach_models
-                SET is_active = 0
-                WHERE model_kind = 'premature_prototype'
-                """;
-            await deactivateCmd.ExecuteNonQueryAsync(cancellationToken);
+            UpdateRuntimeState("Exporting saved clips for Gemma fine-tuning...");
+            await RunPythonScriptAsync(
+                exportScript,
+                $"--output \"{exportDirectory}\"",
+                cancellationToken);
+
+            UpdateRuntimeState("Preparing or training the Gemma adapter...");
+            var trainerOutput = await RunPythonScriptAsync(
+                trainerScript,
+                $"--input \"{Path.Combine(exportDirectory, "moments.jsonl")}\" --output \"{modelsDirectory}\" --register",
+                cancellationToken);
+
+            trainPayload = JsonSerializer.Deserialize<GemmaTrainPayload>(trainerOutput, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new InvalidOperationException("Gemma trainer did not return valid JSON.");
         }
 
-        using (var insertCmd = connection.CreateCommand())
-        {
-            insertCmd.Transaction = tx;
-            insertCmd.CommandText = """
-                INSERT INTO coach_models
-                    (model_version, model_kind, display_name, provider, is_active, metadata_json, created_at)
-                VALUES
-                    (@modelVersion, 'premature_prototype', @displayName, 'local-python', 1, @metadataJson, @createdAt)
-                ON CONFLICT(model_version) DO UPDATE SET
-                    model_kind = excluded.model_kind,
-                    display_name = excluded.display_name,
-                    provider = excluded.provider,
-                    is_active = excluded.is_active,
-                    metadata_json = excluded.metadata_json
-                """;
-            insertCmd.Parameters.AddWithValue("@modelVersion", payload.ModelVersion);
-            insertCmd.Parameters.AddWithValue("@displayName", $"Premature Prototype ({payload.TrainingExamples} clips)");
-            insertCmd.Parameters.AddWithValue("@metadataJson", rawPayload);
-            insertCmd.Parameters.AddWithValue("@createdAt", now);
-            await insertCmd.ExecuteNonQueryAsync(cancellationToken);
-        }
-
-        await tx.CommitAsync(cancellationToken);
+        var summary = canPrepareDataset
+            ? BuildGemmaTrainingSummary(registerPayload, trainPayload)
+            : $"Registered Gemma 4 E4B base model ({registerPayload.ModelVersion}). Not enough labeled clips yet to prepare a fine-tuning dataset.";
 
         return new CoachTrainResult
         {
             Success = true,
-            ModelVersion = payload.ModelVersion,
-            Summary = $"Premature prototype trained from {payload.TrainingExamples} accepted clips ({payload.GoldExamples} gold, {payload.SilverExamples} silver). It is active for new draft labels, but keep expectations low.",
-            TrainingExamples = payload.TrainingExamples,
-            GoldExamples = payload.GoldExamples,
-            SilverExamples = payload.SilverExamples,
-            ModelDirectory = payload.ModelDirectory,
+            ModelVersion = trainPayload?.RegisteredModelVersion
+                ?? trainPayload?.ModelVersion
+                ?? registerPayload.ModelVersion,
+            Summary = summary,
+            TrainingExamples = trainPayload?.TrainCount ?? 0,
+            GoldExamples = trainPayload?.GoldExamples ?? 0,
+            SilverExamples = trainPayload?.SilverExamples ?? 0,
+            ModelDirectory = trainPayload?.ModelDirectory ?? "",
         };
     }
 
-    private async Task<CoachModelVersion?> GetLatestActivePrototypeAsync(
-        SqliteConnection connection,
-        CancellationToken cancellationToken)
-        => await GetLatestActiveModelAsync(connection, "premature_prototype", cancellationToken);
+    private static string BuildGemmaTrainingSummary(
+        GemmaRegisterPayload registerPayload,
+        GemmaTrainPayload? trainPayload)
+    {
+        if (trainPayload is null)
+        {
+            return $"Registered Gemma 4 E4B base model ({registerPayload.ModelVersion}).";
+        }
+
+        if (trainPayload.Trained)
+        {
+            return
+                $"Registered Gemma 4 E4B base model ({registerPayload.ModelVersion}) and trained a Gemma adapter from {trainPayload.TrainCount} clip(s) ({trainPayload.GoldExamples} gold, {trainPayload.SilverExamples} silver).";
+        }
+
+        return
+            $"Registered Gemma 4 E4B base model ({registerPayload.ModelVersion}) and prepared Gemma adapter artifacts from {trainPayload.TrainCount} clip(s). Training was skipped: {trainPayload.Reason}.";
+    }
 
     private async Task<CoachModelVersion?> GetLatestActiveModelAsync(
         SqliteConnection connection,
@@ -384,6 +356,14 @@ public sealed class CoachTrainingService : ICoachTrainingService
         var rescored = 0;
         foreach (var item in pending)
         {
+            if (string.IsNullOrWhiteSpace(item.StoryboardPath)
+                || string.IsNullOrWhiteSpace(item.MinimapStripPath)
+                || !File.Exists(item.StoryboardPath)
+                || !File.Exists(item.MinimapStripPath))
+            {
+                continue;
+            }
+
             var draft = await _sidecarClient.DraftMomentAsync(new CoachDraftRequest
             {
                 NoteText = item.NoteText,
@@ -476,20 +456,30 @@ public sealed class CoachTrainingService : ICoachTrainingService
                 ActiveTrainingKind = "",
                 ActiveTrainingStatusText = "",
                 ActiveTrainingStartedAt = null,
-                LastTrainingSummary = $"Premature coach training failed: {ex.Message}",
+                LastTrainingSummary = $"Gemma coach training failed: {ex.Message}",
                 LastTrainingCompletedAt = completedAt,
                 LastTrainingSucceeded = false,
             };
         }
     }
 
-    private sealed class PrematureTrainPayload
+    private sealed class GemmaRegisterPayload
     {
         public string ModelVersion { get; set; } = "";
-        public int TrainingExamples { get; set; }
+    }
+
+    private sealed class GemmaTrainPayload
+    {
+        public string ModelVersion { get; set; } = "";
+        public string RegisteredModelVersion { get; set; } = "";
+        public bool Trained { get; set; }
+        public bool Registered { get; set; }
+        public string Reason { get; set; } = "";
+        public string ModelDirectory { get; set; } = "";
+        public int TrainCount { get; set; }
+        public int EvalCount { get; set; }
         public int GoldExamples { get; set; }
         public int SilverExamples { get; set; }
-        public string ModelDirectory { get; set; } = "";
     }
 
     private sealed record TrainingRuntimeState

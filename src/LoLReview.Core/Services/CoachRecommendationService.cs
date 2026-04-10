@@ -1,6 +1,5 @@
 #nullable enable
 
-using System.Text;
 using System.Text.Json;
 using LoLReview.Core.Data;
 using LoLReview.Core.Models;
@@ -11,82 +10,42 @@ namespace LoLReview.Core.Services;
 public sealed class CoachRecommendationService : ICoachRecommendationService
 {
     private readonly IDbConnectionFactory _connectionFactory;
+    private readonly ICoachSidecarClient _sidecarClient;
 
-    public CoachRecommendationService(IDbConnectionFactory connectionFactory)
+    public CoachRecommendationService(
+        IDbConnectionFactory connectionFactory,
+        ICoachSidecarClient sidecarClient)
     {
         _connectionFactory = connectionFactory;
+        _sidecarClient = sidecarClient;
     }
 
-    public async Task<CoachRecommendation> BuildAssistRecommendationAsync(
+    public async Task<CoachRecommendation> BuildRecommendationAsync(
         long playerId,
         CoachObjectiveBlock block,
         CancellationToken cancellationToken = default)
     {
-        using var connection = _connectionFactory.CreateConnection();
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT
-                COALESCE(NULLIF(l.objective_key, ''), NULLIF(i.objective_key, ''), ''),
-                COUNT(*) AS moment_count,
-                COUNT(DISTINCT m.game_id) AS game_count
-            FROM coach_moments m
-            LEFT JOIN coach_labels l ON l.moment_id = m.id
-            LEFT JOIN coach_inferences i ON i.moment_id = m.id
-            WHERE m.player_id = @playerId
-              AND COALESCE(m.objective_block_id, @blockId) = @blockId
-              AND COALESCE(NULLIF(l.label_quality, ''), i.moment_quality, 'neutral') = 'bad'
-            GROUP BY COALESCE(NULLIF(l.objective_key, ''), NULLIF(i.objective_key, ''), '')
-            ORDER BY game_count DESC, moment_count DESC
-            LIMIT 1
-            """;
-        cmd.Parameters.AddWithValue("@playerId", playerId);
-        cmd.Parameters.AddWithValue("@blockId", block.Id);
-
-        string recommendationType = "keep";
-        string title = "Assist mode active";
-        string summary = "Keep saving lane clips with notes. The coach is still building clip-backed evidence.";
-        string objectiveKey = block.ObjectiveKey;
-        double confidence = 0.45;
-        int evidenceGames = 0;
-
-        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        if (await reader.ReadAsync(cancellationToken))
-        {
-            var blockerKey = reader.IsDBNull(0) ? "" : reader.GetString(0);
-            var momentCount = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
-            evidenceGames = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
-
-            if (!string.IsNullOrWhiteSpace(blockerKey) && evidenceGames >= 2)
-            {
-                recommendationType = "watch";
-                objectiveKey = blockerKey;
-                title = $"Watch: {CoachObjectiveCatalog.Find(blockerKey)?.Title ?? Humanize(blockerKey)}";
-                summary = $"Repeated bad moments tied to this theme showed up in {evidenceGames} reviewed game(s) and {momentCount} moment(s). Assist mode is watching for a stable blocker before any stronger recommendation.";
-                confidence = Math.Min(0.75, 0.45 + evidenceGames * 0.08);
-            }
-        }
-
-        var payload = JsonSerializer.Serialize(new
-        {
-            block.ObjectiveKey,
-            recommendationType,
-            watchedObjective = objectiveKey,
-            confidence,
-            evidenceGames
-        });
-
+        var suggestion = await GenerateObjectiveSuggestionAsync(playerId, block, cancellationToken);
         return new CoachRecommendation
         {
             ObjectiveBlockId = block.Id,
             PlayerId = playerId,
-            RecommendationType = recommendationType,
-            State = "draft",
-            ObjectiveKey = objectiveKey,
-            Title = title,
-            Summary = summary,
-            Confidence = confidence,
-            EvidenceGameCount = evidenceGames,
-            RawPayload = payload,
+            RecommendationType = NormalizeRecommendationType(suggestion.SuggestionMode),
+            State = string.IsNullOrWhiteSpace(suggestion.SuggestionMode) ? "info" : "draft",
+            ObjectiveKey = suggestion.ObjectiveKey,
+            Title = suggestion.Title,
+            Summary = suggestion.Summary,
+            Confidence = suggestion.Confidence,
+            EvidenceGameCount = suggestion.EvidenceGameCount,
+            CandidateSnapshot = string.IsNullOrWhiteSpace(suggestion.RawPayload)
+                ? JsonSerializer.Serialize(suggestion)
+                : suggestion.RawPayload,
+            AppliedObjectiveId = suggestion.AttachedObjectiveId,
+            AppliedObjectiveTitle = suggestion.AttachedObjectiveTitle,
+            EvaluationWindowGames = 5,
+            RawPayload = string.IsNullOrWhiteSpace(suggestion.RawPayload)
+                ? JsonSerializer.Serialize(suggestion)
+                : suggestion.RawPayload,
             CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
         };
@@ -98,96 +57,59 @@ public sealed class CoachRecommendationService : ICoachRecommendationService
         CancellationToken cancellationToken = default)
     {
         using var connection = _connectionFactory.CreateConnection();
-        var activePrototypeVersion = await GetActiveInferenceModelVersionAsync(connection, cancellationToken);
-        var evidence = await LoadEvidenceRowsAsync(connection, playerId, block.Id, cancellationToken);
-        var effective = evidence
-            .Select(row => ToEffectiveEvidence(row, activePrototypeVersion))
-            .Where(row => !string.IsNullOrWhiteSpace(row.MomentQuality))
-            .ToList();
-
-        if (string.IsNullOrWhiteSpace(activePrototypeVersion))
+        var activeModelVersion = await GetActiveInferenceModelVersionAsync(connection, cancellationToken);
+        if (string.IsNullOrWhiteSpace(activeModelVersion))
         {
             return new CoachProblemsReport
             {
-                Title = "Train the coach first",
-                Summary = "No coach model is active yet. Train or register one first, then ask for recurring problems.",
-                ModelVersion = "assist-heuristic-v1",
+                Title = "Gemma setup required",
+                Summary = "No active Gemma model has scored Coach Lab moments yet. Register or train Gemma 4 E4B first.",
+                ModelVersion = "",
                 UsesTrainedModel = false,
             };
         }
+
+        var evidence = await LoadEvidenceRowsAsync(connection, playerId, block.Id, activeModelVersion, cancellationToken);
+        var effective = evidence
+            .Select(row => ToEffectiveEvidence(row, activeModelVersion))
+            .Where(row => !string.IsNullOrWhiteSpace(row.MomentQuality))
+            .ToList();
 
         if (effective.Count == 0)
         {
             return new CoachProblemsReport
             {
                 Title = "No scored clips yet",
-                Summary = "The active coach model has not scored any saved moments yet. Train again or sync more clips first.",
-                ModelVersion = activePrototypeVersion,
-                UsesTrainedModel = true,
+                Summary = "The active Gemma model has not scored any saved moments yet. Re-sync or re-score moments after Gemma setup.",
+                ModelVersion = activeModelVersion,
+                UsesTrainedModel = false,
             };
         }
 
-        var bad = effective
-            .Where(row => string.Equals(row.MomentQuality, "bad", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        if (bad.Count == 0)
+        try
+        {
+            return await _sidecarClient.AnalyzeProblemsAsync(
+                new CoachProblemAnalysisRequest
+                {
+                    PlayerId = playerId,
+                    ObjectiveBlockId = block.Id,
+                    ActiveObjectiveTitle = block.ObjectiveTitle,
+                    ActiveObjectiveKey = block.ObjectiveKey,
+                    ReviewContext = BuildReviewContext(evidence),
+                    ClipCards = BuildClipCards(effective),
+                },
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex)
         {
             return new CoachProblemsReport
             {
-                Title = "No clear problem yet",
-                Summary = "The current scored clips do not show a strong recurring problem yet. Keep collecting lane clips before trusting this too much.",
-                ModelVersion = activePrototypeVersion,
-                UsesTrainedModel = true,
+                Title = "Gemma setup required",
+                Summary = ex.Message,
+                ModelVersion = activeModelVersion,
+                UsesTrainedModel = false,
             };
         }
-
-        var problems = bad
-            .GroupBy(row => string.IsNullOrWhiteSpace(row.PrimaryReason) ? "manual_clip_review" : row.PrimaryReason, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new CoachProblemInsight
-            {
-                ReasonKey = group.Key,
-                Title = CoachObjectiveCatalog.Find(group.Key)?.Title ?? Humanize(group.Key),
-                MomentCount = group.Count(),
-                GameCount = group.Select(item => item.GameId).Distinct().Count(),
-                Confidence = Math.Round(group.Average(item => item.Confidence), 2),
-                ExampleNote = group.Select(item => item.ExampleText).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)) ?? "",
-            })
-            .OrderByDescending(problem => problem.GameCount)
-            .ThenByDescending(problem => problem.MomentCount)
-            .ThenByDescending(problem => problem.Confidence)
-            .Take(3)
-            .ToList();
-
-        var summary = new StringBuilder();
-        summary.AppendLine($"Scored clips inspected: {effective.Count}. Bad clips: {bad.Count}.");
-        summary.AppendLine("Recurring problems:");
-        foreach (var problem in problems)
-        {
-            summary.Append($"- {problem.Title}: {problem.MomentCount} clip(s) across {problem.GameCount} game(s)");
-            if (problem.Confidence > 0)
-            {
-                summary.Append($", avg confidence {problem.Confidence:F2}");
-            }
-
-            summary.AppendLine(".");
-
-            if (!string.IsNullOrWhiteSpace(problem.ExampleNote))
-            {
-                summary.AppendLine($"  Example: {TrimForSummary(problem.ExampleNote, 140)}");
-            }
-        }
-
-        summary.AppendLine("Treat this as model-backed evidence, not final truth.");
-
-        return new CoachProblemsReport
-        {
-            Title = "Recurring problems",
-            Summary = summary.ToString().Trim(),
-            ModelVersion = activePrototypeVersion,
-            UsesTrainedModel = true,
-            Problems = problems,
-        };
     }
 
     public async Task<CoachObjectiveSuggestion> GenerateObjectiveSuggestionAsync(
@@ -196,162 +118,79 @@ public sealed class CoachRecommendationService : ICoachRecommendationService
         CancellationToken cancellationToken = default)
     {
         using var connection = _connectionFactory.CreateConnection();
-        var activePrototypeVersion = await GetActiveInferenceModelVersionAsync(connection, cancellationToken);
-        var evidence = await LoadEvidenceRowsAsync(connection, playerId, block.Id, cancellationToken);
-        var effective = evidence
-            .Select(row => ToEffectiveEvidence(row, activePrototypeVersion))
-            .Where(row => !string.IsNullOrWhiteSpace(row.MomentQuality))
-            .ToList();
-
-        if (string.IsNullOrWhiteSpace(activePrototypeVersion))
+        var activeModelVersion = await GetActiveInferenceModelVersionAsync(connection, cancellationToken);
+        if (string.IsNullOrWhiteSpace(activeModelVersion))
         {
             return new CoachObjectiveSuggestion
             {
-                Title = "Train the coach first",
-                Summary = "No coach model is active yet. Train or register one first, then ask for a suggested objective.",
-                ModelVersion = "assist-heuristic-v1",
+                Title = "Gemma setup required",
+                Summary = "No active Gemma model has scored Coach Lab moments yet. Register or train Gemma 4 E4B first.",
+                ModelVersion = "",
                 UsesTrainedModel = false,
             };
         }
+
+        var evidence = await LoadEvidenceRowsAsync(connection, playerId, block.Id, activeModelVersion, cancellationToken);
+        var effective = evidence
+            .Select(row => ToEffectiveEvidence(row, activeModelVersion))
+            .Where(row => !string.IsNullOrWhiteSpace(row.MomentQuality))
+            .ToList();
 
         if (effective.Count == 0)
         {
             return new CoachObjectiveSuggestion
             {
                 Title = "No scored clips yet",
-                Summary = "The active coach model has not scored any saved moments yet. Train again or sync more clips first.",
-                ModelVersion = activePrototypeVersion,
-                UsesTrainedModel = true,
+                Summary = "The active Gemma model has not scored any saved moments yet. Re-sync or re-score moments after Gemma setup.",
+                ModelVersion = activeModelVersion,
+                UsesTrainedModel = false,
             };
         }
 
-        var bad = effective
-            .Where(row => string.Equals(row.MomentQuality, "bad", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var candidates = BuildObjectiveCandidates(effective, block);
 
-        if (bad.Count == 0)
+        try
+        {
+            return await _sidecarClient.PlanObjectiveAsync(
+                new CoachObjectivePlanRequest
+                {
+                    PlayerId = playerId,
+                    ObjectiveBlockId = block.Id,
+                    ActiveObjectiveId = block.ObjectiveId,
+                    ActiveObjectiveTitle = block.ObjectiveTitle,
+                    ActiveObjectiveKey = block.ObjectiveKey,
+                    ReviewContext = BuildReviewContext(evidence),
+                    ClipCards = BuildClipCards(effective),
+                    Candidates = candidates,
+                },
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex)
         {
             return new CoachObjectiveSuggestion
             {
-                Title = "Keep the current objective",
-                Summary = string.IsNullOrWhiteSpace(block.ObjectiveTitle)
-                    ? "The coach is not seeing a stronger blocker than your current focus yet."
-                    : $"Stay on \"{block.ObjectiveTitle}\" for now. The current clips are not showing a stronger blocker than your current focus.",
-                ModelVersion = activePrototypeVersion,
-                UsesTrainedModel = true,
-                SuggestionMode = "keep_current",
-                AttachedObjectiveId = block.ObjectiveId,
-                AttachedObjectiveTitle = block.ObjectiveTitle,
+                Title = "Gemma setup required",
+                Summary = ex.Message,
+                ModelVersion = activeModelVersion,
+                UsesTrainedModel = false,
             };
         }
-
-        var currentObjectiveEvidence = SummarizeObjectiveEvidence(
-            bad.Where(row => MatchesObjective(row, block.ObjectiveId, block.ObjectiveTitle)),
-            block.ObjectiveId,
-            block.ObjectiveTitle);
-
-        var existingObjectiveSuggestion = bad
-            .Where(row =>
-                (row.AttachedObjectiveId.HasValue || !string.IsNullOrWhiteSpace(row.AttachedObjectiveTitle))
-                && !MatchesObjective(row, block.ObjectiveId, block.ObjectiveTitle))
-            .GroupBy(
-                row => row.AttachedObjectiveId?.ToString() ?? row.AttachedObjectiveTitle,
-                StringComparer.OrdinalIgnoreCase)
-            .Select(group => SummarizeObjectiveEvidence(
-                group,
-                group.Select(item => item.AttachedObjectiveId).FirstOrDefault(id => id.HasValue),
-                group.Select(item => item.AttachedObjectiveTitle).FirstOrDefault(title => !string.IsNullOrWhiteSpace(title)) ?? ""))
-            .Where(item => item is not null)
-            .Select(item => item!)
-            .OrderByDescending(item => item.GameCount)
-            .ThenByDescending(item => item.MomentCount)
-            .ThenByDescending(item => item.Confidence)
-            .FirstOrDefault();
-
-        var unattachedSuggestion = SummarizeReasonEvidence(bad.Where(row =>
-            !row.AttachedObjectiveId.HasValue && string.IsNullOrWhiteSpace(row.AttachedObjectiveTitle)));
-
-        var strongestExistingGameCount = existingObjectiveSuggestion?.GameCount ?? 0;
-        var strongestExistingMomentCount = existingObjectiveSuggestion?.MomentCount ?? 0;
-        var unattachedGameCount = unattachedSuggestion?.GameCount ?? 0;
-        var unattachedMomentCount = unattachedSuggestion?.MomentCount ?? 0;
-
-        if (currentObjectiveEvidence is not null
-            && currentObjectiveEvidence.GameCount >= Math.Max(strongestExistingGameCount, unattachedGameCount)
-            && currentObjectiveEvidence.MomentCount >= Math.Max(strongestExistingMomentCount, unattachedMomentCount))
-        {
-            return new CoachObjectiveSuggestion
-            {
-                Title = "Keep the current objective",
-                Summary =
-                    $"Stay on \"{currentObjectiveEvidence.AttachedObjectiveTitle}\" for now. The strongest bad clips still map back to your current objective.{Environment.NewLine}" +
-                    $"Evidence: {currentObjectiveEvidence.MomentCount} bad clip(s) across {currentObjectiveEvidence.GameCount} game(s), avg confidence {currentObjectiveEvidence.Confidence:F2}.{Environment.NewLine}" +
-                    $"Dominant problem theme: {CoachObjectiveCatalog.Find(currentObjectiveEvidence.TopReason)?.Title ?? Humanize(currentObjectiveEvidence.TopReason)}.",
-                ModelVersion = activePrototypeVersion,
-                UsesTrainedModel = true,
-                SuggestionMode = "keep_current",
-                AttachedObjectiveId = currentObjectiveEvidence.AttachedObjectiveId,
-                AttachedObjectiveTitle = currentObjectiveEvidence.AttachedObjectiveTitle,
-                ObjectiveKey = currentObjectiveEvidence.TopReason,
-                EvidenceMomentCount = currentObjectiveEvidence.MomentCount,
-                EvidenceGameCount = currentObjectiveEvidence.GameCount,
-                Confidence = Math.Round(currentObjectiveEvidence.Confidence, 2),
-            };
-        }
-
-        if (existingObjectiveSuggestion is not null
-            && (existingObjectiveSuggestion.GameCount > unattachedGameCount
-                || (existingObjectiveSuggestion.GameCount == unattachedGameCount
-                    && existingObjectiveSuggestion.MomentCount >= unattachedMomentCount)))
-        {
-            return new CoachObjectiveSuggestion
-            {
-                Title = "Switch to an existing objective",
-                Summary =
-                    $"The strongest recurring problem already lines up with \"{existingObjectiveSuggestion.AttachedObjectiveTitle}\".{Environment.NewLine}" +
-                    $"Evidence: {existingObjectiveSuggestion.MomentCount} bad clip(s) across {existingObjectiveSuggestion.GameCount} game(s), avg confidence {existingObjectiveSuggestion.Confidence:F2}.{Environment.NewLine}" +
-                    $"Dominant problem theme: {CoachObjectiveCatalog.Find(existingObjectiveSuggestion.TopReason)?.Title ?? Humanize(existingObjectiveSuggestion.TopReason)}.",
-                ModelVersion = activePrototypeVersion,
-                UsesTrainedModel = true,
-                SuggestionMode = "use_existing",
-                AttachedObjectiveId = existingObjectiveSuggestion.AttachedObjectiveId,
-                AttachedObjectiveTitle = existingObjectiveSuggestion.AttachedObjectiveTitle,
-                ObjectiveKey = existingObjectiveSuggestion.TopReason,
-                EvidenceMomentCount = existingObjectiveSuggestion.MomentCount,
-                EvidenceGameCount = existingObjectiveSuggestion.GameCount,
-                Confidence = Math.Round(existingObjectiveSuggestion.Confidence, 2),
-            };
-        }
-
-        var topReason = unattachedSuggestion ?? SummarizeReasonEvidence(bad)!;
-        var template = BuildObjectiveTemplate(topReason.ReasonKey, topReason.ExampleNote);
-
-        return new CoachObjectiveSuggestion
-        {
-            Title = "Create a new objective",
-            Summary =
-                $"The strongest recurring problem is not attached to one of your current objectives yet.{Environment.NewLine}" +
-                $"Suggested new objective: {template.Title}{Environment.NewLine}" +
-                $"Evidence: {topReason.MomentCount} bad clip(s) across {topReason.GameCount} game(s), avg confidence {topReason.Confidence:F2}.{Environment.NewLine}" +
-                $"Problem theme: {CoachObjectiveCatalog.Find(topReason.ReasonKey)?.Title ?? Humanize(topReason.ReasonKey)}.",
-            ModelVersion = activePrototypeVersion,
-            UsesTrainedModel = true,
-            SuggestionMode = "create_new",
-            ObjectiveKey = topReason.ReasonKey,
-            CandidateObjectiveTitle = template.Title,
-            CandidateCompletionCriteria = template.CompletionCriteria,
-            CandidateDescription = template.Description,
-            EvidenceMomentCount = topReason.MomentCount,
-            EvidenceGameCount = topReason.GameCount,
-            Confidence = Math.Round(topReason.Confidence, 2),
-        };
     }
+
+    private static string NormalizeRecommendationType(string suggestionMode) =>
+        suggestionMode switch
+        {
+            "keep_current" => "keep",
+            "use_existing" => "use_existing",
+            "create_new" => "create_new",
+            _ => "info",
+        };
 
     private static async Task<string> GetActiveInferenceModelVersionAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
-        foreach (var modelKind in new[] { "personal_adapter", "qwen_base", "qwen_teacher", "premature_prototype" })
+        foreach (var modelKind in new[] { "gemma_adapter", "gemma_base" })
         {
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
@@ -390,6 +229,7 @@ public sealed class CoachRecommendationService : ICoachRecommendationService
         SqliteConnection connection,
         long playerId,
         long blockId,
+        string activeModelVersion,
         CancellationToken cancellationToken)
     {
         using var cmd = connection.CreateCommand();
@@ -410,18 +250,32 @@ public sealed class CoachRecommendationService : ICoachRecommendationService
                 COALESCE(i.attached_objective_title, ''),
                 COALESCE(i.confidence, 0),
                 COALESCE(i.model_version, ''),
-                b.objective_id,
-                COALESCE(b.objective_title, '')
+                COALESCE(b.objective_title, ''),
+                COALESCE(g.review_notes, ''),
+                COALESCE(g.mistakes, ''),
+                COALESCE(g.focus_next, ''),
+                COALESCE(g.spotted_problems, ''),
+                COALESCE(m.created_at, 0)
             FROM coach_moments m
             LEFT JOIN coach_labels l ON l.moment_id = m.id
-            LEFT JOIN coach_inferences i ON i.moment_id = m.id
+            LEFT JOIN coach_inferences i ON i.id = (
+                SELECT i2.id
+                FROM coach_inferences i2
+                WHERE i2.moment_id = m.id
+                  AND COALESCE(i2.model_version, '') = @activeModelVersion
+                ORDER BY COALESCE(i2.updated_at, i2.created_at) DESC, i2.id DESC
+                LIMIT 1
+            )
             LEFT JOIN coach_objective_blocks b ON b.id = m.objective_block_id
+            LEFT JOIN games g ON g.game_id = m.game_id
             WHERE m.player_id = @playerId
               AND COALESCE(m.objective_block_id, @blockId) = @blockId
             ORDER BY m.created_at DESC, m.id DESC
+            LIMIT 20
             """;
         cmd.Parameters.AddWithValue("@playerId", playerId);
         cmd.Parameters.AddWithValue("@blockId", blockId);
+        cmd.Parameters.AddWithValue("@activeModelVersion", activeModelVersion);
 
         var rows = new List<CoachEvidenceRow>();
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -444,150 +298,193 @@ public sealed class CoachRecommendationService : ICoachRecommendationService
                 InferenceAttachedObjectiveTitle = reader.GetString(12),
                 InferenceConfidence = reader.IsDBNull(13) ? 0 : reader.GetDouble(13),
                 InferenceModelVersion = reader.GetString(14),
-                BlockObjectiveId = reader.IsDBNull(15) ? null : reader.GetInt64(15),
-                BlockObjectiveTitle = reader.GetString(16),
+                BlockObjectiveTitle = reader.GetString(15),
+                ReviewNotes = reader.GetString(16),
+                Mistakes = reader.GetString(17),
+                FocusNext = reader.GetString(18),
+                SpottedProblems = reader.GetString(19),
+                CreatedAt = reader.GetInt64(20),
             });
         }
 
         return rows;
     }
 
-    private static EffectiveEvidence ToEffectiveEvidence(CoachEvidenceRow row, string activePrototypeVersion)
+    private static EffectiveEvidence ToEffectiveEvidence(CoachEvidenceRow row, string activeModelVersion)
     {
-        var useActiveInference = !string.IsNullOrWhiteSpace(activePrototypeVersion)
-            && string.Equals(row.InferenceModelVersion, activePrototypeVersion, StringComparison.OrdinalIgnoreCase);
+        var hasActiveInference = string.Equals(
+            row.InferenceModelVersion,
+            activeModelVersion,
+            StringComparison.OrdinalIgnoreCase);
 
-        var quality = useActiveInference
-            ? row.InferenceQuality
-            : !string.IsNullOrWhiteSpace(row.LabelQuality)
-                ? row.LabelQuality
-                : row.InferenceQuality;
+        var quality = !string.IsNullOrWhiteSpace(row.LabelQuality)
+            ? row.LabelQuality
+            : hasActiveInference
+                ? row.InferenceQuality
+                : "";
 
-        var reason = useActiveInference
-            ? !string.IsNullOrWhiteSpace(row.InferencePrimaryReason) ? row.InferencePrimaryReason : row.InferenceObjectiveKey
-            : !string.IsNullOrWhiteSpace(row.LabelPrimaryReason)
-                ? row.LabelPrimaryReason
-                : !string.IsNullOrWhiteSpace(row.InferencePrimaryReason)
-                    ? row.InferencePrimaryReason
-                    : row.InferenceObjectiveKey;
+        var reason = !string.IsNullOrWhiteSpace(row.LabelPrimaryReason)
+            ? row.LabelPrimaryReason
+            : hasActiveInference && !string.IsNullOrWhiteSpace(row.InferencePrimaryReason)
+                ? row.InferencePrimaryReason
+                : !string.IsNullOrWhiteSpace(row.NoteText)
+                    ? row.NoteText
+                    : BuildEvidenceText(row);
 
         return new EffectiveEvidence
         {
             MomentId = row.MomentId,
             GameId = row.GameId,
             MomentQuality = string.IsNullOrWhiteSpace(quality) ? "neutral" : quality,
-            PrimaryReason = string.IsNullOrWhiteSpace(reason) ? "manual_clip_review" : reason,
+            PrimaryReason = TrimForSummary(reason, 220),
+            ObjectiveKey = CoachObjectiveCatalog.NormalizeKey(row.InferenceObjectiveKey),
             AttachedObjectiveId = row.LabelAttachedObjectiveId ?? row.InferenceAttachedObjectiveId,
             AttachedObjectiveTitle =
                 !string.IsNullOrWhiteSpace(row.LabelAttachedObjectiveTitle) ? row.LabelAttachedObjectiveTitle :
                 row.InferenceAttachedObjectiveTitle,
-            Confidence = useActiveInference
-                ? Math.Clamp(row.InferenceConfidence, 0.05, 0.99)
-                : !string.IsNullOrWhiteSpace(row.LabelQuality)
-                    ? 0.95
-                    : Math.Clamp(row.InferenceConfidence, 0.05, 0.99),
-            UsesActiveModel = useActiveInference,
-            ExampleText = !string.IsNullOrWhiteSpace(row.NoteText) ? row.NoteText : row.ContextText,
+            Confidence = !string.IsNullOrWhiteSpace(row.LabelQuality)
+                ? 0.95
+                : hasActiveInference
+                    ? Math.Clamp(row.InferenceConfidence, 0.05, 0.99)
+                    : 0.0,
+            ExampleText = BuildEvidenceText(row),
+            CreatedAt = row.CreatedAt,
         };
     }
 
-    private static bool MatchesObjective(EffectiveEvidence row, long? objectiveId, string? objectiveTitle)
+    private static string BuildEvidenceText(CoachEvidenceRow row)
     {
-        if (objectiveId.HasValue && row.AttachedObjectiveId == objectiveId)
+        foreach (var text in new[]
+                 {
+                     row.NoteText,
+                     row.ContextText,
+                     row.Mistakes,
+                     row.FocusNext,
+                     row.ReviewNotes,
+                     row.SpottedProblems,
+                 })
         {
-            return true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(objectiveTitle)
-            && !string.IsNullOrWhiteSpace(row.AttachedObjectiveTitle)
-            && string.Equals(row.AttachedObjectiveTitle, objectiveTitle, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private static ObjectiveEvidenceSummary? SummarizeObjectiveEvidence(
-        IEnumerable<EffectiveEvidence> rows,
-        long? objectiveId,
-        string objectiveTitle)
-    {
-        var items = rows.ToList();
-        if (items.Count == 0)
-        {
-            return null;
-        }
-
-        return new ObjectiveEvidenceSummary
-        {
-            AttachedObjectiveId = objectiveId,
-            AttachedObjectiveTitle = objectiveTitle,
-            MomentCount = items.Count,
-            GameCount = items.Select(item => item.GameId).Distinct().Count(),
-            Confidence = items.Average(item => item.Confidence),
-            TopReason = items
-                .GroupBy(item => string.IsNullOrWhiteSpace(item.PrimaryReason) ? "manual_clip_review" : item.PrimaryReason, StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(group => group.Count())
-                .ThenByDescending(group => group.Select(item => item.GameId).Distinct().Count())
-                .Select(group => group.Key)
-                .FirstOrDefault() ?? "",
-            ExampleNote = items.Select(item => item.ExampleText).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)) ?? "",
-        };
-    }
-
-    private static ReasonEvidenceSummary? SummarizeReasonEvidence(IEnumerable<EffectiveEvidence> rows)
-    {
-        var items = rows.ToList();
-        if (items.Count == 0)
-        {
-            return null;
-        }
-
-        return items
-            .GroupBy(row => string.IsNullOrWhiteSpace(row.PrimaryReason) ? "manual_clip_review" : row.PrimaryReason, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new ReasonEvidenceSummary
+            if (!string.IsNullOrWhiteSpace(text))
             {
-                ReasonKey = group.Key,
-                MomentCount = group.Count(),
-                GameCount = group.Select(item => item.GameId).Distinct().Count(),
-                Confidence = group.Average(item => item.Confidence),
-                ExampleNote = group.Select(item => item.ExampleText).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)) ?? "",
-            })
-            .OrderByDescending(group => group.GameCount)
-            .ThenByDescending(group => group.MomentCount)
-            .ThenByDescending(group => group.Confidence)
-            .FirstOrDefault();
-    }
-
-    private static ObjectiveTemplate BuildObjectiveTemplate(string reasonKey, string exampleNote)
-    {
-        var catalogItem = CoachObjectiveCatalog.Find(reasonKey);
-        var title = catalogItem?.Title ?? Humanize(reasonKey);
-        var description = catalogItem?.Summary
-            ?? $"Focus on {title.ToLowerInvariant()} in lane clips.";
-
-        var completionCriteria = reasonKey switch
-        {
-            "favorable_trade_windows" => "Across the next 5 reviewed games, avoid low-value lane trades into worse wave states.",
-            "respect_jungle_support_threat" => "Across the next 5 reviewed games, stop stepping up when jungle or engage threat is missing.",
-            "safe_lane_spacing" => "Across the next 5 reviewed games, keep a safer default lane spacing before commits.",
-            "recall_on_crash_and_tempo" => "Across the next 5 reviewed games, reset on cleaner crashes instead of bleeding tempo.",
-            "punish_enemy_cooldown_windows" => "Across the next 5 reviewed games, identify and use at least one enemy cooldown window in lane.",
-            _ => "Use the next 5 reviewed games to produce cleaner clips around this theme.",
-        };
-
-        if (!string.IsNullOrWhiteSpace(exampleNote))
-        {
-            description = $"{description} Example evidence: {TrimForSummary(exampleNote, 120)}";
+                return TrimForSummary(text, 220);
+            }
         }
 
-        return new ObjectiveTemplate
+        return "";
+    }
+
+    private static string BuildReviewContext(IEnumerable<CoachEvidenceRow> rows)
+    {
+        return string.Join(
+            " | ",
+            rows.SelectMany(row => new[]
+                {
+                    row.ReviewNotes,
+                    row.Mistakes,
+                    row.FocusNext,
+                    row.SpottedProblems,
+                })
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .Select(text => text.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8));
+    }
+
+    private static List<CoachClipCard> BuildClipCards(IEnumerable<EffectiveEvidence> rows)
+    {
+        return rows
+            .OrderByDescending(row => row.CreatedAt)
+            .Take(12)
+            .Select(row => new CoachClipCard
+            {
+                MomentId = row.MomentId,
+                GameId = row.GameId,
+                MomentQuality = row.MomentQuality,
+                ReasonKey = string.IsNullOrWhiteSpace(row.PrimaryReason) ? row.ExampleText : row.PrimaryReason,
+                ObjectiveKey = row.ObjectiveKey,
+                Confidence = Math.Round(row.Confidence, 2),
+                Evidence = row.ExampleText,
+                AttachedObjectiveId = row.AttachedObjectiveId,
+                AttachedObjectiveTitle = row.AttachedObjectiveTitle,
+            })
+            .ToList();
+    }
+
+    private static List<CoachObjectiveCandidate> BuildObjectiveCandidates(
+        IReadOnlyList<EffectiveEvidence> effective,
+        CoachObjectiveBlock block)
+    {
+        var bad = effective
+            .Where(row => string.Equals(row.MomentQuality, "bad", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var candidates = new List<CoachObjectiveCandidate>
         {
-            Title = title,
-            CompletionCriteria = completionCriteria,
-            Description = description,
+            new()
+            {
+                CandidateKey = "keep_current",
+                CandidateType = "keep_current",
+                ObjectiveId = block.ObjectiveId,
+                ObjectiveKey = block.ObjectiveKey,
+                Title = string.IsNullOrWhiteSpace(block.ObjectiveTitle) ? "Keep current objective" : block.ObjectiveTitle,
+                Description = "Stay on the current objective unless another recurring blocker is clearly stronger.",
+            }
         };
+
+        var existing = bad
+            .Where(row => row.AttachedObjectiveId.HasValue || !string.IsNullOrWhiteSpace(row.AttachedObjectiveTitle))
+            .Where(row =>
+                row.AttachedObjectiveId != block.ObjectiveId
+                && !string.Equals(row.AttachedObjectiveTitle, block.ObjectiveTitle, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(row => row.AttachedObjectiveId?.ToString() ?? row.AttachedObjectiveTitle, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Select(item => item.GameId).Distinct().Count())
+            .ThenByDescending(group => group.Count())
+            .Take(3);
+
+        foreach (var group in existing)
+        {
+            var first = group.First();
+            candidates.Add(new CoachObjectiveCandidate
+            {
+                CandidateKey = $"existing:{first.AttachedObjectiveId?.ToString() ?? first.AttachedObjectiveTitle}",
+                CandidateType = "use_existing",
+                ObjectiveId = first.AttachedObjectiveId,
+                ObjectiveKey = first.ObjectiveKey,
+                Title = !string.IsNullOrWhiteSpace(first.AttachedObjectiveTitle)
+                    ? first.AttachedObjectiveTitle
+                    : CoachObjectiveCatalog.Find(first.ObjectiveKey)?.Title ?? Humanize(first.ObjectiveKey),
+                Description = $"Observed in {group.Count()} bad clip(s) across {group.Select(item => item.GameId).Distinct().Count()} reviewed game(s).",
+            });
+        }
+
+        if (bad.Count > 0)
+        {
+            var sampleNotes = bad
+                .Select(row => string.IsNullOrWhiteSpace(row.PrimaryReason) ? row.ExampleText : row.PrimaryReason)
+                .Where(note => !string.IsNullOrWhiteSpace(note))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(3)
+                .Select(note => TrimForSummary(note, 90))
+                .ToList();
+
+            var description = $"Synthesize a new objective directly from {bad.Count} recent bad clip(s).";
+            if (sampleNotes.Count > 0)
+            {
+                description += $" Example evidence: {string.Join(" | ", sampleNotes)}";
+            }
+
+            candidates.Add(new CoachObjectiveCandidate
+            {
+                CandidateKey = "new:dynamic",
+                CandidateType = "create_new",
+                ObjectiveKey = "",
+                Title = "Create a new objective from recent clips",
+                Description = description,
+                CompletionCriteria = "Across the next 5 reviewed games, reduce recurrence of the same issue described in the cited clips.",
+            });
+        }
+
+        return candidates;
     }
 
     private static string Humanize(string value)
@@ -629,8 +526,12 @@ public sealed class CoachRecommendationService : ICoachRecommendationService
         public string InferenceAttachedObjectiveTitle { get; set; } = "";
         public double InferenceConfidence { get; set; }
         public string InferenceModelVersion { get; set; } = "";
-        public long? BlockObjectiveId { get; set; }
         public string BlockObjectiveTitle { get; set; } = "";
+        public string ReviewNotes { get; set; } = "";
+        public string Mistakes { get; set; } = "";
+        public string FocusNext { get; set; } = "";
+        public string SpottedProblems { get; set; } = "";
+        public long CreatedAt { get; set; }
     }
 
     private sealed class EffectiveEvidence
@@ -639,37 +540,11 @@ public sealed class CoachRecommendationService : ICoachRecommendationService
         public long GameId { get; set; }
         public string MomentQuality { get; set; } = "neutral";
         public string PrimaryReason { get; set; } = "";
+        public string ObjectiveKey { get; set; } = "";
         public long? AttachedObjectiveId { get; set; }
         public string AttachedObjectiveTitle { get; set; } = "";
         public double Confidence { get; set; }
-        public bool UsesActiveModel { get; set; }
         public string ExampleText { get; set; } = "";
-    }
-
-    private sealed class ObjectiveEvidenceSummary
-    {
-        public long? AttachedObjectiveId { get; set; }
-        public string AttachedObjectiveTitle { get; set; } = "";
-        public int MomentCount { get; set; }
-        public int GameCount { get; set; }
-        public double Confidence { get; set; }
-        public string TopReason { get; set; } = "";
-        public string ExampleNote { get; set; } = "";
-    }
-
-    private sealed class ReasonEvidenceSummary
-    {
-        public string ReasonKey { get; set; } = "";
-        public int MomentCount { get; set; }
-        public int GameCount { get; set; }
-        public double Confidence { get; set; }
-        public string ExampleNote { get; set; } = "";
-    }
-
-    private sealed class ObjectiveTemplate
-    {
-        public string Title { get; set; } = "";
-        public string CompletionCriteria { get; set; } = "";
-        public string Description { get; set; } = "";
+        public long CreatedAt { get; set; }
     }
 }

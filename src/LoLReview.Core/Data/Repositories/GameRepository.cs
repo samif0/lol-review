@@ -208,8 +208,8 @@ public sealed class GameRepository : IGameRepository
 
     public async Task<int> SaveAsync(GameStats stats)
     {
-        // Casual modes (ARAM, Arena, etc.) are silently skipped.
-        if (GameConstants.CasualModes.Contains(stats.GameMode.ToUpperInvariant()))
+        // Only ranked games are saved (manual entries go through a different path).
+        if (!GameConstants.RankedQueueTypes.Contains(stats.QueueType ?? ""))
             return -1;
 
         using var conn = _factory.CreateConnection();

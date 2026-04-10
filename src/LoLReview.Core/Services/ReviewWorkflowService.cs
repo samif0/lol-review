@@ -56,8 +56,14 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         var sessionEntry = await _sessionLogRepository.GetEntryAsync(gameId);
         var tags = await _conceptTagRepository.GetAllAsync();
         var selectedTagIds = await _conceptTagRepository.GetIdsForGameAsync(gameId);
-        var activeObjectives = await _objectivesRepository.GetActiveAsync();
-        var priorityObjective = await _objectivesRepository.GetPriorityAsync();
+        var allActiveObjectives = await _objectivesRepository.GetActiveAsync();
+        var activeObjectives = allActiveObjectives
+            .Where(objective => ObjectivePhases.ShowsInPostGame(objective.Phase))
+            .ToList();
+        var priorityObjective = allActiveObjectives
+            .Where(objective => ObjectivePhases.ShowsInPostGame(objective.Phase))
+            .FirstOrDefault(objective => objective.IsPriority)
+            ?? activeObjectives.FirstOrDefault();
         var savedObjectives = await _objectivesRepository.GetGameObjectivesAsync(gameId);
         var savedNoteForGame = await _matchupNotesRepository.GetForGameAsync(gameId);
 
@@ -328,6 +334,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 ObjectiveId: objective.Id,
                 Title: objective.Title,
                 Criteria: objective.CompletionCriteria,
+                Phase: objective.Phase,
                 IsPriority: objective.Id == priorityObjectiveId,
                 Practiced: selected?.Practiced ?? saved?.Practiced ?? false,
                 ExecutionNote: selected?.ExecutionNote ?? saved?.ExecutionNote ?? ""));
@@ -342,6 +349,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 ObjectiveId: leftover.ObjectiveId,
                 Title: leftover.Title,
                 Criteria: leftover.CompletionCriteria,
+                Phase: leftover.Phase,
                 IsPriority: leftover.ObjectiveId == priorityObjectiveId,
                 Practiced: selected?.Practiced ?? leftover.Practiced,
                 ExecutionNote: selected?.ExecutionNote ?? leftover.ExecutionNote));

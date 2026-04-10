@@ -342,7 +342,7 @@ public partial class HistoryViewModel : ObservableObject
             TotalDamageToChampions = game.TotalDamageToChampions,
             Duration = duration,
             DatePlayed = date,
-            GameMode = game.GameMode,
+            GameMode = game.DisplayGameMode,
             WinLossColorHex = game.Win ? "#22c55e" : "#ef4444",
             BorderColorHex = game.Win ? "#22c55e" : "#ef4444",
             DamageText = FormatNumber(game.TotalDamageToChampions),

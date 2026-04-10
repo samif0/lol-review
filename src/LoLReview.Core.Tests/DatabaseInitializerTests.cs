@@ -51,7 +51,7 @@ public sealed class DatabaseInitializerTests
                 )
                 VALUES (
                     1001, 1710000000, '2024-03-09 10:00', 1800, 'Ranked Solo',
-                    'MATCHED_GAME', '420', 'Tester', 'Ahri', 103,
+                    'MATCHED_GAME', 'Ranked Solo/Duo', 'Tester', 'Ahri', 103,
                     100, 'MIDDLE', '', 1
                 )
                 """);
@@ -171,9 +171,9 @@ public sealed class DatabaseInitializerTests
                 )
                 VALUES
                     (101, 1, @gameId, 'manual_clip', 'unknown', 'Caitlyn', 'BOTTOM', 180,
-                     'clip-a.mp4', '', '', '', 'Clip A', '', 'bootstrap-v1', 'assist-heuristic-v1', @now, 555),
+                     'clip-a.mp4', '', '', '', 'Clip A', '', 'bootstrap-v1', '', @now, 555),
                     (102, 1, @gameId, 'manual_clip', 'unknown', 'Caitlyn', 'BOTTOM', 240,
-                     'clip-b.mp4', '', '', '', 'Clip B', '', 'bootstrap-v1', 'assist-heuristic-v1', @now, 777)
+                     'clip-b.mp4', '', '', '', 'Clip B', '', 'bootstrap-v1', '', @now, 777)
                 """,
                 ("@gameId", gameId),
                 ("@now", now));
@@ -184,7 +184,7 @@ public sealed class DatabaseInitializerTests
                     confidence, source, created_at, updated_at
                 )
                 VALUES
-                    (101, 1, 'bad', 'manual_clip_review', 'safe_lane_spacing', '', 0.8, 'manual', @now, @now),
+                    (101, 1, 'bad', 'Walked up without safe spacing', 'safe_lane_spacing', '', 0.8, 'manual', @now, @now),
                     (102, 1, 'good', '', '', 'real manual explanation', 0.9, 'manual', @now, @now)
                 """,
                 ("@now", now));
@@ -218,6 +218,27 @@ public sealed class DatabaseInitializerTests
         Assert.Equal(1, preservedLabelCount);
         Assert.True(firstReviewedAt is null || firstReviewedAt is DBNull);
         Assert.Equal(777, secondReviewedAt);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_DoesNotSeedLegacyAssistCoachModelRows()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        await using var connection = scope.OpenConnection();
+        var coachModelCount = await ExecuteScalarAsync<long>(connection, """
+            SELECT COUNT(*)
+            FROM coach_models
+            """);
+        var legacyAssistCount = await ExecuteScalarAsync<long>(connection, """
+            SELECT COUNT(*)
+            FROM coach_models
+            WHERE model_kind IN ('assist', 'qwen_teacher', 'qwen_base', 'personal_adapter', 'premature_prototype')
+            """);
+
+        Assert.Equal(0, coachModelCount);
+        Assert.Equal(0, legacyAssistCount);
     }
 
     private static async Task ExecuteNonQueryAsync(

@@ -263,7 +263,7 @@ public sealed class CoachObjectiveBlock
     public string ObjectiveTitle { get; set; } = "";
     public string ObjectiveKey { get; set; } = "";
     public string Status { get; set; } = "active";
-    public string Mode { get; set; } = "assist";
+    public string Mode { get; set; } = "gemma";
     public long StartedAt { get; set; }
     public long UpdatedAt { get; set; }
     public long? CompletedAt { get; set; }
@@ -292,7 +292,7 @@ public sealed class CoachMomentSample
     public string NoteText { get; set; } = "";
     public string ContextText { get; set; } = "";
     public string DatasetVersion { get; set; } = "bootstrap-v1";
-    public string ModelVersion { get; set; } = "assist-heuristic-v1";
+    public string ModelVersion { get; set; } = "";
     public long CreatedAt { get; set; }
     public long? ReviewedAt { get; set; }
 }
@@ -303,7 +303,7 @@ public sealed class CoachMomentInference
     public long MomentId { get; set; }
     public long PlayerId { get; set; }
     public string ModelVersion { get; set; } = "";
-    public string InferenceMode { get; set; } = "assist";
+    public string InferenceMode { get; set; } = "gemma";
     public string MomentQuality { get; set; } = "neutral";
     public string PrimaryReason { get; set; } = "";
     public string ObjectiveKey { get; set; } = "";
@@ -345,6 +345,13 @@ public sealed class CoachRecommendation
     public string Summary { get; set; } = "";
     public double Confidence { get; set; }
     public int EvidenceGameCount { get; set; }
+    public string CandidateSnapshot { get; set; } = "[]";
+    public long? AppliedObjectiveId { get; set; }
+    public string AppliedObjectiveTitle { get; set; } = "";
+    public string RejectionReason { get; set; } = "";
+    public int EvaluationWindowGames { get; set; }
+    public string OutcomeSummary { get; set; } = "";
+    public long? FeedbackUpdatedAt { get; set; }
     public string RawPayload { get; set; } = "{}";
     public long CreatedAt { get; set; }
     public long UpdatedAt { get; set; }
@@ -390,8 +397,8 @@ public sealed class CoachDraftRequest
 
 public sealed class CoachDraftResult
 {
-    public string ModelVersion { get; set; } = "assist-heuristic-v1";
-    public string InferenceMode { get; set; } = "assist";
+    public string ModelVersion { get; set; } = "";
+    public string InferenceMode { get; set; } = "gemma";
     public string MomentQuality { get; set; } = "neutral";
     public string PrimaryReason { get; set; } = "";
     public string ObjectiveKey { get; set; } = "";
@@ -403,13 +410,12 @@ public sealed class CoachDraftResult
 public sealed class CoachDashboardSnapshot
 {
     public bool IsEnabled { get; set; }
-    public bool IsAssistMode { get; set; } = true;
     public string ActiveObjectiveTitle { get; set; } = "Observe lane phase";
     public string ActiveObjectiveKey { get; set; } = "";
-    public string RecommendationTitle { get; set; } = "Assist mode active";
-    public string RecommendationSummary { get; set; } = "Collect clip-backed evidence before promoting stronger coaching behavior.";
-    public string WatchItemTitle { get; set; } = "Clip-backed evidence";
-    public string WatchItemSummary { get; set; } = "Keep saving lane clips with notes so the model can learn from exact moments.";
+    public string RecommendationTitle { get; set; } = "Gemma setup required";
+    public string RecommendationSummary { get; set; } = "Register or train Gemma 4 E4B to generate clip cards and bundle-level coaching reads.";
+    public string WatchItemTitle { get; set; } = "Gemma status";
+    public string WatchItemSummary { get; set; } = "Coach Lab uses Gemma-only inference for drafts, recurring problems, and objective suggestions.";
     public int TotalMoments { get; set; }
     public int GoldMoments { get; set; }
     public int SilverMoments { get; set; }
@@ -417,8 +423,54 @@ public sealed class CoachDashboardSnapshot
     public int PendingMoments { get; set; }
     public int ReviewedGames { get; set; }
     public string DatasetVersion { get; set; } = "bootstrap-v1";
-    public string ActiveModelVersion { get; set; } = "assist-heuristic-v1";
+    public string ActiveModelVersion { get; set; } = "";
     public CoachTrainingStatus TrainingStatus { get; set; } = new();
+}
+
+public sealed class CoachClipCard
+{
+    public long MomentId { get; set; }
+    public long GameId { get; set; }
+    public string MomentQuality { get; set; } = "neutral";
+    public string ReasonKey { get; set; } = "";
+    public string ObjectiveKey { get; set; } = "";
+    public double Confidence { get; set; }
+    public string Evidence { get; set; } = "";
+    public long? AttachedObjectiveId { get; set; }
+    public string AttachedObjectiveTitle { get; set; } = "";
+}
+
+public sealed class CoachObjectiveCandidate
+{
+    public string CandidateKey { get; set; } = "";
+    public string CandidateType { get; set; } = "";
+    public long? ObjectiveId { get; set; }
+    public string ObjectiveKey { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string CompletionCriteria { get; set; } = "";
+}
+
+public sealed class CoachProblemAnalysisRequest
+{
+    public long PlayerId { get; set; }
+    public long? ObjectiveBlockId { get; set; }
+    public string ActiveObjectiveTitle { get; set; } = "";
+    public string ActiveObjectiveKey { get; set; } = "";
+    public string ReviewContext { get; set; } = "";
+    public List<CoachClipCard> ClipCards { get; set; } = [];
+}
+
+public sealed class CoachObjectivePlanRequest
+{
+    public long PlayerId { get; set; }
+    public long? ObjectiveBlockId { get; set; }
+    public long? ActiveObjectiveId { get; set; }
+    public string ActiveObjectiveTitle { get; set; } = "";
+    public string ActiveObjectiveKey { get; set; } = "";
+    public string ReviewContext { get; set; } = "";
+    public List<CoachClipCard> ClipCards { get; set; } = [];
+    public List<CoachObjectiveCandidate> Candidates { get; set; } = [];
 }
 
 public sealed class CoachMomentCard
@@ -481,11 +533,10 @@ public sealed class CoachSyncResult
 
 public sealed class CoachTrainingStatus
 {
-    public string Mode { get; set; } = "assist";
-    public string ActiveModelVersion { get; set; } = "assist-heuristic-v1";
-    public string ActiveTeacherVersion { get; set; } = "";
-    public string ActiveBaseJudgeVersion { get; set; } = "";
-    public string ActivePersonalAdapterVersion { get; set; } = "";
+    public string Mode { get; set; } = "gemma_setup_required";
+    public string ActiveModelVersion { get; set; } = "";
+    public string ActiveBaseModelVersion { get; set; } = "";
+    public string ActiveAdapterVersion { get; set; } = "";
     public bool IsTrainingInProgress { get; set; }
     public string ActiveTrainingKind { get; set; } = "";
     public string ActiveTrainingStatusText { get; set; } = "";
@@ -494,38 +545,30 @@ public sealed class CoachTrainingStatus
     public long? LastTrainingCompletedAt { get; set; }
     public bool LastTrainingSucceeded { get; set; }
     public int GoldMoments { get; set; }
-    public int AcceptedMoments { get; set; }
+    public int LabeledMoments { get; set; }
     public int ReviewedGames { get; set; }
-    public int PrematureTrainingExamples { get; set; }
-    public bool CanTrainPrematurePrototype { get; set; }
-    public bool CanTrainFirstAdapter { get; set; }
-    public bool CanTrainBaseModel { get; set; }
-    public bool HasPrematurePrototype { get; set; }
-    public bool HasTeacherModel { get; set; }
-    public bool HasBaseJudge { get; set; }
-    public bool HasPersonalAdapter { get; set; }
+    public bool CanPrepareGemmaDataset { get; set; }
+    public bool CanFineTuneGemma { get; set; }
+    public bool HasGemmaBaseModel { get; set; }
+    public bool HasGemmaAdapter { get; set; }
     public string Summary =>
         IsTrainingInProgress
             ? (!string.IsNullOrWhiteSpace(ActiveTrainingStatusText)
                 ? ActiveTrainingStatusText
                 : "Coach model training is running in the background.")
-            : !string.IsNullOrWhiteSpace(LastTrainingSummary)
+            : !LastTrainingSucceeded && !string.IsNullOrWhiteSpace(LastTrainingSummary)
                 ? LastTrainingSummary
-                : HasPersonalAdapter
-            ? "A personalized coach model is active for draft scoring."
-            : HasBaseJudge
-                ? "A stronger base judge is active for clip scoring."
-                : HasTeacherModel
-                    ? "Teacher-assisted clip drafting is active."
-                    : HasPrematurePrototype
-                        ? $"A prototype coach is active. It learned from {PrematureTrainingExamples} accepted clip-backed moments, so treat it as exploratory."
-                        : CanTrainBaseModel
-                            ? "Enough accepted clip-backed moments exist to train the shared base model."
-                            : CanTrainFirstAdapter
-                                ? "Enough reviewed clip-backed moments exist to train the first personalized coach."
-                                : CanTrainPrematurePrototype
-                                    ? "Enough clip-backed moments exist to train a prototype now. It will still be weak and exploratory."
-                                    : $"Collect {Math.Max(0, 2 - AcceptedMoments)} more accepted clip-backed moments for a prototype, or {Math.Max(0, 250 - GoldMoments)} reviewed moments and {Math.Max(0, 50 - ReviewedGames)} reviewed games with clips for the first trained coach.";
+                : HasGemmaAdapter
+                    ? "A fine-tuned Gemma coach adapter is active."
+                    : HasGemmaBaseModel
+                        ? "Gemma 4 E4B is active for Coach Lab inference."
+                        : !string.IsNullOrWhiteSpace(LastTrainingSummary)
+                            ? LastTrainingSummary
+                            : CanFineTuneGemma
+                                ? "Enough reviewed clips exist for a first Gemma fine-tuning pilot."
+                                : CanPrepareGemmaDataset
+                                    ? "Enough labeled clips exist to prepare a Gemma fine-tuning dataset."
+                                    : $"Collect {Math.Max(0, 10 - LabeledMoments)} more labeled clip-backed moments to prepare the first Gemma dataset, or {Math.Max(0, 40 - GoldMoments)} gold moments and {Math.Max(0, 10 - ReviewedGames)} reviewed games for a more useful Gemma pilot.";
 }
 
 public sealed class CoachTrainResult
@@ -558,6 +601,7 @@ public sealed class CoachProblemsReport
     public string Summary { get; set; } = "";
     public string ModelVersion { get; set; } = "";
     public bool UsesTrainedModel { get; set; }
+    public string RawPayload { get; set; } = "{}";
     public List<CoachProblemInsight> Problems { get; set; } = [];
 }
 
@@ -574,9 +618,12 @@ public sealed class CoachObjectiveSuggestion
     public string CandidateObjectiveTitle { get; set; } = "";
     public string CandidateCompletionCriteria { get; set; } = "";
     public string CandidateDescription { get; set; } = "";
+    public string FollowUpMetric { get; set; } = "";
     public int EvidenceMomentCount { get; set; }
     public int EvidenceGameCount { get; set; }
     public double Confidence { get; set; }
+    public string RawPayload { get; set; } = "{}";
+    public List<long> EvidenceClipIds { get; set; } = [];
 
     public bool CanCreateObjective =>
         string.Equals(SuggestionMode, "create_new", StringComparison.OrdinalIgnoreCase)

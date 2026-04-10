@@ -1,4 +1,5 @@
 using LoLReview.Core.Models;
+using LoLReview.Core.Data.Repositories;
 using Microsoft.Data.Sqlite;
 
 namespace LoLReview.Core.Tests;
@@ -21,7 +22,14 @@ public sealed class TypedRepositoryContractTests
         await scope.Objectives.RecordGameAsync(gameId, objectiveId, practiced: true, executionNote: "Held wave long enough");
         await scope.MatchupNotes.UpsertForGameAsync(gameId, "Ahri", "Syndra", "Play outside Q line");
         await scope.Vod.LinkVodAsync(gameId, @"C:\vods\ahri-win.mp4", 1234, 1810);
-        await scope.Vod.AddBookmarkAsync(gameId, 95, "Trade setup", clipStartSeconds: 90, clipEndSeconds: 102, clipPath: @"C:\clips\trade.mp4");
+        await scope.Vod.AddBookmarkAsync(
+            gameId,
+            95,
+            "Trade setup",
+            clipStartSeconds: 90,
+            clipEndSeconds: 102,
+            clipPath: @"C:\clips\trade.mp4",
+            quality: "bad");
 
         var events = new List<GameEvent>
         {
@@ -52,6 +60,7 @@ public sealed class TypedRepositoryContractTests
         Assert.Equal(objectiveId, objective.Id);
         Assert.Equal("Respect first reset", objective.Title);
         Assert.True(objective.IsPriority);
+        Assert.Equal(ObjectivePhases.InGame, objective.Phase);
 
         var gameObjective = Assert.Single(gameObjectives);
         Assert.Equal(objectiveId, gameObjective.ObjectiveId);
@@ -70,6 +79,7 @@ public sealed class TypedRepositoryContractTests
         Assert.Equal(95, bookmark.GameTimeSeconds);
         Assert.Equal("Trade setup", bookmark.Note);
         Assert.Equal(@"C:\clips\trade.mp4", bookmark.ClipPath);
+        Assert.Equal("bad", bookmark.Quality);
 
         Assert.Collection(
             savedEvents,
@@ -149,6 +159,28 @@ public sealed class TypedRepositoryContractTests
     }
 
     [Fact]
+    public async Task VodRepository_UpdateBookmarkAsync_UpdatesClipQuality()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var gameId = await scope.Games.SaveManualAsync("Kai'Sa", true);
+        var bookmarkId = await scope.Vod.AddBookmarkAsync(
+            gameId,
+            144,
+            "Hold wave before trade",
+            clipStartSeconds: 140,
+            clipEndSeconds: 150,
+            clipPath: @"C:\clips\trade-window.mp4",
+            quality: "neutral");
+
+        await scope.Vod.UpdateBookmarkAsync(bookmarkId, quality: "bad");
+
+        var bookmark = Assert.Single(await scope.Vod.GetBookmarksAsync(gameId));
+        Assert.Equal("bad", bookmark.Quality);
+    }
+
+    [Fact]
     public async Task VodRepository_DeleteBookmarkAsync_RemovesClipBackedCoachRows()
     {
         using var scope = new TestDatabaseScope();
@@ -181,7 +213,7 @@ public sealed class TypedRepositoryContractTests
                 VALUES (
                     501, 1, @gameId, @bookmarkId, 'manual_clip', 'unknown', 'Jinx', 'BOTTOM', 180,
                     176, 190, @clipPath, '', '', '', '', 'Dragon fight', '',
-                    'bootstrap-v1', 'assist-heuristic-v1', @now
+                    'bootstrap-v1', '', @now
                 )
                 """,
                 ("@gameId", gameId),
@@ -195,7 +227,7 @@ public sealed class TypedRepositoryContractTests
                     confidence, source, created_at, updated_at
                 )
                 VALUES (
-                    501, 1, 'good', 'manual_clip_review', 'dragon_setup', 'good setup',
+                    501, 1, 'good', 'Held lane prio for dragon setup', 'dragon_setup', 'good setup',
                     0.8, 'manual', @now, @now
                 )
                 """,
@@ -207,7 +239,7 @@ public sealed class TypedRepositoryContractTests
                     objective_key, confidence, rationale, raw_payload, created_at, updated_at
                 )
                 VALUES (
-                    501, 1, 'assist-heuristic-v1', 'assist', 'good', 'manual_clip_review',
+                    501, 1, 'gemma-e4b-base-1', 'gemma', 'good', 'Held lane prio for dragon setup',
                     'dragon_setup', 0.7, 'looked clean', '{}', @now, @now
                 )
                 """,
@@ -244,6 +276,39 @@ public sealed class TypedRepositoryContractTests
         Assert.Equal(0, momentCount);
         Assert.Equal(0, labelCount);
         Assert.Equal(0, inferenceCount);
+    }
+
+    [Fact]
+    public async Task ObjectivesRepository_UpdateAsync_PersistsEditableFields()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var objectiveId = await scope.Objectives.CreateAsync(
+            "Respect first reset",
+            skillArea: "macro",
+            completionCriteria: "Crash before base",
+            description: "Initial notes",
+            phase: ObjectivePhases.InGame);
+
+        await scope.Objectives.UpdateAsync(
+            objectiveId,
+            "Review loading screen plan",
+            skillArea: "prep",
+            type: "mental",
+            completionCriteria: "Name first 3 waves",
+            description: "Updated notes",
+            phase: ObjectivePhases.PreGame);
+
+        var updated = await scope.Objectives.GetAsync(objectiveId);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Review loading screen plan", updated!.Title);
+        Assert.Equal("prep", updated.SkillArea);
+        Assert.Equal("mental", updated.Type);
+        Assert.Equal("Name first 3 waves", updated.CompletionCriteria);
+        Assert.Equal("Updated notes", updated.Description);
+        Assert.Equal(ObjectivePhases.PreGame, updated.Phase);
     }
 
     private static async Task ExecuteNonQueryAsync(

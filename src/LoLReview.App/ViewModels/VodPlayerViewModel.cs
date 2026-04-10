@@ -10,6 +10,7 @@ using LoLReview.App.Styling;
 using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.ViewModels;
@@ -17,18 +18,27 @@ namespace LoLReview.App.ViewModels;
 /// <summary>ViewModel for the VOD player page.</summary>
 public partial class VodPlayerViewModel : ObservableObject
 {
+    private static readonly TimeSpan BookmarkNoteSaveDebounce = TimeSpan.FromMilliseconds(650);
+    private static readonly TimeSpan CoachLabSyncDebounce = TimeSpan.FromMilliseconds(900);
+
     private readonly IVodRepository _vodRepo;
     private readonly IGameRepository _gameRepo;
     private readonly IGameEventsRepository _eventsRepo;
     private readonly IDerivedEventsRepository _derivedEventsRepo;
+    private readonly IObjectivesRepository _objectivesRepo;
     private readonly IClipService _clipService;
     private readonly IConfigService _configService;
     private readonly ICoachLabService _coachLabService;
     private readonly INavigationService _navigationService;
     private readonly ILogger<VodPlayerViewModel> _logger;
-    private readonly SemaphoreSlim _bookmarkMutationLock = new(1, 1);
+    private readonly object _bookmarkMutationQueueGate = new();
+    private readonly object _bookmarkNoteSaveGate = new();
+    private readonly object _coachLabSyncGate = new();
+    private readonly Dictionary<long, CancellationTokenSource> _bookmarkNoteSaveDelays = [];
+    private Task _bookmarkMutationQueueTail = Task.CompletedTask;
+    private CancellationTokenSource? _coachLabSyncDelay;
 
-    // â”€â”€ Game info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Game info â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [ObservableProperty] private long _gameId;
     [ObservableProperty] private string _championName = "";
@@ -37,7 +47,7 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _vodPath = "";
     [ObservableProperty] private int _gameDurationS;
 
-    // â”€â”€ Playback state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Playback state â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [ObservableProperty] private bool _isPlaying;
     [ObservableProperty] private double _currentTimeS;
@@ -50,7 +60,7 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private bool _hasGameEvents;
     [ObservableProperty] private string _gameEventsStatusText = "No live events.";
 
-    // â”€â”€ Clip extraction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Clip extraction â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [ObservableProperty] private double _clipStartS = -1;
     [ObservableProperty] private double _clipEndS = -1;
@@ -62,12 +72,18 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _clipStatusText = "Start, end, save.";
     [ObservableProperty] private string _bookmarkNote = "";
     [ObservableProperty] private string _clipNote = "";
+    [ObservableProperty] private long? _selectedObjectiveId;
+    [ObservableProperty] private string _selectedClipQuality = "";
 
-    // â”€â”€ Collections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public IReadOnlyList<string> QualityOptions { get; } =
+        ["", "good", "neutral", "bad"];
+
+    // â"€â"€ Collections â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     public ObservableCollection<BookmarkItem> Bookmarks { get; } = new();
     public ObservableCollection<TimelineEvent> GameEvents { get; } = new();
     public ObservableCollection<DerivedEventRegion> DerivedEvents { get; } = new();
+    public ObservableCollection<ObjectiveOption> ObjectiveOptions { get; } = new();
 
     public static IReadOnlyList<double> SpeedOptions { get; } =
         new[] { 0.25, 0.5, 1.0, 1.5, 2.0 };
@@ -79,8 +95,29 @@ public partial class VodPlayerViewModel : ObservableObject
     public string SeekStepHintText => $"Left/Right {SeekStepText} | Up/Down step";
     public string ClipStartActionText => ClipStartS >= 0 ? "Move Start" : "Start Clip";
     public string ClipEndActionText => ClipEndS >= 0 ? "Move End" : "End Clip";
+    public string SelectedClipQualityText => string.IsNullOrWhiteSpace(SelectedClipQuality)
+        ? "Select Good, Neutral, or Bad before saving."
+        : $"{char.ToUpperInvariant(SelectedClipQuality[0])}{SelectedClipQuality[1..]} selected. Save Clip to apply it.";
+    public QualityChipVisual GoodClipQualityVisual => QualityChipVisual.Create("good", SelectedClipQuality);
+    public QualityChipVisual NeutralClipQualityVisual => QualityChipVisual.Create("neutral", SelectedClipQuality);
+    public QualityChipVisual BadClipQualityVisual => QualityChipVisual.Create("bad", SelectedClipQuality);
+    public SolidColorBrush GoodClipBackgroundBrush => GoodClipQualityVisual.BackgroundBrush;
+    public SolidColorBrush GoodClipBorderBrush => GoodClipQualityVisual.BorderBrush;
+    public SolidColorBrush GoodClipForegroundBrush => GoodClipQualityVisual.ForegroundBrush;
+    public Visibility GoodClipCheckVisibility => GoodClipQualityVisual.CheckVisibility;
+    public Thickness GoodClipBorderThickness => GoodClipQualityVisual.BorderThickness;
+    public SolidColorBrush NeutralClipBackgroundBrush => NeutralClipQualityVisual.BackgroundBrush;
+    public SolidColorBrush NeutralClipBorderBrush => NeutralClipQualityVisual.BorderBrush;
+    public SolidColorBrush NeutralClipForegroundBrush => NeutralClipQualityVisual.ForegroundBrush;
+    public Visibility NeutralClipCheckVisibility => NeutralClipQualityVisual.CheckVisibility;
+    public Thickness NeutralClipBorderThickness => NeutralClipQualityVisual.BorderThickness;
+    public SolidColorBrush BadClipBackgroundBrush => BadClipQualityVisual.BackgroundBrush;
+    public SolidColorBrush BadClipBorderBrush => BadClipQualityVisual.BorderBrush;
+    public SolidColorBrush BadClipForegroundBrush => BadClipQualityVisual.ForegroundBrush;
+    public Visibility BadClipCheckVisibility => BadClipQualityVisual.CheckVisibility;
+    public Thickness BadClipBorderThickness => BadClipQualityVisual.BorderThickness;
 
-    // â”€â”€ Events for the view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Events for the view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     public string OutcomeLabel => Win ? "Victory" : "Defeat";
     public string VodStatusLabel => HasVod ? "VOD linked" : "No recording";
@@ -95,13 +132,14 @@ public partial class VodPlayerViewModel : ObservableObject
     /// <summary>Raised when play/pause should toggle.</summary>
     public event Action? PlayPauseRequested;
 
-    // â”€â”€ Constructor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Constructor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     public VodPlayerViewModel(
         IVodRepository vodRepo,
         IGameRepository gameRepo,
         IGameEventsRepository eventsRepo,
         IDerivedEventsRepository derivedEventsRepo,
+        IObjectivesRepository objectivesRepo,
         IClipService clipService,
         IConfigService configService,
         ICoachLabService coachLabService,
@@ -112,6 +150,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _gameRepo = gameRepo;
         _eventsRepo = eventsRepo;
         _derivedEventsRepo = derivedEventsRepo;
+        _objectivesRepo = objectivesRepo;
         _clipService = clipService;
         _configService = configService;
         _coachLabService = coachLabService;
@@ -119,7 +158,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _logger = logger;
     }
 
-    // â”€â”€ Load â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Load â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [RelayCommand]
     private async Task LoadAsync(long gameId)
@@ -195,6 +234,9 @@ public partial class VodPlayerViewModel : ObservableObject
             // Load bookmarks
             await RefreshBookmarksAsync();
 
+            // Load active objectives for clip attachment
+            await LoadObjectiveOptionsAsync();
+
             // Check ffmpeg availability
             var ffmpegPath = await _clipService.FindFfmpegAsync();
             HasFfmpeg = !string.IsNullOrEmpty(ffmpegPath);
@@ -209,7 +251,7 @@ public partial class VodPlayerViewModel : ObservableObject
         }
     }
 
-    // â”€â”€ Playback commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Playback commands â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [RelayCommand]
     private void PlayPause()
@@ -254,92 +296,144 @@ public partial class VodPlayerViewModel : ObservableObject
         AdjustSeekStep(-1);
     }
 
-    // â”€â”€ Bookmark commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Bookmark commands â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [RelayCommand]
     private async Task AddBookmarkAsync()
     {
-        await _bookmarkMutationLock.WaitAsync();
+        var timeS = (int)CurrentTimeS;
+        var note = BookmarkNote.Trim();
+        var objectiveId = SelectedObjectiveId;
+        BookmarkNote = "";
+
         try
         {
-            await PersistVisibleBookmarkNotesAsync();
-            var timeS = (int)CurrentTimeS;
-            var note = BookmarkNote.Trim();
-            await _vodRepo.AddBookmarkAsync(GameId, timeS, note);
-            BookmarkNote = "";
-            await RefreshBookmarksAsync();
+            var bookmarkId = await EnqueueBookmarkMutationAsync(
+                () => _vodRepo.AddBookmarkAsync(GameId, timeS, note, objectiveId: objectiveId));
+
+            InsertBookmark(new BookmarkItem
+            {
+                Id = bookmarkId,
+                GameTimeS = timeS,
+                TimeText = FormatTime(timeS),
+                Note = note,
+                IsClip = false,
+            });
             _logger.LogInformation("Bookmark added at {Time}s for game {Id}", timeS, GameId);
         }
         catch (Exception ex)
         {
+            BookmarkNote = note;
             _logger.LogError(ex, "Failed to add bookmark");
-        }
-        finally
-        {
-            _bookmarkMutationLock.Release();
         }
     }
 
     [RelayCommand]
-    private async Task DeleteBookmarkAsync(long bookmarkId)
+    private Task DeleteBookmarkAsync(long bookmarkId)
     {
-        await _bookmarkMutationLock.WaitAsync();
+        var bookmark = Bookmarks.FirstOrDefault(item => item.Id == bookmarkId);
+        var bookmarkKind = bookmark?.IsClip == true ? "clip" : "note";
+
+        CancelPendingBookmarkNoteSave(bookmarkId);
+        DispatcherHelper.RunOnUIThread(() =>
+        {
+            if (bookmark is not null)
+            {
+                Bookmarks.Remove(bookmark);
+            }
+        });
+
+        AppDiagnostics.WriteVerbose(
+            "vod-delete.log",
+            $"delete queued bookmarkId={bookmarkId} kind={bookmarkKind} gameId={GameId}");
+        _logger.LogInformation(
+            "Queued deletion for {Kind} bookmark {BookmarkId} in game {GameId}",
+            bookmarkKind,
+            bookmarkId,
+            GameId);
+
+        _ = DeleteBookmarkQueuedAsync(bookmarkId, bookmark);
+        return Task.CompletedTask;
+    }
+
+    [RelayCommand]
+    private Task SaveBookmarkNoteAsync(BookmarkItem? bookmark)
+    {
+        QueueBookmarkNoteSave(bookmark, immediate: true);
+        return Task.CompletedTask;
+    }
+
+    [RelayCommand]
+    private void ScheduleBookmarkNoteSave(BookmarkItem? bookmark)
+    {
+        QueueBookmarkNoteSave(bookmark, immediate: false);
+    }
+
+    [RelayCommand]
+    private Task SetBookmarkQualityAsync(BookmarkQualityUpdateRequest? request)
+    {
+        if (request is null || request.Bookmark is null || request.Bookmark.Id <= 0 || !request.Bookmark.IsClip)
+        {
+            return Task.CompletedTask;
+        }
+
+        var normalizedQuality = NormalizeClipQuality(request.Quality);
+        var originalBookmark = request.Bookmark;
+        var updatedBookmark = originalBookmark.WithQuality(normalizedQuality);
+        DispatcherHelper.RunOnUIThread(() =>
+        {
+            var index = Bookmarks.IndexOf(originalBookmark);
+            if (index < 0)
+            {
+                index = FindBookmarkIndex(originalBookmark.Id);
+            }
+
+            if (index >= 0)
+            {
+                Bookmarks[index] = updatedBookmark;
+            }
+        });
+
+        _ = SetBookmarkQualityQueuedAsync(originalBookmark, normalizedQuality);
+        return Task.CompletedTask;
+    }
+
+    private async Task DeleteBookmarkQueuedAsync(long bookmarkId, BookmarkItem? bookmark)
+    {
         try
         {
-            var bookmark = Bookmarks.FirstOrDefault(item => item.Id == bookmarkId);
-            var bookmarkKind = bookmark?.IsClip == true ? "clip" : "note";
-            AppDiagnostics.WriteVerbose(
-                "vod-delete.log",
-                $"delete requested bookmarkId={bookmarkId} kind={bookmarkKind} gameId={GameId}");
-            _logger.LogInformation(
-                "Deleting {Kind} bookmark {BookmarkId} for game {GameId}",
-                bookmarkKind,
-                bookmarkId,
-                GameId);
-            await PersistVisibleBookmarkNotesAsync();
-            await _vodRepo.DeleteBookmarkAsync(bookmarkId);
-            await RefreshBookmarksAsync();
+            await EnqueueBookmarkMutationAsync(() => _vodRepo.DeleteBookmarkAsync(bookmarkId));
             AppDiagnostics.WriteVerbose(
                 "vod-delete.log",
                 $"delete completed bookmarkId={bookmarkId} remaining={Bookmarks.Count}");
-            _logger.LogInformation(
-                "Deleted bookmark {BookmarkId}; remaining bookmark count is {Count}",
-                bookmarkId,
-                Bookmarks.Count);
+            _logger.LogInformation("Deleted bookmark {BookmarkId}", bookmarkId);
         }
         catch (Exception ex)
         {
+            if (bookmark is not null)
+            {
+                InsertBookmark(bookmark);
+            }
+
             AppDiagnostics.WriteVerbose(
                 "vod-delete.log",
                 $"delete failed bookmarkId={bookmarkId} error={ex.GetType().Name}: {ex.Message}");
             _logger.LogError(ex, "Failed to delete bookmark {Id}", bookmarkId);
         }
-        finally
-        {
-            _bookmarkMutationLock.Release();
-        }
     }
 
-    [RelayCommand]
-    private async Task SaveBookmarkNoteAsync(BookmarkItem? bookmark)
+    private async Task SetBookmarkQualityQueuedAsync(BookmarkItem originalBookmark, string normalizedQuality)
     {
-        if (bookmark is null || bookmark.Id <= 0)
-        {
-            return;
-        }
-
-        await _bookmarkMutationLock.WaitAsync();
         try
         {
-            await _vodRepo.UpdateBookmarkAsync(bookmark.Id, note: bookmark.Note?.Trim() ?? "");
+            await EnqueueBookmarkMutationAsync(
+                () => _vodRepo.UpdateBookmarkAsync(originalBookmark.Id, quality: normalizedQuality));
+            ScheduleCoachLabSync();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save note for bookmark {Id}", bookmark.Id);
-        }
-        finally
-        {
-            _bookmarkMutationLock.Release();
+            RestoreBookmarkIfQualityStillMatches(originalBookmark, normalizedQuality);
+            _logger.LogError(ex, "Failed to save quality for bookmark {Id}", originalBookmark.Id);
         }
     }
 
@@ -360,7 +454,7 @@ public partial class VodPlayerViewModel : ObservableObject
         SeekRequested?.Invoke(timelineEvent.GameTimeS);
     }
 
-    // â”€â”€ Clip commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Clip commands â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [RelayCommand]
     private void SetClipIn()
@@ -395,13 +489,15 @@ public partial class VodPlayerViewModel : ObservableObject
 
         IsExtractingClip = true;
         ClipStatusText = "Saving clip...";
-        await _bookmarkMutationLock.WaitAsync();
+
+        var startS = (int)Math.Min(ClipStartS, ClipEndS);
+        var endS = (int)Math.Max(ClipStartS, ClipEndS);
+        var note = string.IsNullOrWhiteSpace(ClipNote) ? "Clip" : ClipNote.Trim();
+        var quality = SelectedClipQuality;
+        var objectiveId = SelectedObjectiveId;
 
         try
         {
-            await PersistVisibleBookmarkNotesAsync();
-            var startS = (int)Math.Min(ClipStartS, ClipEndS);
-            var endS = (int)Math.Max(ClipStartS, ClipEndS);
             var clipsFolder = _configService.ClipsFolder;
 
             var clipPath = await _clipService.ExtractClipAsync(
@@ -409,38 +505,34 @@ public partial class VodPlayerViewModel : ObservableObject
 
             if (!string.IsNullOrEmpty(clipPath))
             {
-                var note = string.IsNullOrWhiteSpace(ClipNote) ? "Clip" : ClipNote.Trim();
+                var bookmarkId = await EnqueueBookmarkMutationAsync(
+                    () => _vodRepo.AddBookmarkAsync(
+                        GameId,
+                        startS,
+                        note,
+                        clipStartSeconds: startS,
+                        clipEndSeconds: endS,
+                        clipPath: clipPath,
+                        objectiveId: objectiveId,
+                        quality: quality));
 
-                // Save as bookmark with clip metadata
-                await _vodRepo.AddBookmarkAsync(
-                    GameId, startS, note,
-                    clipStartSeconds: startS,
-                    clipEndSeconds: endS,
-                    clipPath: clipPath);
-
-                await RefreshBookmarksAsync();
-
-                // Enforce folder size limit
-                var maxBytes = (long)_configService.ClipsMaxSizeMb * 1024 * 1024;
-                await _clipService.EnforceFolderSizeLimitAsync(clipsFolder, maxBytes);
-
-                if (_coachLabService.IsEnabled)
+                InsertBookmark(new BookmarkItem
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await _coachLabService.SyncMomentsAsync(includeAutoSamples: false);
-                        }
-                        catch (Exception syncEx)
-                        {
-                            _logger.LogDebug(syncEx, "Coach Lab clip sync failed after clip extraction");
-                        }
-                    });
-                }
+                    Id = bookmarkId,
+                    GameTimeS = startS,
+                    TimeText = FormatTime(startS),
+                    Note = note,
+                    IsClip = true,
+                    ClipRangeText = $"{FormatTime(startS)} - {FormatTime(endS)}",
+                    Quality = quality,
+                });
+
+                ScheduleCoachLabSync();
 
                 ClipNote = "";
-                ClipStatusText = "Clip saved.";
+                ClipStatusText = string.IsNullOrWhiteSpace(quality)
+                    ? "Clip saved."
+                    : $"Clip saved as {quality.Trim().ToLowerInvariant()}.";
                 _logger.LogInformation("Clip extracted: {Path}", clipPath);
             }
             else
@@ -455,12 +547,11 @@ public partial class VodPlayerViewModel : ObservableObject
         }
         finally
         {
-            _bookmarkMutationLock.Release();
             IsExtractingClip = false;
         }
     }
 
-    // â”€â”€ Navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Navigation â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [RelayCommand]
     private void GoBack()
@@ -468,7 +559,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _navigationService.GoBack();
     }
 
-    // â”€â”€ Public methods for the view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Public methods for the view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     /// <summary>Called by the view's position timer to update display.</summary>
     public void UpdatePosition(double seconds, double totalSeconds)
@@ -483,7 +574,7 @@ public partial class VodPlayerViewModel : ObservableObject
         }
     }
 
-    // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     private async Task RefreshBookmarksAsync()
     {
@@ -493,42 +584,267 @@ public partial class VodPlayerViewModel : ObservableObject
             Bookmarks.Clear();
             foreach (var b in bookmarks)
             {
-                var id = b.Id;
-                var timeS = b.GameTimeSeconds;
-                var note = b.Note;
-                var clipPath = b.ClipPath;
-                var clipStartS = b.ClipStartSeconds;
-                var clipEndS = b.ClipEndSeconds;
-
-                Bookmarks.Add(new BookmarkItem
-                {
-                    Id = id,
-                    GameTimeS = timeS,
-                    TimeText = FormatTime(timeS),
-                    Note = note,
-                    IsClip = !string.IsNullOrEmpty(clipPath),
-                    ClipRangeText = clipStartS != null && clipEndS != null
-                        ? $"{FormatTime(clipStartS.Value)} - {FormatTime(clipEndS.Value)}"
-                        : "",
-                });
+                Bookmarks.Add(ToBookmarkItem(b));
             }
         });
     }
 
-    private async Task PersistVisibleBookmarkNotesAsync()
+    private void QueueBookmarkNoteSave(BookmarkItem? bookmark, bool immediate)
     {
-        // Snapshot to avoid InvalidOperationException if the collection is
-        // modified while we yield (e.g. LostFocus triggers during Clear).
-        var snapshot = Bookmarks.ToList();
-        foreach (var bookmark in snapshot)
+        if (bookmark is null || bookmark.Id <= 0)
         {
-            if (bookmark.Id <= 0)
+            return;
+        }
+
+        var bookmarkId = bookmark.Id;
+        var note = bookmark.Note?.Trim() ?? "";
+        var isClip = bookmark.IsClip;
+        CancellationTokenSource saveDelay;
+
+        lock (_bookmarkNoteSaveGate)
+        {
+            if (_bookmarkNoteSaveDelays.Remove(bookmarkId, out var existing))
             {
-                continue;
+                existing.Cancel();
             }
 
-            await _vodRepo.UpdateBookmarkAsync(bookmark.Id, note: bookmark.Note?.Trim() ?? "");
+            saveDelay = new CancellationTokenSource();
+            _bookmarkNoteSaveDelays[bookmarkId] = saveDelay;
         }
+
+        _ = SaveBookmarkNoteQueuedAsync(bookmarkId, note, isClip, immediate, saveDelay);
+    }
+
+    private async Task SaveBookmarkNoteQueuedAsync(
+        long bookmarkId,
+        string note,
+        bool isClip,
+        bool immediate,
+        CancellationTokenSource saveDelay)
+    {
+        try
+        {
+            if (!immediate)
+            {
+                await Task.Delay(BookmarkNoteSaveDebounce, saveDelay.Token).ConfigureAwait(false);
+            }
+
+            await EnqueueBookmarkMutationAsync(
+                () => _vodRepo.UpdateBookmarkAsync(bookmarkId, note: note)).ConfigureAwait(false);
+
+            if (isClip)
+            {
+                ScheduleCoachLabSync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer note value superseded this pending save.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save note for bookmark {Id}", bookmarkId);
+        }
+        finally
+        {
+            lock (_bookmarkNoteSaveGate)
+            {
+                if (_bookmarkNoteSaveDelays.TryGetValue(bookmarkId, out var current)
+                    && ReferenceEquals(current, saveDelay))
+                {
+                    _bookmarkNoteSaveDelays.Remove(bookmarkId);
+                }
+            }
+
+            saveDelay.Dispose();
+        }
+    }
+
+    private void CancelPendingBookmarkNoteSave(long bookmarkId)
+    {
+        lock (_bookmarkNoteSaveGate)
+        {
+            if (_bookmarkNoteSaveDelays.Remove(bookmarkId, out var existing))
+            {
+                existing.Cancel();
+            }
+        }
+    }
+
+    private Task EnqueueBookmarkMutationAsync(Func<Task> mutation)
+    {
+        lock (_bookmarkMutationQueueGate)
+        {
+            var previous = _bookmarkMutationQueueTail;
+            var next = Task.Run(() => RunQueuedBookmarkMutationAsync(previous, mutation));
+            _bookmarkMutationQueueTail = next;
+            return next;
+        }
+    }
+
+    private Task<T> EnqueueBookmarkMutationAsync<T>(Func<Task<T>> mutation)
+    {
+        lock (_bookmarkMutationQueueGate)
+        {
+            var previous = _bookmarkMutationQueueTail;
+            var next = Task.Run(() => RunQueuedBookmarkMutationAsync(previous, mutation));
+            _bookmarkMutationQueueTail = next;
+            return next;
+        }
+    }
+
+    private async Task RunQueuedBookmarkMutationAsync(Task previous, Func<Task> mutation)
+    {
+        try
+        {
+            await previous.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Previous queued VOD bookmark mutation failed");
+        }
+
+        await mutation().ConfigureAwait(false);
+    }
+
+    private async Task<T> RunQueuedBookmarkMutationAsync<T>(Task previous, Func<Task<T>> mutation)
+    {
+        try
+        {
+            await previous.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Previous queued VOD bookmark mutation failed");
+        }
+
+        return await mutation().ConfigureAwait(false);
+    }
+
+    private void ScheduleCoachLabSync()
+    {
+        if (!_coachLabService.IsEnabled)
+        {
+            return;
+        }
+
+        CancellationTokenSource syncDelay;
+        lock (_coachLabSyncGate)
+        {
+            _coachLabSyncDelay?.Cancel();
+            _coachLabSyncDelay = new CancellationTokenSource();
+            syncDelay = _coachLabSyncDelay;
+        }
+
+        _ = RunCoachLabSyncDebouncedAsync(syncDelay);
+    }
+
+    private async Task RunCoachLabSyncDebouncedAsync(CancellationTokenSource syncDelay)
+    {
+        try
+        {
+            await Task.Delay(CoachLabSyncDebounce, syncDelay.Token).ConfigureAwait(false);
+            await _coachLabService.SyncMomentsAsync(
+                includeAutoSamples: false,
+                cancellationToken: syncDelay.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Coalesced by a newer clip/bookmark change.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Coach Lab clip sync failed after VOD bookmark change");
+        }
+        finally
+        {
+            lock (_coachLabSyncGate)
+            {
+                if (ReferenceEquals(_coachLabSyncDelay, syncDelay))
+                {
+                    _coachLabSyncDelay = null;
+                }
+            }
+
+            syncDelay.Dispose();
+        }
+    }
+
+    private void InsertBookmark(BookmarkItem bookmark)
+    {
+        DispatcherHelper.RunOnUIThread(() =>
+        {
+            InsertBookmarkOnCurrentThread(bookmark);
+        });
+    }
+
+    private void ReplaceBookmark(BookmarkItem bookmark)
+    {
+        DispatcherHelper.RunOnUIThread(() =>
+        {
+            var index = FindBookmarkIndex(bookmark.Id);
+            if (index >= 0)
+            {
+                Bookmarks[index] = bookmark;
+            }
+            else
+            {
+                InsertBookmarkOnCurrentThread(bookmark);
+            }
+        });
+    }
+
+    private void RestoreBookmarkIfQualityStillMatches(BookmarkItem bookmark, string failedQuality)
+    {
+        DispatcherHelper.RunOnUIThread(() =>
+        {
+            var index = FindBookmarkIndex(bookmark.Id);
+            if (index >= 0 && NormalizeClipQuality(Bookmarks[index].Quality) == failedQuality)
+            {
+                Bookmarks[index] = bookmark;
+            }
+        });
+    }
+
+    private int FindBookmarkIndex(long bookmarkId)
+    {
+        for (var i = 0; i < Bookmarks.Count; i++)
+        {
+            if (Bookmarks[i].Id == bookmarkId)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private void InsertBookmarkOnCurrentThread(BookmarkItem bookmark)
+    {
+        var index = 0;
+        while (index < Bookmarks.Count && Bookmarks[index].GameTimeS <= bookmark.GameTimeS)
+        {
+            index++;
+        }
+
+        Bookmarks.Insert(index, bookmark);
+    }
+
+    private static BookmarkItem ToBookmarkItem(VodBookmarkRecord record)
+    {
+        var isClip = !string.IsNullOrEmpty(record.ClipPath);
+        return new BookmarkItem
+        {
+            Id = record.Id,
+            GameTimeS = record.GameTimeSeconds,
+            TimeText = FormatTime(record.GameTimeSeconds),
+            Note = record.Note,
+            IsClip = isClip,
+            ClipRangeText = record.ClipStartSeconds != null && record.ClipEndSeconds != null
+                ? $"{FormatTime(record.ClipStartSeconds.Value)} - {FormatTime(record.ClipEndSeconds.Value)}"
+                : "",
+            Quality = record.Quality,
+        };
     }
 
     private void UpdateClipRange()
@@ -570,6 +886,27 @@ public partial class VodPlayerViewModel : ObservableObject
         return $"{m}:{s:D2}";
     }
 
+    private async Task LoadObjectiveOptionsAsync()
+    {
+        try
+        {
+            var objectives = await _objectivesRepo.GetActiveAsync();
+            DispatcherHelper.RunOnUIThread(() =>
+            {
+                ObjectiveOptions.Clear();
+                ObjectiveOptions.Add(new ObjectiveOption(null, "(none)"));
+                foreach (var obj in objectives)
+                {
+                    ObjectiveOptions.Add(new ObjectiveOption(obj.Id, $"{obj.Title} ({ObjectivePhases.ToDisplayLabel(obj.Phase)})"));
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load objectives for VOD player");
+        }
+    }
+
     partial void OnSeekStepSecondsChanged(int value)
     {
         OnPropertyChanged(nameof(SeekStepText));
@@ -584,6 +921,29 @@ public partial class VodPlayerViewModel : ObservableObject
     partial void OnClipEndSChanged(double value)
     {
         OnPropertyChanged(nameof(ClipEndActionText));
+    }
+
+    partial void OnSelectedClipQualityChanged(string value)
+    {
+        OnPropertyChanged(nameof(SelectedClipQualityText));
+        OnPropertyChanged(nameof(GoodClipQualityVisual));
+        OnPropertyChanged(nameof(NeutralClipQualityVisual));
+        OnPropertyChanged(nameof(BadClipQualityVisual));
+        OnPropertyChanged(nameof(GoodClipBackgroundBrush));
+        OnPropertyChanged(nameof(GoodClipBorderBrush));
+        OnPropertyChanged(nameof(GoodClipForegroundBrush));
+        OnPropertyChanged(nameof(GoodClipCheckVisibility));
+        OnPropertyChanged(nameof(GoodClipBorderThickness));
+        OnPropertyChanged(nameof(NeutralClipBackgroundBrush));
+        OnPropertyChanged(nameof(NeutralClipBorderBrush));
+        OnPropertyChanged(nameof(NeutralClipForegroundBrush));
+        OnPropertyChanged(nameof(NeutralClipCheckVisibility));
+        OnPropertyChanged(nameof(NeutralClipBorderThickness));
+        OnPropertyChanged(nameof(BadClipBackgroundBrush));
+        OnPropertyChanged(nameof(BadClipBorderBrush));
+        OnPropertyChanged(nameof(BadClipForegroundBrush));
+        OnPropertyChanged(nameof(BadClipCheckVisibility));
+        OnPropertyChanged(nameof(BadClipBorderThickness));
     }
 
     partial void OnWinChanged(bool value) => OnPropertyChanged(nameof(OutcomeLabel));
@@ -614,9 +974,33 @@ public partial class VodPlayerViewModel : ObservableObject
         SeekStepSeconds = SeekStepOptions[nextIndex];
         ClipStatusText = $"Seek step: {SeekStepText}";
     }
+
+    [RelayCommand]
+    private void SetClipQuality(string? quality)
+    {
+        SelectedClipQuality = NormalizeClipQuality(quality);
+        if (!string.IsNullOrWhiteSpace(SelectedClipQuality))
+        {
+            ClipStatusText = $"{char.ToUpperInvariant(SelectedClipQuality[0])}{SelectedClipQuality[1..]} tag selected.";
+        }
+    }
+
+    [RelayCommand]
+    private void ClearClipQuality()
+    {
+        SelectedClipQuality = "";
+    }
+
+    private static string NormalizeClipQuality(string? quality)
+    {
+        var normalized = (quality ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized is "good" or "neutral" or "bad"
+            ? normalized
+            : "";
+    }
 }
 
-// â”€â”€ Display models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Display models â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 public class BookmarkItem
 {
@@ -626,12 +1010,100 @@ public class BookmarkItem
     public string Note { get; set; } = "";
     public bool IsClip { get; set; }
     public string ClipRangeText { get; set; } = "";
+    public string Quality { get; set; } = "";
     public string KindLabel => IsClip ? "CLIP" : "NOTE";
-    public string MarkerColorHex => IsClip ? AppSemanticPalette.AccentGoldHex : AppSemanticPalette.NeutralHex;
+    public bool HasQuality => !string.IsNullOrWhiteSpace(Quality);
+    public string QualityLabel => string.IsNullOrWhiteSpace(Quality)
+        ? ""
+        : char.ToUpperInvariant(Quality.Trim()[0]) + Quality.Trim()[1..].ToLowerInvariant();
+    public string MarkerColorHex => IsClip ? QualityAccentHex : AppSemanticPalette.NeutralHex;
     public SolidColorBrush AccentBrush => AppSemanticPalette.Brush(MarkerColorHex);
     public SolidColorBrush SurfaceBrush => IsClip
-        ? AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldDimHex)
+        ? AppSemanticPalette.Brush(QualitySurfaceHex)
         : AppSemanticPalette.Brush(AppSemanticPalette.TagSurfaceHex);
+
+    public SolidColorBrush QualityAccentBrush => AppSemanticPalette.Brush(QualityAccentHex);
+    public SolidColorBrush QualitySurfaceBrush => AppSemanticPalette.Brush(QualitySurfaceHex);
+    public QualityChipVisual GoodQualityVisual => QualityChipVisual.Create("good", Quality);
+    public QualityChipVisual NeutralQualityVisual => QualityChipVisual.Create("neutral", Quality);
+    public QualityChipVisual BadQualityVisual => QualityChipVisual.Create("bad", Quality);
+
+    private string QualityAccentHex => NormalizeQuality(Quality) switch
+    {
+        "good" => AppSemanticPalette.PositiveHex,
+        "bad" => AppSemanticPalette.NegativeHex,
+        "neutral" => AppSemanticPalette.AccentGoldHex,
+        _ => AppSemanticPalette.AccentGoldHex,
+    };
+
+    private string QualitySurfaceHex => NormalizeQuality(Quality) switch
+    {
+        "good" => AppSemanticPalette.PositiveDimHex,
+        "bad" => AppSemanticPalette.NegativeDimHex,
+        "neutral" => AppSemanticPalette.AccentGoldDimHex,
+        _ => AppSemanticPalette.AccentGoldDimHex,
+    };
+
+    private static string NormalizeQuality(string? value) =>
+        (value ?? string.Empty).Trim().ToLowerInvariant();
+
+    public BookmarkItem WithQuality(string quality)
+    {
+        return new BookmarkItem
+        {
+            Id = Id,
+            GameTimeS = GameTimeS,
+            TimeText = TimeText,
+            Note = Note,
+            IsClip = IsClip,
+            ClipRangeText = ClipRangeText,
+            Quality = quality,
+        };
+    }
+}
+
+public sealed record BookmarkQualityUpdateRequest(BookmarkItem Bookmark, string? Quality);
+
+public sealed class QualityChipVisual
+{
+    public SolidColorBrush BackgroundBrush { get; init; } = AppSemanticPalette.Brush(AppSemanticPalette.TagSurfaceHex);
+    public SolidColorBrush BorderBrush { get; init; } = AppSemanticPalette.Brush(AppSemanticPalette.SubtleBorderHex);
+    public SolidColorBrush ForegroundBrush { get; init; } = AppSemanticPalette.Brush(AppSemanticPalette.PrimaryTextHex);
+    public Visibility CheckVisibility { get; init; } = Visibility.Collapsed;
+    public Thickness BorderThickness { get; init; } = new(1);
+
+    public static QualityChipVisual Create(string qualityKey, string? selectedQuality)
+    {
+        var normalizedKey = NormalizeQuality(qualityKey);
+        var normalizedSelected = NormalizeQuality(selectedQuality);
+        var isSelected = string.Equals(normalizedKey, normalizedSelected, StringComparison.Ordinal);
+
+        var accentHex = normalizedKey switch
+        {
+            "good" => AppSemanticPalette.PositiveHex,
+            "bad" => AppSemanticPalette.NegativeHex,
+            "neutral" => AppSemanticPalette.NeutralHex,
+            _ => AppSemanticPalette.NeutralHex,
+        };
+
+        var selectedForegroundHex = normalizedKey switch
+        {
+            "bad" => AppSemanticPalette.PrimaryTextHex,
+            _ => AppSemanticPalette.TagSurfaceHex,
+        };
+
+        return new QualityChipVisual
+        {
+            BackgroundBrush = AppSemanticPalette.Brush(isSelected ? accentHex : AppSemanticPalette.TagSurfaceHex),
+            BorderBrush = AppSemanticPalette.Brush(isSelected ? accentHex : AppSemanticPalette.SubtleBorderHex),
+            ForegroundBrush = AppSemanticPalette.Brush(isSelected ? selectedForegroundHex : accentHex),
+            CheckVisibility = isSelected ? Visibility.Visible : Visibility.Collapsed,
+            BorderThickness = isSelected ? new Thickness(2) : new Thickness(1),
+        };
+    }
+
+    private static string NormalizeQuality(string? value) =>
+        (value ?? string.Empty).Trim().ToLowerInvariant();
 }
 
 public class TimelineEvent
@@ -804,4 +1276,7 @@ public class DerivedEventRegion
     public string Name { get; set; } = "";
 }
 
-
+public sealed record ObjectiveOption(long? Id, string Title)
+{
+    public override string ToString() => Title;
+}

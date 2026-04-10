@@ -16,7 +16,7 @@ public sealed class CoachLabFeatureCollection
 public sealed class CoachLabServiceTests
 {
     [Fact]
-    public async Task GetDashboardAsync_AutoLabelsExistingManualClipsFromReviewNotes()
+    public async Task GetDashboardAsync_AutoLabelsExistingManualClipsFromClipNotes()
     {
         using var featureScope = new CoachLabFeatureScope();
         using var scope = new TestDatabaseScope();
@@ -42,7 +42,7 @@ public sealed class CoachLabServiceTests
                 )
                 VALUES (
                     @gameId, @timestamp, '2026-04-06 09:30', 1800, 'Ranked Solo',
-                    'MATCHED_GAME', '420', 'Tester', 'Kai''Sa', 145,
+                    'MATCHED_GAME', 'Ranked Solo/Duo', 'Tester', 'Kai''Sa', 145,
                     100, 'BOTTOM', 'carry', 1, @reviewNotes
                 )
                 """,
@@ -59,7 +59,7 @@ public sealed class CoachLabServiceTests
                 VALUES (
                     9000, @playerId, @gameId, @blockId, 'manual_clip', 'unknown', 'Kai''Sa', 'carry', 186,
                     '', '', '', '', '', 'Walked up into engage range', @contextText,
-                    'bootstrap-v1', 'assist-heuristic-v1', @createdAt
+                    'bootstrap-v1', '', @createdAt
                 )
                 """,
                 ("@playerId", playerId),
@@ -74,7 +74,7 @@ public sealed class CoachLabServiceTests
                     confidence, rationale, raw_payload, created_at, updated_at
                 )
                 VALUES (
-                    9000, @playerId, 'assist-heuristic-v1', 'assist', 'bad', 'respect engage support',
+                    9000, @playerId, 'gemma-e4b-base-1', 'gemma', 'bad', 'respect engage support',
                     'respect_jungle_support_threat', 0.55, 'Draft rationale', '{}', @createdAt, @updatedAt
                 )
                 """,
@@ -89,11 +89,11 @@ public sealed class CoachLabServiceTests
         Assert.Equal(1, dashboard.GoldMoments);
         Assert.Equal(0, dashboard.PendingMoments);
         Assert.True(moment.HasManualLabel);
-        Assert.Equal(reviewNotes, moment.LabelPrimaryReason);
+        Assert.Equal("Walked up into engage range", moment.LabelPrimaryReason);
     }
 
     [Fact]
-    public async Task SyncMomentsAsync_UsesReviewNotesAsFinalTagsForExistingManualClips()
+    public async Task SyncMomentsAsync_UsesClipNotesAsFinalTagsForExistingManualClips()
     {
         using var featureScope = new CoachLabFeatureScope();
         using var scope = new TestDatabaseScope();
@@ -119,7 +119,7 @@ public sealed class CoachLabServiceTests
                 )
                 VALUES (
                     @gameId, @timestamp, '2026-04-06 10:00', 1800, 'Ranked Solo',
-                    'MATCHED_GAME', '420', 'Tester', 'Kai''Sa', 145,
+                    'MATCHED_GAME', 'Ranked Solo/Duo', 'Tester', 'Kai''Sa', 145,
                     100, 'BOTTOM', 'carry', 1, @reviewNotes
                 )
                 """,
@@ -136,7 +136,7 @@ public sealed class CoachLabServiceTests
                 VALUES (
                     9001, @playerId, @gameId, @blockId, 'manual_clip', 'unknown', 'Kai''Sa', 'carry', 244,
                     '', '', '', '', '', 'Stepped up for cannon', @contextText,
-                    'bootstrap-v1', 'assist-heuristic-v1', @createdAt
+                    'bootstrap-v1', '', @createdAt
                 )
                 """,
                 ("@playerId", playerId),
@@ -151,7 +151,7 @@ public sealed class CoachLabServiceTests
                     confidence, rationale, raw_payload, created_at, updated_at
                 )
                 VALUES (
-                    9001, @playerId, 'assist-heuristic-v1', 'assist', 'bad', 'respect engage support',
+                    9001, @playerId, 'gemma-e4b-base-1', 'gemma', 'bad', 'respect engage support',
                     'respect_jungle_support_threat', 0.55, 'Draft rationale', '{}', @createdAt, @updatedAt
                 )
                 """,
@@ -169,7 +169,7 @@ public sealed class CoachLabServiceTests
         var moment = Assert.Single(await service.GetMomentQueueAsync());
         Assert.True(moment.HasManualLabel);
         Assert.Equal("bad", moment.LabelQuality);
-        Assert.Equal(reviewNotes, moment.LabelPrimaryReason);
+        Assert.Equal("Stepped up for cannon", moment.LabelPrimaryReason);
         Assert.Equal("respect_jungle_support_threat", moment.LabelObjectiveKey);
         Assert.True(moment.LabelConfidence >= 0.85);
     }
@@ -201,7 +201,7 @@ public sealed class CoachLabServiceTests
                 )
                 VALUES (
                     @gameId, @timestamp, '2026-04-06 11:00', 1800, 'Ranked Solo',
-                    'MATCHED_GAME', '420', 'Tester', 'Kai''Sa', 145,
+                    'MATCHED_GAME', 'Ranked Solo/Duo', 'Tester', 'Kai''Sa', 145,
                     100, 'BOTTOM', 'carry', 1, @reviewNotes
                 )
                 """,
@@ -218,7 +218,7 @@ public sealed class CoachLabServiceTests
                 VALUES (
                     9002, @playerId, @gameId, @blockId, 'manual_clip', 'unknown', 'Kai''Sa', 'carry', 310,
                     '', '', '', '', '', 'Stayed too long after crash', @contextText,
-                    'bootstrap-v1', 'assist-heuristic-v1', @createdAt
+                    'bootstrap-v1', '', @createdAt
                 )
                 """,
                 ("@playerId", playerId),
@@ -271,6 +271,233 @@ public sealed class CoachLabServiceTests
         Assert.Equal(reviewNotes, updatedPrimaryReason);
         Assert.Equal("recall_on_crash_and_tempo", updatedObjectiveKey);
         Assert.Equal("good", updatedQuality);
+    }
+
+    [Fact]
+    public async Task SyncMomentsAsync_RefreshesExistingManualClipNoteTextFromBookmark()
+    {
+        using var featureScope = new CoachLabFeatureScope();
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var service = CreateService(scope.ConnectionFactory);
+        await service.GetDashboardAsync();
+
+        var gameId = await scope.Games.SaveManualAsync(
+            "Kai'Sa",
+            true,
+            notes: "Track support roam windows.");
+
+        var clipPath = Path.Combine(Path.GetTempPath(), $"coach-lab-note-sync-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllTextAsync(clipPath, "stub clip");
+
+        try
+        {
+            var bookmarkId = await scope.Vod.AddBookmarkAsync(
+                gameId,
+                210,
+                "Original clip note",
+                clipStartSeconds: 205,
+                clipEndSeconds: 215,
+                clipPath: clipPath);
+
+            var firstSync = await service.SyncMomentsAsync(includeAutoSamples: false);
+            Assert.Equal(1, firstSync.ManualClipsImported);
+
+            var importedMoment = Assert.Single(await service.GetMomentQueueAsync());
+            Assert.Equal("Original clip note", importedMoment.NoteText);
+
+            await scope.Vod.UpdateBookmarkAsync(bookmarkId, note: "Updated clip note from VOD viewer");
+
+            var secondSync = await service.SyncMomentsAsync(includeAutoSamples: false);
+            Assert.Equal(0, secondSync.ManualClipsImported);
+
+            var refreshedMoment = Assert.Single(await service.GetMomentQueueAsync());
+            Assert.Equal("Updated clip note from VOD viewer", refreshedMoment.NoteText);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(clipPath);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SyncMomentsAsync_RefreshesExistingManualClipQualityFromBookmark()
+    {
+        using var featureScope = new CoachLabFeatureScope();
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var service = CreateService(scope.ConnectionFactory);
+        await service.GetDashboardAsync();
+
+        var gameId = await scope.Games.SaveManualAsync(
+            "Kai'Sa",
+            true,
+            notes: "Track support roam windows.");
+
+        var clipPath = Path.Combine(Path.GetTempPath(), $"coach-lab-quality-sync-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllTextAsync(clipPath, "stub clip");
+
+        try
+        {
+            var bookmarkId = await scope.Vod.AddBookmarkAsync(
+                gameId,
+                255,
+                "Tagged clip",
+                clipStartSeconds: 250,
+                clipEndSeconds: 260,
+                clipPath: clipPath,
+                quality: "bad");
+
+            var firstSync = await service.SyncMomentsAsync(includeAutoSamples: false);
+            Assert.Equal(1, firstSync.ManualClipsImported);
+
+            await scope.Vod.UpdateBookmarkAsync(bookmarkId, quality: "good");
+
+            var secondSync = await service.SyncMomentsAsync(includeAutoSamples: false);
+            Assert.Equal(0, secondSync.ManualClipsImported);
+
+            await using (var verificationConnection = scope.OpenConnection())
+            {
+                var updatedQuality = await ExecuteScalarAsync<string>(verificationConnection, """
+                    SELECT label_quality
+                    FROM coach_labels
+                    WHERE source = 'clip_tag'
+                    """);
+                Assert.Equal("good", updatedQuality);
+            }
+
+            await scope.Vod.UpdateBookmarkAsync(bookmarkId, quality: "");
+
+            await service.SyncMomentsAsync(includeAutoSamples: false);
+
+            await using (var verificationConnection = scope.OpenConnection())
+            {
+                var clipTagCount = await ExecuteScalarAsync<long>(verificationConnection, """
+                    SELECT COUNT(*)
+                    FROM coach_labels
+                    WHERE source = 'clip_tag'
+                    """);
+                Assert.Equal(0L, clipTagCount);
+            }
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(clipPath);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SaveManualLabelAsync_PersistsAcrossDatabaseInitialization()
+    {
+        using var featureScope = new CoachLabFeatureScope();
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var service = CreateService(scope.ConnectionFactory);
+        await service.GetDashboardAsync();
+
+        const long gameId = 5511223366;
+        const string reviewNotes = "Hold the wave until jungle shows before walking up for the crash.";
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        await using (var connection = scope.OpenConnection())
+        {
+            var playerId = await ExecuteScalarAsync<long>(connection, "SELECT id FROM coach_players LIMIT 1");
+            var blockId = await ExecuteScalarAsync<long>(connection, "SELECT id FROM coach_objective_blocks WHERE player_id = @playerId LIMIT 1", ("@playerId", playerId));
+
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO games (
+                    game_id, timestamp, date_played, game_duration, game_mode,
+                    game_type, queue_type, summoner_name, champion_name, champion_id,
+                    team_id, position, role, win, review_notes
+                )
+                VALUES (
+                    @gameId, @timestamp, '2026-04-06 12:30', 1800, 'Ranked Solo',
+                    'MATCHED_GAME', 'Ranked Solo/Duo', 'Tester', 'Kai''Sa', 145,
+                    100, 'BOTTOM', 'carry', 1, @reviewNotes
+                )
+                """,
+                ("@gameId", gameId),
+                ("@timestamp", now),
+                ("@reviewNotes", reviewNotes));
+
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_moments (
+                    id, player_id, game_id, objective_block_id, source_type, patch_version, champion, role, game_time_s,
+                    clip_path, storyboard_path, hud_strip_path, minimap_strip_path, manifest_path, note_text, context_text,
+                    dataset_version, model_version, created_at
+                )
+                VALUES (
+                    9003, @playerId, @gameId, @blockId, 'manual_clip', 'unknown', 'Kai''Sa', 'carry', 402,
+                    '', '', '', '', '', 'Walked up with no jungle info', @contextText,
+                    'bootstrap-v1', '', @createdAt
+                )
+                """,
+                ("@playerId", playerId),
+                ("@gameId", gameId),
+                ("@blockId", blockId),
+                ("@contextText", reviewNotes),
+                ("@createdAt", now));
+
+            await ExecuteNonQueryAsync(connection, """
+                INSERT INTO coach_inferences (
+                    moment_id, player_id, model_version, inference_mode, moment_quality, primary_reason, objective_key,
+                    confidence, rationale, raw_payload, created_at, updated_at
+                )
+                VALUES (
+                    9003, @playerId, 'gemma-e4b-base-1', 'gemma', 'bad', 'respect jungle hover',
+                    'respect_jungle_support_threat', 0.6, 'Draft rationale', '{}', @createdAt, @updatedAt
+                )
+                """,
+                ("@playerId", playerId),
+                ("@createdAt", now),
+                ("@updatedAt", now));
+        }
+
+        await service.SaveManualLabelAsync(9003, new CoachManualLabelInput
+        {
+            LabelQuality = "good",
+            PrimaryReason = "",
+            ObjectiveKey = "",
+            Confidence = 0.75,
+        });
+
+        await scope.InitializeAsync();
+
+        await using var verificationConnection = scope.OpenConnection();
+        var labelCount = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT COUNT(*)
+            FROM coach_labels
+            WHERE moment_id = 9003
+            """);
+        var labelQuality = await ExecuteScalarAsync<string>(verificationConnection, """
+            SELECT label_quality
+            FROM coach_labels
+            WHERE moment_id = 9003
+            """);
+        var labelSource = await ExecuteScalarAsync<string>(verificationConnection, """
+            SELECT source
+            FROM coach_labels
+            WHERE moment_id = 9003
+            """);
+
+        Assert.Equal(1, labelCount);
+        Assert.Equal("good", labelQuality);
+        Assert.Equal("manual_saved", labelSource);
     }
 
     private static CoachLabService CreateService(IDbConnectionFactory connectionFactory)
@@ -331,8 +558,8 @@ public sealed class CoachLabServiceTests
         {
             return Task.FromResult(new CoachDraftResult
             {
-                ModelVersion = "assist-heuristic-v1",
-                InferenceMode = "assist",
+                ModelVersion = "gemma-e4b-base-1",
+                InferenceMode = "gemma",
                 MomentQuality = "bad",
                 PrimaryReason = "respect engage support",
                 ObjectiveKey = "respect_jungle_support_threat",
@@ -341,18 +568,40 @@ public sealed class CoachLabServiceTests
                 RawPayload = "{}",
             });
         }
+
+        public Task<CoachProblemsReport> AnalyzeProblemsAsync(CoachProblemAnalysisRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new CoachProblemsReport
+            {
+                Title = "Recurring problems",
+                Summary = "Stub Gemma problem report.",
+                ModelVersion = "gemma-e4b-base-1",
+                UsesTrainedModel = false,
+            });
+        }
+
+        public Task<CoachObjectiveSuggestion> PlanObjectiveAsync(CoachObjectivePlanRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new CoachObjectiveSuggestion
+            {
+                Title = "Suggested objective",
+                Summary = "Stub Gemma objective plan.",
+                ModelVersion = "gemma-e4b-base-1",
+                UsesTrainedModel = false,
+            });
+        }
     }
 
     private sealed class StubCoachRecommendationService : ICoachRecommendationService
     {
-        public Task<CoachRecommendation> BuildAssistRecommendationAsync(long playerId, CoachObjectiveBlock block, CancellationToken cancellationToken = default)
+        public Task<CoachRecommendation> BuildRecommendationAsync(long playerId, CoachObjectiveBlock block, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new CoachRecommendation
             {
                 ObjectiveBlockId = block.Id,
                 PlayerId = playerId,
                 RecommendationType = "keep",
-                Title = "Assist mode active",
+                Title = "Gemma coach active",
                 Summary = "Stub recommendation."
             });
         }
@@ -375,7 +624,7 @@ public sealed class CoachLabServiceTests
             return Task.FromResult(new CoachTrainingStatus());
         }
 
-        public Task<CoachTrainResult> TrainPrematureModelAsync(CancellationToken cancellationToken = default)
+        public Task<CoachTrainResult> TrainGemmaModelAsync(CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new CoachTrainResult
             {

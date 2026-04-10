@@ -505,13 +505,22 @@
                                                                    Foreground="{StaticResource PrimaryTextBrush}"
                                                                    TextWrapping="Wrap"/>
 
-                                                        <Border Grid.Column="1"
-                                                                Style="{StaticResource MetaChipStyle}">
-                                                            <TextBlock Text="{x:Bind LevelName}"
-                                                                       FontSize="10"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{x:Bind LevelColorBrush}"/>
-                                                        </Border>
+                                                        <StackPanel Grid.Column="1"
+                                                                    Orientation="Horizontal"
+                                                                    Spacing="6">
+                                                            <Border Style="{StaticResource MetaChipStyle}">
+                                                                <TextBlock Text="{x:Bind PhaseLabel}"
+                                                                           FontSize="10"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                            </Border>
+                                                            <Border Style="{StaticResource MetaChipStyle}">
+                                                                <TextBlock Text="{x:Bind LevelName}"
+                                                                           FontSize="10"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{x:Bind LevelColorBrush}"/>
+                                                            </Border>
+                                                        </StackPanel>
                                                     </Grid>
 
                                                     <TextBlock Text="{x:Bind InfoText}"

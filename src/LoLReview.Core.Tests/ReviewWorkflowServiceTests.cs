@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LoLReview.Core.Models;
+using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -172,6 +173,40 @@ public sealed class ReviewWorkflowServiceTests
         Assert.Equal("Held wave before base", objective.ExecutionNote);
 
         Assert.Null(draft);
+    }
+
+    [Fact]
+    public async Task LoadAsync_FiltersOutPreGameObjectivesFromPostGameAssessmentList()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 4101;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Orianna", win: true));
+
+        await scope.Objectives.CreateAsync(
+            "Set loading-screen plan",
+            "prep",
+            completionCriteria: "Name first three waves",
+            phase: ObjectivePhases.PreGame);
+        var inGameObjectiveId = await scope.Objectives.CreateAsync(
+            "Punish cooldowns",
+            "lane",
+            completionCriteria: "Trade after key spell use",
+            phase: ObjectivePhases.InGame);
+        var postGameObjectiveId = await scope.Objectives.CreateAsync(
+            "Write one review takeaway",
+            "review",
+            completionCriteria: "Capture one fix",
+            phase: ObjectivePhases.PostGame);
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
+        var screenData = await workflow.LoadAsync(gameId);
+
+        Assert.NotNull(screenData);
+        Assert.DoesNotContain(screenData!.ObjectiveAssessments, item => item.Title == "Set loading-screen plan");
+        Assert.Contains(screenData.ObjectiveAssessments, item => item.ObjectiveId == inGameObjectiveId);
+        Assert.Contains(screenData.ObjectiveAssessments, item => item.ObjectiveId == postGameObjectiveId);
     }
 
     [Fact]

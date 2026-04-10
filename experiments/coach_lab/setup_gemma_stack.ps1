@@ -1,5 +1,5 @@
 param(
-    [string]$VenvPath = ".venv-coach-qwen",
+    [string]$VenvPath = ".venv-coach-gemma",
     [string]$TorchIndexUrl = "https://download.pytorch.org/whl/cu128",
     [string]$BasePython = "",
     [switch]$CpuOnly,
@@ -112,19 +112,21 @@ Invoke-Pip -PipArgs @(
     "transformers>=4.57.0",
     "accelerate",
     "peft",
+    "trl",
+    "bitsandbytes",
+    "datasets",
     "pillow",
     "numpy",
-    "qwen-vl-utils",
     "huggingface_hub",
     "safetensors",
     "sentencepiece"
 )
 
 Write-Host ""
-Write-Host "Qwen inference stack installed into $venvFullPath"
+Write-Host "Gemma Coach Lab stack installed into $venvFullPath"
 Write-Host "Base interpreter: $basePythonExe"
 Write-Host "Coach Lab will auto-detect this interpreter on the next app launch."
 Write-Host "Notes:"
-Write-Host "- This installs teacher/base inference dependencies."
-Write-Host "- The pretrained base judge can be registered immediately with register_qwen_base_model.py."
-Write-Host "- Axolotl training is still expected to run under Linux/WSL, not native Windows."
+Write-Host "- This installs Gemma 4 E4B inference plus the local QLoRA training path."
+Write-Host "- Register the base model with register_gemma_e4b.py before expecting Gemma-only Coach Lab features to work."
+Write-Host "- Fine-tuning uses the clip-card extraction task only; planner tuning is still out of scope."

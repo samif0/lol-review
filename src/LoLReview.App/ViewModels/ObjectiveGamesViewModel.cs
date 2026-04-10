@@ -80,7 +80,8 @@ public partial class ObjectiveGamesViewModel : ObservableObject
             if (objective is not null)
             {
                 ObjectiveTitle = objective.Title;
-                ObjectiveStatus = objective.Status == "active" ? "Active" : "Completed";
+                var statusText = objective.Status == "active" ? "Active" : "Completed";
+                ObjectiveStatus = $"{statusText} \u2022 {ObjectivePhases.ToDisplayLabel(objective.Phase)}";
             }
 
             var entries = await _objectivesRepo.GetGamesForObjectiveAsync(objectiveId);

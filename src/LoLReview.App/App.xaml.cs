@@ -15,6 +15,8 @@ namespace LoLReview.App;
 /// </summary>
 public partial class App : Application
 {
+    private const double DefaultStartupWindowWidth = 1480;
+    private const double DefaultStartupWindowHeight = 920;
     private static IHost? _host;
     private static Window? _mainWindow;
 
@@ -57,7 +59,7 @@ public partial class App : Application
         AppDiagnostics.WriteVerbose("startup.log", "OnLaunched START");
 
         _mainWindow = new Window { Title = "LoL Review" };
-        _mainWindow.SetWindowSize(1100, 700);
+        _mainWindow.CenterOnScreen(DefaultStartupWindowWidth, DefaultStartupWindowHeight);
 
         var manager = WinUIEx.WindowManager.Get(_mainWindow);
         manager.MinWidth = 1024;

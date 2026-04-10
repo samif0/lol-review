@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
+using LoLReview.App.Styling;
 using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -195,6 +196,7 @@ public partial class DashboardViewModel : ObservableObject
                     ActiveObjectives.Add(new DashboardObjectiveItem
                     {
                         Title = obj.Title,
+                        PhaseLabel = ObjectivePhases.ToDisplayLabel(obj.Phase),
                         LevelName = info.LevelName,
                         Score = obj.Score,
                         GameCount = obj.GameCount,
@@ -286,7 +288,7 @@ public partial class DashboardViewModel : ObservableObject
             TotalDamageToChampions = game.TotalDamageToChampions,
             Duration = duration,
             DatePlayed = date,
-            GameMode = game.GameMode,
+            GameMode = game.DisplayGameMode,
             WinLossColorHex = game.Win ? "#3bc98d" : "#ea7a73",
             BorderColorHex = game.Win ? "#3bc98d" : "#ea7a73",
             HasReview = HasPersistedReview(game),
@@ -323,14 +325,8 @@ public partial class DashboardViewModel : ObservableObject
         AllReviewed = count == 0;
     }
 
-    private static string GetLevelColor(int levelIndex) => levelIndex switch
-    {
-        0 => "#718094",  // Exploring: Slate
-        1 => "#78d2f7",  // Drilling: Ice blue
-        2 => "#8a7af2",  // Ingraining: Violet
-        3 => "#c9a86a",  // Ready: Brass
-        _ => "#718094"
-    };
+    private static string GetLevelColor(int levelIndex) =>
+        AppSemanticPalette.ObjectiveLevelHex(levelIndex);
 }
 
 // ── Display models ──────────────────────────────────────────────────
@@ -367,6 +363,7 @@ public class GameDisplayItem
 public class DashboardObjectiveItem
 {
     public string Title { get; set; } = "";
+    public string PhaseLabel { get; set; } = "";
     public string LevelName { get; set; } = "";
     public int Score { get; set; }
     public int GameCount { get; set; }

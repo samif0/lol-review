@@ -153,7 +153,7 @@ internal static class TestGameStatsFactory
             GameDuration = durationSeconds,
             GameMode = gameMode,
             GameType = "MATCHED_GAME",
-            QueueType = "420",
+            QueueType = "Ranked Solo/Duo",
             SummonerName = "Tester",
             ChampionName = champion,
             ChampionId = 103,

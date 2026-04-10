@@ -12,6 +12,7 @@ namespace LoLReview.Core.Services;
 public sealed class CoachLabService : ICoachLabService
 {
     private const int CoachArtifactVersion = 5;
+    private const string ConfirmedManualLabelSource = "manual_saved";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
@@ -62,11 +63,10 @@ public sealed class CoachLabService : ICoachLabService
         return new CoachDashboardSnapshot
         {
             IsEnabled = true,
-            IsAssistMode = true,
             ActiveObjectiveTitle = bootstrap.Block.ObjectiveTitle,
             ActiveObjectiveKey = bootstrap.Block.ObjectiveKey,
-            RecommendationTitle = latestRecommendation?.Title ?? "Assist mode active",
-            RecommendationSummary = latestRecommendation?.Summary ?? "Collect clip-backed evidence before promoting stronger coaching behavior.",
+            RecommendationTitle = latestRecommendation?.Title ?? "Gemma setup required",
+            RecommendationSummary = latestRecommendation?.Summary ?? "Register or train Gemma 4 E4B to turn clips into coach reads.",
             WatchItemTitle = BuildWatchItemTitle(latestRecommendation),
             WatchItemSummary = BuildWatchItemSummary(latestRecommendation),
             TotalMoments = counts.Total,
@@ -130,12 +130,18 @@ public sealed class CoachLabService : ICoachLabService
                 m.created_at,
                 m.reviewed_at
             FROM coach_moments m
-            LEFT JOIN coach_inferences i ON i.moment_id = m.id
+            LEFT JOIN coach_inferences i ON i.id = (
+                SELECT i2.id
+                FROM coach_inferences i2
+                WHERE i2.moment_id = m.id
+                  AND COALESCE(i2.inference_mode, '') = 'gemma'
+                ORDER BY COALESCE(i2.updated_at, i2.created_at) DESC, i2.id DESC
+                LIMIT 1
+            )
             LEFT JOIN coach_labels l ON l.moment_id = m.id
             LEFT JOIN coach_objective_blocks b ON b.id = m.objective_block_id
             ORDER BY
                 CASE WHEN m.source_type = 'manual_clip' THEN 0 ELSE 1 END ASC,
-                CASE WHEN COALESCE(l.label_quality, '') = '' THEN 0 ELSE 1 END ASC,
                 m.created_at DESC
             LIMIT @limit
             """;
@@ -198,7 +204,14 @@ public sealed class CoachLabService : ICoachLabService
                 m.created_at,
                 m.reviewed_at
             FROM coach_moments m
-            LEFT JOIN coach_inferences i ON i.moment_id = m.id
+            LEFT JOIN coach_inferences i ON i.id = (
+                SELECT i2.id
+                FROM coach_inferences i2
+                WHERE i2.moment_id = m.id
+                  AND COALESCE(i2.inference_mode, '') = 'gemma'
+                ORDER BY COALESCE(i2.updated_at, i2.created_at) DESC, i2.id DESC
+                LIMIT 1
+            )
             LEFT JOIN coach_labels l ON l.moment_id = m.id
             LEFT JOIN coach_objective_blocks b ON b.id = m.objective_block_id
             WHERE m.id = @id
@@ -284,7 +297,7 @@ public sealed class CoachLabService : ICoachLabService
                 INSERT INTO coach_labels
                     (moment_id, player_id, label_quality, primary_reason, objective_key, attached_objective_id, attached_objective_title, explanation, confidence, source, created_at, updated_at)
                 VALUES
-                    (@momentId, @playerId, @labelQuality, @primaryReason, @objectiveKey, @attachedObjectiveId, @attachedObjectiveTitle, @explanation, @confidence, 'manual', @createdAt, @updatedAt)
+                    (@momentId, @playerId, @labelQuality, @primaryReason, @objectiveKey, @attachedObjectiveId, @attachedObjectiveTitle, @explanation, @confidence, @source, @createdAt, @updatedAt)
                 """;
             insertCmd.Parameters.AddWithValue("@momentId", momentId);
             insertCmd.Parameters.AddWithValue("@playerId", bootstrap.Player.Id);
@@ -295,6 +308,7 @@ public sealed class CoachLabService : ICoachLabService
             insertCmd.Parameters.AddWithValue("@attachedObjectiveTitle", attachedObjectiveTitle);
             insertCmd.Parameters.AddWithValue("@explanation", input.Explanation.Trim());
             insertCmd.Parameters.AddWithValue("@confidence", Math.Clamp(input.Confidence, 0.2, 1.0));
+            insertCmd.Parameters.AddWithValue("@source", ConfirmedManualLabelSource);
             insertCmd.Parameters.AddWithValue("@createdAt", now);
             insertCmd.Parameters.AddWithValue("@updatedAt", now);
             await insertCmd.ExecuteNonQueryAsync(cancellationToken);
@@ -379,7 +393,7 @@ public sealed class CoachLabService : ICoachLabService
 
         using var connection = _connectionFactory.CreateConnection();
         var bootstrap = await EnsureBootstrapStateAsync(connection, cancellationToken);
-        var recommendation = await _recommendationService.BuildAssistRecommendationAsync(
+        var recommendation = await _recommendationService.BuildRecommendationAsync(
             bootstrap.Player.Id,
             bootstrap.Block,
             cancellationToken);
@@ -401,9 +415,9 @@ public sealed class CoachLabService : ICoachLabService
             insertCmd.Transaction = tx;
             insertCmd.CommandText = """
                 INSERT INTO coach_recommendations
-                    (objective_block_id, player_id, recommendation_type, state, objective_key, title, summary, confidence, evidence_game_count, raw_payload, created_at, updated_at)
+                    (objective_block_id, player_id, recommendation_type, state, objective_key, title, summary, confidence, evidence_game_count, candidate_snapshot, applied_objective_id, applied_objective_title, rejection_reason, evaluation_window_games, outcome_summary, feedback_updated_at, raw_payload, created_at, updated_at)
                 VALUES
-                    (@objectiveBlockId, @playerId, @recommendationType, @state, @objectiveKey, @title, @summary, @confidence, @evidenceGameCount, @rawPayload, @createdAt, @updatedAt)
+                    (@objectiveBlockId, @playerId, @recommendationType, @state, @objectiveKey, @title, @summary, @confidence, @evidenceGameCount, @candidateSnapshot, @appliedObjectiveId, @appliedObjectiveTitle, @rejectionReason, @evaluationWindowGames, @outcomeSummary, @feedbackUpdatedAt, @rawPayload, @createdAt, @updatedAt)
                 """;
             insertCmd.Parameters.AddWithValue("@objectiveBlockId", recommendation.ObjectiveBlockId);
             insertCmd.Parameters.AddWithValue("@playerId", recommendation.PlayerId);
@@ -414,6 +428,13 @@ public sealed class CoachLabService : ICoachLabService
             insertCmd.Parameters.AddWithValue("@summary", recommendation.Summary);
             insertCmd.Parameters.AddWithValue("@confidence", recommendation.Confidence);
             insertCmd.Parameters.AddWithValue("@evidenceGameCount", recommendation.EvidenceGameCount);
+            insertCmd.Parameters.AddWithValue("@candidateSnapshot", recommendation.CandidateSnapshot);
+            insertCmd.Parameters.AddWithValue("@appliedObjectiveId", recommendation.AppliedObjectiveId.HasValue ? recommendation.AppliedObjectiveId.Value : DBNull.Value);
+            insertCmd.Parameters.AddWithValue("@appliedObjectiveTitle", recommendation.AppliedObjectiveTitle);
+            insertCmd.Parameters.AddWithValue("@rejectionReason", recommendation.RejectionReason);
+            insertCmd.Parameters.AddWithValue("@evaluationWindowGames", recommendation.EvaluationWindowGames);
+            insertCmd.Parameters.AddWithValue("@outcomeSummary", recommendation.OutcomeSummary);
+            insertCmd.Parameters.AddWithValue("@feedbackUpdatedAt", recommendation.FeedbackUpdatedAt.HasValue ? recommendation.FeedbackUpdatedAt.Value : DBNull.Value);
             insertCmd.Parameters.AddWithValue("@rawPayload", recommendation.RawPayload);
             insertCmd.Parameters.AddWithValue("@createdAt", recommendation.CreatedAt);
             insertCmd.Parameters.AddWithValue("@updatedAt", recommendation.UpdatedAt);
@@ -469,7 +490,6 @@ public sealed class CoachLabService : ICoachLabService
         CancellationToken cancellationToken)
     {
         var player = await EnsurePrimaryPlayerAsync(connection, cancellationToken);
-        await EnsureActiveModelAsync(connection, cancellationToken);
         await EnsureActiveDatasetVersionAsync(connection, cancellationToken);
         var block = await EnsureActiveObjectiveBlockAsync(connection, player.Id, cancellationToken);
         return (player, block);
@@ -524,19 +544,6 @@ public sealed class CoachLabService : ICoachLabService
             CreatedAt = now,
             UpdatedAt = now,
         };
-    }
-
-    private async Task EnsureActiveModelAsync(SqliteConnection connection, CancellationToken cancellationToken)
-    {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            INSERT OR IGNORE INTO coach_models
-                (model_version, model_kind, display_name, provider, is_active, metadata_json, created_at)
-            VALUES
-                ('assist-heuristic-v1', 'assist', 'Assist Heuristic v1', 'local', 1, '{"mode":"assist"}', @createdAt)
-            """;
-        cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task EnsureActiveDatasetVersionAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -596,7 +603,7 @@ public sealed class CoachLabService : ICoachLabService
                 INSERT INTO coach_objective_blocks
                     (player_id, objective_id, objective_title, objective_key, status, mode, started_at, updated_at, notes)
                 VALUES
-                    (@playerId, @objectiveId, @objectiveTitle, @objectiveKey, 'active', 'assist', @startedAt, @updatedAt, @notes)
+                    (@playerId, @objectiveId, @objectiveTitle, @objectiveKey, 'active', 'gemma', @startedAt, @updatedAt, @notes)
                 """;
             insertCmd.Parameters.AddWithValue("@playerId", playerId);
             insertCmd.Parameters.AddWithValue("@objectiveId", activeObjective.Id.HasValue ? activeObjective.Id.Value : DBNull.Value);
@@ -622,7 +629,7 @@ public sealed class CoachLabService : ICoachLabService
             ObjectiveTitle = activeObjective.Title,
             ObjectiveKey = objectiveKey,
             Status = "active",
-            Mode = "assist",
+            Mode = "gemma",
             StartedAt = now,
             UpdatedAt = now,
         };
@@ -698,12 +705,21 @@ public sealed class CoachLabService : ICoachLabService
                 COALESCE(g.mistakes, ''),
                 COALESCE(g.focus_next, ''),
                 COALESCE(g.went_well, ''),
-                COALESCE(g.spotted_problems, '')
+                COALESCE(g.spotted_problems, ''),
+                b.objective_id,
+                COALESCE(o.title, ''),
+                COALESCE(b.quality, ''),
+                m.id,
+                COALESCE(m.note_text, ''),
+                COALESCE(m.context_text, ''),
+                COALESCE(l.label_quality, ''),
+                COALESCE(l.source, '')
             FROM vod_bookmarks b
             INNER JOIN games g ON g.game_id = b.game_id
             LEFT JOIN coach_moments m ON m.bookmark_id = b.id
+            LEFT JOIN coach_labels l ON l.moment_id = m.id
+            LEFT JOIN objectives o ON o.id = b.objective_id
             WHERE COALESCE(TRIM(b.clip_path), '') <> ''
-              AND m.id IS NULL
             ORDER BY b.created_at DESC, b.id DESC
             """;
 
@@ -738,14 +754,183 @@ public sealed class CoachLabService : ICoachLabService
                     reader.IsDBNull(11) ? "" : reader.GetString(11),
                     reader.IsDBNull(12) ? "" : reader.GetString(12),
                     reader.IsDBNull(13) ? "" : reader.GetString(13)),
+                AttachedObjectiveId = reader.IsDBNull(14) ? null : reader.GetInt64(14),
+                AttachedObjectiveTitle = reader.IsDBNull(15) ? "" : reader.GetString(15),
+                BookmarkQuality = reader.IsDBNull(16) ? "" : reader.GetString(16),
             };
 
-            await CreateMomentAsync(connection, payload, bootstrap.Block, cancellationToken);
-            imported++;
+            if (reader.IsDBNull(17))
+            {
+                await CreateMomentAsync(connection, payload, bootstrap.Block, cancellationToken);
+                imported++;
+                continue;
+            }
+
+            await RefreshManualClipMomentAsync(
+                connection,
+                reader.GetInt64(17),
+                payload,
+                reader.IsDBNull(18) ? "" : reader.GetString(18),
+                reader.IsDBNull(19) ? "" : reader.GetString(19),
+                reader.IsDBNull(20) ? "" : reader.GetString(20),
+                reader.IsDBNull(21) ? "" : reader.GetString(21),
+                cancellationToken);
         }
 
         return imported;
     }
+
+    private static bool TextEquals(string left, string right) =>
+        string.Equals(left ?? string.Empty, right ?? string.Empty, StringComparison.Ordinal);
+
+    private async Task RefreshManualClipMomentAsync(
+        SqliteConnection connection,
+        long momentId,
+        PendingMoment payload,
+        string existingNoteText,
+        string existingContextText,
+        string existingLabelQuality,
+        string existingLabelSource,
+        CancellationToken cancellationToken)
+    {
+        var noteChanged = !TextEquals(existingNoteText, payload.NoteText);
+        var contextChanged = !TextEquals(existingContextText, payload.ContextText);
+        var normalizedBookmarkQuality = NormalizeBookmarkQuality(payload.BookmarkQuality);
+        var normalizedExistingLabelQuality = NormalizeBookmarkQuality(existingLabelQuality);
+        var normalizedExistingLabelSource = (existingLabelSource ?? string.Empty).Trim().ToLowerInvariant();
+        var hasExistingLabel = !string.IsNullOrWhiteSpace(normalizedExistingLabelSource);
+        var hasExistingClipTag = string.Equals(normalizedExistingLabelSource, "clip_tag", StringComparison.Ordinal);
+        var shouldInsertClipTag = !hasExistingLabel && !string.IsNullOrWhiteSpace(normalizedBookmarkQuality);
+        var shouldDeleteClipTag = hasExistingClipTag && string.IsNullOrWhiteSpace(normalizedBookmarkQuality);
+        var shouldUpdateClipTag = hasExistingClipTag
+            && !string.IsNullOrWhiteSpace(normalizedBookmarkQuality)
+            && !TextEquals(normalizedExistingLabelQuality, normalizedBookmarkQuality);
+
+        if (!noteChanged && !contextChanged && !shouldInsertClipTag && !shouldDeleteClipTag && !shouldUpdateClipTag)
+        {
+            return;
+        }
+
+        using var tx = connection.BeginTransaction();
+
+        using (var updateCmd = connection.CreateCommand())
+        {
+            updateCmd.Transaction = tx;
+            if (noteChanged || contextChanged)
+            {
+                updateCmd.CommandText = """
+                    UPDATE coach_moments
+                    SET note_text = @noteText,
+                        context_text = @contextText
+                    WHERE id = @momentId
+                    """;
+                updateCmd.Parameters.AddWithValue("@noteText", payload.NoteText);
+                updateCmd.Parameters.AddWithValue("@contextText", payload.ContextText);
+                updateCmd.Parameters.AddWithValue("@momentId", momentId);
+                await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        if (shouldDeleteClipTag)
+        {
+            using var deleteClipTagCmd = connection.CreateCommand();
+            deleteClipTagCmd.Transaction = tx;
+            deleteClipTagCmd.CommandText = """
+                DELETE FROM coach_labels
+                WHERE moment_id = @momentId
+                  AND COALESCE(source, '') = 'clip_tag'
+                """;
+            deleteClipTagCmd.Parameters.AddWithValue("@momentId", momentId);
+            await deleteClipTagCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (shouldUpdateClipTag)
+        {
+            using var updateClipTagCmd = connection.CreateCommand();
+            updateClipTagCmd.Transaction = tx;
+            updateClipTagCmd.CommandText = """
+                UPDATE coach_labels
+                SET label_quality = @labelQuality,
+                    attached_objective_id = @attachedObjectiveId,
+                    attached_objective_title = @attachedObjectiveTitle,
+                    updated_at = @updatedAt
+                WHERE moment_id = @momentId
+                  AND COALESCE(source, '') = 'clip_tag'
+                """;
+            updateClipTagCmd.Parameters.AddWithValue("@labelQuality", normalizedBookmarkQuality);
+            updateClipTagCmd.Parameters.AddWithValue("@attachedObjectiveId",
+                payload.AttachedObjectiveId.HasValue ? payload.AttachedObjectiveId.Value : DBNull.Value);
+            updateClipTagCmd.Parameters.AddWithValue("@attachedObjectiveTitle", payload.AttachedObjectiveTitle);
+            updateClipTagCmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            updateClipTagCmd.Parameters.AddWithValue("@momentId", momentId);
+            await updateClipTagCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (shouldInsertClipTag)
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            using var insertClipTagCmd = connection.CreateCommand();
+            insertClipTagCmd.Transaction = tx;
+            insertClipTagCmd.CommandText = """
+                INSERT OR IGNORE INTO coach_labels
+                    (moment_id, player_id, label_quality, primary_reason, objective_key,
+                     attached_objective_id, attached_objective_title, explanation, confidence, source, created_at, updated_at)
+                VALUES
+                    (@momentId, @playerId, @labelQuality, '', '',
+                     @attachedObjectiveId, @attachedObjectiveTitle, '', 0.8, 'clip_tag', @createdAt, @updatedAt)
+                """;
+            insertClipTagCmd.Parameters.AddWithValue("@momentId", momentId);
+            insertClipTagCmd.Parameters.AddWithValue("@playerId", payload.PlayerId);
+            insertClipTagCmd.Parameters.AddWithValue("@labelQuality", normalizedBookmarkQuality);
+            insertClipTagCmd.Parameters.AddWithValue("@attachedObjectiveId",
+                payload.AttachedObjectiveId.HasValue ? payload.AttachedObjectiveId.Value : DBNull.Value);
+            insertClipTagCmd.Parameters.AddWithValue("@attachedObjectiveTitle", payload.AttachedObjectiveTitle);
+            insertClipTagCmd.Parameters.AddWithValue("@createdAt", now);
+            insertClipTagCmd.Parameters.AddWithValue("@updatedAt", now);
+            await insertClipTagCmd.ExecuteNonQueryAsync(cancellationToken);
+
+            using var reviewCmd = connection.CreateCommand();
+            reviewCmd.Transaction = tx;
+            reviewCmd.CommandText = "UPDATE coach_moments SET reviewed_at = COALESCE(reviewed_at, @now) WHERE id = @id";
+            reviewCmd.Parameters.AddWithValue("@now", now);
+            reviewCmd.Parameters.AddWithValue("@id", momentId);
+            await reviewCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var willHaveLabel = hasExistingLabel;
+        if (shouldDeleteClipTag)
+        {
+            willHaveLabel = false;
+        }
+        else if (shouldInsertClipTag)
+        {
+            willHaveLabel = true;
+        }
+
+        if ((noteChanged || contextChanged) && !willHaveLabel)
+        {
+            using var deleteInferenceCmd = connection.CreateCommand();
+            deleteInferenceCmd.Transaction = tx;
+            deleteInferenceCmd.CommandText = """
+                DELETE FROM coach_inferences
+                WHERE moment_id = @momentId
+                  AND COALESCE(inference_mode, '') = 'gemma'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM coach_labels l
+                    WHERE l.moment_id = @momentId
+                  )
+                """;
+            deleteInferenceCmd.Parameters.AddWithValue("@momentId", momentId);
+            await deleteInferenceCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+    }
+
+    private static string NormalizeBookmarkQuality(string? value) =>
+        (value ?? string.Empty).Trim().ToLowerInvariant();
 
     private async Task<int> SyncAutoSampleMomentsAsync(
         SqliteConnection connection,
@@ -896,10 +1081,10 @@ public sealed class CoachLabService : ICoachLabService
         {
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO coach_moments
+                INSERT OR IGNORE INTO coach_moments
                     (player_id, game_id, bookmark_id, objective_block_id, source_type, patch_version, champion, role, game_time_s, clip_start_s, clip_end_s, clip_path, storyboard_path, hud_strip_path, minimap_strip_path, manifest_path, note_text, context_text, dataset_version, model_version, created_at)
                 VALUES
-                    (@playerId, @gameId, @bookmarkId, @objectiveBlockId, @sourceType, 'unknown', @champion, @role, @gameTimeS, @clipStartS, @clipEndS, @clipPath, @storyboardPath, @hudStripPath, @minimapStripPath, @manifestPath, @noteText, @contextText, 'bootstrap-v1', 'assist-heuristic-v1', @createdAt)
+                    (@playerId, @gameId, @bookmarkId, @objectiveBlockId, @sourceType, 'unknown', @champion, @role, @gameTimeS, @clipStartS, @clipEndS, @clipPath, @storyboardPath, @hudStripPath, @minimapStripPath, @manifestPath, @noteText, @contextText, 'bootstrap-v1', '', @createdAt)
                 """;
             cmd.Parameters.AddWithValue("@playerId", payload.PlayerId);
             cmd.Parameters.AddWithValue("@gameId", payload.GameId);
@@ -923,34 +1108,83 @@ public sealed class CoachLabService : ICoachLabService
         }
 
         long momentId;
-        using (var idCmd = connection.CreateCommand())
+        using (var rowIdCmd = connection.CreateCommand())
         {
-            idCmd.Transaction = tx;
-            idCmd.CommandText = "SELECT last_insert_rowid()";
-            momentId = (long)(await idCmd.ExecuteScalarAsync(cancellationToken))!;
+            rowIdCmd.Transaction = tx;
+            rowIdCmd.CommandText = "SELECT last_insert_rowid()";
+            momentId = (long)(await rowIdCmd.ExecuteScalarAsync(cancellationToken))!;
         }
 
-        var draft = await _sidecarClient.DraftMomentAsync(new CoachDraftRequest
+        // INSERT OR IGNORE returns rowid 0 when the row already existed
+        if (momentId == 0)
         {
-            NoteText = payload.NoteText,
-            ReviewContext = payload.ContextText,
-            ActiveObjectiveTitle = block.ObjectiveTitle,
-            Champion = payload.Champion,
-            Role = payload.Role,
-            SourceType = payload.SourceType,
-            GameTimeS = payload.GameTimeS,
-            StoryboardPath = artifacts.StoryboardPath,
-            MinimapStripPath = artifacts.MinimapStripPath,
-        }, cancellationToken);
+            using var idCmd = connection.CreateCommand();
+            idCmd.Transaction = tx;
+            if (payload.BookmarkId.HasValue)
+            {
+                idCmd.CommandText = "SELECT id FROM coach_moments WHERE bookmark_id = @bookmarkId LIMIT 1";
+                idCmd.Parameters.AddWithValue("@bookmarkId", payload.BookmarkId.Value);
+            }
+            else
+            {
+                idCmd.CommandText = """
+                    SELECT id FROM coach_moments
+                    WHERE game_id = @gameId
+                      AND source_type = @sourceType
+                      AND game_time_s = @gameTimeS
+                      AND COALESCE(clip_start_s, -1) = @clipStartS
+                      AND COALESCE(clip_end_s, -1) = @clipEndS
+                    LIMIT 1
+                    """;
+                idCmd.Parameters.AddWithValue("@gameId", payload.GameId);
+                idCmd.Parameters.AddWithValue("@sourceType", payload.SourceType);
+                idCmd.Parameters.AddWithValue("@gameTimeS", payload.GameTimeS);
+                idCmd.Parameters.AddWithValue("@clipStartS", payload.ClipStartS ?? -1);
+                idCmd.Parameters.AddWithValue("@clipEndS", payload.ClipEndS ?? -1);
+            }
+            var result = await idCmd.ExecuteScalarAsync(cancellationToken);
+            if (result is null or DBNull)
+            {
+                // Moment truly doesn't exist and INSERT was ignored — skip
+                await tx.CommitAsync(cancellationToken);
+                return;
+            }
+            momentId = (long)result;
+        }
 
-        using (var inferenceCmd = connection.CreateCommand())
+        try
         {
+            var draft = await _sidecarClient.DraftMomentAsync(new CoachDraftRequest
+            {
+                NoteText = payload.NoteText,
+                ReviewContext = payload.ContextText,
+                ActiveObjectiveTitle = block.ObjectiveTitle,
+                Champion = payload.Champion,
+                Role = payload.Role,
+                SourceType = payload.SourceType,
+                GameTimeS = payload.GameTimeS,
+                StoryboardPath = artifacts.StoryboardPath,
+                MinimapStripPath = artifacts.MinimapStripPath,
+            }, cancellationToken);
+
+            using var inferenceCmd = connection.CreateCommand();
             inferenceCmd.Transaction = tx;
             inferenceCmd.CommandText = """
                 INSERT INTO coach_inferences
-                    (moment_id, player_id, model_version, inference_mode, moment_quality, primary_reason, objective_key, confidence, rationale, raw_payload, created_at, updated_at)
+                    (moment_id, player_id, model_version, inference_mode, moment_quality, primary_reason, objective_key, confidence, rationale, raw_payload, attached_objective_id, attached_objective_title, created_at, updated_at)
                 VALUES
-                    (@momentId, @playerId, @modelVersion, @inferenceMode, @momentQuality, @primaryReason, @objectiveKey, @confidence, @rationale, @rawPayload, @createdAt, @updatedAt)
+                    (@momentId, @playerId, @modelVersion, @inferenceMode, @momentQuality, @primaryReason, @objectiveKey, @confidence, @rationale, @rawPayload, @attachedObjectiveId, @attachedObjectiveTitle, @createdAt, @updatedAt)
+                ON CONFLICT (moment_id)
+                DO UPDATE SET
+                    moment_quality = excluded.moment_quality,
+                    primary_reason = excluded.primary_reason,
+                    objective_key = excluded.objective_key,
+                    confidence = excluded.confidence,
+                    rationale = excluded.rationale,
+                    raw_payload = excluded.raw_payload,
+                    attached_objective_id = COALESCE(excluded.attached_objective_id, coach_inferences.attached_objective_id),
+                    attached_objective_title = CASE WHEN excluded.attached_objective_id IS NOT NULL THEN excluded.attached_objective_title ELSE coach_inferences.attached_objective_title END,
+                    updated_at = excluded.updated_at
                 """;
             inferenceCmd.Parameters.AddWithValue("@momentId", momentId);
             inferenceCmd.Parameters.AddWithValue("@playerId", payload.PlayerId);
@@ -964,10 +1198,126 @@ public sealed class CoachLabService : ICoachLabService
             inferenceCmd.Parameters.AddWithValue("@rawPayload", draft.RawPayload);
             inferenceCmd.Parameters.AddWithValue("@createdAt", now);
             inferenceCmd.Parameters.AddWithValue("@updatedAt", now);
+            inferenceCmd.Parameters.AddWithValue("@attachedObjectiveId",
+                payload.AttachedObjectiveId.HasValue ? payload.AttachedObjectiveId.Value : DBNull.Value);
+            inferenceCmd.Parameters.AddWithValue("@attachedObjectiveTitle", payload.AttachedObjectiveTitle);
             await inferenceCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogDebug(ex, "Skipping Gemma draft for moment {MomentId} until Gemma is configured.", momentId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload.BookmarkQuality))
+        {
+            using var labelCmd = connection.CreateCommand();
+            labelCmd.Transaction = tx;
+            labelCmd.CommandText = """
+                INSERT OR IGNORE INTO coach_labels
+                    (moment_id, player_id, label_quality, primary_reason, objective_key,
+                     attached_objective_id, attached_objective_title, explanation, confidence, source, created_at, updated_at)
+                VALUES
+                    (@momentId, @playerId, @labelQuality, '', '',
+                     @attachedObjectiveId, @attachedObjectiveTitle, '', 0.8, 'clip_tag', @createdAt, @updatedAt)
+                """;
+            labelCmd.Parameters.AddWithValue("@momentId", momentId);
+            labelCmd.Parameters.AddWithValue("@playerId", payload.PlayerId);
+            labelCmd.Parameters.AddWithValue("@labelQuality", payload.BookmarkQuality.Trim().ToLowerInvariant());
+            labelCmd.Parameters.AddWithValue("@attachedObjectiveId",
+                payload.AttachedObjectiveId.HasValue ? payload.AttachedObjectiveId.Value : DBNull.Value);
+            labelCmd.Parameters.AddWithValue("@attachedObjectiveTitle", payload.AttachedObjectiveTitle);
+            labelCmd.Parameters.AddWithValue("@createdAt", now);
+            labelCmd.Parameters.AddWithValue("@updatedAt", now);
+            await labelCmd.ExecuteNonQueryAsync(cancellationToken);
+
+            using var reviewCmd2 = connection.CreateCommand();
+            reviewCmd2.Transaction = tx;
+            reviewCmd2.CommandText = "UPDATE coach_moments SET reviewed_at = COALESCE(reviewed_at, @now) WHERE id = @id";
+            reviewCmd2.Parameters.AddWithValue("@now", now);
+            reviewCmd2.Parameters.AddWithValue("@id", momentId);
+            await reviewCmd2.ExecuteNonQueryAsync(cancellationToken);
         }
 
         await tx.CommitAsync(cancellationToken);
+    }
+
+    private async Task DeduplicateMomentsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        // Remove duplicate moments that share the same game_id + source_type + game_time_s.
+        // Keep the one that has a label; if neither has one, keep the newest (highest id).
+        // "keeper" = the row we want to keep per duplicate group.
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            WITH keepers AS (
+                SELECT game_id, source_type, game_time_s,
+                       (SELECT m.id FROM coach_moments m
+                        LEFT JOIN coach_labels l ON l.moment_id = m.id
+                        WHERE m.game_id = g.game_id
+                          AND m.source_type = g.source_type
+                          AND m.game_time_s = g.game_time_s
+                        ORDER BY CASE WHEN l.id IS NOT NULL THEN 0 ELSE 1 END, m.id DESC
+                        LIMIT 1) AS keep_id
+                FROM coach_moments g
+                GROUP BY game_id, source_type, game_time_s
+                HAVING COUNT(*) > 1
+            ),
+            victims AS (
+                SELECT m.id FROM coach_moments m
+                INNER JOIN keepers k
+                    ON m.game_id = k.game_id
+                   AND m.source_type = k.source_type
+                   AND m.game_time_s = k.game_time_s
+                WHERE m.id <> k.keep_id
+            )
+            DELETE FROM coach_inferences WHERE moment_id IN (SELECT id FROM victims);
+
+            WITH keepers AS (
+                SELECT game_id, source_type, game_time_s,
+                       (SELECT m.id FROM coach_moments m
+                        LEFT JOIN coach_labels l ON l.moment_id = m.id
+                        WHERE m.game_id = g.game_id
+                          AND m.source_type = g.source_type
+                          AND m.game_time_s = g.game_time_s
+                        ORDER BY CASE WHEN l.id IS NOT NULL THEN 0 ELSE 1 END, m.id DESC
+                        LIMIT 1) AS keep_id
+                FROM coach_moments g
+                GROUP BY game_id, source_type, game_time_s
+                HAVING COUNT(*) > 1
+            ),
+            victims AS (
+                SELECT m.id FROM coach_moments m
+                INNER JOIN keepers k
+                    ON m.game_id = k.game_id
+                   AND m.source_type = k.source_type
+                   AND m.game_time_s = k.game_time_s
+                WHERE m.id <> k.keep_id
+            )
+            DELETE FROM coach_labels WHERE moment_id IN (SELECT id FROM victims);
+
+            WITH keepers AS (
+                SELECT game_id, source_type, game_time_s,
+                       (SELECT m.id FROM coach_moments m
+                        LEFT JOIN coach_labels l ON l.moment_id = m.id
+                        WHERE m.game_id = g.game_id
+                          AND m.source_type = g.source_type
+                          AND m.game_time_s = g.game_time_s
+                        ORDER BY CASE WHEN l.id IS NOT NULL THEN 0 ELSE 1 END, m.id DESC
+                        LIMIT 1) AS keep_id
+                FROM coach_moments g
+                GROUP BY game_id, source_type, game_time_s
+                HAVING COUNT(*) > 1
+            ),
+            victims AS (
+                SELECT m.id FROM coach_moments m
+                INNER JOIN keepers k
+                    ON m.game_id = k.game_id
+                   AND m.source_type = k.source_type
+                   AND m.game_time_s = k.game_time_s
+                WHERE m.id <> k.keep_id
+            )
+            DELETE FROM coach_moments WHERE id IN (SELECT id FROM victims);
+            """;
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<int> EnsureDraftsAsync(SqliteConnection connection, long playerId, CancellationToken cancellationToken)
@@ -986,7 +1336,14 @@ public sealed class CoachLabService : ICoachLabService
                 COALESCE(m.storyboard_path, ''),
                 COALESCE(m.minimap_strip_path, '')
             FROM coach_moments m
-            LEFT JOIN coach_inferences i ON i.moment_id = m.id
+            LEFT JOIN coach_inferences i ON i.id = (
+                SELECT i2.id
+                FROM coach_inferences i2
+                WHERE i2.moment_id = m.id
+                  AND COALESCE(i2.inference_mode, '') = 'gemma'
+                ORDER BY COALESCE(i2.updated_at, i2.created_at) DESC, i2.id DESC
+                LIMIT 1
+            )
             LEFT JOIN coach_objective_blocks b ON b.id = m.objective_block_id
             WHERE m.player_id = @playerId
               AND i.id IS NULL
@@ -1017,22 +1374,31 @@ public sealed class CoachLabService : ICoachLabService
         var created = 0;
         foreach (var item in pending)
         {
-            var draft = await _sidecarClient.DraftMomentAsync(new CoachDraftRequest
+            CoachDraftResult draft;
+            try
             {
-                NoteText = item.NoteText,
-                ReviewContext = item.ContextText,
-                Champion = item.Champion,
-                Role = item.Role,
-                SourceType = item.SourceType,
-                ActiveObjectiveTitle = item.ObjectiveTitle,
-                GameTimeS = item.GameTimeS,
-                StoryboardPath = item.StoryboardPath,
-                MinimapStripPath = item.MinimapStripPath,
-            }, cancellationToken);
+                draft = await _sidecarClient.DraftMomentAsync(new CoachDraftRequest
+                {
+                    NoteText = item.NoteText,
+                    ReviewContext = item.ContextText,
+                    Champion = item.Champion,
+                    Role = item.Role,
+                    SourceType = item.SourceType,
+                    ActiveObjectiveTitle = item.ObjectiveTitle,
+                    GameTimeS = item.GameTimeS,
+                    StoryboardPath = item.StoryboardPath,
+                    MinimapStripPath = item.MinimapStripPath,
+                }, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogDebug(ex, "Skipping Gemma draft for moment {MomentId} until Gemma is configured.", item.Id);
+                break;
+            }
 
             using var insertCmd = connection.CreateCommand();
             insertCmd.CommandText = """
-                INSERT INTO coach_inferences
+                INSERT OR IGNORE INTO coach_inferences
                     (moment_id, player_id, model_version, inference_mode, moment_quality, primary_reason, objective_key, confidence, rationale, raw_payload, created_at, updated_at)
                 VALUES
                     (@momentId, @playerId, @modelVersion, @inferenceMode, @momentQuality, @primaryReason, @objectiveKey, @confidence, @rationale, @rawPayload, @createdAt, @updatedAt)
@@ -1075,7 +1441,14 @@ public sealed class CoachLabService : ICoachLabService
                 COALESCE(i.attached_objective_title, '')
             FROM coach_moments m
             INNER JOIN games g ON g.game_id = m.game_id
-            LEFT JOIN coach_inferences i ON i.moment_id = m.id
+            LEFT JOIN coach_inferences i ON i.id = (
+                SELECT i2.id
+                FROM coach_inferences i2
+                WHERE i2.moment_id = m.id
+                  AND COALESCE(i2.inference_mode, '') = 'gemma'
+                ORDER BY COALESCE(i2.updated_at, i2.created_at) DESC, i2.id DESC
+                LIMIT 1
+            )
             LEFT JOIN coach_labels l ON l.moment_id = m.id
             WHERE m.player_id = @playerId
               AND m.source_type = 'manual_clip'
@@ -1130,7 +1503,7 @@ public sealed class CoachLabService : ICoachLabService
             {
                 insertCmd.Transaction = tx;
                 insertCmd.CommandText = """
-                    INSERT INTO coach_labels
+                    INSERT OR IGNORE INTO coach_labels
                         (moment_id, player_id, label_quality, primary_reason, objective_key, attached_objective_id, attached_objective_title, explanation, confidence, source, created_at, updated_at)
                     VALUES
                         (@momentId, @playerId, @labelQuality, @primaryReason, @objectiveKey, @attachedObjectiveId, @attachedObjectiveTitle, '', @confidence, 'manual', @createdAt, @updatedAt)
@@ -1138,7 +1511,7 @@ public sealed class CoachLabService : ICoachLabService
                 insertCmd.Parameters.AddWithValue("@momentId", candidate.MomentId);
                 insertCmd.Parameters.AddWithValue("@playerId", playerId);
                 insertCmd.Parameters.AddWithValue("@labelQuality", labelQuality);
-                insertCmd.Parameters.AddWithValue("@primaryReason", candidate.ReviewNotes.Trim());
+                insertCmd.Parameters.AddWithValue("@primaryReason", ResolveDefaultPrimaryReason(candidate.NoteText, candidate.ReviewNotes));
                 insertCmd.Parameters.AddWithValue("@objectiveKey", objectiveKey);
                 insertCmd.Parameters.AddWithValue("@attachedObjectiveId", candidate.AttachedObjectiveId.HasValue ? candidate.AttachedObjectiveId.Value : DBNull.Value);
                 insertCmd.Parameters.AddWithValue("@attachedObjectiveTitle", candidate.AttachedObjectiveTitle);
@@ -1259,14 +1632,20 @@ public sealed class CoachLabService : ICoachLabService
         var gold = await ExecuteCountAsync(connection, """
             SELECT COUNT(*)
             FROM coach_labels
-            WHERE player_id = @playerId AND source = 'manual'
+            WHERE player_id = @playerId
+              AND COALESCE(source, 'manual') IN ('manual', 'manual_saved')
             """, playerId, cancellationToken);
 
         var silver = await ExecuteCountAsync(connection, """
             SELECT COUNT(*)
             FROM coach_moments m
             WHERE m.player_id = @playerId
-              AND EXISTS (SELECT 1 FROM coach_inferences i WHERE i.moment_id = m.id)
+              AND EXISTS (
+                SELECT 1
+                FROM coach_inferences i
+                WHERE i.moment_id = m.id
+                  AND COALESCE(i.inference_mode, '') = 'gemma'
+              )
               AND NOT EXISTS (SELECT 1 FROM coach_labels l WHERE l.moment_id = m.id)
               AND m.source_type = 'manual_clip'
             """, playerId, cancellationToken);
@@ -1424,6 +1803,17 @@ public sealed class CoachLabService : ICoachLabService
         return string.Join(" | ", parts.Where(part => !string.IsNullOrWhiteSpace(part)).Select(part => part.Trim()));
     }
 
+    private static string ResolveDefaultPrimaryReason(string? noteText, string? reviewNotes)
+    {
+        var note = noteText?.Trim() ?? "";
+        if (!string.IsNullOrWhiteSpace(note))
+        {
+            return note;
+        }
+
+        return reviewNotes?.Trim() ?? "";
+    }
+
     private async Task<string> ResolveManualPrimaryReasonAsync(
         SqliteConnection connection,
         long momentId,
@@ -1440,6 +1830,7 @@ public sealed class CoachLabService : ICoachLabService
         cmd.CommandText = """
             SELECT
                 COALESCE(l.primary_reason, ''),
+                COALESCE(m.note_text, ''),
                 COALESCE(g.review_notes, ''),
                 COALESCE(m.source_type, '')
             FROM coach_moments m
@@ -1462,11 +1853,12 @@ public sealed class CoachLabService : ICoachLabService
             return existingPrimaryReason.Trim();
         }
 
-        var reviewNotes = reader.IsDBNull(1) ? "" : reader.GetString(1);
-        var sourceType = reader.IsDBNull(2) ? "" : reader.GetString(2);
+        var noteText = reader.IsDBNull(1) ? "" : reader.GetString(1);
+        var reviewNotes = reader.IsDBNull(2) ? "" : reader.GetString(2);
+        var sourceType = reader.IsDBNull(3) ? "" : reader.GetString(3);
         return string.Equals(sourceType, "manual_clip", StringComparison.OrdinalIgnoreCase)
-            ? reviewNotes.Trim()
-            : "";
+            ? ResolveDefaultPrimaryReason(noteText, reviewNotes)
+            : noteText.Trim();
     }
 
     private async Task<string> ResolveManualObjectiveKeyAsync(
@@ -1741,7 +2133,7 @@ public sealed class CoachLabService : ICoachLabService
             ObjectiveTitle = reader.IsDBNull(3) ? "" : reader.GetString(3),
             ObjectiveKey = reader.IsDBNull(4) ? "" : reader.GetString(4),
             Status = reader.IsDBNull(5) ? "active" : reader.GetString(5),
-            Mode = reader.IsDBNull(6) ? "assist" : reader.GetString(6),
+            Mode = reader.IsDBNull(6) ? "gemma" : reader.GetString(6),
             StartedAt = reader.IsDBNull(7) ? 0 : reader.GetInt64(7),
             UpdatedAt = reader.IsDBNull(8) ? 0 : reader.GetInt64(8),
             CompletedAt = reader.IsDBNull(9) ? null : reader.GetInt64(9),
@@ -1807,25 +2199,25 @@ public sealed class CoachLabService : ICoachLabService
 
     private static string BuildWatchItemTitle(CoachRecommendation? recommendation)
     {
-        return recommendation?.RecommendationType == "watch"
-            ? "Watch item"
-            : "Clip-backed evidence";
+        return recommendation is null
+            ? "Gemma status"
+            : "Latest coach read";
     }
 
     private static string BuildWatchItemSummary(CoachRecommendation? recommendation)
     {
         if (recommendation is null)
         {
-            return "Keep saving lane clips with notes so the coach can learn from exact moments.";
+            return "Coach Lab now depends on Gemma-only inference. Register or train Gemma 4 E4B to generate drafts and coaching reads.";
         }
 
-        if (recommendation.RecommendationType != "watch" || string.IsNullOrWhiteSpace(recommendation.ObjectiveKey))
+        if (string.IsNullOrWhiteSpace(recommendation.ObjectiveKey))
         {
             return recommendation.Summary;
         }
 
         var title = CoachObjectiveCatalog.Find(recommendation.ObjectiveKey)?.Title ?? HumanizeKey(recommendation.ObjectiveKey);
-        return $"Emerging theme: {title}. {recommendation.Summary}";
+        return $"{title}: {recommendation.Summary}";
     }
 
     private static string HumanizeKey(string value)
@@ -1855,6 +2247,9 @@ public sealed class CoachLabService : ICoachLabService
         public string ClipPath { get; set; } = "";
         public string NoteText { get; set; } = "";
         public string ContextText { get; set; } = "";
+        public long? AttachedObjectiveId { get; set; }
+        public string AttachedObjectiveTitle { get; set; } = "";
+        public string BookmarkQuality { get; set; } = "";
     }
 
     private sealed class ReviewNoteLabelCandidate

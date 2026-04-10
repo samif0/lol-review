@@ -172,27 +172,30 @@ public partial class PreGameDialogViewModel : ObservableObject
 
             // Get active objective
             var objectives = await _objectivesRepo.GetActiveAsync();
-            var priorityObjective = await _objectivesRepo.GetPriorityAsync();
+            var relevantObjectives = objectives
+                .Where(objective => ObjectivePhases.ShowsInPreGame(objective.Phase))
+                .ToList();
+            var priorityObjective = relevantObjectives.FirstOrDefault(objective => objective.IsPriority);
             var priorityObjectiveId = priorityObjective?.Id ?? 0L;
             ObjectiveFocusOptions.Clear();
-            if (objectives.Count > 0)
+            if (relevantObjectives.Count > 0)
             {
-                foreach (var objective in objectives)
+                foreach (var objective in relevantObjectives)
                 {
                     ObjectiveFocusOptions.Add(new FocusObjectiveItem
                     {
                         Id = objective.Id,
                         Title = objective.Title,
                         Subtitle = string.IsNullOrWhiteSpace(objective.CompletionCriteria)
-                            ? objective.SkillArea
-                            : objective.CompletionCriteria,
+                            ? ObjectivePhases.ToDisplayLabel(objective.Phase)
+                            : $"{ObjectivePhases.ToDisplayLabel(objective.Phase)} · {objective.CompletionCriteria}",
                         IsPriority = objective.Id == priorityObjectiveId
                     });
                 }
 
                 HasObjectiveFocusOptions = ObjectiveFocusOptions.Count > 0;
 
-                var obj = priorityObjective ?? objectives[0];
+                var obj = priorityObjective ?? relevantObjectives[0];
                 ActiveObjectiveTitle = obj.Title;
                 ActiveObjectiveCriteria = obj.CompletionCriteria;
                 HasActiveObjective = true;

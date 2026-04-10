@@ -6,7 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Border Background="#12121a"
+    <Border Background="{StaticResource CardBackgroundBrush}"
             CornerRadius="8"
             Padding="12,8"
             BorderBrush="{StaticResource SubtleBorderBrush}"

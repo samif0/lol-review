@@ -15,6 +15,7 @@ public sealed record ObjectiveSummary(
     string Type,
     string CompletionCriteria,
     string Description,
+    string Phase,
     string Status,
     bool IsPriority,
     int Score,
@@ -30,7 +31,8 @@ public sealed record GameObjectiveRecord(
     string Title,
     string CompletionCriteria,
     string Type,
-    bool IsPriority);
+    bool IsPriority,
+    string Phase);
 
 public sealed record MatchupNoteRecord(
     long Id,
@@ -58,6 +60,7 @@ public sealed record VodBookmarkRecord(
     int? ClipStartSeconds,
     int? ClipEndSeconds,
     string ClipPath,
+    string Quality,
     long? CreatedAt);
 
 public sealed record RuleRecord(

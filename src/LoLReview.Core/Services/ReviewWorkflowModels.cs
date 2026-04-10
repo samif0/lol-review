@@ -16,6 +16,7 @@ public sealed record ReviewObjectiveState(
     long ObjectiveId,
     string Title,
     string Criteria,
+    string Phase,
     bool IsPriority,
     bool Practiced,
     string ExecutionNote);

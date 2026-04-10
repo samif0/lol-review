@@ -17,7 +17,15 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <ApplicationIcon>Assets\lolreview.ico</ApplicationIcon>
-    <Version>2.4.9</Version>
+    <Version>2.5.0</Version>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AppxMSBuildToolsPath)' == ''">
+    <_VsAppxToolsPath Condition="Exists('$(ProgramFiles)\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Microsoft\\VisualStudio\\v17.0\\AppxPackage\\Microsoft.Build.Packaging.Pri.Tasks.dll')">$(ProgramFiles)\Microsoft Visual Studio\2022\Community\MSBuild\Microsoft\VisualStudio\v17.0\AppxPackage\</_VsAppxToolsPath>
+    <_VsAppxToolsPath Condition="'$(_VsAppxToolsPath)' == '' and Exists('$(ProgramFiles)\\Microsoft Visual Studio\\2022\\Professional\\MSBuild\\Microsoft\\VisualStudio\\v17.0\\AppxPackage\\Microsoft.Build.Packaging.Pri.Tasks.dll')">$(ProgramFiles)\Microsoft Visual Studio\2022\Professional\MSBuild\Microsoft\VisualStudio\v17.0\AppxPackage\</_VsAppxToolsPath>
+    <_VsAppxToolsPath Condition="'$(_VsAppxToolsPath)' == '' and Exists('$(ProgramFiles)\\Microsoft Visual Studio\\2022\\Enterprise\\MSBuild\\Microsoft\\VisualStudio\\v17.0\\AppxPackage\\Microsoft.Build.Packaging.Pri.Tasks.dll')">$(ProgramFiles)\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v17.0\AppxPackage\</_VsAppxToolsPath>
+    <_VsAppxToolsPath Condition="'$(_VsAppxToolsPath)' == '' and Exists('$(ProgramFiles)\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Microsoft\\VisualStudio\\v17.0\\AppxPackage\\Microsoft.Build.Packaging.Pri.Tasks.dll')">$(ProgramFiles)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VisualStudio\v17.0\AppxPackage\</_VsAppxToolsPath>
+    <AppxMSBuildToolsPath Condition="'$(_VsAppxToolsPath)' != ''">$(_VsAppxToolsPath)</AppxMSBuildToolsPath>
   </PropertyGroup>
 
   <ItemGroup>

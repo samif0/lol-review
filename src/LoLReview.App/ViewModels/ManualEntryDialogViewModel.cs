@@ -14,7 +14,9 @@ public partial class ObjectiveAssessment : ObservableObject
     public long ObjectiveId { get; init; }
     public string Title { get; init; } = "";
     public string Criteria { get; init; } = "";
+    public string Phase { get; init; } = ObjectivePhases.InGame;
     public bool IsPriority { get; init; }
+    public string PhaseLabel => ObjectivePhases.ToDisplayLabel(Phase);
 
     [ObservableProperty]
     private bool _practiced;
@@ -120,7 +122,9 @@ public partial class ManualEntryDialogViewModel : ObservableObject
     {
         try
         {
-            var active = await _objectivesRepo.GetActiveAsync();
+            var active = (await _objectivesRepo.GetActiveAsync())
+                .Where(objective => ObjectivePhases.ShowsInPostGame(objective.Phase))
+                .ToList();
             Objectives.Clear();
             foreach (var obj in active)
             {
@@ -129,6 +133,7 @@ public partial class ManualEntryDialogViewModel : ObservableObject
                     ObjectiveId = obj.Id,
                     Title = obj.Title,
                     Criteria = obj.CompletionCriteria,
+                    Phase = obj.Phase,
                 });
             }
             HasObjectives = Objectives.Count > 0;

@@ -8,9 +8,9 @@ internal static class CoachPythonRuntime
 {
     private static readonly string[] PreferredPythonRelativePaths =
     {
-        Path.Combine(".venv-coach-qwen", "Scripts", "python.exe"),
-        Path.Combine(".venv-coach-qwen", "bin", "python.exe"),
-        Path.Combine(".venv-coach-qwen", "bin", "python"),
+        Path.Combine(".venv-coach-gemma", "Scripts", "python.exe"),
+        Path.Combine(".venv-coach-gemma", "bin", "python.exe"),
+        Path.Combine(".venv-coach-gemma", "bin", "python"),
         Path.Combine(".venv", "Scripts", "python.exe"),
         Path.Combine(".venv", "bin", "python.exe"),
         Path.Combine(".venv", "bin", "python"),

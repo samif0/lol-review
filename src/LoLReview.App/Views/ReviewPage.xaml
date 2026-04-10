@@ -23,7 +23,7 @@
 
         <Grid RowDefinitions="Auto,*">
 
-            <!-- ═══ Header: Back + Title ═══ -->
+            <!-- Header: Back + Title -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12"
                         Padding="24,16,24,8">
                 <Button Command="{x:Bind ViewModel.CancelCommand}"
@@ -43,101 +43,92 @@
                            VerticalAlignment="Center"/>
             </StackPanel>
 
-            <!-- ═══ Scrollable Content ═══ -->
+            <!-- Scrollable Content -->
             <ScrollViewer Grid.Row="1"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Padding="24,8,24,24">
-                <StackPanel Spacing="12" MaxWidth="800" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="16" MaxWidth="800" HorizontalAlignment="Center">
 
-                    <!-- ═══ Champion + Result Header ═══ -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                    <!-- ═══════════════════════════════════════════
+                         HERO CARD: Champion + Result + KDA + VOD
+                         ═══════════════════════════════════════════ -->
+                    <Border Style="{StaticResource ElevatedCardStyle}"
+                            BorderBrush="{StaticResource AccentGoldBrush}"
+                            BorderThickness="1,1,1,2">
+                        <StackPanel Spacing="14">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
 
-                        <!-- Left: Champion + Result -->
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="{x:Bind ViewModel.ChampionName, Mode=OneWay}"
-                                       FontSize="28" FontWeight="Bold"
-                                       Foreground="{StaticResource AccentGoldBrush}"/>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="{x:Bind ViewModel.ResultText, Mode=OneWay}"
-                                           FontSize="16" FontWeight="Bold"/>
-                                <TextBlock FontSize="13"
+                                <!-- Left: Champion + Result -->
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="{x:Bind ViewModel.ChampionName, Mode=OneWay}"
+                                               FontSize="30" FontWeight="Bold"
+                                               Foreground="{StaticResource AccentGoldBrush}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <TextBlock Text="{x:Bind ViewModel.ResultText, Mode=OneWay}"
+                                                   FontSize="16" FontWeight="Bold"/>
+                                        <TextBlock FontSize="13"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   VerticalAlignment="Center">
+                                            <Run Text="{x:Bind ViewModel.GameModeText, Mode=OneWay}"/>
+                                        </TextBlock>
+                                        <TextBlock Text="{x:Bind ViewModel.DurationText, Mode=OneWay}"
+                                                   FontSize="13"
+                                                   Foreground="{StaticResource MutedTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Right: KDA -->
+                                <StackPanel Grid.Column="1" HorizontalAlignment="Right"
+                                            VerticalAlignment="Center" Spacing="2">
+                                    <TextBlock Text="{x:Bind ViewModel.KdaText, Mode=OneWay}"
+                                               FontSize="28" FontWeight="Bold"
+                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                               HorizontalAlignment="Right"/>
+                                    <TextBlock Text="{x:Bind ViewModel.KdaRatioText, Mode=OneWay}"
+                                               FontSize="13"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               HorizontalAlignment="Right"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- VOD button (inside hero card) -->
+                            <StackPanel Orientation="Horizontal" Spacing="12"
+                                        Visibility="{x:Bind ViewModel.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Button Command="{x:Bind ViewModel.WatchVodCommand}"
+                                        FontSize="13" FontWeight="SemiBold"
+                                        Height="36" Padding="16,0" CornerRadius="8"
+                                        Background="{StaticResource AccentGoldDimBrush}"
+                                        Foreground="{StaticResource AccentGoldBrush}"
+                                        BorderBrush="{StaticResource AccentGoldBrush}"
+                                        BorderThickness="1">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE714;" FontSize="14"/>
+                                        <TextBlock Text="Review VOD" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <TextBlock FontSize="12"
                                            Foreground="{StaticResource SecondaryTextBrush}"
                                            VerticalAlignment="Center">
-                                    <Run Text="{x:Bind ViewModel.DurationText, Mode=OneWay}"/>
-                                    <Run Text="  "/>
-                                    <Run Text="{x:Bind ViewModel.GameModeText, Mode=OneWay}"/>
+                                    <Run Text="{x:Bind ViewModel.BookmarkCount, Mode=OneWay}"/>
+                                    <Run Text=" bookmarks"/>
                                 </TextBlock>
                             </StackPanel>
                         </StackPanel>
-
-                        <!-- Right: KDA -->
-                        <StackPanel Grid.Column="1" HorizontalAlignment="Right">
-                            <TextBlock Text="{x:Bind ViewModel.KdaText, Mode=OneWay}"
-                                       FontSize="26" FontWeight="Bold"
-                                       Foreground="{StaticResource PrimaryTextBrush}"
-                                       HorizontalAlignment="Right"/>
-                            <TextBlock Text="{x:Bind ViewModel.KdaRatioText, Mode=OneWay}"
-                                       FontSize="13"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       HorizontalAlignment="Right"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <!-- Separator -->
-                    <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
-
-                    <!-- ═══ VOD Section ═══ -->
-                    <Border Visibility="{x:Bind ViewModel.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                            Style="{StaticResource CardStyle}"
-                            BorderBrush="{StaticResource AccentGoldBrush}">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Button Command="{x:Bind ViewModel.WatchVodCommand}"
-                                    FontSize="13" FontWeight="SemiBold"
-                                    Height="36" Padding="16,0" CornerRadius="8"
-                                    Background="{StaticResource AccentGoldDimBrush}"
-                                    Foreground="{StaticResource AccentGoldBrush}"
-                                    BorderBrush="{StaticResource AccentGoldBrush}"
-                                    BorderThickness="1">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE714;" FontSize="14"/>
-                                    <TextBlock Text="Review VOD" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <TextBlock FontSize="12"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       VerticalAlignment="Center">
-                                <Run Text="{x:Bind ViewModel.BookmarkCount, Mode=OneWay}"/>
-                                <Run Text=" bookmarks"/>
-                            </TextBlock>
-                        </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource CardStyle}">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="SAVE MODE"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBlock Text="{x:Bind ViewModel.SaveBehaviorText, Mode=OneWay}"
-                                       FontSize="12"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       TextWrapping="Wrap"/>
-                            <TextBlock Text="{x:Bind ViewModel.ValidationMessage, Mode=OneWay}"
-                                       FontSize="12"
-                                       Foreground="{StaticResource LossRedBrush}"
-                                       TextWrapping="Wrap"
-                                       Visibility="{x:Bind ViewModel.HasValidationMessage, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- ═══ Stats Grid ═══ -->
+                    <!-- ═══════════════════════════════════════════
+                         GAME STATS
+                         ═══════════════════════════════════════════ -->
                     <TextBlock Text="GAME STATS"
                                FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               Margin="0,4,0,0"/>
 
                     <Grid ColumnSpacing="8" RowSpacing="8">
                         <Grid.ColumnDefinitions>
@@ -170,12 +161,13 @@
                                            Label="WARDS" Value="{x:Bind ViewModel.WardsPlacedText, Mode=OneWay}"/>
                     </Grid>
 
-                    <!-- Separator -->
-                    <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
-
-                    <!-- ═══ Mental Rating ═══ -->
+                    <!-- ═══════════════════════════════════════════
+                         SELF ASSESSMENT: Mental Rating + Performance
+                         ═══════════════════════════════════════════ -->
                     <Border Style="{StaticResource CardStyle}">
-                        <StackPanel Spacing="8">
+                        <StackPanel Spacing="10">
+
+                            <!-- Mental Rating -->
                             <TextBlock Text="MENTAL RATING"
                                        FontSize="11" FontWeight="Bold"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
@@ -202,6 +194,49 @@
                                            MinWidth="50"
                                            TextAlignment="Center"/>
                             </Grid>
+
+                            <!-- Separator between mental and performance -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="0,4"/>
+
+                            <!-- Performance Review -->
+                            <TextBlock Text="PERFORMANCE REVIEW"
+                                       FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                            <TextBlock Text="What went well?"
+                                       FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Good plays, decisions, mechanics..."
+                                     TextWrapping="Wrap" AcceptsReturn="True"
+                                     MinHeight="70" FontSize="13"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="8"/>
+
+                            <TextBlock Text="What could improve?"
+                                       FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.Mistakes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Deaths, missed plays, bad decisions..."
+                                     TextWrapping="Wrap" AcceptsReturn="True"
+                                     MinHeight="70" FontSize="13"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="8"/>
+
+                            <TextBlock Text="Focus for next game"
+                                       FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="What will you focus on improving?"
+                                     FontSize="13"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="8"
+                                     Height="36"/>
                         </StackPanel>
                     </Border>
 
@@ -230,88 +265,12 @@
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
                                      CornerRadius="8"/>
-
                         </StackPanel>
                     </Border>
 
-                    <!-- ═══ Performance Review ═══ -->
-                    <Border Style="{StaticResource CardStyle}">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="PERFORMANCE REVIEW"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-
-                            <!-- What went well? -->
-                            <TextBlock Text="What went well?"
-                                       FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="Good plays, decisions, mechanics..."
-                                     TextWrapping="Wrap" AcceptsReturn="True"
-                                     MinHeight="70" FontSize="13"
-                                     Background="{StaticResource InputBackgroundBrush}"
-                                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
-
-                            <!-- What could improve? -->
-                            <TextBlock Text="What could improve?"
-                                       FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.Mistakes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="Deaths, missed plays, bad decisions..."
-                                     TextWrapping="Wrap" AcceptsReturn="True"
-                                     MinHeight="70" FontSize="13"
-                                     Background="{StaticResource InputBackgroundBrush}"
-                                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
-
-                            <!-- Focus for next game -->
-                            <TextBlock Text="Focus for next game"
-                                       FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="What will you focus on improving?"
-                                     FontSize="13"
-                                     Background="{StaticResource InputBackgroundBrush}"
-                                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"
-                                     Height="36"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- ═══ Concept Tags ═══ -->
-                    <Border Style="{StaticResource CardStyle}">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="REVIEW NOTES"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-
-                            <TextBlock Text="Additional review notes"
-                                       FontSize="13"
-                                       Foreground="{StaticResource PrimaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.ReviewNotes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="Anything else you want to remember from this game..."
-                                     TextWrapping="Wrap" AcceptsReturn="True"
-                                     MinHeight="70" FontSize="13"
-                                     Background="{StaticResource InputBackgroundBrush}"
-                                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
-
-                            <TextBlock Text="Spotted problems"
-                                       FontSize="13"
-                                       Foreground="{StaticResource PrimaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.SpottedProblems, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="Patterns or repeated issues worth turning into future objectives..."
-                                     TextWrapping="Wrap" AcceptsReturn="True"
-                                     MinHeight="70" FontSize="13"
-                                     Background="{StaticResource InputBackgroundBrush}"
-                                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
-                        </StackPanel>
-                    </Border>
-
+                    <!-- ═══════════════════════════════════════════
+                         OBJECTIVE PRACTICE (conditional)
+                         ═══════════════════════════════════════════ -->
                     <Border Style="{StaticResource CardStyle}"
                             Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <StackPanel Spacing="10">
@@ -339,6 +298,9 @@
                                                           Content="{x:Bind Title}"
                                                           FontSize="13"
                                                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                                                <TextBlock Text="{x:Bind PhaseLabel}"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource AccentBlueBrush}"/>
                                                 <TextBlock Text="{x:Bind Criteria}"
                                                            FontSize="12"
                                                            Foreground="{StaticResource SecondaryTextBrush}"
@@ -359,6 +321,9 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- ═══════════════════════════════════════════
+                         MATCHUP NOTES
+                         ═══════════════════════════════════════════ -->
                     <Border Style="{StaticResource CardStyle}">
                         <StackPanel Spacing="10">
                             <TextBlock Text="MATCHUP NOTES"
@@ -421,8 +386,45 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- ═══════════════════════════════════════════
+                         NOTES + CONCEPT TAGS (merged)
+                         ═══════════════════════════════════════════ -->
                     <Border Style="{StaticResource CardStyle}">
-                        <StackPanel Spacing="8">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="REVIEW NOTES"
+                                       FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                            <TextBlock Text="Additional review notes"
+                                       FontSize="13"
+                                       Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.ReviewNotes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Anything else you want to remember from this game..."
+                                     TextWrapping="Wrap" AcceptsReturn="True"
+                                     MinHeight="70" FontSize="13"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="8"/>
+
+                            <TextBlock Text="Spotted problems"
+                                       FontSize="13"
+                                       Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.SpottedProblems, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Patterns or repeated issues worth turning into future objectives..."
+                                     TextWrapping="Wrap" AcceptsReturn="True"
+                                     MinHeight="70" FontSize="13"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="8"/>
+
+                            <!-- Separator -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="0,4"/>
+
+                            <!-- Concept Tags -->
                             <TextBlock Text="CONCEPT TAGS"
                                        FontSize="11" FontWeight="Bold"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
@@ -462,9 +464,11 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- ═══ Attribution ═══ -->
+                    <!-- ═══════════════════════════════════════════
+                         ATTRIBUTION + SESSION NOTE (merged)
+                         ═══════════════════════════════════════════ -->
                     <Border Style="{StaticResource CardStyle}">
-                        <StackPanel Spacing="8">
+                        <StackPanel Spacing="10">
                             <TextBlock Text="ATTRIBUTION"
                                        FontSize="11" FontWeight="Bold"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
@@ -473,34 +477,48 @@
                                        FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
 
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <RadioButton Content="My play" GroupName="Attribution"
+                            <Grid ColumnSpacing="8" RowSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <RadioButton Grid.Row="0" Grid.Column="0"
+                                             Content="My play" GroupName="Attribution"
                                              IsChecked="{x:Bind IsMyPlaySelected, Mode=OneWay}"
                                              Checked="OnAttributionChanged"
                                              Tag="My play"
                                              Foreground="{StaticResource PrimaryTextBrush}"/>
-                                <RadioButton Content="Team effort" GroupName="Attribution"
+                                <RadioButton Grid.Row="0" Grid.Column="1"
+                                             Content="Team effort" GroupName="Attribution"
                                              IsChecked="{x:Bind IsTeamEffortSelected, Mode=OneWay}"
                                              Checked="OnAttributionChanged"
                                              Tag="Team effort"
                                              Foreground="{StaticResource PrimaryTextBrush}"/>
-                                <RadioButton Content="Teammates" GroupName="Attribution"
+                                <RadioButton Grid.Row="1" Grid.Column="0"
+                                             Content="Teammates" GroupName="Attribution"
                                              IsChecked="{x:Bind IsTeammatesSelected, Mode=OneWay}"
                                              Checked="OnAttributionChanged"
                                              Tag="Teammates"
                                              Foreground="{StaticResource PrimaryTextBrush}"/>
-                                <RadioButton Content="External" GroupName="Attribution"
+                                <RadioButton Grid.Row="1" Grid.Column="1"
+                                             Content="External" GroupName="Attribution"
                                              IsChecked="{x:Bind IsExternalSelected, Mode=OneWay}"
                                              Checked="OnAttributionChanged"
                                              Tag="External"
                                              Foreground="{StaticResource PrimaryTextBrush}"/>
-                            </StackPanel>
-                        </StackPanel>
-                    </Border>
+                            </Grid>
 
-                    <!-- ═══ Quick Note ═══ -->
-                    <Border Style="{StaticResource CardStyle}">
-                        <StackPanel Spacing="6">
+                            <!-- Separator -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="0,4"/>
+
+                            <!-- Session Note -->
                             <TextBlock Text="SESSION NOTE"
                                        FontSize="11" FontWeight="Bold"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
@@ -516,11 +534,31 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- ═══ Action Buttons ═══ -->
+                    <!-- ═══════════════════════════════════════════
+                         ACTION BAR
+                         ═══════════════════════════════════════════ -->
+
+                    <!-- Validation + save behavior info -->
+                    <StackPanel Spacing="4"
+                                Visibility="{x:Bind ViewModel.HasValidationMessage, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="{x:Bind ViewModel.ValidationMessage, Mode=OneWay}"
+                                   FontSize="12"
+                                   Foreground="{StaticResource LossRedBrush}"
+                                   TextWrapping="Wrap"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+
+                    <TextBlock Text="{x:Bind ViewModel.SaveBehaviorText, Mode=OneWay}"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"/>
+
+                    <!-- Equal-width action buttons -->
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
                         <Button Grid.Column="0"
@@ -539,8 +577,9 @@
                                 Content="Save Review"
                                 Command="{x:Bind ViewModel.SaveReviewCommand}"
                                 FontSize="14" FontWeight="Bold"
-                                Height="44" MinWidth="160"
-                                Padding="24,0" CornerRadius="8"
+                                Height="44"
+                                CornerRadius="8"
+                                HorizontalAlignment="Stretch"
                                 Background="{StaticResource AccentBlueBrush}"
                                 Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
                     </Grid>

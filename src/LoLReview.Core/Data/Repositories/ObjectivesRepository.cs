@@ -12,22 +12,24 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     public ObjectivesRepository(IDbConnectionFactory factory) => _factory = factory;
 
     public async Task<long> CreateAsync(string title, string skillArea = "", string type = "primary",
-        string completionCriteria = "", string description = "")
+        string completionCriteria = "", string description = "", string phase = ObjectivePhases.InGame)
     {
         using var conn = _factory.CreateConnection();
         var shouldBePriority = await ShouldNewObjectiveBecomePriorityAsync(conn);
+        var normalizedPhase = ObjectivePhases.Normalize(phase);
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO objectives
-                (title, skill_area, type, completion_criteria, description,
+                (title, skill_area, type, phase, completion_criteria, description,
                  status, is_priority, score, game_count, created_at)
-            VALUES (@title, @skillArea, @type, @completionCriteria, @description,
+            VALUES (@title, @skillArea, @type, @phase, @completionCriteria, @description,
                     'active', @isPriority, 0, 0, @createdAt)
             """;
         cmd.Parameters.AddWithValue("@title", title);
         cmd.Parameters.AddWithValue("@skillArea", skillArea);
         cmd.Parameters.AddWithValue("@type", type);
+        cmd.Parameters.AddWithValue("@phase", normalizedPhase);
         cmd.Parameters.AddWithValue("@completionCriteria", completionCriteria);
         cmd.Parameters.AddWithValue("@description", description);
         cmd.Parameters.AddWithValue("@isPriority", shouldBePriority ? 1 : 0);
@@ -144,6 +146,41 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         cmd.Parameters.AddWithValue("@id", objectiveId);
         await cmd.ExecuteNonQueryAsync();
         await EnsurePriorityObjectiveAsync(conn);
+    }
+
+    public async Task UpdateAsync(long objectiveId, string title, string skillArea = "", string type = "primary",
+        string completionCriteria = "", string description = "", string phase = ObjectivePhases.InGame)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE objectives
+            SET title = @title,
+                skill_area = @skillArea,
+                type = @type,
+                phase = @phase,
+                completion_criteria = @completionCriteria,
+                description = @description
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@title", title);
+        cmd.Parameters.AddWithValue("@skillArea", skillArea);
+        cmd.Parameters.AddWithValue("@type", type);
+        cmd.Parameters.AddWithValue("@phase", ObjectivePhases.Normalize(phase));
+        cmd.Parameters.AddWithValue("@completionCriteria", completionCriteria);
+        cmd.Parameters.AddWithValue("@description", description);
+        cmd.Parameters.AddWithValue("@id", objectiveId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdatePhaseAsync(long objectiveId, string phase)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE objectives SET phase = @phase WHERE id = @id";
+        cmd.Parameters.AddWithValue("@phase", ObjectivePhases.Normalize(phase));
+        cmd.Parameters.AddWithValue("@id", objectiveId);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     public async Task DeleteAsync(long objectiveId)
@@ -321,7 +358,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT go.game_id, go.objective_id, go.practiced, go.execution_note,
-                   o.title, o.completion_criteria, o.type, o.is_priority
+                   o.title, o.completion_criteria, o.type, o.is_priority, o.phase
             FROM game_objectives go
             JOIN objectives o ON o.id = go.objective_id
             WHERE go.game_id = @gameId
@@ -411,7 +448,8 @@ public sealed class ObjectivesRepository : IObjectivesRepository
                 Title: reader.IsDBNull(4) ? "" : reader.GetString(4),
                 CompletionCriteria: reader.IsDBNull(5) ? "" : reader.GetString(5),
                 Type: reader.IsDBNull(6) ? "primary" : reader.GetString(6),
-                IsPriority: !reader.IsDBNull(7) && reader.GetInt64(7) != 0));
+                IsPriority: !reader.IsDBNull(7) && reader.GetInt64(7) != 0,
+                Phase: reader.IsDBNull(8) ? ObjectivePhases.InGame : ObjectivePhases.Normalize(reader.GetString(8))));
         }
 
         return results;
@@ -426,6 +464,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             Type: reader.IsDBNull(reader.GetOrdinal("type")) ? "primary" : reader.GetString(reader.GetOrdinal("type")),
             CompletionCriteria: reader.IsDBNull(reader.GetOrdinal("completion_criteria")) ? "" : reader.GetString(reader.GetOrdinal("completion_criteria")),
             Description: reader.IsDBNull(reader.GetOrdinal("description")) ? "" : reader.GetString(reader.GetOrdinal("description")),
+            Phase: reader.IsDBNull(reader.GetOrdinal("phase")) ? ObjectivePhases.InGame : ObjectivePhases.Normalize(reader.GetString(reader.GetOrdinal("phase"))),
             Status: reader.IsDBNull(reader.GetOrdinal("status")) ? "active" : reader.GetString(reader.GetOrdinal("status")),
             IsPriority: !reader.IsDBNull(reader.GetOrdinal("is_priority")) && reader.GetInt64(reader.GetOrdinal("is_priority")) != 0,
             Score: reader.IsDBNull(reader.GetOrdinal("score")) ? 0 : reader.GetInt32(reader.GetOrdinal("score")),

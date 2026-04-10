@@ -1,5 +1,7 @@
 #nullable enable
 
+using LoLReview.Core.Constants;
+
 namespace LoLReview.Core.Models;
 
 /// <summary>
@@ -150,4 +152,8 @@ public class GameStats
         GameDuration > 0
             ? $"{GameDuration / 60}m {GameDuration % 60}s"
             : "";
+
+    /// <summary>Best user-facing mode label, preferring queue labels over raw Riot modes.</summary>
+    public string DisplayGameMode =>
+        GameConstants.GetDisplayGameMode(GameMode, QueueType);
 }

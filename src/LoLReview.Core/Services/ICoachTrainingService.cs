@@ -8,5 +8,5 @@ public interface ICoachTrainingService
 {
     Task<CoachTrainingStatus> GetStatusAsync(CancellationToken cancellationToken = default);
 
-    Task<CoachTrainResult> TrainPrematureModelAsync(CancellationToken cancellationToken = default);
+    Task<CoachTrainResult> TrainGemmaModelAsync(CancellationToken cancellationToken = default);
 }

@@ -10,6 +10,15 @@ namespace LoLReview.Core.Constants;
 /// </summary>
 public static class GameConstants
 {
+    private static readonly FrozenDictionary<int, string> QueueLabels = new Dictionary<int, string>
+    {
+        [420] = "Ranked Solo/Duo",
+        [440] = "Ranked Flex",
+        [400] = "Normal Draft",
+        [430] = "Normal Blind",
+        [490] = "Quickplay",
+    }.ToFrozenDictionary();
+
     // ── Game mode filtering ──────────────────────────────────────────────
 
     /// <summary>
@@ -32,12 +41,20 @@ public static class GameConstants
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// SQL fragment for excluding casual modes and hidden games in queries.
+    /// Queue types that are considered ranked and should appear in the app.
+    /// Everything else is filtered out.
+    /// </summary>
+    public static readonly FrozenSet<string> RankedQueueTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "Ranked Solo/Duo",
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// SQL fragment for excluding non-ranked, casual, and hidden games in queries.
+    /// Only Ranked Solo/Duo and manually entered games pass this filter.
     /// </summary>
     public static readonly string CasualModeSqlFilter =
-        "AND COALESCE(is_hidden, 0) = 0 AND game_mode NOT IN ("
-        + string.Join(",", CasualModes.Order().Select(m => $"'{m}'"))
-        + ")";
+        "AND COALESCE(is_hidden, 0) = 0 AND COALESCE(queue_type, '') IN ('Ranked Solo/Duo', 'Manual')";
 
     // ── Timing / intervals ───────────────────────────────────────────────
 
@@ -232,5 +249,59 @@ public static class GameConstants
         return value >= 1000
             ? $"{value / 1000.0:F1}k"
             : value.ToString();
+    }
+
+    /// <summary>Map a Riot queue id to a human-readable queue label when known.</summary>
+    public static string GetQueueLabel(int queueId) =>
+        QueueLabels.TryGetValue(queueId, out var label) ? label : "";
+
+    /// <summary>Normalize queue labels stored as ids, raw queue names, or already-human labels.</summary>
+    public static string NormalizeQueueLabel(string? queueType)
+    {
+        if (string.IsNullOrWhiteSpace(queueType))
+        {
+            return "";
+        }
+
+        var trimmed = queueType.Trim();
+        if (int.TryParse(trimmed, out var queueId))
+        {
+            var mapped = GetQueueLabel(queueId);
+            return string.IsNullOrWhiteSpace(mapped) ? trimmed : mapped;
+        }
+
+        return trimmed.ToUpperInvariant() switch
+        {
+            "RANKED_SOLO_5X5" => "Ranked Solo/Duo",
+            "RANKED_SOLO" => "Ranked Solo/Duo",
+            "RANKED FLEX" => "Ranked Flex",
+            "RANKED_FLEX_SR" => "Ranked Flex",
+            "NORMAL DRAFT" => "Normal Draft",
+            "NORMAL BLIND" => "Normal Blind",
+            _ when string.Equals(trimmed, "Ranked Solo", StringComparison.OrdinalIgnoreCase) => "Ranked Solo/Duo",
+            _ => trimmed,
+        };
+    }
+
+    /// <summary>Resolve the best user-facing label for a game using queue info when available.</summary>
+    public static string GetDisplayGameMode(string? gameMode, string? queueType)
+    {
+        var normalizedQueue = NormalizeQueueLabel(queueType);
+        if (!string.IsNullOrWhiteSpace(normalizedQueue))
+        {
+            return normalizedQueue;
+        }
+
+        if (string.IsNullOrWhiteSpace(gameMode))
+        {
+            return "";
+        }
+
+        var trimmed = gameMode.Trim();
+        return trimmed.ToUpperInvariant() switch
+        {
+            "CLASSIC" => "Ranked Solo/Duo",
+            _ => trimmed,
+        };
     }
 }

@@ -16,6 +16,32 @@
     </Page.Resources>
 
     <Grid Background="{StaticResource AppBackgroundBrush}">
+        <Grid.Resources>
+            <Storyboard x:Name="CelebrationEnterStoryboard">
+                <DoubleAnimation Storyboard.TargetName="CelebrationOverlay"
+                                 Storyboard.TargetProperty="Opacity"
+                                 From="0" To="1" Duration="0:0:0.35">
+                    <DoubleAnimation.EasingFunction>
+                        <CubicEase EasingMode="EaseOut"/>
+                    </DoubleAnimation.EasingFunction>
+                </DoubleAnimation>
+                <DoubleAnimation Storyboard.TargetName="CelebrationCardTransform"
+                                 Storyboard.TargetProperty="ScaleX"
+                                 From="0.85" To="1" Duration="0:0:0.45">
+                    <DoubleAnimation.EasingFunction>
+                        <CubicEase EasingMode="EaseOut"/>
+                    </DoubleAnimation.EasingFunction>
+                </DoubleAnimation>
+                <DoubleAnimation Storyboard.TargetName="CelebrationCardTransform"
+                                 Storyboard.TargetProperty="ScaleY"
+                                 From="0.85" To="1" Duration="0:0:0.45">
+                    <DoubleAnimation.EasingFunction>
+                        <CubicEase EasingMode="EaseOut"/>
+                    </DoubleAnimation.EasingFunction>
+                </DoubleAnimation>
+            </Storyboard>
+        </Grid.Resources>
+
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel Padding="24,20" Spacing="12" MaxWidth="900">
@@ -45,7 +71,7 @@
                         BorderBrush="{StaticResource AccentBlueBrush}"
                         Visibility="{x:Bind ViewModel.IsCreating, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <StackPanel Spacing="12">
-                        <TextBlock Text="New Objective"
+                        <TextBlock Text="{x:Bind ViewModel.ObjectiveFormTitle, Mode=OneWay}"
                                    FontSize="16" FontWeight="SemiBold"
                                    Foreground="{StaticResource PrimaryTextBrush}"/>
 
@@ -87,6 +113,20 @@
                             </ComboBox>
                         </StackPanel>
 
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="When" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <ComboBox SelectedIndex="{x:Bind ViewModel.NewPhaseIndex, Mode=TwoWay}"
+                                      Background="{StaticResource InputBackgroundBrush}"
+                                      Foreground="{StaticResource PrimaryTextBrush}"
+                                      BorderBrush="{StaticResource SubtleBorderBrush}"
+                                      CornerRadius="6" MinWidth="200">
+                                <ComboBoxItem Content="Pre-Game"/>
+                                <ComboBoxItem Content="In-Game"/>
+                                <ComboBoxItem Content="Post-Game"/>
+                            </ComboBox>
+                        </StackPanel>
+
                         <!-- Completion Criteria -->
                         <StackPanel Spacing="4">
                             <TextBlock Text="Completion Criteria" FontSize="12"
@@ -123,7 +163,7 @@
                                     Foreground="{StaticResource PrimaryTextBrush}"
                                     CornerRadius="6" Height="32"
                                     BorderThickness="0"/>
-                            <Button Content="Create"
+                            <Button Content="{x:Bind ViewModel.SaveObjectiveButtonText, Mode=OneWay}"
                                     Command="{x:Bind ViewModel.CreateObjectiveCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanCreate, Mode=OneWay}"
                                     Background="{StaticResource AccentBlueBrush}"
@@ -199,6 +239,31 @@
                                                TextWrapping="Wrap"
                                                Visibility="{x:Bind HasCriteria, Converter={StaticResource BoolToVis}}"/>
 
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="220"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                   Text="When"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1"
+                                                  SelectedIndex="{x:Bind PhaseIndex, Mode=OneWay}"
+                                                  SelectionChanged="ObjectivePhase_SelectionChanged"
+                                                  Background="{StaticResource InputBackgroundBrush}"
+                                                  Foreground="{StaticResource PrimaryTextBrush}"
+                                                  BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                  CornerRadius="6"
+                                                  MinWidth="180">
+                                            <ComboBoxItem Content="Pre-Game"/>
+                                            <ComboBoxItem Content="In-Game"/>
+                                            <ComboBoxItem Content="Post-Game"/>
+                                        </ComboBox>
+                                    </Grid>
+
                                     <!-- Level + Score Row -->
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <TextBlock Text="{x:Bind LevelName}"
@@ -261,6 +326,15 @@
 
                                         <!-- Buttons -->
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                            <Button Content="Edit"
+                                                    Background="{StaticResource TagBackgroundBrush}"
+                                                    Foreground="{StaticResource PrimaryTextBrush}"
+                                                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6" Height="30"
+                                                    FontSize="12"
+                                                    Tag="{x:Bind Id}"
+                                                    Click="EditObjective_Click"/>
                                             <Button Content="View Games"
                                                     Background="{StaticResource TagBackgroundBrush}"
                                                     Foreground="{StaticResource SecondaryTextBrush}"
@@ -719,11 +793,16 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <TextBlock Grid.Column="0"
-                                               Text="{x:Bind Title}"
-                                               FontSize="14"
-                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Grid.Column="0"
+                                                Spacing="2"
+                                                VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind Title}"
+                                                   FontSize="14"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                        <TextBlock Text="{x:Bind PhaseLabel}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource MutedTextBrush}"/>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="1"
                                                Text="{x:Bind SummaryText}"
                                                FontSize="12"
@@ -731,6 +810,15 @@
                                                VerticalAlignment="Center"
                                                Margin="12,0"/>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button Content="Edit"
+                                                Background="{StaticResource TagBackgroundBrush}"
+                                                Foreground="{StaticResource PrimaryTextBrush}"
+                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="6" Height="28"
+                                                FontSize="11"
+                                                Tag="{x:Bind Id}"
+                                                Click="EditObjective_Click"/>
                                         <Button Content="View Games"
                                                 Background="{StaticResource TagBackgroundBrush}"
                                                 Foreground="{StaticResource SecondaryTextBrush}"
@@ -762,5 +850,78 @@
 
             </StackPanel>
         </ScrollViewer>
+
+        <!-- ═══ Celebration Overlay ═══ -->
+        <Grid x:Name="CelebrationOverlay"
+              Visibility="{x:Bind ViewModel.ShowCelebration, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+              Background="#CC060B0B">
+            <Border MaxWidth="420"
+                    Background="{StaticResource CardAltBackgroundBrush}"
+                    BorderBrush="{StaticResource AccentGoldBrush}"
+                    BorderThickness="2"
+                    CornerRadius="18"
+                    Padding="36,32"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <CompositeTransform x:Name="CelebrationCardTransform"/>
+                </Border.RenderTransform>
+
+                <StackPanel Spacing="16" HorizontalAlignment="Center">
+                    <!-- Trophy icon -->
+                    <FontIcon Glyph="&#xE735;" FontSize="52"
+                              Foreground="{StaticResource AccentGoldBrush}"
+                              HorizontalAlignment="Center"/>
+
+                    <!-- Heading -->
+                    <TextBlock Text="OBJECTIVE MASTERED"
+                               FontSize="22" FontWeight="Bold"
+                               Foreground="{StaticResource AccentGoldBrush}"
+                               HorizontalAlignment="Center"
+                               CharacterSpacing="80"/>
+
+                    <!-- Objective title -->
+                    <TextBlock Text="{x:Bind ViewModel.CelebrationTitle, Mode=OneWay}"
+                               FontSize="16" FontWeight="SemiBold"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"/>
+
+                    <!-- Stats -->
+                    <TextBlock Text="{x:Bind ViewModel.CelebrationStats, Mode=OneWay}"
+                               FontSize="14"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               HorizontalAlignment="Center"/>
+
+                    <!-- Separator -->
+                    <Border Height="1" Width="120"
+                            Background="{StaticResource AccentGoldDimBrush}"
+                            HorizontalAlignment="Center"/>
+
+                    <!-- Motivational text -->
+                    <TextBlock Text="Skill acquired. On to the next challenge."
+                               FontSize="13"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"/>
+
+                    <!-- Dismiss button -->
+                    <Button Content="Continue"
+                            Command="{x:Bind ViewModel.DismissCelebrationCommand}"
+                            Background="{StaticResource AccentGoldDimBrush}"
+                            Foreground="{StaticResource AccentGoldBrush}"
+                            BorderBrush="{StaticResource AccentGoldBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Height="38"
+                            Padding="28,0"
+                            HorizontalAlignment="Center"
+                            FontSize="14"
+                            FontWeight="SemiBold"/>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Page>

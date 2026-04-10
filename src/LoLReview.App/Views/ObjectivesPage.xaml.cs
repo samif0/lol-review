@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -17,6 +18,15 @@ public sealed partial class ObjectivesPage : Page
         ViewModel = App.GetService<ObjectivesViewModel>();
         RulesVM = App.GetService<RulesViewModel>();
         InitializeComponent();
+
+        ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(ObjectivesViewModel.ShowCelebration)
+                && ViewModel.ShowCelebration)
+            {
+                CelebrationEnterStoryboard.Begin();
+            }
+        };
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
@@ -64,12 +74,39 @@ public sealed partial class ObjectivesPage : Page
         }
     }
 
+    private async void EditObjective_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long objectiveId)
+        {
+            await ViewModel.BeginEditObjectiveCommand.ExecuteAsync(objectiveId);
+        }
+    }
+
     private void ViewObjectiveGames_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is long objectiveId)
         {
             ViewModel.ViewGamesCommand.Execute(objectiveId);
         }
+    }
+
+    private async void ObjectivePhase_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox combo || combo.DataContext is not ObjectiveDisplayItem item)
+        {
+            return;
+        }
+
+        var phase = LoLReview.Core.Data.Repositories.ObjectivePhases.FromIndex(combo.SelectedIndex);
+        if (string.Equals(
+                phase,
+                LoLReview.Core.Data.Repositories.ObjectivePhases.Normalize(item.Phase),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await ViewModel.UpdateObjectivePhaseCommand.ExecuteAsync(new ObjectivePhaseUpdateRequest(item.Id, phase));
     }
 
     private async void ToggleRule_Click(object sender, RoutedEventArgs e)

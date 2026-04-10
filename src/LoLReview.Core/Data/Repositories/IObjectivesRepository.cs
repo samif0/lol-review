@@ -17,7 +17,7 @@ public sealed record ObjectiveLevelInfo(
 public interface IObjectivesRepository
 {
     Task<long> CreateAsync(string title, string skillArea = "", string type = "primary",
-        string completionCriteria = "", string description = "");
+        string completionCriteria = "", string description = "", string phase = ObjectivePhases.InGame);
 
     Task<IReadOnlyList<ObjectiveSummary>> GetAllAsync();
 
@@ -32,6 +32,11 @@ public interface IObjectivesRepository
     Task UpdateScoreAsync(long objectiveId, bool win);
 
     Task MarkCompleteAsync(long objectiveId);
+
+    Task UpdateAsync(long objectiveId, string title, string skillArea = "", string type = "primary",
+        string completionCriteria = "", string description = "", string phase = ObjectivePhases.InGame);
+
+    Task UpdatePhaseAsync(long objectiveId, string phase);
 
     Task DeleteAsync(long objectiveId);
 

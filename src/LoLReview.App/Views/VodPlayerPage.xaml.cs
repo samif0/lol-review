@@ -45,6 +45,10 @@ public sealed partial class VodPlayerPage : Page
         ViewModel.SpeedChangeRequested += OnSpeedChangeRequested;
         ViewModel.PlayPauseRequested += OnPlayPauseRequested;
         Timeline.SeekRequested += OnTimelineSeek;
+        VideoContainer.AddHandler(
+            PointerPressedEvent,
+            new PointerEventHandler(OnVideoPointerPressed),
+            handledEventsToo: true);
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -78,7 +82,7 @@ public sealed partial class VodPlayerPage : Page
         TryLoadMedia();
 
         // Focus the video area so no button holds focus and eats Space.
-        DispatcherQueue.TryEnqueue(() => VideoContainer.Focus(FocusState.Programmatic));
+        DispatcherQueue.TryEnqueue(FocusPlaybackSurface);
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -297,18 +301,36 @@ public sealed partial class VodPlayerPage : Page
 
     private void OnVideoTapped(object sender, TappedRoutedEventArgs e)
     {
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
+    }
+
+    private void OnVideoPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsInteractiveChildTap(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        FocusPlaybackSurface();
+    }
+
+    private void FocusPlaybackSurface()
+    {
+        if (!VideoContainer.Focus(FocusState.Programmatic))
+        {
+            Focus(FocusState.Programmatic);
+        }
     }
 
     private void OnClipButtonClick(object sender, RoutedEventArgs e)
     {
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
     }
 
     private void OnVideoPlayPauseClick(object sender, RoutedEventArgs e)
     {
         OnPlayPauseRequested();
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
     }
 
     private void OnSpeedChanged(object sender, SelectionChangedEventArgs e)
@@ -334,59 +356,80 @@ public sealed partial class VodPlayerPage : Page
             ViewModel.SeekToBookmarkCommand.Execute(bookmark);
         }
 
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
+    }
+
+    private void OnBookmarkJumpClick(object sender, RoutedEventArgs e)
+    {
+        if (ResolveBookmarkItem(sender) is { } bookmark)
+        {
+            ViewModel.SeekToBookmarkCommand.Execute(bookmark);
+        }
+
+        FocusPlaybackSurface();
+    }
+
+    private async void OnBookmarkQualityClick(object sender, RoutedEventArgs e)
+    {
+        if (ResolveBookmarkItem(sender) is not { } bookmark)
+        {
+            return;
+        }
+
+        var quality = sender is FrameworkElement element
+            ? element.Tag as string
+            : null;
+
+        await ViewModel.SetBookmarkQualityCommand.ExecuteAsync(new BookmarkQualityUpdateRequest(bookmark, quality));
+        FocusPlaybackSurface();
     }
 
     private void OnTimelineEventTapped(object sender, PointerRoutedEventArgs e)
     {
         if (sender is FrameworkElement fe && fe.DataContext is TimelineEvent timelineEvent)
             ViewModel.SeekToEventCommand.Execute(timelineEvent);
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
     }
 
-    private async void OnDeleteBookmark(object sender, RoutedEventArgs e)
+    private void OnDeleteBookmark(object sender, RoutedEventArgs e)
     {
-        var bookmark = ResolveBookmarkItem(sender);
         var bookmarkId = ResolveBookmarkId(sender);
-        AppDiagnostics.WriteVerbose(
-            "vod-delete.log",
-            $"delete click bookmarkId={bookmarkId?.ToString() ?? "null"} isClip={bookmark?.IsClip.ToString() ?? "unknown"}");
-
         if (bookmarkId is > 0)
         {
-            await ViewModel.DeleteBookmarkCommand.ExecuteAsync(bookmarkId);
-        }
-        else
-        {
-            AppDiagnostics.WriteVerbose("vod-delete.log", "delete click ignored because bookmarkId was not resolved");
+            ViewModel.DeleteBookmarkCommand.Execute(bookmarkId);
         }
 
-        VideoContainer.Focus(FocusState.Programmatic);
-    }
-
-    private void OnDeleteBookmarkPointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        var bookmark = ResolveBookmarkItem(sender);
-        var bookmarkId = ResolveBookmarkId(sender);
-        AppDiagnostics.WriteVerbose(
-            "vod-delete.log",
-            $"delete pressed bookmarkId={bookmarkId?.ToString() ?? "null"} isClip={bookmark?.IsClip.ToString() ?? "unknown"}");
-    }
-
-    private void OnDeleteBookmarkPointerReleased(object sender, PointerRoutedEventArgs e)
-    {
-        var bookmark = ResolveBookmarkItem(sender);
-        var bookmarkId = ResolveBookmarkId(sender);
-        AppDiagnostics.WriteVerbose(
-            "vod-delete.log",
-            $"delete released bookmarkId={bookmarkId?.ToString() ?? "null"} isClip={bookmark?.IsClip.ToString() ?? "unknown"}");
+        FocusPlaybackSurface();
     }
 
     private async void OnBookmarkNoteLostFocus(object sender, RoutedEventArgs e)
     {
         if (ResolveBookmarkItem(sender) is { Id: > 0 } bookmark)
         {
+            if (sender is TextBox textBox)
+            {
+                bookmark.Note = textBox.Text;
+            }
+
             await ViewModel.SaveBookmarkNoteCommand.ExecuteAsync(bookmark);
+        }
+    }
+
+    private void OnBookmarkNoteTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is TextBox { FocusState: FocusState.Unfocused })
+        {
+            return;
+        }
+
+        if (ResolveBookmarkItem(sender) is { Id: > 0 } bookmark)
+        {
+            if (sender is TextBox textBox)
+            {
+                bookmark.Note = textBox.Text;
+            }
+
+            ViewModel.ScheduleBookmarkNoteSaveCommand.Execute(bookmark);
         }
     }
 
@@ -398,7 +441,7 @@ public sealed partial class VodPlayerPage : Page
         }
 
         ViewModel.AddBookmarkCommand.Execute(null);
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
         e.Handled = true;
     }
 
@@ -410,7 +453,7 @@ public sealed partial class VodPlayerPage : Page
         }
 
         ViewModel.ExtractClipCommand.Execute(null);
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
         e.Handled = true;
     }
 
@@ -423,8 +466,13 @@ public sealed partial class VodPlayerPage : Page
 
         if (ResolveBookmarkItem(sender) is { Id: > 0 } bookmark)
         {
+            if (sender is TextBox textBox)
+            {
+                bookmark.Note = textBox.Text;
+            }
+
             await ViewModel.SaveBookmarkNoteCommand.ExecuteAsync(bookmark);
-            VideoContainer.Focus(FocusState.Programmatic);
+            FocusPlaybackSurface();
             e.Handled = true;
         }
     }
@@ -434,13 +482,13 @@ public sealed partial class VodPlayerPage : Page
         if (_mediaPlayer == null) return;
         _mediaPlayer.IsMuted = !_mediaPlayer.IsMuted;
         VolumeIcon.Glyph = _mediaPlayer.IsMuted ? "\uE74F" : VolumeGlyph(_mediaPlayer.Volume);
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
     }
 
     private void OnFullscreenClick(object sender, RoutedEventArgs e)
     {
         ToggleFullscreen();
-        VideoContainer.Focus(FocusState.Programmatic);
+        FocusPlaybackSurface();
     }
 
     private void ToggleFullscreen()

@@ -1,7 +1,9 @@
 #nullable enable
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using LoLReview.Core.Data;
 using LoLReview.Core.Models;
 using Microsoft.Data.Sqlite;
@@ -10,13 +12,21 @@ using Microsoft.Extensions.Logging;
 namespace LoLReview.Core.Services;
 
 /// <summary>
-/// Coach Lab draft labeling.
-/// Prefers active personal/base/teacher models, then the premature prototype, then heuristics.
+/// Coach Lab multimodal inference through a persistent Gemma worker.
+/// Gemma is the only supported model family.
 /// </summary>
-public sealed class CoachSidecarClient : ICoachSidecarClient
+public sealed class CoachSidecarClient : ICoachSidecarClient, IDisposable
 {
+    private const string WorkerProtocolPrefix = "__coach_json__";
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly IDbConnectionFactory _connectionFactory;
     private readonly ILogger<CoachSidecarClient> _logger;
+    private readonly SemaphoreSlim _workerGate = new(1, 1);
+    private GemmaWorkerSession? _worker;
 
     public CoachSidecarClient(
         IDbConnectionFactory connectionFactory,
@@ -30,320 +40,138 @@ public sealed class CoachSidecarClient : ICoachSidecarClient
         CoachDraftRequest request,
         CancellationToken cancellationToken = default)
     {
-        var qwenDraft = await TryDraftWithQwenModelAsync(request, cancellationToken);
-        if (qwenDraft is not null)
+        if (string.IsNullOrWhiteSpace(request.StoryboardPath) || !File.Exists(request.StoryboardPath))
         {
-            return qwenDraft;
+            throw new InvalidOperationException("Coach Lab could not find the storyboard artifact needed for Gemma drafting.");
         }
 
-        var prototypeDraft = await TryDraftWithPrematurePrototypeAsync(request, cancellationToken);
-        if (prototypeDraft is not null)
+        if (string.IsNullOrWhiteSpace(request.MinimapStripPath) || !File.Exists(request.MinimapStripPath))
         {
-            return prototypeDraft;
+            throw new InvalidOperationException("Coach Lab could not find the minimap artifact needed for Gemma drafting.");
         }
 
-        var objectiveKey = CoachDraftHeuristics.InferObjectiveKey(
-            request.NoteText,
-            request.ReviewContext,
-            request.ActiveObjectiveTitle);
-
-        var quality = CoachDraftHeuristics.InferMomentQuality(
-            request.NoteText,
-            request.ReviewContext);
-
-        if (request.SourceType == "auto_sample" && string.IsNullOrWhiteSpace(request.NoteText))
-        {
-            quality = "neutral";
-        }
-
-        var primaryReason = string.IsNullOrWhiteSpace(objectiveKey)
-            ? request.SourceType == "manual_clip" ? "manual_clip_review" : "lane_checkpoint"
-            : objectiveKey;
-
-        var confidence = request.SourceType == "manual_clip"
-            ? 0.68
-            : 0.35;
-
-        if (!string.IsNullOrWhiteSpace(objectiveKey))
-        {
-            confidence += 0.1;
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.NoteText))
-        {
-            confidence += 0.08;
-        }
-
-        confidence = Math.Clamp(confidence, 0.2, 0.9);
-
-        var rationale = request.SourceType == "manual_clip"
-            ? BuildManualClipRationale(quality, objectiveKey, request.NoteText)
-            : BuildAutoSampleRationale(objectiveKey, request.ActiveObjectiveTitle);
-
-        var rawPayload = JsonSerializer.Serialize(new
-        {
-            request.SourceType,
-            quality,
-            objectiveKey,
-            primaryReason,
-            confidence,
-            note = request.NoteText,
-            reviewContext = request.ReviewContext,
-            activeObjective = request.ActiveObjectiveTitle
-        });
+        var model = await RequireActiveGemmaModelAsync(cancellationToken);
+        var response = await SendWorkerRequestAsync<GemmaDraftPayload>(
+            model,
+            new
+            {
+                command = "draft",
+                storyboard = request.StoryboardPath,
+                minimap = request.MinimapStripPath,
+                game_time_s = request.GameTimeS,
+                champion = request.Champion,
+                role = request.Role,
+                active_objective_title = request.ActiveObjectiveTitle,
+                note_text = request.NoteText,
+                review_context = request.ReviewContext,
+                source_type = request.SourceType,
+            },
+            cancellationToken);
 
         return new CoachDraftResult
         {
-            ModelVersion = "assist-heuristic-v1",
-            InferenceMode = "assist",
-            MomentQuality = quality,
-            PrimaryReason = primaryReason,
-            ObjectiveKey = objectiveKey,
-            Confidence = confidence,
-            Rationale = rationale,
-            RawPayload = rawPayload,
+            ModelVersion = response.ModelVersion,
+            InferenceMode = "gemma",
+            MomentQuality = response.MomentQuality,
+            PrimaryReason = response.PrimaryReason,
+            ObjectiveKey = response.ObjectiveKey,
+            Confidence = response.Confidence,
+            Rationale = response.Rationale,
+            RawPayload = response.RawPayload,
         };
     }
 
-    private async Task<CoachDraftResult?> TryDraftWithQwenModelAsync(
-        CoachDraftRequest request,
-        CancellationToken cancellationToken)
+    public async Task<CoachProblemsReport> AnalyzeProblemsAsync(
+        CoachProblemAnalysisRequest request,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(request.StoryboardPath) || !File.Exists(request.StoryboardPath))
-        {
-            return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(request.MinimapStripPath) || !File.Exists(request.MinimapStripPath))
-        {
-            return null;
-        }
-
-        ActiveCoachModel? model;
-        using (var connection = _connectionFactory.CreateConnection())
-        {
-            model = await GetLatestActiveQwenModelAsync(connection, cancellationToken);
-        }
-
-        if (model is null || string.IsNullOrWhiteSpace(model.HfModelId))
-        {
-            return null;
-        }
-
-        try
-        {
-            var predictScript = CoachPythonRuntime.ResolveCoachLabScriptPath("predict_qwen_judge.py");
-            var pythonExecutable = CoachPythonRuntime.ResolvePythonExecutable();
-            var args = new List<string>
+        var model = await RequireActiveGemmaModelAsync(cancellationToken);
+        var response = await SendWorkerRequestAsync<GemmaProblemsPayload>(
+            model,
+            new
             {
-                $"\"{predictScript}\"",
-                $"--storyboard \"{request.StoryboardPath}\"",
-                $"--minimap \"{request.MinimapStripPath}\"",
-                $"--game-time-s {request.GameTimeS}",
-                $"--champion \"{EscapeArg(request.Champion)}\"",
-                $"--role \"{EscapeArg(request.Role)}\"",
-                $"--active-objective-title \"{EscapeArg(request.ActiveObjectiveTitle)}\"",
-                $"--source-type \"{EscapeArg(request.SourceType)}\"",
-                $"--model-id \"{EscapeArg(model.HfModelId)}\"",
-                $"--model-version \"{EscapeArg(model.ModelVersion)}\"",
-                $"--mode {(model.ModelKind == "qwen_teacher" ? "teacher" : "judge")}",
-            };
+                command = "problems",
+                player_id = request.PlayerId,
+                objective_block_id = request.ObjectiveBlockId,
+                active_objective_title = request.ActiveObjectiveTitle,
+                active_objective_key = request.ActiveObjectiveKey,
+                review_context = request.ReviewContext,
+                clip_cards = request.ClipCards,
+            },
+            cancellationToken);
 
-            if (!string.IsNullOrWhiteSpace(model.AdapterDirectory))
-            {
-                args.Add($"--adapter-dir \"{EscapeArg(model.AdapterDirectory)}\"");
-            }
-
-            if (model.ModelKind == "qwen_teacher")
-            {
-                args.Add($"--note-text \"{EscapeArg(request.NoteText)}\"");
-                args.Add($"--review-context \"{EscapeArg(request.ReviewContext)}\"");
-            }
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = pythonExecutable,
-                Arguments = string.Join(' ', args),
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(predictScript) ?? AppContext.BaseDirectory,
-            };
-
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return null;
-            }
-
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogWarning("{ModelKind} prediction failed: {Error}", model.ModelKind, stderr);
-                return null;
-            }
-
-            var payload = JsonSerializer.Deserialize<PrematurePredictPayload>(stdout.Trim());
-            if (payload is null)
-            {
-                return null;
-            }
-
-            return new CoachDraftResult
-            {
-                ModelVersion = payload.ModelVersion,
-                InferenceMode = model.ModelKind,
-                MomentQuality = payload.MomentQuality,
-                PrimaryReason = payload.PrimaryReason,
-                ObjectiveKey = payload.ObjectiveKey,
-                Confidence = payload.Confidence,
-                Rationale = payload.Rationale,
-                RawPayload = stdout.Trim(),
-            };
-        }
-        catch (Exception ex)
+        return new CoachProblemsReport
         {
-            _logger.LogWarning(ex, "Qwen-based coach prediction failed unexpectedly");
-            return null;
-        }
-    }
-
-    private async Task<CoachDraftResult?> TryDraftWithPrematurePrototypeAsync(
-        CoachDraftRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(request.StoryboardPath) || !File.Exists(request.StoryboardPath))
-        {
-            return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(request.MinimapStripPath) || !File.Exists(request.MinimapStripPath))
-        {
-            return null;
-        }
-
-        PrototypeModelInfo? model;
-        using (var connection = _connectionFactory.CreateConnection())
-        {
-            model = await GetLatestActivePrototypeAsync(connection, cancellationToken);
-        }
-
-        if (model is null || string.IsNullOrWhiteSpace(model.ModelDirectory) || !Directory.Exists(model.ModelDirectory))
-        {
-            return null;
-        }
-
-        try
-        {
-            var predictScript = CoachPythonRuntime.ResolveCoachLabScriptPath("predict_premature_model.py");
-            var pythonExecutable = CoachPythonRuntime.ResolvePythonExecutable();
-            var psi = new ProcessStartInfo
-            {
-                FileName = pythonExecutable,
-                Arguments =
-                    $"\"{predictScript}\" --model-dir \"{model.ModelDirectory}\" --storyboard \"{request.StoryboardPath}\" --minimap \"{request.MinimapStripPath}\" --game-time-s {request.GameTimeS}",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(predictScript) ?? AppContext.BaseDirectory,
-            };
-
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return null;
-            }
-
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogWarning("Premature prototype prediction failed: {Error}", stderr);
-                return null;
-            }
-
-            var payload = JsonSerializer.Deserialize<PrematurePredictPayload>(stdout.Trim());
-            if (payload is null)
-            {
-                return null;
-            }
-
-            return new CoachDraftResult
-            {
-                ModelVersion = payload.ModelVersion,
-                InferenceMode = "premature_prototype",
-                MomentQuality = payload.MomentQuality,
-                PrimaryReason = payload.PrimaryReason,
-                ObjectiveKey = payload.ObjectiveKey,
-                Confidence = payload.Confidence,
-                Rationale = payload.Rationale,
-                RawPayload = stdout.Trim(),
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Premature prototype prediction failed unexpectedly");
-            return null;
-        }
-    }
-
-    private static string EscapeArg(string value) =>
-        (value ?? string.Empty)
-            .Replace("\r", " ")
-            .Replace("\n", " ")
-            .Replace("\"", "\\\"");
-
-    private static async Task<PrototypeModelInfo?> GetLatestActivePrototypeAsync(
-        SqliteConnection connection,
-        CancellationToken cancellationToken)
-    {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT model_version, metadata_json
-            FROM coach_models
-            WHERE model_kind = 'premature_prototype' AND is_active = 1
-            ORDER BY created_at DESC, id DESC
-            LIMIT 1
-            """;
-
-        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
-
-        var modelVersion = reader.IsDBNull(0) ? "" : reader.GetString(0);
-        var metadataJson = reader.IsDBNull(1) ? "{}" : reader.GetString(1);
-        using var doc = JsonDocument.Parse(metadataJson);
-        var modelDirectory = doc.RootElement.TryGetProperty("ModelDirectory", out var dirEl)
-            ? dirEl.GetString() ?? ""
-            : doc.RootElement.TryGetProperty("model_directory", out var snakeDir)
-                ? snakeDir.GetString() ?? ""
-                : "";
-
-        return new PrototypeModelInfo
-        {
-            ModelVersion = modelVersion,
-            ModelDirectory = modelDirectory
+            Title = response.Title,
+            Summary = response.Summary,
+            ModelVersion = response.ModelVersion,
+            UsesTrainedModel = string.Equals(model.ModelKind, "gemma_adapter", StringComparison.OrdinalIgnoreCase),
+            RawPayload = response.RawPayload,
+            Problems = response.Problems,
         };
     }
 
-    private static async Task<ActiveCoachModel?> GetLatestActiveQwenModelAsync(
+    public async Task<CoachObjectiveSuggestion> PlanObjectiveAsync(
+        CoachObjectivePlanRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var model = await RequireActiveGemmaModelAsync(cancellationToken);
+        var response = await SendWorkerRequestAsync<GemmaObjectivePlanPayload>(
+            model,
+            new
+            {
+                command = "objective_plan",
+                player_id = request.PlayerId,
+                objective_block_id = request.ObjectiveBlockId,
+                active_objective_id = request.ActiveObjectiveId,
+                active_objective_title = request.ActiveObjectiveTitle,
+                active_objective_key = request.ActiveObjectiveKey,
+                review_context = request.ReviewContext,
+                clip_cards = request.ClipCards,
+                candidates = request.Candidates,
+            },
+            cancellationToken);
+
+        return new CoachObjectiveSuggestion
+        {
+            Title = response.Title,
+            Summary = response.Summary,
+            ModelVersion = response.ModelVersion,
+            UsesTrainedModel = string.Equals(model.ModelKind, "gemma_adapter", StringComparison.OrdinalIgnoreCase),
+            SuggestionMode = response.SuggestionMode,
+            AttachedObjectiveId = response.AttachedObjectiveId,
+            AttachedObjectiveTitle = response.AttachedObjectiveTitle,
+            ObjectiveKey = response.ObjectiveKey,
+            CandidateObjectiveTitle = response.CandidateObjectiveTitle,
+            CandidateCompletionCriteria = response.CandidateCompletionCriteria,
+            CandidateDescription = response.CandidateDescription,
+            FollowUpMetric = response.FollowUpMetric,
+            EvidenceMomentCount = response.EvidenceMomentCount,
+            EvidenceGameCount = response.EvidenceGameCount,
+            Confidence = response.Confidence,
+            RawPayload = response.RawPayload,
+            EvidenceClipIds = response.EvidenceClipIds,
+        };
+    }
+
+    private async Task<ActiveCoachModel> RequireActiveGemmaModelAsync(CancellationToken cancellationToken)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        var model = await GetLatestActiveGemmaModelAsync(connection, cancellationToken);
+        if (model is not null)
+        {
+            return model;
+        }
+
+        throw new InvalidOperationException(
+            "No active Gemma model is registered. Run Coach Lab training or register Gemma 4 E4B before using Gemma-only coach features.");
+    }
+
+    private static async Task<ActiveCoachModel?> GetLatestActiveGemmaModelAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
-        foreach (var modelKind in new[] { "personal_adapter", "qwen_base", "qwen_teacher" })
+        foreach (var modelKind in new[] { "gemma_adapter", "gemma_base" })
         {
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
@@ -381,44 +209,213 @@ public sealed class CoachSidecarClient : ICoachSidecarClient
                 ModelVersion = modelVersion,
                 ModelKind = modelKind,
                 HfModelId = hfModelId,
-                AdapterDirectory = adapterDirectory
+                AdapterDirectory = adapterDirectory,
             };
         }
 
         return null;
     }
 
-    private static string BuildManualClipRationale(string quality, string objectiveKey, string noteText)
+    private async Task<TPayload> SendWorkerRequestAsync<TPayload>(
+        ActiveCoachModel model,
+        object request,
+        CancellationToken cancellationToken)
+        where TPayload : GemmaWorkerPayloadBase
     {
-        if (!string.IsNullOrWhiteSpace(objectiveKey))
+        await _workerGate.WaitAsync(cancellationToken);
+        try
         {
-            var objective = CoachObjectiveCatalog.Find(objectiveKey);
-            var title = objective?.Title ?? objectiveKey;
-            return $"Drafted as {quality} from the clip note. The note most strongly points at {title}.";
-        }
+            var worker = await GetOrCreateWorkerAsync(model, cancellationToken);
+            var requestJson = JsonSerializer.Serialize(request);
+            await worker.Process.StandardInput.WriteLineAsync(requestJson);
+            await worker.Process.StandardInput.FlushAsync();
 
-        return string.IsNullOrWhiteSpace(noteText)
-            ? "Manual clip without a note. Needs human normalization."
-            : $"Drafted as {quality} from the clip note wording. Needs human normalization.";
+            var payloadText = await ReadProtocolPayloadAsync(worker.Process.StandardOutput, cancellationToken);
+            if (string.IsNullOrWhiteSpace(payloadText))
+            {
+                InvalidateWorkerUnsafe("Gemma worker exited without returning a response.");
+                throw new InvalidOperationException("Gemma worker exited without returning a response.");
+            }
+
+            var payload = JsonSerializer.Deserialize<TPayload>(payloadText, JsonOptions)
+                ?? throw new InvalidOperationException("Gemma worker returned unreadable JSON.");
+
+            if (!payload.Ok)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(payload.Error)
+                        ? "Gemma worker reported an unknown error."
+                        : payload.Error);
+            }
+
+            payload.RawPayload = payloadText;
+            return payload;
+        }
+        catch (OperationCanceledException)
+        {
+            InvalidateWorkerUnsafe("Gemma worker request was cancelled.");
+            throw;
+        }
+        catch
+        {
+            InvalidateWorkerUnsafe("Gemma worker request failed and will be restarted.");
+            throw;
+        }
+        finally
+        {
+            _workerGate.Release();
+        }
     }
 
-    private static string BuildAutoSampleRationale(string objectiveKey, string activeObjectiveTitle)
+    private async Task<GemmaWorkerSession> GetOrCreateWorkerAsync(
+        ActiveCoachModel model,
+        CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(objectiveKey))
+        var key = BuildWorkerKey(model);
+        if (_worker is not null && !_worker.HasExited && string.Equals(_worker.Key, key, StringComparison.Ordinal))
         {
-            var objective = CoachObjectiveCatalog.Find(objectiveKey);
-            return $"Auto-sampled lane checkpoint near the current coaching theme: {objective?.Title ?? objectiveKey}. Needs review.";
+            return _worker;
         }
 
-        return string.IsNullOrWhiteSpace(activeObjectiveTitle)
-            ? "Auto-sampled lane checkpoint. Needs human review."
-            : $"Auto-sampled lane checkpoint created while tracking the current objective \"{activeObjectiveTitle}\".";
+        InvalidateWorkerUnsafe(_worker is null ? null : "Gemma worker model selection changed. Restarting the worker.");
+        _worker = await StartWorkerAsync(model, cancellationToken);
+        return _worker;
     }
 
-    private sealed class PrototypeModelInfo
+    private async Task<GemmaWorkerSession> StartWorkerAsync(
+        ActiveCoachModel model,
+        CancellationToken cancellationToken)
     {
-        public string ModelVersion { get; set; } = "";
-        public string ModelDirectory { get; set; } = "";
+        var workerScript = CoachPythonRuntime.ResolveCoachLabScriptPath("gemma_worker.py");
+        var pythonExecutable = CoachPythonRuntime.ResolvePythonExecutable();
+        var args = new List<string>
+        {
+            "-u",
+            $"\"{workerScript}\"",
+            $"--model-id \"{EscapeArg(model.HfModelId)}\"",
+            $"--model-version \"{EscapeArg(model.ModelVersion)}\"",
+        };
+
+        if (!string.IsNullOrWhiteSpace(model.AdapterDirectory))
+        {
+            args.Add($"--adapter-dir \"{EscapeArg(model.AdapterDirectory)}\"");
+        }
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = pythonExecutable,
+            Arguments = string.Join(' ', args),
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(workerScript) ?? AppContext.BaseDirectory,
+        };
+
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start the Gemma worker process.");
+
+        var session = new GemmaWorkerSession(BuildWorkerKey(model), process);
+        process.ErrorDataReceived += (_, eventArgs) =>
+        {
+            if (string.IsNullOrWhiteSpace(eventArgs.Data))
+            {
+                return;
+            }
+
+            session.RememberErrorLine(eventArgs.Data);
+            _logger.LogDebug("Gemma worker stderr: {Line}", eventArgs.Data);
+        };
+        process.BeginErrorReadLine();
+
+        var readyText = await ReadProtocolPayloadAsync(process.StandardOutput, cancellationToken);
+        if (string.IsNullOrWhiteSpace(readyText))
+        {
+            var stderr = session.GetRecentErrors();
+            session.Dispose();
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(stderr)
+                    ? "Gemma worker exited before it finished loading the model."
+                    : $"Gemma worker exited before it finished loading the model. {stderr}");
+        }
+
+        var readyPayload = JsonSerializer.Deserialize<GemmaWorkerReadyPayload>(readyText, JsonOptions);
+        if (readyPayload?.Ready != true)
+        {
+            var stderr = session.GetRecentErrors();
+            session.Dispose();
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(stderr)
+                    ? "Gemma worker did not report a ready state."
+                    : $"Gemma worker did not report a ready state. {stderr}");
+        }
+
+        _logger.LogInformation(
+            "Gemma worker loaded {ModelKind} model {ModelVersion} ({ModelId}).",
+            model.ModelKind,
+            model.ModelVersion,
+            model.HfModelId);
+
+        return session;
+    }
+
+    private async Task<string?> ReadProtocolPayloadAsync(
+        StreamReader reader,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var line = await reader.ReadLineAsync().WaitAsync(cancellationToken);
+            if (line is null)
+            {
+                return null;
+            }
+
+            if (line.StartsWith(WorkerProtocolPrefix, StringComparison.Ordinal))
+            {
+                return line[WorkerProtocolPrefix.Length..];
+            }
+
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                _logger.LogDebug("Ignoring non-protocol stdout from Gemma worker: {Line}", line);
+            }
+        }
+    }
+
+    private void InvalidateWorkerUnsafe(string? reason)
+    {
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            _logger.LogInformation("{Reason}", reason);
+        }
+
+        _worker?.Dispose();
+        _worker = null;
+    }
+
+    private static string BuildWorkerKey(ActiveCoachModel model) =>
+        $"{model.ModelKind}|{model.ModelVersion}|{model.HfModelId}|{model.AdapterDirectory}";
+
+    private static string EscapeArg(string value) =>
+        (value ?? string.Empty)
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Replace("\"", "\\\"");
+
+    public void Dispose()
+    {
+        _workerGate.Wait();
+        try
+        {
+            InvalidateWorkerUnsafe(null);
+        }
+        finally
+        {
+            _workerGate.Release();
+            _workerGate.Dispose();
+        }
     }
 
     private sealed class ActiveCoachModel
@@ -429,7 +426,25 @@ public sealed class CoachSidecarClient : ICoachSidecarClient
         public string AdapterDirectory { get; set; } = "";
     }
 
-    private sealed class PrematurePredictPayload
+    private sealed class GemmaWorkerReadyPayload
+    {
+        [JsonPropertyName("ready")]
+        public bool Ready { get; set; }
+    }
+
+    private abstract class GemmaWorkerPayloadBase
+    {
+        [JsonPropertyName("ok")]
+        public bool Ok { get; set; }
+
+        [JsonPropertyName("error")]
+        public string Error { get; set; } = "";
+
+        [JsonIgnore]
+        public string RawPayload { get; set; } = "{}";
+    }
+
+    private sealed class GemmaDraftPayload : GemmaWorkerPayloadBase
     {
         public string ModelVersion { get; set; } = "";
         public string MomentQuality { get; set; } = "neutral";
@@ -437,5 +452,101 @@ public sealed class CoachSidecarClient : ICoachSidecarClient
         public string ObjectiveKey { get; set; } = "";
         public double Confidence { get; set; }
         public string Rationale { get; set; } = "";
+    }
+
+    private sealed class GemmaProblemsPayload : GemmaWorkerPayloadBase
+    {
+        public string ModelVersion { get; set; } = "";
+        public string Title { get; set; } = "Recurring problems";
+        public string Summary { get; set; } = "";
+        public List<CoachProblemInsight> Problems { get; set; } = [];
+    }
+
+    private sealed class GemmaObjectivePlanPayload : GemmaWorkerPayloadBase
+    {
+        public string ModelVersion { get; set; } = "";
+        public string Title { get; set; } = "Suggested objective";
+        public string Summary { get; set; } = "";
+        public string SuggestionMode { get; set; } = "";
+        public long? AttachedObjectiveId { get; set; }
+        public string AttachedObjectiveTitle { get; set; } = "";
+        public string ObjectiveKey { get; set; } = "";
+        public string CandidateObjectiveTitle { get; set; } = "";
+        public string CandidateCompletionCriteria { get; set; } = "";
+        public string CandidateDescription { get; set; } = "";
+        public string FollowUpMetric { get; set; } = "";
+        public int EvidenceMomentCount { get; set; }
+        public int EvidenceGameCount { get; set; }
+        public double Confidence { get; set; }
+        public List<long> EvidenceClipIds { get; set; } = [];
+    }
+
+    private sealed class GemmaWorkerSession : IDisposable
+    {
+        private readonly ConcurrentQueue<string> _recentErrorLines = new();
+
+        public GemmaWorkerSession(string key, Process process)
+        {
+            Key = key;
+            Process = process;
+            Process.StandardInput.AutoFlush = true;
+        }
+
+        public string Key { get; }
+
+        public Process Process { get; }
+
+        public bool HasExited
+        {
+            get
+            {
+                try
+                {
+                    return Process.HasExited;
+                }
+                catch
+                {
+                    return true;
+                }
+            }
+        }
+
+        public void RememberErrorLine(string line)
+        {
+            _recentErrorLines.Enqueue(line);
+            while (_recentErrorLines.Count > 20 && _recentErrorLines.TryDequeue(out _))
+            {
+            }
+        }
+
+        public string GetRecentErrors() =>
+            string.Join(" | ", _recentErrorLines);
+
+        public void Dispose()
+        {
+            try
+            {
+                if (!Process.HasExited)
+                {
+                    try
+                    {
+                        Process.StandardInput.WriteLine("{\"command\":\"shutdown\"}");
+                        Process.StandardInput.Flush();
+                    }
+                    catch
+                    {
+                    }
+
+                    Process.Kill(entireProcessTree: true);
+                }
+            }
+            catch
+            {
+            }
+            finally
+            {
+                Process.Dispose();
+            }
+        }
     }
 }

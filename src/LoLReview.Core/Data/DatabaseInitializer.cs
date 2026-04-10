@@ -204,6 +204,7 @@ public sealed class DatabaseInitializer
             !columns.Contains("title") ||
             !columns.Contains("skill_area") ||
             !columns.Contains("type") ||
+            !columns.Contains("phase") ||
             !columns.Contains("completion_criteria") ||
             !columns.Contains("description") ||
             !columns.Contains("status") ||
@@ -229,6 +230,7 @@ public sealed class DatabaseInitializer
                     title               TEXT NOT NULL,
                     skill_area          TEXT DEFAULT '',
                     type                TEXT DEFAULT 'primary',
+                    phase               TEXT DEFAULT 'ingame',
                     completion_criteria TEXT DEFAULT '',
                     description         TEXT DEFAULT '',
                     status              TEXT DEFAULT 'active',
@@ -247,7 +249,7 @@ public sealed class DatabaseInitializer
             copyCmd.Transaction = tx;
             copyCmd.CommandText = $"""
                 INSERT INTO objectives__migrated (
-                    id, title, skill_area, type, completion_criteria, description,
+                    id, title, skill_area, type, phase, completion_criteria, description,
                     status, is_priority, score, game_count, created_at, completed_at
                 )
                 SELECT
@@ -257,6 +259,10 @@ public sealed class DatabaseInitializer
                     CASE
                         WHEN {GetTextColumnExpr(columns, "type")} = '' THEN 'primary'
                         ELSE {GetTextColumnExpr(columns, "type")}
+                    END,
+                    CASE
+                        WHEN {GetTextColumnExpr(columns, "phase")} = '' THEN 'ingame'
+                        ELSE {GetTextColumnExpr(columns, "phase")}
                     END,
                     {GetTextColumnExpr(columns, "completion_criteria")},
                     {GetTextColumnExpr(columns, "description")},
@@ -436,8 +442,9 @@ public sealed class DatabaseInitializer
         var sourceFilter = labelColumns.Contains("source")
             ? "AND COALESCE(source, 'manual') = 'manual'"
             : "";
+        var inferenceFilter = "AND NOT EXISTS (SELECT 1 FROM coach_inferences i WHERE i.moment_id = coach_labels.moment_id)";
         var contaminationFilter = string.Join(" OR ", contaminationChecks);
-        var whereClause = $"({contaminationFilter}) {sourceFilter}";
+        var whereClause = $"({contaminationFilter}) {sourceFilter} {inferenceFilter}";
 
         using var countCmd = connection.CreateCommand();
         countCmd.CommandText = $"SELECT COUNT(*) FROM coach_labels WHERE {whereClause}";
