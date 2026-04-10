@@ -18,6 +18,7 @@
 /experiments/sam3_vod/*.local.json
 /experiments/coach_lab/__pycache__/
 /.venv-coach-qwen/
+/.venv-coach-gemma/
 
 # OS junk
 .fuse_hidden*
