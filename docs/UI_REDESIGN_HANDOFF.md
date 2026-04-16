@@ -1,142 +1,572 @@
 # UI Redesign Handoff
 
-**Status:** Phase 1-5 complete, theme foundation shipped to `main` (commit `fd68a6f`). Phases 6+ pending. Visual gap remains between current app and mockup — see "Remaining Gap" below.
+**Status:** Theme foundation shipped (commit `fd68a6f`), but the page layouts still don't match the mockup. This doc is for continuing the work on a different machine.
 
-**Design reference:** `mockups/app-mockup.html` — the interactive HTML mockup is the source of truth for layout, animations, and effects. Also see `memory/design_spec_v2.md`.
+**Design truth:** `mockups/app-mockup.html` — open in a browser and compare. The mockup has layouts and effects the current app doesn't.
 
-## What Shipped
+## Mockup Screenshots (Target Design)
 
-### Phase 1 — Theme Foundation
-- Custom fonts bundled in `src/LoLReview.App/Assets/Fonts/`: Orbitron, Rajdhani (4 weights), Share Tech Mono, Exo 2
-- `Themes/AppTheme.xaml` rewritten — violet+bronze palette, 2px border-radius everywhere, font family resources (`DisplayFont`, `HeadingFont`, `HeadingBoldFont`, `MonoFont`, `BodyFont`)
-- `Styling/AppSemanticPalette.cs` — all hex constants updated
-- `Core/Constants/ColorPalette.cs` — aligned with new palette
-- 15+ `.cs` files with hardcoded colors updated (ShellPage, GameCard, MoodSelector, TimelineControl, converters, viewmodels)
+Screenshots of each page from the mockup at 1400x900. This is what the app should look like after Phase 6 is complete.
 
-**Palette:**
-- Primary: `#A78BFA` violet
-- Secondary: `#C9956A` bronze
-- Win: `#7EC9A0`, Loss: `#D38C90`
-- Text: `#F0EEF8` / `#7A6E96` / `#4A3E60`
-- Backgrounds: `#07060B` / `#0C0B12` / `#14121E`
+### Dashboard
+![Dashboard](mockup-screenshots/dash.png)
 
-### Phase 2 — Sidebar Collapse
-- `Views/ShellPage.xaml` — 272px text sidebar → 72px icon rail with tooltips
-- Vertical "LR" branding, section dividers, compact LCU status indicator
-- `ShellPage.xaml.cs` — `SidebarNavButtonStyle` updated for 44x44 icon buttons
+### Review
+![Review](mockup-screenshots/review.png)
 
-### Phase 3 — Dashboard
-- Hero header simplified (eyebrow label + DisplayFont title + session banner)
-- Connected stat strip (5-column Grid, no gaps, first/last rounded)
-- Two-column body preserved (unreviewed games + objectives/focus)
+### Objectives
+![Objectives](mockup-screenshots/obj.png)
 
-### Phase 4 — Review + VOD + PostGame
-- `ReviewPage.xaml` — added "Watch VOD" button in header, moved objectives up, redesigned as styled cards
-- `VodPlayerPage.xaml` — bookmarks panel confirmed on right side, MonoFont for timestamps
-- `PostGamePage.xaml` — DisplayFont on champion/KDA/mental rating, 2px corner radius
+### Archive
+![Archive](mockup-screenshots/arch.png)
 
-### Phase 5 — Remaining Pages
-- All 17 other pages/controls/dialogs updated — inline `CornerRadius` → 2, font references updated where needed
+### Trends
+![Trends](mockup-screenshots/trends.png)
 
-## Remaining Gap vs Mockup
+### VOD Player
+![VOD Player](mockup-screenshots/vod.png)
 
-The theme looks right but the **page structures** are still mostly the old layouts with new colors/fonts sprayed on. The mockup has many features that need real implementation work, not just style tweaks:
+### Rules
+![Rules](mockup-screenshots/rules.png)
 
-### High-impact missing pieces
-1. **Stat strip styling** — Dashboard stat strip may not render with truly seamless cells (border merging). Verify on PC.
-2. **Corner bracket decorators** — the targeting-reticle hover effect on cards (4 small L-shapes at corners) isn't implemented. Would need `VisualStateManager` states on Border or a wrapping control.
-3. **Progress rings** — objectives still use the old `ObjectiveProgressBar` (flat bar). Mockup has SVG-style circular rings with gradient stroke + breathing glow. Need a new `ProgressRing` user control.
-4. **Hex pattern on hover** — cards and stat boxes don't show the hex tessellation on hover. Need an `ImageBrush` background toggled via `VisualStateManager`.
-5. **Win/loss bar glow** — game row left bar currently a solid color, no pulsing glow. Mockup has `box-shadow` pulse which in WinUI = `DropShadow` via Composition + `ScalarKeyFrameAnimation`.
-6. **Data stream on sidebar** — vertical light beam traveling down the right edge of the sidebar. Composition animation on a clipped rectangle.
-7. **Ambient glow orbs** — three large drifting radial gradients in the background. Could do with `RadialGradientBrush` + translate animations.
-8. **Page entrance transitions** — the translate + fade + scale + blur effect. `ThemeTransition` can do translate/fade, but blur needs Composition `GaussianBlurEffect`.
-9. **Button hover light sweep** — left-to-right shimmer. Composition animation on a `LinearGradientBrush` position.
-10. **Breathing card glow** — box-shadow pulse on cards with `CardGlowStyle`. Needs `DropShadow` + animation.
-11. **Pill selection spark** — the violet glow pulsing around selected pills. `DropShadow` animation.
-12. **Cursor glow follower** — `PointerMoved` on root + positioned radial gradient element.
-13. **Particle canvas** — deferred to Phase 7 (Win2D).
-14. **3D magnetic card tilt** — `Composition.Visual` `RotationAxis` on `PointerMoved`. Deferred to Phase 7.
+### Session Log
+![Session Log](mockup-screenshots/session.png)
 
-### Layout things still off
-- Dashboard right column "Last Focus" card should have **bronze-tinted border** (done via `border-color` in mockup) — likely need to add inline style in XAML.
-- VOD Player right panel needs sticky positioning — in WinUI, need a `ScrollViewer` with a fixed side column outside the scrolling area.
-- Review page "Watch VOD" button should have **animated glow** (the `breathe` keyframe) — needs Composition animation.
-- Concept tag grid — `WrapPanel` not ItemsRepeater for fluid wrapping.
+### Pre-Game
+![Pre-Game](mockup-screenshots/pre.png)
 
-### Small polish items
-- Page eyebrow labels should have the typewriter cursor (`_` blinking). WinUI: `TextBlock` with opacity animation.
-- Section dividers (`// SECTION NAME ═══════`) — already set up via `sec-t` style in mockup; check if SectionHeaderStyle has the dot + line suffix.
-- Empty state illustrations not in mockup but exist in current code — either remove or restyle.
+### Tilt Check
+![Tilt Check](mockup-screenshots/tilt.png)
 
-## Phase 6 — Animations (Pending)
+### Settings
+![Settings](mockup-screenshots/settings.png)
 
-Plan laid out in mockup but not implemented. Complexity order:
 
-1. **Easy wins (CSS keyframes → WinUI):**
-   - Sidebar data stream (1D translate animation)
-   - Status dot pulse (opacity loop)
-   - Progress bar tip dot pulse
-   - Win/loss bar pulse (opacity loop)
+## TL;DR of What's Needed
 
-2. **Medium (Composition API):**
-   - Card hover: border color + drop shadow on `PointerEntered`/`Exited`
-   - Breathing glow on accent cards (`ScalarKeyFrameAnimation` on shadow)
-   - Button hover light sweep (animated `LinearGradientBrush`)
-   - Page entrance: `ThemeTransition` with custom composition
+The theme (colors, fonts, 2px corners) is done. What's NOT done is the structural layout work:
 
-3. **Hard (defer or skip):**
-   - Cursor glow follower (pointer tracking, perf considerations)
-   - Particle canvas (needs Win2D NuGet — interop risk in unpackaged mode)
-   - 3D magnetic tilt (Composition RotationAxis)
-   - Gaussian blur on page transition (Composition effects)
+1. **Custom controls** need to be built (`ProgressRing`, `StatStrip`, `GameRowCard`, `CornerBracketedCard`)
+2. **Page layouts** need to be rebuilt against the mockup (Dashboard, Review, VOD, Objectives)
+3. **Composition animations** need to be wired up (breathing glows, hover effects, data streams)
 
-**Suggested approach:** Build a `Helpers/AnimationHelper.cs` with static methods like `AttachHoverGlow(Border)`, `AttachBreathingShadow(Border)`, etc. Apply via code-behind or attached properties.
+This is real implementation work — roughly 3-5 days of focused XAML + Composition API work.
 
-## Known Risks / Testing Notes
+## Opening Next Session
+
+Use this prompt to get going fast:
+
+> I'm on the LoL Review WinUI 3 app. Read `docs/UI_REDESIGN_HANDOFF.md` and open `mockups/app-mockup.html` in a browser to see the target design. The theme (colors, fonts) is already applied — I need help closing the layout gap. Let's start with [Phase 6A: custom controls / Phase 6B: Dashboard rebuild / specific item].
+
+---
+
+## What Already Shipped (Phase 1-5)
+
+Foundation work — do NOT redo:
+- Theme palette in `Themes/AppTheme.xaml` (violet `#A78BFA` + bronze `#C9956A`)
+- Fonts bundled in `Assets/Fonts/` and registered as `DisplayFont` / `HeadingFont` / `HeadingBoldFont` / `MonoFont` / `BodyFont` resources
+- All 2px border-radius
+- Sidebar collapsed to 72px icon rail with tooltips (`ShellPage.xaml`)
+- All hardcoded color references across 15+ .cs files
+- Font refs updated where needed
+
+Current state: looks themed, but layouts don't match the mockup.
+
+---
+
+## Phase 6A — Custom Controls (Build First)
+
+Build these as `UserControl`s in `src/LoLReview.App/Controls/`. Reuse across pages.
+
+### 1. ProgressRing
+Replaces the flat `ObjectiveProgressBar` for objectives. Violet gradient stroke with breathing drop-shadow.
+
+**File:** `Controls/ProgressRing.xaml` + `.xaml.cs`
+
+```xml
+<UserControl ...>
+  <Grid Width="56" Height="56">
+    <Ellipse Width="50" Height="50"
+             Stroke="{ThemeResource AccentBlueDimBrush}"
+             StrokeThickness="3"/>
+    <Path x:Name="ArcPath"
+          Stroke="{ThemeResource AccentBlueBrush}"
+          StrokeThickness="3"
+          StrokeStartLineCap="Round"
+          StrokeEndLineCap="Round"/>
+    <TextBlock x:Name="LabelText"
+               FontFamily="{StaticResource DisplayFont}"
+               FontSize="11"
+               FontWeight="Bold"
+               Foreground="{ThemeResource AccentBlueBrush}"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center"/>
+  </Grid>
+</UserControl>
+```
+
+Code-behind math to build arc geometry:
+```csharp
+// Given Progress (0-1), build a Path for the arc portion
+var angle = Progress * 360.0;
+var radians = (angle - 90) * Math.PI / 180.0;
+var endX = 28 + 25 * Math.Cos(radians);
+var endY = 28 + 25 * Math.Sin(radians);
+var isLargeArc = angle > 180;
+var pathGeometry = new PathGeometry();
+var figure = new PathFigure { StartPoint = new Point(28, 3) };
+figure.Segments.Add(new ArcSegment {
+    Point = new Point(endX, endY),
+    Size = new Size(25, 25),
+    IsLargeArc = isLargeArc,
+    SweepDirection = SweepDirection.Clockwise
+});
+pathGeometry.Figures.Add(figure);
+ArcPath.Data = pathGeometry;
+```
+
+Add breathing glow:
+```csharp
+var visual = ElementCompositionPreview.GetElementVisual(ArcPath);
+var compositor = visual.Compositor;
+var shadow = compositor.CreateDropShadow();
+shadow.Color = Color.FromArgb(120, 167, 139, 250);
+shadow.BlurRadius = 10;
+// Animate BlurRadius from 4 to 14 over 3s, infinite
+var anim = compositor.CreateScalarKeyFrameAnimation();
+anim.InsertKeyFrame(0, 4);
+anim.InsertKeyFrame(0.5f, 14);
+anim.InsertKeyFrame(1, 4);
+anim.Duration = TimeSpan.FromSeconds(3);
+anim.IterationBehavior = AnimationIterationBehavior.Forever;
+shadow.StartAnimation(nameof(shadow.BlurRadius), anim);
+```
+
+**Dependency properties:** `Progress` (double), `Label` (string), `AccentBrush` (Brush).
+
+### 2. StatStrip / StatCell
+A horizontal connected strip of stats. No gaps between cells.
+
+**File:** `Controls/StatStrip.xaml` (container) + `Controls/StatCell.xaml` (individual cell).
+
+Use a `Grid` with `ColumnSpacing="0"`. Each cell is a Border with merged borders via `BorderThickness`:
+- First cell: `BorderThickness="1,1,0,1"` `CornerRadius="2,0,0,2"`
+- Middle cells: `BorderThickness="1,1,0,1"` `CornerRadius="0"`
+- Last cell: `BorderThickness="1"` `CornerRadius="0,2,2,0"`
+
+Cell content:
+```xml
+<StackPanel Spacing="4" Padding="16,14">
+  <TextBlock Text="{x:Bind Label}" Style="{StaticResource StatLabelStyle}"/>
+  <TextBlock Text="{x:Bind Value}" Style="{StaticResource StatValueStyle}"
+             Foreground="{x:Bind ValueBrush}"/>
+  <TextBlock Text="{x:Bind Sub}" FontFamily="{StaticResource MonoFont}"
+             FontSize="9" Foreground="{ThemeResource MutedTextBrush}"
+             Visibility="{x:Bind HasSub}"/>
+</StackPanel>
+```
+
+### 3. CornerBracketedCard
+A `Border`-based card that shows 4 targeting-reticle corner brackets on hover.
+
+**File:** `Controls/CornerBracketedCard.xaml`
+
+```xml
+<Grid>
+  <Border x:Name="MainBorder"
+          Background="{ThemeResource CardBackgroundBrush}"
+          BorderBrush="{ThemeResource SubtleBorderBrush}"
+          BorderThickness="1"
+          CornerRadius="2"
+          Padding="20">
+    <ContentPresenter/>
+  </Border>
+  <!-- 4 corner brackets, hidden by default -->
+  <Border x:Name="TopLeft" Width="10" Height="10"
+          HorizontalAlignment="Left" VerticalAlignment="Top"
+          Margin="-1"
+          BorderBrush="{ThemeResource BrightBorderBrush}"
+          BorderThickness="1,1,0,0"
+          Opacity="0"/>
+  <!-- ...3 more corners... -->
+</Grid>
+```
+
+In code-behind, on `PointerEntered` fade corners to opacity 1, on `PointerExited` fade to 0. Use Storyboard or Composition.
+
+### 4. GameRowCard
+Game row with glowing win/loss bar, slide-right on hover, gradient trail sweep.
+
+**File:** `Controls/GameRowCard.xaml` (already exists — may just need updates)
+
+Key styling:
+- Left `Rectangle` 3px wide, color-bound, with `DropShadow` for glow
+- Whole card `TranslateTransform` on hover (use `PointerEntered`)
+- Internal `Rectangle` filled with `LinearGradientBrush(90deg, accent@0.06, transparent)` — animate its width 0→100% on hover
+
+### 5. HeroHeader
+Page-level hero zone with gradient wash, blinking cursor, DisplayFont title.
+
+**File:** `Controls/HeroHeader.xaml`
+
+Properties: `EyebrowText`, `Title`, `Subtitle`.
+
+Structure:
+```xml
+<Grid Padding="40,30,40,16">
+  <Rectangle HorizontalAlignment="Stretch" Height="200"
+             VerticalAlignment="Top" Opacity="0.04">
+    <Rectangle.Fill>
+      <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#A78BFA" Offset="0"/>
+        <GradientStop Color="#C9956A" Offset="1"/>
+      </LinearGradientBrush>
+    </Rectangle.Fill>
+  </Rectangle>
+  <StackPanel>
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Rectangle Width="20" Height="1" Fill="{ThemeResource AccentBlueBrush}"
+                 VerticalAlignment="Center"/>
+      <TextBlock Text="{x:Bind EyebrowText}" Style="{StaticResource PanelEyebrowStyle}"
+                 Foreground="{ThemeResource AccentBlueBrush}"/>
+      <TextBlock Text="_" FontFamily="{StaticResource MonoFont}"
+                 Foreground="{ThemeResource AccentBlueBrush}">
+        <TextBlock.OpacityTransition>
+          <ScalarTransition Duration="0:0:0.5"/>
+        </TextBlock.OpacityTransition>
+      </TextBlock>
+    </StackPanel>
+    <TextBlock Text="{x:Bind Title}" Style="{StaticResource HeroTitleStyle}"
+               Margin="0,4,0,0"/>
+  </StackPanel>
+</Grid>
+```
+
+Cursor blink: toggle opacity via DispatcherTimer every 500ms.
+
+### 6. SectionTitle
+`// SECTION TITLE ═══════════════` — monospace label with pulsing dot + extending line.
+
+```xml
+<StackPanel Orientation="Horizontal" Spacing="8">
+  <Rectangle Width="4" Height="4" Fill="{ThemeResource AccentBlueBrush}"
+             VerticalAlignment="Center"/>
+  <TextBlock Text="{x:Bind Text}" Style="{StaticResource PanelEyebrowStyle}"/>
+  <Rectangle Height="1" Fill="{ThemeResource SubtleBorderBrush}"
+             HorizontalAlignment="Stretch" VerticalAlignment="Center"
+             Width="Auto"/>
+</StackPanel>
+```
+
+Wrap in a `Grid` with `ColumnDefinitions Auto,Auto,*` so the line extends.
+
+### 7. BannerControl
+Colored-left-bar banner (`banner-positive`, `banner-negative`, etc.).
+
+Three properties: `Tone` (positive/negative/neutral), `Text`, `IconGlyph`. Border with `BorderThickness="0"` and a 2px `Rectangle` on left with pulsing opacity animation.
+
+---
+
+## Phase 6B — Rebuild Dashboard (Template for Others)
+
+Use this as the proof point. Once Dashboard matches mockup, use the same patterns on other pages.
+
+### Target Structure (match `mockups/app-mockup.html` `#p-dash`):
+
+```xml
+<Grid>
+  <Grid.RowDefinitions>
+    <RowDefinition Height="Auto"/> <!-- HeroHeader -->
+    <RowDefinition Height="*"/>    <!-- Content -->
+  </Grid.RowDefinitions>
+
+  <controls:HeroHeader Grid.Row="0"
+    EyebrowText="COMMAND CENTER"
+    Title="{x:Bind ViewModel.Greeting}"/>
+
+  <ScrollViewer Grid.Row="1" Padding="40,0,40,40">
+    <StackPanel Spacing="16">
+      <!-- Session banner -->
+      <controls:BannerControl Tone="Positive"
+        Text="{x:Bind ViewModel.SessionBannerText}"
+        Visibility="{x:Bind ViewModel.ShowSessionBanner, ...}"/>
+
+      <!-- Stat strip -->
+      <controls:StatStrip>
+        <controls:StatCell Label="GAMES" Value="{x:Bind ViewModel.TotalGames}"/>
+        <controls:StatCell Label="WIN RATE" Value="{x:Bind ViewModel.Winrate}"
+                           ValueBrush="{ThemeResource WinGreenBrush}"
+                           Sub="{x:Bind ViewModel.RecordText}"/>
+        <controls:StatCell Label="AVG MENTAL" Value="{x:Bind ViewModel.AvgMental}"/>
+        <controls:StatCell Label="ADHERENCE" Value="{x:Bind ViewModel.AdherenceStreak}"
+                           ValueBrush="{ThemeResource AccentGoldBrush}"
+                           Sub="STREAK ACTIVE"/>
+      </controls:StatStrip>
+
+      <!-- Two-column body -->
+      <Grid ColumnSpacing="14">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2*"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <controls:CornerBracketedCard Grid.Column="0">
+          <StackPanel Spacing="8">
+            <controls:SectionTitle Text="UNREVIEWED"/>
+            <ItemsRepeater ItemsSource="{x:Bind ViewModel.Unreviewed, ...}">
+              <ItemsRepeater.ItemTemplate>
+                <DataTemplate>
+                  <controls:GameRowCard .../>
+                </DataTemplate>
+              </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+          </StackPanel>
+        </controls:CornerBracketedCard>
+
+        <StackPanel Grid.Column="1" Spacing="12">
+          <controls:CornerBracketedCard>
+            <StackPanel Spacing="10">
+              <controls:SectionTitle Text="ACTIVE OBJECTIVES"/>
+              <ItemsRepeater ItemsSource="{x:Bind ViewModel.ActiveObjectives, ...}">
+                <ItemsRepeater.ItemTemplate>
+                  <DataTemplate>
+                    <Grid ColumnSpacing="14" Margin="0,0,0,10">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                      </Grid.ColumnDefinitions>
+                      <controls:ProgressRing Progress="{Binding Progress}"
+                                             Label="{Binding ProgressLabel}"/>
+                      <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding Title}"
+                                   FontFamily="{StaticResource HeadingFont}"
+                                   FontSize="15" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding MetaText}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="9"
+                                   Foreground="{ThemeResource MutedTextBrush}"/>
+                      </StackPanel>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+              </ItemsRepeater>
+            </StackPanel>
+          </controls:CornerBracketedCard>
+
+          <!-- Last Focus - bronze-tinted -->
+          <controls:CornerBracketedCard BorderBrush="{ThemeResource AccentGoldBrush}">
+            <StackPanel Spacing="6">
+              <controls:SectionTitle Text="LAST FOCUS"/>
+              <TextBlock Text="{x:Bind ViewModel.LastFocusText}"/>
+            </StackPanel>
+          </controls:CornerBracketedCard>
+        </StackPanel>
+      </Grid>
+    </StackPanel>
+  </ScrollViewer>
+</Grid>
+```
+
+### Binding changes needed on DashboardViewModel
+- Add `ProgressLabel` (e.g. "60%") and `MetaText` (e.g. "LVL 2 // DRILLING // 12/20 PTS") to objective items if not present
+- Preserve all existing bindings (Review/Hide commands, etc.)
+
+---
+
+## Phase 6C — Page-by-Page Checklist
+
+### Review Page
+- [ ] Replace `ScrollViewer` + `StackPanel` wrap with `Grid` + `HeroHeader` pattern
+- [ ] "Watch VOD" button: add breathing `DropShadow` animation on Composition
+- [ ] Objective practice cards: use `CornerBracketedCard` with `ProgressRing`
+- [ ] Concept tags: use `WrapPanel` (not `StackPanel`) for fluid layout
+- [ ] Right column VOD bookmarks: sticky via fixed-width column outside main ScrollViewer
+
+### VOD Player Page
+- [ ] Check bookmarks panel is truly sticky (scrolls independently of video)
+- [ ] Timeline: add pulsing markers (opacity animation)
+- [ ] Add playhead indicator on timeline (vertical line at current time)
+- [ ] Clip quality pills: use `controls:Pill` style if created
+
+### Objectives Page
+- [ ] Each objective card uses `ProgressRing` instead of flat bar
+- [ ] Sparkline bars: add staggered grow animation (already exists but needs enter animation)
+- [ ] "Spotted Problems" section uses `GameRowCard` style
+
+### Archive Page (History)
+- [ ] Filter bar: add animated underline on active filter
+- [ ] `GameRowCard` for each row with slide-right hover
+- [ ] Stat strip at top using `StatStrip` control
+
+### Trends Page (Analytics)
+- [ ] Stat strip at top (7 cells)
+- [ ] Bar chart rows: staggered grow-in animation on page load
+- [ ] Tables: hover gradient sweep (via `VisualStateManager`)
+
+### Rules Page
+- [ ] Violation banner: `BannerControl Tone="Negative"` with electric crackle effect (opacity flicker on multiple radial gradients)
+- [ ] Rule cards: `CornerBracketedCard` pattern
+
+### Session Log, Pre-Game, Tilt Check, Settings
+- [ ] Apply `HeroHeader` + `SectionTitle` pattern
+- [ ] Replace generic Borders with `CornerBracketedCard`
+- [ ] Tilt Check breath circle already has animation — just verify it renders
+- [ ] Settings: same pattern, folder rows look fine
+
+---
+
+## Phase 6D — Composition Animations
+
+Build a helper class: `Helpers/AnimationHelper.cs`
+
+Key methods to implement:
+
+```csharp
+public static class AnimationHelper
+{
+  // Attach to Border/Grid — adds breathing drop-shadow
+  public static void AttachBreathingGlow(UIElement element, Color glowColor,
+    float minBlur = 4, float maxBlur = 14, double durationSec = 3) { ... }
+
+  // Attach to Button — light sweep left-to-right on hover
+  public static void AttachHoverLightSweep(Button btn) { ... }
+
+  // Attach to Border — slide-right + gradient trail on hover
+  public static void AttachSlideHover(Border row) { ... }
+
+  // Corner brackets fade-in on hover
+  public static void AttachCornerBrackets(CornerBracketedCard card) { ... }
+
+  // Pulsing opacity loop (status dots, selected pills)
+  public static void AttachPulseOpacity(UIElement element,
+    double minOpacity = 0.4, double maxOpacity = 1, double durationSec = 2) { ... }
+
+  // Sidebar data stream
+  public static void StartDataStream(Rectangle streamRect, double durationSec = 3) { ... }
+
+  // Page entrance transition
+  public static void AnimatePageEnter(UIElement root) { ... }
+}
+```
+
+Most use `Compositor.CreateScalarKeyFrameAnimation()` with `IterationBehavior.Forever`.
+
+### Page entrance specifically
+Apply on `Page.Loaded`:
+```csharp
+var visual = ElementCompositionPreview.GetElementVisual(this);
+visual.Opacity = 0;
+visual.Offset = new Vector3(0, 16, 0);
+
+var batch = visual.Compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+var opacityAnim = visual.Compositor.CreateScalarKeyFrameAnimation();
+opacityAnim.InsertKeyFrame(0, 0);
+opacityAnim.InsertKeyFrame(1, 1);
+opacityAnim.Duration = TimeSpan.FromMilliseconds(500);
+visual.StartAnimation("Opacity", opacityAnim);
+
+var offsetAnim = visual.Compositor.CreateVector3KeyFrameAnimation();
+offsetAnim.InsertKeyFrame(0, new Vector3(0, 16, 0));
+offsetAnim.InsertKeyFrame(1, Vector3.Zero);
+offsetAnim.Duration = TimeSpan.FromMilliseconds(500);
+visual.StartAnimation("Offset", offsetAnim);
+batch.End();
+```
+
+---
+
+## Phase 6E — Ambient Effects (Optional, Defer If Needed)
+
+### Sidebar data stream
+Add to `ShellPage.xaml.cs` `OnLoaded`:
+```csharp
+var streamRect = new Rectangle { Width = 1, Height = 30,
+  Fill = GetStreamGradient(), Opacity = 0.8 };
+// Position absolutely on sidebar right edge
+// Animate TranslationY from -30 to ActualHeight continuously
+```
+
+### Ambient orbs
+Three large `Ellipse` elements with `RadialGradientBrush`, `Canvas` positioned,
+slow `TranslateTransform` animations via `Storyboard`.
+
+### Cursor glow follower
+```csharp
+// In ShellPage OnLoaded
+var cursorGlow = new Ellipse { Width = 180, Height = 180,
+  Fill = GetRadialGradient(), IsHitTestVisible = false };
+MainGrid.Children.Add(cursorGlow);
+
+PointerMoved += (s, e) => {
+  var pos = e.GetCurrentPoint(this).Position;
+  Canvas.SetLeft(cursorGlow, pos.X - 90);
+  Canvas.SetTop(cursorGlow, pos.Y - 90);
+};
+```
+
+### Particles + 3D tilt
+Skip unless you want to add Win2D. Not worth the NuGet interop risk for alpha.
+
+---
+
+## Known Risks
 
 ### Font loading
-Unpackaged WinUI 3 has finicky `ms-appx:///` resolution. If all text looks like Segoe UI:
-- Check `AppDiagnostics` logs at `%LOCALAPPDATA%\LoLReviewData\` for font load errors
-- Verify `Assets\Fonts\*.ttf` are copied to output directory after build
+Unpackaged WinUI 3 has finicky `ms-appx:///` URI resolution. If all text looks like Segoe UI:
+- Check diagnostic logs in `%LOCALAPPDATA%\LoLReviewData\`
+- Verify `Assets\Fonts\*.ttf` copied to output directory
 - The `.csproj` has `<Content Include="Assets\Fonts\*.ttf" CopyToOutputDirectory="PreserveNewest" />`
-- If still broken, fallback: install fonts system-wide on Windows and reference by family name only
+- Fallback: install fonts system-wide on Windows and reference by family name only (e.g. `FontFamily="Orbitron"`)
 
 ### WinUIThemeStubs.xaml
-This is a 244KB file containing hand-extracted WinUI system resource overrides (workaround for unpackaged apps). Many built-in control states (ComboBox, Slider, ToggleButton, CheckBox, RadioButton) still reference old jade colors. Visual inconsistency likely on those controls until audited.
+244KB file with hand-extracted WinUI system resources (workaround for unpackaged apps). Many built-in control states (ComboBox, Slider, ToggleButton, CheckBox, RadioButton) still reference jade colors. Should be audited after Phase 6.
 
-### System controls
-`Microsoft.UI.Xaml.Controls.XamlControlsResources` is loaded in `Startup/AppResourcesStartupTask.cs` but often fails in unpackaged mode (try/catch with diagnostic logging). The stubs file is the fallback.
+### Composition animations lifecycle
+Starting animations in `OnLoaded` but element may be re-loaded (navigation away/back). Either:
+- Stop animations in `OnUnloaded`
+- Attach animations via dependency properties / attached properties that handle lifecycle
 
-### SettingsPage
-Has folder-picker rows with hardcoded TextBox widths. Check readability after font swap.
+---
 
-## Key Files for Next Session
+## Key Files Reference
 
-- **Theme:** `src/LoLReview.App/Themes/AppTheme.xaml`
-- **Palette:** `src/LoLReview.App/Styling/AppSemanticPalette.cs`
-- **Shell:** `src/LoLReview.App/Views/ShellPage.xaml` + `.cs`
-- **Dashboard:** `src/LoLReview.App/Views/DashboardPage.xaml`
-- **Review:** `src/LoLReview.App/Views/ReviewPage.xaml`
-- **VOD Player:** `src/LoLReview.App/Views/VodPlayerPage.xaml`
-- **Mockup:** `mockups/app-mockup.html` (design truth — open in browser)
-- **Design spec:** `memory/design_spec_v2.md` (if .claude directory synced)
+| File | Purpose |
+|------|---------|
+| `src/LoLReview.App/Themes/AppTheme.xaml` | Palette + styles (done) |
+| `src/LoLReview.App/Views/ShellPage.xaml` | Sidebar + frame (done) |
+| `src/LoLReview.App/Views/DashboardPage.xaml` | Rebuild target #1 |
+| `src/LoLReview.App/Views/ReviewPage.xaml` | Rebuild target #2 |
+| `src/LoLReview.App/Views/VodPlayerPage.xaml` | Rebuild target #3 |
+| `src/LoLReview.App/Controls/` | Build new custom controls here |
+| `src/LoLReview.App/Helpers/` | Put `AnimationHelper.cs` here |
+| `mockups/app-mockup.html` | **Design truth — keep open in browser** |
 
-## Suggested Next-Session Prompt
+---
 
-> I'm working on the LoL Review WinUI 3 app. Phase 1-5 of a UI redesign shipped in commit `fd68a6f`. Read `docs/UI_REDESIGN_HANDOFF.md` and `mockups/app-mockup.html` for context. I want to continue with Phase 6 animations, or address the "Remaining Gap vs Mockup" items. Let's start with [X].
-
-## Build & Run
+## Build & Run (reminder)
 
 ```powershell
-# Debug build
 dotnet restore src\LoLReview.App\LoLReview.App.csproj -r win-x64
 msbuild LoLReview.sln /p:Configuration=Debug /p:Platform=x64 /p:RuntimeIdentifier=win-x64
-
-# Run
 .\run.bat
 ```
 
-## Bug Backlog (user mentioned — not addressed yet)
+---
 
-User mentioned having bugs to fix before alpha. Not yet identified or tracked. Should be raised in next session and triaged against the UI work.
+## Outstanding Non-UI Work
+
+- **Bug backlog** — user mentioned bugs before alpha but hasn't triaged them yet. Raise this in next session.
+- **Phase 7 (optional):** Win2D particles, 3D magnetic tilt, cursor glow follower. Skip unless alpha feedback demands them.
+
+---
+
+## Suggested Execution Order for Next Session
+
+1. Open `mockups/app-mockup.html` in a browser, keep it visible
+2. Build Phase 6A custom controls (ProgressRing, StatStrip, CornerBracketedCard, HeroHeader, SectionTitle, BannerControl, GameRowCard updates)
+3. Rebuild Dashboard (Phase 6B) using only those custom controls
+4. Verify it matches the mockup closely — if not, iterate
+5. Use Dashboard as template for Review, VOD, Objectives (Phase 6C)
+6. Sweep remaining pages with `HeroHeader` + `CornerBracketedCard`
+7. Add Phase 6D animations (AnimationHelper)
+8. Optional: Phase 6E ambient effects
