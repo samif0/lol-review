@@ -15,6 +15,21 @@ public sealed class VodRepository : IVodRepository
     public async Task LinkVodAsync(long gameId, string filePath, long fileSize = 0, long durationSeconds = 0)
     {
         using var conn = _factory.CreateConnection();
+
+        // Refuse to link a file already owned by a different game.
+        using (var checkCmd = conn.CreateCommand())
+        {
+            checkCmd.CommandText = "SELECT game_id FROM vod_files WHERE file_path = @filePath AND game_id != @gameId LIMIT 1";
+            checkCmd.Parameters.AddWithValue("@filePath", filePath);
+            checkCmd.Parameters.AddWithValue("@gameId", gameId);
+            var existingOwner = await checkCmd.ExecuteScalarAsync();
+            if (existingOwner is not null and not DBNull)
+            {
+                throw new InvalidOperationException(
+                    $"VOD file '{filePath}' is already linked to game {existingOwner}; refusing to also link to game {gameId}");
+            }
+        }
+
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR REPLACE INTO vod_files

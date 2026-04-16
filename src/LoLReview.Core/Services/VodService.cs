@@ -104,29 +104,18 @@ public sealed partial class VodService : IVodService
         {
             if (excludePaths is not null && excludePaths.Contains(rec.Path))
                 continue;
-            double delta;
 
-            if (rec.StartTs is not null)
+            var delta = TryComputeMatchDelta(game, rec);
+            if (delta is null)
             {
-                // Filename-based: compare recording start vs game start.
-                // game.Timestamp is the game creation/start time from Riot API.
-                delta = Math.Abs(rec.StartTs.Value - game.Timestamp);
-            }
-            else
-            {
-                // mtime fallback: compare file mtime vs game end
-                // game end ≈ game start + duration
-                var gameEnd = game.Timestamp + game.GameDuration;
-                var signedDelta = rec.Mtime - gameEnd;
-                // Recording mtime should be near or after game end (allow grace period)
-                if (signedDelta < -GameConstants.VodMtimeGraceS)
-                    continue;
-                delta = Math.Abs(signedDelta);
+                _logger.LogDebug("VOD candidate {File} rejected for game {GameId}: outside match window",
+                    rec.Name, game.GameId);
+                continue;
             }
 
-            if (delta < GameConstants.VodMatchWindowS && delta < bestDelta)
+            if (delta.Value < bestDelta)
             {
-                bestDelta = delta;
+                bestDelta = delta.Value;
                 bestPath = rec.Path;
             }
         }
@@ -155,16 +144,33 @@ public sealed partial class VodService : IVodService
             return false;
         }
 
-        var matchedPath = MatchRecordingToGame(game, recordings);
+        // Exclude files already linked to other games
+        var allVods = await _vods.GetAllVodsAsync().ConfigureAwait(false);
+        var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var v in allVods)
+        {
+            if (v.GameId != game.GameId)
+                usedPaths.Add(v.FilePath);
+        }
+
+        var matchedPath = MatchRecordingToGame(game, recordings, usedPaths);
         if (matchedPath is null)
         {
             return false;
         }
 
-        var fi = new FileInfo(matchedPath);
-        await _vods.LinkVodAsync(game.GameId, matchedPath, fi.Length).ConfigureAwait(false);
-        _logger.LogInformation("Linked VOD {File} to game {GameId}", fi.Name, game.GameId);
-        return true;
+        try
+        {
+            var fi = new FileInfo(matchedPath);
+            await _vods.LinkVodAsync(game.GameId, matchedPath, fi.Length).ConfigureAwait(false);
+            _logger.LogInformation("Linked VOD {File} to game {GameId}", fi.Name, game.GameId);
+            return true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Refused to link VOD to game {GameId}", game.GameId);
+            return false;
+        }
     }
 
     /// <inheritdoc />
@@ -206,24 +212,39 @@ public sealed partial class VodService : IVodService
 
         if (unmatchedGames.Count == 0) return 0;
 
+        // Build all viable (delta, game, recording) candidates, then assign by ascending delta
+        // so the closest match wins globally instead of greedy-per-game-order.
+        var candidates = new List<(double Delta, GameStats Game, VodRecordingInfo Recording)>();
+        foreach (var game in unmatchedGames)
+        {
+            foreach (var rec in recordings)
+            {
+                if (usedPaths.Contains(rec.Path)) continue;
+                var delta = TryComputeMatchDelta(game, rec);
+                if (delta is null) continue;
+                candidates.Add((delta.Value, game, rec));
+            }
+        }
+
+        candidates.Sort((a, b) => a.Delta.CompareTo(b.Delta));
+
         int matched = 0;
         var matchedGameIds = new HashSet<long>();
 
-        foreach (var game in unmatchedGames)
+        foreach (var (delta, game, rec) in candidates)
         {
             if (matchedGameIds.Contains(game.GameId)) continue;
-
-            var matchedPath = MatchRecordingToGame(game, recordings, usedPaths);
-            if (matchedPath is null) continue;
+            if (usedPaths.Contains(rec.Path)) continue;
 
             try
             {
-                var fi = new FileInfo(matchedPath);
-                await _vods.LinkVodAsync(game.GameId, matchedPath, fi.Length).ConfigureAwait(false);
+                var fi = new FileInfo(rec.Path);
+                await _vods.LinkVodAsync(game.GameId, rec.Path, fi.Length).ConfigureAwait(false);
                 matchedGameIds.Add(game.GameId);
-                usedPaths.Add(matchedPath);
+                usedPaths.Add(rec.Path);
                 matched++;
-                _logger.LogInformation("Auto-matched VOD {File} to game {GameId}", fi.Name, game.GameId);
+                _logger.LogInformation("Auto-matched VOD {File} to game {GameId} (delta={Delta}s)",
+                    fi.Name, game.GameId, (int)delta);
             }
             catch (Exception ex)
             {
@@ -236,6 +257,35 @@ public sealed partial class VodService : IVodService
     }
 
     // ── Private helpers ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Compute the match delta between a game and a recording, or null if outside the window.
+    /// Uses asymmetric bounds for filename branch: Ascent starts recording before gameCreation
+    /// (queue/champ select), so negative deltas up to VodMatchWindowS are normal, but positive
+    /// deltas (recording after game creation) are capped at VodFilenamePositiveSlackS.
+    /// </summary>
+    private static double? TryComputeMatchDelta(GameStats game, VodRecordingInfo rec)
+    {
+        if (game.Timestamp == 0) return null;
+
+        if (rec.StartTs is not null)
+        {
+            // signed = rec.start − game.start
+            // negative → recording started before game (expected for Ascent queue/champ select)
+            // positive → recording started after game creation (rare jitter only)
+            var signed = rec.StartTs.Value - game.Timestamp;
+            if (signed < -GameConstants.VodMatchWindowS) return null;
+            if (signed > GameConstants.VodFilenamePositiveSlackS) return null;
+            return Math.Abs(signed);
+        }
+
+        // mtime fallback: compare file mtime vs game end
+        var gameEnd = game.Timestamp + game.GameDuration;
+        var signedDelta = rec.Mtime - gameEnd;
+        if (signedDelta < -GameConstants.VodMtimeGraceS) return null;
+        if (Math.Abs(signedDelta) >= GameConstants.VodMatchWindowS) return null;
+        return Math.Abs(signedDelta);
+    }
 
     /// <summary>
     /// Extract a unix timestamp from an Ascent filename like '03-01-2026-14-43.mp4'.

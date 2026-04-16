@@ -196,6 +196,11 @@ public static class GameConstants
     /// 20-30+ minutes between the two timestamps.</summary>
     public const int VodMatchWindowS = 2400;
 
+    /// <summary>Max positive delta (recording started AFTER gameCreation) for filename matching.
+    /// Ascent normally starts before gameCreation, so a large positive delta means wrong file.
+    /// 5 minutes covers minute-precision rounding plus minor clock drift.</summary>
+    public const int VodFilenamePositiveSlackS = 300;
+
     /// <summary>Grace period for mtime fallback matching (seconds).</summary>
     public const int VodMtimeGraceS = 30;
 
