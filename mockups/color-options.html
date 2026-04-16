@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoL Review — Color Palette Options</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #060B0B; color: #EDF3F0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; padding: 40px; }
+
+  h1 { font-size: 32px; font-weight: 600; margin-bottom: 8px; }
+  .subtitle { color: #A0B1AB; font-size: 16px; margin-bottom: 48px; }
+
+  .option { margin-bottom: 56px; }
+  .option-header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 20px; }
+  .option-label { font-size: 14px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; }
+  .option-vibe { color: #6a8a80; font-size: 14px; }
+
+  .swatches { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .swatch { text-align: center; }
+  .swatch-color { width: 80px; height: 80px; border-radius: 12px; margin-bottom: 8px; }
+  .swatch-name { font-size: 13px; color: #A0B1AB; }
+  .swatch-hex { font-size: 12px; color: #5a6e68; font-family: monospace; }
+
+  .demo-card { background: #0d1413; border-radius: 14px; padding: 20px; max-width: 720px; display: flex; gap: 20px; }
+  .demo-sidebar { width: 180px; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .demo-sidebar .nav-item { padding: 10px 14px; border-radius: 8px; font-size: 14px; cursor: default; }
+  .demo-sidebar .nav-item.active { font-weight: 600; }
+  .demo-sidebar .nav-label { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; padding: 10px 14px 4px; }
+
+  .demo-main { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+  .demo-stats { display: flex; gap: 10px; }
+  .demo-stat { flex: 1; background: #0a1210; border-radius: 10px; padding: 14px; }
+  .demo-stat .label { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+  .demo-stat .value { font-size: 24px; font-weight: 600; font-family: 'Bahnschrift', 'DIN Alternate', system-ui; }
+
+  .demo-game { display: flex; align-items: center; gap: 12px; background: #0a1210; border-radius: 10px; padding: 12px 16px; }
+  .demo-game .bar { width: 3px; height: 36px; border-radius: 2px; }
+  .demo-game .info { flex: 1; }
+  .demo-game .champ { font-size: 14px; font-weight: 500; }
+  .demo-game .meta { font-size: 12px; color: #6a8a80; margin-top: 2px; }
+
+  /* Option A - Violet + Gold (original) */
+  .option-a .option-label { color: #A78BFA; }
+  .option-a .demo-sidebar { background: #0a0d14; border: 1px solid #1a1a2e; }
+  .option-a .nav-item { color: #8a8aa0; }
+  .option-a .nav-item.active { color: #A78BFA; background: rgba(167,139,250,0.08); }
+  .option-a .demo-stat .label { color: #8a8aa0; }
+  .option-a .demo-stat:first-child .label { color: #A78BFA; }
+  .option-a .demo-stat:last-child .label { color: #E5C07B; }
+  .option-a .nav-label { color: #55556e; }
+  .option-a .demo-card { border: 1px solid #1a1a2e; }
+
+  /* Option B - Violet + Muted Bronze */
+  .option-b .option-label { color: #A78BFA; }
+  .option-b .demo-sidebar { background: #0c0b12; border: 1px solid #201e2e; }
+  .option-b .nav-item { color: #8a8aa0; }
+  .option-b .nav-item.active { color: #A78BFA; background: rgba(167,139,250,0.08); }
+  .option-b .demo-stat .label { color: #8a8aa0; }
+  .option-b .demo-stat:first-child .label { color: #A78BFA; }
+  .option-b .demo-stat:last-child .label { color: #C9956A; }
+  .option-b .nav-label { color: #55556e; }
+  .option-b .demo-card { border: 1px solid #201e2e; }
+
+  /* Option C - Muted Violet + Jade */
+  .option-c .option-label { color: #9B8AE0; }
+  .option-c .demo-sidebar { background: #0a0d12; border: 1px solid #1a1e2a; }
+  .option-c .nav-item { color: #7a8094; }
+  .option-c .nav-item.active { color: #9B8AE0; background: rgba(155,138,224,0.08); }
+  .option-c .demo-stat .label { color: #7a8094; }
+  .option-c .demo-stat:first-child .label { color: #9B8AE0; }
+  .option-c .demo-stat:last-child .label { color: #6CC9A0; }
+  .option-c .nav-label { color: #4a5068; }
+  .option-c .demo-card { border: 1px solid #1a1e2a; }
+
+  /* Option D - Jade + Bronze (dialed back) */
+  .option-d .option-label { color: #6CC9A0; }
+  .option-d .demo-sidebar { background: #0a0f0e; border: 1px solid #1a2825; }
+  .option-d .nav-item { color: #7a9a90; }
+  .option-d .nav-item.active { color: #6CC9A0; background: rgba(108,201,160,0.06); }
+  .option-d .demo-stat .label { color: #7a9a90; }
+  .option-d .demo-stat:first-child .label { color: #6CC9A0; }
+  .option-d .demo-stat:last-child .label { color: #C9956A; }
+  .option-d .nav-label { color: #4a6860; }
+  .option-d .demo-card { border: 1px solid #1a2825; }
+
+  /* Option E - Violet primary, Jade + Bronze supporting */
+  .option-e .option-label { color: #A78BFA; }
+  .option-e .demo-sidebar { background: #0a0c11; border: 1px solid #1c1a28; }
+  .option-e .nav-item { color: #8088a0; }
+  .option-e .nav-item.active { color: #A78BFA; background: rgba(167,139,250,0.08); }
+  .option-e .demo-stat .label { color: #8088a0; }
+  .option-e .demo-stat:first-child .label { color: #6CC9A0; }
+  .option-e .demo-stat:nth-child(2) .label { color: #A78BFA; }
+  .option-e .demo-stat:last-child .label { color: #C9956A; }
+  .option-e .nav-label { color: #505468; }
+  .option-e .demo-card { border: 1px solid #1c1a28; }
+</style>
+</head>
+<body>
+
+<h1>LoL Review — Color Explorations</h1>
+<p class="subtitle">Violet + jade + bronze combinations — pick one or mix elements</p>
+
+<!-- OPTION A -->
+<div class="option option-a">
+  <div class="option-header">
+    <span class="option-label">A: Violet + Warm Gold (original)</span>
+    <span class="option-vibe">The one you liked — clean premium feel</span>
+  </div>
+  <div class="swatches">
+    <div class="swatch"><div class="swatch-color" style="background:#A78BFA"></div><div class="swatch-name">Primary</div><div class="swatch-hex">#A78BFA</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#E5C07B"></div><div class="swatch-name">Secondary</div><div class="swatch-hex">#E5C07B</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#7EC9A0"></div><div class="swatch-name">Win</div><div class="swatch-hex">#7EC9A0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#D38C90"></div><div class="swatch-name">Loss</div><div class="swatch-hex">#D38C90</div></div>
+  </div>
+  <div class="demo-card">
+    <div class="demo-sidebar">
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item active">Dashboard</div>
+      <div class="nav-item">Review</div>
+      <div class="nav-item">Objectives</div>
+      <div class="nav-item">Archive</div>
+      <div class="nav-label">Insights</div>
+      <div class="nav-item">Trends</div>
+      <div class="nav-item">VOD Player</div>
+    </div>
+    <div class="demo-main">
+      <div class="demo-stats">
+        <div class="demo-stat"><div class="label">Win Rate</div><div class="value" style="color:#7EC9A0">58%</div></div>
+        <div class="demo-stat"><div class="label">Streak</div><div class="value" style="color:#EDF3F0">W3</div></div>
+        <div class="demo-stat"><div class="label">Focus</div><div class="value" style="color:#E5C07B">CS/min</div></div>
+      </div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 8/2/11 · W · +18 LP</div><div class="meta">32 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#D38C90"></div><div class="info"><div class="champ">Caitlyn · 3/7/5 · L · -15 LP</div><div class="meta">28 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 12/4/9 · W · +21 LP</div><div class="meta">35 min · Ranked Solo · Yesterday</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- OPTION B -->
+<div class="option option-b">
+  <div class="option-header">
+    <span class="option-label">B: Violet + Muted Bronze</span>
+    <span class="option-vibe">Violet primary, bronze toned down to feel warmer and less bright</span>
+  </div>
+  <div class="swatches">
+    <div class="swatch"><div class="swatch-color" style="background:#A78BFA"></div><div class="swatch-name">Primary</div><div class="swatch-hex">#A78BFA</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#C9956A"></div><div class="swatch-name">Bronze</div><div class="swatch-hex">#C9956A</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#7EC9A0"></div><div class="swatch-name">Win</div><div class="swatch-hex">#7EC9A0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#D38C90"></div><div class="swatch-name">Loss</div><div class="swatch-hex">#D38C90</div></div>
+  </div>
+  <div class="demo-card">
+    <div class="demo-sidebar">
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item active">Dashboard</div>
+      <div class="nav-item">Review</div>
+      <div class="nav-item">Objectives</div>
+      <div class="nav-item">Archive</div>
+      <div class="nav-label">Insights</div>
+      <div class="nav-item">Trends</div>
+      <div class="nav-item">VOD Player</div>
+    </div>
+    <div class="demo-main">
+      <div class="demo-stats">
+        <div class="demo-stat"><div class="label">Win Rate</div><div class="value" style="color:#7EC9A0">58%</div></div>
+        <div class="demo-stat"><div class="label">Streak</div><div class="value" style="color:#EDF3F0">W3</div></div>
+        <div class="demo-stat"><div class="label">Focus</div><div class="value" style="color:#C9956A">CS/min</div></div>
+      </div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 8/2/11 · W · +18 LP</div><div class="meta">32 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#D38C90"></div><div class="info"><div class="champ">Caitlyn · 3/7/5 · L · -15 LP</div><div class="meta">28 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 12/4/9 · W · +21 LP</div><div class="meta">35 min · Ranked Solo · Yesterday</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- OPTION C -->
+<div class="option option-c">
+  <div class="option-header">
+    <span class="option-label">C: Muted Violet + Jade</span>
+    <span class="option-vibe">Softer violet with jade as the secondary — earthy tech feel</span>
+  </div>
+  <div class="swatches">
+    <div class="swatch"><div class="swatch-color" style="background:#9B8AE0"></div><div class="swatch-name">Violet</div><div class="swatch-hex">#9B8AE0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#6CC9A0"></div><div class="swatch-name">Jade</div><div class="swatch-hex">#6CC9A0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#7EC9A0"></div><div class="swatch-name">Win</div><div class="swatch-hex">#7EC9A0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#D38C90"></div><div class="swatch-name">Loss</div><div class="swatch-hex">#D38C90</div></div>
+  </div>
+  <div class="demo-card">
+    <div class="demo-sidebar">
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item active">Dashboard</div>
+      <div class="nav-item">Review</div>
+      <div class="nav-item">Objectives</div>
+      <div class="nav-item">Archive</div>
+      <div class="nav-label">Insights</div>
+      <div class="nav-item">Trends</div>
+      <div class="nav-item">VOD Player</div>
+    </div>
+    <div class="demo-main">
+      <div class="demo-stats">
+        <div class="demo-stat"><div class="label">Win Rate</div><div class="value" style="color:#7EC9A0">58%</div></div>
+        <div class="demo-stat"><div class="label">Streak</div><div class="value" style="color:#EDF3F0">W3</div></div>
+        <div class="demo-stat"><div class="label">Focus</div><div class="value" style="color:#6CC9A0">CS/min</div></div>
+      </div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 8/2/11 · W · +18 LP</div><div class="meta">32 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#D38C90"></div><div class="info"><div class="champ">Caitlyn · 3/7/5 · L · -15 LP</div><div class="meta">28 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 12/4/9 · W · +21 LP</div><div class="meta">35 min · Ranked Solo · Yesterday</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- OPTION D -->
+<div class="option option-d">
+  <div class="option-header">
+    <span class="option-label">D: Jade + Bronze (dialed back)</span>
+    <span class="option-vibe">Your original jade/bronze but muted — less neon, more sophisticated</span>
+  </div>
+  <div class="swatches">
+    <div class="swatch"><div class="swatch-color" style="background:#6CC9A0"></div><div class="swatch-name">Jade</div><div class="swatch-hex">#6CC9A0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#C9956A"></div><div class="swatch-name">Bronze</div><div class="swatch-hex">#C9956A</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#7EC9A0"></div><div class="swatch-name">Win</div><div class="swatch-hex">#7EC9A0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#D38C90"></div><div class="swatch-name">Loss</div><div class="swatch-hex">#D38C90</div></div>
+  </div>
+  <div class="demo-card">
+    <div class="demo-sidebar">
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item active">Dashboard</div>
+      <div class="nav-item">Review</div>
+      <div class="nav-item">Objectives</div>
+      <div class="nav-item">Archive</div>
+      <div class="nav-label">Insights</div>
+      <div class="nav-item">Trends</div>
+      <div class="nav-item">VOD Player</div>
+    </div>
+    <div class="demo-main">
+      <div class="demo-stats">
+        <div class="demo-stat"><div class="label">Win Rate</div><div class="value" style="color:#7EC9A0">58%</div></div>
+        <div class="demo-stat"><div class="label">Streak</div><div class="value" style="color:#EDF3F0">W3</div></div>
+        <div class="demo-stat"><div class="label">Focus</div><div class="value" style="color:#C9956A">CS/min</div></div>
+      </div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 8/2/11 · W · +18 LP</div><div class="meta">32 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#D38C90"></div><div class="info"><div class="champ">Caitlyn · 3/7/5 · L · -15 LP</div><div class="meta">28 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 12/4/9 · W · +21 LP</div><div class="meta">35 min · Ranked Solo · Yesterday</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- OPTION E -->
+<div class="option option-e">
+  <div class="option-header">
+    <span class="option-label">E: Violet + Jade + Bronze (tri-accent)</span>
+    <span class="option-vibe">Violet for UI/nav, jade for positive data, bronze for focus/priority</span>
+  </div>
+  <div class="swatches">
+    <div class="swatch"><div class="swatch-color" style="background:#A78BFA"></div><div class="swatch-name">Violet</div><div class="swatch-hex">#A78BFA</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#6CC9A0"></div><div class="swatch-name">Jade</div><div class="swatch-hex">#6CC9A0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#C9956A"></div><div class="swatch-name">Bronze</div><div class="swatch-hex">#C9956A</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#7EC9A0"></div><div class="swatch-name">Win</div><div class="swatch-hex">#7EC9A0</div></div>
+    <div class="swatch"><div class="swatch-color" style="background:#D38C90"></div><div class="swatch-name">Loss</div><div class="swatch-hex">#D38C90</div></div>
+  </div>
+  <div class="demo-card">
+    <div class="demo-sidebar">
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item active">Dashboard</div>
+      <div class="nav-item">Review</div>
+      <div class="nav-item">Objectives</div>
+      <div class="nav-item">Archive</div>
+      <div class="nav-label">Insights</div>
+      <div class="nav-item">Trends</div>
+      <div class="nav-item">VOD Player</div>
+    </div>
+    <div class="demo-main">
+      <div class="demo-stats">
+        <div class="demo-stat"><div class="label">Win Rate</div><div class="value" style="color:#7EC9A0">58%</div></div>
+        <div class="demo-stat"><div class="label">Streak</div><div class="value" style="color:#EDF3F0">W3</div></div>
+        <div class="demo-stat"><div class="label">Focus</div><div class="value" style="color:#C9956A">CS/min</div></div>
+      </div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 8/2/11 · W · +18 LP</div><div class="meta">32 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#D38C90"></div><div class="info"><div class="champ">Caitlyn · 3/7/5 · L · -15 LP</div><div class="meta">28 min · Ranked Solo · Today</div></div></div>
+      <div class="demo-game"><div class="bar" style="background:#7EC9A0"></div><div class="info"><div class="champ">Jinx · 12/4/9 · W · +21 LP</div><div class="meta">35 min · Ranked Solo · Yesterday</div></div></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -62,7 +62,7 @@
                                  Background="{StaticResource InputBackgroundBrush}"
                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                  Foreground="{StaticResource PrimaryTextBrush}"
-                                 CornerRadius="6" Height="40"/>
+                                 CornerRadius="2" Height="40"/>
                         <TextBlock Grid.Column="1" Text="/" FontSize="22" FontWeight="Bold"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    VerticalAlignment="Center"/>
@@ -73,7 +73,7 @@
                                  Background="{StaticResource InputBackgroundBrush}"
                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                  Foreground="{StaticResource PrimaryTextBrush}"
-                                 CornerRadius="6" Height="40"/>
+                                 CornerRadius="2" Height="40"/>
                         <TextBlock Grid.Column="3" Text="/" FontSize="22" FontWeight="Bold"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    VerticalAlignment="Center"/>
@@ -84,7 +84,7 @@
                                  Background="{StaticResource InputBackgroundBrush}"
                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                  Foreground="{StaticResource PrimaryTextBrush}"
-                                 CornerRadius="6" Height="40"/>
+                                 CornerRadius="2" Height="40"/>
                     </Grid>
                 </StackPanel>
             </Grid>
@@ -140,7 +140,7 @@
                         <DataTemplate x:DataType="vm:ObjectiveAssessment">
                             <Border Background="{StaticResource CardBackgroundBrush}"
                                     BorderBrush="{StaticResource AccentBlueBrush}"
-                                    BorderThickness="1" CornerRadius="8" Padding="14,10">
+                                    BorderThickness="1" CornerRadius="2" Padding="14,10">
                                 <StackPanel Spacing="6">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -172,7 +172,7 @@
                                              Background="{StaticResource InputBackgroundBrush}"
                                              BorderBrush="{StaticResource SubtleBorderBrush}"
                                              Foreground="{StaticResource PrimaryTextBrush}"
-                                             CornerRadius="6" Height="32"/>
+                                             CornerRadius="2" Height="32"/>
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
@@ -197,7 +197,7 @@
                          MinHeight="70" FontSize="13"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
                 <TextBlock Text="What could improve?" FontSize="13"
                            Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -207,7 +207,7 @@
                          MinHeight="70" FontSize="13"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
                 <TextBlock Text="Focus for next game" FontSize="13"
                            Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -216,7 +216,7 @@
                          FontSize="13" Height="36"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
             </StackPanel>
 
             <!-- ═══ Additional Notes ═══ -->
@@ -230,7 +230,7 @@
                          MinHeight="70" FontSize="13"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
             </StackPanel>
 
             <!-- ═══ Save / Cancel Buttons ═══ -->
@@ -238,12 +238,12 @@
                         HorizontalAlignment="Center" Margin="0,8,0,16">
                 <Button Content="Save Game Entry" Click="OnSaveClick"
                         FontSize="14" Height="36" Padding="24,0"
-                        CornerRadius="8"
+                        CornerRadius="2"
                         Background="{StaticResource AccentBlueBrush}"
                         Foreground="{StaticResource ActionPrimaryForegroundBrush}" IsTabStop="False"/>
                 <Button Content="Cancel" Click="OnCancelClick"
                         FontSize="14" Height="36" Padding="24,0"
-                        CornerRadius="8"
+                        CornerRadius="2"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderBrush="{StaticResource SubtleBorderBrush}"

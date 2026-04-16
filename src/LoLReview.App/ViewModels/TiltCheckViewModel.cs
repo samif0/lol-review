@@ -36,12 +36,12 @@ public partial class TiltCheckViewModel : ObservableObject
 
         Emotions =
         [
-            new EmotionOption("Angry", "#ef4444"),
-            new EmotionOption("Frustrated", "#f97316"),
-            new EmotionOption("Anxious", "#eab308"),
-            new EmotionOption("Hopeless", "#8b5cf6"),
-            new EmotionOption("Numb", "#6b7280"),
-            new EmotionOption("Restless", "#3b82f6"),
+            new EmotionOption("Angry", "#D38C90"),
+            new EmotionOption("Frustrated", "#C9956A"),
+            new EmotionOption("Anxious", "#C9956A"),
+            new EmotionOption("Hopeless", "#A78BFA"),
+            new EmotionOption("Numb", "#8A80A8"),
+            new EmotionOption("Restless", "#8A7AF2"),
         ];
 
         CueWords = ["Calm", "Patient", "Focused", "Aggressive", "Clean", "Fun"];
@@ -148,9 +148,9 @@ public partial class TiltCheckViewModel : ObservableObject
         get
         {
             var diff = IntensityBefore - IntensityAfter;
-            if (diff > 0) return new SolidColorBrush(ColorHelper.FromArgb(255, 34, 197, 94));   // #22c55e
-            if (diff == 0) return new SolidColorBrush(ColorHelper.FromArgb(255, 160, 160, 184)); // #a0a0b8
-            return new SolidColorBrush(ColorHelper.FromArgb(255, 239, 68, 68));                  // #ef4444
+            if (diff > 0) return new SolidColorBrush(ColorHelper.FromArgb(255, 126, 201, 160));  // #7EC9A0 positive
+            if (diff == 0) return new SolidColorBrush(ColorHelper.FromArgb(255, 138, 128, 168)); // #8A80A8 neutral
+            return new SolidColorBrush(ColorHelper.FromArgb(255, 211, 140, 144));                // #D38C90 negative
         }
     }
 
@@ -161,7 +161,7 @@ public partial class TiltCheckViewModel : ObservableObject
     {
         SelectedEmotion = emotion;
         var match = Emotions.FirstOrDefault(e => e.Name == emotion);
-        SelectedEmotionColor = match?.Color ?? "#8b5cf6";
+        SelectedEmotionColor = match?.Color ?? "#A78BFA";
         CanGoNext = true;
     }
 

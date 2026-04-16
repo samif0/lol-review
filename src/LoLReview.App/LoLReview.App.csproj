@@ -46,6 +46,11 @@
     <ProjectReference Include="..\LoLReview.Core\LoLReview.Core.csproj" />
   </ItemGroup>
 
+  <!-- Custom fonts for futuristic UI theme -->
+  <ItemGroup>
+    <Content Include="Assets\Fonts\*.ttf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- WinUI 3 unpackaged apps need resources.pri in the output directory -->
   <Target Name="CopyPriToResources" AfterTargets="Build;Rebuild;Publish">
     <Copy SourceFiles="$(OutDir)$(AssemblyName).pri" DestinationFiles="$(OutDir)resources.pri"

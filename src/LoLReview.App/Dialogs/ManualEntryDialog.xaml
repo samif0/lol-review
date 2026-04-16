@@ -46,7 +46,7 @@
                      BorderBrush="{StaticResource AccentBlueBrush}"
                      BorderThickness="2"
                      Foreground="{StaticResource PrimaryTextBrush}"
-                     CornerRadius="8"
+                     CornerRadius="2"
                      Height="38"/>
 
             <!-- Error message -->
@@ -86,7 +86,7 @@
                              PlaceholderText="0"
                              InputScope="Number"
                              FontSize="13" Height="34"
-                             CornerRadius="6"
+                             CornerRadius="2"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
                              Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -99,7 +99,7 @@
                              PlaceholderText="0"
                              InputScope="Number"
                              FontSize="13" Height="34"
-                             CornerRadius="6"
+                             CornerRadius="2"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
                              Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -112,7 +112,7 @@
                              PlaceholderText="0"
                              InputScope="Number"
                              FontSize="13" Height="34"
-                             CornerRadius="6"
+                             CornerRadius="2"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
                              Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -129,7 +129,7 @@
                      Background="{StaticResource InputBackgroundBrush}"
                      BorderBrush="{StaticResource SubtleBorderBrush}"
                      Foreground="{StaticResource PrimaryTextBrush}"
-                     CornerRadius="6"
+                     CornerRadius="2"
                      Height="34"/>
 
             <!-- Separator -->
@@ -151,7 +151,7 @@
                      Background="{StaticResource InputBackgroundBrush}"
                      BorderBrush="{StaticResource SubtleBorderBrush}"
                      Foreground="{StaticResource PrimaryTextBrush}"
-                     CornerRadius="8"/>
+                     CornerRadius="2"/>
 
             <!-- Mistakes -->
             <TextBlock Text="What could you improve?"
@@ -164,7 +164,7 @@
                      Background="{StaticResource InputBackgroundBrush}"
                      BorderBrush="{StaticResource SubtleBorderBrush}"
                      Foreground="{StaticResource PrimaryTextBrush}"
-                     CornerRadius="8"/>
+                     CornerRadius="2"/>
 
             <!-- Focus for next game -->
             <TextBlock Text="Focus for next game"
@@ -176,7 +176,7 @@
                      Background="{StaticResource InputBackgroundBrush}"
                      BorderBrush="{StaticResource SubtleBorderBrush}"
                      Foreground="{StaticResource PrimaryTextBrush}"
-                     CornerRadius="8"
+                     CornerRadius="2"
                      Height="38"/>
 
             <!-- Additional notes -->
@@ -190,7 +190,7 @@
                      Background="{StaticResource InputBackgroundBrush}"
                      BorderBrush="{StaticResource SubtleBorderBrush}"
                      Foreground="{StaticResource PrimaryTextBrush}"
-                     CornerRadius="8"/>
+                     CornerRadius="2"/>
 
         </StackPanel>
     </ScrollViewer>

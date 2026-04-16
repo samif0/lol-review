@@ -13,10 +13,10 @@ namespace LoLReview.App.Converters;
 public sealed class MentalRatingColorConverter : IValueConverter
 {
     private static readonly SolidColorBrush GreenBrush =
-        new(ColorHelper.FromArgb(255, 120, 214, 174));  // #78D6AE (PositiveHex)
+        new(ColorHelper.FromArgb(255, 126, 201, 160));  // #7EC9A0 (PositiveHex)
 
     private static readonly SolidColorBrush BlueBrush =
-        new(ColorHelper.FromArgb(255, 137, 243, 199));  // #89F3C7 (AccentBlueHex)
+        new(ColorHelper.FromArgb(255, 167, 139, 250));  // #A78BFA (AccentBlueHex — violet)
 
     private static readonly SolidColorBrush RedBrush =
         new(ColorHelper.FromArgb(255, 211, 140, 144));  // #D38C90 (NegativeHex)

@@ -41,7 +41,7 @@ public partial class SettingsViewModel : ObservableObject
     private string _ascentStatus = "";
 
     [ObservableProperty]
-    private string _ascentStatusColorHex = "#7070a0";
+    private string _ascentStatusColorHex = "#8A80A8";
 
     [ObservableProperty]
     private string _clipsFolder = "";
@@ -66,7 +66,7 @@ public partial class SettingsViewModel : ObservableObject
     private string _currentClipUsage = "";
 
     [ObservableProperty]
-    private string _clipUsageColorHex = "#22c55e";
+    private string _clipUsageColorHex = "#7EC9A0";
 
     [ObservableProperty]
     private bool _ffmpegAvailable;
@@ -75,7 +75,7 @@ public partial class SettingsViewModel : ObservableObject
     private string _ffmpegStatusText = "Checking...";
 
     [ObservableProperty]
-    private string _ffmpegStatusColorHex = "#7070a0";
+    private string _ffmpegStatusColorHex = "#8A80A8";
 
     [ObservableProperty]
     private bool _backupEnabled;
@@ -96,13 +96,13 @@ public partial class SettingsViewModel : ObservableObject
     private string _saveStatusText = "";
 
     [ObservableProperty]
-    private string _saveStatusColorHex = "#22c55e";
+    private string _saveStatusColorHex = "#7EC9A0";
 
     [ObservableProperty]
     private string _updateStatusText = "";
 
     [ObservableProperty]
-    private string _updateStatusColorHex = "#7070a0";
+    private string _updateStatusColorHex = "#8A80A8";
 
     [ObservableProperty]
     private bool _isUpdateAvailable;
@@ -155,7 +155,7 @@ public partial class SettingsViewModel : ObservableObject
             var ffmpegPath = await _clipService.FindFfmpegAsync();
             FfmpegAvailable = ffmpegPath != null;
             FfmpegStatusText = FfmpegAvailable ? "Available" : "Not found -- clip saving disabled";
-            FfmpegStatusColorHex = FfmpegAvailable ? "#22c55e" : "#ef4444";
+            FfmpegStatusColorHex = FfmpegAvailable ? "#7EC9A0" : "#D38C90";
 
             // Check ascent folder status
             if (!string.IsNullOrWhiteSpace(AscentFolder))
@@ -213,7 +213,7 @@ public partial class SettingsViewModel : ObservableObject
             UpdateClipUsage();
 
             SaveStatusText = verified ? "Settings saved and verified." : "Settings saved, but verification did not fully match.";
-            SaveStatusColorHex = verified ? "#22c55e" : "#c89b3c";
+            SaveStatusColorHex = verified ? "#7EC9A0" : "#C9956A";
 
             _logger.LogInformation("Settings saved successfully");
 
@@ -225,7 +225,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             _logger.LogError(ex, "Failed to save settings");
             SaveStatusText = "Error saving settings";
-            SaveStatusColorHex = "#ef4444";
+            SaveStatusColorHex = "#D38C90";
         }
     }
 
@@ -274,7 +274,7 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             UpdateStatusText = "Downloading update...";
-            UpdateStatusColorHex = "#c89b3c";
+            UpdateStatusColorHex = "#C9956A";
 
             await _updateService.DownloadUpdateAsync(_pendingUpdate, progress =>
             {
@@ -292,7 +292,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             _logger.LogError(ex, "Update download/apply failed");
             UpdateStatusText = "Update failed — try again later";
-            UpdateStatusColorHex = "#ef4444";
+            UpdateStatusColorHex = "#D38C90";
         }
     }
 
@@ -301,7 +301,7 @@ public partial class SettingsViewModel : ObservableObject
     {
         AscentFolder = "";
         AscentStatus = "Ascent VOD disabled";
-        AscentStatusColorHex = "#7070a0";
+        AscentStatusColorHex = "#8A80A8";
     }
 
     partial void OnUpdateStatusColorHexChanged(string value)
@@ -333,7 +333,7 @@ public partial class SettingsViewModel : ObservableObject
         if (_updateService.IsChecking)
         {
             UpdateStatusText = "Checking for updates...";
-            UpdateStatusColorHex = "#7070a0";
+            UpdateStatusColorHex = "#8A80A8";
             return;
         }
 
@@ -341,19 +341,19 @@ public partial class SettingsViewModel : ObservableObject
 
         if (_updateService.IsUpdateAvailable)
         {
-            UpdateStatusColorHex = "#c89b3c";
+            UpdateStatusColorHex = "#C9956A";
         }
         else if (_updateService.LastCheckFailed)
         {
-            UpdateStatusColorHex = "#ef4444";
+            UpdateStatusColorHex = "#D38C90";
         }
         else if (_updateService.IsInstalled && _updateService.HasChecked)
         {
-            UpdateStatusColorHex = "#22c55e";
+            UpdateStatusColorHex = "#7EC9A0";
         }
         else
         {
-            UpdateStatusColorHex = "#7070a0";
+            UpdateStatusColorHex = "#8A80A8";
         }
     }
 
@@ -371,24 +371,24 @@ public partial class SettingsViewModel : ObservableObject
                 if (count > 0)
                 {
                     AscentStatus = $"Found {count} recording{(count != 1 ? "s" : "")}";
-                    AscentStatusColorHex = "#22c55e";
+                    AscentStatusColorHex = "#7EC9A0";
                 }
                 else
                 {
                     AscentStatus = "No video files found in this folder";
-                    AscentStatusColorHex = "#ef4444";
+                    AscentStatusColorHex = "#D38C90";
                 }
             }
             else
             {
                 AscentStatus = "Folder does not exist";
-                AscentStatusColorHex = "#ef4444";
+                AscentStatusColorHex = "#D38C90";
             }
         }
         catch
         {
             AscentStatus = "Error checking folder";
-            AscentStatusColorHex = "#ef4444";
+            AscentStatusColorHex = "#D38C90";
         }
     }
 
@@ -417,22 +417,22 @@ public partial class SettingsViewModel : ObservableObject
                 CurrentClipUsage = $"Using {totalMb:F0} MB / {ClipsMaxSizeMb} MB ({pct:F0}%)";
 
                 if (pct < 80)
-                    ClipUsageColorHex = "#22c55e";
+                    ClipUsageColorHex = "#7EC9A0";
                 else if (pct < 95)
-                    ClipUsageColorHex = "#c89b3c";
+                    ClipUsageColorHex = "#C9956A";
                 else
-                    ClipUsageColorHex = "#ef4444";
+                    ClipUsageColorHex = "#D38C90";
             }
             else
             {
                 CurrentClipUsage = "No clips folder configured";
-                ClipUsageColorHex = "#7070a0";
+                ClipUsageColorHex = "#8A80A8";
             }
         }
         catch
         {
             CurrentClipUsage = "Error reading clips folder";
-            ClipUsageColorHex = "#ef4444";
+            ClipUsageColorHex = "#D38C90";
         }
     }
 
@@ -479,10 +479,10 @@ public partial class SettingsViewModel : ObservableObject
 
     private static SolidColorBrush HexBrush(string hex)
     {
-        var normalized = (hex ?? "#7070a0").Trim().TrimStart('#');
+        var normalized = (hex ?? "#8A80A8").Trim().TrimStart('#');
         if (normalized.Length != 6)
         {
-            return new SolidColorBrush(ColorHelper.FromArgb(255, 112, 112, 160));
+            return new SolidColorBrush(ColorHelper.FromArgb(255, 138, 128, 168)); // #8A80A8 neutral
         }
 
         try
@@ -494,7 +494,7 @@ public partial class SettingsViewModel : ObservableObject
         }
         catch
         {
-            return new SolidColorBrush(ColorHelper.FromArgb(255, 112, 112, 160));
+            return new SolidColorBrush(ColorHelper.FromArgb(255, 138, 128, 168)); // #8A80A8 neutral
         }
     }
 

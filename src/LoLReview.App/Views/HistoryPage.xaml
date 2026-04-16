@@ -91,7 +91,7 @@
                                 <ItemsRepeater.ItemTemplate>
                                     <DataTemplate x:DataType="vm:GameDisplayItem">
                                         <Border Background="{StaticResource CardBackgroundBrush}"
-                                                CornerRadius="8"
+                                                CornerRadius="2"
                                                 BorderThickness="2"
                                                 Padding="12,10">
                                             <Grid>
@@ -136,7 +136,7 @@
                                                                 Margin="0,4,0,0">
                                                         <Button Content="Watch VOD"
                                                                 FontSize="11" Height="26"
-                                                                Padding="14,0" CornerRadius="6"
+                                                                Padding="14,0" CornerRadius="2"
                                                                 Background="{StaticResource AccentGoldDimBrush}"
                                                                 Foreground="{StaticResource AccentGoldBrush}"
                                                                 BorderBrush="{StaticResource AccentGoldBrush}"
@@ -146,7 +146,7 @@
                                                                 Click="WatchVodButton_Click"/>
                                                         <Button Content="Review"
                                                                 FontSize="11" Height="26"
-                                                                Padding="14,0" CornerRadius="6"
+                                                                Padding="14,0" CornerRadius="2"
                                                                 Background="{StaticResource AccentBlueBrush}"
                                                                 Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                                                 Tag="{x:Bind GameId}"
@@ -154,7 +154,7 @@
                                                         <Button Content="&#xE74D;"
                                                                 FontFamily="Segoe MDL2 Assets"
                                                                 FontSize="11" Height="26" Width="26"
-                                                                Padding="0" CornerRadius="6"
+                                                                Padding="0" CornerRadius="2"
                                                                 Background="Transparent"
                                                                 Foreground="{StaticResource SecondaryTextBrush}"
                                                                 BorderThickness="1"
@@ -177,7 +177,7 @@
                                     HorizontalAlignment="Center"
                                     Margin="0,12,0,24"
                                     Height="32" Width="160"
-                                    CornerRadius="8"
+                                    CornerRadius="2"
                                     FontSize="13"
                                     Background="{StaticResource AccentBlueBrush}"
                                     Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>

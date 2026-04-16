@@ -10,29 +10,30 @@ namespace LoLReview.App.Styling;
 /// <summary>
 /// Shared semantic palette for view-model-driven brushes.
 /// Keep these values aligned with Themes/AppTheme.xaml.
+/// Violet + Bronze futuristic HUD theme.
 /// </summary>
 public static class AppSemanticPalette
 {
-    public const string PrimaryTextHex = "#EDF3F0";
-    public const string SecondaryTextHex = "#A0B1AB";
-    public const string MutedTextHex = "#66756F";
+    public const string PrimaryTextHex = "#F0EEF8";
+    public const string SecondaryTextHex = "#7A6E96";
+    public const string MutedTextHex = "#4A3E60";
 
-    public const string NeutralHex = "#93A59E";
-    public const string NeutralDimHex = "#111918";
-    public const string SubtleBorderHex = "#24312E";
-    public const string TagSurfaceHex = "#101817";
+    public const string NeutralHex = "#8A80A8";
+    public const string NeutralDimHex = "#13111E";
+    public const string SubtleBorderHex = "#24203A";
+    public const string TagSurfaceHex = "#110F1A";
 
-    public const string AccentBlueHex = "#89F3C7";
-    public const string AccentBlueDimHex = "#113229";
-    public const string AccentGoldHex = "#D7A36A";
-    public const string AccentGoldDimHex = "#312114";
-    public const string AccentTealHex = "#A6DF78";
-    public const string AccentTealDimHex = "#20301A";
+    public const string AccentBlueHex = "#A78BFA";
+    public const string AccentBlueDimHex = "#1A1430";
+    public const string AccentGoldHex = "#C9956A";
+    public const string AccentGoldDimHex = "#261C12";
+    public const string AccentTealHex = "#8A7AF2";
+    public const string AccentTealDimHex = "#181430";
 
-    public const string PositiveHex = "#78D6AE";
-    public const string PositiveDimHex = "#11251E";
+    public const string PositiveHex = "#7EC9A0";
+    public const string PositiveDimHex = "#0F1E18";
     public const string NegativeHex = "#D38C90";
-    public const string NegativeDimHex = "#332025";
+    public const string NegativeDimHex = "#2A1820";
 
     private static readonly Dictionary<string, SolidColorBrush> BrushCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -80,15 +81,15 @@ public static class AppSemanticPalette
 
     public static SolidColorBrush ObjectiveLevelBrush(int levelIndex) => Brush(ObjectiveLevelHex(levelIndex));
 
-    public const string ObjectivePurpleHex = "#8a7af2";
-    public const string ObjectiveOrangeHex = "#e8935a";
+    public const string ObjectivePurpleHex = "#A78BFA";
+    public const string ObjectiveOrangeHex = "#C9956A";
 
     public static string ObjectiveLevelHex(int levelIndex) => levelIndex switch
     {
-        0 => "#718094",         // Exploring: Slate
-        1 => "#78d2f7",         // Drilling: Ice blue
-        2 => ObjectivePurpleHex, // Ingraining: Violet
-        3 => ObjectiveOrangeHex, // Ready: Orange
+        0 => "#8A80A8",         // Exploring: Muted violet
+        1 => "#A78BFA",         // Drilling: Violet
+        2 => "#8A7AF2",         // Ingraining: Deep violet
+        3 => "#C9956A",         // Ready: Bronze
         _ => NeutralHex,
     };
 
@@ -144,11 +145,11 @@ public static class AppSemanticPalette
         var normalized = (sourceHex ?? "").Trim().ToLowerInvariant();
         return normalized switch
         {
-            "#22c55e" or "#3bc98d" or "#1a3a1a" or "#17382d" => PositiveHex,
-            "#ef4444" or "#ea7a73" or "#3f1111" or "#48262b" => NegativeHex,
-            "#c89b3c" or "#c9a86a" => AccentGoldHex,
-            "#8b5cf6" or "#8a7af2" => NeutralHex,
-            "#0099ff" or "#3b82f6" or "#1e40af" => AccentBlueHex,
+            "#22c55e" or "#3bc98d" or "#1a3a1a" or "#17382d" or "#78d6ae" => PositiveHex,
+            "#ef4444" or "#ea7a73" or "#3f1111" or "#48262b" or "#d38c90" => NegativeHex,
+            "#c89b3c" or "#c9a86a" or "#d7a36a" or "#c9956a" => AccentGoldHex,
+            "#8b5cf6" or "#8a7af2" or "#a78bfa" or "#7c3aed" => AccentBlueHex,
+            "#0099ff" or "#3b82f6" or "#1e40af" or "#89f3c7" => AccentBlueHex,
             _ => AccentBlueHex,
         };
     }

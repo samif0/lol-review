@@ -136,7 +136,7 @@
             <Border Visibility="{x:Bind ReviewVM.ShowMentalReflection, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentPurpleBrush}"
-                    BorderThickness="2" CornerRadius="8" Padding="16">
+                    BorderThickness="2" CornerRadius="2" Padding="16">
                 <StackPanel Spacing="8">
                     <TextBlock Text="MENTAL REFLECTION"
                                FontSize="11" FontWeight="Bold"
@@ -150,7 +150,7 @@
                              MinHeight="60" FontSize="13"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
                 </StackPanel>
             </Border>
 
@@ -168,7 +168,7 @@
                          MinHeight="70" FontSize="13"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
                 <TextBlock Text="What could improve?" FontSize="13"
                            Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -178,7 +178,7 @@
                          MinHeight="70" FontSize="13"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
                 <TextBlock Text="Focus for next game" FontSize="13"
                            Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -187,7 +187,7 @@
                          FontSize="13" Height="36"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
             </StackPanel>
 
             <!-- ═══ Quick Note ═══ -->
@@ -200,7 +200,7 @@
                          FontSize="13" Height="36"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
             </StackPanel>
 
         </StackPanel>

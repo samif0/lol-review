@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoL Review — UI Mockup v2</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#07060b;--bg2:#0c0b12;--bg3:#100f18;--bg4:#14121e;--bg5:#1a1828;
+    --border:rgba(167,139,250,0.06);--border2:rgba(167,139,250,0.14);
+    --t1:#f0eef8;--t2:#ddd8ea;--t3:#7a6e96;--t4:#4a3e60;
+    --accent:#A78BFA;--ag:rgba(167,139,250,0.3);--ad:rgba(167,139,250,0.08);
+    --sec:#C9956A;--sg:rgba(201,149,106,0.25);
+    --win:#7EC9A0;--wg:rgba(126,201,160,0.2);
+    --loss:#D38C90;--lg:rgba(211,140,144,0.2);
+    --fd:'Rajdhani',sans-serif;--fm:'Share Tech Mono',monospace;--fb:'Exo 2',sans-serif;--fo:'Orbitron',sans-serif;
+  }
+  body{background:var(--bg);color:var(--t2);font-family:var(--fb);height:100vh;overflow:hidden;display:flex}
+
+  /* === BACKGROUND === */
+  canvas#bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+
+  /* === SIDEBAR === */
+  .side{width:72px;min-width:72px;background:var(--bg2);display:flex;flex-direction:column;align-items:center;padding:16px 0;height:100vh;position:relative;z-index:2;border-right:1px solid var(--border)}
+  .side::after{content:'';position:absolute;right:0;top:0;width:1px;height:30px;background:linear-gradient(to bottom,transparent,var(--accent),transparent);animation:stream 3s linear infinite}
+  @keyframes stream{0%{top:-30px}100%{top:100%}}
+  .side-logo{font-family:var(--fo);font-size:10px;font-weight:700;color:var(--accent);letter-spacing:2px;writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);margin-bottom:24px;opacity:0.6}
+  .side-nav{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0}
+  .nav-i{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;position:relative;transition:all 0.25s;color:var(--t4);font-size:16px;border:1px solid transparent}
+  .nav-i:hover{color:var(--t3);background:rgba(167,139,250,0.03)}
+  .nav-i.active{color:var(--accent);background:var(--ad);border-color:rgba(167,139,250,0.12)}
+  .nav-i.active::after{content:'';position:absolute;right:-1px;top:25%;height:50%;width:2px;background:var(--accent);box-shadow:0 0 8px var(--ag);animation:pulse 2s ease infinite}
+  .nav-i .badge{position:absolute;top:4px;right:4px;width:8px;height:8px;background:var(--loss);border-radius:50%;border:2px solid var(--bg2)}
+  .nav-sep{width:24px;height:1px;background:var(--border);margin:8px 0}
+  .nav-i .tip{position:absolute;left:60px;background:var(--bg4);border:1px solid var(--border2);padding:4px 10px;font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t2);white-space:nowrap;opacity:0;pointer-events:none;transition:all 0.2s;transform:translateX(-4px);z-index:10}
+  .nav-i:hover .tip{opacity:1;transform:translateX(0)}
+  .side-foot{font-family:var(--fm);font-size:8px;color:var(--t4);writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:1px}
+  .status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--win);margin-bottom:6px;box-shadow:0 0 6px var(--wg);animation:pulse 2s ease infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+  /* === MAIN === */
+  .main{flex:1;overflow-y:auto;position:relative;z-index:1}
+  .main::-webkit-scrollbar{width:3px}.main::-webkit-scrollbar-thumb{background:#1a1828;border-radius:2px}
+
+  /* Hero header area */
+  .hero{padding:40px 40px 0;position:relative;overflow:hidden;margin-bottom:0}
+  .hero::before{content:'';position:absolute;top:0;left:0;right:0;height:200px;background:linear-gradient(135deg,rgba(167,139,250,0.04),transparent 60%,rgba(201,149,106,0.02));pointer-events:none}
+  .hero-eyebrow{font-family:var(--fm);font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--t4);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .hero-eyebrow::before{content:'';width:20px;height:1px;background:var(--accent)}
+  .hero-eyebrow .cursor{animation:blink 1s step-end infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+  .hero-title{font-family:var(--fo);font-size:28px;font-weight:700;letter-spacing:2px;color:var(--t1);line-height:1.2}
+  .hero-sub{font-family:var(--fm);font-size:11px;color:var(--t4);margin-top:6px;letter-spacing:0.8px}
+
+  /* Content area */
+  .content{padding:24px 40px 40px}
+
+  .page{display:none}.page.active{display:block;animation:enter 0.6s cubic-bezier(0.22,1,0.36,1)}
+  @keyframes enter{0%{opacity:0;transform:translateY(16px) scale(0.99);filter:blur(3px)}100%{opacity:1;transform:none;filter:none}}
+
+  /* === STAT STRIP === */
+  .stats{display:flex;gap:2px;margin-bottom:20px}
+  .stat{flex:1;background:var(--bg4);padding:16px 18px;position:relative;overflow:hidden;border:1px solid var(--border);transition:all 0.3s}
+  .stat:first-child{border-radius:4px 0 0 4px}.stat:last-child{border-radius:0 4px 4px 0}
+  .stat:hover{border-color:var(--border2);z-index:1}
+  .stat:hover .stat-v{text-shadow:0 0 20px var(--ag)}
+  .stat::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity 0.3s}
+  .stat:hover::after{opacity:0.3}
+  /* Hex pattern overlay on hover */
+  .stat{background-image:none;background-size:14px 24px}
+  .stat:hover{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%23A78BFA' fill-opacity='0.05'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
+  .stat-l{font-family:var(--fm);font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:var(--t4);margin-bottom:4px}
+  .stat-v{font-family:var(--fo);font-size:22px;font-weight:700;letter-spacing:1px;transition:text-shadow 0.3s}
+  .stat-s{font-family:var(--fm);font-size:9px;color:var(--t4);margin-top:2px;letter-spacing:0.5px}
+
+  /* === CARDS === */
+  .card{background:var(--bg4);border:1px solid var(--border);padding:20px;margin-bottom:12px;position:relative;border-radius:2px;transition:all 0.35s cubic-bezier(0.22,1,0.36,1)}
+  .card:hover{border-color:var(--border2);transform:translateY(-1px)}
+  /* Targeting reticle corners */
+  .card::before{content:'';position:absolute;top:6px;left:6px;width:10px;height:10px;border-top:1px solid var(--border2);border-left:1px solid var(--border2);opacity:0;transition:opacity 0.3s}
+  .card::after{content:'';position:absolute;bottom:6px;right:6px;width:10px;height:10px;border-bottom:1px solid var(--border2);border-right:1px solid var(--border2);opacity:0;transition:opacity 0.3s}
+  .card:hover::before,.card:hover::after{opacity:1}
+  .card:hover{background-size:14px 24px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%23A78BFA' fill-opacity='0.02'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");background-size:28px 49px}
+  .card-t{font-family:var(--fm);font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--t4);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .card-t::before{content:'';width:4px;height:4px;background:var(--accent);animation:pulse 2s ease infinite}
+  .card-t::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--border),transparent)}
+  .card-glow{box-shadow:inset 0 0 40px rgba(167,139,250,0.02);animation:breathe 4s ease-in-out infinite}
+  @keyframes breathe{0%,100%{box-shadow:inset 0 0 40px rgba(167,139,250,0.02),0 0 0 rgba(167,139,250,0)}50%{box-shadow:inset 0 0 50px rgba(167,139,250,0.04),0 0 30px rgba(167,139,250,0.02)}}
+
+  /* === GAME ROWS === */
+  .g-row{display:flex;align-items:center;gap:14px;background:var(--bg4);border:1px solid var(--border);padding:0;margin-bottom:4px;cursor:pointer;transition:all 0.25s;position:relative;overflow:hidden;border-radius:2px}
+  .g-row:hover{border-color:var(--border2);transform:translateX(4px)}
+  .g-row::before{content:'';position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,rgba(167,139,250,0.04),transparent);transition:width 0.4s}
+  .g-row:hover::before{width:100%}
+  .g-bar{width:3px;align-self:stretch;flex-shrink:0}
+  .g-bar.w{background:var(--win);box-shadow:0 0 8px var(--wg)}
+  .g-bar.l{background:var(--loss);box-shadow:0 0 8px var(--lg)}
+  .g-body{flex:1;padding:12px 0}
+  .g-champ{font-family:var(--fd);font-size:16px;font-weight:600;letter-spacing:0.5px}
+  .g-meta{font-family:var(--fm);font-size:10px;color:var(--t4);margin-top:1px;letter-spacing:0.5px}
+  .g-nums{font-family:var(--fm);font-size:10px;color:var(--t3);display:flex;gap:12px;letter-spacing:0.5px;padding-right:14px}
+  .g-act{padding-right:14px}
+
+  /* === BUTTONS === */
+  .btn{font-family:var(--fd);padding:7px 16px;border-radius:2px;font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;transition:all 0.25s;position:relative;overflow:hidden}
+  .btn-p{background:linear-gradient(135deg,rgba(167,139,250,0.15),rgba(167,139,250,0.08));border:1px solid rgba(167,139,250,0.25);color:var(--accent)}
+  .btn-p:hover{box-shadow:0 0 20px rgba(167,139,250,0.12);border-color:rgba(167,139,250,0.4);transform:translateY(-1px)}
+  .btn-p::after{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.04),transparent);transition:left 0.4s}
+  .btn-p:hover::after{left:100%}
+  .btn-s{background:transparent;border:1px solid var(--border2);color:var(--t3)}
+  .btn-s:hover{border-color:rgba(167,139,250,0.2);color:var(--t2)}
+  .btn-g{background:transparent;border:none;color:var(--t4);padding:5px 8px}
+  .btn-g:hover{color:var(--t3)}
+  .btn .ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,0.12);transform:scale(0);animation:rip 0.5s ease-out;pointer-events:none}
+  @keyframes rip{to{transform:scale(4);opacity:0}}
+
+  /* === INPUTS === */
+  .inp{background:var(--bg);border:1px solid var(--border);border-radius:2px;padding:10px 14px;color:var(--t2);font-size:13px;width:100%;font-family:var(--fb);transition:all 0.25s}
+  .inp:focus{outline:none;border-color:rgba(167,139,250,0.3);box-shadow:0 0 0 3px rgba(167,139,250,0.04)}
+  .inp::placeholder{color:var(--t4)}
+  .ta{min-height:72px;resize:vertical}
+  .inp-l{font-family:var(--fm);font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--t4);margin-bottom:5px}
+
+  /* === PILLS === */
+  .pill{display:inline-flex;padding:5px 12px;border-radius:2px;font-family:var(--fd);font-size:12px;font-weight:500;letter-spacing:0.5px;border:1px solid var(--border);color:var(--t3);cursor:pointer;margin:2px;transition:all 0.2s}
+  .pill:hover{border-color:var(--border2);color:var(--t2);transform:translateY(-1px)}
+  .pill.on{background:var(--ad);border-color:rgba(167,139,250,0.25);color:var(--accent)}
+
+  /* === PROGRESS === */
+  .prog{height:3px;background:rgba(255,255,255,0.03);border-radius:1px;overflow:visible;position:relative}
+  .prog-f{height:100%;background:var(--accent);border-radius:1px;box-shadow:0 0 6px var(--ag);position:relative;animation:grow 1s ease backwards}
+  @keyframes grow{from{width:0!important}}
+  .prog-f::after{content:'';position:absolute;right:-1px;top:-3px;width:3px;height:9px;background:var(--accent);border-radius:1px;box-shadow:0 0 10px var(--ag);animation:pulse 1.5s ease infinite}
+
+  /* === PROGRESS RING (for objectives) === */
+  .ring-wrap{width:56px;height:56px;position:relative;flex-shrink:0}
+  .ring-wrap svg{transform:rotate(-90deg)}
+  .ring-bg{fill:none;stroke:rgba(167,139,250,0.06);stroke-width:3}
+  .ring-fg{fill:none;stroke:url(#ring-grad);stroke-width:3;stroke-linecap:round;animation:ring-draw 1.2s ease backwards,ring-glow 3s ease-in-out infinite}
+  @keyframes ring-draw{from{stroke-dashoffset:150.8}}
+  @keyframes ring-glow{0%,100%{filter:drop-shadow(0 0 3px rgba(167,139,250,0.2))}50%{filter:drop-shadow(0 0 10px rgba(167,139,250,0.5)) drop-shadow(0 0 20px rgba(167,139,250,0.2))}}
+  .ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--fo);font-size:12px;font-weight:700;color:var(--accent)}
+
+  /* === TABLES === */
+  .tbl{width:100%;border-collapse:collapse}
+  .tbl th{font-family:var(--fm);font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--t4);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border)}
+  .tbl td{font-size:13px;padding:10px 12px;border-bottom:1px solid var(--border);color:var(--t3)}
+  .tbl tr:hover td{color:var(--t2)}
+
+  /* === BAR CHART === */
+  .bars{display:flex;flex-direction:column;gap:8px}
+  .bar-r{display:flex;align-items:center;gap:10px}
+  .bar-l{font-family:var(--fm);font-size:10px;color:var(--t3);width:80px;text-align:right;flex-shrink:0;letter-spacing:0.5px}
+  .bar-t{flex:1;height:14px;background:rgba(255,255,255,0.02);border-radius:1px;overflow:hidden;border:1px solid var(--border)}
+  .bar-f{height:100%;animation:grow 0.8s ease backwards}
+  .bar-v{font-family:var(--fm);font-size:10px;color:var(--t4);width:32px;flex-shrink:0}
+
+  /* === LAYOUT === */
+  .row{display:flex;gap:12px}.col{flex:1;min-width:0}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+  /* === VIDEO === */
+  .vid{background:#000;border-radius:2px;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;margin-bottom:8px;position:relative;border:1px solid var(--border);overflow:hidden}
+  .vid::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 50%,rgba(7,6,11,0.5));pointer-events:none}
+  .vid-ph{color:#1a1828;font-size:40px}
+  .playbar{display:flex;align-items:center;gap:8px;padding:8px 0}
+  .seek{flex:1;height:3px;background:#1a1828;border-radius:1px;cursor:pointer;position:relative}
+  .seek-f{width:35%;height:100%;background:var(--accent);border-radius:1px;position:relative}
+  .seek-f::after{content:'';position:absolute;right:-4px;top:-3px;width:8px;height:9px;border-radius:2px;background:var(--accent);box-shadow:0 0 10px var(--ag);animation:pulse 1.5s ease infinite}
+  .ts{font-family:var(--fm);font-size:10px;color:var(--t4);letter-spacing:1px}
+  .timeline{height:24px;background:var(--bg4);border:1px solid var(--border);border-radius:2px;position:relative;margin-bottom:12px;overflow:hidden}
+  .timeline::before{content:'';position:absolute;inset:0;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,0.02) 0px,rgba(255,255,255,0.02) 1px,transparent 1px,transparent 10%)}
+  .tm{position:absolute;width:2px;height:100%;top:0;border-radius:1px;animation:tmp 2s ease infinite}
+  .tm:nth-child(odd){animation-delay:0.3s}
+  @keyframes tmp{0%,100%{opacity:0.6}50%{opacity:1;box-shadow:0 0 6px currentColor}}
+
+  /* === BOOKMARK === */
+  .bm{background:var(--bg4);border:1px solid var(--border);border-radius:2px;padding:10px;margin-bottom:4px;transition:all 0.25s}
+  .bm:hover{transform:translateX(3px);border-color:var(--border2)}
+  .bm-t{font-family:var(--fm);font-size:10px;color:var(--accent);letter-spacing:1px}
+  .bm-n{font-size:12px;color:var(--t3);margin-top:3px}
+
+  /* === OBJECTIVE CARD === */
+  .obj{background:var(--bg4);border:1px solid var(--border);border-radius:2px;padding:16px;margin-bottom:8px;display:flex;gap:14px;align-items:flex-start;transition:all 0.25s}
+  .obj:hover{border-color:var(--border2);transform:translateX(3px)}
+  .obj-info{flex:1}
+  .obj-name{font-family:var(--fd);font-size:16px;font-weight:600;letter-spacing:0.5px}
+  .obj-meta{font-family:var(--fm);font-size:9px;color:var(--t4);margin-top:3px;letter-spacing:1px}
+  .obj-spark{display:flex;align-items:end;gap:2px;height:18px;margin-top:8px}
+  .obj-spark i{display:block;width:3px;background:var(--accent);opacity:0.4;border-radius:1px;animation:grow 0.5s ease backwards}
+  .obj:hover .obj-spark i{opacity:0.8}
+
+  /* === RULE === */
+  .rule{background:var(--bg4);border:1px solid var(--border);border-radius:2px;padding:12px 14px;margin-bottom:4px;display:flex;align-items:center;gap:12px;transition:all 0.25s}
+  .rule:hover{border-color:var(--border2)}
+  .rule-tag{font-family:var(--fm);font-size:8px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border:1px solid var(--border);color:var(--t4)}
+  .rule-info{flex:1}.rule-name{font-family:var(--fd);font-size:14px;font-weight:600}.rule-cond{font-size:11px;color:var(--t4);margin-top:1px}
+
+  /* === MOOD === */
+  .mood{display:flex;gap:4px}
+  .mood-p{flex:1;padding:14px 8px;border-radius:2px;border:1px solid var(--border);text-align:center;cursor:pointer;font-family:var(--fd);font-size:14px;font-weight:500;color:var(--t3);background:var(--bg4);transition:all 0.25s}
+  .mood-p:hover{border-color:var(--border2);transform:translateY(-2px)}
+  .mood-p.on{border-color:rgba(167,139,250,0.25);color:var(--accent);background:var(--ad);animation:float 3s ease infinite}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+
+  /* === BREATH === */
+  .breath{width:120px;height:120px;border-radius:50%;border:2px solid var(--border2);display:flex;align-items:center;justify-content:center;margin:20px auto;position:relative}
+  .breath::before{content:'';position:absolute;inset:-8px;border-radius:50%;border:1px solid var(--border);border-top-color:var(--accent);animation:spin 3s linear infinite}
+  .breath::after{content:'';position:absolute;inset:-14px;border-radius:50%;background:conic-gradient(from 0deg,transparent 0deg,rgba(167,139,250,0.08) 30deg,transparent 60deg);animation:spin 4s linear infinite reverse}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .breath-t{font-family:var(--fd);font-size:18px;font-weight:600;color:var(--t3);letter-spacing:1px}
+
+  /* === BANNER === */
+  .banner{border-radius:2px;padding:12px 18px;margin-bottom:14px;font-family:var(--fd);font-size:14px;font-weight:500;letter-spacing:0.5px;display:flex;align-items:center;gap:10px;position:relative;overflow:hidden}
+  .banner::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px}
+  .banner-w{background:rgba(126,201,160,0.04);border:1px solid rgba(126,201,160,0.12);color:var(--win)}.banner-w::before{background:var(--win);box-shadow:0 0 8px var(--wg);animation:pulse 2s ease infinite}
+  .banner-d{background:rgba(211,140,144,0.04);border:1px solid rgba(211,140,144,0.12);color:var(--loss)}.banner-d::before{background:var(--loss);box-shadow:0 0 8px var(--lg);animation:pulse 1.5s ease infinite}
+
+  /* === SETTINGS === */
+  .set-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+  .set-row:last-child{border-bottom:none}
+  .set-name{font-family:var(--fd);font-size:14px;font-weight:600}.set-desc{font-size:11px;color:var(--t4);margin-top:1px}
+  .tog{width:36px;height:18px;background:var(--bg);border-radius:2px;position:relative;cursor:pointer;border:1px solid var(--border)}
+  .tog.on{background:var(--ad);border-color:rgba(167,139,250,0.25)}
+  .tog::after{content:'';width:12px;height:12px;background:var(--t4);border-radius:1px;position:absolute;top:2px;left:2px;transition:0.2s}
+  .tog.on::after{left:20px;background:var(--accent);box-shadow:0 0 6px var(--ag)}
+
+  /* === MISC === */
+  .sep{height:16px}
+  .sec-t{font-family:var(--fm);font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--t4);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .sec-t::before{content:'';width:4px;height:4px;background:var(--accent);animation:pulse 2s ease infinite}
+  .sec-t::after{content:'';flex:1;height:1px;background:var(--border)}
+  .sel{font-family:var(--fb);background:var(--bg);border:1px solid var(--border);border-radius:2px;padding:7px 10px;color:var(--t2);font-size:12px;cursor:pointer}
+  .ic{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:2px;border:1px solid var(--border);background:transparent;color:var(--t3);cursor:pointer;font-family:var(--fb);transition:all 0.2s}
+  .ic:hover{border-color:var(--border2);color:var(--t2)}
+  .tag-g{display:flex;flex-wrap:wrap;gap:3px}
+  .folder{display:flex;gap:6px;align-items:center;margin-top:6px}
+  .folder .inp{flex:1;font-family:var(--fm);font-size:10px;padding:7px 10px;letter-spacing:0.5px}
+
+  /* Hexagon decoration for big stats */
+  .hex-stat{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+  .hex-stat::before{content:'';position:absolute;inset:0;background:var(--bg4);clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);opacity:0.5}
+  .hex-stat .v{font-family:var(--fo);font-size:32px;font-weight:800;position:relative;z-index:1}
+  .hex-stat .l{font-family:var(--fm);font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--t4);position:relative;z-index:1;margin-top:2px}
+
+  /* Glitch on title hover */
+  .hero-title{position:relative;transition:text-shadow 0.3s}
+  .hero-title:hover{text-shadow:2px 0 var(--accent),-2px 0 var(--loss);animation:glitch 0.3s ease}
+  @keyframes glitch{0%,100%{text-shadow:none}20%{text-shadow:2px 0 var(--accent),-2px 0 var(--loss)}40%{text-shadow:-1px 0 var(--win),1px 0 rgba(167,139,250,0.5)}60%{text-shadow:1px 0 var(--accent),-1px 0 var(--loss)}}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<nav class="side">
+  <div class="side-logo">LR</div>
+  <div class="side-nav">
+    <div class="nav-i active" onclick="go('dash',this)"><span>&#9632;</span><span class="tip">DASHBOARD</span></div>
+    <div class="nav-i" onclick="go('review',this)"><span>&#9998;</span><span class="tip">REVIEW</span><span class="badge"></span></div>
+    <div class="nav-i" onclick="go('obj',this)"><span>&#9673;</span><span class="tip">OBJECTIVES</span></div>
+    <div class="nav-i" onclick="go('arch',this)"><span>&#9776;</span><span class="tip">ARCHIVE</span></div>
+    <div class="nav-sep"></div>
+    <div class="nav-i" onclick="go('trends',this)"><span>&#8599;</span><span class="tip">TRENDS</span></div>
+    <div class="nav-i" onclick="go('vod',this)"><span>&#9654;</span><span class="tip">VOD PLAYER</span></div>
+    <div class="nav-sep"></div>
+    <div class="nav-i" onclick="go('rules',this)"><span>&#9888;</span><span class="tip">RULES</span></div>
+    <div class="nav-i" onclick="go('session',this)"><span>&#9783;</span><span class="tip">SESSION LOG</span></div>
+    <div class="nav-i" onclick="go('pre',this)"><span>&#9733;</span><span class="tip">PRE-GAME</span></div>
+    <div class="nav-i" onclick="go('tilt',this)"><span>&#9775;</span><span class="tip">TILT CHECK</span></div>
+    <div class="nav-sep"></div>
+    <div class="nav-i" onclick="go('settings',this)"><span>&#9881;</span><span class="tip">SETTINGS</span></div>
+  </div>
+  <div class="side-foot"><span class="status-dot"></span>LCU</div>
+</nav>
+
+<div class="main">
+
+<!-- ===== DASHBOARD ===== -->
+<div id="p-dash" class="page active">
+  <div class="hero">
+    <div class="hero-eyebrow">COMMAND CENTER <span class="cursor">_</span></div>
+    <div class="hero-title">Good evening — lock in.</div>
+  </div>
+  <div class="content">
+    <div class="banner banner-w">Session mental avg: 7.2 — Locked in. Keep the focus.</div>
+    <div class="stats">
+      <div class="stat"><div class="stat-l">Games</div><div class="stat-v">5</div></div>
+      <div class="stat"><div class="stat-l">Win Rate</div><div class="stat-v" style="color:var(--win)">60%</div><div class="stat-s">3W // 2L</div></div>
+      <div class="stat"><div class="stat-l">Avg Mental</div><div class="stat-v">7.2</div></div>
+      <div class="stat"><div class="stat-l">Adherence</div><div class="stat-v" style="color:var(--sec)">5d</div><div class="stat-s">STREAK ACTIVE</div></div>
+    </div>
+    <div class="row">
+      <div class="col" style="flex:5">
+        <div class="card card-glow">
+          <div class="card-t">Unreviewed</div>
+          <div class="g-row"><div class="g-bar w"></div><div class="g-body"><div class="g-champ">Jinx</div><div class="g-meta">8/2/11 // W // +18 LP // 32m</div></div><div class="g-nums"><span>7.2 cs/m</span><span>42 vis</span></div><div class="g-act"><button class="btn btn-p">Review</button></div></div>
+          <div class="g-row"><div class="g-bar l"></div><div class="g-body"><div class="g-champ">Caitlyn</div><div class="g-meta">3/7/5 // L // -15 LP // 28m</div></div><div class="g-nums"><span>6.1 cs/m</span><span>28 vis</span></div><div class="g-act"><button class="btn btn-p">Review</button></div></div>
+          <div class="g-row"><div class="g-bar w"></div><div class="g-body"><div class="g-champ">Jinx</div><div class="g-meta">12/4/9 // W // +21 LP // 35m</div></div><div class="g-nums"><span>8.1 cs/m</span><span>38 vis</span></div><div class="g-act"><button class="btn btn-p">Review</button></div></div>
+        </div>
+      </div>
+      <div class="col" style="flex:3">
+        <div class="card">
+          <div class="card-t">Active Objectives</div>
+          <div class="obj"><div class="ring-wrap"><svg width="56" height="56" viewBox="0 0 56 56"><circle class="ring-bg" cx="28" cy="28" r="24"/><circle class="ring-fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="60"/></svg><div class="ring-label">60%</div></div><div class="obj-info"><div class="obj-name">CS Fundamentals</div><div class="obj-meta">LVL 2 // DRILLING // 12/20 PTS</div></div></div>
+          <div class="obj"><div class="ring-wrap"><svg width="56" height="56" viewBox="0 0 56 56"><circle class="ring-bg" cx="28" cy="28" r="24"/><circle class="ring-fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="90"/></svg><div class="ring-label">40%</div></div><div class="obj-info"><div class="obj-name">Lane Trading</div><div class="obj-meta">LVL 1 // EXPLORING // 4/10 PTS</div></div></div>
+          <div class="obj"><div class="ring-wrap"><svg width="56" height="56" viewBox="0 0 56 56"><circle class="ring-bg" cx="28" cy="28" r="24"/><circle class="ring-fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="120"/></svg><div class="ring-label">20%</div></div><div class="obj-info"><div class="obj-name">Pre-Game Focus</div><div class="obj-meta">LVL 0 // NEW // 1/5 PTS</div></div></div>
+        </div>
+        <div class="card" style="border-color:rgba(201,149,106,0.12)">
+          <div class="card-t" style="color:var(--sec)">Last Focus</div>
+          <div style="font-size:13px;color:var(--t3)">Focus on farming safely in lane and hitting 8 CS/min by 15 minutes</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== REVIEW ===== -->
+<div id="p-review" class="page">
+  <div class="hero">
+    <div class="hero-eyebrow">GAME ANALYSIS <span class="cursor">_</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><div class="hero-title">Jinx — <span style="color:var(--win)">Victory</span></div><div class="hero-sub">8 / 2 / 11 // KDA 9.5 // 32m // RANKED SOLO // TODAY 20:42</div></div>
+      <button class="btn btn-p" style="animation:breathe 3s ease-in-out infinite">&#9654; WATCH VOD</button>
+    </div>
+  </div>
+  <div class="content">
+    <div class="stats" style="grid-template-columns:repeat(6,1fr)">
+      <div class="stat"><div class="stat-l">Damage</div><div class="stat-v" style="font-size:18px">28.4k</div></div>
+      <div class="stat"><div class="stat-l">CS</div><div class="stat-v" style="font-size:18px">231</div><div class="stat-s">7.2/min</div></div>
+      <div class="stat"><div class="stat-l">Vision</div><div class="stat-v" style="font-size:18px">42</div></div>
+      <div class="stat"><div class="stat-l">Gold</div><div class="stat-v" style="font-size:18px">14.2k</div></div>
+      <div class="stat"><div class="stat-l">Kill Part.</div><div class="stat-v" style="font-size:18px">63%</div></div>
+      <div class="stat"><div class="stat-l">Dmg Taken</div><div class="stat-v" style="font-size:18px">12.1k</div></div>
+    </div>
+    <div class="card card-glow">
+      <div class="card-t">Objective Practice</div>
+      <div class="g2">
+        <div style="background:var(--bg);border:1px solid rgba(167,139,250,0.15);border-radius:2px;padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-family:var(--fd);font-size:15px;font-weight:600;color:var(--accent)">CS Fundamentals</span><span style="font-family:var(--fm);font-size:8px;letter-spacing:1px;color:var(--accent);padding:3px 8px;border:1px solid rgba(167,139,250,0.2)">PRACTICED</span></div>
+          <div class="prog" style="margin-bottom:6px"><div class="prog-f" style="width:60%"></div></div>
+          <div style="font-family:var(--fm);font-size:9px;color:var(--t4);margin-bottom:8px">LVL 2 // DRILLING // 12/20 PTS</div>
+          <input class="inp" placeholder="How did you practice this?" style="font-size:11px;padding:7px 10px;background:rgba(0,0,0,0.3)">
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:2px;padding:14px;opacity:0.5;transition:opacity 0.3s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-family:var(--fd);font-size:15px;font-weight:600">Lane Trading</span><span style="font-family:var(--fm);font-size:8px;letter-spacing:1px;color:var(--t4);padding:3px 8px;border:1px solid var(--border)">NOT PRACTICED</span></div>
+          <div class="prog" style="margin-bottom:6px"><div class="prog-f" style="width:40%"></div></div>
+          <div style="font-family:var(--fm);font-size:9px;color:var(--t4);margin-bottom:8px">LVL 1 // EXPLORING // 4/10 PTS</div>
+          <input class="inp" placeholder="Click to mark as practiced..." style="font-size:11px;padding:7px 10px;background:rgba(0,0,0,0.3)">
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col" style="flex:2">
+        <div class="card"><div class="card-t">Mental Rating</div><div style="display:flex;align-items:center;gap:14px"><div style="flex:1;height:3px;background:rgba(255,255,255,0.04);border-radius:1px"><div style="width:70%;height:100%;background:var(--accent);border-radius:1px;box-shadow:0 0 8px var(--ag);position:relative"><div style="position:absolute;right:-3px;top:-4px;width:6px;height:11px;background:var(--accent);border-radius:1px;box-shadow:0 0 10px var(--ag)"></div></div></div><div style="font-family:var(--fo);font-size:24px;font-weight:700;width:36px;text-align:center">7</div></div></div>
+        <div class="card"><div class="card-t">Performance Debrief</div><div style="margin-bottom:12px"><div class="inp-l">What went well</div><textarea class="inp ta" placeholder="Laning phase was clean..."></textarea></div><div style="margin-bottom:12px"><div class="inp-l">Could improve</div><textarea class="inp ta" placeholder="Got caught rotating..."></textarea></div><div><div class="inp-l">Focus next</div><textarea class="inp ta" placeholder="Check minimap before river..."></textarea></div></div>
+        <div class="card"><div class="card-t">Attribution</div><div style="display:flex;gap:4px"><div class="pill on">My play</div><div class="pill">Team effort</div><div class="pill">Teammates</div><div class="pill">External</div></div></div>
+        <div class="card"><div class="card-t">Concept Tags</div><div class="tag-g"><div class="pill on">Dominated lane</div><div class="pill">Strong TFs</div><div class="pill on">Good CS</div><div class="pill">Caught out</div><div class="pill">Poor vision</div><div class="pill">Carried</div><div class="pill">Fed enemy</div><div class="pill">Good roams</div><div class="pill">Tilted</div><div class="pill">Comeback</div></div></div>
+        <div class="card"><div class="card-t">Matchup Notes</div><textarea class="inp ta" placeholder="Notes about Jinx vs enemy laner..."></textarea></div>
+      </div>
+      <div class="col">
+        <div class="card" style="border-color:rgba(167,139,250,0.1)"><div class="card-t">VOD Bookmarks</div><div class="bm"><div class="bm-t">05:23</div><div class="bm-n">Good trade level 3</div></div><div class="bm"><div class="bm-t">12:41</div><div class="bm-n">Caught without vision</div></div><div class="bm"><div class="bm-t">18:05</div><div class="bm-n">Dragon fight positioning</div></div><div style="margin-top:6px"><button class="btn btn-s" style="width:100%">Open VOD Player</button></div></div>
+        <div class="card"><div class="card-t">Spotted Problems</div><textarea class="inp ta" placeholder="Issues this game..."></textarea></div>
+        <div class="card"><div class="card-t">Notes</div><textarea class="inp ta" placeholder="Freeform..."></textarea></div>
+        <div style="display:flex;gap:6px;margin-top:10px"><button class="btn btn-p" style="flex:1">Save Review</button><button class="btn btn-s">Skip</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== OBJECTIVES ===== -->
+<div id="p-obj" class="page">
+  <div class="hero"><div class="hero-eyebrow">SKILL DEVELOPMENT <span class="cursor">_</span></div><div class="hero-title">Objectives</div><div class="hero-sub">DELIBERATE PRACTICE TRACKING</div></div>
+  <div class="content">
+    <div class="card" style="margin-bottom:18px"><div class="card-t">New Objective</div><div class="g2"><div><div class="inp-l">Title</div><input class="inp" placeholder="e.g. CS fundamentals"></div><div><div class="inp-l">Skill Area</div><input class="inp" placeholder="e.g. Laning, Macro"></div></div><div class="g2" style="margin-top:8px"><div><div class="inp-l">Type</div><select class="sel" style="width:100%"><option>Primary</option><option>Mental</option></select></div><div><div class="inp-l">Phase</div><select class="sel" style="width:100%"><option>In-Game</option><option>Pre-Game</option></select></div></div><div style="margin-top:8px"><div class="inp-l">Completion Criteria</div><input class="inp" placeholder="e.g. Hit 8 CS/min by 15 minutes"></div><button class="btn btn-p" style="margin-top:10px">Create</button></div>
+    <div class="sec-t">Active Objectives</div>
+    <div class="obj"><div class="ring-wrap"><svg width="56" height="56" viewBox="0 0 56 56"><circle class="ring-bg" cx="28" cy="28" r="24"/><circle class="ring-fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="60"/></svg><div class="ring-label">60%</div></div><div class="obj-info"><div class="obj-name">CS Fundamentals</div><div class="obj-meta">LANING // 12 PTS // 8 GAMES // HIGH PRIORITY</div><div class="obj-spark"><i style="height:5px"></i><i style="height:8px"></i><i style="height:7px"></i><i style="height:11px"></i><i style="height:10px"></i><i style="height:14px"></i><i style="height:13px"></i><i style="height:16px"></i></div><div style="display:flex;gap:4px;margin-top:8px"><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Edit</button><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Games</button><button class="btn btn-g" style="margin-left:auto;color:var(--win);font-size:10px">Complete</button></div></div></div>
+    <div class="obj"><div class="ring-wrap"><svg width="56" height="56" viewBox="0 0 56 56"><circle class="ring-bg" cx="28" cy="28" r="24"/><circle class="ring-fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="90"/></svg><div class="ring-label">40%</div></div><div class="obj-info"><div class="obj-name">Lane Trading</div><div class="obj-meta">LANING // 4 PTS // 4 GAMES</div><div class="obj-spark"><i style="height:4px"></i><i style="height:7px"></i><i style="height:6px"></i><i style="height:10px"></i></div><div style="display:flex;gap:4px;margin-top:8px"><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Edit</button><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Games</button></div></div></div>
+    <div class="sep"></div>
+    <div class="sec-t">Spotted Problems</div>
+    <div class="g-row"><div class="g-bar l"></div><div class="g-body"><div class="g-champ" style="font-size:13px">Caitlyn // L // Apr 15</div><div class="g-meta">Getting caught rotating mid without minimap check</div></div></div>
+    <div class="g-row"><div class="g-bar w"></div><div class="g-body"><div class="g-champ" style="font-size:13px">Jinx // W // Apr 14</div><div class="g-meta">Missed free tower plates during dragon fight</div></div></div>
+  </div>
+</div>
+
+<!-- ===== ARCHIVE ===== -->
+<div id="p-arch" class="page">
+  <div class="hero"><div class="hero-eyebrow">MATCH DATABASE <span class="cursor">_</span></div><div class="hero-title">Archive</div></div>
+  <div class="content">
+    <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center"><select class="sel"><option>All Champions</option><option>Jinx</option><option>Caitlyn</option></select><select class="sel"><option>All Results</option><option>Wins</option><option>Losses</option></select><span style="margin-left:auto;font-family:var(--fm);font-size:10px;color:var(--t4);letter-spacing:1px">42 RECORDS</span></div>
+    <div class="stats" style="margin-bottom:18px"><div class="stat"><div class="stat-l">Winrate</div><div class="stat-v" style="font-size:18px;color:var(--win)">57%</div></div><div class="stat"><div class="stat-l">Record</div><div class="stat-v" style="font-size:18px">24W 18L</div></div><div class="stat"><div class="stat-l">Avg KDA</div><div class="stat-v" style="font-size:18px">3.2</div></div><div class="stat"><div class="stat-l">CS/m</div><div class="stat-v" style="font-size:18px">7.1</div></div><div class="stat"><div class="stat-l">Vision</div><div class="stat-v" style="font-size:18px">34</div></div></div>
+    <div class="g-row"><div class="g-bar w"></div><div class="g-body"><div class="g-champ">Jinx</div><div class="g-meta">8/2/11 // W // +18 LP // 32m // Today</div></div><div class="g-nums"><span>7.2 cs/m</span><span>42 vis</span></div><div class="g-act"><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Review</button><button class="btn btn-g">VOD</button></div></div>
+    <div class="g-row"><div class="g-bar l"></div><div class="g-body"><div class="g-champ">Caitlyn</div><div class="g-meta">3/7/5 // L // -15 LP // 28m // Today</div></div><div class="g-nums"><span>6.1 cs/m</span><span>28 vis</span></div><div class="g-act"><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Review</button></div></div>
+    <div class="g-row"><div class="g-bar w"></div><div class="g-body"><div class="g-champ">Jinx</div><div class="g-meta">12/4/9 // W // +21 LP // 35m // Yesterday</div></div><div class="g-nums"><span>8.1 cs/m</span><span>38 vis</span></div><div class="g-act"><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Review</button><button class="btn btn-g">VOD</button></div></div>
+    <div class="g-row"><div class="g-bar l"></div><div class="g-body"><div class="g-champ">Ezreal</div><div class="g-meta">5/6/8 // L // -14 LP // 30m // Yesterday</div></div><div class="g-nums"><span>7.5 cs/m</span><span>31 vis</span></div><div class="g-act"><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Review</button></div></div>
+    <div style="text-align:center;margin-top:12px"><button class="btn btn-s">Load More</button></div>
+  </div>
+</div>
+
+<!-- ===== TRENDS ===== -->
+<div id="p-trends" class="page">
+  <div class="hero"><div class="hero-eyebrow">PERFORMANCE INTELLIGENCE <span class="cursor">_</span></div><div class="hero-title">Trends</div></div>
+  <div class="content">
+    <div class="stats"><div class="stat"><div class="stat-l">Games</div><div class="stat-v" style="font-size:16px">42</div></div><div class="stat"><div class="stat-l">Winrate</div><div class="stat-v" style="font-size:16px;color:var(--win)">57%</div></div><div class="stat"><div class="stat-l">Wins</div><div class="stat-v" style="font-size:16px">24</div></div><div class="stat"><div class="stat-l">Losses</div><div class="stat-v" style="font-size:16px">18</div></div><div class="stat"><div class="stat-l">KDA</div><div class="stat-v" style="font-size:16px">3.2</div></div><div class="stat"><div class="stat-l">CS/m</div><div class="stat-v" style="font-size:16px">7.1</div></div><div class="stat"><div class="stat-l">Vision</div><div class="stat-v" style="font-size:16px">34</div></div></div>
+    <div class="row">
+      <div class="col"><div class="card"><div class="card-t">Mental vs Winrate</div><div class="bars"><div class="bar-r"><div class="bar-l">8-10</div><div class="bar-t"><div class="bar-f" style="width:72%;background:var(--win);box-shadow:0 0 8px var(--wg)"></div></div><div class="bar-v">72%</div></div><div class="bar-r"><div class="bar-l">5-7</div><div class="bar-t"><div class="bar-f" style="width:54%;background:var(--accent);opacity:0.5"></div></div><div class="bar-v">54%</div></div><div class="bar-r"><div class="bar-l">1-4</div><div class="bar-t"><div class="bar-f" style="width:31%;background:var(--loss);box-shadow:0 0 8px var(--lg)"></div></div><div class="bar-v">31%</div></div></div></div></div>
+      <div class="col"><div class="card"><div class="card-t">Tilt Check Data</div><div class="g3"><div><div class="stat-l">Checks</div><div style="font-family:var(--fo);font-size:20px;font-weight:700">8</div></div><div><div class="stat-l">Before</div><div style="font-family:var(--fo);font-size:20px;font-weight:700">7.2</div></div><div><div class="stat-l">After</div><div style="font-family:var(--fo);font-size:20px;font-weight:700;color:var(--win)">4.1</div></div></div><div style="margin-top:8px;font-family:var(--fm);font-size:9px;color:var(--t4);letter-spacing:0.5px">REDUCTION: 43% // TOP: FRUSTRATION</div></div></div>
+    </div>
+    <div class="card"><div class="card-t">Champions</div><table class="tbl"><thead><tr><th>Champion</th><th>Games</th><th>Winrate</th><th>KDA</th><th>CS/m</th></tr></thead><tbody><tr><td style="font-family:var(--fd);font-weight:600">Jinx</td><td>18</td><td style="color:var(--win)">67%</td><td>4.1</td><td>7.8</td></tr><tr><td style="font-family:var(--fd);font-weight:600">Caitlyn</td><td>12</td><td>50%</td><td>2.8</td><td>7.2</td></tr><tr><td style="font-family:var(--fd);font-weight:600">Ezreal</td><td>8</td><td style="color:var(--loss)">38%</td><td>2.4</td><td>6.9</td></tr><tr><td style="font-family:var(--fd);font-weight:600">Kai'Sa</td><td>4</td><td style="color:var(--win)">75%</td><td>3.8</td><td>6.5</td></tr></tbody></table></div>
+    <div class="row"><div class="col"><div class="card"><div class="card-t">Concept Tags</div><div class="bars"><div class="bar-r"><div class="bar-l">Good CS</div><div class="bar-t"><div class="bar-f" style="width:65%;background:var(--accent);opacity:0.4"></div></div><div class="bar-v">18</div></div><div class="bar-r"><div class="bar-l">Strong TFs</div><div class="bar-t"><div class="bar-f" style="width:50%;background:var(--accent);opacity:0.3"></div></div><div class="bar-v">14</div></div><div class="bar-r"><div class="bar-l">Caught out</div><div class="bar-t"><div class="bar-f" style="width:40%;background:var(--accent);opacity:0.25"></div></div><div class="bar-v">11</div></div><div class="bar-r"><div class="bar-l">Poor vision</div><div class="bar-t"><div class="bar-f" style="width:32%;background:var(--accent);opacity:0.2"></div></div><div class="bar-v">9</div></div></div></div></div><div class="col"><div class="card"><div class="card-t">Worst Matchups</div><table class="tbl"><thead><tr><th>You</th><th>vs</th><th>Games</th><th>WR</th></tr></thead><tbody><tr><td>Ezreal</td><td>Draven</td><td>3</td><td style="color:var(--loss)">0%</td></tr><tr><td>Caitlyn</td><td>Samira</td><td>4</td><td style="color:var(--loss)">25%</td></tr><tr><td>Jinx</td><td>Tristana</td><td>3</td><td style="color:var(--loss)">33%</td></tr></tbody></table></div></div></div>
+  </div>
+</div>
+
+<!-- ===== VOD ===== -->
+<div id="p-vod" class="page" style="max-width:none">
+  <div class="hero"><div class="hero-eyebrow">VOD ANALYSIS <span class="cursor">_</span></div><div class="hero-title">Jinx — Victory // 32m</div></div>
+  <div class="content">
+    <div class="row" style="gap:10px">
+      <div class="col" style="flex:3">
+        <div class="vid"><div class="vid-ph">&#9654;</div></div>
+        <div class="playbar"><div class="ic">&#9654;</div><div class="ic" style="font-size:9px">-10</div><div class="ts">12:34</div><div class="seek"><div class="seek-f"></div></div><div class="ts">32:18</div><div class="ic" style="font-size:9px">+10</div><select class="sel" style="width:50px;font-family:var(--fm);font-size:10px"><option>1x</option><option>1.5x</option><option>2x</option></select></div>
+        <div class="timeline"><div class="tm" style="left:8%;background:var(--loss);height:60%"></div><div class="tm" style="left:15%;background:var(--win)"></div><div class="tm" style="left:22%;background:var(--win)"></div><div class="tm" style="left:35%;background:var(--loss);height:60%"></div><div class="tm" style="left:48%;background:var(--sec)"></div><div class="tm" style="left:55%;background:var(--win)"></div><div class="tm" style="left:62%;background:var(--win)"></div><div class="tm" style="left:78%;background:var(--sec)"></div><div class="tm" style="left:88%;background:var(--win)"></div></div>
+        <div class="card"><div class="card-t">Clip Extraction</div><div style="display:flex;gap:8px;align-items:center;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:2px"><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Start</button><span class="ts">00:00 — 00:00</span><button class="btn btn-s" style="font-size:10px;padding:4px 10px">End</button><span class="ts" style="margin-left:auto">DUR: 0s</span></div><div style="margin-top:8px"><div class="inp-l">Note</div><textarea class="inp ta" style="min-height:40px" placeholder="What's happening?"></textarea></div><div style="display:flex;gap:4px;margin-top:8px;align-items:center"><span class="inp-l" style="margin:0">Quality:</span><div class="pill">Good</div><div class="pill on">Neutral</div><div class="pill">Bad</div><button class="btn btn-p" style="margin-left:auto;font-size:10px;padding:4px 12px">Save Clip</button></div></div>
+      </div>
+      <div class="col" style="flex:1;min-width:220px">
+        <div class="card" style="position:sticky;top:0"><div class="card-t">Quick Bookmark</div><input class="inp" placeholder="Note..." style="font-size:11px;padding:7px 10px;margin-bottom:6px"><div style="display:flex;gap:4px"><select class="sel" style="flex:1;font-size:10px"><option>No objective</option><option>CS fundamentals</option></select><button class="btn btn-p" style="font-size:10px;padding:4px 10px">Add</button></div><div style="height:1px;background:var(--border);margin:10px 0"></div><div class="card-t">Bookmarks</div><div class="bm"><div style="display:flex;justify-content:space-between"><div class="bm-t">05:23</div><button class="btn btn-g" style="font-size:9px">Jump</button></div><div class="bm-n">Good trade level 3</div></div><div class="bm"><div style="display:flex;justify-content:space-between"><div class="bm-t">12:41</div><button class="btn btn-g" style="font-size:9px">Jump</button></div><div class="bm-n">Caught without vision</div></div><div class="bm"><div style="display:flex;justify-content:space-between"><div class="bm-t">18:05</div><button class="btn btn-g" style="font-size:9px">Jump</button></div><div class="bm-n">Dragon fight — good pos</div></div><div style="height:1px;background:var(--border);margin:10px 0"></div><div class="card-t">Clips</div><div class="bm" style="border-color:rgba(167,139,250,0.12)"><div style="display:flex;justify-content:space-between"><div class="bm-t">05:20 — 05:35</div><button class="btn btn-g" style="font-size:9px">Play</button></div><div class="bm-n">Level 3 all-in</div><div style="font-family:var(--fm);font-size:8px;color:var(--win);margin-top:3px">GOOD</div></div><div class="bm" style="border-color:rgba(211,140,144,0.12)"><div style="display:flex;justify-content:space-between"><div class="bm-t" style="color:var(--loss)">12:30 — 12:50</div><button class="btn btn-g" style="font-size:9px">Play</button></div><div class="bm-n">River rotation death</div><div style="font-family:var(--fm);font-size:8px;color:var(--loss);margin-top:3px">BAD</div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== RULES ===== -->
+<div id="p-rules" class="page">
+  <div class="hero"><div class="hero-eyebrow">SESSION PROTOCOLS <span class="cursor">_</span></div><div class="hero-title">Rules</div><div class="hero-sub">AUTOMATED GUARDRAILS FOR LP AND MENTAL</div></div>
+  <div class="content">
+    <div class="banner banner-d">VIOLATION: Stop after 2 consecutive losses — 2 in a row.</div>
+    <div class="card" style="margin-bottom:16px"><div class="card-t">New Rule</div><div class="g2"><div><div class="inp-l">Name</div><input class="inp" placeholder="e.g. Stop after 2 losses"></div><div><div class="inp-l">Type</div><select class="sel" style="width:100%"><option>Custom</option><option>Loss streak</option><option>Win req</option></select></div></div><div class="g2" style="margin-top:8px"><div><div class="inp-l">Condition</div><input class="inp" placeholder="e.g. 2"></div><div><div class="inp-l">Description</div><input class="inp" placeholder="Optional..."></div></div><button class="btn btn-p" style="margin-top:10px">Create</button></div>
+    <div class="sec-t">Active</div>
+    <div class="rule"><div class="rule-tag">Loss Streak</div><div class="rule-info"><div class="rule-name">Stop after 2 consecutive losses</div><div class="rule-cond">2 losses in a row</div></div><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Disable</button><button class="btn btn-g" style="color:var(--loss);font-size:10px">Delete</button></div>
+    <div class="rule"><div class="rule-tag">Custom</div><div class="rule-info"><div class="rule-name">Win 2 of last 3</div><div class="rule-cond">Must win 2 of last 3</div></div><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Disable</button></div>
+    <div class="rule"><div class="rule-tag">Custom</div><div class="rule-info"><div class="rule-name">+2 LP per game avg</div><div class="rule-cond">Session LP avg +2 or higher</div></div><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Disable</button></div>
+    <div class="sep"></div><div class="sec-t">Disabled</div>
+    <div class="rule" style="opacity:0.4"><div class="rule-tag">No-Play</div><div class="rule-info"><div class="rule-name">No ranked on Mondays</div><div class="rule-cond">Skip ranked Mondays</div></div><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Enable</button></div>
+  </div>
+</div>
+
+<!-- ===== SESSION LOG ===== -->
+<div id="p-session" class="page">
+  <div class="hero"><div class="hero-eyebrow">SESSION INTEL <span class="cursor">_</span></div><div class="hero-title" style="display:flex;align-items:center;gap:10px"><div class="ic">&#8592;</div>April 16, 2026<span style="font-family:var(--fm);font-size:11px;color:var(--accent);font-weight:400;letter-spacing:1px">TODAY</span><div class="ic">&#8594;</div></div></div>
+  <div class="content">
+    <div class="stats"><div class="stat"><div class="stat-l">Games</div><div class="stat-v" style="font-size:18px">5</div></div><div class="stat"><div class="stat-l">Wins</div><div class="stat-v" style="font-size:18px;color:var(--win)">3</div></div><div class="stat"><div class="stat-l">Losses</div><div class="stat-v" style="font-size:18px;color:var(--loss)">2</div></div><div class="stat"><div class="stat-l">Mental</div><div class="stat-v" style="font-size:18px">7.2</div></div><div class="stat"><div class="stat-l">Breaks</div><div class="stat-v" style="font-size:18px;color:var(--loss)">1</div></div><div class="stat"><div class="stat-l">Streak</div><div class="stat-v" style="font-size:18px;color:var(--sec)">5d</div></div></div>
+    <div class="card"><div class="card-t">Session Intention</div><textarea class="inp ta">Focus on CS fundamentals and trading when I have item advantage.</textarea></div>
+    <div class="sec-t">Needs Review</div>
+    <div class="g-row"><div class="g-bar w"></div><div class="g-body"><div class="g-champ">Jinx // 8/2/11 // W</div><div class="g-meta">Mental: 8 // No violations</div></div><div class="g-act"><button class="btn btn-p" style="font-size:10px;padding:4px 10px">Review</button></div></div>
+    <div class="g-row"><div class="g-bar l"></div><div class="g-body"><div class="g-champ">Caitlyn // 3/7/5 // L</div><div class="g-meta">Mental: 5 // <span style="color:var(--loss)">Rule broken</span></div></div><div class="g-act"><button class="btn btn-p" style="font-size:10px;padding:4px 10px">Review</button></div></div>
+    <div class="sep"></div><div class="sec-t">Reviewed</div>
+    <div class="g-row" style="opacity:0.4"><div class="g-bar w"></div><div class="g-body"><div class="g-champ">Jinx // 12/4/9 // W</div><div class="g-meta">Mental: 8 // Reviewed</div></div><div class="g-act"><button class="btn btn-g">Open</button></div></div>
+    <div class="g-row" style="opacity:0.4"><div class="g-bar l"></div><div class="g-body"><div class="g-champ">Ezreal // 5/6/8 // L</div><div class="g-meta">Mental: 6 // Reviewed</div></div><div class="g-act"><button class="btn btn-g">Open</button></div></div>
+  </div>
+</div>
+
+<!-- ===== PRE-GAME ===== -->
+<div id="p-pre" class="page">
+  <div class="hero"><div class="hero-eyebrow">CHAMP SELECT <span class="cursor">_</span></div><div class="hero-title">Pre-Game Focus</div></div>
+  <div class="content">
+    <div class="card"><div class="card-t">Mental State</div><div class="mood"><div class="mood-p">Tilted</div><div class="mood-p">Off</div><div class="mood-p on">Neutral</div><div class="mood-p">Good</div><div class="mood-p">Locked In</div></div></div>
+    <div class="card"><div class="card-t">Intel from Last Game</div><div style="margin-bottom:10px"><div class="inp-l">Last Focus</div><div style="font-size:13px;color:var(--t3);padding:6px 0">Focus on farming safely and hitting 8 CS/min by 15 minutes</div></div><div><div class="inp-l">Last Mistakes</div><div style="font-size:13px;color:var(--t3);padding:6px 0">Caught twice rotating mid without vision. Missed free plates.</div></div></div>
+    <div class="card"><div class="card-t">Active Objective</div><div class="obj"><div class="ring-wrap"><svg width="56" height="56" viewBox="0 0 56 56"><circle class="ring-bg" cx="28" cy="28" r="24"/><circle class="ring-fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="60"/></svg><div class="ring-label">60%</div></div><div class="obj-info"><div class="obj-name">CS Fundamentals</div><div class="obj-meta">HIT 8 CS/MIN BY 15 MINUTES</div></div></div></div>
+    <div class="card" style="border-color:rgba(201,149,106,0.12)"><div class="card-t" style="color:var(--sec)">Matchup — Jinx vs Draven</div><div style="font-size:13px;color:var(--t3);margin-bottom:4px">Play safe early, he wins all-ins pre-6. Farm and scale.</div><div style="font-family:var(--fm);font-size:9px;color:var(--t4)">APR 12 // HELPFUL</div></div>
+    <div class="card card-glow"><div class="card-t">Set Focus</div><input class="inp" placeholder="What's your #1 focus this game?"><div style="display:flex;gap:3px;margin-top:8px;flex-wrap:wrap"><div class="pill">CS/min</div><div class="pill">Map awareness</div><div class="pill">Trading</div><div class="pill">Wave mgmt</div><div class="pill">Vision</div><div class="pill">Positioning</div></div></div>
+    <div style="display:flex;gap:6px;margin-top:12px"><button class="btn btn-p" style="flex:1">Lock In Focus</button><button class="btn btn-s">Skip</button></div>
+  </div>
+</div>
+
+<!-- ===== TILT CHECK ===== -->
+<div id="p-tilt" class="page">
+  <div class="hero"><div class="hero-eyebrow">MENTAL RECOVERY <span class="cursor">_</span></div><div class="hero-title">Tilt Check</div><div class="hero-sub">GUIDED RESET PROTOCOL</div></div>
+  <div class="content">
+    <div class="card card-glow"><div class="card-t">Step 01 // Check In</div><div style="margin-bottom:12px"><div class="inp-l">Emotion</div><div style="display:flex;gap:4px;flex-wrap:wrap"><div class="pill on" style="border-color:rgba(211,140,144,0.25);color:var(--loss);background:rgba(211,140,144,0.06)">Frustrated</div><div class="pill">Anxious</div><div class="pill">Angry</div><div class="pill">Defeated</div><div class="pill">Bored</div><div class="pill">Confused</div></div></div><div><div class="inp-l">Intensity // 1-10</div><div style="display:flex;align-items:center;gap:12px"><div style="flex:1;height:3px;background:rgba(255,255,255,0.04);border-radius:1px"><div style="width:70%;height:100%;background:var(--accent);border-radius:1px;box-shadow:0 0 8px var(--ag);position:relative"><div style="position:absolute;right:-3px;top:-4px;width:6px;height:11px;background:var(--accent);border-radius:1px;box-shadow:0 0 10px var(--ag)"></div></div></div><span style="font-family:var(--fo);font-size:22px;font-weight:700;width:28px;text-align:center">7</span></div></div></div>
+    <div class="card"><div class="card-t">Step 02 // Breathe</div><div class="breath"><div class="breath-t">Inhale</div></div><div style="text-align:center;font-family:var(--fm);font-size:10px;color:var(--t4);letter-spacing:1px">CYCLE 1 OF 5</div><div class="prog" style="margin-top:8px"><div class="prog-f" style="width:20%"></div></div></div>
+    <div class="card"><div class="card-t">Step 03 // Reframe</div><div style="margin-bottom:10px"><div class="inp-l">Thought</div><textarea class="inp ta" placeholder="My teammates always int..."></textarea></div><div style="margin-bottom:10px"><div class="inp-l">Type</div><div style="display:flex;gap:4px"><div class="pill on">Blame</div><div class="pill">Catastrophizing</div><div class="pill">Helplessness</div></div></div><div><div class="inp-l">Reframe</div><textarea class="inp ta" placeholder="I can only control my own play..."></textarea></div></div>
+    <div class="card"><div class="card-t">Step 04 // Reset</div><div style="margin-bottom:10px"><div class="inp-l">Cue Word</div><div style="display:flex;gap:4px;flex-wrap:wrap"><div class="pill on">Reset</div><div class="pill">Focus</div><div class="pill">Calm</div><div class="pill">Next play</div><div class="pill">Process</div><div class="pill">Breathe</div></div></div><div><div class="inp-l">Focus Intention</div><input class="inp" placeholder="What will you focus on next?"></div></div>
+    <div style="display:flex;gap:6px;margin-top:12px"><button class="btn btn-s">Previous</button><button class="btn btn-p" style="flex:1">Complete Reset</button></div>
+  </div>
+</div>
+
+<!-- ===== SETTINGS ===== -->
+<div id="p-settings" class="page">
+  <div class="hero"><div class="hero-eyebrow">SYSTEM CONFIG <span class="cursor">_</span></div><div class="hero-title">Settings</div></div>
+  <div class="content">
+    <div class="card"><div class="card-t">VOD Recordings</div><div class="set-row"><div><div class="set-name">Ascent Recordings</div><div class="set-desc">Recording source directory</div><div class="folder"><input class="inp" value="C:\Users\Sami\Videos\Ascent" readonly><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Browse</button><button class="btn btn-g" style="color:var(--loss);font-size:10px">Clear</button></div></div></div><div class="set-row"><div><div class="set-name">Scan Status</div><div class="set-desc" style="color:var(--win);font-family:var(--fm);font-size:10px;letter-spacing:0.5px">47 RECORDINGS FOUND</div></div><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Scan</button></div></div>
+    <div class="card"><div class="card-t">Clips</div><div class="set-row"><div><div class="set-name">ffmpeg</div><div class="set-desc" style="color:var(--win);font-family:var(--fm);font-size:10px;letter-spacing:0.5px">AVAILABLE</div></div></div><div class="set-row"><div><div class="set-name">Clips Folder</div><div class="folder"><input class="inp" value="C:\Users\Sami\AppData\Local\LoLReviewData\clips" readonly><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Browse</button></div></div></div><div class="set-row"><div><div class="set-name">Max Size</div><div class="set-desc">Currently: 142 MB</div></div><div style="display:flex;align-items:center;gap:4px"><input class="inp" value="500" style="width:60px;text-align:center;font-family:var(--fm);font-size:11px"><span style="font-family:var(--fm);font-size:10px;color:var(--t4)">MB</span></div></div></div>
+    <div class="card"><div class="card-t">Database</div><div class="set-row"><div><div class="set-name">Auto Backups</div><div class="set-desc">Safety backups on startup</div></div><div class="tog on"></div></div><div class="set-row"><div><div class="set-name">Backup Path</div><div class="folder"><input class="inp" value="C:\Users\Sami\AppData\Local\LoLReviewData\backups" readonly><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Browse</button></div></div></div></div>
+    <div class="card"><div class="card-t">Behavior</div><div class="set-row"><div><div class="set-name">Tilt Fix Mode</div><div class="set-desc">Mental check before queueing</div></div><div class="tog on"></div></div><div class="set-row"><div><div class="set-name">Require Notes</div><div class="set-desc">Must fill reflection to save</div></div><div class="tog"></div></div></div>
+    <div class="card"><div class="card-t">Updates</div><div class="set-row"><div><div class="set-name">Version</div><div class="set-desc" style="font-family:var(--fm);letter-spacing:0.5px">LOL REVIEW v2.5.2</div></div><button class="btn btn-s" style="font-size:10px;padding:4px 10px">Check</button></div></div>
+    <button class="btn btn-p" style="margin-top:12px">Save Settings</button>
+  </div>
+</div>
+
+</div>
+
+<!-- CANVAS + ORBS -->
+<!-- SVG gradient defs -->
+<svg style="position:absolute;width:0;height:0"><defs><linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#A78BFA"/><stop offset="100%" stop-color="#C9956A"/></linearGradient></defs></svg>
+<canvas id="bg"></canvas>
+<div style="position:fixed;width:350px;height:350px;border-radius:50%;background:radial-gradient(circle,rgba(167,139,250,0.035),transparent 70%);pointer-events:none;z-index:0;top:15%;left:55%;animation:od1 22s ease-in-out infinite"></div>
+<div style="position:fixed;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(201,149,106,0.025),transparent 70%);pointer-events:none;z-index:0;top:55%;left:25%;animation:od2 28s ease-in-out infinite"></div>
+<div style="position:fixed;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(126,201,160,0.02),transparent 70%);pointer-events:none;z-index:0;top:8%;left:18%;animation:od3 18s ease-in-out infinite"></div>
+<style>
+@keyframes od1{0%,100%{transform:translate(0,0)}33%{transform:translate(50px,-30px)}66%{transform:translate(-20px,40px)}}
+@keyframes od2{0%,100%{transform:translate(0,0)}33%{transform:translate(-40px,20px)}66%{transform:translate(30px,-50px)}}
+@keyframes od3{0%,100%{transform:translate(0,0)}50%{transform:translate(60px,30px)}}
+</style>
+
+<!-- CURSOR GLOW -->
+<div id="cg" style="position:fixed;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(167,139,250,0.035),transparent 70%);pointer-events:none;z-index:0;transition:transform 0.08s ease-out"></div>
+
+<script>
+function go(id,el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-i').forEach(n=>n.classList.remove('active'));
+  document.getElementById('p-'+id).classList.add('active');
+  el.classList.add('active');
+  document.querySelector('.main').scrollTop=0;
+  // Particle burst
+  for(let i=0;i<12;i++){const p=new P();p.x=c.width/2;p.y=c.height/2;p.vx=(Math.random()-0.5)*3;p.vy=(Math.random()-0.5)*3;p.size=Math.random()*2+1;p.opacity=0.6;p.life=50;p.maxLife=50;pts.push(p)}
+  setTimeout(()=>{while(pts.length>N)pts.shift()},2000);
+}
+
+// Ripple
+document.addEventListener('click',e=>{const b=e.target.closest('.btn');if(!b)return;const r=document.createElement('span');r.className='ripple';const rc=b.getBoundingClientRect();const s=Math.max(rc.width,rc.height);r.style.width=r.style.height=s+'px';r.style.left=(e.clientX-rc.left-s/2)+'px';r.style.top=(e.clientY-rc.top-s/2)+'px';b.appendChild(r);setTimeout(()=>r.remove(),500)});
+
+// Cursor glow
+const cg=document.getElementById('cg');
+let mx=0,my=0;
+document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;cg.style.left=(e.clientX-90)+'px';cg.style.top=(e.clientY-90)+'px'});
+
+// Magnetic tilt + holo
+document.querySelectorAll('.card,.stat').forEach(el=>{
+  el.addEventListener('mousemove',function(e){
+    const r=this.getBoundingClientRect();const x=(e.clientX-r.left)/r.width;const y=(e.clientY-r.top)/r.height;
+    this.style.transform=`translateY(-1px) perspective(800px) rotateY(${(x-0.5)*3}deg) rotateX(${-(y-0.5)*3}deg)`;
+  });
+  el.addEventListener('mouseleave',function(){this.style.transform=''});
+});
+
+// Particles
+const c=document.getElementById('bg');const ctx=c.getContext('2d');let pts=[];const N=50;
+function sz(){c.width=innerWidth;c.height=innerHeight}sz();addEventListener('resize',sz);
+class P{constructor(){this.reset()}reset(){this.x=Math.random()*c.width;this.y=Math.random()*c.height;this.vx=(Math.random()-0.5)*0.25;this.vy=(Math.random()-0.5)*0.25;this.size=Math.random()*1.2+0.4;this.opacity=Math.random()*0.35+0.1;this.life=Math.random()*400+200;this.maxLife=this.life;this.color=['167,139,250','126,201,160','201,149,106'][Math.floor(Math.random()*3)]}update(){const dx=this.x-mx,dy=this.y-my,d=Math.sqrt(dx*dx+dy*dy);if(d<90){const f=(90-d)/90*0.4;this.vx+=dx/d*f;this.vy+=dy/d*f}this.vx*=0.98;this.vy*=0.98;this.x+=this.vx;this.y+=this.vy;this.life--;if(this.life<=0||this.x<0||this.x>c.width||this.y<0||this.y>c.height)this.reset()}draw(){const f=Math.min(this.life/40,(this.maxLife-this.life)/40,1);ctx.beginPath();ctx.arc(this.x,this.y,this.size,0,Math.PI*2);ctx.fillStyle=`rgba(${this.color},${this.opacity*f})`;ctx.fill();ctx.beginPath();ctx.arc(this.x,this.y,this.size*3,0,Math.PI*2);ctx.fillStyle=`rgba(${this.color},${this.opacity*f*0.12})`;ctx.fill()}}
+for(let i=0;i<N;i++)pts.push(new P());
+function draw(){ctx.clearRect(0,0,c.width,c.height);for(let i=0;i<pts.length;i++){pts[i].update();pts[i].draw();for(let j=i+1;j<pts.length;j++){const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.sqrt(dx*dx+dy*dy);if(d<110){ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);ctx.strokeStyle=`rgba(167,139,250,${(1-d/110)*0.06})`;ctx.lineWidth=0.5;ctx.stroke()}}}requestAnimationFrame(draw)}draw();
+</script>
+</body>
+</html>

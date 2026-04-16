@@ -12,7 +12,7 @@
         <!-- Shared styles -->
         <Style x:Key="CardBorder" TargetType="Border">
             <Setter Property="Background" Value="#12121a"/>
-            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="CornerRadius" Value="2"/>
             <Setter Property="BorderBrush" Value="#2a2a3a"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="20,18"/>
@@ -21,7 +21,7 @@
         <Style x:Key="PillButton" TargetType="Button">
             <Setter Property="Height" Value="34"/>
             <Setter Property="MinWidth" Value="100"/>
-            <Setter Property="CornerRadius" Value="17"/>
+            <Setter Property="CornerRadius" Value="2"/>
             <Setter Property="Background" Value="#1e1e2e"/>
             <Setter Property="Foreground" Value="#a0a0b8"/>
             <Setter Property="BorderBrush" Value="#2a2a3a"/>
@@ -33,7 +33,7 @@
         <Style x:Key="AccentButton" TargetType="Button">
             <Setter Property="Height" Value="40"/>
             <Setter Property="MinWidth" Value="140"/>
-            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="CornerRadius" Value="2"/>
             <Setter Property="Background" Value="#8b5cf6"/>
             <Setter Property="Foreground" Value="#e8e8f0"/>
             <Setter Property="FontSize" Value="14"/>
@@ -44,7 +44,7 @@
         <Style x:Key="DimButton" TargetType="Button">
             <Setter Property="Height" Value="34"/>
             <Setter Property="MinWidth" Value="100"/>
-            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="CornerRadius" Value="2"/>
             <Setter Property="Background" Value="#1e1e2e"/>
             <Setter Property="Foreground" Value="#a0a0b8"/>
             <Setter Property="FontSize" Value="13"/>
@@ -219,7 +219,7 @@
                                  TextWrapping="Wrap" AcceptsReturn="True"
                                  MinHeight="60" MaxHeight="100"
                                  Background="#161622" Foreground="#e8e8f0"
-                                 BorderBrush="#2a2a3a" CornerRadius="6"/>
+                                 BorderBrush="#2a2a3a" CornerRadius="2"/>
 
                         <TextBlock Style="{StaticResource CardLabel}" Text="Is this a fact, or an interpretation?" Margin="0,8,0,0"/>
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -238,7 +238,7 @@
                                  TextWrapping="Wrap" AcceptsReturn="True"
                                  MinHeight="60" MaxHeight="100"
                                  Background="#161622" Foreground="#e8e8f0"
-                                 BorderBrush="#2a2a3a" CornerRadius="6"/>
+                                 BorderBrush="#2a2a3a" CornerRadius="2"/>
 
                         <!-- Buttons -->
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
@@ -292,7 +292,7 @@
                         <TextBox Text="{x:Bind ViewModel.FocusIntention, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  PlaceholderText="One specific, controllable thing..."
                                  Background="#161622" Foreground="#e8e8f0"
-                                 BorderBrush="#2a2a3a" CornerRadius="6"
+                                 BorderBrush="#2a2a3a" CornerRadius="2"
                                  Height="38"/>
 
                         <StackPanel HorizontalAlignment="Right">

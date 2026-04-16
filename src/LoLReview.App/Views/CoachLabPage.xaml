@@ -111,7 +111,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0"
                                         Background="{StaticResource InputBackgroundBrush}"
-                                        CornerRadius="8"
+                                        CornerRadius="2"
                                         Padding="12"
                                         Margin="0,0,8,0">
                                     <StackPanel Spacing="2">
@@ -126,7 +126,7 @@
                                 </Border>
                                 <Border Grid.Column="1"
                                         Background="{StaticResource InputBackgroundBrush}"
-                                        CornerRadius="8"
+                                        CornerRadius="2"
                                         Padding="12"
                                         Margin="0,0,8,0">
                                     <StackPanel Spacing="2">
@@ -141,7 +141,7 @@
                                 </Border>
                                 <Border Grid.Column="2"
                                         Background="{StaticResource InputBackgroundBrush}"
-                                        CornerRadius="8"
+                                        CornerRadius="2"
                                         Padding="12">
                                     <StackPanel Spacing="2">
                                         <TextBlock Text="Pending"
@@ -290,7 +290,7 @@
 
                                                         <Border Grid.Column="0"
                                                                 Background="{StaticResource AccentBlueDimBrush}"
-                                                                CornerRadius="6"
+                                                                CornerRadius="2"
                                                                 Padding="7,3">
                                                             <TextBlock Text="{x:Bind SourceBadge}"
                                                                        FontSize="10"
@@ -299,7 +299,7 @@
 
                                                         <Border Grid.Column="1"
                                                                 Background="{StaticResource WarningSurfaceBrush}"
-                                                                CornerRadius="6"
+                                                                CornerRadius="2"
                                                                 Padding="7,3"
                                                                 Visibility="{x:Bind HasManualLabel, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
                                                             <TextBlock Text="Needs review"
@@ -309,7 +309,7 @@
 
                                                         <Border Grid.Column="1"
                                                                 Background="{StaticResource SuccessSurfaceBrush}"
-                                                                CornerRadius="6"
+                                                                CornerRadius="2"
                                                                 Padding="7,3"
                                                                 Visibility="{x:Bind HasManualLabel, Converter={StaticResource BoolToVis}}">
                                                             <TextBlock Text="Reviewed"
@@ -338,7 +338,7 @@
                                                                MaxLines="3"/>
 
                                                     <Border Background="{StaticResource TagBackgroundBrush}"
-                                                            CornerRadius="8"
+                                                            CornerRadius="2"
                                                             Padding="8,6">
                                                         <TextBlock Text="{x:Bind DraftSummary}"
                                                                    FontSize="11"
@@ -355,7 +355,7 @@
 
                                                         <Border Grid.Column="0"
                                                                 Background="{StaticResource TagBackgroundBrush}"
-                                                                CornerRadius="6"
+                                                                CornerRadius="2"
                                                                 Padding="7,3">
                                                             <TextBlock Text="{x:Bind QueueObjectiveBadgeText}"
                                                                        FontSize="10"

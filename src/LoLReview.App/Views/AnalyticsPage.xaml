@@ -14,7 +14,7 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
         <Style x:Key="SectionCard" TargetType="Border" BasedOn="{StaticResource CardStyle}">
             <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}"/>
-            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="CornerRadius" Value="2"/>
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
             <Setter Property="Padding" Value="18,16"/>
             <Setter Property="Margin" Value="0,0,0,12"/>
@@ -148,10 +148,10 @@
                                         <TextBlock Grid.Column="0" Text="{x:Bind Bracket}"
                                                    FontSize="12" Foreground="{StaticResource AccentBlueBrush}"
                                                    VerticalAlignment="Center"/>
-                                        <Border Grid.Column="1" Height="20" CornerRadius="4"
+                                        <Border Grid.Column="1" Height="20" CornerRadius="2"
                                                 Background="{StaticResource NeutralSurfaceBrush}" HorizontalAlignment="Left">
                                             <Border Background="{x:Bind WinrateColor}"
-                                                    CornerRadius="4"
+                                                    CornerRadius="2"
                                                     Width="{x:Bind BarWidth}"
                                                     HorizontalAlignment="Left"/>
                                         </Border>
@@ -270,10 +270,10 @@
                                         <TextBlock Grid.Column="0" Text="{x:Bind Name}"
                                                    FontSize="12" Foreground="{StaticResource PrimaryTextBrush}"
                                                    VerticalAlignment="Center"/>
-                                        <Border Grid.Column="1" Height="16" CornerRadius="3"
+                                        <Border Grid.Column="1" Height="16" CornerRadius="2"
                                                 Background="{StaticResource NeutralSurfaceBrush}" HorizontalAlignment="Left">
                                             <Border Background="{x:Bind BarColor}"
-                                                    CornerRadius="3"
+                                                    CornerRadius="2"
                                                     Width="{x:Bind BarWidth}"
                                                     HorizontalAlignment="Left"/>
                                         </Border>

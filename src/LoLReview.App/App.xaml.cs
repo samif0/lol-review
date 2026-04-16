@@ -77,7 +77,7 @@ public partial class App : Application
         var loadingGrid = new Microsoft.UI.Xaml.Controls.Grid
         {
             Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                Windows.UI.Color.FromArgb(255, 10, 10, 15))
+                Windows.UI.Color.FromArgb(255, 20, 18, 30)) // #14121E card bg
         };
         loadingGrid.Children.Add(loadingText);
 

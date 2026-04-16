@@ -28,12 +28,12 @@ public sealed partial class ShellPage : Page
     private CompositionRoundedRectangleGeometry? _contentViewportGeometry;
     private CompositionGeometricClip? _contentViewportClip;
 
-    private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(255, 16, 28, 26));
-    private static readonly SolidColorBrush ActiveFg = new(ColorHelper.FromArgb(255, 237, 243, 240));
-    private static readonly SolidColorBrush ActiveBorder = new(ColorHelper.FromArgb(255, 137, 243, 199));
-    private static readonly SolidColorBrush InactiveBg = new(ColorHelper.FromArgb(24, 13, 21, 20));
-    private static readonly SolidColorBrush InactiveBorder = new(ColorHelper.FromArgb(255, 36, 49, 46));
-    private static readonly SolidColorBrush InactiveFg = new(ColorHelper.FromArgb(255, 160, 177, 171));
+    private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(255, 22, 20, 48));       // #161430 sidebar active bg
+    private static readonly SolidColorBrush ActiveFg = new(ColorHelper.FromArgb(255, 240, 238, 248));     // #F0EEF8 text primary
+    private static readonly SolidColorBrush ActiveBorder = new(ColorHelper.FromArgb(255, 167, 139, 250)); // #A78BFA sidebar active (violet)
+    private static readonly SolidColorBrush InactiveBg = new(ColorHelper.FromArgb(24, 17, 15, 30));       // #110F1E sidebar hover (low alpha)
+    private static readonly SolidColorBrush InactiveBorder = new(ColorHelper.FromArgb(255, 36, 32, 58));  // #24203A border
+    private static readonly SolidColorBrush InactiveFg = new(ColorHelper.FromArgb(255, 122, 110, 150));   // #7A6E96 text secondary
 
     public ShellPage()
     {
@@ -131,12 +131,12 @@ public sealed partial class ShellPage : Page
         DispatcherQueue.TryEnqueue(() =>
         {
             var brush = message.IsConnected
-                ? new SolidColorBrush(ColorHelper.FromArgb(255, 120, 214, 174))
-                : new SolidColorBrush(ColorHelper.FromArgb(255, 211, 140, 144));
+                ? new SolidColorBrush(ColorHelper.FromArgb(255, 126, 201, 160))  // #7EC9A0 positive
+                : new SolidColorBrush(ColorHelper.FromArgb(255, 211, 140, 144)); // #D38C90 negative
 
             ConnectionIndicator.Fill = brush;
             StatusDot.Background = brush;
-            ConnectionStatusText.Text = message.IsConnected ? "Connected" : "Waiting...";
+            ConnectionStatusText.Text = "LCU";
         });
 
         _ = RefreshCoachLabVisibilityAsync();
@@ -201,7 +201,7 @@ public sealed partial class ShellPage : Page
         _contentViewportGeometry ??= compositor.CreateRoundedRectangleGeometry();
         _contentViewportClip ??= compositor.CreateGeometricClip(_contentViewportGeometry);
 
-        _contentViewportGeometry.CornerRadius = new Vector2(16f, 16f);
+        _contentViewportGeometry.CornerRadius = new Vector2(2f, 2f);
         _contentViewportGeometry.Size = new Vector2((float)ContentViewport.ActualWidth, (float)ContentViewport.ActualHeight);
         visual.Clip = _contentViewportClip;
     }

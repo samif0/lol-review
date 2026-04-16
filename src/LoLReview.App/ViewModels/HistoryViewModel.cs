@@ -258,7 +258,7 @@ public partial class HistoryViewModel : ObservableObject
         var losses = overall.TotalGames - overall.TotalWins;
 
         OverallWinRateText = $"{overall.Winrate:F1}%";
-        OverallWinRateColorHex = overall.Winrate >= 50 ? "#22c55e" : "#ef4444";
+        OverallWinRateColorHex = overall.Winrate >= 50 ? "#7EC9A0" : "#D38C90";
         OverallRecordText = $"Win Rate  \u2022  {overall.TotalWins}W {losses}L ({overall.TotalGames} games)";
 
         AvgKillsText = $"{overall.AvgKills:F1}";
@@ -288,7 +288,7 @@ public partial class HistoryViewModel : ObservableObject
                     GamesPlayed = champ.GamesPlayed,
                     GamesText = champ.GamesPlayed.ToString(),
                     WinRateText = $"{champ.Winrate:F1}%",
-                    WinRateColorHex = champ.Winrate >= 50 ? "#22c55e" : "#ef4444",
+                    WinRateColorHex = champ.Winrate >= 50 ? "#7EC9A0" : "#D38C90",
                     AvgKdaText = $"{champ.AvgKda:F2}",
                     AvgCsMinText = $"{champ.AvgCsMin:F1}",
                     AvgDamageText = FormatNumber((int)champ.AvgDamage)
@@ -343,8 +343,8 @@ public partial class HistoryViewModel : ObservableObject
             Duration = duration,
             DatePlayed = date,
             GameMode = game.DisplayGameMode,
-            WinLossColorHex = game.Win ? "#22c55e" : "#ef4444",
-            BorderColorHex = game.Win ? "#22c55e" : "#ef4444",
+            WinLossColorHex = game.Win ? "#7EC9A0" : "#D38C90",
+            BorderColorHex = game.Win ? "#7EC9A0" : "#D38C90",
             DamageText = FormatNumber(game.TotalDamageToChampions),
             StatsLine = $"CS {game.CsTotal} ({game.CsPerMin:F1}/m)  \u2022  Vision {game.VisionScore}  \u2022  {FormatNumber(game.TotalDamageToChampions)} dmg"
         };

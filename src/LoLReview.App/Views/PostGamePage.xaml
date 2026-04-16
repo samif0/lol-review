@@ -29,6 +29,7 @@
                 <StackPanel Grid.Column="0">
                     <TextBlock Text="{x:Bind ReviewVM.ChampionName, Mode=OneWay}"
                                FontSize="28" FontWeight="Bold"
+                               FontFamily="{StaticResource DisplayFont}"
                                Foreground="{StaticResource AccentGoldBrush}"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="{x:Bind ReviewVM.ResultText, Mode=OneWay}"
@@ -46,6 +47,7 @@
                 <StackPanel Grid.Column="1" HorizontalAlignment="Right">
                     <TextBlock Text="{x:Bind ReviewVM.KdaText, Mode=OneWay}"
                                FontSize="26" FontWeight="Bold"
+                               FontFamily="{StaticResource DisplayFont}"
                                Foreground="{StaticResource PrimaryTextBrush}"
                                HorizontalAlignment="Right"/>
                     <TextBlock Text="{x:Bind ReviewVM.KdaRatioText, Mode=OneWay}"
@@ -61,7 +63,7 @@
             <!-- ═══ VOD Section ═══ -->
             <Border Visibility="{x:Bind ReviewVM.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="8"
+                    CornerRadius="2"
                     Padding="14,12"
                     BorderThickness="1"
                     BorderBrush="{StaticResource AccentGoldBrush}">
@@ -88,7 +90,7 @@
             </Border>
 
             <Border Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="8"
+                    CornerRadius="2"
                     Padding="14,12"
                     BorderThickness="1"
                     BorderBrush="{StaticResource SubtleBorderBrush}">
@@ -112,7 +114,7 @@
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentGoldBrush}"
                     BorderThickness="2"
-                    CornerRadius="8"
+                    CornerRadius="2"
                     Padding="14,12">
                 <StackPanel Spacing="4">
                     <TextBlock Text="PRIORITY OBJECTIVE"
@@ -192,6 +194,7 @@
                     <TextBlock Grid.Column="1"
                                Text="{x:Bind ReviewVM.MentalRating, Mode=OneWay}"
                                FontSize="36" FontWeight="Bold"
+                               FontFamily="{StaticResource DisplayFont}"
                                Margin="16,0,0,0"
                                VerticalAlignment="Center"
                                MinWidth="50" TextAlignment="Center"/>
@@ -202,7 +205,7 @@
             <Border Visibility="{x:Bind ReviewVM.ShowMentalReflection, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentPurpleBrush}"
-                    BorderThickness="2" CornerRadius="8" Padding="16">
+                    BorderThickness="2" CornerRadius="2" Padding="16">
                 <StackPanel Spacing="8">
                     <TextBlock Text="MENTAL REFLECTION"
                                FontSize="11" FontWeight="Bold"
@@ -216,7 +219,7 @@
                              MinHeight="60" FontSize="13"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
                 </StackPanel>
             </Border>
 
@@ -234,7 +237,7 @@
                          MinHeight="70" FontSize="13"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
                 <TextBlock Text="What could improve?" FontSize="13"
                            Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -244,7 +247,7 @@
                          MinHeight="70" FontSize="13"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
                 <TextBlock Text="Focus for next game" FontSize="13"
                            Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -253,12 +256,12 @@
                          FontSize="13" Height="36"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
             </StackPanel>
 
             <!-- ═══ Quick Note ═══ -->
             <Border Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="8"
+                    CornerRadius="2"
                     Padding="14,12"
                     BorderThickness="1"
                     BorderBrush="{StaticResource SubtleBorderBrush}">
@@ -276,7 +279,7 @@
                              MinHeight="70" FontSize="13"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
                     <TextBlock Text="Spotted problems"
                                FontSize="13"
@@ -287,12 +290,12 @@
                              MinHeight="70" FontSize="13"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
                 </StackPanel>
             </Border>
 
             <Border Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="8"
+                    CornerRadius="2"
                     Padding="14,12"
                     BorderThickness="1"
                     BorderBrush="{StaticResource SubtleBorderBrush}"
@@ -313,14 +316,14 @@
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="vm:ObjectiveAssessment">
                                 <Border Background="{StaticResource InputBackgroundBrush}"
-                                        CornerRadius="8"
+                                        CornerRadius="2"
                                         BorderThickness="1"
                                         BorderBrush="{StaticResource SubtleBorderBrush}"
                                         Padding="12">
                                     <StackPanel Spacing="8">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <Border Background="{StaticResource AccentGoldBrush}"
-                                                    CornerRadius="4"
+                                                    CornerRadius="2"
                                                     Padding="6,2"
                                                     Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}}">
                                                 <TextBlock Text="PRIORITY"
@@ -344,7 +347,7 @@
                                                  Background="{StaticResource CardBackgroundBrush}"
                                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                                  Foreground="{StaticResource PrimaryTextBrush}"
-                                                 CornerRadius="6"/>
+                                                 CornerRadius="2"/>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
@@ -354,7 +357,7 @@
             </Border>
 
             <Border Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="8"
+                    CornerRadius="2"
                     Padding="14,12"
                     BorderThickness="1"
                     BorderBrush="{StaticResource SubtleBorderBrush}">
@@ -376,7 +379,7 @@
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
                              Foreground="{StaticResource PrimaryTextBrush}"
-                             CornerRadius="8"
+                             CornerRadius="2"
                              Height="36"/>
 
                     <TextBlock Text="What should you remember for this matchup?"
@@ -388,7 +391,7 @@
                              MinHeight="70" FontSize="13"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
                     <ItemsRepeater ItemsSource="{x:Bind ReviewVM.MatchupHistory, Mode=OneWay}"
                                    Visibility="{x:Bind ReviewVM.HasMatchupHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -398,7 +401,7 @@
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="vm:MatchupHistoryItem">
                                 <Border Background="{StaticResource InputBackgroundBrush}"
-                                        CornerRadius="8"
+                                        CornerRadius="2"
                                         BorderThickness="1"
                                         BorderBrush="{StaticResource SubtleBorderBrush}"
                                         Padding="12">
@@ -427,7 +430,7 @@
                          FontSize="13" Height="36"
                          Background="{StaticResource InputBackgroundBrush}"
                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="8"/>
+                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
             </StackPanel>
 
             <!-- ═══ Save / Skip Buttons ═══ -->
@@ -435,12 +438,12 @@
                         HorizontalAlignment="Center" Margin="0,8,0,16">
                 <Button Content="Save Review" Click="OnSaveClick"
                         FontSize="14" Height="36" Padding="24,0"
-                        CornerRadius="8"
+                        CornerRadius="2"
                         Background="{StaticResource AccentBlueBrush}"
                         Foreground="{StaticResource ActionPrimaryForegroundBrush}" IsTabStop="False"/>
                 <Button Content="Skip" Click="OnSkipClick"
                         FontSize="14" Height="36" Padding="24,0"
-                        CornerRadius="8"
+                        CornerRadius="2"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderBrush="{StaticResource SubtleBorderBrush}"

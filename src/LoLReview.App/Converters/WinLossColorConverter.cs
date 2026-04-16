@@ -9,7 +9,7 @@ namespace LoLReview.App.Converters;
 
 /// <summary>
 /// Converts a boolean (win = true) to the appropriate color brush.
-/// true (win) → WinGreen (#3bc98d), false (loss) → LossRed (#ea7a73).
+/// true (win) → Positive (#7EC9A0), false (loss) → Negative (#D38C90).
 /// </summary>
 public sealed class WinLossColorConverter : IValueConverter
 {

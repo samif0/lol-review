@@ -7,7 +7,7 @@
     mc:Ignorable="d">
 
     <Border Background="{StaticResource CardBackgroundBrush}"
-            CornerRadius="8"
+            CornerRadius="2"
             Padding="12,8"
             BorderBrush="{StaticResource SubtleBorderBrush}"
             BorderThickness="1">

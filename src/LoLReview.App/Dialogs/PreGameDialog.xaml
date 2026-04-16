@@ -40,7 +40,7 @@
             <Border Visibility="{x:Bind ViewModel.ShowMoodSelector, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentPurpleBrush}"
-                    BorderThickness="1" CornerRadius="8" Padding="14,10">
+                    BorderThickness="1" CornerRadius="2" Padding="14,10">
                 <StackPanel Spacing="6">
                     <TextBlock Text="HOW ARE YOU FEELING RIGHT NOW?"
                                FontSize="11" FontWeight="Bold"
@@ -54,7 +54,7 @@
             <Border Visibility="{x:Bind ViewModel.ShowIntention, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentGoldBrush}"
-                    BorderThickness="2" CornerRadius="8" Padding="14,10">
+                    BorderThickness="2" CornerRadius="2" Padding="14,10">
                 <StackPanel Spacing="6">
                     <TextBlock Text="SESSION MINDSET GOAL"
                                FontSize="11" FontWeight="Bold"
@@ -71,14 +71,14 @@
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
                              Foreground="{StaticResource PrimaryTextBrush}"
-                             CornerRadius="6"/>
+                             CornerRadius="2"/>
 
                     <!-- Quick intention buttons -->
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <Button Content="When I die, I'll review why"
                                 Command="{x:Bind ViewModel.SetQuickIntentionCommand}"
                                 CommandParameter="When I die, I'll review why"
-                                FontSize="10" Height="24" CornerRadius="12"
+                                FontSize="10" Height="24" CornerRadius="2"
                                 Padding="8,0"
                                 Background="{StaticResource TagBackgroundBrush}"
                                 Foreground="{StaticResource SecondaryTextBrush}"
@@ -87,7 +87,7 @@
                         <Button Content="When tilted, I'll take 3 breaths"
                                 Command="{x:Bind ViewModel.SetQuickIntentionCommand}"
                                 CommandParameter="When tilted, I'll take 3 breaths"
-                                FontSize="10" Height="24" CornerRadius="12"
+                                FontSize="10" Height="24" CornerRadius="2"
                                 Padding="8,0"
                                 Background="{StaticResource TagBackgroundBrush}"
                                 Foreground="{StaticResource SecondaryTextBrush}"
@@ -96,7 +96,7 @@
                         <Button Content="When behind, I'll focus on farm"
                                 Command="{x:Bind ViewModel.SetQuickIntentionCommand}"
                                 CommandParameter="When behind, I'll focus on farm"
-                                FontSize="10" Height="24" CornerRadius="12"
+                                FontSize="10" Height="24" CornerRadius="2"
                                 Padding="8,0"
                                 Background="{StaticResource TagBackgroundBrush}"
                                 Foreground="{StaticResource SecondaryTextBrush}"
@@ -110,7 +110,7 @@
             <Border Visibility="{x:Bind ViewModel.HasActiveObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentBlueBrush}"
-                    BorderThickness="2" CornerRadius="8" Padding="14,10">
+                    BorderThickness="2" CornerRadius="2" Padding="14,10">
                 <StackPanel Spacing="4">
                     <TextBlock Text="YOUR CURRENT OBJECTIVE"
                                FontSize="11" FontWeight="Bold"
@@ -129,7 +129,7 @@
             <Border Visibility="{x:Bind ViewModel.HasObjectiveFocusOptions, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentGoldBrush}"
-                    BorderThickness="1" CornerRadius="8" Padding="14,10">
+                    BorderThickness="1" CornerRadius="2" Padding="14,10">
                 <StackPanel Spacing="8">
                     <TextBlock Text="PICK AN OBJECTIVE TO FOCUS ON"
                                FontSize="11" FontWeight="Bold"
@@ -146,7 +146,7 @@
                                         HorizontalAlignment="Stretch"
                                         HorizontalContentAlignment="Left"
                                         Padding="12,10"
-                                        CornerRadius="8"
+                                        CornerRadius="2"
                                         Background="{StaticResource InputBackgroundBrush}"
                                         BorderBrush="{StaticResource SubtleBorderBrush}"
                                         BorderThickness="1">
@@ -212,14 +212,14 @@
                      Background="{StaticResource InputBackgroundBrush}"
                      BorderBrush="{StaticResource SubtleBorderBrush}"
                      Foreground="{StaticResource PrimaryTextBrush}"
-                     CornerRadius="8"/>
+                     CornerRadius="2"/>
 
             <!-- Quick focus buttons -->
             <StackPanel Orientation="Horizontal" Spacing="4">
                 <Button Content="CS better early"
                         Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                         CommandParameter="CS better early"
-                        FontSize="11" Height="26" CornerRadius="13"
+                        FontSize="11" Height="26" CornerRadius="2"
                         Padding="10,0"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource SecondaryTextBrush}"
@@ -228,7 +228,7 @@
                 <Button Content="Track enemy JG"
                         Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                         CommandParameter="Track enemy JG"
-                        FontSize="11" Height="26" CornerRadius="13"
+                        FontSize="11" Height="26" CornerRadius="2"
                         Padding="10,0"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource SecondaryTextBrush}"
@@ -237,7 +237,7 @@
                 <Button Content="Don't die before 6"
                         Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                         CommandParameter="Don't die before 6"
-                        FontSize="11" Height="26" CornerRadius="13"
+                        FontSize="11" Height="26" CornerRadius="2"
                         Padding="10,0"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource SecondaryTextBrush}"
@@ -248,7 +248,7 @@
                 <Button Content="Play for teamfights"
                         Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                         CommandParameter="Play for teamfights"
-                        FontSize="11" Height="26" CornerRadius="13"
+                        FontSize="11" Height="26" CornerRadius="2"
                         Padding="10,0"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource SecondaryTextBrush}"
@@ -257,7 +257,7 @@
                 <Button Content="Ward more"
                         Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                         CommandParameter="Ward more"
-                        FontSize="11" Height="26" CornerRadius="13"
+                        FontSize="11" Height="26" CornerRadius="2"
                         Padding="10,0"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource SecondaryTextBrush}"
@@ -266,7 +266,7 @@
                 <Button Content="Roam after push"
                         Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                         CommandParameter="Roam after push"
-                        FontSize="11" Height="26" CornerRadius="13"
+                        FontSize="11" Height="26" CornerRadius="2"
                         Padding="10,0"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource SecondaryTextBrush}"

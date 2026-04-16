@@ -19,14 +19,14 @@
 
         <Style x:Key="VodSectionCardStyle" TargetType="Border" BasedOn="{StaticResource CardStyle}">
             <Setter Property="Padding" Value="16" />
-            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="CornerRadius" Value="2" />
             <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
         </Style>
 
         <Style x:Key="VodTransportButtonStyle" TargetType="Button" BasedOn="{StaticResource GhostIconButtonStyle}">
             <Setter Property="Width" Value="48" />
             <Setter Property="Height" Value="44" />
-            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="CornerRadius" Value="2" />
             <Setter Property="IsTabStop" Value="False" />
             <Setter Property="AllowFocusOnInteraction" Value="False" />
         </Style>
@@ -41,7 +41,7 @@
         <Style x:Key="VodPlayPauseButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
             <Setter Property="Width" Value="64" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="CornerRadius" Value="2" />
             <Setter Property="IsTabStop" Value="False" />
             <Setter Property="AllowFocusOnInteraction" Value="False" />
         </Style>
@@ -50,7 +50,7 @@
             <Setter Property="Width" Value="64" />
             <Setter Property="Height" Value="52" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="CornerRadius" Value="26" />
+            <Setter Property="CornerRadius" Value="2" />
             <Setter Property="Background" Value="#CC000000" />
             <Setter Property="BorderBrush" Value="{StaticResource BrightBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -91,7 +91,7 @@
         </Style>
 
         <Style x:Key="VodQualityChipBorderStyle" TargetType="Border">
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="2" />
             <Setter Property="Padding" Value="12,7" />
             <Setter Property="MinWidth" Value="0" />
         </Style>
@@ -106,7 +106,7 @@
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="2" />
             <Setter Property="Padding" Value="12,8" />
             <Setter Property="FontSize" Value="12" />
         </Style>
@@ -116,14 +116,14 @@
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="2" />
             <Setter Property="Padding" Value="8,4" />
             <Setter Property="FontSize" Value="12" />
         </Style>
 
         <Style x:Key="VodMiniChipStyle" TargetType="Border" BasedOn="{StaticResource TagChipStyle}">
             <Setter Property="Background" Value="{StaticResource SurfaceInsetBrush}" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="2" />
             <Setter Property="Padding" Value="8,4" />
         </Style>
 
@@ -149,7 +149,7 @@
             <Setter Property="Background" Value="{StaticResource SurfaceHighlightBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource BrightBorderBrush}" />
             <Setter Property="Padding" Value="7,2" />
-            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="CornerRadius" Value="2" />
         </Style>
     </Page.Resources>
 
@@ -167,7 +167,7 @@
                     Background="#52000000"
                     BorderBrush="{StaticResource SubtleBorderBrush}"
                     BorderThickness="1"
-                    CornerRadius="12"
+                    CornerRadius="2"
                     Padding="12,6">
                 <Grid ColumnDefinitions="Auto,*,Auto"
                       ColumnSpacing="12">
@@ -189,7 +189,7 @@
                         <Border Background="#40000000"
                                 BorderBrush="{StaticResource SubtleBorderBrush}"
                                 BorderThickness="1"
-                                CornerRadius="8"
+                                CornerRadius="2"
                                 Padding="8,4">
                             <StackPanel Orientation="Horizontal"
                                         Spacing="6">
@@ -297,7 +297,7 @@
                                             <FontIcon Glyph="&#xE823;"
                                                       FontSize="12"
                                                       Foreground="{StaticResource AccentGoldBrush}" />
-                                            <TextBlock FontFamily="Consolas"
+                                            <TextBlock FontFamily="{StaticResource MonoFont}"
                                                        FontSize="11"
                                                        FontWeight="SemiBold"
                                                        Foreground="{StaticResource PrimaryTextBrush}">
@@ -314,7 +314,7 @@
                                     Background="{StaticResource SurfaceInsetBrush}"
                                     BorderBrush="{StaticResource BrightBorderBrush}"
                                     BorderThickness="1"
-                                    CornerRadius="18"
+                                    CornerRadius="2"
                                     Padding="10">
                                 <Grid x:Name="VideoContainer"
                                       AllowFocusOnInteraction="True"
@@ -455,7 +455,7 @@
                                         Spacing="10"
                                         VerticalAlignment="Center">
                                 <Border Style="{StaticResource VodMiniChipStyle}">
-                                    <TextBlock FontFamily="Consolas"
+                                    <TextBlock FontFamily="{StaticResource MonoFont}"
                                                FontSize="12"
                                                FontWeight="SemiBold"
                                                Foreground="{StaticResource PrimaryTextBrush}">
@@ -777,7 +777,7 @@
                                             Background="{StaticResource AccentGoldDimBrush}"
                                             BorderBrush="{StaticResource AccentGoldBrush}"
                                             BorderThickness="1"
-                                            CornerRadius="8"
+                                            CornerRadius="2"
                                             Padding="10,6"
                                             VerticalAlignment="Center"
                                             Visibility="{x:Bind ViewModel.HasClipRange, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
@@ -831,7 +831,7 @@
                                                        FontSize="11"
                                                        Foreground="{StaticResource SecondaryTextBrush}" />
                                             <TextBlock Text="{x:Bind ViewModel.CurrentTimeText, Mode=OneWay}"
-                                                       FontFamily="Consolas"
+                                                       FontFamily="{StaticResource MonoFont}"
                                                        FontSize="12"
                                                        FontWeight="SemiBold"
                                                        Foreground="{StaticResource AccentGoldBrush}" />
@@ -951,7 +951,7 @@
                                                        FontSize="11"
                                                        Foreground="{StaticResource SecondaryTextBrush}" />
                                             <TextBlock Text="{x:Bind ViewModel.ClipRangeText, Mode=OneWay}"
-                                                       FontFamily="Consolas"
+                                                       FontFamily="{StaticResource MonoFont}"
                                                        FontSize="12"
                                                        FontWeight="SemiBold"
                                                        Foreground="{StaticResource AccentGoldBrush}" />
@@ -966,7 +966,7 @@
                                                        FontSize="11"
                                                        Foreground="{StaticResource SecondaryTextBrush}" />
                                             <TextBlock Text="{x:Bind ViewModel.ClipDurationText, Mode=OneWay}"
-                                                       FontFamily="Consolas"
+                                                       FontFamily="{StaticResource MonoFont}"
                                                        FontSize="12"
                                                        FontWeight="SemiBold"
                                                        Foreground="{StaticResource PrimaryTextBrush}" />
@@ -977,7 +977,7 @@
                                             Background="{StaticResource SurfaceInsetBrush}"
                                             BorderBrush="{StaticResource SubtleBorderBrush}"
                                             BorderThickness="1"
-                                            CornerRadius="10"
+                                            CornerRadius="2"
                                             Padding="12,10">
                                         <TextBlock Text="{x:Bind ViewModel.ClipStatusText, Mode=OneWay}"
                                                    FontSize="11"
@@ -1013,13 +1013,13 @@
                                         Background="{StaticResource SurfaceInsetBrush}"
                                         BorderBrush="{StaticResource BrightBorderBrush}"
                                         BorderThickness="1"
-                                        CornerRadius="12"
+                                        CornerRadius="2"
                                         Padding="12,10">
                                     <StackPanel Spacing="6">
                                         <TextBlock Text="Current time"
                                                    Style="{StaticResource PanelEyebrowStyle}" />
                                         <TextBlock Text="{x:Bind ViewModel.CurrentTimeText, Mode=OneWay}"
-                                                   FontFamily="Consolas"
+                                                   FontFamily="{StaticResource MonoFont}"
                                                    FontSize="28"
                                                    FontWeight="SemiBold"
                                                    Foreground="{StaticResource AccentTealBrush}" />
@@ -1137,7 +1137,7 @@
                                     Background="{StaticResource SurfaceInsetBrush}"
                                     BorderBrush="{StaticResource SubtleBorderBrush}"
                                     BorderThickness="1"
-                                    CornerRadius="10"
+                                    CornerRadius="2"
                                     Padding="12">
                                 <StackPanel Spacing="10">
                                     <TextBlock Text="KEYS"
@@ -1282,17 +1282,17 @@
                                             <Border Background="{x:Bind SurfaceBrush}"
                                                     BorderBrush="{x:Bind AccentBrush}"
                                                     BorderThickness="1"
-                                                    CornerRadius="10"
+                                                    CornerRadius="2"
                                                     Padding="12,10">
                                                 <Grid ColumnDefinitions="Auto,*,Auto"
                                                       ColumnSpacing="10">
                                                     <StackPanel Spacing="8"
                                                                 VerticalAlignment="Top">
                                                         <Border Background="{x:Bind AccentBrush}"
-                                                                CornerRadius="7"
+                                                                CornerRadius="2"
                                                                 Padding="10,5">
                                                             <TextBlock Text="{x:Bind TimeText}"
-                                                                       FontFamily="Consolas"
+                                                                       FontFamily="{StaticResource MonoFont}"
                                                                        FontSize="12"
                                                                        FontWeight="SemiBold"
                                                                        Foreground="{StaticResource ActionPrimaryForegroundBrush}" />
@@ -1300,7 +1300,7 @@
                                                         <Border Background="{x:Bind SurfaceBrush}"
                                                                 BorderBrush="{x:Bind AccentBrush}"
                                                                 BorderThickness="1"
-                                                                CornerRadius="7"
+                                                                CornerRadius="2"
                                                                 Padding="8,4">
                                                             <TextBlock Text="{x:Bind KindLabel}"
                                                                        FontSize="10"
@@ -1316,7 +1316,7 @@
                                                                  Background="{StaticResource InputBackgroundBrush}"
                                                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                                                  BorderThickness="1"
-                                                                 CornerRadius="8"
+                                                                 CornerRadius="2"
                                                                  Foreground="{StaticResource PrimaryTextBrush}"
                                                                  FontSize="12"
                                                                  KeyDown="OnBookmarkNoteKeyDown"
@@ -1334,10 +1334,10 @@
                                                                     <Border Background="{x:Bind SurfaceBrush}"
                                                                             BorderBrush="{x:Bind AccentBrush}"
                                                                             BorderThickness="1"
-                                                                            CornerRadius="7"
+                                                                            CornerRadius="2"
                                                                             Padding="8,4">
                                                                         <TextBlock Text="{x:Bind ClipRangeText}"
-                                                                                   FontFamily="Consolas"
+                                                                                   FontFamily="{StaticResource MonoFont}"
                                                                                    FontSize="11"
                                                                                    FontWeight="SemiBold"
                                                                                    Foreground="{x:Bind AccentBrush}" />
@@ -1346,7 +1346,7 @@
                                                                     <Border Background="{x:Bind QualitySurfaceBrush}"
                                                                             BorderBrush="{x:Bind QualityAccentBrush}"
                                                                             BorderThickness="1"
-                                                                            CornerRadius="7"
+                                                                            CornerRadius="2"
                                                                             Padding="8,4"
                                                                             Visibility="{x:Bind HasQuality, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
                                                                         <TextBlock Text="{x:Bind QualityLabel}"

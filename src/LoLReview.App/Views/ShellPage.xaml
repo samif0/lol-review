@@ -10,34 +10,33 @@
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
         <Style x:Key="NavItemStyle" TargetType="Button" BasedOn="{StaticResource SidebarNavButtonStyle}">
-            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="Margin" Value="0,0,0,2"/>
         </Style>
     </Page.Resources>
 
     <Grid Background="{StaticResource ShellCanvasBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="4"/>
+            <RowDefinition Height="3"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+        <!-- Connection indicator strip -->
         <Rectangle x:Name="ConnectionIndicator"
                    Grid.Row="0"
                    Fill="{StaticResource LossRedBrush}"
                    HorizontalAlignment="Stretch"/>
 
-        <Grid Grid.Row="1"
-              Margin="18,16,18,18"
-              ColumnSpacing="18">
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="272"/>
+                <ColumnDefinition Width="72"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
+            <!-- ═══ SIDEBAR: Collapsed icon rail ═══ -->
             <Border Grid.Column="0"
                     Background="{StaticResource SidebarBackgroundBrush}"
                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="22">
+                    BorderThickness="0,0,1,0">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -45,171 +44,67 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <Border Grid.Row="0"
-                            Margin="18,18,18,14"
-                            Padding="20"
-                            Background="{StaticResource SidebarHeroBrush}"
-                            BorderBrush="{StaticResource BrightBorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="18">
-                        <Grid>
-                            <Rectangle Width="176"
-                                       Height="96"
-                                       RadiusX="16"
-                                       RadiusY="16"
-                                       HorizontalAlignment="Right"
-                                       VerticalAlignment="Top"
-                                       Margin="0,-30,-56,0"
-                                       Fill="{StaticResource AccentBlueDimBrush}"
-                                       Opacity="0.34"
-                                       RenderTransformOrigin="0.5,0.5">
-                                <Rectangle.RenderTransform>
-                                    <RotateTransform Angle="18"/>
-                                </Rectangle.RenderTransform>
-                            </Rectangle>
-                            <Rectangle Width="132"
-                                       Height="80"
-                                       RadiusX="14"
-                                       RadiusY="14"
-                                       HorizontalAlignment="Left"
-                                       VerticalAlignment="Bottom"
-                                       Margin="-34,0,0,-30"
-                                       Fill="{StaticResource AccentGoldDimBrush}"
-                                       Opacity="0.3"
-                                       RenderTransformOrigin="0.5,0.5">
-                                <Rectangle.RenderTransform>
-                                    <RotateTransform Angle="-12"/>
-                                </Rectangle.RenderTransform>
-                            </Rectangle>
+                    <!-- Logo -->
+                    <StackPanel Grid.Row="0"
+                                Margin="0,20,0,16"
+                                HorizontalAlignment="Center">
+                        <TextBlock Text="LR"
+                                   FontFamily="{StaticResource DisplayFont}"
+                                   FontSize="16"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource AccentBlueBrush}"
+                                   HorizontalAlignment="Center"
+                                   CharacterSpacing="200"/>
+                        <TextBlock Text="2.5"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="8"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,2,0,0"/>
+                    </StackPanel>
 
-                            <StackPanel Spacing="16">
-                                <StackPanel Spacing="10">
-                                    <Border HorizontalAlignment="Left"
-                                            Background="{StaticResource AccentGoldDimBrush}"
-                                            BorderBrush="{StaticResource AccentGoldBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="8"
-                                            Padding="10,5">
-                                        <TextBlock Text="COMPETITIVE DESK"
-                                                   Style="{StaticResource PanelEyebrowStyle}"
-                                                   Foreground="{StaticResource AccentGoldBrush}"/>
-                                    </Border>
-
-                                    <StackPanel Spacing="6">
-                                        <TextBlock Text="LoL Review"
-                                                   FontFamily="Bahnschrift"
-                                                   FontSize="29"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="{StaticResource PrimaryTextBrush}"/>
-
-                                        <TextBlock Text="Review faster, clear the desk, and turn the next game into a deliberate one."
-                                                   FontSize="13"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </StackPanel>
-
-                                <Border Style="{StaticResource InsetCardStyle}"
-                                        Padding="12">
-                                    <Grid ColumnSpacing="12">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-
-                                        <Border Width="38"
-                                                Height="38"
-                                                CornerRadius="8"
-                                                Background="{StaticResource SurfaceHighlightBrush}"
-                                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                BorderThickness="1"
-                                                VerticalAlignment="Center">
-                                            <Border x:Name="StatusDot"
-                                                    Width="10"
-                                                    Height="10"
-                                                    CornerRadius="2"
-                                                    Background="{StaticResource LossRedBrush}"
-                                                    HorizontalAlignment="Center"
-                                                    VerticalAlignment="Center"/>
-                                        </Border>
-
-                                        <StackPanel Grid.Column="1"
-                                                    Spacing="2"
-                                                    VerticalAlignment="Center">
-                                            <TextBlock Text="CLIENT STATUS"
-                                                       Style="{StaticResource PanelEyebrowStyle}"/>
-                                            <TextBlock x:Name="ConnectionStatusText"
-                                                       Text="Waiting..."
-                                                       FontSize="13"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="{StaticResource PrimaryTextBrush}"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-
+                    <!-- Nav buttons -->
                     <ScrollViewer Grid.Row="1"
-                                  VerticalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Hidden"
                                   HorizontalScrollBarVisibility="Disabled">
                         <StackPanel x:Name="NavPanel"
-                                    Margin="18,0,18,0">
-                            <TextBlock Text="WORKSPACE"
-                                       Margin="6,0,0,10"
-                                       Style="{StaticResource PanelEyebrowStyle}"/>
+                                    Margin="14,0"
+                                    Spacing="2">
+
+                            <!-- WORKSPACE section -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="6,4,6,8"/>
 
                             <Button x:Name="NavDashboard"
                                     Tag="dashboard"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
+                                    ToolTipService.ToolTip="Dashboard"
                                     IsTabStop="False">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <Border Style="{StaticResource SidebarGlyphBadgeStyle}">
-                                        <FontIcon Glyph="&#xE80F;"
-                                                  FontSize="14"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"/>
-                                    </Border>
-
-                                    <TextBlock Grid.Column="1"
-                                               Text="Dashboard"
-                                               VerticalAlignment="Center"
-                                               FontSize="14"
-                                               FontWeight="SemiBold"/>
-                                </Grid>
+                                <FontIcon Glyph="&#xE80F;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                             </Button>
 
                             <Button x:Name="NavSession"
                                     Tag="session"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
+                                    ToolTipService.ToolTip="Review"
                                     IsTabStop="False">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <Border Style="{StaticResource SidebarGlyphBadgeStyle}">
-                                        <FontIcon Glyph="&#xE768;"
-                                                  FontSize="14"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"/>
-                                    </Border>
-
-                                    <TextBlock Grid.Column="1"
-                                               Text="Review"
-                                               VerticalAlignment="Center"
-                                               FontSize="14"
-                                               FontWeight="SemiBold"/>
+                                <Grid>
+                                    <FontIcon Glyph="&#xE768;"
+                                              FontSize="15"
+                                              FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                    <!-- Unreviewed badge -->
+                                    <Border Width="8" Height="8"
+                                            CornerRadius="4"
+                                            Background="{StaticResource LossRedBrush}"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            Margin="0,-2,-2,0"
+                                            Visibility="{x:Bind ViewModel.HasUnreviewedGames, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
                                 </Grid>
                             </Button>
 
@@ -217,197 +112,138 @@
                                     Tag="objectives"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
+                                    ToolTipService.ToolTip="Objectives"
                                     IsTabStop="False">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <Border Style="{StaticResource SidebarGlyphBadgeStyle}">
-                                        <FontIcon Glyph="&#xF16B;"
-                                                  FontSize="14"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"/>
-                                    </Border>
-
-                                    <TextBlock Grid.Column="1"
-                                               Text="Objectives"
-                                               VerticalAlignment="Center"
-                                               FontSize="14"
-                                               FontWeight="SemiBold"/>
-                                </Grid>
+                                <FontIcon Glyph="&#xF16B;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                             </Button>
 
-                            <TextBlock Text="INSIGHTS"
-                                       Margin="6,12,0,10"
-                                       Style="{StaticResource PanelEyebrowStyle}"/>
+                            <!-- INSIGHTS section -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="6,8,6,8"/>
 
                             <Button x:Name="NavHistory"
                                     Tag="history"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
+                                    ToolTipService.ToolTip="Archive"
                                     IsTabStop="False">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <Border Style="{StaticResource SidebarGlyphBadgeStyle}">
-                                        <FontIcon Glyph="&#xE81C;"
-                                                  FontSize="14"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"/>
-                                    </Border>
-
-                                    <TextBlock Grid.Column="1"
-                                               Text="Archive"
-                                               VerticalAlignment="Center"
-                                               FontSize="14"
-                                               FontWeight="SemiBold"/>
-                                </Grid>
+                                <FontIcon Glyph="&#xE81C;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                             </Button>
 
                             <Button x:Name="NavAnalytics"
                                     Tag="analytics"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
+                                    ToolTipService.ToolTip="Trends"
                                     IsTabStop="False">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE9D9;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
 
-                                    <Border Style="{StaticResource SidebarGlyphBadgeStyle}">
-                                        <FontIcon Glyph="&#xE9D9;"
-                                                  FontSize="14"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"/>
-                                    </Border>
-
-                                    <TextBlock Grid.Column="1"
-                                               Text="Trends"
-                                               VerticalAlignment="Center"
-                                               FontSize="14"
-                                               FontWeight="SemiBold"/>
-                                </Grid>
+                            <Button x:Name="NavVodPlayer"
+                                    Tag="vodplayer"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="VOD Player"
+                                    IsTabStop="False"
+                                    Visibility="Collapsed">
+                                <FontIcon Glyph="&#xE714;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                             </Button>
 
                             <Button x:Name="NavCoachLab"
                                     Tag="coachlab"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
+                                    ToolTipService.ToolTip="Coach Lab"
                                     IsTabStop="False"
                                     Visibility="Collapsed">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE7EF;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
 
-                                    <Border Style="{StaticResource SidebarGlyphBadgeStyle}">
-                                        <FontIcon Glyph="&#xE7EF;"
-                                                  FontSize="14"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"/>
-                                    </Border>
+                            <!-- DISCIPLINE section -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="6,8,6,8"/>
 
-                                    <TextBlock Grid.Column="1"
-                                               Text="Coach Lab"
-                                               VerticalAlignment="Center"
-                                               FontSize="14"
-                                               FontWeight="SemiBold"/>
-                                </Grid>
+                            <Button x:Name="NavRules"
+                                    Tag="rules"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Rules"
+                                    IsTabStop="False"
+                                    Visibility="Collapsed">
+                                <FontIcon Glyph="&#xE7BA;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                             </Button>
                         </StackPanel>
                     </ScrollViewer>
 
+                    <!-- Footer: status + settings -->
                     <StackPanel Grid.Row="2"
-                                Margin="18,0,18,18"
-                                Spacing="12">
-                        <Border Padding="14"
-                                CornerRadius="12"
-                                Background="{StaticResource AccentGoldDimBrush}"
-                                BorderBrush="{StaticResource AccentGoldBrush}"
-                                BorderThickness="1"
-                                Visibility="{x:Bind ViewModel.ShowUpdateNotice, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                            <StackPanel Spacing="10">
-                                <TextBlock Text="CLIENT UPDATE"
-                                           Style="{StaticResource PanelEyebrowStyle}"
-                                           Foreground="{StaticResource AccentGoldBrush}"/>
+                                Margin="14,0,14,16"
+                                Spacing="4">
 
-                                <TextBlock Text="{x:Bind ViewModel.UpdateNoticeText, Mode=OneWay}"
-                                           FontSize="12"
-                                           TextWrapping="Wrap"
-                                           Foreground="{StaticResource PrimaryTextBrush}"/>
-
-                                <Button Content="Open Settings"
-                                        Command="{x:Bind ViewModel.OpenUpdateSettingsCommand}"
-                                        Style="{StaticResource PrimaryActionButtonStyle}"
-                                        HorizontalAlignment="Stretch"/>
-                            </StackPanel>
-                        </Border>
-
-                        <TextBlock Text="UTILITY"
-                                   Margin="6,0,0,0"
-                                   Style="{StaticResource PanelEyebrowStyle}"/>
-
+                        <!-- Settings button -->
                         <Button x:Name="NavSettings"
                                 Tag="settings"
                                 Style="{StaticResource NavItemStyle}"
                                 Click="OnNavClick"
+                                ToolTipService.ToolTip="Settings"
                                 IsTabStop="False">
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-
-                                <Border Style="{StaticResource SidebarGlyphBadgeStyle}">
-                                    <FontIcon Glyph="&#xE713;"
-                                              FontSize="14"
-                                              FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                              HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"/>
-                                </Border>
-
-                                <TextBlock Grid.Column="1"
-                                           Text="Settings"
-                                           VerticalAlignment="Center"
-                                           FontSize="14"
-                                           FontWeight="SemiBold"/>
-
-                                <Border Grid.Column="2"
-                                        Width="10"
-                                        Height="10"
-                                        CornerRadius="2"
-                                        VerticalAlignment="Center"
+                            <Grid>
+                                <FontIcon Glyph="&#xE713;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                <!-- Update badge -->
+                                <Border Width="8" Height="8"
+                                        CornerRadius="4"
                                         Background="{StaticResource AccentGoldBrush}"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Margin="0,-2,-2,0"
                                         Visibility="{x:Bind ViewModel.ShowSettingsUpdateBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
                             </Grid>
                         </Button>
 
-                        <TextBlock Text="Shift from queueing to learning."
-                                   Margin="6,2,6,0"
-                                   FontSize="11"
-                                   Foreground="{StaticResource MutedTextBrush}"
-                                   TextWrapping="Wrap"/>
+                        <!-- Connection status -->
+                        <StackPanel HorizontalAlignment="Center"
+                                    Spacing="4"
+                                    Margin="0,8,0,0">
+                            <Border x:Name="StatusDot"
+                                    Width="6" Height="6"
+                                    CornerRadius="3"
+                                    Background="{StaticResource LossRedBrush}"
+                                    HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="ConnectionStatusText"
+                                       Text="LCU"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="7"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"
+                                       CharacterSpacing="100"/>
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
             </Border>
 
+            <!-- ═══ CONTENT AREA ═══ -->
             <Grid Grid.Column="1">
+                <!-- Ambient decorative shapes -->
                 <Rectangle Width="420"
                            Height="154"
-                           RadiusX="20"
-                           RadiusY="20"
+                           RadiusX="2"
+                           RadiusY="2"
                            HorizontalAlignment="Right"
                            VerticalAlignment="Top"
                            Margin="0,-58,-136,0"
@@ -421,8 +257,8 @@
 
                 <Rectangle Width="280"
                            Height="120"
-                           RadiusX="18"
-                           RadiusY="18"
+                           RadiusX="2"
+                           RadiusY="2"
                            HorizontalAlignment="Left"
                            VerticalAlignment="Bottom"
                            Margin="-80,0,0,-48"
@@ -436,17 +272,10 @@
 
                 <Border Background="{StaticResource ShellContentBackgroundBrush}"
                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                        BorderThickness="1"
-                        CornerRadius="24"/>
-
-                <Border Margin="10"
-                        Background="#220C1312"
-                        BorderBrush="{StaticResource BrightBorderBrush}"
-                        BorderThickness="1"
-                        CornerRadius="18"/>
+                        BorderThickness="0"/>
 
                 <Grid x:Name="ContentViewport"
-                      Margin="18"
+                      Margin="0"
                       SizeChanged="OnContentViewportSizeChanged">
                     <Frame x:Name="ContentFrame"/>
                 </Grid>

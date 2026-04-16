@@ -23,12 +23,18 @@
 
         <Grid RowDefinitions="Auto,*">
 
-            <!-- Header: Back + Title -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12"
-                        Padding="24,16,24,8">
-                <Button Command="{x:Bind ViewModel.CancelCommand}"
+            <!-- Header: Back + Title + Watch VOD -->
+            <Grid Grid.Row="0" Padding="24,16,24,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="0"
+                        Command="{x:Bind ViewModel.CancelCommand}"
                         FontSize="12" Height="32"
-                        Padding="12,0" CornerRadius="6"
+                        Padding="12,0" CornerRadius="2"
                         Background="{StaticResource TagBackgroundBrush}"
                         Foreground="{StaticResource PrimaryTextBrush}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -37,11 +43,24 @@
                     </StackPanel>
                 </Button>
 
-                <TextBlock Text="{x:Bind ViewModel.HeaderText, Mode=OneWay}"
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind ViewModel.HeaderText, Mode=OneWay}"
                            FontSize="16" FontWeight="Bold"
                            Foreground="{StaticResource PrimaryTextBrush}"
-                           VerticalAlignment="Center"/>
-            </StackPanel>
+                           VerticalAlignment="Center"
+                           Margin="12,0,0,0"/>
+
+                <Button Grid.Column="2"
+                        Command="{x:Bind ViewModel.WatchVodCommand}"
+                        Style="{StaticResource PrimaryActionButtonStyle}"
+                        Height="36" Padding="16,0"
+                        Visibility="{x:Bind ViewModel.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE768;" FontSize="14"/>
+                        <TextBlock Text="Watch VOD" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
 
             <!-- Scrollable Content -->
             <ScrollViewer Grid.Row="1"
@@ -67,6 +86,7 @@
                                 <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Text="{x:Bind ViewModel.ChampionName, Mode=OneWay}"
                                                FontSize="30" FontWeight="Bold"
+                                               FontFamily="{StaticResource DisplayFont}"
                                                Foreground="{StaticResource AccentGoldBrush}"/>
                                     <StackPanel Orientation="Horizontal" Spacing="10">
                                         <TextBlock Text="{x:Bind ViewModel.ResultText, Mode=OneWay}"
@@ -88,6 +108,7 @@
                                             VerticalAlignment="Center" Spacing="2">
                                     <TextBlock Text="{x:Bind ViewModel.KdaText, Mode=OneWay}"
                                                FontSize="28" FontWeight="Bold"
+                                               FontFamily="{StaticResource DisplayFont}"
                                                Foreground="{StaticResource PrimaryTextBrush}"
                                                HorizontalAlignment="Right"/>
                                     <TextBlock Text="{x:Bind ViewModel.KdaRatioText, Mode=OneWay}"
@@ -102,7 +123,7 @@
                                         Visibility="{x:Bind ViewModel.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <Button Command="{x:Bind ViewModel.WatchVodCommand}"
                                         FontSize="13" FontWeight="SemiBold"
-                                        Height="36" Padding="16,0" CornerRadius="8"
+                                        Height="36" Padding="16,0" CornerRadius="2"
                                         Background="{StaticResource AccentGoldDimBrush}"
                                         Foreground="{StaticResource AccentGoldBrush}"
                                         BorderBrush="{StaticResource AccentGoldBrush}"
@@ -162,6 +183,76 @@
                     </Grid>
 
                     <!-- ═══════════════════════════════════════════
+                         OBJECTIVE PRACTICE (moved up, after stats)
+                         ═══════════════════════════════════════════ -->
+                    <Border Style="{StaticResource CardStyle}"
+                            Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="OBJECTIVE PRACTICE"
+                                       FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBlock Text="Mark whether you actually practiced your active objectives in this game."
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.ObjectiveAssessments, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Spacing="8"/>
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ObjectiveAssessment">
+                                        <Border Background="{StaticResource InputBackgroundBrush}"
+                                                CornerRadius="2"
+                                                BorderThickness="1,1,1,2"
+                                                BorderBrush="{StaticResource AccentGoldBrush}"
+                                                Padding="14">
+                                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                                                <!-- Row 0: Title + practiced toggle -->
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <StackPanel Spacing="2">
+                                                        <TextBlock Text="{x:Bind Title}"
+                                                                   FontSize="14"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="{StaticResource PrimaryTextBrush}"/>
+                                                        <TextBlock Text="{x:Bind PhaseLabel}"
+                                                                   FontSize="11"
+                                                                   Foreground="{StaticResource AccentBlueBrush}"/>
+                                                    </StackPanel>
+                                                    <CheckBox Grid.Column="1"
+                                                              IsChecked="{x:Bind Practiced, Mode=TwoWay}"
+                                                              Content="Practiced"
+                                                              FontSize="12"
+                                                              Foreground="{StaticResource PrimaryTextBrush}"
+                                                              VerticalAlignment="Center"/>
+                                                </Grid>
+
+                                                <!-- Row 1: Criteria -->
+                                                <TextBlock Grid.Row="1"
+                                                           Text="{x:Bind Criteria}"
+                                                           FontSize="12"
+                                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                                           TextWrapping="Wrap"/>
+
+                                                <!-- Row 2: Execution note -->
+                                                <TextBox Grid.Row="2"
+                                                         Text="{x:Bind ExecutionNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                         PlaceholderText="How did this objective go in the game?"
+                                                         TextWrapping="Wrap" AcceptsReturn="True"
+                                                         MinHeight="52" FontSize="12"
+                                                         Background="{StaticResource CardBackgroundBrush}"
+                                                         BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                         Foreground="{StaticResource PrimaryTextBrush}"
+                                                         CornerRadius="2"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ═══════════════════════════════════════════
                          SELF ASSESSMENT: Mental Rating + Performance
                          ═══════════════════════════════════════════ -->
                     <Border Style="{StaticResource CardStyle}">
@@ -189,6 +280,7 @@
                                 <TextBlock Grid.Column="1"
                                            Text="{x:Bind ViewModel.MentalRating, Mode=OneWay}"
                                            FontSize="36" FontWeight="Bold"
+                                           FontFamily="{StaticResource DisplayFont}"
                                            Margin="16,0,0,0"
                                            VerticalAlignment="Center"
                                            MinWidth="50"
@@ -214,7 +306,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
+                                     CornerRadius="2"/>
 
                             <TextBlock Text="What could improve?"
                                        FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -225,7 +317,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
+                                     CornerRadius="2"/>
 
                             <TextBlock Text="Focus for next game"
                                        FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -235,7 +327,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"
+                                     CornerRadius="2"
                                      Height="36"/>
                         </StackPanel>
                     </Border>
@@ -245,7 +337,7 @@
                             Background="{StaticResource WarningSurfaceBrush}"
                             BorderBrush="{StaticResource AccentGoldBrush}"
                             BorderThickness="2"
-                            CornerRadius="8" Padding="16">
+                            CornerRadius="2" Padding="16">
                         <StackPanel Spacing="8">
                             <TextBlock Text="MENTAL REFLECTION"
                                        FontSize="11" FontWeight="Bold"
@@ -264,60 +356,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- ═══════════════════════════════════════════
-                         OBJECTIVE PRACTICE (conditional)
-                         ═══════════════════════════════════════════ -->
-                    <Border Style="{StaticResource CardStyle}"
-                            Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="OBJECTIVE PRACTICE"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBlock Text="Mark whether you actually practiced your active objectives in this game."
-                                       FontSize="12"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       TextWrapping="Wrap"/>
-
-                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.ObjectiveAssessments, Mode=OneWay}">
-                                <ItemsRepeater.Layout>
-                                    <StackLayout Spacing="8"/>
-                                </ItemsRepeater.Layout>
-                                <ItemsRepeater.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ObjectiveAssessment">
-                                        <Border Background="{StaticResource InputBackgroundBrush}"
-                                                CornerRadius="8"
-                                                BorderThickness="1"
-                                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                Padding="12">
-                                            <StackPanel Spacing="8">
-                                                <CheckBox IsChecked="{x:Bind Practiced, Mode=TwoWay}"
-                                                          Content="{x:Bind Title}"
-                                                          FontSize="13"
-                                                          Foreground="{StaticResource PrimaryTextBrush}"/>
-                                                <TextBlock Text="{x:Bind PhaseLabel}"
-                                                           FontSize="11"
-                                                           Foreground="{StaticResource AccentBlueBrush}"/>
-                                                <TextBlock Text="{x:Bind Criteria}"
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
-                                                <TextBox Text="{x:Bind ExecutionNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="How did this objective go in the game?"
-                                                         TextWrapping="Wrap" AcceptsReturn="True"
-                                                         MinHeight="52" FontSize="12"
-                                                         Background="{StaticResource CardBackgroundBrush}"
-                                                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                         Foreground="{StaticResource PrimaryTextBrush}"
-                                                         CornerRadius="6"/>
-                                            </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsRepeater.ItemTemplate>
-                            </ItemsRepeater>
+                                     CornerRadius="2"/>
                         </StackPanel>
                     </Border>
 
@@ -343,7 +382,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"
+                                     CornerRadius="2"
                                      Height="36"/>
 
                             <TextBlock Text="What should you remember for this matchup?"
@@ -356,7 +395,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
+                                     CornerRadius="2"/>
 
                             <ItemsRepeater ItemsSource="{x:Bind ViewModel.MatchupHistory, Mode=OneWay}"
                                            Visibility="{x:Bind ViewModel.HasMatchupHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -366,7 +405,7 @@
                                 <ItemsRepeater.ItemTemplate>
                                     <DataTemplate x:DataType="vm:MatchupHistoryItem">
                                         <Border Background="{StaticResource InputBackgroundBrush}"
-                                                CornerRadius="8"
+                                                CornerRadius="2"
                                                 BorderThickness="1"
                                                 BorderBrush="{StaticResource SubtleBorderBrush}"
                                                 Padding="12">
@@ -405,7 +444,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
+                                     CornerRadius="2"/>
 
                             <TextBlock Text="Spotted problems"
                                        FontSize="13"
@@ -417,7 +456,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"/>
+                                     CornerRadius="2"/>
 
                             <!-- Separator -->
                             <Border Height="1"
@@ -443,7 +482,7 @@
                                         <ToggleButton IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
                                                       FontSize="12"
                                                       Height="34"
-                                                      CornerRadius="16"
+                                                      CornerRadius="2"
                                                       Padding="12,0"
                                                       HorizontalAlignment="Stretch"
                                                       Background="{x:Bind TagBackgroundBrush}"
@@ -529,7 +568,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"
+                                     CornerRadius="2"
                                      Height="36"/>
                         </StackPanel>
                     </Border>
@@ -566,7 +605,7 @@
                                 Command="{x:Bind ViewModel.CancelCommand}"
                                 FontSize="14"
                                 Height="44"
-                                CornerRadius="8"
+                                CornerRadius="2"
                                 HorizontalAlignment="Stretch"
                                 Background="Transparent"
                                 BorderBrush="{StaticResource SubtleBorderBrush}"
@@ -578,7 +617,7 @@
                                 Command="{x:Bind ViewModel.SaveReviewCommand}"
                                 FontSize="14" FontWeight="Bold"
                                 Height="44"
-                                CornerRadius="8"
+                                CornerRadius="2"
                                 HorizontalAlignment="Stretch"
                                 Background="{StaticResource AccentBlueBrush}"
                                 Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>

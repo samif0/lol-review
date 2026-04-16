@@ -14,10 +14,10 @@ namespace LoLReview.App.Controls;
 /// </summary>
 public sealed partial class GameCard : UserControl
 {
-    private static readonly SolidColorBrush WinBrush = new(ColorHelper.FromArgb(255, 34, 197, 94));
-    private static readonly SolidColorBrush LossBrush = new(ColorHelper.FromArgb(255, 239, 68, 68));
-    private static readonly SolidColorBrush HoverBg = new(ColorHelper.FromArgb(255, 22, 22, 31));
-    private static readonly SolidColorBrush NormalBg = new(ColorHelper.FromArgb(255, 18, 18, 26));
+    private static readonly SolidColorBrush WinBrush = new(ColorHelper.FromArgb(255, 126, 201, 160));   // #7EC9A0 win green
+    private static readonly SolidColorBrush LossBrush = new(ColorHelper.FromArgb(255, 211, 140, 144));  // #D38C90 loss rose
+    private static readonly SolidColorBrush HoverBg = new(ColorHelper.FromArgb(255, 17, 15, 30));       // #110F1E sidebar hover
+    private static readonly SolidColorBrush NormalBg = new(ColorHelper.FromArgb(255, 20, 18, 30));      // #14121E card bg
 
     public GameCard()
     {
@@ -123,9 +123,9 @@ public sealed partial class GameCard : UserControl
                     if (ratio >= 5.0)
                         card.KdaRatioText.Foreground = WinBrush;
                     else if (ratio >= 3.0)
-                        card.KdaRatioText.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 200, 155, 60));
+                        card.KdaRatioText.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 201, 149, 106)); // #C9956A bronze
                     else
-                        card.KdaRatioText.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 112, 112, 160));
+                        card.KdaRatioText.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 122, 110, 150)); // #7A6E96 text secondary
                 }
             }));
 

@@ -36,13 +36,13 @@
                             Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
                             Background="{StaticResource AccentBlueBrush}"
                             Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                            CornerRadius="6" Height="34"
+                            CornerRadius="2" Height="34"
                             BorderThickness="0"/>
                 </Grid>
 
                 <!-- Active Violations Banner -->
                 <Border Background="#3f1111"
-                        CornerRadius="8"
+                        CornerRadius="2"
                         Padding="16,12"
                         BorderThickness="2"
                         BorderBrush="{StaticResource LossRedBrush}"
@@ -96,7 +96,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     CornerRadius="6"/>
+                                     CornerRadius="2"/>
                         </StackPanel>
 
                         <!-- Type -->
@@ -108,7 +108,7 @@
                                       Background="{StaticResource InputBackgroundBrush}"
                                       Foreground="{StaticResource PrimaryTextBrush}"
                                       BorderBrush="{StaticResource SubtleBorderBrush}"
-                                      CornerRadius="6" MinWidth="250"/>
+                                      CornerRadius="2" MinWidth="250"/>
                         </StackPanel>
 
                         <!-- Condition Value (context-dependent) -->
@@ -122,7 +122,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     CornerRadius="6"/>
+                                     CornerRadius="2"/>
                         </StackPanel>
 
                         <!-- Description -->
@@ -134,7 +134,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     CornerRadius="6"
+                                     CornerRadius="2"
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
                                      MinHeight="60"/>
@@ -147,14 +147,14 @@
                                     Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
                                     Background="{StaticResource TagBackgroundBrush}"
                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                    CornerRadius="6" Height="32"
+                                    CornerRadius="2" Height="32"
                                     BorderThickness="0"/>
                             <Button Content="Create"
                                     Command="{x:Bind ViewModel.CreateRuleCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanCreate, Mode=OneWay}"
                                     Background="{StaticResource AccentBlueBrush}"
                                     Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                                    CornerRadius="6" Height="32"
+                                    CornerRadius="2" Height="32"
                                     BorderThickness="0"/>
                         </StackPanel>
                     </StackPanel>
@@ -179,7 +179,7 @@
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="vm:SuggestedRule">
                                 <Border Background="{StaticResource CardBackgroundBrush}"
-                                        CornerRadius="10"
+                                        CornerRadius="2"
                                         Padding="16,12"
                                         BorderThickness="1"
                                         BorderBrush="{StaticResource SubtleBorderBrush}"
@@ -192,7 +192,7 @@
                                         <StackPanel Grid.Column="0" Spacing="4">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <Border Background="#1e3a5f"
-                                                        CornerRadius="4" Padding="6,2">
+                                                        CornerRadius="2" Padding="6,2">
                                                     <TextBlock Text="{x:Bind BadgeText}"
                                                                FontSize="9" FontWeight="Bold"
                                                                Foreground="#60a0ff"/>
@@ -213,7 +213,7 @@
                                         <Button Grid.Column="1"
                                                 Content="+ Add"
                                                 FontSize="12" Height="30"
-                                                Padding="14,0" CornerRadius="6"
+                                                Padding="14,0" CornerRadius="2"
                                                 Background="{StaticResource AccentBlueBrush}"
                                                 Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                                 BorderThickness="0"
@@ -242,7 +242,7 @@
                     <ItemsRepeater.ItemTemplate>
                         <DataTemplate x:DataType="vm:RuleDisplayItem">
                             <Border Background="{StaticResource CardBackgroundBrush}"
-                                    CornerRadius="10"
+                                    CornerRadius="2"
                                     Padding="16,12"
                                     BorderThickness="2"
                                     BorderBrush="{StaticResource SubtleBorderBrush}">
@@ -257,7 +257,7 @@
 
                                         <Border Grid.Column="0"
                                                 Background="#1e40af"
-                                                CornerRadius="4" Padding="6,2"
+                                                CornerRadius="2" Padding="6,2"
                                                 Margin="0,0,8,0">
                                             <TextBlock Text="{x:Bind TypeBadge}"
                                                        FontSize="9" FontWeight="Bold"
@@ -272,14 +272,14 @@
                                         <!-- Violation badge -->
                                         <StackPanel Grid.Column="2" Orientation="Horizontal">
                                             <Border Background="{StaticResource LossRedBrush}"
-                                                    CornerRadius="4" Padding="8,2"
+                                                    CornerRadius="2" Padding="8,2"
                                                     Visibility="{x:Bind IsViolated, Converter={StaticResource BoolToVis}}">
                                                 <TextBlock Text="VIOLATED"
                                                            FontSize="10" FontWeight="Bold"
                                                            Foreground="White"/>
                                             </Border>
                                             <Border Background="{StaticResource WinGreenBrush}"
-                                                    CornerRadius="4" Padding="8,2"
+                                                    CornerRadius="2" Padding="8,2"
                                                     Visibility="{x:Bind IsOk, Converter={StaticResource BoolToVis}}">
                                                 <TextBlock Text="OK"
                                                            FontSize="10" FontWeight="Bold"
@@ -316,7 +316,7 @@
                                                 Foreground="{StaticResource LossRedBrush}"
                                                 BorderBrush="{StaticResource LossRedBrush}"
                                                 BorderThickness="1"
-                                                CornerRadius="6" Height="28"
+                                                CornerRadius="2" Height="28"
                                                 FontSize="12"
                                                 Tag="{x:Bind Id}"
                                                 Click="DeleteRule_Click"/>
@@ -325,7 +325,7 @@
                                                 Foreground="{StaticResource SecondaryTextBrush}"
                                                 BorderBrush="{StaticResource SubtleBorderBrush}"
                                                 BorderThickness="1"
-                                                CornerRadius="6" Height="28"
+                                                CornerRadius="2" Height="28"
                                                 FontSize="12"
                                                 Tag="{x:Bind Id}"
                                                 Click="ToggleRule_Click"/>
@@ -352,7 +352,7 @@
                     <ItemsRepeater.ItemTemplate>
                         <DataTemplate x:DataType="vm:RuleDisplayItem">
                             <Border Background="{StaticResource CardBackgroundBrush}"
-                                    CornerRadius="10"
+                                    CornerRadius="2"
                                     Padding="16,12"
                                     BorderThickness="1"
                                     BorderBrush="{StaticResource SubtleBorderBrush}"
@@ -361,7 +361,7 @@
                                     <!-- Top Row: Type Badge + Name -->
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Border Background="#1e40af"
-                                                CornerRadius="4" Padding="6,2"
+                                                CornerRadius="2" Padding="6,2"
                                                 Opacity="0.5">
                                             <TextBlock Text="{x:Bind TypeBadge}"
                                                        FontSize="9" FontWeight="Bold"
@@ -395,7 +395,7 @@
                                                 Foreground="{StaticResource LossRedBrush}"
                                                 BorderBrush="{StaticResource LossRedBrush}"
                                                 BorderThickness="1"
-                                                CornerRadius="6" Height="28"
+                                                CornerRadius="2" Height="28"
                                                 FontSize="12"
                                                 Tag="{x:Bind Id}"
                                                 Click="DeleteRule_Click"/>
@@ -404,7 +404,7 @@
                                                 Foreground="{StaticResource WinGreenBrush}"
                                                 BorderBrush="{StaticResource SubtleBorderBrush}"
                                                 BorderThickness="1"
-                                                CornerRadius="6" Height="28"
+                                                CornerRadius="2" Height="28"
                                                 FontSize="12"
                                                 Tag="{x:Bind Id}"
                                                 Click="ToggleRule_Click"/>

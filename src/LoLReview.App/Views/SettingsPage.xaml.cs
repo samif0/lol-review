@@ -59,7 +59,7 @@ public sealed partial class SettingsPage : Page
         {
             ScanResultText.Text = $"Scan failed: {ex.Message}";
             ScanResultText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                Microsoft.UI.ColorHelper.FromArgb(255, 239, 68, 68));
+                Microsoft.UI.ColorHelper.FromArgb(255, 211, 140, 144)); // #D38C90 negative
             ScanResultText.Visibility = Visibility.Visible;
         }
         finally

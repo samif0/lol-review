@@ -26,7 +26,7 @@ public sealed partial class MiniSparkline : UserControl
             nameof(LineColor),
             typeof(Brush),
             typeof(MiniSparkline),
-            new PropertyMetadata(new SolidColorBrush(ColorHelper.FromArgb(255, 200, 155, 60)), OnDataChanged));
+            new PropertyMetadata(new SolidColorBrush(ColorHelper.FromArgb(255, 201, 149, 106)), OnDataChanged)); // #C9956A bronze
 
     public static readonly DependencyProperty LineThicknessProperty =
         DependencyProperty.Register(

@@ -314,7 +314,7 @@ public sealed partial class TimelineControl : UserControl
     {
         var color = ParseColor(colorHex);
         var brush = new SolidColorBrush(color);
-        var stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(180, 4, 8, 8));
+        var stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(180, 20, 18, 30)); // #14121E card bg
         var size = MarkerSize;
 
         switch (shape)
@@ -523,7 +523,7 @@ public sealed partial class TimelineControl : UserControl
             var b = Convert.ToByte(hex[4..6], 16);
             return Windows.UI.Color.FromArgb(alpha, r, g, b);
         }
-        return Windows.UI.Color.FromArgb(alpha, 112, 112, 160); // fallback
+        return Windows.UI.Color.FromArgb(alpha, 138, 128, 168); // #8A80A8 neutral fallback
     }
 
     private static string NormalizeTimelineColor(string? colorHex)

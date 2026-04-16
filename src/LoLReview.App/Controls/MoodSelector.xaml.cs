@@ -17,15 +17,15 @@ public sealed partial class MoodSelector : UserControl
     // Mood colors: 1=Tilted(red), 2=Off(orange), 3=Neutral(gray), 4=Good(green), 5=LockedIn(emerald)
     private static readonly Dictionary<int, Windows.UI.Color> MoodColors = new()
     {
-        { 1, ColorHelper.FromArgb(255, 239, 68, 68) },   // #ef4444
-        { 2, ColorHelper.FromArgb(255, 249, 115, 22) },  // #f97316
-        { 3, ColorHelper.FromArgb(255, 107, 114, 128) },  // #6b7280
-        { 4, ColorHelper.FromArgb(255, 34, 197, 94) },    // #22c55e
-        { 5, ColorHelper.FromArgb(255, 16, 185, 129) },   // #10b981
+        { 1, ColorHelper.FromArgb(255, 211, 140, 144) },  // #D38C90 negative/loss rose
+        { 2, ColorHelper.FromArgb(255, 201, 149, 106) },  // #C9956A bronze
+        { 3, ColorHelper.FromArgb(255, 138, 128, 168) },  // #8A80A8 neutral
+        { 4, ColorHelper.FromArgb(255, 126, 201, 160) },  // #7EC9A0 positive/win green
+        { 5, ColorHelper.FromArgb(255, 167, 139, 250) },  // #A78BFA violet accent
     };
 
-    private static readonly SolidColorBrush DefaultBackground = new(ColorHelper.FromArgb(255, 30, 30, 46));
-    private static readonly SolidColorBrush DefaultForeground = new(ColorHelper.FromArgb(255, 112, 112, 160));
+    private static readonly SolidColorBrush DefaultBackground = new(ColorHelper.FromArgb(255, 20, 18, 30));   // #14121E card bg
+    private static readonly SolidColorBrush DefaultForeground = new(ColorHelper.FromArgb(255, 122, 110, 150)); // #7A6E96 text secondary
     private static readonly SolidColorBrush SelectedForeground = new(Colors.White);
 
     public MoodSelector()
@@ -89,7 +89,7 @@ public sealed partial class MoodSelector : UserControl
             {
                 btn.Background = DefaultBackground;
                 btn.Foreground = DefaultForeground;
-                btn.BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 30, 30, 46));
+                btn.BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 20, 18, 30)); // #14121E card bg
             }
         }
     }

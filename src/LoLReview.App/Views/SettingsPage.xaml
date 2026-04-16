@@ -49,7 +49,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"
+                                     CornerRadius="2"
                                      Height="36"
                                      Margin="0,0,8,0"/>
 
@@ -57,7 +57,7 @@
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseAscentFolderCommand}"
                                     FontSize="12" Height="36"
-                                    Padding="16,0" CornerRadius="8"
+                                    Padding="16,0" CornerRadius="2"
                                     Background="{StaticResource TagBackgroundBrush}"
                                     Foreground="{StaticResource PrimaryTextBrush}"/>
                         </Grid>
@@ -72,14 +72,14 @@
                             <Button Content="Scan for VODs"
                                     Click="OnScanVodsClick"
                                     FontSize="11" Height="30"
-                                    Padding="12,0" CornerRadius="6"
+                                    Padding="12,0" CornerRadius="2"
                                     Background="{StaticResource AccentBlueBrush}"
                                     Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                     HorizontalAlignment="Left"/>
                             <Button Content="Clear Ascent Folder"
                                     Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
                                     FontSize="11" Height="30"
-                                    Padding="12,0" CornerRadius="6"
+                                    Padding="12,0" CornerRadius="2"
                                     Background="Transparent"
                                     BorderBrush="{StaticResource SubtleBorderBrush}"
                                     BorderThickness="1"
@@ -131,7 +131,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"
+                                     CornerRadius="2"
                                      Height="36"
                                      Margin="0,0,8,0"/>
 
@@ -139,7 +139,7 @@
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseClipsFolderCommand}"
                                     FontSize="12" Height="36"
-                                    Padding="16,0" CornerRadius="8"
+                                    Padding="16,0" CornerRadius="2"
                                     Background="{StaticResource TagBackgroundBrush}"
                                     Foreground="{StaticResource PrimaryTextBrush}"/>
                         </Grid>
@@ -154,7 +154,7 @@
                             <TextBox Text="{x:Bind ViewModel.ClipsMaxSizeMbText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                      Width="120" Height="36"
                                      FontSize="12"
-                                     CornerRadius="8"
+                                     CornerRadius="2"
                                      Background="#1a1a24"
                                      Foreground="#e8e8f0"
                                      BorderBrush="#1e1e2e"/>
@@ -203,7 +203,7 @@
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="8"
+                                     CornerRadius="2"
                                      Height="36"
                                      Margin="0,0,8,0"/>
 
@@ -211,7 +211,7 @@
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseBackupFolderCommand}"
                                     FontSize="12" Height="36"
-                                    Padding="16,0" CornerRadius="8"
+                                    Padding="16,0" CornerRadius="2"
                                     Background="{StaticResource TagBackgroundBrush}"
                                     Foreground="{StaticResource PrimaryTextBrush}"/>
                         </Grid>
@@ -275,7 +275,7 @@
                             <Button Content="Check for Updates"
                                     Command="{x:Bind ViewModel.CheckForUpdateCommand}"
                                     FontSize="12" Height="32"
-                                    Padding="14,0" CornerRadius="6"
+                                    Padding="14,0" CornerRadius="2"
                                     Background="{StaticResource TagBackgroundBrush}"
                                     Foreground="{StaticResource PrimaryTextBrush}"/>
 
@@ -283,7 +283,7 @@
                                     Command="{x:Bind ViewModel.DownloadAndApplyUpdateCommand}"
                                     Visibility="{x:Bind ViewModel.IsUpdateAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                     FontSize="12" Height="32"
-                                    Padding="14,0" CornerRadius="6"
+                                    Padding="14,0" CornerRadius="2"
                                     Background="{StaticResource AccentGoldBrush}"
                                     Foreground="#0a0a0f"/>
                         </StackPanel>
@@ -311,7 +311,7 @@
                             Command="{x:Bind ViewModel.SaveCommand}"
                             FontSize="14" FontWeight="Bold"
                             Height="40" Padding="24,0"
-                            CornerRadius="8"
+                            CornerRadius="2"
                             Background="{StaticResource AccentBlueBrush}"
                             Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
                 </Grid>

@@ -8,7 +8,7 @@
 
     <Border x:Name="CardBorder"
             Background="{StaticResource CardBackgroundBrush}"
-            CornerRadius="8"
+            CornerRadius="2"
             BorderBrush="{StaticResource SubtleBorderBrush}"
             BorderThickness="1"
             Padding="0"
@@ -31,7 +31,7 @@
             <!-- W/L color bar on left edge -->
             <Border x:Name="WinLossBar"
                     Grid.Column="0"
-                    CornerRadius="8,0,0,8"/>
+                    CornerRadius="2,0,0,2"/>
 
             <!-- Champion + Date + Game mode -->
             <StackPanel Grid.Column="1" VerticalAlignment="Center"
@@ -94,7 +94,7 @@
                         Content="Review"
                         Click="OnReviewClick"
                         FontSize="11" Height="28"
-                        Padding="14,0" CornerRadius="6"
+                        Padding="14,0" CornerRadius="2"
                         Background="{StaticResource AccentBlueBrush}"
                         Foreground="{StaticResource PrimaryTextBrush}"/>
                 <Button x:Name="HideButton"
@@ -102,7 +102,7 @@
                         FontFamily="Segoe MDL2 Assets"
                         Click="OnHideClick"
                         FontSize="11" Height="28" Width="28"
-                        Padding="0" CornerRadius="6"
+                        Padding="0" CornerRadius="2"
                         Background="Transparent"
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderThickness="1"
