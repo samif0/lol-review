@@ -51,6 +51,17 @@ public sealed class CoachLabService : ICoachLabService
             return new CoachDashboardSnapshot { IsEnabled = false };
         }
 
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            await SyncMomentsAsync(includeAutoSamples: false, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SyncMomentsAsync failed/timed out during dashboard load — continuing with stale data");
+        }
+
         using var connection = _connectionFactory.CreateConnection();
         var bootstrap = await EnsureBootstrapStateAsync(connection, cancellationToken);
         await ApplyReviewNotesAsFinalTagsAsync(connection, bootstrap.Player.Id, cancellationToken);

@@ -5,8 +5,9 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:LoLReview.App.ViewModels"
+    xmlns:controls="using:LoLReview.App.Controls"
     mc:Ignorable="d"
-    Background="#0a0a0f">
+    Background="Transparent">
 
     <Page.Resources>
         <!-- Shared styles -->
@@ -75,7 +76,11 @@
         </Style>
     </Page.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,24,24,24">
+    <ScrollViewer x:Name="RootScroll" VerticalScrollBarVisibility="Auto" Padding="40,30,40,40">
+        <StackPanel Spacing="16">
+            <controls:HeroHeader EyebrowText="MENTAL RECOVERY"
+                                 Title="Tilt Check"
+                                 Subtitle="A 2-MINUTE GUIDED RESET"/>
         <Grid>
             <!-- ═══════════════════════════════════════════════
                  STEP 0: CHECK IN
@@ -361,5 +366,6 @@
                 </Border>
             </StackPanel>
         </Grid>
+        </StackPanel>
     </ScrollViewer>
 </Page>

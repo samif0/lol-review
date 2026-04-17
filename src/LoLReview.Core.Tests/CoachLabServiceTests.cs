@@ -401,6 +401,104 @@ public sealed class CoachLabServiceTests
     }
 
     [Fact]
+    public async Task GetDashboardAsync_RefreshesExistingManualClipNoteTextForSubsequentQueueRead()
+    {
+        using var featureScope = new CoachLabFeatureScope();
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var service = CreateService(scope.ConnectionFactory);
+        await service.GetDashboardAsync();
+
+        var gameId = await scope.Games.SaveManualAsync(
+            "Kai'Sa",
+            true,
+            notes: "Track support roam windows.");
+
+        var clipPath = Path.Combine(Path.GetTempPath(), $"coach-lab-read-note-sync-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllTextAsync(clipPath, "stub clip");
+
+        try
+        {
+            var bookmarkId = await scope.Vod.AddBookmarkAsync(
+                gameId,
+                180,
+                "Original clip note",
+                clipStartSeconds: 175,
+                clipEndSeconds: 185,
+                clipPath: clipPath);
+
+            await service.SyncMomentsAsync(includeAutoSamples: false);
+            await scope.Vod.UpdateBookmarkAsync(bookmarkId, note: "Updated clip note from Coach Lab read");
+
+            await service.GetDashboardAsync();
+
+            var refreshedMoment = Assert.Single(await service.GetMomentQueueAsync());
+            Assert.Equal("Updated clip note from Coach Lab read", refreshedMoment.NoteText);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(clipPath);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GetDashboardAsync_RefreshesExistingManualClipQualityForSubsequentQueueRead()
+    {
+        using var featureScope = new CoachLabFeatureScope();
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var service = CreateService(scope.ConnectionFactory);
+        await service.GetDashboardAsync();
+
+        var gameId = await scope.Games.SaveManualAsync(
+            "Kai'Sa",
+            true,
+            notes: "Track support roam windows.");
+
+        var clipPath = Path.Combine(Path.GetTempPath(), $"coach-lab-read-quality-sync-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllTextAsync(clipPath, "stub clip");
+
+        try
+        {
+            var bookmarkId = await scope.Vod.AddBookmarkAsync(
+                gameId,
+                244,
+                "Tagged clip",
+                clipStartSeconds: 240,
+                clipEndSeconds: 248,
+                clipPath: clipPath,
+                quality: "bad");
+
+            await service.SyncMomentsAsync(includeAutoSamples: false);
+            await scope.Vod.UpdateBookmarkAsync(bookmarkId, quality: "good");
+
+            await service.GetDashboardAsync();
+
+            var refreshedMoment = Assert.Single(await service.GetMomentQueueAsync());
+            Assert.True(refreshedMoment.HasManualLabel);
+            Assert.Equal("good", refreshedMoment.LabelQuality);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(clipPath);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
     public async Task SaveManualLabelAsync_PersistsAcrossDatabaseInitialization()
     {
         using var featureScope = new CoachLabFeatureScope();

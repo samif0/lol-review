@@ -13,7 +13,7 @@
             Background="Transparent">
         <Border x:Name="TimelineFrame"
                 Canvas.Top="0"
-                CornerRadius="12"
+                CornerRadius="2"
                 Background="{StaticResource CardBackgroundBrush}"
                 BorderBrush="{StaticResource SubtleBorderBrush}"
                 BorderThickness="1" />
@@ -21,7 +21,7 @@
         <Border x:Name="TrackShell"
                 Canvas.Top="22"
                 Height="36"
-                CornerRadius="18"
+                CornerRadius="2"
                 Background="{StaticResource SurfaceInsetBrush}"
                 BorderBrush="{StaticResource SubtleBorderBrush}"
                 BorderThickness="1" />
@@ -29,7 +29,7 @@
         <Border x:Name="TrackBg"
                 Canvas.Top="34"
                 Height="12"
-                CornerRadius="6"
+                CornerRadius="2"
                 Background="{StaticResource TagBackgroundBrush}" />
 
         <Border x:Name="ClipOverlay"
@@ -56,7 +56,7 @@
         <Border x:Name="ProgressBar"
                 Canvas.Top="34"
                 Height="12"
-                CornerRadius="6"
+                CornerRadius="2"
                 Background="{StaticResource AccentBlueBrush}" />
 
         <Canvas x:Name="MarkerCanvas" />
@@ -65,7 +65,7 @@
                 Canvas.Top="8"
                 MaxWidth="260"
                 Padding="8,4"
-                CornerRadius="6"
+                CornerRadius="2"
                 Background="{StaticResource CardBackgroundBrush}"
                 BorderBrush="{StaticResource BrightBorderBrush}"
                 BorderThickness="1"

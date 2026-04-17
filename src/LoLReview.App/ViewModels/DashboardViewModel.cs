@@ -30,9 +30,13 @@ public partial class DashboardViewModel : ObservableObject
     private int _totalGames;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WinratePercent))]
+    [NotifyPropertyChangedFor(nameof(RecordLine))]
     private int _wins;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WinratePercent))]
+    [NotifyPropertyChangedFor(nameof(RecordLine))]
     private int _losses;
 
     [ObservableProperty]
@@ -86,6 +90,20 @@ public partial class DashboardViewModel : ObservableObject
     public ObservableCollection<GameDisplayItem> TodaysGames { get; } = new();
     public ObservableCollection<GameDisplayItem> UnreviewedGames { get; } = new();
     public ObservableCollection<DashboardObjectiveItem> ActiveObjectives { get; } = new();
+
+    /// <summary>Winrate display string, e.g. "60%" — empty when there are no games yet.</summary>
+    public string WinratePercent
+    {
+        get
+        {
+            var games = Wins + Losses;
+            if (games == 0) return "—";
+            return $"{(int)Math.Round(100.0 * Wins / games)}%";
+        }
+    }
+
+    /// <summary>"3W // 2L" compact win/loss line. Empty when there are no games yet.</summary>
+    public string RecordLine => (Wins + Losses) == 0 ? "" : $"{Wins}W // {Losses}L";
 
     // ── Constructor ─────────────────────────────────────────────────
 
@@ -357,6 +375,19 @@ public class GameDisplayItem
     public bool HasVod { get; set; }
     public string DamageText { get; set; } = "";
     public string StatsLine { get; set; } = "";
+
+    /// <summary>"GAMEMODE // DATE // DURATION" for the GameRowCard meta line.</summary>
+    public string MetaLine
+    {
+        get
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            if (!string.IsNullOrWhiteSpace(GameMode)) parts.Add(GameMode.ToUpperInvariant());
+            if (!string.IsNullOrWhiteSpace(DatePlayed)) parts.Add(DatePlayed.ToUpperInvariant());
+            if (!string.IsNullOrWhiteSpace(Duration)) parts.Add(Duration);
+            return string.Join("  //  ", parts);
+        }
+    }
 }
 
 /// <summary>Flattened objective data for display binding on the dashboard.</summary>
@@ -370,6 +401,14 @@ public class DashboardObjectiveItem
     public double Progress { get; set; }
     public string LevelColorHex { get; set; } = "#8A80A8";
     public string InfoText { get; set; } = "";
+
+    /// <summary>Short percentage label for the center of HudProgressRing.</summary>
+    public string ProgressLabel => $"{Math.Clamp((int)Math.Round(Progress * 100.0), 0, 100)}%";
+
+    /// <summary>"LVL N // PHASE // SCORE PTS" for the meta line beside the ring.</summary>
+    public string MetaText => string.IsNullOrWhiteSpace(LevelName)
+        ? PhaseLabel.ToUpperInvariant()
+        : $"{LevelName.ToUpperInvariant()}  //  {PhaseLabel.ToUpperInvariant()}  //  {Score} PTS";
     public Microsoft.UI.Xaml.Media.SolidColorBrush LevelColorBrush
     {
         get

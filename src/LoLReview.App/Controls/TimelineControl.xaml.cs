@@ -24,7 +24,7 @@ public sealed partial class TimelineControl : UserControl
 {
     private const double TrackTop = 34;
     private const double TrackHeight = 12;
-    private const double MarkerSize = 10;
+    private const double MarkerSize = 6;
     private const double TrackPadding = 16;
     private const double EventMarkerTop = TrackTop - MarkerSize - 10;
     private const double BookmarkMarkerTop = TrackTop + TrackHeight + 10;
@@ -314,118 +314,30 @@ public sealed partial class TimelineControl : UserControl
     {
         var color = ParseColor(colorHex);
         var brush = new SolidColorBrush(color);
-        var stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(180, 20, 18, 30)); // #14121E card bg
-        var size = MarkerSize;
 
-        switch (shape)
+        // All markers are minimal vertical bars — clean, not childish
+        var height = shape switch
         {
-            case ViewModels.MarkerShape.TriangleUp:
-            {
-                var poly = new Polygon
-                {
-                    Points = { new Point(size / 2, 0), new Point(size, size), new Point(0, size) },
-                    Fill = brush,
-                    Stroke = stroke,
-                    StrokeThickness = 1,
-                    Width = size,
-                    Height = size,
-                };
-                return poly;
-            }
-            case ViewModels.MarkerShape.TriangleDown:
-            {
-                var poly = new Polygon
-                {
-                    Points = { new Point(0, 0), new Point(size, 0), new Point(size / 2, size) },
-                    Fill = brush,
-                    Stroke = stroke,
-                    StrokeThickness = 1,
-                    Width = size,
-                    Height = size,
-                };
-                return poly;
-            }
-            case ViewModels.MarkerShape.Diamond:
-            {
-                var poly = new Polygon
-                {
-                    Points =
-                    {
-                        new Point(size / 2, 0),
-                        new Point(size, size / 2),
-                        new Point(size / 2, size),
-                        new Point(0, size / 2),
-                    },
-                    Fill = brush,
-                    Stroke = stroke,
-                    StrokeThickness = 1,
-                    Width = size,
-                    Height = size,
-                };
-                return poly;
-            }
-            case ViewModels.MarkerShape.Square:
-            {
-                var rect = new Border
-                {
-                    Width = size,
-                    Height = size,
-                    Background = brush,
-                    BorderBrush = stroke,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(2),
-                };
-                return rect;
-            }
-            case ViewModels.MarkerShape.Star:
-            {
-                var star = new Polygon
-                {
-                    Points =
-                    {
-                        new Point(size * 0.5, 0),
-                        new Point(size * 0.65, size * 0.32),
-                        new Point(size, size * 0.36),
-                        new Point(size * 0.74, size * 0.58),
-                        new Point(size * 0.82, size),
-                        new Point(size * 0.5, size * 0.78),
-                        new Point(size * 0.18, size),
-                        new Point(size * 0.26, size * 0.58),
-                        new Point(0, size * 0.36),
-                        new Point(size * 0.35, size * 0.32),
-                    },
-                    Fill = brush,
-                    Stroke = stroke,
-                    StrokeThickness = 1,
-                    Width = size,
-                    Height = size,
-                };
-                return star;
-            }
-            default: // Circle
-            {
-                var octagon = new Polygon
-                {
-                    Points =
-                    {
-                        new Point(size * 0.3, 0),
-                        new Point(size * 0.7, 0),
-                        new Point(size, size * 0.3),
-                        new Point(size, size * 0.7),
-                        new Point(size * 0.7, size),
-                        new Point(size * 0.3, size),
-                        new Point(0, size * 0.7),
-                        new Point(0, size * 0.3),
-                    },
-                    Fill = brush,
-                    Stroke = stroke,
-                    StrokeThickness = 1,
-                    Width = size,
-                    Height = size,
-                };
-                return octagon;
-            }
-        }
+            ViewModels.MarkerShape.Star => 14.0,
+            ViewModels.MarkerShape.Diamond => 12.0,
+            _ => 10.0,
+        };
+
+        var width = shape switch
+        {
+            ViewModels.MarkerShape.Square => 4.0,
+            _ => 2.0,
+        };
+
+        return new Border
+        {
+            Width = width,
+            Height = height,
+            Background = brush,
+            CornerRadius = new CornerRadius(1),
+            Opacity = 0.8,
+        };
+
     }
 
     // ── Pointer handling ────────────────────────────────────────────

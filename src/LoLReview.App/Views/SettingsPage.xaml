@@ -5,30 +5,29 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:converters="using:LoLReview.App.Converters"
+    xmlns:controls="using:LoLReview.App.Controls"
     mc:Ignorable="d"
-    Background="{StaticResource AppBackgroundBrush}">
+    Background="Transparent">
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
     </Page.Resources>
 
-    <Grid>
+    <Grid x:Name="RootGrid">
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
-                      Padding="24,24,24,24">
-            <StackPanel Spacing="12" MaxWidth="700" HorizontalAlignment="Stretch">
+                      Padding="40,30,40,40">
+            <StackPanel Spacing="14" HorizontalAlignment="Stretch">
 
-                <!-- ═══ Header ═══ -->
-                <TextBlock Text="Settings"
-                           FontSize="22" FontWeight="Bold"
-                           Foreground="{StaticResource AccentGoldBrush}"/>
+                <!-- ═══ Hero ═══ -->
+                <controls:HeroHeader EyebrowText="CONFIGURATION"
+                                     Title="Settings"
+                                     Subtitle="VOD FOLDERS // BACKUPS // INTEGRATIONS"/>
 
                 <!-- ═══ Ascent VOD Recordings Section ═══ -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="ASCENT VOD RECORDINGS"
-                                   FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <controls:SectionTitle Text="ASCENT VOD RECORDINGS"/>
 
                         <TextBlock Text="Point this to your Ascent recordings folder to enable VOD playback and timestamped bookmarks in your reviews."
                                    FontSize="12"
@@ -56,10 +55,9 @@
                             <Button Grid.Column="1"
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseAscentFolderCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
                                     FontSize="12" Height="36"
-                                    Padding="16,0" CornerRadius="2"
-                                    Background="{StaticResource TagBackgroundBrush}"
-                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+                                    Padding="16,0" CornerRadius="2"/>
                         </Grid>
 
                         <!-- Status text -->
@@ -71,19 +69,15 @@
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="Scan for VODs"
                                     Click="OnScanVodsClick"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
                                     FontSize="11" Height="30"
                                     Padding="12,0" CornerRadius="2"
-                                    Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"
                                     HorizontalAlignment="Left"/>
                             <Button Content="Clear Ascent Folder"
                                     Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
+                                    Style="{StaticResource SecondaryActionButtonStyle}"
                                     FontSize="11" Height="30"
                                     Padding="12,0" CornerRadius="2"
-                                    Background="Transparent"
-                                    BorderBrush="{StaticResource SubtleBorderBrush}"
-                                    BorderThickness="1"
-                                    Foreground="{StaticResource SecondaryTextBrush}"
                                     HorizontalAlignment="Left"/>
                         </StackPanel>
 
@@ -97,9 +91,7 @@
                 <!-- ═══ Clip Settings Section ═══ -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="CLIP SETTINGS"
-                                   FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <controls:SectionTitle Text="CLIP SETTINGS"/>
 
                         <!-- ffmpeg status -->
                         <TextBlock Text="{x:Bind ViewModel.FfmpegStatusText, Mode=OneWay}"
@@ -138,10 +130,9 @@
                             <Button Grid.Column="2"
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseClipsFolderCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
                                     FontSize="12" Height="36"
-                                    Padding="16,0" CornerRadius="2"
-                                    Background="{StaticResource TagBackgroundBrush}"
-                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+                                    Padding="16,0" CornerRadius="2"/>
                         </Grid>
 
                         <!-- Max size row -->
@@ -173,9 +164,7 @@
                 <!-- ═══ Database Backup Section ═══ -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="DATABASE BACKUP"
-                                   FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <controls:SectionTitle Text="DATABASE BACKUP"/>
 
                         <TextBlock Text="Back up your database automatically when the app starts. Keeps last 5 backups."
                                    FontSize="12"
@@ -210,10 +199,9 @@
                             <Button Grid.Column="1"
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseBackupFolderCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
                                     FontSize="12" Height="36"
-                                    Padding="16,0" CornerRadius="2"
-                                    Background="{StaticResource TagBackgroundBrush}"
-                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+                                    Padding="16,0" CornerRadius="2"/>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -221,9 +209,7 @@
                 <!-- ═══ Tilt Fix Mode Section ═══ -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="TILT FIX MODE"
-                                   FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <controls:SectionTitle Text="TILT FIX MODE"/>
 
                         <TextBlock Text="Enable mood check-ins before games, session intention setting, and mental reflection prompts when mental rating is low."
                                    FontSize="12"
@@ -239,9 +225,7 @@
                 <!-- ═══ Review Save Behavior ═══ -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="REVIEW SAVE BEHAVIOR"
-                                   FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <controls:SectionTitle Text="REVIEW SAVE BEHAVIOR"/>
 
                         <TextBlock Text="Control whether the review screen requires written review content before save. When this is off, you can intentionally save a game as reviewed even if you leave the main review notes blank."
                                    FontSize="12"
@@ -258,9 +242,7 @@
                 <!-- ═══ App Version & Updates Section ═══ -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="APP VERSION"
-                                   FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <controls:SectionTitle Text="APP VERSION"/>
 
                         <TextBlock Text="{x:Bind ViewModel.AppVersion, Mode=OneWay}"
                                    FontSize="14" FontWeight="SemiBold"
@@ -274,18 +256,16 @@
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="Check for Updates"
                                     Command="{x:Bind ViewModel.CheckForUpdateCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
                                     FontSize="12" Height="32"
-                                    Padding="14,0" CornerRadius="2"
-                                    Background="{StaticResource TagBackgroundBrush}"
-                                    Foreground="{StaticResource PrimaryTextBrush}"/>
+                                    Padding="14,0" CornerRadius="2"/>
 
                             <Button Content="Download &amp; Restart"
                                     Command="{x:Bind ViewModel.DownloadAndApplyUpdateCommand}"
                                     Visibility="{x:Bind ViewModel.IsUpdateAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                    Style="{StaticResource GoldActionButtonStyle}"
                                     FontSize="12" Height="32"
-                                    Padding="14,0" CornerRadius="2"
-                                    Background="{StaticResource AccentGoldBrush}"
-                                    Foreground="#0a0a0f"/>
+                                    Padding="14,0" CornerRadius="2"/>
                         </StackPanel>
 
                         <TextBlock Text="{x:Bind ViewModel.UpdateStatusText, Mode=OneWay}"
@@ -309,11 +289,10 @@
                     <Button Grid.Column="1"
                             Content="Save Settings"
                             Command="{x:Bind ViewModel.SaveCommand}"
+                            Style="{StaticResource PrimaryActionButtonStyle}"
                             FontSize="14" FontWeight="Bold"
                             Height="40" Padding="24,0"
-                            CornerRadius="2"
-                            Background="{StaticResource AccentBlueBrush}"
-                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
+                            CornerRadius="2"/>
                 </Grid>
 
                 <!-- Bottom spacer -->

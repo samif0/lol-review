@@ -1,0 +1,22 @@
+<UserControl
+    x:Class="LoLReview.App.Controls.HexPatternLayer"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid x:Name="LayoutRoot"
+          IsHitTestVisible="False">
+        <Canvas x:Name="PatternCanvas"
+                IsHitTestVisible="False">
+            <Path x:Name="PatternPath"
+                  IsHitTestVisible="False"
+                  Stretch="None">
+                <Path.RenderTransform>
+                    <TranslateTransform x:Name="PatternTransform" X="0" Y="0"/>
+                </Path.RenderTransform>
+            </Path>
+        </Canvas>
+    </Grid>
+</UserControl>

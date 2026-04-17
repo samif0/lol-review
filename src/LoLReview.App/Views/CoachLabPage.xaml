@@ -5,55 +5,55 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:converters="using:LoLReview.App.Converters"
+    xmlns:controls="using:LoLReview.App.Controls"
     xmlns:vm="using:LoLReview.App.ViewModels"
     mc:Ignorable="d"
+    Background="Transparent"
     Loaded="Page_Loaded">
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
     </Page.Resources>
 
-    <Grid Background="{StaticResource AppBackgroundBrush}">
-        <ScrollViewer VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Padding="28,24" Spacing="16" MaxWidth="1240">
-                <Border Style="{StaticResource EmphasisCardStyle}"
-                        Background="{StaticResource HeroPanelBrush}">
-                    <Grid ColumnSpacing="18">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-                        <StackPanel Grid.Column="0" Spacing="8">
-                            <TextBlock Text="Coach Lab"
-                                       Style="{StaticResource HeroTitleStyle}"/>
-                            <TextBlock Text="Review clips fast, save the right note, and move straight to the next one."
-                                       FontSize="14"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
+        <!-- Hero -->
+        <Grid Grid.Row="0" Margin="40,24,40,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <controls:HeroHeader Grid.Column="0"
+                                 EyebrowText="AI COACHING"
+                                 Title="Coach Lab"
+                                 Subtitle="REVIEW CLIPS // TRAIN MODEL // PATTERN READ"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                        VerticalAlignment="Top" Margin="0,16,0,0">
+                <Button Content="Refresh Read"
+                        Command="{x:Bind ViewModel.RefreshRecommendationCommand}"
+                        Style="{StaticResource SecondaryActionButtonStyle}"
+                        Height="34" Padding="12,0" FontSize="11"/>
+                <Button Content="Sync Clips"
+                        Command="{x:Bind ViewModel.SyncCommand}"
+                        Style="{StaticResource PrimaryActionButtonStyle}"
+                        Height="34" Padding="14,0" FontSize="11"/>
+                <Button Content="Train Model"
+                        Command="{x:Bind ViewModel.TrainCommand}"
+                        Style="{StaticResource GoldActionButtonStyle}"
+                        Height="34" Padding="14,0" FontSize="11"/>
+                <ProgressRing Width="24" Height="24" Margin="4,0,0,0"
+                              IsActive="{x:Bind ViewModel.IsWorking, Mode=OneWay}"/>
+            </StackPanel>
+        </Grid>
 
-                        <StackPanel Grid.Column="1"
-                                    Orientation="Horizontal"
-                                    Spacing="8"
-                                    VerticalAlignment="Center">
-                            <Button Content="Refresh Read"
-                                    Command="{x:Bind ViewModel.RefreshRecommendationCommand}"
-                                    Style="{StaticResource ToolbarButtonStyle}"/>
-                            <Button Content="Sync Clips"
-                                    Command="{x:Bind ViewModel.SyncCommand}"
-                                    Style="{StaticResource PrimaryActionButtonStyle}"/>
-                            <Button Content="Train Model"
-                                    Command="{x:Bind ViewModel.TrainCommand}"
-                                    Style="{StaticResource SecondaryActionButtonStyle}"/>
-                            <ProgressRing Width="28"
-                                          Height="28"
-                                          Margin="4,0,0,0"
-                                          IsActive="{x:Bind ViewModel.IsWorking, Mode=OneWay}"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="40,0,40,40">
+            <StackPanel Spacing="14">
 
                 <Border Style="{StaticResource CardStyle}"
                         Visibility="{x:Bind ViewModel.IsEnabled, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
@@ -65,7 +65,7 @@
 
                 <StackPanel Spacing="14"
                             Visibility="{x:Bind ViewModel.IsEnabled, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                    <Border Style="{StaticResource CardStyle}">
+                    <controls:CornerBracketedCard>
                         <Grid ColumnSpacing="16">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -155,15 +155,17 @@
                                 </Border>
                             </Grid>
                         </Grid>
-                    </Border>
+                    </controls:CornerBracketedCard>
 
                     <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                               FontSize="13"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="11"
                                Foreground="{StaticResource SecondaryTextBrush}"
                                TextWrapping="Wrap"/>
 
-                    <Border Style="{StaticResource ElevatedCardStyle}">
+                    <controls:CornerBracketedCard>
                         <StackPanel Spacing="10">
+                            <controls:SectionTitle Text="PATTERN READ"/>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -205,7 +207,7 @@
                                        Foreground="{StaticResource PrimaryTextBrush}"
                                        TextWrapping="WrapWholeWords"/>
                         </StackPanel>
-                    </Border>
+                    </controls:CornerBracketedCard>
 
                     <Grid ColumnSpacing="14">
                         <Grid.ColumnDefinitions>
@@ -213,9 +215,8 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Grid.Column="0"
-                                Style="{StaticResource ElevatedCardStyle}"
-                                Background="{StaticResource QueuePanelBrush}">
+                        <controls:CornerBracketedCard Grid.Column="0"
+                                CardBackground="{StaticResource QueuePanelBrush}">
                             <StackPanel Spacing="12">
                                 <Grid ColumnSpacing="10">
                                     <Grid.ColumnDefinitions>
@@ -224,9 +225,7 @@
                                         <ColumnDefinition Width="180"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <TextBlock Grid.Column="0"
-                                               Text="Clip Queue"
-                                               Style="{StaticResource PanelTitleStyle}"
+                                    <controls:SectionTitle Grid.Column="0" Text="CLIP QUEUE"
                                                VerticalAlignment="Center"/>
 
                                     <ComboBox Grid.Column="1"
@@ -375,11 +374,10 @@
                                     </ListView.ItemTemplate>
                                 </ListView>
                             </StackPanel>
-                        </Border>
+                        </controls:CornerBracketedCard>
 
-                        <Border Grid.Column="1"
-                                Style="{StaticResource EmphasisCardStyle}"
-                                Background="{StaticResource FocusPanelBrush}">
+                        <controls:CornerBracketedCard Grid.Column="1"
+                                CardBackground="{StaticResource FocusPanelBrush}">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Spacing="14">
                                     <Grid ColumnSpacing="10">
@@ -390,8 +388,7 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0" Spacing="4">
-                                            <TextBlock Text="Review Station"
-                                                       Style="{StaticResource PanelTitleStyle}"/>
+                                            <controls:SectionTitle Text="REVIEW STATION"/>
                                             <TextBlock Text="{x:Bind ViewModel.SelectedMomentProgressText, Mode=OneWay}"
                                                        FontSize="12"
                                                        Foreground="{StaticResource SecondaryTextBrush}"/>
@@ -634,7 +631,7 @@
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </ScrollViewer>
-                        </Border>
+                        </controls:CornerBracketedCard>
                     </Grid>
                 </StackPanel>
             </StackPanel>

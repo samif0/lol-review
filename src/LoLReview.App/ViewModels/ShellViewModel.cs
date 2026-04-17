@@ -55,6 +55,9 @@ public partial class ShellViewModel : ObservableRecipient,
     [ObservableProperty]
     private bool _showSettingsUpdateBadge;
 
+    [ObservableProperty]
+    private bool _hasUnreviewedGames;
+
     public ShellViewModel(
         INavigationService navigationService,
         IDialogService dialogService,

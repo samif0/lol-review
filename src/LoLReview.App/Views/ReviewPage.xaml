@@ -8,13 +8,13 @@
     xmlns:converters="using:LoLReview.App.Converters"
     xmlns:controls="using:LoLReview.App.Controls"
     mc:Ignorable="d"
-    Background="{StaticResource AppBackgroundBrush}">
+    Background="Transparent">
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
     </Page.Resources>
 
-    <Grid>
+    <Grid x:Name="RootGrid">
         <!-- Loading overlay -->
         <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
                       HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -23,8 +23,8 @@
 
         <Grid RowDefinitions="Auto,*">
 
-            <!-- Header: Back + Title + Watch VOD -->
-            <Grid Grid.Row="0" Padding="24,16,24,8">
+            <!-- Header: Back + Hero + Watch VOD -->
+            <Grid Grid.Row="0" Padding="40,28,40,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
@@ -33,27 +33,23 @@
 
                 <Button Grid.Column="0"
                         Command="{x:Bind ViewModel.CancelCommand}"
-                        FontSize="12" Height="32"
-                        Padding="12,0" CornerRadius="2"
-                        Background="{StaticResource TagBackgroundBrush}"
-                        Foreground="{StaticResource PrimaryTextBrush}">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE72B;" FontSize="12"/>
-                        <TextBlock Text="Back" VerticalAlignment="Center"/>
-                    </StackPanel>
+                        Style="{StaticResource GhostIconButtonStyle}"
+                        VerticalAlignment="Top"
+                        Margin="0,16,12,0"
+                        ToolTipService.ToolTip="Back">
+                    <FontIcon Glyph="&#xE72B;" FontSize="13"/>
                 </Button>
 
-                <TextBlock Grid.Column="1"
-                           Text="{x:Bind ViewModel.HeaderText, Mode=OneWay}"
-                           FontSize="16" FontWeight="Bold"
-                           Foreground="{StaticResource PrimaryTextBrush}"
-                           VerticalAlignment="Center"
-                           Margin="12,0,0,0"/>
+                <controls:HeroHeader Grid.Column="1"
+                                     EyebrowText="GAME ANALYSIS"
+                                     Title="{x:Bind ViewModel.HeaderText, Mode=OneWay}"/>
 
                 <Button Grid.Column="2"
                         Command="{x:Bind ViewModel.WatchVodCommand}"
                         Style="{StaticResource PrimaryActionButtonStyle}"
                         Height="36" Padding="16,0"
+                        VerticalAlignment="Top"
+                        Margin="0,16,0,0"
                         Visibility="{x:Bind ViewModel.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <FontIcon Glyph="&#xE768;" FontSize="14"/>
@@ -67,7 +63,7 @@
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Padding="24,8,24,24">
-                <StackPanel Spacing="16" MaxWidth="800" HorizontalAlignment="Center">
+                <StackPanel Spacing="16" HorizontalAlignment="Stretch">
 
                     <!-- ═══════════════════════════════════════════
                          HERO CARD: Champion + Result + KDA + VOD
@@ -122,11 +118,9 @@
                             <StackPanel Orientation="Horizontal" Spacing="12"
                                         Visibility="{x:Bind ViewModel.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <Button Command="{x:Bind ViewModel.WatchVodCommand}"
+                                        Style="{StaticResource GoldActionButtonStyle}"
                                         FontSize="13" FontWeight="SemiBold"
                                         Height="36" Padding="16,0" CornerRadius="2"
-                                        Background="{StaticResource AccentGoldDimBrush}"
-                                        Foreground="{StaticResource AccentGoldBrush}"
-                                        BorderBrush="{StaticResource AccentGoldBrush}"
                                         BorderThickness="1">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon Glyph="&#xE714;" FontSize="14"/>
@@ -146,10 +140,7 @@
                     <!-- ═══════════════════════════════════════════
                          GAME STATS
                          ═══════════════════════════════════════════ -->
-                    <TextBlock Text="GAME STATS"
-                               FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource SecondaryTextBrush}"
-                               Margin="0,4,0,0"/>
+                    <controls:SectionTitle Text="GAME STATS" Margin="0,4,0,0"/>
 
                     <Grid ColumnSpacing="8" RowSpacing="8">
                         <Grid.ColumnDefinitions>
@@ -185,12 +176,10 @@
                     <!-- ═══════════════════════════════════════════
                          OBJECTIVE PRACTICE (moved up, after stats)
                          ═══════════════════════════════════════════ -->
-                    <Border Style="{StaticResource CardStyle}"
+                    <controls:CornerBracketedCard
                             Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <StackPanel Spacing="10">
-                            <TextBlock Text="OBJECTIVE PRACTICE"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <controls:SectionTitle Text="OBJECTIVE PRACTICE"/>
                             <TextBlock Text="Mark whether you actually practiced your active objectives in this game."
                                        FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"
@@ -250,18 +239,16 @@
                                 </ItemsRepeater.ItemTemplate>
                             </ItemsRepeater>
                         </StackPanel>
-                    </Border>
+                    </controls:CornerBracketedCard>
 
                     <!-- ═══════════════════════════════════════════
                          SELF ASSESSMENT: Mental Rating + Performance
                          ═══════════════════════════════════════════ -->
-                    <Border Style="{StaticResource CardStyle}">
+                    <controls:CornerBracketedCard>
                         <StackPanel Spacing="10">
 
                             <!-- Mental Rating -->
-                            <TextBlock Text="MENTAL RATING"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <controls:SectionTitle Text="MENTAL RATING"/>
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -293,9 +280,7 @@
                                     Margin="0,4"/>
 
                             <!-- Performance Review -->
-                            <TextBlock Text="PERFORMANCE REVIEW"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
 
                             <TextBlock Text="What went well?"
                                        FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -330,7 +315,7 @@
                                      CornerRadius="2"
                                      Height="36"/>
                         </StackPanel>
-                    </Border>
+                    </controls:CornerBracketedCard>
 
                     <!-- ═══ Mental Reflection (shown when mental <= 3) ═══ -->
                     <Border Visibility="{x:Bind ViewModel.ShowMentalReflection, Mode=OneWay, Converter={StaticResource BoolToVis}}"
@@ -339,9 +324,7 @@
                             BorderThickness="2"
                             CornerRadius="2" Padding="16">
                         <StackPanel Spacing="8">
-                            <TextBlock Text="MENTAL REFLECTION"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource AccentGoldBrush}"/>
+                            <controls:SectionTitle Text="MENTAL REFLECTION"/>
 
                             <TextBlock Text="What triggered the tilt?"
                                        FontSize="13"
@@ -363,11 +346,9 @@
                     <!-- ═══════════════════════════════════════════
                          MATCHUP NOTES
                          ═══════════════════════════════════════════ -->
-                    <Border Style="{StaticResource CardStyle}">
+                    <controls:CornerBracketedCard>
                         <StackPanel Spacing="10">
-                            <TextBlock Text="MATCHUP NOTES"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <controls:SectionTitle Text="MATCHUP NOTES"/>
                             <TextBlock Text="{x:Bind ViewModel.MatchupHeading, Mode=OneWay}"
                                        FontSize="14"
                                        FontWeight="Bold"
@@ -423,16 +404,14 @@
                                 </ItemsRepeater.ItemTemplate>
                             </ItemsRepeater>
                         </StackPanel>
-                    </Border>
+                    </controls:CornerBracketedCard>
 
                     <!-- ═══════════════════════════════════════════
                          NOTES + CONCEPT TAGS (merged)
                          ═══════════════════════════════════════════ -->
-                    <Border Style="{StaticResource CardStyle}">
+                    <controls:CornerBracketedCard>
                         <StackPanel Spacing="10">
-                            <TextBlock Text="REVIEW NOTES"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <controls:SectionTitle Text="REVIEW NOTES"/>
 
                             <TextBlock Text="Additional review notes"
                                        FontSize="13"
@@ -464,9 +443,7 @@
                                     Margin="0,4"/>
 
                             <!-- Concept Tags -->
-                            <TextBlock Text="CONCEPT TAGS"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <controls:SectionTitle Text="CONCEPT TAGS"/>
 
                             <ItemsRepeater ItemsSource="{x:Bind ViewModel.AllTags, Mode=OneWay}">
                                 <ItemsRepeater.Layout>
@@ -501,16 +478,14 @@
                                 </ItemsRepeater.ItemTemplate>
                             </ItemsRepeater>
                         </StackPanel>
-                    </Border>
+                    </controls:CornerBracketedCard>
 
                     <!-- ═══════════════════════════════════════════
                          ATTRIBUTION + SESSION NOTE (merged)
                          ═══════════════════════════════════════════ -->
-                    <Border Style="{StaticResource CardStyle}">
+                    <controls:CornerBracketedCard>
                         <StackPanel Spacing="10">
-                            <TextBlock Text="ATTRIBUTION"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <controls:SectionTitle Text="ATTRIBUTION"/>
 
                             <TextBlock Text="What most influenced the outcome?"
                                        FontSize="12"
@@ -558,9 +533,7 @@
                                     Margin="0,4"/>
 
                             <!-- Session Note -->
-                            <TextBlock Text="SESSION NOTE"
-                                       FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <controls:SectionTitle Text="SESSION NOTE"/>
 
                             <TextBox Text="{x:Bind ViewModel.ImprovementNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="Quick note for your session log..."
@@ -571,7 +544,7 @@
                                      CornerRadius="2"
                                      Height="36"/>
                         </StackPanel>
-                    </Border>
+                    </controls:CornerBracketedCard>
 
                     <!-- ═══════════════════════════════════════════
                          ACTION BAR
@@ -603,24 +576,20 @@
                         <Button Grid.Column="0"
                                 Content="Cancel"
                                 Command="{x:Bind ViewModel.CancelCommand}"
+                                Style="{StaticResource SecondaryActionButtonStyle}"
                                 FontSize="14"
                                 Height="44"
                                 CornerRadius="2"
-                                HorizontalAlignment="Stretch"
-                                Background="Transparent"
-                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                BorderThickness="1"
-                                Foreground="{StaticResource SecondaryTextBrush}"/>
+                                HorizontalAlignment="Stretch"/>
 
                         <Button Grid.Column="1"
                                 Content="Save Review"
                                 Command="{x:Bind ViewModel.SaveReviewCommand}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
                                 FontSize="14" FontWeight="Bold"
                                 Height="44"
                                 CornerRadius="2"
-                                HorizontalAlignment="Stretch"
-                                Background="{StaticResource AccentBlueBrush}"
-                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
+                                HorizontalAlignment="Stretch"/>
                     </Grid>
 
                     <!-- Bottom spacer -->

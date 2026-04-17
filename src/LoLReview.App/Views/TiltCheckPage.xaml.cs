@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -15,6 +16,7 @@ public sealed partial class TiltCheckPage : Page
     {
         ViewModel = App.GetService<TiltCheckViewModel>();
         InitializeComponent();
+        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootScroll);
     }
 
     /// <summary>Helper for x:Bind — returns Visible when currentStep matches target.</summary>

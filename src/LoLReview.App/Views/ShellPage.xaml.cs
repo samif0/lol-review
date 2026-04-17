@@ -28,12 +28,12 @@ public sealed partial class ShellPage : Page
     private CompositionRoundedRectangleGeometry? _contentViewportGeometry;
     private CompositionGeometricClip? _contentViewportClip;
 
-    private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(255, 22, 20, 48));       // #161430 sidebar active bg
-    private static readonly SolidColorBrush ActiveFg = new(ColorHelper.FromArgb(255, 240, 238, 248));     // #F0EEF8 text primary
-    private static readonly SolidColorBrush ActiveBorder = new(ColorHelper.FromArgb(255, 167, 139, 250)); // #A78BFA sidebar active (violet)
-    private static readonly SolidColorBrush InactiveBg = new(ColorHelper.FromArgb(24, 17, 15, 30));       // #110F1E sidebar hover (low alpha)
-    private static readonly SolidColorBrush InactiveBorder = new(ColorHelper.FromArgb(255, 36, 32, 58));  // #24203A border
-    private static readonly SolidColorBrush InactiveFg = new(ColorHelper.FromArgb(255, 122, 110, 150));   // #7A6E96 text secondary
+    // Mockup: active = subtle 8% violet bg + violet glyph + thin right-edge accent (handled by ActiveBar)
+    // No border box — keep it minimal.
+    private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(20, 167, 139, 250));       // 8% violet
+    private static readonly SolidColorBrush ActiveFg = new(ColorHelper.FromArgb(255, 167, 139, 250));      // #A78BFA violet
+    private static readonly SolidColorBrush InactiveBg = new(ColorHelper.FromArgb(0, 0, 0, 0));            // transparent
+    private static readonly SolidColorBrush InactiveFg = new(ColorHelper.FromArgb(255, 74, 62, 96));       // #4A3E60 muted text
 
     public ShellPage()
     {
@@ -79,6 +79,19 @@ public sealed partial class ShellPage : Page
         AppDiagnostics.WriteVerbose("startup.log", "ShellPage.Loaded coach lab visibility refreshed");
 
         UpdateContentViewportClip();
+        _energyDrain = new SidebarEnergyDrainAnimator(EnergyCanvas);
+        if (_activeNavButton is not null)
+            PositionActiveBar(_activeNavButton);
+    }
+
+    private SidebarEnergyDrainAnimator? _energyDrain;
+    private float _pulseTargetY = 120f;
+
+    private void UpdateEnergyDrain()
+    {
+        var sidebarHeight = (float)SidebarRoot.ActualHeight;
+        if (sidebarHeight <= 0) sidebarHeight = 700f;
+        _energyDrain?.UpdateTarget(_pulseTargetY, sidebarHeight);
     }
 
     private void OnNavClick(object sender, RoutedEventArgs e)
@@ -96,13 +109,49 @@ public sealed partial class ShellPage : Page
         {
             _activeNavButton.Background = InactiveBg;
             _activeNavButton.Foreground = InactiveFg;
-            _activeNavButton.BorderBrush = InactiveBorder;
         }
 
-        btn.Background = ActiveBg;
+        btn.Background = InactiveBg;
         btn.Foreground = ActiveFg;
-        btn.BorderBrush = ActiveBorder;
         _activeNavButton = btn;
+
+        PositionActiveBar(btn);
+    }
+
+    /// <summary>
+    /// Update pulse target to the active nav button and restart pulse animations.
+    /// </summary>
+    private void PositionActiveBar(Button btn)
+    {
+        if (SidebarRoot is null) return;
+
+        void Apply()
+        {
+            try
+            {
+                var transform = btn.TransformToVisual(SidebarRoot);
+                var topLeft = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+                var btnHeight = btn.ActualHeight > 0 ? btn.ActualHeight : 44;
+                _pulseTargetY = (float)(topLeft.Y + btnHeight / 2.0);
+                UpdateEnergyDrain();
+            }
+            catch { }
+        }
+
+        if (btn.ActualHeight == 0)
+        {
+            EventHandler<object>? handler = null;
+            handler = (_, _) =>
+            {
+                btn.LayoutUpdated -= handler;
+                Apply();
+            };
+            btn.LayoutUpdated += handler;
+        }
+        else
+        {
+            Apply();
+        }
     }
 
     /// <summary>
@@ -190,19 +239,6 @@ public sealed partial class ShellPage : Page
 
     private void UpdateContentViewportClip()
     {
-        if (ContentViewport.ActualWidth <= 0 || ContentViewport.ActualHeight <= 0)
-        {
-            return;
-        }
-
-        var visual = ElementCompositionPreview.GetElementVisual(ContentViewport);
-        var compositor = visual.Compositor;
-
-        _contentViewportGeometry ??= compositor.CreateRoundedRectangleGeometry();
-        _contentViewportClip ??= compositor.CreateGeometricClip(_contentViewportGeometry);
-
-        _contentViewportGeometry.CornerRadius = new Vector2(2f, 2f);
-        _contentViewportGeometry.Size = new Vector2((float)ContentViewport.ActualWidth, (float)ContentViewport.ActualHeight);
-        visual.Clip = _contentViewportClip;
+        // No-op: clip removed to prevent content from being cut off at edges.
     }
 }

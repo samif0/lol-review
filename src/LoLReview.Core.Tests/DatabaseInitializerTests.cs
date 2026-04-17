@@ -241,6 +241,38 @@ public sealed class DatabaseInitializerTests
         Assert.Equal(0, legacyAssistCount);
     }
 
+    [Fact]
+    public async Task InitializeAsync_BackfillsMissingDefaultConceptTagsIntoExistingDatabase()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        await using (var connection = scope.OpenConnection())
+        {
+            await ExecuteNonQueryAsync(connection, """
+                DELETE FROM concept_tags
+                WHERE name = 'Poor micro'
+                """);
+
+            var remainingCount = await ExecuteScalarAsync<long>(connection, """
+                SELECT COUNT(*)
+                FROM concept_tags
+                """);
+            Assert.True(remainingCount > 0);
+        }
+
+        await scope.InitializeAsync();
+
+        await using var verificationConnection = scope.OpenConnection();
+        var poorMicroCount = await ExecuteScalarAsync<long>(verificationConnection, """
+            SELECT COUNT(*)
+            FROM concept_tags
+            WHERE name = 'Poor micro'
+            """);
+
+        Assert.Equal(1, poorMicroCount);
+    }
+
     private static async Task ExecuteNonQueryAsync(
         SqliteConnection connection,
         string commandText,

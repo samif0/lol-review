@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -19,6 +20,7 @@ public sealed partial class AnalyticsPage : Page
 
     private async void OnPageLoaded(object sender, RoutedEventArgs e)
     {
+        AnimationHelper.AnimatePageEnter(RootGrid);
         await ViewModel.LoadCommand.ExecuteAsync(null);
     }
 

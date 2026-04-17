@@ -161,22 +161,22 @@
     <Style x:Key="StatValueStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}"/>
         <Setter Property="FontSize" Value="28"/>
-        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
     </Style>
 
     <Style x:Key="StatLabelStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
-        <Setter Property="FontSize" Value="9"/>
+        <Setter Property="FontSize" Value="11"/>
         <Setter Property="CharacterSpacing" Value="200"/>
-        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
     </Style>
 
     <Style x:Key="PanelEyebrowStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
-        <Setter Property="FontSize" Value="9"/>
-        <Setter Property="CharacterSpacing" Value="250"/>
-        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="CharacterSpacing" Value="200"/>
+        <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
     </Style>
 
     <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
@@ -201,17 +201,318 @@
     </Style>
 
     <!-- ═══ Buttons ═══ -->
+    <RadialGradientBrush x:Key="ButtonHoverGlow"
+                         Center="0.5,0.5"
+                         GradientOrigin="0.5,0.5"
+                         RadiusX="0.95"
+                         RadiusY="1.1">
+        <GradientStop Color="#18A78BFA" Offset="0"/>
+        <GradientStop Color="#0CA78BFA" Offset="0.6"/>
+        <GradientStop Color="#00A78BFA" Offset="1"/>
+    </RadialGradientBrush>
+
+    <SolidColorBrush x:Key="ButtonHoverWash" Color="#08A78BFA"/>
+
+    <LinearGradientBrush x:Key="ButtonTopEdgeBrush" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="#00A78BFA" Offset="0"/>
+        <GradientStop Color="#88A78BFA" Offset="0.5"/>
+        <GradientStop Color="#00A78BFA" Offset="1"/>
+    </LinearGradientBrush>
+
+    <ControlTemplate x:Key="PrimaryHudButtonTemplate" TargetType="Button">
+        <Grid Background="Transparent">
+            <Border x:Name="GlowChrome"
+                    Margin="-4"
+                    Background="{StaticResource ButtonHoverGlow}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Opacity="0"
+                    IsHitTestVisible="False"/>
+
+            <Border x:Name="Chrome"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}">
+                <Border.RenderTransform>
+                    <CompositeTransform x:Name="ChromeTransform"/>
+                </Border.RenderTransform>
+                <Grid>
+                    <Rectangle x:Name="SheenOverlay"
+                               Opacity="0"
+                               IsHitTestVisible="False">
+                        <Rectangle.Fill>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="#00FFFFFF" Offset="0"/>
+                                <GradientStop Color="#10FFFFFF" Offset="0.5"/>
+                                <GradientStop Color="#00FFFFFF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                        <Rectangle.RenderTransform>
+                            <TranslateTransform x:Name="SheenTransform" X="-96"/>
+                        </Rectangle.RenderTransform>
+                    </Rectangle>
+
+                    <Rectangle x:Name="HoverWash"
+                               Opacity="0"
+                               IsHitTestVisible="False"
+                               Fill="{StaticResource ButtonHoverWash}"/>
+
+                    <Rectangle x:Name="TopEdge"
+                               Height="1"
+                               Margin="1,0,1,0"
+                               VerticalAlignment="Top"
+                               Opacity="0.18"
+                               IsHitTestVisible="False"
+                               Fill="{StaticResource ButtonTopEdgeBrush}"/>
+
+                    <ContentPresenter x:Name="ContentPresenter"
+                                      Margin="{TemplateBinding Padding}"
+                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      ContentTransitions="{TemplateBinding ContentTransitions}"/>
+                </Grid>
+            </Border>
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="ChromeTransform"
+                                             Storyboard.TargetProperty="TranslateY"
+                                             To="0"
+                                             Duration="0:0:0.14"
+                                             EnableDependentAnimation="True"/>
+                            <DoubleAnimation Storyboard.TargetName="GlowChrome"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.14"/>
+                            <DoubleAnimation Storyboard.TargetName="SheenOverlay"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.12"/>
+                            <DoubleAnimation Storyboard.TargetName="HoverWash"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.12"/>
+                            <DoubleAnimation Storyboard.TargetName="TopEdge"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.18"
+                                             Duration="0:0:0.12"/>
+                            <DoubleAnimation Storyboard.TargetName="SheenTransform"
+                                             Storyboard.TargetProperty="X"
+                                             To="-96"
+                                             Duration="0:0:0.01"
+                                             EnableDependentAnimation="True"/>
+                        </Storyboard>
+                    </VisualState>
+
+                    <VisualState x:Name="PointerOver">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="ChromeTransform"
+                                             Storyboard.TargetProperty="TranslateY"
+                                             To="-1"
+                                             Duration="0:0:0.14"
+                                             EnableDependentAnimation="True"/>
+                            <DoubleAnimation Storyboard.TargetName="GlowChrome"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="1"
+                                             Duration="0:0:0.14"/>
+                            <DoubleAnimation Storyboard.TargetName="SheenOverlay"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="1"
+                                             Duration="0:0:0.1"/>
+                            <DoubleAnimation Storyboard.TargetName="HoverWash"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.85"
+                                             Duration="0:0:0.1"/>
+                            <DoubleAnimation Storyboard.TargetName="TopEdge"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.6"
+                                             Duration="0:0:0.1"/>
+                            <DoubleAnimation Storyboard.TargetName="SheenTransform"
+                                             Storyboard.TargetProperty="X"
+                                             To="96"
+                                             Duration="0:0:0.36"
+                                             EnableDependentAnimation="True"/>
+                        </Storyboard>
+                    </VisualState>
+
+                    <VisualState x:Name="Pressed">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="ChromeTransform"
+                                             Storyboard.TargetProperty="TranslateY"
+                                             To="0"
+                                             Duration="0:0:0.08"
+                                             EnableDependentAnimation="True"/>
+                            <DoubleAnimation Storyboard.TargetName="GlowChrome"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.45"
+                                             Duration="0:0:0.08"/>
+                            <DoubleAnimation Storyboard.TargetName="SheenOverlay"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.18"
+                                             Duration="0:0:0.08"/>
+                            <DoubleAnimation Storyboard.TargetName="HoverWash"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.28"
+                                             Duration="0:0:0.08"/>
+                            <DoubleAnimation Storyboard.TargetName="TopEdge"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.34"
+                                             Duration="0:0:0.08"/>
+                        </Storyboard>
+                    </VisualState>
+
+                    <VisualState x:Name="Disabled">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="GlowChrome"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.08"/>
+                            <DoubleAnimation Storyboard.TargetName="HoverWash"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.08"/>
+                            <DoubleAnimation Storyboard.TargetName="TopEdge"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.1"
+                                             Duration="0:0:0.08"/>
+                        </Storyboard>
+                        <VisualState.Setters>
+                            <Setter Target="Chrome.Opacity" Value="0.45"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </Grid>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="NeutralHudButtonTemplate" TargetType="Button">
+        <Grid Background="Transparent">
+            <Border x:Name="Chrome"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}">
+                <Grid>
+                    <Rectangle x:Name="HoverWash"
+                               Opacity="0"
+                               IsHitTestVisible="False"
+                               Fill="{StaticResource ButtonHoverWash}"/>
+
+                    <Rectangle x:Name="TopEdge"
+                               Height="1"
+                               Margin="1,0,1,0"
+                               VerticalAlignment="Top"
+                               Opacity="0"
+                               IsHitTestVisible="False"
+                               Fill="{StaticResource ButtonTopEdgeBrush}"/>
+
+                    <ContentPresenter x:Name="ContentPresenter"
+                                      Margin="{TemplateBinding Padding}"
+                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      ContentTransitions="{TemplateBinding ContentTransitions}"/>
+                </Grid>
+            </Border>
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="HoverWash"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.12"/>
+                            <DoubleAnimation Storyboard.TargetName="TopEdge"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.12"/>
+                        </Storyboard>
+                    </VisualState>
+
+                    <VisualState x:Name="PointerOver">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="HoverWash"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.8"
+                                             Duration="0:0:0.12"/>
+                            <DoubleAnimation Storyboard.TargetName="TopEdge"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.42"
+                                             Duration="0:0:0.12"/>
+                        </Storyboard>
+                    </VisualState>
+
+                    <VisualState x:Name="Pressed">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="HoverWash"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.28"
+                                             Duration="0:0:0.08"/>
+                            <DoubleAnimation Storyboard.TargetName="TopEdge"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0.22"
+                                             Duration="0:0:0.08"/>
+                        </Storyboard>
+                    </VisualState>
+
+                    <VisualState x:Name="Disabled">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="HoverWash"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.08"/>
+                            <DoubleAnimation Storyboard.TargetName="TopEdge"
+                                             Storyboard.TargetProperty="Opacity"
+                                             To="0"
+                                             Duration="0:0:0.08"/>
+                        </Storyboard>
+                        <VisualState.Setters>
+                            <Setter Target="Chrome.Opacity" Value="0.45"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </Grid>
+    </ControlTemplate>
+
     <Style x:Key="PrimaryActionButtonStyle" TargetType="Button">
         <Setter Property="Height" Value="40"/>
         <Setter Property="Padding" Value="18,0"/>
         <Setter Property="CornerRadius" Value="2"/>
-        <Setter Property="Background" Value="{StaticResource AccentBlueDimBrush}"/>
+        <Setter Property="Background">
+            <Setter.Value>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#261D42" Offset="0"/>
+                    <GradientStop Color="#1B1432" Offset="1"/>
+                </LinearGradientBrush>
+            </Setter.Value>
+        </Setter>
         <Setter Property="Foreground" Value="{StaticResource AccentBlueBrush}"/>
-        <Setter Property="BorderBrush" Value="#33A78BFA"/>
+        <Setter Property="BorderBrush" Value="#40A78BFA"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="FontFamily" Value="{StaticResource HeadingFont}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Template" Value="{StaticResource PrimaryHudButtonTemplate}"/>
+    </Style>
+
+    <Style x:Key="GoldActionButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
+        <Setter Property="Foreground" Value="{StaticResource AccentGoldBrush}"/>
+        <Setter Property="BorderBrush" Value="#4FC9956A"/>
+        <Setter Property="Background">
+            <Setter.Value>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#2A2018" Offset="0"/>
+                    <GradientStop Color="#1B1511" Offset="1"/>
+                </LinearGradientBrush>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="SecondaryActionButtonStyle" TargetType="Button">
@@ -225,6 +526,12 @@
         <Setter Property="FontFamily" Value="{StaticResource HeadingFont}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Template" Value="{StaticResource NeutralHudButtonTemplate}"/>
+    </Style>
+
+    <Style x:Key="DangerActionButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryActionButtonStyle}">
+        <Setter Property="Foreground" Value="{StaticResource LossRedBrush}"/>
+        <Setter Property="BorderBrush" Value="#88D38C90"/>
     </Style>
 
     <Style x:Key="ToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryActionButtonStyle}">
@@ -247,9 +554,16 @@
         <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Template" Value="{StaticResource NeutralHudButtonTemplate}"/>
     </Style>
 
     <Style x:Key="ListActionButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
+        <Setter Property="Height" Value="34"/>
+        <Setter Property="Padding" Value="14,0"/>
+        <Setter Property="FontSize" Value="12"/>
+    </Style>
+
+    <Style x:Key="GoldListActionButtonStyle" TargetType="Button" BasedOn="{StaticResource GoldActionButtonStyle}">
         <Setter Property="Height" Value="34"/>
         <Setter Property="Padding" Value="14,0"/>
         <Setter Property="FontSize" Value="12"/>
@@ -265,16 +579,17 @@
 
     <Style x:Key="SidebarNavButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="Width" Value="44"/>
         <Setter Property="Height" Value="44"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="CornerRadius" Value="4"/>
-        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="BorderBrush" Value="Transparent"/>
-        <Setter Property="Margin" Value="0,0,0,4"/>
+        <Setter Property="Margin" Value="0,0,0,2"/>
+        <Setter Property="Template" Value="{StaticResource NeutralHudButtonTemplate}"/>
     </Style>
 
     <!-- ═══ Chips and Badges ═══ -->

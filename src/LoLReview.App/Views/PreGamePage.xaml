@@ -15,19 +15,15 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
     </Page.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto"
+    <ScrollViewer x:Name="RootScroll"
+                  VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Spacing="14" Padding="24,20"
-                    Width="520" HorizontalAlignment="Center">
+        <StackPanel Spacing="14" Padding="40,30,40,40">
 
-            <!-- ═══ Header ═══ -->
-            <TextBlock Text="BEFORE YOU QUEUE UP..."
-                       FontSize="22" FontWeight="Bold"
-                       Foreground="{StaticResource AccentGoldBrush}"/>
-
-            <TextBlock Text="Take a moment to set your focus for this game."
-                       FontSize="13"
-                       Foreground="{StaticResource SecondaryTextBrush}"/>
+            <!-- ═══ Hero ═══ -->
+            <controls:HeroHeader EyebrowText="CHAMP SELECT"
+                                 Title="Lock In"
+                                 Subtitle="SET YOUR FOCUS BEFORE YOU QUEUE"/>
 
             <!-- ═══ Mood Check-in (Tilt Fix) ═══ -->
             <Border Visibility="{x:Bind ViewModel.ShowMoodSelector, Mode=OneWay, Converter={StaticResource BoolToVis}}"

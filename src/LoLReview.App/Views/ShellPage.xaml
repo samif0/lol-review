@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:LoLReview.App.Controls"
     xmlns:converters="using:LoLReview.App.Converters"
     mc:Ignorable="d">
 
@@ -37,12 +38,18 @@
                     Background="{StaticResource SidebarBackgroundBrush}"
                     BorderBrush="{StaticResource SubtleBorderBrush}"
                     BorderThickness="0,0,1,0">
-                <Grid>
+                <Grid x:Name="SidebarRoot">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
+
+                    <!-- Energy drain trails canvas -->
+                    <Canvas x:Name="EnergyCanvas"
+                            Grid.RowSpan="3"
+                            IsHitTestVisible="False"
+                            Canvas.ZIndex="15"/>
 
                     <!-- Logo -->
                     <StackPanel Grid.Row="0"
@@ -55,7 +62,7 @@
                                    Foreground="{StaticResource AccentBlueBrush}"
                                    HorizontalAlignment="Center"
                                    CharacterSpacing="200"/>
-                        <TextBlock Text="2.5"
+                        <TextBlock Text="2.6"
                                    FontFamily="{StaticResource MonoFont}"
                                    FontSize="8"
                                    Foreground="{StaticResource MutedTextBrush}"
@@ -236,6 +243,7 @@
                     </StackPanel>
                 </Grid>
             </Border>
+
 
             <!-- ═══ CONTENT AREA ═══ -->
             <Grid Grid.Column="1">

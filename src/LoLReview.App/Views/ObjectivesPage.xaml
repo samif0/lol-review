@@ -15,7 +15,7 @@
         <converters:InverseBoolConverter x:Key="InverseBool"/>
     </Page.Resources>
 
-    <Grid Background="{StaticResource AppBackgroundBrush}">
+    <Grid x:Name="RootGrid" Background="Transparent">
         <Grid.Resources>
             <Storyboard x:Name="CelebrationEnterStoryboard">
                 <DoubleAnimation Storyboard.TargetName="CelebrationOverlay"
@@ -44,26 +44,24 @@
 
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Padding="24,20" Spacing="12" MaxWidth="900">
+            <StackPanel Padding="40,30,40,40" Spacing="14">
 
-                <!-- Header Row -->
+                <!-- ═══ Hero ═══ -->
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0"
-                               Text="Learning Objectives"
-                               FontSize="22" FontWeight="Bold"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               VerticalAlignment="Center"/>
+                    <controls:HeroHeader Grid.Column="0"
+                                         EyebrowText="LEARNING"
+                                         Title="Objectives"
+                                         Subtitle="MASTER ONE SKILL AT A TIME"/>
                     <Button Grid.Column="1"
                             Content="+ New Objective"
                             Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
-                            Background="{StaticResource AccentBlueBrush}"
-                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                            CornerRadius="2" Height="34"
-                            BorderThickness="0"/>
+                            Style="{StaticResource PrimaryActionButtonStyle}"
+                            VerticalAlignment="Top"
+                            Margin="0,16,0,0"/>
                 </Grid>
 
                 <!-- Create Form (collapsible) -->
@@ -186,9 +184,7 @@
                 </Border>
 
                 <!-- Active Objectives Section Header -->
-                <TextBlock Text="ACTIVE"
-                           FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                <controls:SectionTitle Text="ACTIVE"
                            Visibility="{x:Bind ViewModel.HasActiveObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
                 <!-- Active Objectives List -->
@@ -199,12 +195,8 @@
                     </ItemsRepeater.Layout>
                     <ItemsRepeater.ItemTemplate>
                         <DataTemplate x:DataType="vm:ObjectiveDisplayItem">
-                            <Border Background="{StaticResource CardBackgroundBrush}"
-                                    CornerRadius="2"
-                                    Padding="16,14"
-                                    BorderThickness="2"
-                                    BorderBrush="{x:Bind LevelColorBrush}">
-                                <StackPanel Spacing="6">
+                            <controls:CornerBracketedCard CardBorderBrush="{x:Bind LevelColorBrush}">
+                                <StackPanel Spacing="8">
                                     <!-- Title Row: Type Badge + Title -->
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Border Background="{x:Bind PriorityBadgeBackgroundBrush}"
@@ -327,47 +319,31 @@
                                         <!-- Buttons -->
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
                                             <Button Content="Edit"
-                                                    Background="{StaticResource TagBackgroundBrush}"
-                                                    Foreground="{StaticResource PrimaryTextBrush}"
-                                                    BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="2" Height="30"
-                                                    FontSize="12"
+                                                    Style="{StaticResource SecondaryActionButtonStyle}"
+                                                    Height="30" Padding="12,0" FontSize="11"
                                                     Tag="{x:Bind Id}"
                                                     Click="EditObjective_Click"/>
                                             <Button Content="View Games"
-                                                    Background="{StaticResource TagBackgroundBrush}"
-                                                    Foreground="{StaticResource SecondaryTextBrush}"
-                                                    BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="2" Height="30"
-                                                    FontSize="12"
+                                                    Style="{StaticResource SecondaryActionButtonStyle}"
+                                                    Height="30" Padding="12,0" FontSize="11"
                                                     Tag="{x:Bind Id}"
                                                     Click="ViewObjectiveGames_Click"/>
                                             <Button Content="Set Priority"
-                                                    Background="{StaticResource TagBackgroundBrush}"
-                                                    Foreground="{StaticResource AccentGoldBrush}"
-                                                    BorderBrush="{StaticResource AccentGoldBrush}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="2" Height="30"
-                                                    FontSize="12"
+                                                    Style="{StaticResource GoldActionButtonStyle}"
+                                                    Height="30" Padding="12,0" FontSize="11"
                                                     Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"
                                                     Tag="{x:Bind Id}"
                                                     Click="SetPriority_Click"/>
                                             <Button Content="Delete"
-                                                    Background="Transparent"
-                                                    Foreground="{StaticResource LossRedBrush}"
-                                                    BorderBrush="{StaticResource LossRedBrush}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="2" Height="30"
-                                                    FontSize="12"
+                                                    Style="{StaticResource DangerActionButtonStyle}"
+                                                    Height="30" Padding="12,0" FontSize="11"
                                                     Tag="{x:Bind Id}"
                                                     Click="DeleteObjective_Click"/>
                                             <Button Content="Mark Complete"
                                                     Background="{StaticResource WinGreenBrush}"
                                                     Foreground="White"
                                                     CornerRadius="2" Height="30"
-                                                    FontSize="12"
+                                                    Padding="12,0" FontSize="11"
                                                     BorderThickness="0"
                                                     Visibility="{x:Bind CanComplete, Converter={StaticResource BoolToVis}}"
                                                     Tag="{x:Bind Id}"
@@ -375,17 +351,14 @@
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>
-                            </Border>
+                            </controls:CornerBracketedCard>
                         </DataTemplate>
                     </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>
 
-                <TextBlock Text="GUARDRAILS"
-                           FontSize="11"
-                           FontWeight="Bold"
-                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                <controls:SectionTitle Text="GUARDRAILS"/>
 
-                <Border Style="{StaticResource CardStyle}">
+                <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -714,14 +687,13 @@
                             </ItemsRepeater.ItemTemplate>
                         </ItemsRepeater>
                     </StackPanel>
-                </Border>
+                </controls:CornerBracketedCard>
 
-                <Border Style="{StaticResource CardStyle}"
+                <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource AccentGoldBrush}"
                         Visibility="{x:Bind ViewModel.HasSpottedProblems, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <StackPanel Spacing="10">
-                        <TextBlock Text="SPOTTED PROBLEMS"
-                                   FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource AccentGoldBrush}"/>
+                        <controls:SectionTitle Text="SPOTTED PROBLEMS"/>
                         <TextBlock Text="Problems noted in reviews. Use these as raw material for future learning objectives."
                                    FontSize="12"
                                    Foreground="{StaticResource SecondaryTextBrush}"
@@ -755,7 +727,7 @@
                             </ItemsRepeater.ItemTemplate>
                         </ItemsRepeater>
                     </StackPanel>
-                </Border>
+                </controls:CornerBracketedCard>
 
                 <!-- Completed Objectives Toggle -->
                 <Button Visibility="{x:Bind ViewModel.HasCompletedObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}"

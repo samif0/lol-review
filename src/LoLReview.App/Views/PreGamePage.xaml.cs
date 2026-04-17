@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
@@ -15,6 +16,7 @@ public sealed partial class PreGamePage : Page
     {
         ViewModel = App.GetService<PreGameDialogViewModel>();
         InitializeComponent();
+        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootScroll);
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

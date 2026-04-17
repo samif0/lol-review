@@ -12,11 +12,11 @@
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
-        <converters:WinLossColorConverter x:Key="WinLossColor"/>
-        <converters:KdaColorConverter x:Key="KdaColor"/>
     </Page.Resources>
 
-    <Grid Background="Transparent">
+    <Grid x:Name="RootGrid" Background="Transparent">
+
+        <!-- Loading spinner -->
         <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center"
@@ -24,581 +24,171 @@
                       Height="48"
                       Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
-        <ScrollViewer VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      Padding="32,32,32,44">
-            <StackPanel MaxWidth="1240"
-                        HorizontalAlignment="Stretch"
-                        Spacing="20">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
-                <!-- ═══ HERO HEADER ═══ -->
-                <StackPanel Spacing="6">
-                    <TextBlock Text="COMMAND CENTER"
-                               Style="{StaticResource PanelEyebrowStyle}"/>
+            <!-- ═══ HERO ═══ -->
+            <controls:HeroHeader Grid.Row="0"
+                                 EyebrowText="DASHBOARD"
+                                 Title="{x:Bind ViewModel.Greeting, Mode=OneWay}"
+                                 Margin="24,24,24,12"/>
 
-                    <TextBlock Text="{x:Bind ViewModel.Greeting, Mode=OneWay}"
-                               Style="{StaticResource HeroTitleStyle}"
-                               TextWrapping="Wrap"/>
+            <!-- ═══ CONTENT ═══ -->
+            <ScrollViewer Grid.Row="1"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Padding="40,0,40,40">
+                <StackPanel MaxWidth="1600"
+                            HorizontalAlignment="Stretch"
+                            Spacing="14">
 
                     <!-- Session banner -->
-                    <Border Background="{StaticResource SurfaceRaisedBrush}"
-                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="2"
-                            Padding="14,10"
-                            Margin="0,6,0,0"
-                            Visibility="{x:Bind ViewModel.ShowSessionBanner, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                    <controls:BannerControl Tone="Positive"
+                                            Message="{x:Bind ViewModel.SessionBannerText, Mode=OneWay}"
+                                            Icon="&#xE946;"
+                                            Visibility="{x:Bind ViewModel.ShowSessionBanner, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
-                            <FontIcon Grid.Column="0"
-                                      Glyph="&#xE946;"
-                                      FontSize="14"
-                                      Foreground="{StaticResource AccentBlueBrush}"
-                                      VerticalAlignment="Center"/>
+                    <!-- ═══ STAT STRIP ═══ -->
+                    <controls:StatStrip>
+                        <controls:StatCell Label="Games"
+                                           Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
+                        <controls:StatCell Label="Win Rate"
+                                           Value="{x:Bind ViewModel.WinratePercent, Mode=OneWay}"
+                                           ValueBrush="{StaticResource WinGreenBrush}"
+                                           Sub="{x:Bind ViewModel.RecordLine, Mode=OneWay}"/>
+                        <controls:StatCell Label="Avg Mental"
+                                           Value="{x:Bind ViewModel.AvgMental, Mode=OneWay}"/>
+                        <controls:StatCell Label="Adherence"
+                                           Value="{x:Bind ViewModel.AdherenceStreak, Mode=OneWay}"
+                                           ValueBrush="{StaticResource AccentGoldBrush}"
+                                           Sub="STREAK ACTIVE"/>
+                    </controls:StatStrip>
 
-                            <StackPanel Grid.Column="1"
-                                        Spacing="2"
-                                        VerticalAlignment="Center">
-                                <TextBlock Text="SESSION READ"
-                                           Style="{StaticResource StatLabelStyle}"/>
-                                <TextBlock Text="{x:Bind ViewModel.SessionBannerText, Mode=OneWay}"
-                                           Style="{StaticResource PanelTitleStyle}"/>
-                            </StackPanel>
+                    <!-- ═══ MAIN BODY: Unreviewed + Objectives ═══ -->
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="5*"/>
+                            <ColumnDefinition Width="3*"/>
+                        </Grid.ColumnDefinitions>
 
-                            <Button Grid.Column="2"
-                                    Command="{x:Bind ViewModel.LoadCommand}"
-                                    Style="{StaticResource GhostIconButtonStyle}"
-                                    ToolTipService.ToolTip="Refresh dashboard">
-                                <FontIcon Glyph="&#xE72C;" FontSize="16"/>
-                            </Button>
-                        </Grid>
-                    </Border>
-                </StackPanel>
+                        <!-- ── LEFT: Unreviewed ── -->
+                        <controls:CornerBracketedCard Grid.Column="0">
+                            <StackPanel Spacing="12" Padding="4">
+                                <controls:SectionTitle Text="UNREVIEWED"/>
 
-                <!-- ═══ STAT STRIP ═══ -->
-                <Grid ColumnSpacing="0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Session games -->
-                    <Border Grid.Column="0"
-                            Background="{StaticResource CardBackgroundBrush}"
-                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                            BorderThickness="1,1,0,1"
-                            CornerRadius="2,0,0,2"
-                            Padding="18,14">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="SESSION"
-                                       Style="{StaticResource StatLabelStyle}"/>
-                            <TextBlock Style="{StaticResource StatValueStyle}">
-                                <Run Text="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Record -->
-                    <Border Grid.Column="1"
-                            Background="{StaticResource CardBackgroundBrush}"
-                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                            BorderThickness="1,1,0,1"
-                            CornerRadius="0"
-                            Padding="18,14">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="RECORD"
-                                       Style="{StaticResource StatLabelStyle}"/>
-                            <TextBlock Style="{StaticResource StatValueStyle}">
-                                <Run Text="{x:Bind ViewModel.Wins, Mode=OneWay}"/>
-                                <Run Text="/" FontSize="18" Foreground="{StaticResource MutedTextBrush}"/>
-                                <Run Text="{x:Bind ViewModel.Losses, Mode=OneWay}"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Average Mental -->
-                    <Border Grid.Column="2"
-                            Background="{StaticResource CardBackgroundBrush}"
-                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                            BorderThickness="1,1,0,1"
-                            CornerRadius="0"
-                            Padding="18,14">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="AVG MENTAL"
-                                       Style="{StaticResource StatLabelStyle}"/>
-                            <TextBlock Style="{StaticResource StatValueStyle}"
-                                       Foreground="{StaticResource AccentBlueBrush}">
-                                <Run Text="{x:Bind ViewModel.AvgMental, Mode=OneWay}"/>
-                                <Run Text="/10" FontSize="14" Foreground="{StaticResource MutedTextBrush}"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Win Streak -->
-                    <Border Grid.Column="3"
-                            Background="{StaticResource CardBackgroundBrush}"
-                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                            BorderThickness="1,1,0,1"
-                            CornerRadius="0"
-                            Padding="18,14">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="WIN STREAK"
-                                       Style="{StaticResource StatLabelStyle}"/>
-                            <TextBlock Style="{StaticResource StatValueStyle}">
-                                <Run Text="{x:Bind ViewModel.WinStreak, Mode=OneWay}"/>
-                                <Run Text="w" FontSize="14" Foreground="{StaticResource MutedTextBrush}"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Adherence Streak -->
-                    <Border Grid.Column="4"
-                            Background="{StaticResource CardBackgroundBrush}"
-                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="0,2,2,0"
-                            Padding="18,14">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="ADHERENCE"
-                                       Style="{StaticResource StatLabelStyle}"/>
-                            <TextBlock Style="{StaticResource StatValueStyle}">
-                                <Run Text="{x:Bind ViewModel.AdherenceStreak, Mode=OneWay}"/>
-                                <Run Text="d" FontSize="14" Foreground="{StaticResource MutedTextBrush}"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </Border>
-                </Grid>
-
-                <!-- ═══ TWO-COLUMN LAYOUT ═══ -->
-                <Grid ColumnSpacing="18">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="1.18*"/>
-                        <ColumnDefinition Width="0.82*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Left column: Unreviewed games -->
-                    <Border Grid.Column="0"
-                            Style="{StaticResource EmphasisCardStyle}"
-                            Background="{StaticResource QueuePanelBrush}">
-                        <StackPanel Spacing="14">
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="NEEDS REVIEW"
-                                               Style="{StaticResource PanelEyebrowStyle}"/>
-                                    <TextBlock Text="These are the games to clear before you queue again."
-                                               FontSize="13"
-                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-
-                                <Border Grid.Column="1"
-                                        Style="{StaticResource MetaChipStyle}"
-                                        VerticalAlignment="Top">
-                                    <TextBlock Text="{x:Bind ViewModel.UnreviewedCountText, Mode=OneWay}"
-                                               FontSize="11"
-                                               FontWeight="SemiBold"
-                                               Foreground="{StaticResource PrimaryTextBrush}"/>
-                                </Border>
-                            </Grid>
-
-                            <Border Style="{StaticResource InsetCardStyle}"
-                                    Background="{StaticResource SuccessSurfaceBrush}"
-                                    Visibility="{x:Bind ViewModel.AllReviewed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                <StackPanel Spacing="6">
-                                    <TextBlock Text="Queue is clear"
-                                               FontSize="15"
-                                               FontWeight="SemiBold"
-                                               Foreground="{StaticResource WinGreenBrush}"/>
-                                    <TextBlock Text="All recent games in the last three days have already been reviewed."
-                                               FontSize="12"
-                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-
-                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.UnreviewedGames, Mode=OneWay}">
-                                <ItemsRepeater.Layout>
-                                    <StackLayout Spacing="10"/>
-                                </ItemsRepeater.Layout>
-                                <ItemsRepeater.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:GameDisplayItem">
-                                        <Border Style="{StaticResource QueueItemCardStyle}">
-                                            <Grid ColumnSpacing="14">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-
-                                                <Border Grid.Column="0"
-                                                        Width="36"
-                                                        Height="36"
-                                                        CornerRadius="18"
-                                                        Background="{x:Bind Win, Converter={StaticResource WinLossColor}}"
-                                                        VerticalAlignment="Top">
-                                                    <TextBlock Text="{x:Bind WinLossText}"
-                                                               FontSize="12"
-                                                               FontWeight="Bold"
-                                                               Foreground="White"
-                                                               HorizontalAlignment="Center"
-                                                               VerticalAlignment="Center"/>
-                                                </Border>
-
-                                                <StackPanel Grid.Column="1"
-                                                            Spacing="8">
-                                                    <StackPanel Spacing="6">
-                                                        <Grid ColumnSpacing="8">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                            </Grid.ColumnDefinitions>
-
-                                                            <TextBlock Grid.Column="0"
-                                                                       Text="{x:Bind ChampionName}"
-                                                                       FontSize="16"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{StaticResource PrimaryTextBrush}"
-                                                                       TextTrimming="CharacterEllipsis"/>
-
-                                                            <Border Grid.Column="1"
-                                                                    Style="{StaticResource MetaChipStyle}">
-                                                                <TextBlock Text="{x:Bind GameMode}"
-                                                                           FontSize="10"
-                                                                           FontWeight="SemiBold"
-                                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                            </Border>
-                                                        </Grid>
-
-                                                        <StackPanel Orientation="Horizontal"
-                                                                    Spacing="8">
-                                                            <TextBlock Text="{x:Bind KdaText}"
-                                                                       FontSize="13"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{StaticResource PrimaryTextBrush}"/>
-                                                            <TextBlock Text="{x:Bind KdaRatioText}"
-                                                                       FontSize="13"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{x:Bind KdaRatio, Converter={StaticResource KdaColor}}"/>
-                                                        </StackPanel>
-                                                    </StackPanel>
-
-                                                    <StackPanel Orientation="Horizontal"
-                                                                Spacing="8">
-                                                        <Border Style="{StaticResource MetaChipStyle}">
-                                                            <TextBlock Text="{x:Bind DatePlayed}"
-                                                                       FontSize="10"
-                                                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                        </Border>
-
-                                                        <Border Style="{StaticResource MetaChipStyle}">
-                                                            <TextBlock Text="{x:Bind Duration}"
-                                                                       FontSize="10"
-                                                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                        </Border>
-                                                    </StackPanel>
-
-                                                    <TextBlock Text="{x:Bind StatsLine}"
-                                                               FontSize="12"
-                                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                                               TextWrapping="Wrap"/>
-                                                </StackPanel>
-
-                                                <StackPanel Grid.Column="2"
-                                                            VerticalAlignment="Center"
-                                                            Spacing="8">
-                                                    <Button Content="Review now"
-                                                            Style="{StaticResource ListActionButtonStyle}"
-                                                            MinWidth="108"
-                                                            Tag="{x:Bind GameId}"
-                                                            Click="ReviewButton_Click"/>
-
-                                                    <Button Style="{StaticResource GhostIconButtonStyle}"
-                                                            Tag="{x:Bind GameId}"
-                                                            ToolTipService.ToolTip="Hide this game"
-                                                            Click="HideGameButton_Click">
-                                                        <FontIcon Glyph="&#xE74D;"
-                                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                                  FontSize="14"/>
-                                                    </Button>
-                                                </StackPanel>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsRepeater.ItemTemplate>
-                            </ItemsRepeater>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Right column: Objectives + Focus -->
-                    <StackPanel Grid.Column="1"
-                                Spacing="18">
-
-                        <!-- Focus for next game -->
-                        <Border Style="{StaticResource EmphasisCardStyle}"
-                                Background="{StaticResource FocusPanelBrush}"
-                                Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                            <StackPanel Spacing="8">
-                                <TextBlock Text="FOCUS FOR NEXT GAME"
-                                           Style="{StaticResource PanelEyebrowStyle}"
-                                           Foreground="{StaticResource AccentGoldBrush}"/>
-                                <TextBlock Text="{x:Bind ViewModel.LastFocus, Mode=OneWay}"
-                                           FontFamily="{StaticResource DisplayFont}"
-                                           FontSize="17"
-                                           FontWeight="SemiBold"
-                                           Foreground="{StaticResource PrimaryTextBrush}"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Active objectives -->
-                        <Border Style="{StaticResource ElevatedCardStyle}">
-                            <StackPanel Spacing="12">
-                                <TextBlock Text="ACTIVE OBJECTIVES"
-                                           Style="{StaticResource PanelEyebrowStyle}"/>
-
-                                <TextBlock Text="No active objectives right now. Add one when you want a clearer practice lane."
-                                           FontSize="12"
-                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                <TextBlock Text="Queue is clear — everything from the last 3 days has been reviewed."
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="11"
+                                           Foreground="{StaticResource WinGreenBrush}"
                                            TextWrapping="Wrap"
-                                           Visibility="{x:Bind HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
+                                           Visibility="{x:Bind ViewModel.AllReviewed, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
-                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.ActiveObjectives, Mode=OneWay}"
-                                               Visibility="{x:Bind HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.UnreviewedGames, Mode=OneWay}">
                                     <ItemsRepeater.Layout>
-                                        <StackLayout Spacing="10"/>
+                                        <StackLayout Spacing="6"/>
                                     </ItemsRepeater.Layout>
                                     <ItemsRepeater.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:DashboardObjectiveItem">
-                                            <Border Style="{StaticResource InsetCardStyle}"
-                                                    Padding="14">
-                                                <StackPanel Spacing="8">
-                                                    <Grid ColumnSpacing="10">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
-
-                                                        <TextBlock Grid.Column="0"
-                                                                   Text="{x:Bind Title}"
-                                                                   FontSize="14"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                                                   TextWrapping="Wrap"/>
-
-                                                        <StackPanel Grid.Column="1"
-                                                                    Orientation="Horizontal"
-                                                                    Spacing="6">
-                                                            <Border Style="{StaticResource MetaChipStyle}">
-                                                                <TextBlock Text="{x:Bind PhaseLabel}"
-                                                                           FontSize="10"
-                                                                           FontWeight="SemiBold"
-                                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                            </Border>
-                                                            <Border Style="{StaticResource MetaChipStyle}">
-                                                                <TextBlock Text="{x:Bind LevelName}"
-                                                                           FontSize="10"
-                                                                           FontWeight="SemiBold"
-                                                                           Foreground="{x:Bind LevelColorBrush}"/>
-                                                            </Border>
-                                                        </StackPanel>
-                                                    </Grid>
-
-                                                    <TextBlock Text="{x:Bind InfoText}"
-                                                               FontSize="12"
-                                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                                               TextWrapping="Wrap"/>
-
-                                                    <controls:ObjectiveProgressBar Progress="{x:Bind Progress}"
-                                                                                   BarHeight="6"
-                                                                                   BarCornerRadius="3"
-                                                                                   MinimumVisibleFillWidth="4"
-                                                                                   FillBrush="{x:Bind LevelColorBrush}"
-                                                                                   TrackBrush="{StaticResource SubtleBorderBrush}"/>
-                                                </StackPanel>
-                                            </Border>
+                                        <DataTemplate x:DataType="vm:GameDisplayItem">
+                                            <controls:GameRowCard Champion="{x:Bind ChampionName}"
+                                                                  Win="{x:Bind Win}"
+                                                                  Meta="{x:Bind MetaLine}"
+                                                                  Kda="{x:Bind KdaText}"
+                                                                  Stats="{x:Bind StatsLine}">
+                                                <controls:GameRowCard.Actions>
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <Button Content="Review"
+                                                                Style="{StaticResource ListActionButtonStyle}"
+                                                                Tag="{x:Bind GameId}"
+                                                                Click="ReviewButton_Click"/>
+                                                        <Button Style="{StaticResource GhostIconButtonStyle}"
+                                                                Tag="{x:Bind GameId}"
+                                                                ToolTipService.ToolTip="Hide this game"
+                                                                Click="HideGameButton_Click">
+                                                            <FontIcon Glyph="&#xE74D;"
+                                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                                      FontSize="13"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </controls:GameRowCard.Actions>
+                                            </controls:GameRowCard>
                                         </DataTemplate>
                                     </ItemsRepeater.ItemTemplate>
                                 </ItemsRepeater>
                             </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </Grid>
+                        </controls:CornerBracketedCard>
 
-                <!-- ═══ TODAY'S GAMES ═══ -->
-                <Border Style="{StaticResource ElevatedCardStyle}"
-                        Background="{StaticResource ShellContentBackgroundBrush}">
-                    <StackPanel Spacing="14">
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                        <!-- ── RIGHT: Objectives + Last Focus ── -->
+                        <StackPanel Grid.Column="1" Spacing="14">
+                            <controls:CornerBracketedCard>
+                                <StackPanel Spacing="14">
+                                    <controls:SectionTitle Text="ACTIVE OBJECTIVES"/>
 
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="TODAY'S GAMES"
-                                           Style="{StaticResource PanelEyebrowStyle}"/>
-                                <TextBlock Text="Everything logged in this session, whether already reviewed or still open."
-                                           FontSize="13"
-                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
+                                    <TextBlock Text="No active objectives. Add one when you want a clear practice lane."
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               TextWrapping="Wrap"
+                                               Visibility="{x:Bind HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
 
-                            <Border Grid.Column="1"
-                                    Style="{StaticResource MetaChipStyle}"
-                                    VerticalAlignment="Top">
-                                <TextBlock FontSize="11"
-                                           FontWeight="SemiBold"
-                                           Foreground="{StaticResource PrimaryTextBrush}">
-                                    <Run Text="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
-                                    <Run Text=" total"/>
-                                </TextBlock>
-                            </Border>
-                        </Grid>
-
-                        <Border Style="{StaticResource InsetCardStyle}"
-                                Visibility="{x:Bind HasNoTodaysGames, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="No games played today yet."
-                                       FontSize="13"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                        </Border>
-
-                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.TodaysGames, Mode=OneWay}">
-                            <ItemsRepeater.Layout>
-                                <StackLayout Spacing="10"/>
-                            </ItemsRepeater.Layout>
-                            <ItemsRepeater.ItemTemplate>
-                                <DataTemplate x:DataType="vm:GameDisplayItem">
-                                    <Border Style="{StaticResource QueueItemCardStyle}">
-                                        <Grid ColumnSpacing="14">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <Border Grid.Column="0"
-                                                    Width="36"
-                                                    Height="36"
-                                                    CornerRadius="10"
-                                                    Background="{x:Bind Win, Converter={StaticResource WinLossColor}}"
-                                                    VerticalAlignment="Top">
-                                                <TextBlock Text="{x:Bind WinLossText}"
-                                                           FontSize="12"
-                                                           FontWeight="Bold"
-                                                           Foreground="White"
-                                                           HorizontalAlignment="Center"
-                                                           VerticalAlignment="Center"/>
-                                            </Border>
-
-                                            <StackPanel Grid.Column="1"
-                                                        Spacing="8">
-                                                <Grid ColumnSpacing="8">
+                                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.ActiveObjectives, Mode=OneWay}"
+                                                   Visibility="{x:Bind HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="14"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:DashboardObjectiveItem">
+                                                <Grid ColumnSpacing="14">
                                                     <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
                                                         <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="Auto"/>
                                                     </Grid.ColumnDefinitions>
 
-                                                    <TextBlock Grid.Column="0"
-                                                               Text="{x:Bind ChampionName}"
-                                                               FontSize="15"
-                                                               FontWeight="SemiBold"
-                                                               Foreground="{StaticResource PrimaryTextBrush}"
-                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <controls:HudProgressRing Grid.Column="0"
+                                                                              Progress="{x:Bind Progress}"
+                                                                              Label="{x:Bind ProgressLabel}"
+                                                                              AccentBrush="{x:Bind LevelColorBrush}"
+                                                                              VerticalAlignment="Center"/>
 
-                                                    <Border Grid.Column="1"
-                                                            Style="{StaticResource MetaChipStyle}"
-                                                            Visibility="{x:Bind HasReview, Converter={StaticResource BoolToVis}}">
-                                                        <TextBlock Text="REVIEWED"
-                                                                   FontSize="10"
+                                                    <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                                        <TextBlock Text="{x:Bind Title}"
+                                                                   FontFamily="{StaticResource HeadingFont}"
+                                                                   FontSize="15"
                                                                    FontWeight="SemiBold"
-                                                                   Foreground="{StaticResource WinGreenBrush}"/>
-                                                    </Border>
-
-                                                    <Border Grid.Column="2"
-                                                            Background="{StaticResource AccentGoldDimBrush}"
-                                                            BorderBrush="{StaticResource AccentGoldBrush}"
-                                                            BorderThickness="1"
-                                                            CornerRadius="10"
-                                                            Padding="8,4"
-                                                            Visibility="{x:Bind HasReview, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
-                                                        <TextBlock Text="OPEN"
-                                                                   FontSize="10"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="{StaticResource AccentGoldBrush}"/>
-                                                    </Border>
+                                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                                   TextWrapping="Wrap"/>
+                                                        <TextBlock Text="{x:Bind MetaText}"
+                                                                   FontFamily="{StaticResource MonoFont}"
+                                                                   FontSize="9"
+                                                                   Foreground="{StaticResource MutedTextBrush}"
+                                                                   TextWrapping="Wrap"/>
+                                                    </StackPanel>
                                                 </Grid>
+                                            </DataTemplate>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                </StackPanel>
+                            </controls:CornerBracketedCard>
 
-                                                <StackPanel Orientation="Horizontal"
-                                                            Spacing="8">
-                                                    <TextBlock Text="{x:Bind KdaText}"
-                                                               FontSize="13"
-                                                               FontWeight="SemiBold"
-                                                               Foreground="{StaticResource PrimaryTextBrush}"/>
-                                                    <TextBlock Text="{x:Bind KdaRatioText}"
-                                                               FontSize="13"
-                                                               FontWeight="SemiBold"
-                                                               Foreground="{x:Bind KdaRatio, Converter={StaticResource KdaColor}}"/>
-                                                    <TextBlock Text="{x:Bind Duration}"
-                                                               FontSize="12"
-                                                               Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                </StackPanel>
-
-                                                <TextBlock Text="{x:Bind StatsLine}"
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
-                                            </StackPanel>
-
-                                            <StackPanel Grid.Column="2"
-                                                        VerticalAlignment="Center"
-                                                        Spacing="8">
-                                                <Border Style="{StaticResource MetaChipStyle}">
-                                                    <TextBlock Text="{x:Bind DatePlayed}"
-                                                               FontSize="10"
-                                                               Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                </Border>
-
-                                                <StackPanel Orientation="Horizontal"
-                                                            Spacing="6"
-                                                            HorizontalAlignment="Right">
-                                                    <Button Content="Review"
-                                                            Style="{StaticResource ListActionButtonStyle}"
-                                                            MinWidth="88"
-                                                            Tag="{x:Bind GameId}"
-                                                            Click="ReviewButton_Click"/>
-
-                                                    <Button Style="{StaticResource GhostIconButtonStyle}"
-                                                            Tag="{x:Bind GameId}"
-                                                            ToolTipService.ToolTip="Hide this game"
-                                                            Click="HideGameButton_Click">
-                                                        <FontIcon Glyph="&#xE74D;"
-                                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                                  FontSize="14"/>
-                                                    </Button>
-                                                </StackPanel>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsRepeater.ItemTemplate>
-                        </ItemsRepeater>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </ScrollViewer>
+                            <!-- Last focus (bronze-tinted) -->
+                            <controls:CornerBracketedCard CardBackground="{StaticResource FocusPanelBrush}"
+                                                          CardBorderBrush="{StaticResource AccentGoldBrush}"
+                                                          Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Spacing="8">
+                                    <controls:SectionTitle Text="LAST FOCUS"/>
+                                    <TextBlock Text="{x:Bind ViewModel.LastFocus, Mode=OneWay}"
+                                               FontFamily="{StaticResource BodyFont}"
+                                               FontSize="13"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </controls:CornerBracketedCard>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
     </Grid>
 </Page>

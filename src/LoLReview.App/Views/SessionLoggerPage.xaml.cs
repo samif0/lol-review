@@ -1,6 +1,7 @@
 #nullable enable
 
 using LoLReview.App.Contracts;
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -20,6 +21,7 @@ public sealed partial class SessionLoggerPage : Page
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
+        AnimationHelper.AnimatePageEnter(RootGrid);
         await ViewModel.LoadCommand.ExecuteAsync(null);
     }
 

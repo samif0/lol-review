@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:converters="using:LoLReview.App.Converters"
+    xmlns:controls="using:LoLReview.App.Controls"
     xmlns:vm="using:LoLReview.App.ViewModels"
     mc:Ignorable="d"
     Loaded="Page_Loaded">
@@ -15,29 +16,27 @@
         <converters:InverseBoolConverter x:Key="InverseBool"/>
     </Page.Resources>
 
-    <Grid Background="{StaticResource AppBackgroundBrush}">
+    <Grid x:Name="RootGrid" Background="Transparent">
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Padding="24,20" Spacing="12" MaxWidth="900">
+            <StackPanel Padding="40,30,40,40" Spacing="14">
 
-                <!-- Header Row -->
+                <!-- ═══ Hero ═══ -->
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0"
-                               Text="Session Rules"
-                               FontSize="22" FontWeight="Bold"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               VerticalAlignment="Center"/>
+                    <controls:HeroHeader Grid.Column="0"
+                                         EyebrowText="SESSION PROTOCOLS"
+                                         Title="Session Rules"
+                                         Subtitle="STOP-LOSSES // TIME LIMITS // MINDSET CHECKS"/>
                     <Button Grid.Column="1"
                             Content="+ New Rule"
                             Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
-                            Background="{StaticResource AccentBlueBrush}"
-                            Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                            CornerRadius="2" Height="34"
-                            BorderThickness="0"/>
+                            Style="{StaticResource PrimaryActionButtonStyle}"
+                            VerticalAlignment="Top"
+                            Margin="0,16,0,0"/>
                 </Grid>
 
                 <!-- Active Violations Banner -->
@@ -145,15 +144,13 @@
                                     HorizontalAlignment="Right">
                             <Button Content="Cancel"
                                     Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
-                                    Background="{StaticResource TagBackgroundBrush}"
-                                    Foreground="{StaticResource PrimaryTextBrush}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
                                     CornerRadius="2" Height="32"
                                     BorderThickness="0"/>
                             <Button Content="Create"
                                     Command="{x:Bind ViewModel.CreateRuleCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanCreate, Mode=OneWay}"
-                                    Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
                                     CornerRadius="2" Height="32"
                                     BorderThickness="0"/>
                         </StackPanel>
@@ -164,9 +161,7 @@
                 <StackPanel Spacing="8"
                             Visibility="{x:Bind ViewModel.HasRules, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
 
-                    <TextBlock Text="NO RULES YET"
-                               FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <controls:SectionTitle Text="NO RULES YET"/>
                     <TextBlock Text="Add a rule to start tracking your adherence streak. Here are some common starting points:"
                                FontSize="13"
                                Foreground="{StaticResource SecondaryTextBrush}"
@@ -212,11 +207,9 @@
                                         </StackPanel>
                                         <Button Grid.Column="1"
                                                 Content="+ Add"
+                                                Style="{StaticResource ListActionButtonStyle}"
                                                 FontSize="12" Height="30"
                                                 Padding="14,0" CornerRadius="2"
-                                                Background="{StaticResource AccentBlueBrush}"
-                                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                                                BorderThickness="0"
                                                 VerticalAlignment="Center"
                                                 Command="{Binding ElementName=RulesPageRoot, Path=ViewModel.AddSuggestedRuleCommand}"
                                                 CommandParameter="{x:Bind}"/>
@@ -228,9 +221,7 @@
                 </StackPanel>
 
                 <!-- Active Rules Section Header -->
-                <TextBlock Text="ACTIVE"
-                           FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                <controls:SectionTitle Text="ACTIVE"
                            Visibility="{x:Bind ViewModel.HasActiveRules, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
                 <!-- Active Rules List -->
@@ -312,19 +303,13 @@
                                                 HorizontalAlignment="Right"
                                                 Margin="0,4,0,0">
                                         <Button Content="Delete"
-                                                Background="Transparent"
-                                                Foreground="{StaticResource LossRedBrush}"
-                                                BorderBrush="{StaticResource LossRedBrush}"
-                                                BorderThickness="1"
+                                                Style="{StaticResource DangerActionButtonStyle}"
                                                 CornerRadius="2" Height="28"
                                                 FontSize="12"
                                                 Tag="{x:Bind Id}"
                                                 Click="DeleteRule_Click"/>
                                         <Button Content="{x:Bind ToggleText}"
-                                                Background="Transparent"
-                                                Foreground="{StaticResource SecondaryTextBrush}"
-                                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                BorderThickness="1"
+                                                Style="{StaticResource SecondaryActionButtonStyle}"
                                                 CornerRadius="2" Height="28"
                                                 FontSize="12"
                                                 Tag="{x:Bind Id}"
@@ -337,9 +322,7 @@
                 </ItemsRepeater>
 
                 <!-- Inactive Rules Section Header -->
-                <TextBlock Text="DISABLED"
-                           FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                <controls:SectionTitle Text="DISABLED"
                            Margin="0,12,0,0"
                            Visibility="{x:Bind ViewModel.HasInactiveRules, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
@@ -391,19 +374,14 @@
                                                 HorizontalAlignment="Right"
                                                 Margin="0,4,0,0">
                                         <Button Content="Delete"
-                                                Background="Transparent"
-                                                Foreground="{StaticResource LossRedBrush}"
-                                                BorderBrush="{StaticResource LossRedBrush}"
-                                                BorderThickness="1"
+                                                Style="{StaticResource DangerActionButtonStyle}"
                                                 CornerRadius="2" Height="28"
                                                 FontSize="12"
                                                 Tag="{x:Bind Id}"
                                                 Click="DeleteRule_Click"/>
                                         <Button Content="{x:Bind ToggleText}"
-                                                Background="Transparent"
+                                                Style="{StaticResource SecondaryActionButtonStyle}"
                                                 Foreground="{StaticResource WinGreenBrush}"
-                                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                BorderThickness="1"
                                                 CornerRadius="2" Height="28"
                                                 FontSize="12"
                                                 Tag="{x:Bind Id}"

@@ -529,12 +529,6 @@ public sealed class DatabaseInitializer
 
     private static async Task SeedConceptTagsAsync(SqliteConnection connection, CancellationToken ct)
     {
-        using var countCmd = connection.CreateCommand();
-        countCmd.CommandText = "SELECT COUNT(*) FROM concept_tags";
-        var count = (long)(await countCmd.ExecuteScalarAsync(ct))!;
-
-        if (count > 0) return;
-
         foreach (var (name, polarity, color) in Schema.DefaultConceptTags)
         {
             ct.ThrowIfCancellationRequested();

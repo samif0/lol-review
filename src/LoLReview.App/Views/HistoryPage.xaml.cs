@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -28,6 +29,8 @@ public sealed partial class HistoryPage : Page
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        AnimationHelper.AnimatePageEnter(RootGrid);
+
         if (ViewModel.LoadCommand.CanExecute(null))
         {
             await ViewModel.LoadCommand.ExecuteAsync(null);

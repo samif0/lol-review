@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -23,6 +24,7 @@ public sealed partial class ReviewPage : Page
             }
         };
         InitializeComponent();
+        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

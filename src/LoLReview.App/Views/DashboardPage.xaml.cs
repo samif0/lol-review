@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using LoLReview.App.Contracts;
 using Microsoft.UI.Xaml;
@@ -28,6 +29,8 @@ public sealed partial class DashboardPage : Page
         // Update computed properties when collections change
         ViewModel.ActiveObjectives.CollectionChanged += (_, _) => Bindings.Update();
         ViewModel.TodaysGames.CollectionChanged += (_, _) => Bindings.Update();
+
+        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)

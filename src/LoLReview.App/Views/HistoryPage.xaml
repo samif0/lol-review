@@ -5,9 +5,10 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:LoLReview.App.ViewModels"
+    xmlns:controls="using:LoLReview.App.Controls"
     xmlns:converters="using:LoLReview.App.Converters"
     mc:Ignorable="d"
-    Background="{StaticResource AppBackgroundBrush}">
+    Background="Transparent">
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
@@ -15,23 +16,18 @@
         <converters:KdaColorConverter x:Key="KdaColor"/>
     </Page.Resources>
 
-    <Grid Padding="24,24,24,0">
+    <Grid x:Name="RootGrid" Padding="40,30,40,0">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- ═══ Header ═══ -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,16">
-            <TextBlock Text="Archive"
-                       FontSize="22" FontWeight="Bold"
-                       Foreground="{StaticResource PrimaryTextBrush}"
-                       VerticalAlignment="Center"/>
-            <TextBlock Text="Recorded matches and VOD access"
-                       FontSize="13"
-                       Foreground="{StaticResource SecondaryTextBrush}"
-                       VerticalAlignment="Center"/>
-        </StackPanel>
+        <!-- ═══ Hero ═══ -->
+        <controls:HeroHeader Grid.Row="0"
+                             EyebrowText="MATCH DATABASE"
+                             Title="Match History"
+                             Subtitle="RECORDED MATCHES // VOD ACCESS"
+                             Margin="0,0,0,16"/>
 
         <!-- Loading overlay -->
         <ProgressRing Grid.Row="1"
@@ -83,104 +79,53 @@
                                        HorizontalAlignment="Center"
                                        Margin="0,40,0,0"/>
 
-                            <!-- Game cards -->
+                            <!-- Game rows -->
                             <ItemsRepeater ItemsSource="{x:Bind ViewModel.Games, Mode=OneWay}">
                                 <ItemsRepeater.Layout>
-                                    <StackLayout Spacing="4"/>
+                                    <StackLayout Spacing="6"/>
                                 </ItemsRepeater.Layout>
                                 <ItemsRepeater.ItemTemplate>
                                     <DataTemplate x:DataType="vm:GameDisplayItem">
-                                        <Border Background="{StaticResource CardBackgroundBrush}"
-                                                CornerRadius="2"
-                                                BorderThickness="2"
-                                                Padding="12,10">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-
-                                                <!-- Left: Champion + meta info -->
-                                                <StackPanel Grid.Column="0" Spacing="2">
-                                                    <TextBlock FontSize="15" FontWeight="Bold">
-                                                        <Run Text="{x:Bind WinLossText}"/>
-                                                        <Run Text="  "/>
-                                                        <Run Text="{x:Bind ChampionName}"/>
-                                                    </TextBlock>
-                                                    <TextBlock FontSize="11"
-                                                               Foreground="{StaticResource SecondaryTextBrush}">
-                                                        <Run Text="{x:Bind DatePlayed}"/>
-                                                        <Run Text="  &#8226;  "/>
-                                                        <Run Text="{x:Bind Duration}"/>
-                                                        <Run Text="  &#8226;  "/>
-                                                        <Run Text="{x:Bind GameMode}"/>
-                                                    </TextBlock>
+                                        <controls:GameRowCard Champion="{x:Bind ChampionName}"
+                                                              Win="{x:Bind Win}"
+                                                              Meta="{x:Bind MetaLine}"
+                                                              Kda="{x:Bind KdaText}"
+                                                              Stats="{x:Bind StatsLine}">
+                                            <controls:GameRowCard.Actions>
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <Button Content="Watch VOD"
+                                                            Style="{StaticResource GoldListActionButtonStyle}"
+                                                            Tag="{x:Bind GameId}"
+                                                            Visibility="{x:Bind HasVod, Converter={StaticResource BoolToVis}}"
+                                                            Click="WatchVodButton_Click"/>
+                                                    <Button Content="Review"
+                                                            Style="{StaticResource ListActionButtonStyle}"
+                                                            Tag="{x:Bind GameId}"
+                                                            Click="ReviewButton_Click"/>
+                                                    <Button Style="{StaticResource GhostIconButtonStyle}"
+                                                            Tag="{x:Bind GameId}"
+                                                            ToolTipService.ToolTip="Hide this game"
+                                                            Click="HideGameButton_Click">
+                                                        <FontIcon Glyph="&#xE74D;"
+                                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                                  FontSize="13"/>
+                                                    </Button>
                                                 </StackPanel>
-
-                                                <!-- Right: KDA + stats + button -->
-                                                <StackPanel Grid.Column="1" HorizontalAlignment="Right" Spacing="2">
-                                                    <TextBlock FontSize="14" FontWeight="Bold"
-                                                               Foreground="{StaticResource PrimaryTextBrush}"
-                                                               HorizontalAlignment="Right">
-                                                        <Run Text="{x:Bind KdaText}"/>
-                                                        <Run Text="  "/>
-                                                        <Run Text="{x:Bind KdaRatioText}"/>
-                                                    </TextBlock>
-                                                    <TextBlock Text="{x:Bind StatsLine}"
-                                                               FontSize="11"
-                                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                                               HorizontalAlignment="Right"/>
-                                                    <StackPanel Orientation="Horizontal"
-                                                                HorizontalAlignment="Right"
-                                                                Spacing="6"
-                                                                Margin="0,4,0,0">
-                                                        <Button Content="Watch VOD"
-                                                                FontSize="11" Height="26"
-                                                                Padding="14,0" CornerRadius="2"
-                                                                Background="{StaticResource AccentGoldDimBrush}"
-                                                                Foreground="{StaticResource AccentGoldBrush}"
-                                                                BorderBrush="{StaticResource AccentGoldBrush}"
-                                                                BorderThickness="1"
-                                                                Tag="{x:Bind GameId}"
-                                                                Visibility="{x:Bind HasVod, Converter={StaticResource BoolToVis}}"
-                                                                Click="WatchVodButton_Click"/>
-                                                        <Button Content="Review"
-                                                                FontSize="11" Height="26"
-                                                                Padding="14,0" CornerRadius="2"
-                                                                Background="{StaticResource AccentBlueBrush}"
-                                                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
-                                                                Tag="{x:Bind GameId}"
-                                                                Click="ReviewButton_Click"/>
-                                                        <Button Content="&#xE74D;"
-                                                                FontFamily="Segoe MDL2 Assets"
-                                                                FontSize="11" Height="26" Width="26"
-                                                                Padding="0" CornerRadius="2"
-                                                                Background="Transparent"
-                                                                Foreground="{StaticResource SecondaryTextBrush}"
-                                                                BorderThickness="1"
-                                                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                                Tag="{x:Bind GameId}"
-                                                                ToolTipService.ToolTip="Hide this game"
-                                                                Click="HideGameButton_Click"/>
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </Grid>
-                                        </Border>
+                                            </controls:GameRowCard.Actions>
+                                        </controls:GameRowCard>
                                     </DataTemplate>
                                 </ItemsRepeater.ItemTemplate>
                             </ItemsRepeater>
 
                             <!-- Load More button -->
                             <Button Content="Load More"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
                                     Visibility="{x:Bind ViewModel.HasMorePages, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                     Command="{x:Bind ViewModel.LoadMoreCommand}"
                                     HorizontalAlignment="Center"
                                     Margin="0,12,0,24"
                                     Height="32" Width="160"
-                                    CornerRadius="2"
-                                    FontSize="13"
-                                    Background="{StaticResource AccentBlueBrush}"
-                                    Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
+                                    FontSize="13"/>
                         </StackPanel>
             </ScrollViewer>
         </Grid>

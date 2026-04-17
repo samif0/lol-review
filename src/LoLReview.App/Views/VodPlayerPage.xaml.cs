@@ -49,6 +49,8 @@ public sealed partial class VodPlayerPage : Page
             PointerPressedEvent,
             new PointerEventHandler(OnVideoPointerPressed),
             handledEventsToo: true);
+
+        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -299,6 +301,16 @@ public sealed partial class VodPlayerPage : Page
 
     // ── UI event handlers ───────────────────────────────────────────
 
+    private void OnVideoBorderPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        VideoBorder.BorderBrush = (Brush)Application.Current.Resources["BrightBorderBrush"];
+    }
+
+    private void OnVideoBorderPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        VideoBorder.BorderBrush = (Brush)Application.Current.Resources["SubtleBorderBrush"];
+    }
+
     private void OnVideoTapped(object sender, TappedRoutedEventArgs e)
     {
         FocusPlaybackSurface();
@@ -311,6 +323,7 @@ public sealed partial class VodPlayerPage : Page
             return;
         }
 
+        OnPlayPauseRequested();
         FocusPlaybackSurface();
     }
 

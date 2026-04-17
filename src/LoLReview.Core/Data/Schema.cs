@@ -675,6 +675,7 @@ public static class Schema
         ("Survived early",    "positive", "#22c55e"),
         ("Caught out",        "negative", "#ef4444"),
         ("Bad trade",         "negative", "#ef4444"),
+        ("Poor micro",        "negative", "#ef4444"),
         ("Poor macro",        "negative", "#ef4444"),
         ("Tilted",            "negative", "#ef4444"),
         ("Overextended",      "negative", "#ef4444"),

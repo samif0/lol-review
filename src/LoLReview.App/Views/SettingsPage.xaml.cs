@@ -1,5 +1,6 @@
 #nullable enable
 
+using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using LoLReview.Core.Services;
 using Microsoft.UI.Xaml;
@@ -17,6 +18,7 @@ public sealed partial class SettingsPage : Page
     {
         ViewModel = App.GetService<SettingsViewModel>();
         InitializeComponent();
+        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
