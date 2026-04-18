@@ -1,7 +1,9 @@
 #nullable enable
 
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
@@ -263,6 +265,136 @@ public sealed class CoachApiClient : ICoachApiClient
             _logger.LogWarning(ex, "ask failed");
             return null;
         }
+    }
+
+    public async IAsyncEnumerable<CoachAskStreamEvent> AskStreamAsync(
+        string question,
+        long? threadId = null,
+        CoachScope? scope = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["question"] = question,
+            ["thread_id"] = threadId,
+        };
+        if (scope is not null)
+        {
+            var scopeDict = new Dictionary<string, object?>();
+            if (scope.GameId is not null) scopeDict["game_id"] = scope.GameId;
+            if (scope.Since is not null) scopeDict["since"] = scope.Since;
+            if (scope.Until is not null) scopeDict["until"] = scope.Until;
+            if (scopeDict.Count > 0) body["scope"] = scopeDict;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, Url("/coach/ask-stream"))
+        {
+            Content = JsonContent.Create(body, options: JsonOpts),
+        };
+
+        HttpResponseMessage? response = null;
+        string? connectError = null;
+        try
+        {
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ask-stream connect failed");
+            connectError = "Connect failed. Is the sidecar running?";
+        }
+        if (connectError is not null || response is null)
+        {
+            yield return new CoachAskStreamError(connectError ?? "Connect failed.");
+            yield break;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            yield return new CoachAskStreamError($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+            response.Dispose();
+            yield break;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(stream);
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            string? line = null;
+            string? readError = null;
+            try
+            {
+                line = await reader.ReadLineAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "stream read failed");
+                readError = "Stream read failed.";
+            }
+            if (readError is not null)
+            {
+                yield return new CoachAskStreamError(readError);
+                break;
+            }
+            if (line is null) break;
+            if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
+            var json = line["data: ".Length..];
+            if (json == "[DONE]") break;
+
+            CoachAskStreamEvent? evt = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+                switch (type)
+                {
+                    case "started":
+                    {
+                        var tid = root.GetProperty("thread_id").GetInt64();
+                        var umid = root.GetProperty("user_message_id").GetInt64();
+                        var totals = new Dictionary<string, int>();
+                        if (root.TryGetProperty("coach_visible_totals", out var tt) && tt.ValueKind == JsonValueKind.Object)
+                        {
+                            foreach (var prop in tt.EnumerateObject())
+                            {
+                                if (prop.Value.TryGetInt32(out var v))
+                                    totals[prop.Name] = v;
+                            }
+                        }
+                        evt = new CoachAskStreamStarted(tid, umid, totals);
+                        break;
+                    }
+                    case "delta":
+                        evt = new CoachAskStreamDelta(root.GetProperty("text").GetString() ?? "");
+                        break;
+                    case "done":
+                        evt = new CoachAskStreamDone(
+                            root.GetProperty("assistant_message_id").GetInt64(),
+                            root.GetProperty("model").GetString() ?? "",
+                            root.GetProperty("provider").GetString() ?? "",
+                            root.TryGetProperty("latency_ms", out var lm) ? lm.GetInt32() : 0);
+                        break;
+                    case "error":
+                        evt = new CoachAskStreamError(root.GetProperty("message").GetString() ?? "unknown error");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "bad sse chunk: {Line}", line);
+                continue;
+            }
+
+            if (evt is not null)
+                yield return evt;
+
+            if (evt is CoachAskStreamDone or CoachAskStreamError)
+                break;
+        }
+
+        response.Dispose();
     }
 
     public async Task<CoachThread?> GetThreadAsync(long threadId, CancellationToken cancellationToken = default)

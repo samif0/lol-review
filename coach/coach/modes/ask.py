@@ -12,7 +12,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from coach.config import load_config
 from coach.db import read_core, write_coach
@@ -143,6 +143,120 @@ async def run_ask(
         assistant_message=assistant_message,
         coach_visible_totals=context.get("coach_visible_totals", {}),
     )
+
+
+async def run_ask_stream(
+    question: str,
+    thread_id: int | None = None,
+    scope: dict[str, Any] | None = None,
+) -> AsyncIterator[str]:
+    """Yield SSE-formatted lines for a streaming ask.
+
+    Event shapes (all as `data: {json}\\n\\n`):
+      {"type":"started", "thread_id":N, "user_message_id":N, "coach_visible_totals":{...}}
+      {"type":"delta",   "text":"..."}            # one chunk of assistant text
+      {"type":"done",    "assistant_message_id":N, "model":"...", "provider":"...", "latency_ms":N}
+      {"type":"error",   "message":"..."}
+    """
+
+    try:
+        now = int(time.time())
+
+        # Thread handling (same as run_ask)
+        if thread_id is None:
+            thread_id = _create_thread(scope, now, title_from_question(question))
+            scope_for_thread = scope
+        else:
+            scope_for_thread = _load_thread_scope(thread_id)
+
+        effective_scope = scope_for_thread or {}
+        context = _retrieve_context(question, effective_scope)
+        history = _load_recent_messages(thread_id, MAX_HISTORY_TURNS * 2)
+
+        user_msg_id = _persist_message(
+            thread_id=thread_id,
+            role="user",
+            content=question,
+            context_json=json.dumps({"scope": effective_scope}),
+            model_name=None,
+            provider=None,
+            latency_ms=None,
+            input_tokens=None,
+            output_tokens=None,
+            created_at=now,
+        )
+
+        yield _sse({
+            "type": "started",
+            "thread_id": thread_id,
+            "user_message_id": user_msg_id,
+            "coach_visible_totals": context.get("coach_visible_totals", {}),
+        })
+
+        cfg = load_config()
+        provider = get_provider()
+        model = _pick_model(cfg)
+
+        system_prompt = _load_prompt().replace(
+            "{{context}}", json.dumps(context, indent=2, default=str)[:60000]
+        ).replace("{{question}}", question)
+
+        messages: list[LLMMessage] = [LLMMessage(role="user", content=system_prompt)]
+        for m in history:
+            messages.append(LLMMessage(role=m["role"], content=m["content"]))
+
+        req = LLMRequest(
+            messages=messages,
+            model=model,
+            temperature=0.3,
+            max_tokens=1500,
+        )
+
+        start = time.perf_counter()
+        accumulated: list[str] = []
+
+        try:
+            async for chunk in provider.complete_stream(req):
+                if chunk:
+                    accumulated.append(chunk)
+                    yield _sse({"type": "delta", "text": chunk})
+        except Exception as exc:
+            logger.exception("stream failed")
+            yield _sse({"type": "error", "message": str(exc)})
+            return
+
+        full_text = "".join(accumulated)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        assistant_now = int(time.time())
+
+        assistant_msg_id = _persist_message(
+            thread_id=thread_id,
+            role="assistant",
+            content=full_text,
+            context_json=None,
+            model_name=model,
+            provider=provider.name,
+            latency_ms=latency_ms,
+            input_tokens=None,
+            output_tokens=None,
+            created_at=assistant_now,
+        )
+        _touch_thread(thread_id, assistant_now)
+
+        yield _sse({
+            "type": "done",
+            "assistant_message_id": assistant_msg_id,
+            "model": model,
+            "provider": provider.name,
+            "latency_ms": latency_ms,
+        })
+    except Exception as exc:
+        logger.exception("run_ask_stream failed")
+        yield _sse({"type": "error", "message": str(exc)})
+
+
+def _sse(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 # ──────────────────────────────────────────────────────────────────

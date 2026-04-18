@@ -13,6 +13,7 @@
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
         <converters:InverseBoolConverter x:Key="InverseBool"/>
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
 
         <DataTemplate x:Key="UserMessageTemplate" x:DataType="vm:CoachChatMessageViewModel">
             <Grid Margin="0,6,0,6">
@@ -63,11 +64,26 @@
                         BorderThickness="1"
                         CornerRadius="2"
                         Padding="10,8">
-                    <TextBlock Text="{x:Bind Content, Mode=OneWay}"
-                               FontSize="13"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               TextWrapping="Wrap"
-                               IsTextSelectionEnabled="True"/>
+                    <Grid>
+                        <!-- Thinking indicator -->
+                        <StackPanel Orientation="Horizontal" Spacing="8"
+                                    Visibility="{x:Bind IsThinking, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <ProgressRing IsActive="True" Width="14" Height="14"/>
+                            <TextBlock Text="Thinking..."
+                                       FontSize="12"
+                                       FontStyle="Italic"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Streamed / final content (shown once any text arrives) -->
+                        <TextBlock Text="{x:Bind Content, Mode=OneWay}"
+                                   Visibility="{x:Bind IsThinking, Mode=OneWay, Converter={StaticResource InverseBoolToVis}}"
+                                   FontSize="13"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"
+                                   IsTextSelectionEnabled="True"/>
+                    </Grid>
                 </Border>
             </Grid>
         </DataTemplate>

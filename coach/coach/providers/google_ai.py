@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import time
-from typing import Any
+from typing import Any, AsyncIterator
 
 import httpx
 
@@ -74,6 +75,50 @@ class GoogleAIProvider(LLMProvider):
             latency_ms=latency_ms,
         )
 
+    async def complete_stream(self, req: LLMRequest) -> AsyncIterator[str]:
+        """Stream text chunks from streamGenerateContent?alt=sse."""
+        if not self._api_key:
+            raise RuntimeError("Google AI provider is selected but no API key is configured.")
+
+        url = f"{self.BASE_URL}/models/{self._model}:streamGenerateContent?alt=sse&key={self._api_key}"
+        contents = self._build_contents(req)
+        body: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {
+                "temperature": req.temperature,
+                "maxOutputTokens": req.max_tokens,
+            },
+        }
+        if req.response_format == "json":
+            body["generationConfig"]["responseMimeType"] = "application/json"
+
+        async with self._client.stream("POST", url, json=body) as response:
+            if response.status_code >= 400:
+                body_text = await response.aread()
+                raise httpx.HTTPStatusError(
+                    f"Streaming error {response.status_code}: {body_text.decode('utf-8', errors='replace')[:500]}",
+                    request=response.request,
+                    response=response,
+                )
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[len("data: "):]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data_str)
+                except Exception:
+                    continue
+                candidates = event.get("candidates", [])
+                if not candidates:
+                    continue
+                parts = candidates[0].get("content", {}).get("parts", [])
+                for p in parts:
+                    text = p.get("text", "")
+                    if text:
+                        yield text
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError(
             "Use coach.concepts.embedder for embeddings (deterministic, local)."
@@ -83,6 +128,9 @@ class GoogleAIProvider(LLMProvider):
         return True
 
     def supports_json_mode(self) -> bool:
+        return True
+
+    def supports_streaming(self) -> bool:
         return True
 
     async def available(self) -> bool:

@@ -39,6 +39,7 @@ public interface ICoachApiClient
 
     // Chat (phase-2-reshape)
     Task<CoachAskResponse?> AskAsync(string question, long? threadId = null, CoachScope? scope = null, CancellationToken cancellationToken = default);
+    IAsyncEnumerable<CoachAskStreamEvent> AskStreamAsync(string question, long? threadId = null, CoachScope? scope = null, CancellationToken cancellationToken = default);
     Task<CoachThread?> GetThreadAsync(long threadId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<CoachThreadSummary>> ListThreadsAsync(int limit = 50, CancellationToken cancellationToken = default);
 
@@ -90,6 +91,12 @@ public record CoachGenerateObjectiveResponse(
     string Model,
     string Provider,
     int LatencyMs);
+
+public abstract record CoachAskStreamEvent;
+public sealed record CoachAskStreamStarted(long ThreadId, long UserMessageId, IReadOnlyDictionary<string, int> CoachVisibleTotals) : CoachAskStreamEvent;
+public sealed record CoachAskStreamDelta(string Text) : CoachAskStreamEvent;
+public sealed record CoachAskStreamDone(long AssistantMessageId, string Model, string Provider, int LatencyMs) : CoachAskStreamEvent;
+public sealed record CoachAskStreamError(string Message) : CoachAskStreamEvent;
 
 public record CoachTestPromptResponse(string Text, string Model, string Provider, int LatencyMs);
 

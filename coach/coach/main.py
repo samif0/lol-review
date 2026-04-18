@@ -18,7 +18,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from coach import __version__
 from coach.config import load_config, log_path, update_config
@@ -164,6 +164,25 @@ async def coach_ask(req: AskRequest) -> AskResponse:
     from coach.modes.ask import run_ask
 
     return await run_ask(req.question, thread_id=req.thread_id, scope=req.scope)
+
+
+@app.post("/coach/ask-stream")
+async def coach_ask_stream(req: AskRequest) -> StreamingResponse:
+    """Server-Sent Events: stream model tokens as they arrive."""
+    from coach.modes.ask import run_ask_stream
+
+    async def gen():
+        async for line in run_ask_stream(req.question, thread_id=req.thread_id, scope=req.scope):
+            yield line
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # in case anything middleware-y tries to buffer
+        },
+    )
 
 
 @app.get("/coach/threads")

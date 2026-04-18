@@ -57,58 +57,96 @@ public sealed partial class CoachChatViewModel : ObservableObject
 
         IsBusy = true;
         InputText = "";
-        StatusText = "Asking...";
+        StatusText = "Connecting...";
 
-        // Show user message optimistically
-        var tempUserMsg = new CoachChatMessageViewModel
+        // Optimistically add the user message.
+        var userMsg = new CoachChatMessageViewModel
         {
             Role = "user",
             Content = question,
             IsUser = true,
             ProviderTag = "",
         };
-        Messages.Add(tempUserMsg);
+        Messages.Add(userMsg);
+
+        // Add a placeholder assistant message that will be filled by streamed deltas.
+        var assistantMsg = new CoachChatMessageViewModel
+        {
+            Role = "assistant",
+            Content = "",
+            IsUser = false,
+            IsThinking = true,
+            ProviderTag = "",
+        };
+        Messages.Add(assistantMsg);
+
+        var completedCleanly = false;
 
         try
         {
-            var result = await _api.AskAsync(question, ActiveThreadId, PendingScope);
-            if (result is null)
+            await foreach (var evt in _api.AskStreamAsync(question, ActiveThreadId, PendingScope))
             {
-                StatusText = "No response. Check sidecar + provider.";
-                return;
+                switch (evt)
+                {
+                    case CoachAskStreamStarted started:
+                        ActiveThreadId = started.ThreadId;
+                        userMsg.Id = started.UserMessageId;
+                        UpdateTotals(started.CoachVisibleTotals);
+                        StatusText = "Thinking...";
+                        break;
+
+                    case CoachAskStreamDelta delta:
+                        assistantMsg.IsThinking = false;
+                        assistantMsg.Content += delta.Text;
+                        StatusText = "";
+                        break;
+
+                    case CoachAskStreamDone done:
+                        assistantMsg.Id = done.AssistantMessageId;
+                        assistantMsg.IsThinking = false;
+                        assistantMsg.ProviderTag = $"[{done.Provider} / {done.Model} / {done.LatencyMs}ms]";
+                        ProviderTag = assistantMsg.ProviderTag;
+                        StatusText = HasScope ? $"Scoped: {ScopeChipText}" : "";
+                        if (HasScope) PendingScope = null;
+                        completedCleanly = true;
+                        break;
+
+                    case CoachAskStreamError err:
+                        assistantMsg.IsThinking = false;
+                        // Remove the empty placeholder if nothing streamed
+                        if (string.IsNullOrEmpty(assistantMsg.Content))
+                        {
+                            Messages.Remove(assistantMsg);
+                        }
+                        // Also remove the user message if the ask didn't even start
+                        // (no thread id assigned by the started event).
+                        if (ActiveThreadId is null || userMsg.Id == 0)
+                        {
+                            Messages.Remove(userMsg);
+                        }
+                        StatusText = $"Error: {err.Message}";
+                        break;
+                }
             }
 
-            ActiveThreadId = result.ThreadId;
-            // Replace temp id with the real one
-            tempUserMsg.Id = result.UserMessage.Id;
-
-            var assistantMsg = new CoachChatMessageViewModel
+            if (!completedCleanly && assistantMsg.IsThinking)
             {
-                Id = result.AssistantMessage.Id,
-                Role = "assistant",
-                Content = result.AssistantMessage.Content,
-                IsUser = false,
-                ProviderTag = $"[{result.AssistantMessage.Provider} / {result.AssistantMessage.Model} / {result.AssistantMessage.LatencyMs}ms]",
-            };
-            Messages.Add(assistantMsg);
-
-            ProviderTag = assistantMsg.ProviderTag;
-            StatusText = "";
-            UpdateTotals(result.CoachVisibleTotals);
-
-            // After the first turn, the scope is baked into the thread — clear
-            // the pending chip so subsequent turns go into the same thread
-            // without re-scoping.
-            if (HasScope)
-            {
-                // keep the label visible but note it's now thread-level
-                StatusText = $"Scoped: {ScopeChipText}";
-                PendingScope = null;
+                // Stream ended without a done or error event.
+                if (string.IsNullOrEmpty(assistantMsg.Content))
+                {
+                    Messages.Remove(assistantMsg);
+                }
+                assistantMsg.IsThinking = false;
+                StatusText = string.IsNullOrEmpty(StatusText) ? "Stream ended unexpectedly." : StatusText;
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "ask failed in viewmodel");
+            _logger.LogWarning(ex, "ask-stream failed in viewmodel");
+            if (string.IsNullOrEmpty(assistantMsg.Content))
+            {
+                Messages.Remove(assistantMsg);
+            }
             StatusText = "Error. See log.";
         }
         finally
@@ -200,4 +238,5 @@ public sealed partial class CoachChatMessageViewModel : ObservableObject
     [ObservableProperty] private string _content = "";
     [ObservableProperty] private bool _isUser;
     [ObservableProperty] private string _providerTag = "";
+    [ObservableProperty] private bool _isThinking;
 }
