@@ -16,9 +16,30 @@
 /experiments/sam3_vod/.venv/
 /experiments/sam3_vod/__pycache__/
 /experiments/sam3_vod/*.local.json
-/experiments/coach_lab/__pycache__/
+
+# Legacy Python venvs removed in coach phase -1 (kept ignored for safety
+# in case local copies still exist on any machine)
 /.venv-coach-qwen/
 /.venv-coach-gemma/
+/experiments/coach_lab/
+
+# Coach rebuild (phase 0+) Python sidecar
+/coach/__pycache__/
+/coach/**/__pycache__/
+/coach/.venv/
+/coach/.venv-*/
+/coach/**/.venv/
+/coach/coach.egg-info/
+/coach/build/
+/coach/dist/
+/coach/.pytest_cache/
+/coach/.ruff_cache/
+/coach/.mypy_cache/
+/.pytest_cache/
+
+# Build logs
+/build.binlog
+*.binlog
 
 # OS junk
 .fuse_hidden*
