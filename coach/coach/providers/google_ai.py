@@ -45,17 +45,17 @@ class GoogleAIProvider(LLMProvider):
 
         url = f"{self.BASE_URL}/models/{self._model}:generateContent?key={self._api_key}"
         contents = self._build_contents(req)
-        body: dict[str, Any] = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": req.temperature,
-                "maxOutputTokens": req.max_tokens,
-                "topP": 0.95,
-                "topK": 64,
-                # Cap thinking so it doesn't starve the answer allowance.
-                "thinkingConfig": {"thinkingBudget": 2048},
-            },
+        gen_config: dict[str, Any] = {
+            "temperature": req.temperature,
+            "maxOutputTokens": req.max_tokens,
+            "topP": 0.95,
+            "topK": 64,
         }
+        # thinkingConfig is a Gemini-family feature; Gemma models reject it
+        # with 400 INVALID_ARGUMENT. Only add it for Gemini.
+        if self._model_supports_thinking_config():
+            gen_config["thinkingConfig"] = {"thinkingBudget": 2048}
+        body: dict[str, Any] = {"contents": contents, "generationConfig": gen_config}
         if req.response_format == "json":
             body["generationConfig"]["responseMimeType"] = "application/json"
 
@@ -94,26 +94,22 @@ class GoogleAIProvider(LLMProvider):
 
         url = f"{self.BASE_URL}/models/{self._model}:streamGenerateContent?alt=sse&key={self._api_key}"
         contents = self._build_contents(req)
-        body: dict[str, Any] = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": req.temperature,
-                "maxOutputTokens": req.max_tokens,
-                # topP + topK nudge Gemma 4 away from the pathological
-                # token-repeat loops we've seen ('I donleksya_ch_av_av_av_').
-                "topP": 0.95,
-                "topK": 64,
-                # Keep thinking on for quality, but:
-                # - cap the thinking budget so reasoning doesn't eat the
-                #   entire maxOutputTokens allowance before an answer starts
-                # - mark reasoning parts as `thought: true` so the UI hides
-                #   them behind a 'Thinking...' indicator
-                "thinkingConfig": {
-                    "includeThoughts": True,
-                    "thinkingBudget": 2048,
-                },
-            },
+        gen_config: dict[str, Any] = {
+            "temperature": req.temperature,
+            "maxOutputTokens": req.max_tokens,
+            # topP + topK nudge Gemma 4 away from pathological token-repeat
+            # loops ('I donleksya_ch_av_av_av_').
+            "topP": 0.95,
+            "topK": 64,
         }
+        # Gemini supports thinkingConfig (reasoning-mode control); Gemma
+        # rejects it with 400 INVALID_ARGUMENT. Enable only for Gemini.
+        if self._model_supports_thinking_config():
+            gen_config["thinkingConfig"] = {
+                "includeThoughts": True,
+                "thinkingBudget": 2048,
+            }
+        body: dict[str, Any] = {"contents": contents, "generationConfig": gen_config}
         if req.response_format == "json":
             body["generationConfig"]["responseMimeType"] = "application/json"
 
@@ -247,6 +243,11 @@ class GoogleAIProvider(LLMProvider):
                     )
             contents.append({"role": role, "parts": parts})
         return contents
+
+    def _model_supports_thinking_config(self) -> bool:
+        """thinkingConfig is Gemini-family only. Gemma rejects it with 400."""
+        name = (self._model or "").lower()
+        return name.startswith("gemini-") or "gemini" in name.split("/")
 
     async def aclose(self) -> None:
         await self._client.aclose()
