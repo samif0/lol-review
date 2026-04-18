@@ -50,6 +50,10 @@ class GoogleAIProvider(LLMProvider):
             "generationConfig": {
                 "temperature": req.temperature,
                 "maxOutputTokens": req.max_tokens,
+                "topP": 0.95,
+                "topK": 64,
+                # Cap thinking so it doesn't starve the answer allowance.
+                "thinkingConfig": {"thinkingBudget": 2048},
             },
         }
         if req.response_format == "json":
@@ -99,10 +103,15 @@ class GoogleAIProvider(LLMProvider):
                 # token-repeat loops we've seen ('I donleksya_ch_av_av_av_').
                 "topP": 0.95,
                 "topK": 64,
-                # Keep thinking on for quality, but request Google to mark
-                # reasoning parts as `thought: true` so we can separate them
-                # from the final answer.
-                "thinkingConfig": {"includeThoughts": True},
+                # Keep thinking on for quality, but:
+                # - cap the thinking budget so reasoning doesn't eat the
+                #   entire maxOutputTokens allowance before an answer starts
+                # - mark reasoning parts as `thought: true` so the UI hides
+                #   them behind a 'Thinking...' indicator
+                "thinkingConfig": {
+                    "includeThoughts": True,
+                    "thinkingBudget": 2048,
+                },
             },
         }
         if req.response_format == "json":
