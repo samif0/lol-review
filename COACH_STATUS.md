@@ -83,9 +83,7 @@ Current items:
   - Claude's lean: (a) — signals alone + summary are already useful; concepts compound over time.
   - **Resolution:** (pending @samif0)
 
-- **UNCLEAR-006:** Gemma model tag for Ollama default. (Flagged 2026-04-18, phase 0, §11.)
-  - Plan specifies `gemma3:12b`. Confirm or swap to `gemma3:27b` / `gemma4:*` if available on @samif0's machine.
-  - **Resolution:** (pending @samif0)
+- ~~**UNCLEAR-006:** Gemma model tag for Ollama default.~~ **Resolved 2026-04-18 by @samif0:** swap to `gemma4:e4b` (Gemma 4 E4B, 4.5B effective, multimodal, 128K context, Apache 2.0). Config defaults updated across config.py, README.md, CoachSettingsViewModel, SettingsPage.xaml. Google AI Studio and OpenRouter stay on `gemma-3-27b-it` until hosted providers publish Gemma 4 tags.
 
 ---
 

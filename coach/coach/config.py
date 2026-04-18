@@ -24,16 +24,23 @@ ProviderName = Literal["ollama", "google_ai", "openrouter"]
 
 class OllamaConfig(BaseModel):
     base_url: str = "http://localhost:11434"
-    model: str = "gemma3:12b"
-    vision_model: str = "gemma3:12b"
+    # Gemma 4 E4B: 4.5B effective params, multimodal (text+image+audio),
+    # 128K context, Apache 2.0. Default "latest" on Ollama.
+    # Pull with: ollama pull gemma4:e4b
+    model: str = "gemma4:e4b"
+    vision_model: str = "gemma4:e4b"
 
 
 class GoogleAIConfig(BaseModel):
+    # When Google AI Studio publishes Gemma 4, swap to e.g. "gemma-4-e4b-it".
+    # Until then, gemma-3-27b-it is the best hosted Gemma.
     model: str = "gemma-3-27b-it"
     api_key: str | None = None  # injected by C# at runtime
 
 
 class OpenRouterConfig(BaseModel):
+    # OpenRouter model IDs trail Google AI Studio by a few days on new
+    # Gemma releases; update to google/gemma-4-* when available.
     model: str = "google/gemma-3-27b-it"
     api_key: str | None = None  # injected by C# at runtime
 

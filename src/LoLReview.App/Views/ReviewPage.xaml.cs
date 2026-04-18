@@ -12,10 +12,12 @@ namespace LoLReview.App.Views;
 public sealed partial class ReviewPage : Page
 {
     public ReviewViewModel ViewModel { get; }
+    public CoachPanelViewModel CoachPanel { get; }
 
     public ReviewPage()
     {
         ViewModel = App.GetService<ReviewViewModel>();
+        CoachPanel = App.GetService<CoachPanelViewModel>();
         ViewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(ReviewViewModel.Attribution))
@@ -34,7 +36,19 @@ public sealed partial class ReviewPage : Page
         if (e.Parameter is long gameId)
         {
             ViewModel.LoadCommand.Execute(gameId);
+            CoachPanel.SetGame(gameId);
         }
+    }
+
+    private void OnApplyCoachDraftClick(object sender, RoutedEventArgs e)
+    {
+        // Copy draft fields into the review viewmodel's bound properties.
+        if (!string.IsNullOrWhiteSpace(CoachPanel.DraftMistakes))
+            ViewModel.Mistakes = CoachPanel.DraftMistakes;
+        if (!string.IsNullOrWhiteSpace(CoachPanel.DraftWentWell))
+            ViewModel.WentWell = CoachPanel.DraftWentWell;
+        if (!string.IsNullOrWhiteSpace(CoachPanel.DraftFocusNext))
+            ViewModel.FocusNext = CoachPanel.DraftFocusNext;
     }
 
     // ── Attribution radio button helpers ─────────────────────────────

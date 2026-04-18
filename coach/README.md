@@ -55,9 +55,9 @@ POST /coach/test-prompt           { prompt }
 
 ## Providers
 
-- **Ollama** (default, local): `gemma3:12b` for text + vision
-- **Google AI Studio** (hosted): `gemma-3-27b-it`
-- **OpenRouter** (hosted, flexible): `google/gemma-3-27b-it`
+- **Ollama** (default, local): `gemma4:e4b` for text + vision (4.5B params, 128K context, multimodal)
+- **Google AI Studio** (hosted): `gemma-3-27b-it` (Gemma 4 on hosted providers lags Ollama by a few days on new releases; swap to `gemma-4-e4b-it` when available)
+- **OpenRouter** (hosted, flexible): `google/gemma-3-27b-it` (same note)
 
 Config example at `%LOCALAPPDATA%\LoLReviewData\coach_config.json`:
 
@@ -65,11 +65,13 @@ Config example at `%LOCALAPPDATA%\LoLReviewData\coach_config.json`:
 {
   "provider": "ollama",
   "port": 5577,
-  "ollama":     { "base_url": "http://localhost:11434", "model": "gemma3:12b", "vision_model": "gemma3:12b" },
+  "ollama":     { "base_url": "http://localhost:11434", "model": "gemma4:e4b", "vision_model": "gemma4:e4b" },
   "google_ai":  { "model": "gemma-3-27b-it" },
   "openrouter": { "model": "google/gemma-3-27b-it" }
 }
 ```
+
+**Other Gemma 4 Ollama tags:** `gemma4:e2b` (smaller), `gemma4:26b` (MoE, 3.8B active), `gemma4:31b` (dense largest), `gemma4:31b-cloud` (hosted via Ollama cloud).
 
 API keys are **not** in the config file — they're injected by C# from
 Windows Credential Manager via `POST /config` after sidecar health green.

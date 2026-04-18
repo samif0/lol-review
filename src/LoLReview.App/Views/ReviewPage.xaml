@@ -12,6 +12,7 @@
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
     </Page.Resources>
 
     <Grid x:Name="RootGrid">
@@ -28,7 +29,6 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <Button Grid.Column="0"
@@ -44,18 +44,6 @@
                                      EyebrowText="GAME ANALYSIS"
                                      Title="{x:Bind ViewModel.HeaderText, Mode=OneWay}"/>
 
-                <Button Grid.Column="2"
-                        Command="{x:Bind ViewModel.WatchVodCommand}"
-                        Style="{StaticResource PrimaryActionButtonStyle}"
-                        Height="36" Padding="16,0"
-                        VerticalAlignment="Top"
-                        Margin="0,16,0,0"
-                        Visibility="{x:Bind ViewModel.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE768;" FontSize="14"/>
-                        <TextBlock Text="Watch VOD" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
             </Grid>
 
             <!-- Scrollable Content -->
@@ -208,12 +196,9 @@
                                                                    FontSize="11"
                                                                    Foreground="{StaticResource AccentBlueBrush}"/>
                                                     </StackPanel>
-                                                    <CheckBox Grid.Column="1"
-                                                              IsChecked="{x:Bind Practiced, Mode=TwoWay}"
-                                                              Content="Practiced"
-                                                              FontSize="12"
-                                                              Foreground="{StaticResource PrimaryTextBrush}"
-                                                              VerticalAlignment="Center"/>
+                                                    <ToggleButton Grid.Column="1"
+                                                                  IsChecked="{x:Bind Practiced, Mode=TwoWay}"
+                                                                  Style="{StaticResource HudPracticedToggleStyle}"/>
                                                 </Grid>
 
                                                 <!-- Row 1: Criteria -->
@@ -281,6 +266,83 @@
 
                             <!-- Performance Review -->
                             <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
+
+                            <!-- AI Coach draft panel -->
+                            <Border Background="{StaticResource InputBackgroundBrush}"
+                                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="2"
+                                    Padding="10">
+                                <StackPanel Spacing="6">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Text="AI COACH DRAFT"
+                                                       FontSize="11" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{x:Bind CoachPanel.StatusText, Mode=OneWay}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{x:Bind CoachPanel.ProviderTag, Mode=OneWay}"
+                                                       FontSize="10"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                                       VerticalAlignment="Center"
+                                                       FontFamily="Consolas"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                            <Button Content="Draft with coach"
+                                                    Command="{x:Bind CoachPanel.DraftPostGameCommand}"
+                                                    IsEnabled="{x:Bind CoachPanel.IsBusy, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"
+                                                    Style="{StaticResource QuietActionButtonStyle}"
+                                                    FontSize="11" Height="28"
+                                                    Padding="12,0" CornerRadius="2"/>
+                                            <Button Content="Apply to review"
+                                                    Click="OnApplyCoachDraftClick"
+                                                    Visibility="{x:Bind CoachPanel.HasDraft, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                    Style="{StaticResource QuietActionButtonStyle}"
+                                                    FontSize="11" Height="28"
+                                                    Padding="12,0" CornerRadius="2"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <StackPanel Visibility="{x:Bind CoachPanel.HasDraft, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                Spacing="4">
+                                        <TextBlock Text="MISTAKES (DRAFT)"
+                                                   FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   Margin="0,4,0,0"/>
+                                        <TextBlock Text="{x:Bind CoachPanel.DraftMistakes, Mode=OneWay}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+
+                                        <TextBlock Text="WENT WELL (DRAFT)"
+                                                   FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   Margin="0,4,0,0"/>
+                                        <TextBlock Text="{x:Bind CoachPanel.DraftWentWell, Mode=OneWay}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+
+                                        <TextBlock Text="FOCUS NEXT (DRAFT)"
+                                                   FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   Margin="0,4,0,0"/>
+                                        <TextBlock Text="{x:Bind CoachPanel.DraftFocusNext, Mode=OneWay}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
 
                             <TextBlock Text="What went well?"
                                        FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>

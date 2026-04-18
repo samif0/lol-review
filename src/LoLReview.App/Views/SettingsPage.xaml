@@ -25,7 +25,7 @@
                                      Subtitle="VOD FOLDERS // BACKUPS // INTEGRATIONS"/>
 
                 <!-- ═══ Ascent VOD Recordings Section ═══ -->
-                <Border Style="{StaticResource CardStyle}">
+                <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="ASCENT VOD RECORDINGS"/>
 
@@ -86,10 +86,10 @@
                                    Foreground="{StaticResource WinGreenBrush}"
                                    Visibility="Collapsed"/>
                     </StackPanel>
-                </Border>
+                </controls:CornerBracketedCard>
 
                 <!-- ═══ Clip Settings Section ═══ -->
-                <Border Style="{StaticResource CardStyle}">
+                <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="CLIP SETTINGS"/>
 
@@ -159,10 +159,10 @@
                                    FontSize="11"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
                     </StackPanel>
-                </Border>
+                </controls:CornerBracketedCard>
 
                 <!-- ═══ Database Backup Section ═══ -->
-                <Border Style="{StaticResource CardStyle}">
+                <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="DATABASE BACKUP"/>
 
@@ -204,10 +204,10 @@
                                     Padding="16,0" CornerRadius="2"/>
                         </Grid>
                     </StackPanel>
-                </Border>
+                </controls:CornerBracketedCard>
 
                 <!-- ═══ Tilt Fix Mode Section ═══ -->
-                <Border Style="{StaticResource CardStyle}">
+                <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="TILT FIX MODE"/>
 
@@ -220,10 +220,10 @@
                                       Header="Enable Tilt Fix features"
                                       OnContent="On" OffContent="Off"/>
                     </StackPanel>
-                </Border>
+                </controls:CornerBracketedCard>
 
                 <!-- ═══ Review Save Behavior ═══ -->
-                <Border Style="{StaticResource CardStyle}">
+                <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="REVIEW SAVE BEHAVIOR"/>
 
@@ -237,10 +237,10 @@
                                       OnContent="Required"
                                       OffContent="Optional"/>
                     </StackPanel>
-                </Border>
+                </controls:CornerBracketedCard>
 
                 <!-- ═══ App Version & Updates Section ═══ -->
-                <Border Style="{StaticResource CardStyle}">
+                <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="APP VERSION"/>
 
@@ -272,7 +272,286 @@
                                    FontSize="11"
                                    Foreground="{x:Bind ViewModel.UpdateStatusBrush, Mode=OneWay}"/>
                     </StackPanel>
-                </Border>
+                </controls:CornerBracketedCard>
+
+                <!-- ═══ AI Coach Section ═══ -->
+                <controls:CornerBracketedCard>
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="AI COACH (EXPERIMENTAL)"/>
+
+                        <TextBlock Text="Local-first coaching sidecar. Install downloads the Python runtime and runs it as a child process. Provider defaults to local Ollama; hosted options available."
+                                   FontSize="12"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <!-- Install row -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock FontSize="12" FontWeight="SemiBold">
+                                    <Run Text="Status:"/>
+                                    <Run Text="{x:Bind CoachViewModel.InstallStatus, Mode=OneWay}"/>
+                                </TextBlock>
+                                <ProgressBar Value="{x:Bind CoachViewModel.InstallProgress, Mode=OneWay}"
+                                             Minimum="0" Maximum="100"
+                                             Height="4"
+                                             Visibility="{x:Bind CoachViewModel.IsInstalling, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                            </StackPanel>
+
+                            <Button Grid.Column="1"
+                                    Content="Install"
+                                    Command="{x:Bind CoachViewModel.InstallCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
+                                    FontSize="12" Height="32"
+                                    Padding="16,0" CornerRadius="2"
+                                    Margin="0,0,6,0"/>
+
+                            <Button Grid.Column="2"
+                                    Content="Uninstall"
+                                    Command="{x:Bind CoachViewModel.UninstallCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
+                                    FontSize="12" Height="32"
+                                    Padding="16,0" CornerRadius="2"/>
+                        </Grid>
+
+                        <!-- Provider selection -->
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="Provider"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <ComboBox Grid.Column="1"
+                                      ItemsSource="{x:Bind CoachViewModel.ProviderOptions}"
+                                      SelectedItem="{x:Bind CoachViewModel.SelectedProvider, Mode=TwoWay}"
+                                      Height="32"
+                                      MinWidth="200"
+                                      FontSize="12"/>
+                        </Grid>
+
+                        <!-- Ollama settings -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="Ollama URL"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <TextBox Grid.Column="1"
+                                     Text="{x:Bind CoachViewModel.OllamaBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="http://localhost:11434"
+                                     FontSize="12"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="2"
+                                     Height="32"/>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="Ollama model"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <TextBox Grid.Column="1"
+                                     Text="{x:Bind CoachViewModel.OllamaModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="gemma4:e4b"
+                                     FontSize="12"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="2"
+                                     Height="32"/>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="Vision model"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <TextBox Grid.Column="1"
+                                     Text="{x:Bind CoachViewModel.OllamaVisionModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="gemma4:e4b"
+                                     FontSize="12"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="2"
+                                     Height="32"/>
+                        </Grid>
+
+                        <!-- Google AI -->
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="Google AI model"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <TextBox Grid.Column="1"
+                                     Text="{x:Bind CoachViewModel.GoogleAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="gemma-3-27b-it"
+                                     FontSize="12"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="2"
+                                     Height="32"/>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="Google AI key"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <PasswordBox Grid.Column="1"
+                                         Password="{x:Bind CoachViewModel.GoogleAiApiKey, Mode=TwoWay}"
+                                         PlaceholderText="(leave blank to keep existing)"
+                                         FontSize="12"
+                                         Background="{StaticResource InputBackgroundBrush}"
+                                         BorderBrush="{StaticResource SubtleBorderBrush}"
+                                         Foreground="{StaticResource PrimaryTextBrush}"
+                                         CornerRadius="2"
+                                         Height="32"/>
+                        </Grid>
+
+                        <!-- OpenRouter -->
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="OpenRouter model"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <TextBox Grid.Column="1"
+                                     Text="{x:Bind CoachViewModel.OpenRouterModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="google/gemma-3-27b-it"
+                                     FontSize="12"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="2"
+                                     Height="32"/>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="OpenRouter key"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <PasswordBox Grid.Column="1"
+                                         Password="{x:Bind CoachViewModel.OpenRouterApiKey, Mode=TwoWay}"
+                                         PlaceholderText="(leave blank to keep existing)"
+                                         FontSize="12"
+                                         Background="{StaticResource InputBackgroundBrush}"
+                                         BorderBrush="{StaticResource SubtleBorderBrush}"
+                                         Foreground="{StaticResource PrimaryTextBrush}"
+                                         CornerRadius="2"
+                                         Height="32"/>
+                        </Grid>
+
+                        <!-- Save config -->
+                        <Button Content="Save coach config"
+                                Command="{x:Bind CoachViewModel.SaveConfigCommand}"
+                                Style="{StaticResource QuietActionButtonStyle}"
+                                FontSize="12" Height="32"
+                                Padding="16,0" CornerRadius="2"
+                                HorizontalAlignment="Left"
+                                Margin="0,6,0,0"/>
+
+                        <!-- Test prompt -->
+                        <Border Background="{StaticResource InputBackgroundBrush}"
+                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                Padding="10"
+                                Margin="0,12,0,0">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="TEST CONNECTION"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                                <TextBox Text="{x:Bind CoachViewModel.TestPromptText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         PlaceholderText="Prompt for smoke test"
+                                         FontSize="12"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         MinHeight="32"
+                                         Height="32"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         Foreground="{StaticResource PrimaryTextBrush}"/>
+
+                                <Button Content="Send test prompt"
+                                        Command="{x:Bind CoachViewModel.TestConnectionCommand}"
+                                        Style="{StaticResource QuietActionButtonStyle}"
+                                        FontSize="12" Height="30"
+                                        Padding="14,0" CornerRadius="2"
+                                        HorizontalAlignment="Left"/>
+
+                                <TextBlock Text="{x:Bind CoachViewModel.TestResult, Mode=OneWay}"
+                                           FontSize="11"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
 
                 <!-- ═══ Save Button Row ═══ -->
                 <Grid>

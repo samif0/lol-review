@@ -13,10 +13,12 @@ namespace LoLReview.App.Views;
 public sealed partial class SettingsPage : Page
 {
     public SettingsViewModel ViewModel { get; }
+    public CoachSettingsViewModel CoachViewModel { get; }
 
     public SettingsPage()
     {
         ViewModel = App.GetService<SettingsViewModel>();
+        CoachViewModel = App.GetService<CoachSettingsViewModel>();
         InitializeComponent();
         Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
     }
