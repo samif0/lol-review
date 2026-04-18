@@ -11,6 +11,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
 {
     private readonly ICoachInstallerService _installer;
     private readonly ICoachApiClient _api;
+    private readonly ICoachCredentialStore _credentials;
     private readonly CoachSidecarService _sidecar;
     private readonly ILogger<CoachSettingsViewModel> _logger;
 
@@ -31,8 +32,10 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
     [ObservableProperty] private string _googleAiModel = "gemma-4-26b-a4b-it";
     [ObservableProperty] private string _googleAiApiKey = "";
+    [ObservableProperty] private bool _googleAiKeyStored;
     [ObservableProperty] private string _openRouterModel = "google/gemma-3-27b-it";
     [ObservableProperty] private string _openRouterApiKey = "";
+    [ObservableProperty] private bool _openRouterKeyStored;
     [ObservableProperty] private string _testPromptText = "Name one League of Legends champion.";
     [ObservableProperty] private string _testResult = "";
     [ObservableProperty] private bool _isTesting;
@@ -43,15 +46,19 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     public CoachSettingsViewModel(
         ICoachInstallerService installer,
         ICoachApiClient api,
+        ICoachCredentialStore credentials,
         CoachSidecarService sidecar,
         ILogger<CoachSettingsViewModel> logger)
     {
         _installer = installer;
         _api = api;
+        _credentials = credentials;
         _sidecar = sidecar;
         _logger = logger;
 
         IsInstalled = _installer.IsInstalled;
+        GoogleAiKeyStored = _credentials.HasGoogleAiApiKey();
+        OpenRouterKeyStored = _credentials.HasOpenRouterApiKey();
         UpdateProviderHint();
     }
 
@@ -118,6 +125,28 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveConfigAsync()
     {
+        // Persist newly-entered keys to the Windows Credential Manager BEFORE
+        // sending to the sidecar, so a sidecar restart can re-inject them.
+        // Empty field means "keep existing stored key".
+        if (!string.IsNullOrWhiteSpace(GoogleAiApiKey))
+        {
+            _credentials.SetGoogleAiApiKey(GoogleAiApiKey);
+            GoogleAiKeyStored = true;
+        }
+        if (!string.IsNullOrWhiteSpace(OpenRouterApiKey))
+        {
+            _credentials.SetOpenRouterApiKey(OpenRouterApiKey);
+            OpenRouterKeyStored = true;
+        }
+
+        // For the config POST, prefer a freshly-entered key over the stored one.
+        var googleKey = string.IsNullOrWhiteSpace(GoogleAiApiKey)
+            ? _credentials.GetGoogleAiApiKey()
+            : GoogleAiApiKey;
+        var openRouterKey = string.IsNullOrWhiteSpace(OpenRouterApiKey)
+            ? _credentials.GetOpenRouterApiKey()
+            : OpenRouterApiKey;
+
         var update = new CoachConfigUpdate(
             Provider: SelectedProvider,
             Ollama: new CoachOllamaConfig(
@@ -126,13 +155,37 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
                 VisionModel: OllamaVisionModel),
             GoogleAi: new CoachHostedConfig(
                 Model: GoogleAiModel,
-                ApiKey: string.IsNullOrWhiteSpace(GoogleAiApiKey) ? null : GoogleAiApiKey),
+                ApiKey: string.IsNullOrWhiteSpace(googleKey) ? null : googleKey),
             OpenRouter: new CoachHostedConfig(
                 Model: OpenRouterModel,
-                ApiKey: string.IsNullOrWhiteSpace(OpenRouterApiKey) ? null : OpenRouterApiKey));
+                ApiKey: string.IsNullOrWhiteSpace(openRouterKey) ? null : openRouterKey));
 
         var ok = await _api.UpdateConfigAsync(update);
+
+        // Clear the text fields after save — the keys now live in the vault
+        // and shouldn't be held in UI state.
+        GoogleAiApiKey = "";
+        OpenRouterApiKey = "";
+
         TestResult = ok ? "Config saved." : "Config save failed. Is the sidecar running?";
+    }
+
+    [RelayCommand]
+    private void ClearGoogleAiKey()
+    {
+        _credentials.SetGoogleAiApiKey(null);
+        GoogleAiKeyStored = false;
+        GoogleAiApiKey = "";
+        TestResult = "Google AI key cleared. Sidecar will use it until restart.";
+    }
+
+    [RelayCommand]
+    private void ClearOpenRouterKey()
+    {
+        _credentials.SetOpenRouterApiKey(null);
+        OpenRouterKeyStored = false;
+        OpenRouterApiKey = "";
+        TestResult = "OpenRouter key cleared. Sidecar will use it until restart.";
     }
 
     [RelayCommand]

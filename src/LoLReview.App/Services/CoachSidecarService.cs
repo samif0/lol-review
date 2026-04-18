@@ -2,6 +2,7 @@
 
 using System.Diagnostics;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text.Json;
 using LoLReview.Core.Data;
 using Microsoft.Extensions.Hosting;
@@ -27,6 +28,7 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
     private static readonly TimeSpan StartupHealthTimeout = TimeSpan.FromSeconds(60);
 
     private readonly ICoachInstallerService _installer;
+    private readonly ICoachCredentialStore _credentials;
     private readonly ILogger<CoachSidecarService> _logger;
     private readonly HttpClient _http;
     private Process? _process;
@@ -42,10 +44,12 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
 
     public CoachSidecarService(
         ICoachInstallerService installer,
+        ICoachCredentialStore credentials,
         IHttpClientFactory httpFactory,
         ILogger<CoachSidecarService> logger)
     {
         _installer = installer;
+        _credentials = credentials;
         _logger = logger;
         _http = httpFactory.CreateClient("CoachSidecar");
         _http.Timeout = TimeSpan.FromSeconds(5);
@@ -105,6 +109,9 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
 
             // Wait for first healthy /health before proceeding.
             await WaitForHealthAsync(cancellationToken).ConfigureAwait(false);
+
+            // Inject stored API keys into the sidecar once it's up.
+            await InjectStoredCredentialsAsync(cancellationToken).ConfigureAwait(false);
 
             _healthPollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _healthPollTask = Task.Run(() => PollHealthAsync(_healthPollCts.Token), _healthPollCts.Token);
@@ -176,6 +183,48 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
         {
             IsHealthy = false;
             return false;
+        }
+    }
+
+    private async Task InjectStoredCredentialsAsync(CancellationToken cancellationToken)
+    {
+        var googleKey = _credentials.GetGoogleAiApiKey();
+        var openRouterKey = _credentials.GetOpenRouterApiKey();
+
+        if (string.IsNullOrEmpty(googleKey) && string.IsNullOrEmpty(openRouterKey))
+        {
+            // Nothing stored yet — user hasn't pasted a key.
+            return;
+        }
+
+        var body = new Dictionary<string, object?>();
+        if (!string.IsNullOrEmpty(googleKey))
+        {
+            body["google_ai"] = new Dictionary<string, object?> { ["api_key"] = googleKey };
+        }
+        if (!string.IsNullOrEmpty(openRouterKey))
+        {
+            body["openrouter"] = new Dictionary<string, object?> { ["api_key"] = openRouterKey };
+        }
+
+        try
+        {
+            var response = await _http.PostAsJsonAsync(
+                new Uri($"http://127.0.0.1:{_discoveredPort}/config"),
+                body,
+                cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Injected stored coach credentials into sidecar.");
+            }
+            else
+            {
+                _logger.LogWarning("Sidecar rejected credential injection: {Status}", response.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to inject stored credentials into sidecar");
         }
     }
 

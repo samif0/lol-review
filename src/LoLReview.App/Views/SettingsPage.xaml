@@ -453,16 +453,41 @@
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
-                            <PasswordBox Grid.Column="1"
-                                         x:Name="GoogleAiApiKeyBox"
-                                         PasswordChanged="OnGoogleAiApiKeyChanged"
-                                         PlaceholderText="(leave blank to keep existing)"
-                                         FontSize="12"
-                                         Background="{StaticResource InputBackgroundBrush}"
-                                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                                         Foreground="{StaticResource PrimaryTextBrush}"
-                                         CornerRadius="2"
-                                         Height="32"/>
+                            <Grid Grid.Column="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox Grid.Column="0"
+                                             x:Name="GoogleAiApiKeyBox"
+                                             PasswordChanged="OnGoogleAiApiKeyChanged"
+                                             PlaceholderText="(leave blank to keep existing)"
+                                             FontSize="12"
+                                             Background="{StaticResource InputBackgroundBrush}"
+                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                             CornerRadius="2"
+                                             Height="32"/>
+                                <Button Grid.Column="1"
+                                        Content="Clear"
+                                        Command="{x:Bind CoachViewModel.ClearGoogleAiKeyCommand}"
+                                        Visibility="{x:Bind CoachViewModel.GoogleAiKeyStored, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                        Style="{StaticResource QuietActionButtonStyle}"
+                                        FontSize="11" Height="32"
+                                        Padding="10,0" CornerRadius="2"
+                                        Margin="6,0,0,0"/>
+                            </Grid>
+                        </Grid>
+
+                        <Grid Visibility="{x:Bind CoachViewModel.GoogleAiKeyStored, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="1"
+                                       Text="✓ Key saved to Windows Credential Manager. Leave blank above to keep it."
+                                       FontSize="10"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
                         </Grid>
 
                         <!-- OpenRouter -->
@@ -501,16 +526,41 @@
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
-                            <PasswordBox Grid.Column="1"
-                                         x:Name="OpenRouterApiKeyBox"
-                                         PasswordChanged="OnOpenRouterApiKeyChanged"
-                                         PlaceholderText="(leave blank to keep existing)"
-                                         FontSize="12"
-                                         Background="{StaticResource InputBackgroundBrush}"
-                                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                                         Foreground="{StaticResource PrimaryTextBrush}"
-                                         CornerRadius="2"
-                                         Height="32"/>
+                            <Grid Grid.Column="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox Grid.Column="0"
+                                             x:Name="OpenRouterApiKeyBox"
+                                             PasswordChanged="OnOpenRouterApiKeyChanged"
+                                             PlaceholderText="(leave blank to keep existing)"
+                                             FontSize="12"
+                                             Background="{StaticResource InputBackgroundBrush}"
+                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                             CornerRadius="2"
+                                             Height="32"/>
+                                <Button Grid.Column="1"
+                                        Content="Clear"
+                                        Command="{x:Bind CoachViewModel.ClearOpenRouterKeyCommand}"
+                                        Visibility="{x:Bind CoachViewModel.OpenRouterKeyStored, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                        Style="{StaticResource QuietActionButtonStyle}"
+                                        FontSize="11" Height="32"
+                                        Padding="10,0" CornerRadius="2"
+                                        Margin="6,0,0,0"/>
+                            </Grid>
+                        </Grid>
+
+                        <Grid Visibility="{x:Bind CoachViewModel.OpenRouterKeyStored, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="1"
+                                       Text="✓ Key saved to Windows Credential Manager. Leave blank above to keep it."
+                                       FontSize="10"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
                         </Grid>
 
                         <!-- Save config -->
