@@ -355,6 +355,17 @@ public static class Schema
         );
         """;
 
+    // ────────────────────────────────────────────────────────────────────────
+    // LEGACY Coach Lab tables (Phase -1 of coach rebuild, 2026-04-18).
+    //
+    // These 8 tables + 3 migration arrays were the prior "Coach Lab" system
+    // (Gemma-only clip ingestion + training pipeline). The code that reads
+    // and writes them has been removed; these CREATE statements are kept
+    // intentionally so existing user databases are not corrupted by missing
+    // table references. No code path in the current app touches any coach_*
+    // table. Safe to leave in place. See COACH_CLEANUP_AUDIT.md and
+    // COACH_PLAN.md for the replacement architecture.
+    // ────────────────────────────────────────────────────────────────────────
     public const string CreateCoachPlayersTable = """
         CREATE TABLE IF NOT EXISTS coach_players (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,

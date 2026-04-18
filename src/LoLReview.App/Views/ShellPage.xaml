@@ -165,18 +165,6 @@
                                           FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                             </Button>
 
-                            <Button x:Name="NavCoachLab"
-                                    Tag="coachlab"
-                                    Style="{StaticResource NavItemStyle}"
-                                    Click="OnNavClick"
-                                    ToolTipService.ToolTip="Coach Lab"
-                                    IsTabStop="False"
-                                    Visibility="Collapsed">
-                                <FontIcon Glyph="&#xE7EF;"
-                                          FontSize="15"
-                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
-                            </Button>
-
                             <!-- DISCIPLINE section -->
                             <Border Height="1"
                                     Background="{StaticResource SubtleBorderBrush}"
@@ -285,6 +273,9 @@
                 <Grid x:Name="ContentViewport"
                       Margin="0"
                       SizeChanged="OnContentViewportSizeChanged">
+                    <Grid.RenderTransform>
+                        <ScaleTransform x:Name="ContentScale" ScaleX="1.0" ScaleY="1.0"/>
+                    </Grid.RenderTransform>
                     <Frame x:Name="ContentFrame"/>
                 </Grid>
             </Grid>

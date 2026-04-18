@@ -31,7 +31,6 @@ public sealed class NavigationService : INavigationService
         ["settings"] = typeof(SettingsPage),
         ["review"] = typeof(ReviewPage),
         ["vodplayer"] = typeof(VodPlayerPage),
-        ["coachlab"] = typeof(CoachLabPage),
         ["pregame"] = typeof(PreGamePage),
         ["postgame"] = typeof(PostGamePage),
         ["manualentry"] = typeof(ManualEntryPage),

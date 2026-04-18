@@ -23,8 +23,6 @@ public static class AppDataPaths
 
     public static string ClipsDirectory => Path.Combine(UserDataRoot, "clips");
 
-    public static string CoachAnalysisDirectory => Path.Combine(UserDataRoot, "coach-analysis");
-
     public static string BackupsDirectory => Path.Combine(UserDataRoot, "backups");
 
     public static IEnumerable<string> EnumerateLegacyDatabasePaths()

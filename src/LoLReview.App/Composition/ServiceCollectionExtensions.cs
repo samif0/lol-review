@@ -54,10 +54,6 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IGameService, GameService>();
         services.AddSingleton<IReviewWorkflowService, ReviewWorkflowService>();
         services.AddSingleton<IGameLifecycleWorkflowService, GameLifecycleWorkflowService>();
-        services.AddSingleton<ICoachSidecarClient, CoachSidecarClient>();
-        services.AddSingleton<ICoachRecommendationService, CoachRecommendationService>();
-        services.AddSingleton<ICoachTrainingService, CoachTrainingService>();
-        services.AddSingleton<ICoachLabService, CoachLabService>();
         return services;
     }
 
@@ -121,7 +117,6 @@ internal static class ServiceCollectionExtensions
         services.AddTransient<ManualEntryDialogViewModel>();
         services.AddTransient<GameReviewDialogViewModel>();
         services.AddTransient<VodPlayerViewModel>();
-        services.AddTransient<CoachLabViewModel>();
         services.AddTransient<ObjectiveGamesViewModel>();
         return services;
     }

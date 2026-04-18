@@ -5,15 +5,14 @@ using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
 using LoLReview.Core.Lcu;
-using LoLReview.Core.Models;
 using Microsoft.UI.Composition;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System.Numerics;
-using System.Text.Json;
 
 namespace LoLReview.App.Views;
 
@@ -22,7 +21,6 @@ public sealed partial class ShellPage : Page
     public ShellViewModel ViewModel { get; }
 
     private readonly INavigationService _navigationService;
-    private readonly ILcuClient _lcuClient;
     private Button? _activeNavButton;
     private bool _startupInitialized;
     private CompositionRoundedRectangleGeometry? _contentViewportGeometry;
@@ -39,14 +37,11 @@ public sealed partial class ShellPage : Page
     {
         ViewModel = App.GetService<ShellViewModel>();
         _navigationService = App.GetService<INavigationService>();
-        _lcuClient = App.GetService<ILcuClient>();
 
         InitializeComponent();
 
         // Initialize the navigation service with the frame (no NavigationView needed)
         _navigationService.Initialize(ContentFrame);
-
-        RefreshCoachLabVisibility();
 
         // Select dashboard by default
         SetActiveNav(NavDashboard);
@@ -56,6 +51,42 @@ public sealed partial class ShellPage : Page
 
         // Initialize DialogService with XamlRoot once the page is loaded
         Loaded += OnLoaded;
+
+        // Global keyboard handler for zoom (Ctrl+/Ctrl-)
+        AddHandler(KeyDownEvent, new KeyEventHandler(OnShellKeyDown), handledEventsToo: true);
+    }
+
+    private void OnShellKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (!ctrl) return;
+
+        switch (e.Key)
+        {
+            case Windows.System.VirtualKey.Add:
+            case (Windows.System.VirtualKey)187: // OemPlus (=/+)
+                SetZoom(_zoomLevel + ZoomStep);
+                e.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Subtract:
+            case (Windows.System.VirtualKey)189: // OemMinus (-/_)
+                SetZoom(_zoomLevel - ZoomStep);
+                e.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Number0:
+            case Windows.System.VirtualKey.NumberPad0:
+                SetZoom(1.0);
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void SetZoom(double level)
+    {
+        _zoomLevel = Math.Clamp(level, ZoomMin, ZoomMax);
+        ContentScale.ScaleX = _zoomLevel;
+        ContentScale.ScaleY = _zoomLevel;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -75,9 +106,6 @@ public sealed partial class ShellPage : Page
         await ViewModel.InitializeAsync();
         AppDiagnostics.WriteVerbose("startup.log", "ShellPage.Loaded view model initialized");
 
-        await RefreshCoachLabVisibilityAsync();
-        AppDiagnostics.WriteVerbose("startup.log", "ShellPage.Loaded coach lab visibility refreshed");
-
         UpdateContentViewportClip();
         _energyDrain = new SidebarEnergyDrainAnimator(EnergyCanvas);
         if (_activeNavButton is not null)
@@ -86,6 +114,12 @@ public sealed partial class ShellPage : Page
 
     private SidebarEnergyDrainAnimator? _energyDrain;
     private float _pulseTargetY = 120f;
+
+    // ── UI Zoom ──────────────────────────────────────────────────────
+    private const double ZoomStep = 0.05;
+    private const double ZoomMin = 0.6;
+    private const double ZoomMax = 1.6;
+    private double _zoomLevel = 1.0;
 
     private void UpdateEnergyDrain()
     {
@@ -187,49 +221,6 @@ public sealed partial class ShellPage : Page
             StatusDot.Background = brush;
             ConnectionStatusText.Text = "LCU";
         });
-
-        _ = RefreshCoachLabVisibilityAsync();
-    }
-
-    private void RefreshCoachLabVisibility()
-    {
-        NavCoachLab.Visibility = CoachLabFeature.IsEnabled()
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-    }
-
-    private async Task RefreshCoachLabVisibilityAsync()
-    {
-        string? puuid = null;
-        string? summonerName = null;
-
-        try
-        {
-            var summoner = await _lcuClient.GetCurrentSummonerAsync().ConfigureAwait(false);
-            if (summoner is JsonElement summonerEl)
-            {
-                if (summonerEl.TryGetProperty("puuid", out var puuidProp))
-                {
-                    puuid = puuidProp.GetString();
-                }
-
-                if (summonerEl.TryGetProperty("displayName", out var displayNameProp))
-                {
-                    summonerName = displayNameProp.GetString();
-                }
-                else if (summonerEl.TryGetProperty("gameName", out var gameNameProp))
-                {
-                    summonerName = gameNameProp.GetString();
-                }
-            }
-        }
-        catch
-        {
-            // Best effort. Local owner-file gating can still allow access without League running.
-        }
-
-        CoachLabFeature.UpdateRuntimeIdentity(puuid, summonerName);
-        DispatcherQueue.TryEnqueue(RefreshCoachLabVisibility);
     }
 
     private void OnContentViewportSizeChanged(object sender, SizeChangedEventArgs e)

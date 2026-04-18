@@ -19,7 +19,6 @@ namespace LoLReview.App.ViewModels;
 public partial class VodPlayerViewModel : ObservableObject
 {
     private static readonly TimeSpan BookmarkNoteSaveDebounce = TimeSpan.FromMilliseconds(650);
-    private static readonly TimeSpan CoachLabSyncDebounce = TimeSpan.FromMilliseconds(900);
 
     private readonly IVodRepository _vodRepo;
     private readonly IGameRepository _gameRepo;
@@ -28,15 +27,12 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IClipService _clipService;
     private readonly IConfigService _configService;
-    private readonly ICoachLabService _coachLabService;
     private readonly INavigationService _navigationService;
     private readonly ILogger<VodPlayerViewModel> _logger;
     private readonly object _bookmarkMutationQueueGate = new();
     private readonly object _bookmarkNoteSaveGate = new();
-    private readonly object _coachLabSyncGate = new();
     private readonly Dictionary<long, CancellationTokenSource> _bookmarkNoteSaveDelays = [];
     private Task _bookmarkMutationQueueTail = Task.CompletedTask;
-    private CancellationTokenSource? _coachLabSyncDelay;
 
     // â"€â"€ Game info â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -58,6 +54,7 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private bool _hasVod;
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private bool _hasGameEvents;
+    [ObservableProperty] private bool _showNoEventsHint;
     [ObservableProperty] private string _gameEventsStatusText = "No live events.";
 
     // â"€â"€ Clip extraction â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -142,7 +139,6 @@ public partial class VodPlayerViewModel : ObservableObject
         IObjectivesRepository objectivesRepo,
         IClipService clipService,
         IConfigService configService,
-        ICoachLabService coachLabService,
         INavigationService navigationService,
         ILogger<VodPlayerViewModel> logger)
     {
@@ -153,7 +149,6 @@ public partial class VodPlayerViewModel : ObservableObject
         _objectivesRepo = objectivesRepo;
         _clipService = clipService;
         _configService = configService;
-        _coachLabService = coachLabService;
         _navigationService = navigationService;
         _logger = logger;
     }
@@ -209,6 +204,7 @@ public partial class VodPlayerViewModel : ObservableObject
                 }
 
                 HasGameEvents = GameEvents.Count > 0;
+                ShowNoEventsHint = !HasGameEvents;
                 GameEventsStatusText = HasGameEvents
                     ? $"{GameEvents.Count} event(s). Click a marker to jump."
                     : "No live events.";
@@ -428,7 +424,6 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             await EnqueueBookmarkMutationAsync(
                 () => _vodRepo.UpdateBookmarkAsync(originalBookmark.Id, quality: normalizedQuality));
-            ScheduleCoachLabSync();
         }
         catch (Exception ex)
         {
@@ -527,9 +522,9 @@ public partial class VodPlayerViewModel : ObservableObject
                     Quality = quality,
                 });
 
-                ScheduleCoachLabSync();
-
+    
                 ClipNote = "";
+                ClearClip();
                 ClipStatusText = string.IsNullOrWhiteSpace(quality)
                     ? "Clip saved."
                     : $"Clip saved as {quality.Trim().ToLowerInvariant()}.";
@@ -634,8 +629,7 @@ public partial class VodPlayerViewModel : ObservableObject
 
             if (isClip)
             {
-                ScheduleCoachLabSync();
-            }
+                }
         }
         catch (OperationCanceledException)
         {
@@ -719,55 +713,6 @@ public partial class VodPlayerViewModel : ObservableObject
         }
 
         return await mutation().ConfigureAwait(false);
-    }
-
-    private void ScheduleCoachLabSync()
-    {
-        if (!_coachLabService.IsEnabled)
-        {
-            return;
-        }
-
-        CancellationTokenSource syncDelay;
-        lock (_coachLabSyncGate)
-        {
-            _coachLabSyncDelay?.Cancel();
-            _coachLabSyncDelay = new CancellationTokenSource();
-            syncDelay = _coachLabSyncDelay;
-        }
-
-        _ = RunCoachLabSyncDebouncedAsync(syncDelay);
-    }
-
-    private async Task RunCoachLabSyncDebouncedAsync(CancellationTokenSource syncDelay)
-    {
-        try
-        {
-            await Task.Delay(CoachLabSyncDebounce, syncDelay.Token).ConfigureAwait(false);
-            await _coachLabService.SyncMomentsAsync(
-                includeAutoSamples: false,
-                cancellationToken: syncDelay.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Coalesced by a newer clip/bookmark change.
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Coach Lab clip sync failed after VOD bookmark change");
-        }
-        finally
-        {
-            lock (_coachLabSyncGate)
-            {
-                if (ReferenceEquals(_coachLabSyncDelay, syncDelay))
-                {
-                    _coachLabSyncDelay = null;
-                }
-            }
-
-            syncDelay.Dispose();
-        }
     }
 
     private void InsertBookmark(BookmarkItem bookmark)
