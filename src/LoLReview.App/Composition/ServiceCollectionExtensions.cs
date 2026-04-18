@@ -143,7 +143,7 @@ internal static class ServiceCollectionExtensions
         services.AddTransient<VodPlayerViewModel>();
         services.AddTransient<ObjectiveGamesViewModel>();
         services.AddTransient<CoachSettingsViewModel>();
-        services.AddTransient<CoachPanelViewModel>();
+        services.AddSingleton<CoachChatViewModel>();
         return services;
     }
 

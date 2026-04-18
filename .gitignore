@@ -41,6 +41,12 @@
 /build.binlog
 *.binlog
 
+# Coach sidecar runtime logs (may contain sensitive info like URLs with API keys)
+coach/sidecar.stdout.log
+coach/sidecar.stderr.log
+coach/smoke.log
+coach/_smoke.py
+
 # OS junk
 .fuse_hidden*
 Thumbs.db

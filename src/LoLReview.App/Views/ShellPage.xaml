@@ -165,6 +165,18 @@
                                           FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                             </Button>
 
+                            <!-- AI COACH section -->
+                            <Button x:Name="NavCoach"
+                                    Tag="coach"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Coach"
+                                    IsTabStop="False">
+                                <FontIcon Glyph="&#xE8BD;"
+                                          FontSize="15"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
+
                             <!-- DISCIPLINE section -->
                             <Border Height="1"
                                     Background="{StaticResource SubtleBorderBrush}"

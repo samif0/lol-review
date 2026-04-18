@@ -267,81 +267,37 @@
                             <!-- Performance Review -->
                             <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
 
-                            <!-- AI Coach draft panel -->
+                            <!-- Ask coach about this game (deep-link to Coach page) -->
                             <Border Background="{StaticResource InputBackgroundBrush}"
                                     BorderBrush="{StaticResource SubtleBorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="2"
-                                    Padding="10">
-                                <StackPanel Spacing="6">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
+                                    Padding="10,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
 
-                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <TextBlock Text="AI COACH DRAFT"
-                                                       FontSize="11" FontWeight="SemiBold"
-                                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Text="{x:Bind CoachPanel.StatusText, Mode=OneWay}"
-                                                       FontSize="11"
-                                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Text="{x:Bind CoachPanel.ProviderTag, Mode=OneWay}"
-                                                       FontSize="10"
-                                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                                       VerticalAlignment="Center"
-                                                       FontFamily="Consolas"/>
-                                        </StackPanel>
-
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                                            <Button Content="Draft with coach"
-                                                    Command="{x:Bind CoachPanel.DraftPostGameCommand}"
-                                                    IsEnabled="{x:Bind CoachPanel.IsBusy, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"
-                                                    Style="{StaticResource QuietActionButtonStyle}"
-                                                    FontSize="11" Height="28"
-                                                    Padding="12,0" CornerRadius="2"/>
-                                            <Button Content="Apply to review"
-                                                    Click="OnApplyCoachDraftClick"
-                                                    Visibility="{x:Bind CoachPanel.HasDraft, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                                                    Style="{StaticResource QuietActionButtonStyle}"
-                                                    FontSize="11" Height="28"
-                                                    Padding="12,0" CornerRadius="2"/>
-                                        </StackPanel>
-                                    </Grid>
-
-                                    <StackPanel Visibility="{x:Bind CoachPanel.HasDraft, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                                                Spacing="4">
-                                        <TextBlock Text="MISTAKES (DRAFT)"
-                                                   FontSize="10" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                                   Margin="0,4,0,0"/>
-                                        <TextBlock Text="{x:Bind CoachPanel.DraftMistakes, Mode=OneWay}"
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE8BD;"
+                                                  FontSize="13"
+                                                  Foreground="{StaticResource AccentPurpleBrush}"
+                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                        <TextBlock Text="Write your review first, then ask the coach about this game. The coach sees your review, the compacted stats, and your history."
                                                    FontSize="12"
-                                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
-
-                                        <TextBlock Text="WENT WELL (DRAFT)"
-                                                   FontSize="10" FontWeight="SemiBold"
                                                    Foreground="{StaticResource SecondaryTextBrush}"
-                                                   Margin="0,4,0,0"/>
-                                        <TextBlock Text="{x:Bind CoachPanel.DraftWentWell, Mode=OneWay}"
-                                                   FontSize="12"
-                                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
-
-                                        <TextBlock Text="FOCUS NEXT (DRAFT)"
-                                                   FontSize="10" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                                   Margin="0,4,0,0"/>
-                                        <TextBlock Text="{x:Bind CoachPanel.DraftFocusNext, Mode=OneWay}"
-                                                   FontSize="12"
-                                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center"/>
                                     </StackPanel>
-                                </StackPanel>
+
+                                    <Button Grid.Column="1"
+                                            Content="Ask coach about this game"
+                                            Click="OnAskCoachAboutGameClick"
+                                            Style="{StaticResource QuietActionButtonStyle}"
+                                            FontSize="11" Height="28"
+                                            Padding="12,0" CornerRadius="2"/>
+                                </Grid>
                             </Border>
 
                             <TextBlock Text="What went well?"

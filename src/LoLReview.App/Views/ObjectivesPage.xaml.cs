@@ -1,10 +1,13 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using LoLReview.App.Helpers;
+using LoLReview.App.Services;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace LoLReview.App.Views;
 
@@ -35,6 +38,134 @@ public sealed partial class ObjectivesPage : Page
         AnimationHelper.AnimatePageEnter(RootGrid);
         await ViewModel.LoadCommand.ExecuteAsync(null);
         await RulesVM.LoadCommand.ExecuteAsync(null);
+    }
+
+    private async void OnGenerateObjectiveClick(object sender, RoutedEventArgs e)
+    {
+        var btn = sender as Button;
+        if (btn is not null) { btn.IsEnabled = false; btn.Content = "Thinking..."; }
+
+        try
+        {
+            var api = App.GetService<ICoachApiClient>();
+            var result = await api.GenerateObjectiveAsync();
+            if (result is null || result.Proposals.Count == 0)
+            {
+                await ShowInfoDialog(
+                    "Not enough data yet",
+                    "The coach doesn't see enough patterns to propose a new objective. Try after playing more games with reviews written, or check that the sidecar + API key are configured in Settings.");
+                return;
+            }
+
+            await ShowProposalsDialog(result);
+        }
+        catch (Exception ex)
+        {
+            await ShowInfoDialog("Generate failed", ex.Message);
+        }
+        finally
+        {
+            if (btn is not null) { btn.IsEnabled = true; btn.Content = "Generate with coach"; }
+        }
+    }
+
+    private async System.Threading.Tasks.Task ShowProposalsDialog(CoachGenerateObjectiveResponse result)
+    {
+        var panel = new StackPanel { Spacing = 12 };
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"[{result.Provider} / {result.Model} / {result.LatencyMs}ms]",
+            FontSize = 10,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+            Opacity = 0.6,
+        });
+
+        CoachObjectiveProposal? chosen = null;
+        ContentDialog? dialogRef = null;
+
+        foreach (var proposal in result.Proposals)
+        {
+            var card = new Border
+            {
+                BorderBrush = (SolidColorBrush)Application.Current.Resources["SubtleBorderBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(12),
+            };
+            var cardStack = new StackPanel { Spacing = 6 };
+
+            cardStack.Children.Add(new TextBlock
+            {
+                Text = proposal.Title,
+                FontSize = 14,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            cardStack.Children.Add(new TextBlock
+            {
+                Text = proposal.Rationale,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.85,
+            });
+            cardStack.Children.Add(new TextBlock
+            {
+                Text = $"confidence: {proposal.Confidence:P0}",
+                FontSize = 10,
+                Opacity = 0.6,
+            });
+
+            var useBtn = new Button
+            {
+                Content = "Use this",
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Padding = new Thickness(12, 4, 12, 4),
+            };
+            var localProposal = proposal;
+            useBtn.Click += (_, _) =>
+            {
+                chosen = localProposal;
+                dialogRef?.Hide();
+            };
+            cardStack.Children.Add(useBtn);
+
+            card.Child = cardStack;
+            panel.Children.Add(card);
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Coach proposals",
+            Content = new ScrollViewer { Content = panel, MaxHeight = 500, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            CloseButtonText = "Close",
+            XamlRoot = XamlRoot,
+        };
+        dialogRef = dialog;
+        await dialog.ShowAsync();
+
+        if (chosen is not null)
+        {
+            // Pre-fill the create form with the chosen proposal and open it.
+            ViewModel.NewTitle = chosen.Title;
+            ViewModel.NewDescription = chosen.Rationale;
+            if (!ViewModel.IsCreating)
+            {
+                ViewModel.ToggleCreateFormCommand.Execute(null);
+            }
+        }
+    }
+
+    private async System.Threading.Tasks.Task ShowInfoDialog(string title, string body)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap },
+            CloseButtonText = "OK",
+            XamlRoot = XamlRoot,
+        };
+        await dialog.ShowAsync();
     }
 
     private async void MarkComplete_Click(object sender, RoutedEventArgs e)

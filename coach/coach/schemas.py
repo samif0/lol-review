@@ -189,6 +189,63 @@ class LogEditResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────────
+# Chat (phase-2-reshape, 2026-04-18)
+# ──────────────────────────────────────────────────────────────────
+
+
+class AskRequest(BaseModel):
+    question: str
+    thread_id: int | None = None  # None = new thread
+    scope: dict[str, Any] | None = None  # optional pinned scope (e.g. {"game_id": 123})
+
+
+class ChatMessage(BaseModel):
+    id: int
+    thread_id: int
+    role: Literal["user", "assistant"]
+    content: str
+    model: str | None = None
+    provider: str | None = None
+    latency_ms: int | None = None
+    created_at: int
+
+
+class AskResponse(BaseModel):
+    thread_id: int
+    user_message: ChatMessage
+    assistant_message: ChatMessage
+    coach_visible_totals: dict[str, int]
+
+
+class ChatThread(BaseModel):
+    id: int
+    title: str | None
+    scope: dict[str, Any] | None
+    created_at: int
+    updated_at: int
+    messages: list[ChatMessage]
+
+
+class GenerateObjectiveRequest(BaseModel):
+    # Optional: limit analysis to recent N games (default: all games with data)
+    since: int | None = None
+
+
+class ObjectiveProposal(BaseModel):
+    title: str
+    rationale: str
+    replaces_objective_id: int | None = None
+    confidence: float
+
+
+class GenerateObjectiveResponse(BaseModel):
+    proposals: list[ObjectiveProposal]
+    model: str
+    provider: str
+    latency_ms: int
+
+
+# ──────────────────────────────────────────────────────────────────
 # Provider-internal (used by coach/providers/*)
 # ──────────────────────────────────────────────────────────────────
 

@@ -36,7 +36,60 @@ public interface ICoachApiClient
 
     // Config
     Task<bool> UpdateConfigAsync(CoachConfigUpdate update, CancellationToken cancellationToken = default);
+
+    // Chat (phase-2-reshape)
+    Task<CoachAskResponse?> AskAsync(string question, long? threadId = null, CoachScope? scope = null, CancellationToken cancellationToken = default);
+    Task<CoachThread?> GetThreadAsync(long threadId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<CoachThreadSummary>> ListThreadsAsync(int limit = 50, CancellationToken cancellationToken = default);
+
+    // Generate learning objective
+    Task<CoachGenerateObjectiveResponse?> GenerateObjectiveAsync(long? since = null, CancellationToken cancellationToken = default);
 }
+
+public record CoachChatMessage(
+    long Id,
+    long ThreadId,
+    string Role,
+    string Content,
+    string? Model,
+    string? Provider,
+    int? LatencyMs,
+    long CreatedAt);
+
+public record CoachAskResponse(
+    long ThreadId,
+    CoachChatMessage UserMessage,
+    CoachChatMessage AssistantMessage,
+    IReadOnlyDictionary<string, int> CoachVisibleTotals);
+
+public record CoachThread(
+    long Id,
+    string? Title,
+    CoachScope? Scope,
+    long CreatedAt,
+    long UpdatedAt,
+    IReadOnlyList<CoachChatMessage> Messages);
+
+public record CoachThreadSummary(
+    long Id,
+    string? Title,
+    CoachScope? Scope,
+    long CreatedAt,
+    long UpdatedAt);
+
+public record CoachScope(long? GameId = null, long? Since = null, long? Until = null);
+
+public record CoachObjectiveProposal(
+    string Title,
+    string Rationale,
+    long? ReplacesObjectiveId,
+    double Confidence);
+
+public record CoachGenerateObjectiveResponse(
+    IReadOnlyList<CoachObjectiveProposal> Proposals,
+    string Model,
+    string Provider,
+    int LatencyMs);
 
 public record CoachTestPromptResponse(string Text, string Model, string Provider, int LatencyMs);
 

@@ -227,9 +227,152 @@ public sealed class CoachApiClient : ICoachApiClient
         }
     }
 
+    public async Task<CoachAskResponse?> AskAsync(string question, long? threadId = null, CoachScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var body = new Dictionary<string, object?>
+            {
+                ["question"] = question,
+                ["thread_id"] = threadId,
+            };
+            if (scope is not null)
+            {
+                var scopeDict = new Dictionary<string, object?>();
+                if (scope.GameId is not null) scopeDict["game_id"] = scope.GameId;
+                if (scope.Since is not null) scopeDict["since"] = scope.Since;
+                if (scope.Until is not null) scopeDict["until"] = scope.Until;
+                if (scopeDict.Count > 0) body["scope"] = scopeDict;
+            }
+            var r = await _http.PostAsJsonAsync(Url("/coach/ask"), body, JsonOpts, cancellationToken);
+            if (!r.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("ask failed: {Status}", r.StatusCode);
+                return null;
+            }
+            var payload = await r.Content.ReadFromJsonAsync<AskPayload>(JsonOpts, cancellationToken);
+            if (payload is null) return null;
+            return new CoachAskResponse(
+                payload.ThreadId,
+                ToChatMessage(payload.UserMessage),
+                ToChatMessage(payload.AssistantMessage),
+                payload.CoachVisibleTotals ?? new Dictionary<string, int>());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ask failed");
+            return null;
+        }
+    }
+
+    public async Task<CoachThread?> GetThreadAsync(long threadId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var r = await _http.GetAsync(Url($"/coach/threads/{threadId}"), cancellationToken);
+            if (!r.IsSuccessStatusCode) return null;
+            var payload = await r.Content.ReadFromJsonAsync<ThreadPayload>(JsonOpts, cancellationToken);
+            if (payload is null) return null;
+            return new CoachThread(
+                payload.Id,
+                payload.Title,
+                ScopeFromDict(payload.Scope),
+                payload.CreatedAt,
+                payload.UpdatedAt,
+                payload.Messages.Select(ToChatMessage).ToList());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "get thread failed");
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<CoachThreadSummary>> ListThreadsAsync(int limit = 50, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var r = await _http.GetAsync(Url($"/coach/threads?limit={limit}"), cancellationToken);
+            if (!r.IsSuccessStatusCode) return [];
+            var payload = await r.Content.ReadFromJsonAsync<ThreadListPayload>(JsonOpts, cancellationToken);
+            if (payload?.Threads is null) return [];
+            return payload.Threads
+                .Select(t => new CoachThreadSummary(
+                    t.Id, t.Title, ScopeFromDict(t.Scope), t.CreatedAt, t.UpdatedAt))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "list threads failed");
+            return [];
+        }
+    }
+
+    public async Task<CoachGenerateObjectiveResponse?> GenerateObjectiveAsync(long? since = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var body = new Dictionary<string, object?> { ["since"] = since };
+            var r = await _http.PostAsJsonAsync(Url("/coach/generate-objective"), body, JsonOpts, cancellationToken);
+            if (!r.IsSuccessStatusCode) return null;
+            var payload = await r.Content.ReadFromJsonAsync<GenerateObjectivePayload>(JsonOpts, cancellationToken);
+            if (payload is null) return null;
+            return new CoachGenerateObjectiveResponse(
+                payload.Proposals.Select(p => new CoachObjectiveProposal(
+                    p.Title, p.Rationale, p.ReplacesObjectiveId, p.Confidence)).ToList(),
+                payload.Model,
+                payload.Provider,
+                payload.LatencyMs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "generate-objective failed");
+            return null;
+        }
+    }
+
+    private static CoachChatMessage ToChatMessage(ChatMessagePayload m) =>
+        new(m.Id, m.ThreadId, m.Role, m.Content, m.Model, m.Provider, m.LatencyMs, m.CreatedAt);
+
+    private static CoachScope? ScopeFromDict(Dictionary<string, JsonElement>? dict)
+    {
+        if (dict is null) return null;
+        long? gameId = dict.TryGetValue("game_id", out var g) && g.TryGetInt64(out var gv) ? gv : null;
+        long? since = dict.TryGetValue("since", out var s) && s.TryGetInt64(out var sv) ? sv : null;
+        long? until = dict.TryGetValue("until", out var u) && u.TryGetInt64(out var uv) ? uv : null;
+        if (gameId is null && since is null && until is null) return null;
+        return new CoachScope(gameId, since, until);
+    }
+
     // ───────────────── wire-format records ─────────────────
 
     private sealed record TestPromptPayload(string Text, string Model, string Provider, int LatencyMs);
+
+    private sealed record ChatMessagePayload(
+        long Id, long ThreadId, string Role, string Content,
+        string? Model, string? Provider, int? LatencyMs, long CreatedAt);
+
+    private sealed record AskPayload(
+        long ThreadId,
+        ChatMessagePayload UserMessage,
+        ChatMessagePayload AssistantMessage,
+        Dictionary<string, int>? CoachVisibleTotals);
+
+    private sealed record ThreadPayload(
+        long Id, string? Title, Dictionary<string, JsonElement>? Scope,
+        long CreatedAt, long UpdatedAt, List<ChatMessagePayload> Messages);
+
+    private sealed record ThreadSummaryPayload(
+        long Id, string? Title, Dictionary<string, JsonElement>? Scope,
+        long CreatedAt, long UpdatedAt);
+
+    private sealed record ThreadListPayload(List<ThreadSummaryPayload> Threads);
+
+    private sealed record ObjectiveProposalPayload(
+        string Title, string Rationale, long? ReplacesObjectiveId, double Confidence);
+
+    private sealed record GenerateObjectivePayload(
+        List<ObjectiveProposalPayload> Proposals, string Model, string Provider, int LatencyMs);
 
     private sealed record BuildSummaryPayload(long GameId, int SummaryVersion, int? TokenCount, bool Ok, string? Error);
 

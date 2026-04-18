@@ -45,6 +45,11 @@ COACH_TABLES: frozenset[str] = frozenset(
         "clip_frame_descriptions",
         "coach_sessions",
         "coach_response_edits",
+        # Chat (phase-2-reshape, 2026-04-18): persistent conversation history.
+        "coach_chat_threads",
+        "coach_chat_messages",
+        # Internal: tracks which migrations have been applied.
+        "coach_migrations_applied",
     }
 )
 

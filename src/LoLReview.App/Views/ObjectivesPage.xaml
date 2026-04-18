@@ -56,12 +56,16 @@
                                          EyebrowText="LEARNING"
                                          Title="Objectives"
                                          Subtitle="MASTER ONE SKILL AT A TIME"/>
-                    <Button Grid.Column="1"
-                            Content="+ New Objective"
-                            Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
-                            Style="{StaticResource PrimaryActionButtonStyle}"
-                            VerticalAlignment="Top"
-                            Margin="0,16,0,0"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                VerticalAlignment="Top" Margin="0,16,0,0">
+                        <Button Content="Generate with coach"
+                                Click="OnGenerateObjectiveClick"
+                                Style="{StaticResource QuietActionButtonStyle}"
+                                Height="36" Padding="16,0" CornerRadius="2"/>
+                        <Button Content="+ New Objective"
+                                Command="{x:Bind ViewModel.ToggleCreateFormCommand}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"/>
+                    </StackPanel>
                 </Grid>
 
                 <!-- Create Form (collapsible) -->

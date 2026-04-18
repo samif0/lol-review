@@ -1,6 +1,8 @@
 #nullable enable
 
+using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
+using LoLReview.App.Services;
 using LoLReview.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,12 +14,10 @@ namespace LoLReview.App.Views;
 public sealed partial class ReviewPage : Page
 {
     public ReviewViewModel ViewModel { get; }
-    public CoachPanelViewModel CoachPanel { get; }
 
     public ReviewPage()
     {
         ViewModel = App.GetService<ReviewViewModel>();
-        CoachPanel = App.GetService<CoachPanelViewModel>();
         ViewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(ReviewViewModel.Attribution))
@@ -36,19 +36,23 @@ public sealed partial class ReviewPage : Page
         if (e.Parameter is long gameId)
         {
             ViewModel.LoadCommand.Execute(gameId);
-            CoachPanel.SetGame(gameId);
         }
     }
 
-    private void OnApplyCoachDraftClick(object sender, RoutedEventArgs e)
+    private void OnAskCoachAboutGameClick(object sender, RoutedEventArgs e)
     {
-        // Copy draft fields into the review viewmodel's bound properties.
-        if (!string.IsNullOrWhiteSpace(CoachPanel.DraftMistakes))
-            ViewModel.Mistakes = CoachPanel.DraftMistakes;
-        if (!string.IsNullOrWhiteSpace(CoachPanel.DraftWentWell))
-            ViewModel.WentWell = CoachPanel.DraftWentWell;
-        if (!string.IsNullOrWhiteSpace(CoachPanel.DraftFocusNext))
-            ViewModel.FocusNext = CoachPanel.DraftFocusNext;
+        if (ViewModel.GameId <= 0) return;
+
+        var label = string.IsNullOrWhiteSpace(ViewModel.ChampionName)
+            ? $"Game #{ViewModel.GameId}"
+            : $"{ViewModel.ChampionName} (#{ViewModel.GameId})";
+
+        var args = new CoachScopeArgs(
+            Scope: new CoachScope(GameId: ViewModel.GameId),
+            Label: label,
+            SeedQuestion: null);
+
+        App.GetService<INavigationService>().NavigateTo("coach", args);
     }
 
     // ── Attribution radio button helpers ─────────────────────────────

@@ -25,6 +25,8 @@ from coach.config import load_config, log_path, update_config
 from coach.db import ensure_migrations_applied
 from coach.providers import get_provider
 from coach.schemas import (
+    AskRequest,
+    AskResponse,
     BuildAllSummariesResponse,
     BuildSummaryResponse,
     ClipReviewCoachRequest,
@@ -33,6 +35,8 @@ from coach.schemas import (
     ConceptProfileResponse,
     ConfigUpdateRequest,
     ExtractConceptsResponse,
+    GenerateObjectiveRequest,
+    GenerateObjectiveResponse,
     GetSummaryResponse,
     HealthResponse,
     LLMMessage,
@@ -64,6 +68,11 @@ def _configure_logging() -> None:
             logging.StreamHandler(sys.stderr),
         ],
     )
+    # httpx INFO logs the full request URL, which for Google AI includes
+    # `?key=<API_KEY>` in plaintext. Demote to WARNING so keys never hit
+    # disk or stderr even in a redirected-log scenario.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 @asynccontextmanager
@@ -145,6 +154,40 @@ async def test_prompt(req: TestPromptRequest) -> TestPromptResponse:
         provider=resp.provider,
         latency_ms=resp.latency_ms,
     )
+
+
+# ─────────────────────────────── Chat (phase-2-reshape) ───────────────────────────────
+
+
+@app.post("/coach/ask", response_model=AskResponse)
+async def coach_ask(req: AskRequest) -> AskResponse:
+    from coach.modes.ask import run_ask
+
+    return await run_ask(req.question, thread_id=req.thread_id, scope=req.scope)
+
+
+@app.get("/coach/threads")
+async def list_coach_threads(limit: int = 50) -> dict[str, Any]:
+    from coach.modes.ask import list_threads
+
+    return {"threads": list_threads(limit=limit)}
+
+
+@app.get("/coach/threads/{thread_id}")
+async def get_coach_thread(thread_id: int) -> dict[str, Any]:
+    from coach.modes.ask import load_thread
+
+    thread = load_thread(thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
+    return thread
+
+
+@app.post("/coach/generate-objective", response_model=GenerateObjectiveResponse)
+async def coach_generate_objective(req: GenerateObjectiveRequest) -> GenerateObjectiveResponse:
+    from coach.modes.generate_objective import run_generate_objective
+
+    return await run_generate_objective(since=req.since)
 
 
 # ─────────────────────────────── Summaries (Phase 1) ───────────────────────────────
