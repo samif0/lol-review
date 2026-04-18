@@ -18,6 +18,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
     private readonly IReviewDraftRepository _reviewDraftRepository;
     private readonly IMatchupNotesRepository _matchupNotesRepository;
     private readonly IConfigService _configService;
+    private readonly ICoachSidecarNotifier _coachNotifier;
     private readonly ILogger<ReviewWorkflowService> _logger;
 
     public ReviewWorkflowService(
@@ -30,6 +31,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         IReviewDraftRepository reviewDraftRepository,
         IMatchupNotesRepository matchupNotesRepository,
         IConfigService configService,
+        ICoachSidecarNotifier coachNotifier,
         ILogger<ReviewWorkflowService> logger)
     {
         _gameRepository = gameRepository;
@@ -41,6 +43,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         _reviewDraftRepository = reviewDraftRepository;
         _matchupNotesRepository = matchupNotesRepository;
         _configService = configService;
+        _coachNotifier = coachNotifier;
         _logger = logger;
     }
 
@@ -205,6 +208,13 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
 
             await _conceptTagRepository.SetForGameAsync(request.GameId, request.Snapshot.SelectedTagIds);
             await _reviewDraftRepository.DeleteAsync(request.GameId);
+
+            // Fire-and-forget: ask the coach sidecar to extract concepts from
+            // the freshly-saved review text. No-op if sidecar is off.
+            _ = _coachNotifier.NotifyReviewSavedAsync(request.GameId, cancellationToken)
+                .ContinueWith(
+                    t => _logger.LogDebug(t.Exception, "Coach NotifyReviewSavedAsync failed (non-fatal)"),
+                    TaskContinuationOptions.OnlyOnFaulted);
 
             return ReviewSaveResult.Ok(trimmedEnemy);
         }

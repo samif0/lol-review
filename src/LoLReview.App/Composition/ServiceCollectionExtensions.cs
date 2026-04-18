@@ -55,6 +55,8 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IGameService, GameService>();
         services.AddSingleton<IReviewWorkflowService, ReviewWorkflowService>();
         services.AddSingleton<IGameLifecycleWorkflowService, GameLifecycleWorkflowService>();
+        // Register the null default here; AddCoachServices overrides it.
+        services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
         return services;
     }
 
@@ -113,6 +115,12 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<CoachSidecarService>();
         services.AddHostedService(sp => sp.GetRequiredService<CoachSidecarService>());
         services.AddSingleton<ICoachApiClient, CoachApiClient>();
+
+        // Replace the null notifier registered by AddCoreServices.
+        var existing = services.FirstOrDefault(d => d.ServiceType == typeof(ICoachSidecarNotifier));
+        if (existing is not null)
+            services.Remove(existing);
+        services.AddSingleton<ICoachSidecarNotifier, CoachSidecarNotifier>();
 
         return services;
     }

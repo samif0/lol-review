@@ -9,15 +9,21 @@ public sealed class GameLifecycleWorkflowService : IGameLifecycleWorkflowService
 {
     private readonly IGameService _gameService;
     private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
+    private readonly IObjectivesRepository _objectivesRepository;
+    private readonly ICoachSidecarNotifier _coachNotifier;
     private readonly ILogger<GameLifecycleWorkflowService> _logger;
 
     public GameLifecycleWorkflowService(
         IGameService gameService,
         IMissedGameDecisionRepository missedGameDecisionRepository,
+        IObjectivesRepository objectivesRepository,
+        ICoachSidecarNotifier coachNotifier,
         ILogger<GameLifecycleWorkflowService> logger)
     {
         _gameService = gameService;
         _missedGameDecisionRepository = missedGameDecisionRepository;
+        _objectivesRepository = objectivesRepository;
+        _coachNotifier = coachNotifier;
         _logger = logger;
     }
 
@@ -31,6 +37,22 @@ public sealed class GameLifecycleWorkflowService : IGameLifecycleWorkflowService
         {
             return new ProcessGameEndResult(null, IsSkipped: true, IsRecovered: isRecovered);
         }
+
+        if (request.PreGamePracticedObjectiveIds is { Count: > 0 })
+        {
+            foreach (var objectiveId in request.PreGamePracticedObjectiveIds)
+            {
+                await _objectivesRepository.RecordGameAsync(gameId.Value, objectiveId, practiced: true).ConfigureAwait(false);
+            }
+        }
+
+        // Fire-and-forget sidecar notify. Coach sidecar may be off, not
+        // installed, or not healthy — the notifier implementation swallows
+        // those cases and returns immediately.
+        _ = _coachNotifier.NotifyGameEndedAsync(gameId.Value, cancellationToken)
+            .ContinueWith(
+                t => _logger.LogDebug(t.Exception, "Coach NotifyGameEndedAsync failed (non-fatal)"),
+                TaskContinuationOptions.OnlyOnFaulted);
 
         return new ProcessGameEndResult(gameId.Value, IsSkipped: false, IsRecovered: isRecovered);
     }

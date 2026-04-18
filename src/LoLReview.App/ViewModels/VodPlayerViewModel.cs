@@ -28,6 +28,7 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly IClipService _clipService;
     private readonly IConfigService _configService;
     private readonly INavigationService _navigationService;
+    private readonly ICoachSidecarNotifier _coachNotifier;
     private readonly ILogger<VodPlayerViewModel> _logger;
     private readonly object _bookmarkMutationQueueGate = new();
     private readonly object _bookmarkNoteSaveGate = new();
@@ -140,6 +141,7 @@ public partial class VodPlayerViewModel : ObservableObject
         IClipService clipService,
         IConfigService configService,
         INavigationService navigationService,
+        ICoachSidecarNotifier coachNotifier,
         ILogger<VodPlayerViewModel> logger)
     {
         _vodRepo = vodRepo;
@@ -150,6 +152,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _clipService = clipService;
         _configService = configService;
         _navigationService = navigationService;
+        _coachNotifier = coachNotifier;
         _logger = logger;
     }
 
@@ -522,7 +525,12 @@ public partial class VodPlayerViewModel : ObservableObject
                     Quality = quality,
                 });
 
-    
+                // Phase 4 hook: ask coach sidecar to generate frame descriptions.
+                _ = _coachNotifier.NotifyBookmarkCreatedAsync(bookmarkId)
+                    .ContinueWith(
+                        t => _logger.LogDebug(t.Exception, "Coach NotifyBookmarkCreatedAsync failed"),
+                        TaskContinuationOptions.OnlyOnFaulted);
+
                 ClipNote = "";
                 ClearClip();
                 ClipStatusText = string.IsNullOrWhiteSpace(quality)
