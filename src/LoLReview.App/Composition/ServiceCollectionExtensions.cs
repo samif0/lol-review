@@ -42,6 +42,7 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<INotesRepository, NotesRepository>();
         services.AddSingleton<IPromptsRepository, PromptsRepository>();
         services.AddSingleton<ITiltCheckRepository, TiltCheckRepository>();
+        services.AddSingleton<ICoachRepository, CoachRepository>();
         return services;
     }
 
@@ -101,6 +102,21 @@ internal static class ServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Register the coach rebuild services (phase 0+).</summary>
+    public static IServiceCollection AddCoachServices(this IServiceCollection services)
+    {
+        services.AddHttpClient("CoachInstaller");
+        services.AddHttpClient("CoachSidecar");
+        services.AddHttpClient("CoachApi");
+
+        services.AddSingleton<ICoachInstallerService, CoachInstallerService>();
+        services.AddSingleton<CoachSidecarService>();
+        services.AddHostedService(sp => sp.GetRequiredService<CoachSidecarService>());
+        services.AddSingleton<ICoachApiClient, CoachApiClient>();
+
+        return services;
+    }
+
     public static IServiceCollection AddViewModels(this IServiceCollection services)
     {
         services.AddTransient<ShellViewModel>();
@@ -118,6 +134,8 @@ internal static class ServiceCollectionExtensions
         services.AddTransient<GameReviewDialogViewModel>();
         services.AddTransient<VodPlayerViewModel>();
         services.AddTransient<ObjectiveGamesViewModel>();
+        services.AddTransient<CoachSettingsViewModel>();
+        services.AddTransient<CoachPanelViewModel>();
         return services;
     }
 

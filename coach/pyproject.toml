@@ -1,0 +1,53 @@
+[project]
+name = "coach"
+version = "0.1.0"
+description = "lol-review coaching sidecar — FastAPI + LLM providers"
+authors = [{ name = "samif0" }]
+requires-python = ">=3.11"
+readme = "README.md"
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "httpx>=0.27",
+    "ollama>=0.4",
+    "sqlite-utils>=3.37",
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "pandas>=2.2",
+    "sentence-transformers>=3.3",
+    "hdbscan>=0.8.38",
+    "python-Levenshtein>=0.26",
+    "ffmpeg-python>=0.2",
+    "tiktoken>=0.8",
+    "pyarrow>=18.0",
+    "json-repair>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[project.scripts]
+coach = "coach.main:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["coach"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
