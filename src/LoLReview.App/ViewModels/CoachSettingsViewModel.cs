@@ -30,7 +30,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     [ObservableProperty] private string _ollamaModel = "gemma4:e4b";
     [ObservableProperty] private string _ollamaVisionModel = "gemma4:e4b";
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
-    [ObservableProperty] private string _googleAiModel = "gemma-4-26b-a4b-it";
+    [ObservableProperty] private string _googleAiModel = "gemini-2.5-flash";
     [ObservableProperty] private string _googleAiApiKey = "";
     [ObservableProperty] private bool _googleAiKeyStored;
     [ObservableProperty] private string _openRouterModel = "google/gemma-3-27b-it";

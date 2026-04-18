@@ -32,11 +32,17 @@ class OllamaConfig(BaseModel):
 
 
 class GoogleAIConfig(BaseModel):
-    # Gemma 4 26B A4B (MoE, 3.8B active params) on Google AI Studio.
-    # Verified end-to-end 2026-04-18: multimodal, JSON mode, free tier.
-    # Advanced users can swap to gemini-2.5-flash/pro for different
-    # latency/quality tradeoffs.
-    model: str = "gemma-4-26b-a4b-it"
+    # Gemini 2.5 Flash on Google AI Studio.
+    # Chosen as default because:
+    #   - supports thinkingConfig (Gemma 4 does not) — lets us hide
+    #     reasoning tokens behind a 'Thinking...' indicator and stream
+    #     only the final answer into the chat bubble
+    #   - latest Gemini family, better instruction-following and chat
+    #     alignment than Gemma for grounded Q&A
+    #   - multimodal, JSON mode, free tier
+    # Power users can swap to gemini-2.5-pro for higher quality, or
+    # gemma-4-26b-a4b-it for pure Gemma if they prefer.
+    model: str = "gemini-2.5-flash"
     api_key: str | None = None  # injected by C# at runtime
 
 
