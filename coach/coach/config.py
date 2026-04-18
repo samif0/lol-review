@@ -1,9 +1,9 @@
-"""Configuration loader for the coach sidecar.
+r"""Configuration loader for the coach sidecar.
 
 Config file: %LOCALAPPDATA%\LoLReviewData\coach_config.json.
 
 API keys are NOT stored here. C# injects them at runtime via POST /config after
-sidecar health is green (plan §6, UNCLEAR-003 resolved option (b)).
+sidecar health is green (plan section 6, UNCLEAR-003 resolved option (b)).
 """
 
 from __future__ import annotations
@@ -32,9 +32,12 @@ class OllamaConfig(BaseModel):
 
 
 class GoogleAIConfig(BaseModel):
-    # When Google AI Studio publishes Gemma 4, swap to e.g. "gemma-4-e4b-it".
-    # Until then, gemma-3-27b-it is the best hosted Gemma.
-    model: str = "gemma-3-27b-it"
+    # Default to Gemini 2.5 Flash for the hosted-first shared-user path:
+    # fast, cheap, multimodal, JSON-mode, free tier available.
+    # Advanced users can swap to `gemma-4-e4b-it` (when Google AI Studio
+    # publishes it) or Gemini 2.5 Pro for higher quality, or Gemini 3 models
+    # once generally available.
+    model: str = "gemini-2.5-flash"
     api_key: str | None = None  # injected by C# at runtime
 
 
@@ -46,7 +49,11 @@ class OpenRouterConfig(BaseModel):
 
 
 class CoachConfig(BaseModel):
-    provider: ProviderName = "ollama"
+    # Hosted-first default (2026-04-18): Google AI Studio is the recommended
+    # provider for both @samif0 and shared users — no local GPU required,
+    # no Ollama install, no model-pull friction. Users paste an API key once.
+    # Switch provider to "ollama" in settings for local inference.
+    provider: ProviderName = "google_ai"
     port: int = 5577  # UNCLEAR-002: port is configurable; if taken, sidecar picks next free port
     vision_override_provider: ProviderName | None = None
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
@@ -114,38 +121,46 @@ def load_config() -> CoachConfig:
                 _current_config = CoachConfig()
         else:
             _current_config = CoachConfig()
-            save_config(_current_config)  # materialize defaults so user can edit
+            _write_config_to_disk(_current_config)  # materialize defaults so user can edit
 
         return _current_config
+
+
+def _write_config_to_disk(cfg: CoachConfig) -> None:
+    """Serialize cfg and write to disk. Caller must hold _config_lock (or not
+    care about races). Does NOT mutate _current_config — that's the caller's
+    responsibility so ordering stays visible."""
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    serializable = cfg.model_dump()
+    # Strip API keys before writing to disk; they live in Windows Credential Manager.
+    serializable.get("google_ai", {}).pop("api_key", None)
+    serializable.get("openrouter", {}).pop("api_key", None)
+
+    path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")
+    logger.info("Saved coach config to %s", path)
 
 
 def save_config(cfg: CoachConfig) -> None:
     """Persist config without API keys (keys are C#-injected runtime state)."""
     global _current_config
     with _config_lock:
-        path = config_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        serializable = cfg.model_dump()
-        # Strip API keys before writing to disk; they live in Windows Credential Manager.
-        serializable.get("google_ai", {}).pop("api_key", None)
-        serializable.get("openrouter", {}).pop("api_key", None)
-
-        path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")
+        _write_config_to_disk(cfg)
         _current_config = cfg
-        logger.info("Saved coach config to %s", path)
 
 
 def update_config(partial: dict[str, Any]) -> CoachConfig:
     """Apply a partial update (from C# POST /config). Deep-merges into current."""
     global _current_config
+    # Ensure config is loaded BEFORE acquiring the lock (load_config locks too).
+    base = load_config()
     with _config_lock:
-        existing = (_current_config or load_config()).model_dump()
+        existing = (_current_config or base).model_dump()
         _deep_merge(existing, partial)
         new_cfg = CoachConfig.model_validate(existing)
+        _write_config_to_disk(new_cfg)
         _current_config = new_cfg
-
-    save_config(new_cfg)
     return new_cfg
 
 

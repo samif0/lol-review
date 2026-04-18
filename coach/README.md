@@ -55,23 +55,38 @@ POST /coach/test-prompt           { prompt }
 
 ## Providers
 
-- **Ollama** (default, local): `gemma4:e4b` for text + vision (4.5B params, 128K context, multimodal)
-- **Google AI Studio** (hosted): `gemma-3-27b-it` (Gemma 4 on hosted providers lags Ollama by a few days on new releases; swap to `gemma-4-e4b-it` when available)
-- **OpenRouter** (hosted, flexible): `google/gemma-3-27b-it` (same note)
+Default is **Google AI Studio** (hosted): zero-setup for users — paste an
+API key once, done. No Ollama install, no model pull, no GPU required.
+
+- **Google AI Studio** (default, hosted): `gemini-2.5-flash` — fast,
+  multimodal, JSON mode, free tier. Swap to `gemini-2.5-pro` for higher
+  quality, or `gemma-4-e4b-it` if/when Google publishes Gemma 4 on the
+  Gemini API.
+- **Ollama** (local, advanced): `gemma4:e4b` — requires Ollama 0.6+ and
+  `ollama pull gemma4:e4b` (~4 GB). Local inference, nothing leaves the
+  machine. Other tags: `gemma4:e2b`, `gemma4:26b`, `gemma4:31b`.
+- **OpenRouter** (hosted, flexible): `google/gemma-3-27b-it` — pick any
+  model OpenRouter supports (Claude, GPT, Gemma, etc.).
 
 Config example at `%LOCALAPPDATA%\LoLReviewData\coach_config.json`:
 
 ```json
 {
-  "provider": "ollama",
+  "provider": "google_ai",
   "port": 5577,
   "ollama":     { "base_url": "http://localhost:11434", "model": "gemma4:e4b", "vision_model": "gemma4:e4b" },
-  "google_ai":  { "model": "gemma-3-27b-it" },
+  "google_ai":  { "model": "gemini-2.5-flash" },
   "openrouter": { "model": "google/gemma-3-27b-it" }
 }
 ```
 
-**Other Gemma 4 Ollama tags:** `gemma4:e2b` (smaller), `gemma4:26b` (MoE, 3.8B active), `gemma4:31b` (dense largest), `gemma4:31b-cloud` (hosted via Ollama cloud).
+## Getting a Google AI Studio API key
+
+1. Go to https://aistudio.google.com/apikey
+2. Click "Create API key" (free tier — no credit card required)
+3. Paste the key into the Google AI field in the app's Settings → AI Coach section
+4. Click "Save coach config"
+5. Click "Send test prompt" to verify
 
 API keys are **not** in the config file — they're injected by C# from
 Windows Credential Manager via `POST /config` after sidecar health green.

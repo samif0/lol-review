@@ -18,11 +18,11 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isInstalling;
     [ObservableProperty] private double _installProgress;
     [ObservableProperty] private string _installStatus = "";
-    [ObservableProperty] private string _selectedProvider = "ollama";
+    [ObservableProperty] private string _selectedProvider = "google_ai";
     [ObservableProperty] private string _ollamaModel = "gemma4:e4b";
     [ObservableProperty] private string _ollamaVisionModel = "gemma4:e4b";
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
-    [ObservableProperty] private string _googleAiModel = "gemma-3-27b-it";
+    [ObservableProperty] private string _googleAiModel = "gemini-2.5-flash";
     [ObservableProperty] private string _googleAiApiKey = "";
     [ObservableProperty] private string _openRouterModel = "google/gemma-3-27b-it";
     [ObservableProperty] private string _openRouterApiKey = "";
