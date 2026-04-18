@@ -50,19 +50,28 @@ def select_key_events(
 
 
 def _event_timestamp_ms(event: dict[str, Any]) -> int:
-    """Best-effort timestamp extraction."""
+    """Best-effort timestamp extraction.
+
+    The lol-review schema uses seconds-based columns:
+      - game_events.game_time_s
+      - derived_event_instances.start_time_s / end_time_s
+    Try those first, then fall back to ms / s variants in case of future
+    schema changes or foreign payloads.
+    """
+    # Seconds-based (real schema):
+    for key in ("game_time_s", "start_time_s", "timestamp_s", "time_s"):
+        val = event.get(key)
+        if val is not None:
+            try:
+                return int(val) * 1000
+            except (TypeError, ValueError):
+                continue
+    # Ms-based fallback (hypothetical / external):
     for key in ("timestamp_ms", "start_ms", "time_ms"):
         val = event.get(key)
         if val is not None:
             try:
                 return int(val)
-            except (TypeError, ValueError):
-                continue
-    for key in ("timestamp_s", "time_s"):
-        val = event.get(key)
-        if val is not None:
-            try:
-                return int(val) * 1000
             except (TypeError, ValueError):
                 continue
     return 0

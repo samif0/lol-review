@@ -376,21 +376,51 @@ def fetch_matchup_note(champion: str, enemy: str) -> dict | None:
 
 
 def fetch_game_events(game_id: int) -> list[dict]:
+    """game_events.game_id is the Riot id (FK to games.game_id). Accept
+    either identifier — if caller passes a PK, resolve to Riot id first.
+    Orders by game_time_s (actual column name in the schema)."""
+    riot_id = _to_riot_id(game_id)
     with read_core() as conn:
         rows = conn.execute(
-            "SELECT * FROM game_events WHERE game_id = ? ORDER BY timestamp_ms",
-            (game_id,),
+            "SELECT * FROM game_events WHERE game_id = ? ORDER BY game_time_s",
+            (riot_id,),
         ).fetchall()
         return [dict(r) for r in rows]
 
 
 def fetch_derived_events(game_id: int) -> list[dict]:
+    """derived_event_instances.game_id is the Riot id. Orders by start_time_s."""
+    riot_id = _to_riot_id(game_id)
     with read_core() as conn:
         rows = conn.execute(
-            "SELECT * FROM derived_event_instances WHERE game_id = ? ORDER BY start_ms",
-            (game_id,),
+            "SELECT * FROM derived_event_instances WHERE game_id = ? ORDER BY start_time_s",
+            (riot_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def _to_riot_id(game_id: int) -> int:
+    """Accept either games.id (PK) or games.game_id (Riot id); return Riot id.
+
+    game_events + derived_event_instances join to games.game_id (per the FK
+    declaration in Schema.cs), so we always need the Riot id when querying
+    them. If the caller has a PK (from games.id), look up the Riot id; else
+    assume the caller already has a Riot id and pass it through.
+    """
+    with read_core() as conn:
+        # Try as Riot id (most common case — C# ViewModels pass games.game_id).
+        row = conn.execute(
+            "SELECT game_id FROM games WHERE game_id = ? LIMIT 1", (game_id,)
+        ).fetchone()
+        if row is not None:
+            return int(row["game_id"])
+        # Fall back: maybe caller passed the PK.
+        row = conn.execute(
+            "SELECT game_id FROM games WHERE id = ? LIMIT 1", (game_id,)
+        ).fetchone()
+        if row is not None and row["game_id"] is not None:
+            return int(row["game_id"])
+    return int(game_id)
 
 
 def fetch_vod_bookmark(bookmark_id: int) -> dict | None:
