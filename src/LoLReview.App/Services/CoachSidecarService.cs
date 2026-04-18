@@ -58,10 +58,28 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        _discoveredPort = ResolveConfiguredPort();
+
         if (!_installer.IsInstalled)
         {
-            _logger.LogInformation(
-                "Coach sidecar is not installed. Skipping start. Enable via Settings to install.");
+            // Not installed via the bundled path, but the user may be running
+            // the sidecar manually (dev mode). Probe the configured port; if
+            // something responds to /health, treat it as our sidecar and still
+            // inject credentials + start health polling.
+            AppDiagnostics.WriteVerbose("startup.log",
+                "CoachSidecarService: installer reports not-installed; probing port for external sidecar");
+            if (await CheckHealthAsync(cancellationToken))
+            {
+                AppDiagnostics.WriteVerbose("startup.log",
+                    $"CoachSidecarService: external sidecar detected on port {_discoveredPort}, attaching");
+                await InjectStoredCredentialsAsync(cancellationToken).ConfigureAwait(false);
+                _healthPollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                _healthPollTask = Task.Run(() => PollHealthAsync(_healthPollCts.Token), _healthPollCts.Token);
+                return;
+            }
+
+            AppDiagnostics.WriteVerbose("startup.log",
+                "CoachSidecarService: no sidecar found on port; skipping (enable via Settings)");
             return;
         }
 
@@ -71,8 +89,6 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
             _logger.LogWarning("Coach installer reports installed but sidecar exe missing at {Path}", executable);
             return;
         }
-
-        _discoveredPort = ResolveConfiguredPort();
 
         var psi = new ProcessStartInfo
         {
