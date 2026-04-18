@@ -58,10 +58,10 @@ POST /coach/test-prompt           { prompt }
 Default is **Google AI Studio** (hosted): zero-setup for users — paste an
 API key once, done. No Ollama install, no model pull, no GPU required.
 
-- **Google AI Studio** (default, hosted): `gemini-2.5-flash` — fast,
-  multimodal, JSON mode, free tier. Swap to `gemini-2.5-pro` for higher
-  quality, or `gemma-4-e4b-it` if/when Google publishes Gemma 4 on the
-  Gemini API.
+- **Google AI Studio** (default, hosted): `gemma-4-26b-a4b-it` — Gemma 4
+  26B MoE with 3.8B active params, multimodal, JSON mode, free tier.
+  Swap to `gemini-2.5-flash` for cheaper/faster, `gemini-2.5-pro` for
+  highest quality.
 - **Ollama** (local, advanced): `gemma4:e4b` — requires Ollama 0.6+ and
   `ollama pull gemma4:e4b` (~4 GB). Local inference, nothing leaves the
   machine. Other tags: `gemma4:e2b`, `gemma4:26b`, `gemma4:31b`.
@@ -75,7 +75,7 @@ Config example at `%LOCALAPPDATA%\LoLReviewData\coach_config.json`:
   "provider": "google_ai",
   "port": 5577,
   "ollama":     { "base_url": "http://localhost:11434", "model": "gemma4:e4b", "vision_model": "gemma4:e4b" },
-  "google_ai":  { "model": "gemini-2.5-flash" },
+  "google_ai":  { "model": "gemma-4-26b-a4b-it" },
   "openrouter": { "model": "google/gemma-3-27b-it" }
 }
 ```

@@ -29,6 +29,22 @@ public sealed partial class SettingsPage : Page
         ViewModel.LoadCommand.Execute(null);
     }
 
+    private void OnGoogleAiApiKeyChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is PasswordBox box)
+        {
+            CoachViewModel.GoogleAiApiKey = box.Password;
+        }
+    }
+
+    private void OnOpenRouterApiKeyChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is PasswordBox box)
+        {
+            CoachViewModel.OpenRouterApiKey = box.Password;
+        }
+    }
+
     private async void OnScanVodsClick(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn)

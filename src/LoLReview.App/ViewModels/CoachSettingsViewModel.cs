@@ -18,11 +18,18 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isInstalling;
     [ObservableProperty] private double _installProgress;
     [ObservableProperty] private string _installStatus = "";
+    [ObservableProperty] private bool _isLocalProvider;
+    [ObservableProperty] private string _providerHint = HostedHint;
     [ObservableProperty] private string _selectedProvider = "google_ai";
+
+    private const string HostedHint =
+        "Hosted provider. No local install needed. Paste an API key below and click Save coach config.";
+    private const string LocalHint =
+        "Local provider (Ollama). Requires Ollama running and a model pulled (e.g. `ollama pull gemma4:e4b`). Install button downloads the sidecar runtime.";
     [ObservableProperty] private string _ollamaModel = "gemma4:e4b";
     [ObservableProperty] private string _ollamaVisionModel = "gemma4:e4b";
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
-    [ObservableProperty] private string _googleAiModel = "gemini-2.5-flash";
+    [ObservableProperty] private string _googleAiModel = "gemma-4-26b-a4b-it";
     [ObservableProperty] private string _googleAiApiKey = "";
     [ObservableProperty] private string _openRouterModel = "google/gemma-3-27b-it";
     [ObservableProperty] private string _openRouterApiKey = "";
@@ -45,6 +52,15 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
         _logger = logger;
 
         IsInstalled = _installer.IsInstalled;
+        UpdateProviderHint();
+    }
+
+    partial void OnSelectedProviderChanged(string value) => UpdateProviderHint();
+
+    private void UpdateProviderHint()
+    {
+        IsLocalProvider = string.Equals(SelectedProvider, "ollama", StringComparison.OrdinalIgnoreCase);
+        ProviderHint = IsLocalProvider ? LocalHint : HostedHint;
     }
 
     [RelayCommand]

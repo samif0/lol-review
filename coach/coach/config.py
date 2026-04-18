@@ -32,12 +32,11 @@ class OllamaConfig(BaseModel):
 
 
 class GoogleAIConfig(BaseModel):
-    # Default to Gemini 2.5 Flash for the hosted-first shared-user path:
-    # fast, cheap, multimodal, JSON-mode, free tier available.
-    # Advanced users can swap to `gemma-4-e4b-it` (when Google AI Studio
-    # publishes it) or Gemini 2.5 Pro for higher quality, or Gemini 3 models
-    # once generally available.
-    model: str = "gemini-2.5-flash"
+    # Gemma 4 26B A4B (MoE, 3.8B active params) on Google AI Studio.
+    # Verified end-to-end 2026-04-18: multimodal, JSON mode, free tier.
+    # Advanced users can swap to gemini-2.5-flash/pro for different
+    # latency/quality tradeoffs.
+    model: str = "gemma-4-26b-a4b-it"
     api_key: str | None = None  # injected by C# at runtime
 
 

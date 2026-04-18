@@ -279,13 +279,20 @@
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="AI COACH (EXPERIMENTAL)"/>
 
-                        <TextBlock Text="Local-first coaching sidecar. Install downloads the Python runtime and runs it as a child process. Provider defaults to local Ollama; hosted options available."
+                        <TextBlock Text="{x:Bind CoachViewModel.ProviderHint, Mode=OneWay}"
                                    FontSize="12"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
-                        <!-- Install row -->
-                        <Grid>
+                        <TextBlock Text="Get a free Google AI Studio API key at https://aistudio.google.com/apikey"
+                                   FontSize="11"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,4"
+                                   IsTextSelectionEnabled="True"/>
+
+                        <!-- Install row (only relevant for local Ollama) -->
+                        <Grid Visibility="{x:Bind CoachViewModel.IsLocalProvider, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -425,7 +432,7 @@
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind CoachViewModel.GoogleAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="gemini-2.5-flash"
+                                     PlaceholderText="gemma-4-26b-a4b-it"
                                      FontSize="12"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
@@ -447,7 +454,8 @@
                                        VerticalAlignment="Center"/>
 
                             <PasswordBox Grid.Column="1"
-                                         Password="{x:Bind CoachViewModel.GoogleAiApiKey, Mode=TwoWay}"
+                                         x:Name="GoogleAiApiKeyBox"
+                                         PasswordChanged="OnGoogleAiApiKeyChanged"
                                          PlaceholderText="(leave blank to keep existing)"
                                          FontSize="12"
                                          Background="{StaticResource InputBackgroundBrush}"
@@ -494,7 +502,8 @@
                                        VerticalAlignment="Center"/>
 
                             <PasswordBox Grid.Column="1"
-                                         Password="{x:Bind CoachViewModel.OpenRouterApiKey, Mode=TwoWay}"
+                                         x:Name="OpenRouterApiKeyBox"
+                                         PasswordChanged="OnOpenRouterApiKeyChanged"
                                          PlaceholderText="(leave blank to keep existing)"
                                          FontSize="12"
                                          Background="{StaticResource InputBackgroundBrush}"
@@ -550,6 +559,16 @@
                                            TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
+
+                        <!-- How to use -->
+                        <TextBlock FontSize="11"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,8,0,0">
+                            <Run Text="Once the test prompt works, open any game in the Review page. A"/>
+                            <Run Text="&quot;Draft with coach&quot;" FontWeight="SemiBold"/>
+                            <Run Text="button appears in the Performance Review section."/>
+                        </TextBlock>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
