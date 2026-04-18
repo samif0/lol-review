@@ -1,74 +1,97 @@
 #nullable enable
 
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using LoLReview.Core.Data;
 using Microsoft.Extensions.Logging;
-using Windows.Security.Credentials;
 
 namespace LoLReview.App.Services;
 
 /// <summary>
-/// Stores coach API keys in the Windows Credential Manager under the
-/// resource name 'LoLReview.Coach'. Per-user encrypted at rest.
+/// DPAPI-backed credential store for coach API keys.
+///
+/// Writes to %LOCALAPPDATA%\LoLReviewData\coach_credentials.bin encrypted
+/// with Windows DPAPI at CurrentUser scope. This works reliably in
+/// unpackaged WinUI 3 apps (PasswordVault had intermittent failures).
+///
+/// The file never contains plaintext keys. Only the current Windows user
+/// account can decrypt it on the same machine.
 /// </summary>
 public sealed class CoachCredentialStore : ICoachCredentialStore
 {
-    private const string ResourceName = "LoLReview.Coach";
-    private const string GoogleAiKey = "google_ai_api_key";
-    private const string OpenRouterKey = "openrouter_api_key";
+    private const string GoogleAiKey = "google_ai";
+    private const string OpenRouterKey = "openrouter";
 
-    private readonly PasswordVault _vault = new();
     private readonly ILogger<CoachCredentialStore> _logger;
+    private readonly object _lock = new();
+
+    private static string FilePath => Path.Combine(AppDataPaths.UserDataRoot, "coach_credentials.bin");
 
     public CoachCredentialStore(ILogger<CoachCredentialStore> logger)
     {
         _logger = logger;
     }
 
-    public string? GetGoogleAiApiKey() => TryGet(GoogleAiKey);
-    public string? GetOpenRouterApiKey() => TryGet(OpenRouterKey);
+    public string? GetGoogleAiApiKey() => Read().TryGetValue(GoogleAiKey, out var v) ? v : null;
+    public string? GetOpenRouterApiKey() => Read().TryGetValue(OpenRouterKey, out var v) ? v : null;
 
-    public bool HasGoogleAiApiKey() => TryGet(GoogleAiKey) is not null;
-    public bool HasOpenRouterApiKey() => TryGet(OpenRouterKey) is not null;
+    public bool HasGoogleAiApiKey() => !string.IsNullOrEmpty(GetGoogleAiApiKey());
+    public bool HasOpenRouterApiKey() => !string.IsNullOrEmpty(GetOpenRouterApiKey());
 
-    public void SetGoogleAiApiKey(string? key) => Set(GoogleAiKey, key);
-    public void SetOpenRouterApiKey(string? key) => Set(OpenRouterKey, key);
+    public void SetGoogleAiApiKey(string? key) => Update(GoogleAiKey, key);
+    public void SetOpenRouterApiKey(string? key) => Update(OpenRouterKey, key);
 
-    private string? TryGet(string username)
+    private Dictionary<string, string> Read()
     {
-        try
+        lock (_lock)
         {
-            var cred = _vault.Retrieve(ResourceName, username);
-            cred.RetrievePassword();
-            return string.IsNullOrEmpty(cred.Password) ? null : cred.Password;
-        }
-        catch
-        {
-            // PasswordVault throws COMException when the credential doesn't exist.
-            return null;
-        }
-    }
+            if (!File.Exists(FilePath))
+                return new Dictionary<string, string>(StringComparer.Ordinal);
 
-    private void Set(string username, string? key)
-    {
-        // Remove any existing credential first.
-        try
-        {
-            var existing = _vault.Retrieve(ResourceName, username);
-            _vault.Remove(existing);
-        }
-        catch
-        {
-            // Nothing to remove, fine.
-        }
-
-        if (!string.IsNullOrWhiteSpace(key))
-        {
             try
             {
-                _vault.Add(new PasswordCredential(ResourceName, username, key));
+                var encrypted = File.ReadAllBytes(FilePath);
+                var decrypted = ProtectedData.Unprotect(encrypted, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
+                var json = Encoding.UTF8.GetString(decrypted);
+                var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                return dict ?? new Dictionary<string, string>(StringComparer.Ordinal);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to save credential '{User}' to vault", username);
+                _logger.LogWarning(ex, "Failed to read coach credential store; treating as empty.");
+                return new Dictionary<string, string>(StringComparer.Ordinal);
+            }
+        }
+    }
+
+    private void Update(string field, string? value)
+    {
+        lock (_lock)
+        {
+            var dict = Read();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                dict.Remove(field);
+            }
+            else
+            {
+                dict[field] = value;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                var json = JsonSerializer.Serialize(dict);
+                var plaintext = Encoding.UTF8.GetBytes(json);
+                var encrypted = ProtectedData.Protect(plaintext, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
+                File.WriteAllBytes(FilePath, encrypted);
+                _logger.LogInformation("Coach credential '{Field}' {Action} in DPAPI store.",
+                    field, string.IsNullOrWhiteSpace(value) ? "cleared" : "saved");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to write coach credential store");
             }
         }
     }

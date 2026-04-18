@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
+using LoLReview.App.Helpers;
 using LoLReview.Core.Data;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -111,6 +112,8 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
             await WaitForHealthAsync(cancellationToken).ConfigureAwait(false);
 
             // Inject stored API keys into the sidecar once it's up.
+            AppDiagnostics.WriteVerbose("startup.log",
+                "CoachSidecarService: sidecar healthy, starting credential injection");
             await InjectStoredCredentialsAsync(cancellationToken).ConfigureAwait(false);
 
             _healthPollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -188,12 +191,17 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
 
     private async Task InjectStoredCredentialsAsync(CancellationToken cancellationToken)
     {
+        var hasGoogle = _credentials.HasGoogleAiApiKey();
+        var hasRouter = _credentials.HasOpenRouterApiKey();
+        AppDiagnostics.WriteVerbose("startup.log",
+            $"CoachSidecarService: checking stored credentials google_ai={hasGoogle} openrouter={hasRouter}");
+
         var googleKey = _credentials.GetGoogleAiApiKey();
         var openRouterKey = _credentials.GetOpenRouterApiKey();
 
         if (string.IsNullOrEmpty(googleKey) && string.IsNullOrEmpty(openRouterKey))
         {
-            // Nothing stored yet — user hasn't pasted a key.
+            AppDiagnostics.WriteVerbose("startup.log", "CoachSidecarService: no stored coach credentials to inject");
             return;
         }
 
@@ -215,16 +223,19 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
                 cancellationToken);
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Injected stored coach credentials into sidecar.");
+                AppDiagnostics.WriteVerbose("startup.log",
+                    "CoachSidecarService: injected stored credentials into sidecar");
             }
             else
             {
-                _logger.LogWarning("Sidecar rejected credential injection: {Status}", response.StatusCode);
+                AppDiagnostics.WriteVerbose("startup.log",
+                    $"CoachSidecarService: sidecar rejected credential injection: {response.StatusCode}");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to inject stored credentials into sidecar");
+            AppDiagnostics.WriteVerbose("startup.log",
+                $"CoachSidecarService: credential injection failed: {ex.Message}");
         }
     }
 

@@ -38,6 +38,7 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
     <!-- LibVLCSharp causes heap corruption (0xc0000374) in unpackaged WinUI 3.
          Using Windows.Media.Playback.MediaPlayer + MediaPlayerElement instead. -->
   </ItemGroup>
