@@ -95,6 +95,13 @@ public sealed partial class CoachChatViewModel : ObservableObject
                         StatusText = "Thinking...";
                         break;
 
+                    case CoachAskStreamThinking:
+                        // Reasoning tokens are streaming on the server; keep
+                        // the spinner on and do not leak them to the UI.
+                        assistantMsg.IsThinking = true;
+                        StatusText = "Thinking...";
+                        break;
+
                     case CoachAskStreamDelta delta:
                         assistantMsg.IsThinking = false;
                         assistantMsg.Content += delta.Text;

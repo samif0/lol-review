@@ -366,6 +366,9 @@ public sealed class CoachApiClient : ICoachApiClient
                         evt = new CoachAskStreamStarted(tid, umid, totals);
                         break;
                     }
+                    case "thinking":
+                        evt = new CoachAskStreamThinking();
+                        break;
                     case "delta":
                         evt = new CoachAskStreamDelta(root.GetProperty("text").GetString() ?? "");
                         break;

@@ -65,16 +65,67 @@
                         CornerRadius="2"
                         Padding="10,8">
                     <Grid>
-                        <!-- Thinking indicator -->
-                        <StackPanel Orientation="Horizontal" Spacing="8"
-                                    Visibility="{x:Bind IsThinking, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                            <ProgressRing IsActive="True" Width="14" Height="14"/>
-                            <TextBlock Text="Thinking..."
-                                       FontSize="12"
-                                       FontStyle="Italic"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
+                        <!-- Thinking indicator: shimmer bar + pulsing dots -->
+                        <Grid Visibility="{x:Bind IsThinking, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <Grid.Resources>
+                                <Storyboard x:Name="ThinkingStoryboard" RepeatBehavior="Forever">
+                                    <!-- Dot 1 pulse -->
+                                    <DoubleAnimation Storyboard.TargetName="ThinkDot1"
+                                                     Storyboard.TargetProperty="Opacity"
+                                                     From="0.25" To="1" Duration="0:0:0.6"
+                                                     AutoReverse="True" BeginTime="0:0:0"/>
+                                    <!-- Dot 2 pulse -->
+                                    <DoubleAnimation Storyboard.TargetName="ThinkDot2"
+                                                     Storyboard.TargetProperty="Opacity"
+                                                     From="0.25" To="1" Duration="0:0:0.6"
+                                                     AutoReverse="True" BeginTime="0:0:0.2"/>
+                                    <!-- Dot 3 pulse -->
+                                    <DoubleAnimation Storyboard.TargetName="ThinkDot3"
+                                                     Storyboard.TargetProperty="Opacity"
+                                                     From="0.25" To="1" Duration="0:0:0.6"
+                                                     AutoReverse="True" BeginTime="0:0:0.4"/>
+                                    <!-- Shimmer bar sweep -->
+                                    <DoubleAnimation Storyboard.TargetName="ShimmerTranslate"
+                                                     Storyboard.TargetProperty="X"
+                                                     From="-40" To="80" Duration="0:0:1.4"/>
+                                </Storyboard>
+                            </Grid.Resources>
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"
+                                        Loaded="OnThinkingRootLoaded"
+                                        Unloaded="OnThinkingRootUnloaded">
+                                <TextBlock Text="Thinking"
+                                           FontSize="12"
+                                           FontStyle="Italic"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                                    <Ellipse x:Name="ThinkDot1" Width="5" Height="5" Fill="{StaticResource AccentPurpleBrush}" Opacity="0.25"/>
+                                    <Ellipse x:Name="ThinkDot2" Width="5" Height="5" Fill="{StaticResource AccentPurpleBrush}" Opacity="0.25"/>
+                                    <Ellipse x:Name="ThinkDot3" Width="5" Height="5" Fill="{StaticResource AccentPurpleBrush}" Opacity="0.25"/>
+                                </StackPanel>
+                                <!-- Shimmer bar -->
+                                <Border Width="80" Height="2"
+                                        Background="{StaticResource SubtleBorderBrush}"
+                                        CornerRadius="1"
+                                        VerticalAlignment="Center">
+                                    <Border.Clip>
+                                        <RectangleGeometry Rect="0,0,80,2"/>
+                                    </Border.Clip>
+                                    <Rectangle Width="40" Height="2" HorizontalAlignment="Left">
+                                        <Rectangle.Fill>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                <GradientStop Color="Transparent" Offset="0"/>
+                                                <GradientStop Color="#A78BFA" Offset="0.5"/>
+                                                <GradientStop Color="Transparent" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Rectangle.Fill>
+                                        <Rectangle.RenderTransform>
+                                            <TranslateTransform x:Name="ShimmerTranslate" X="-40"/>
+                                        </Rectangle.RenderTransform>
+                                    </Rectangle>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
 
                         <!-- Streamed / final content (shown once any text arrives) -->
                         <TextBlock Text="{x:Bind Content, Mode=OneWay}"
@@ -173,8 +224,9 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBox Grid.Column="0"
+                         x:Name="InputBox"
                          Text="{x:Bind ViewModel.InputText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         PlaceholderText="Ask anything about your games — e.g. 'why am I losing lane on Jinx recently?'"
+                         PlaceholderText="Ask anything about your games — e.g. 'why am I losing lane on Jinx recently?' (Shift+Enter for newline)"
                          AcceptsReturn="True"
                          TextWrapping="Wrap"
                          MinHeight="44"
@@ -184,8 +236,7 @@
                          BorderBrush="{StaticResource SubtleBorderBrush}"
                          Foreground="{StaticResource PrimaryTextBrush}"
                          CornerRadius="2"
-                         Margin="0,0,8,0"
-                         KeyDown="OnInputKeyDown"/>
+                         Margin="0,0,8,0"/>
 
                 <Button Grid.Column="1"
                         Content="Ask"

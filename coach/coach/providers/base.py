@@ -18,10 +18,15 @@ class LLMProvider(ABC):
     async def complete(self, req: LLMRequest) -> LLMResponse:
         ...
 
-    async def complete_stream(self, req: LLMRequest) -> AsyncIterator[str]:
-        """Yield text chunks as they arrive. Default falls back to non-streaming."""
+    async def complete_stream(self, req: LLMRequest) -> AsyncIterator[tuple[str, str]]:
+        """Yield (kind, text) tuples. kind in {'thought', 'answer'}.
+
+        Default falls back to non-streaming and emits one 'answer' chunk.
+        Providers that support reasoning should emit 'thought' chunks for
+        internal reasoning and 'answer' chunks for final output.
+        """
         response = await self.complete(req)
-        yield response.text
+        yield ("answer", response.text)
 
     @abstractmethod
     async def embed(self, texts: list[str]) -> list[list[float]]:

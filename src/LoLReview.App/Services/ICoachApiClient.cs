@@ -94,6 +94,7 @@ public record CoachGenerateObjectiveResponse(
 
 public abstract record CoachAskStreamEvent;
 public sealed record CoachAskStreamStarted(long ThreadId, long UserMessageId, IReadOnlyDictionary<string, int> CoachVisibleTotals) : CoachAskStreamEvent;
+public sealed record CoachAskStreamThinking : CoachAskStreamEvent;
 public sealed record CoachAskStreamDelta(string Text) : CoachAskStreamEvent;
 public sealed record CoachAskStreamDone(long AssistantMessageId, string Model, string Provider, int LatencyMs) : CoachAskStreamEvent;
 public sealed record CoachAskStreamError(string Message) : CoachAskStreamEvent;

@@ -279,17 +279,25 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <FontIcon Glyph="&#xE8BD;"
+                                    <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Grid.Column="0"
+                                                  Glyph="&#xE8BD;"
                                                   FontSize="13"
                                                   Foreground="{StaticResource AccentPurpleBrush}"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
-                                        <TextBlock Text="Write your review first, then ask the coach about this game. The coach sees your review, the compacted stats, and your history."
+                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                  Margin="0,0,8,0"
+                                                  VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="Write your review first, then ask the coach about this game. The coach sees your review, the compacted stats, and your history."
                                                    FontSize="12"
                                                    Foreground="{StaticResource SecondaryTextBrush}"
                                                    TextWrapping="Wrap"
                                                    VerticalAlignment="Center"/>
-                                    </StackPanel>
+                                    </Grid>
 
                                     <Button Grid.Column="1"
                                             Content="Ask coach about this game"

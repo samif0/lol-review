@@ -216,8 +216,13 @@ async def run_ask_stream(
         accumulated: list[str] = []
 
         try:
-            async for chunk in provider.complete_stream(req):
-                if chunk:
+            async for kind, chunk in provider.complete_stream(req):
+                if not chunk:
+                    continue
+                if kind == "thought":
+                    # Don't leak reasoning to the UI. Just keep thinking state.
+                    yield _sse({"type": "thinking"})
+                else:
                     accumulated.append(chunk)
                     yield _sse({"type": "delta", "text": chunk})
         except Exception as exc:

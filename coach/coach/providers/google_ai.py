@@ -75,8 +75,16 @@ class GoogleAIProvider(LLMProvider):
             latency_ms=latency_ms,
         )
 
-    async def complete_stream(self, req: LLMRequest) -> AsyncIterator[str]:
-        """Stream text chunks from streamGenerateContent?alt=sse."""
+    async def complete_stream(self, req: LLMRequest) -> AsyncIterator[tuple[str, str]]:
+        """Stream (kind, text) tuples from streamGenerateContent?alt=sse.
+
+        `kind` is one of:
+          - "thought": part of the model's internal reasoning (hide from UI,
+            caller should just keep showing a thinking indicator).
+          - "answer":  final user-facing text (stream into the bubble).
+
+        Google AI indicates reasoning via `candidates[].content.parts[].thought = true`.
+        """
         if not self._api_key:
             raise RuntimeError("Google AI provider is selected but no API key is configured.")
 
@@ -87,6 +95,10 @@ class GoogleAIProvider(LLMProvider):
             "generationConfig": {
                 "temperature": req.temperature,
                 "maxOutputTokens": req.max_tokens,
+                # Keep thinking on for quality, but request Google to mark
+                # reasoning parts as `thought: true` so we can separate them
+                # from the final answer.
+                "thinkingConfig": {"includeThoughts": True},
             },
         }
         if req.response_format == "json":
@@ -116,8 +128,10 @@ class GoogleAIProvider(LLMProvider):
                 parts = candidates[0].get("content", {}).get("parts", [])
                 for p in parts:
                     text = p.get("text", "")
-                    if text:
-                        yield text
+                    if not text:
+                        continue
+                    kind = "thought" if p.get("thought") else "answer"
+                    yield (kind, text)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError(
