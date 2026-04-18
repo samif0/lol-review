@@ -322,6 +322,39 @@ Future sessions should be conservative with the live DB. Before editing user dat
 
 This has been necessary multiple times in live support work.
 
+## AI Coaching Rebuild (2026-04-18)
+
+The prior "Coach Lab" system (Gemma-only clip-first coaching, hidden page
+behind `LOLREVIEW_ENABLE_COACH_LAB`, persistent Python worker, training
+pipeline) was removed in coach phase -1. A new coaching architecture is
+being built per `COACH_PLAN.md`.
+
+**Cleaned up:**
+- All `Coach*` and `ICoach*` services in `src/LoLReview.Core/Services/`
+- `CoachLabViewModel.cs`, `CoachLabPage.xaml[.cs]`
+- `CoachLabModels.cs`
+- Coach-specific tests (CoachLabServiceTests, CoachTrainingStatusTests,
+  cascade-delete test, requeue tests)
+- `experiments/coach_lab/` (full Gemma Python stack + training scripts)
+- `.venv-coach-gemma/` virtualenv
+- DI registrations, nav entry, sidebar button, VOD bookmark sync hook
+
+**Intentionally kept:**
+- 8 `coach_*` DB tables remain in `Schema.AllMigrations` (CreateCoachPlayers,
+  CreateCoachMoments, CreateCoachLabels, CreateCoachInferences,
+  CreateCoachRecommendations, CreateCoachModels, CreateCoachDatasetVersions,
+  CreateCoachObjectiveBlocks) + 3 migration arrays. Dropping them would
+  corrupt existing user DBs. No code path touches them now — they're
+  orphaned but harmless.
+- `experiments/sam3_vod/` (unrelated VOD analysis utility)
+
+**Audit artifact:** `COACH_CLEANUP_AUDIT.md` at repo root.
+**Plan:** `COACH_PLAN.md` at repo root.
+**Live state:** `COACH_STATUS.md` at repo root.
+
+**Current phase status:** Phase -1 complete. Phase 0+ coming next in the
+same session, directly to `main` (no per-phase branches).
+
 ## Current Local State As Of 2026-03-28
 
 Released commits:

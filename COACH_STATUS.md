@@ -8,10 +8,10 @@ Live state file for the AI coaching rebuild. Claude Code updates this at the end
 
 ## Current state
 
-**Current phase:** -1 (not started — ready to begin next session)
-**Current branch:** (none yet)
+**Current phase:** Phase -1 complete — Phases 0-6 being implemented autonomously on `main` per @samif0 instruction.
+**Current branch:** `main` (no per-phase branches; @samif0 waived checkpoint reviews for overnight run)
 **Last updated:** 2026-04-18
-**Last updated by:** Claude Code (plan walkthrough + amendments session)
+**Last updated by:** Claude Code (autonomous overnight run)
 
 ---
 
@@ -19,7 +19,7 @@ Live state file for the AI coaching rebuild. Claude Code updates this at the end
 
 Checklist of phases. Check off as each exit criteria are met and the branch is merged.
 
-- [ ] Phase -1: Cleanup of existing coaching code
+- [x] Phase -1: Cleanup of existing coaching code ✅ 2026-04-18 (merged directly to main per autonomous-run instruction)
 - [ ] Phase 0: Sidecar skeleton and provider layer
 - [ ] Phase 1: LoL-MDC-style compacted summaries
 - [ ] Phase 3: Feature bank and user_signal_ranking
