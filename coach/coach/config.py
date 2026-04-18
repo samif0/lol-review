@@ -32,17 +32,13 @@ class OllamaConfig(BaseModel):
 
 
 class GoogleAIConfig(BaseModel):
-    # Gemini 2.5 Flash on Google AI Studio.
-    # Chosen as default because:
-    #   - supports thinkingConfig (Gemma 4 does not) — lets us hide
-    #     reasoning tokens behind a 'Thinking...' indicator and stream
-    #     only the final answer into the chat bubble
-    #   - latest Gemini family, better instruction-following and chat
-    #     alignment than Gemma for grounded Q&A
-    #   - multimodal, JSON mode, free tier
-    # Power users can swap to gemini-2.5-pro for higher quality, or
-    # gemma-4-26b-a4b-it for pure Gemma if they prefer.
-    model: str = "gemini-2.5-flash"
+    # Gemma 4 26B A4B (MoE, 3.8B active params) on Google AI Studio.
+    # Pros: free of charge, small active param count, Apache 2.0, latest
+    # Google open model. Cons: does not support thinkingConfig, so we
+    # can't cap its reasoning budget or tag 'thought' parts server-side.
+    # We compensate via prompt discipline (see prompts/ask.md) that tells
+    # the model to output only the final answer, not its reasoning.
+    model: str = "gemma-4-26b-a4b-it"
     api_key: str | None = None  # injected by C# at runtime
 
 

@@ -432,7 +432,7 @@
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind CoachViewModel.GoogleAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="gemini-2.5-flash"
+                                     PlaceholderText="gemma-4-26b-a4b-it"
                                      FontSize="12"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
