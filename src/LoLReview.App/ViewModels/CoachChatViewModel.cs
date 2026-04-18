@@ -172,6 +172,69 @@ public sealed partial class CoachChatViewModel : ObservableObject
         ProviderTag = "";
     }
 
+    [ObservableProperty] private bool _isBackfilling;
+    [ObservableProperty] private string _backfillStatus = "";
+
+    [RelayCommand]
+    private async Task BackfillAsync()
+    {
+        if (IsBackfilling) return;
+        IsBackfilling = true;
+        BackfillStatus = "Building summaries...";
+
+        try
+        {
+            // Hit the existing bulk endpoints in sequence.
+            var http = _api;
+            // Best-effort: no progress stream, just status text.
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                client.Timeout = TimeSpan.FromMinutes(10);
+                var baseUrl = "http://127.0.0.1:5577";
+
+                try
+                {
+                    BackfillStatus = "Summaries...";
+                    await client.PostAsync($"{baseUrl}/summaries/build-all", null);
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "summaries backfill failed"); }
+
+                try
+                {
+                    BackfillStatus = "Features...";
+                    await client.PostAsync($"{baseUrl}/signals/compute-features-all", null);
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "features backfill failed"); }
+
+                try
+                {
+                    BackfillStatus = "Signal ranking...";
+                    await client.PostAsync($"{baseUrl}/signals/rerank", null);
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "signal rerank failed"); }
+
+                try
+                {
+                    BackfillStatus = "Concepts...";
+                    // Concepts require an LLM per review; this could take a long
+                    // time and hit rate limits. Users can trigger this path by
+                    // playing a game (live extraction) — skip it from the
+                    // one-click backfill by default.
+                    // await client.PostAsync($"{baseUrl}/concepts/extract-all", null);
+                    // await client.PostAsync($"{baseUrl}/concepts/recluster", null);
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "concepts backfill failed"); }
+            }
+
+            BackfillStatus = "Done. Ask something to verify.";
+            // Nudge the totals line on next ask by asking coach for health.
+        }
+        finally
+        {
+            IsBackfilling = false;
+        }
+    }
+
     /// <summary>Load an existing thread by id (from a history list).</summary>
     public async Task LoadThreadAsync(long threadId)
     {

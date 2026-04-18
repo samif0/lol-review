@@ -95,6 +95,10 @@ class GoogleAIProvider(LLMProvider):
             "generationConfig": {
                 "temperature": req.temperature,
                 "maxOutputTokens": req.max_tokens,
+                # topP + topK nudge Gemma 4 away from the pathological
+                # token-repeat loops we've seen ('I donleksya_ch_av_av_av_').
+                "topP": 0.95,
+                "topK": 64,
                 # Keep thinking on for quality, but request Google to mark
                 # reasoning parts as `thought: true` so we can separate them
                 # from the final answer.
@@ -112,6 +116,9 @@ class GoogleAIProvider(LLMProvider):
                     request=response.request,
                     response=response,
                 )
+            any_answer = False
+            last_finish_reason: str | None = None
+
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data: "):
                     continue
@@ -125,13 +132,39 @@ class GoogleAIProvider(LLMProvider):
                 candidates = event.get("candidates", [])
                 if not candidates:
                     continue
-                parts = candidates[0].get("content", {}).get("parts", [])
+                candidate = candidates[0]
+                if "finishReason" in candidate:
+                    last_finish_reason = candidate["finishReason"]
+
+                parts = candidate.get("content", {}).get("parts", [])
                 for p in parts:
                     text = p.get("text", "")
                     if not text:
                         continue
                     kind = "thought" if p.get("thought") else "answer"
+                    if kind == "answer":
+                        any_answer = True
                     yield (kind, text)
+
+            # If the stream ended without any answer tokens, surface the reason
+            # as a synthetic answer chunk so the user sees why (safety filter,
+            # max tokens hit during thinking, etc.).
+            if not any_answer:
+                if last_finish_reason == "SAFETY":
+                    yield ("answer",
+                        "_(Response blocked by Google's safety filter. Try rephrasing — sometimes the filter trips on unrelated-looking words.)_")
+                elif last_finish_reason == "MAX_TOKENS":
+                    yield ("answer",
+                        "_(Hit the max_tokens limit while thinking, before producing an answer. Try a simpler question or ask me to 'keep it short'.)_")
+                elif last_finish_reason == "RECITATION":
+                    yield ("answer",
+                        "_(Response blocked to avoid reciting copyrighted text. Try a different angle.)_")
+                elif last_finish_reason:
+                    yield ("answer",
+                        f"_(No response — finish reason: {last_finish_reason}.)_")
+                else:
+                    yield ("answer",
+                        "_(No response from the model. The provider may be overloaded.)_")
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError(

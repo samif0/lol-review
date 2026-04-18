@@ -192,12 +192,24 @@
                                Margin="12,0,0,0"
                                TextTrimming="CharacterEllipsis"/>
 
-                    <Button Grid.Column="2"
-                            Content="New conversation"
-                            Command="{x:Bind ViewModel.NewConversationCommand}"
-                            Style="{StaticResource QuietActionButtonStyle}"
-                            FontSize="11" Height="28"
-                            Padding="12,0" CornerRadius="2"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{x:Bind ViewModel.BackfillStatus, Mode=OneWay}"
+                                   FontSize="11"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   VerticalAlignment="Center"/>
+                        <Button Content="Build coach context"
+                                Command="{x:Bind ViewModel.BackfillCommand}"
+                                IsEnabled="{x:Bind ViewModel.IsBackfilling, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                Style="{StaticResource QuietActionButtonStyle}"
+                                FontSize="11" Height="28"
+                                Padding="12,0" CornerRadius="2"
+                                ToolTipService.ToolTip="Build game summaries + compute predictive features from your history. Run this once (or after a batch of new games) to give the coach richer context."/>
+                        <Button Content="New conversation"
+                                Command="{x:Bind ViewModel.NewConversationCommand}"
+                                Style="{StaticResource QuietActionButtonStyle}"
+                                FontSize="11" Height="28"
+                                Padding="12,0" CornerRadius="2"/>
+                    </StackPanel>
                 </Grid>
             </StackPanel>
 

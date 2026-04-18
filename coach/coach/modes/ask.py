@@ -383,17 +383,45 @@ def _pick_relevant_games(
         return [int(r["id"]) for r in rows]
 
 
+def _resolve_game_pk(game_id: int) -> int | None:
+    """Accept either games.id (autoincrement PK) or games.game_id (Riot match id).
+
+    C# everywhere uses games.game_id (Riot's 64-bit match id) as the
+    identifier — so that's what deep-links pass us. Coach tables index
+    by games.id. Resolve Riot id -> PK, and fall through to treating
+    input as the PK if nothing matches.
+    """
+    with read_core() as conn:
+        # First: assume it's a Riot game_id (what C# ViewModels usually pass).
+        row = conn.execute(
+            "SELECT id FROM games WHERE game_id = ? LIMIT 1", (game_id,)
+        ).fetchone()
+        if row is not None:
+            return int(row["id"])
+        # Fallback: maybe they passed the PK directly (e.g. a CLI call).
+        row = conn.execute(
+            "SELECT id FROM games WHERE id = ? LIMIT 1", (game_id,)
+        ).fetchone()
+        if row is not None:
+            return int(row["id"])
+    return None
+
+
 def _fetch_summary_and_review(game_id: int) -> dict[str, Any]:
+    pk = _resolve_game_pk(game_id)
+    if pk is None:
+        return {"game_id": game_id, "error": "not_found"}
+
     with read_core() as conn:
         row = conn.execute(
-            "SELECT * FROM games WHERE id = ?", (game_id,)
+            "SELECT * FROM games WHERE id = ?", (pk,)
         ).fetchone()
         if row is None:
             return {"game_id": game_id, "error": "not_found"}
         game = dict(row)
 
         summary_row = conn.execute(
-            "SELECT compacted_json FROM game_summary WHERE game_id = ?", (game_id,)
+            "SELECT compacted_json FROM game_summary WHERE game_id = ?", (pk,)
         ).fetchone()
 
     out = {
@@ -413,19 +441,42 @@ def _fetch_summary_and_review(game_id: int) -> dict[str, Any]:
 
 
 def _fetch_session_log(game_id: int) -> dict[str, Any]:
+    """session_log.game_id is Riot id (matches C# pattern); keep as-is."""
     with read_core() as conn:
+        # session_log.game_id stores Riot id; but the caller might pass the PK.
+        # If input is PK, resolve to Riot id first.
+        riot_id = _pk_to_riot_id(game_id) or game_id
         row = conn.execute(
             "SELECT mental_rating, improvement_note, rule_broken, date "
             "FROM session_log WHERE game_id = ? ORDER BY id DESC LIMIT 1",
-            (game_id,),
+            (riot_id,),
         ).fetchone()
     return dict(row) if row else {"game_id": game_id, "empty": True}
+
+
+def _pk_to_riot_id(game_id: int) -> int | None:
+    """If the argument is a games.id PK, return its games.game_id (Riot id)."""
+    with read_core() as conn:
+        row = conn.execute(
+            "SELECT game_id FROM games WHERE id = ? LIMIT 1", (game_id,)
+        ).fetchone()
+        if row is not None and row["game_id"]:
+            return int(row["game_id"])
+    return None
 
 
 def _fetch_review_text(game_ids: list[int]) -> list[dict[str, Any]]:
     if not game_ids:
         return []
-    placeholders = ",".join("?" * len(game_ids))
+    # Resolve each id to PK if it's a Riot id; otherwise keep as-is.
+    resolved_pks: list[int] = []
+    for gid in game_ids:
+        pk = _resolve_game_pk(gid)
+        if pk is not None:
+            resolved_pks.append(pk)
+    if not resolved_pks:
+        return []
+    placeholders = ",".join("?" * len(resolved_pks))
     with read_core() as conn:
         rows = conn.execute(
             f"""
@@ -434,7 +485,7 @@ def _fetch_review_text(game_ids: list[int]) -> list[dict[str, Any]]:
             FROM games WHERE id IN ({placeholders})
             ORDER BY id DESC
             """,
-            tuple(game_ids),
+            tuple(resolved_pks),
         ).fetchall()
     result = []
     for r in rows:
@@ -446,9 +497,12 @@ def _fetch_review_text(game_ids: list[int]) -> list[dict[str, Any]]:
 
 
 def _fetch_matchup_for_game(game_id: int) -> list[dict[str, Any]]:
+    pk = _resolve_game_pk(game_id)
+    if pk is None:
+        return []
     with read_core() as conn:
         game = conn.execute(
-            "SELECT champion_name FROM games WHERE id = ?", (game_id,)
+            "SELECT champion_name FROM games WHERE id = ?", (pk,)
         ).fetchone()
         if not game or not game["champion_name"]:
             return []
