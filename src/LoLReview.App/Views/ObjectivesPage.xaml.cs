@@ -95,19 +95,13 @@ public sealed partial class ObjectivesPage : Page
 
         var primaryBrush = (SolidColorBrush)Application.Current.Resources["PrimaryTextBrush"];
         var secondaryBrush = (SolidColorBrush)Application.Current.Resources["SecondaryTextBrush"];
+        var mutedBrush = (SolidColorBrush)Application.Current.Resources["MutedTextBrush"];
         var subtleBorder = (SolidColorBrush)Application.Current.Resources["SubtleBorderBrush"];
         var accentBrush = (SolidColorBrush)Application.Current.Resources["AccentPurpleBrush"];
         var cardBg = (SolidColorBrush)Application.Current.Resources["SurfaceInsetBrush"];
-
-        // Provider tag line, tiny and quiet.
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"[{result.Provider} / {result.Model} / {result.LatencyMs}ms]",
-            FontSize = 10,
-            FontFamily = new FontFamily("Consolas"),
-            Foreground = secondaryBrush,
-            Opacity = 0.6,
-        });
+        var shellCanvasBrush = (SolidColorBrush)Application.Current.Resources["ShellCanvasBrush"];
+        var displayFont = (FontFamily)Application.Current.Resources["DisplayFont"];
+        var monoFont = (FontFamily)Application.Current.Resources["MonoFont"];
 
         if (result.Proposals.Count == 0)
         {
@@ -120,25 +114,58 @@ public sealed partial class ObjectivesPage : Page
             });
         }
 
+        int cardIndex = 0;
         foreach (var proposal in result.Proposals)
         {
+            cardIndex++;
+
+            // Outer frame holds the inner card; outer corner accents
+            // give each proposal the same HUD-card vibe as the modal
+            // itself.
             var card = new Border
             {
                 BorderBrush = subtleBorder,
                 Background = cardBg,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(2),
-                Padding = new Thickness(14, 12, 14, 12),
+                Padding = new Thickness(16, 14, 16, 14),
             };
-            var cardStack = new StackPanel { Spacing = 8 };
+            var cardStack = new StackPanel { Spacing = 10 };
+
+            // Breadcrumb eyebrow: "proposal 01 of 03"
+            var eyebrowStack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            eyebrowStack.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
+            {
+                Width = 18,
+                Height = 1,
+                Fill = accentBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            eyebrowStack.Children.Add(new TextBlock
+            {
+                Text = $"PROPOSAL {cardIndex:D2} / {result.Proposals.Count:D2}",
+                FontFamily = monoFont,
+                FontSize = 9,
+                CharacterSpacing = 300,
+                Foreground = accentBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            cardStack.Children.Add(eyebrowStack);
 
             cardStack.Children.Add(new TextBlock
             {
                 Text = proposal.Title,
-                FontSize = 15,
+                FontFamily = displayFont,
+                FontSize = 16,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 Foreground = primaryBrush,
                 TextWrapping = TextWrapping.Wrap,
+                LineHeight = 22,
             });
             cardStack.Children.Add(new TextBlock
             {
@@ -147,30 +174,79 @@ public sealed partial class ObjectivesPage : Page
                 Foreground = primaryBrush,
                 TextWrapping = TextWrapping.Wrap,
                 Opacity = 0.85,
+                LineHeight = 18,
             });
-            cardStack.Children.Add(new TextBlock
+
+            // Confidence as a mini progress bar + small label to the
+            // side — feels more HUD than a plain "confidence: 40%".
+            var confRow = new Grid();
+            confRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            confRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var confTrack = new Border
             {
-                Text = $"confidence: {proposal.Confidence:P0}",
-                FontSize = 10,
-                Foreground = accentBrush,
-                FontFamily = new FontFamily("Consolas"),
+                Height = 3,
+                Background = shellCanvasBrush,
+                BorderBrush = subtleBorder,
+                BorderThickness = new Thickness(1),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0),
+            };
+            var confTrackGrid = new Grid();
+            var confFill = new Border
+            {
+                Background = accentBrush,
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            confTrackGrid.Loaded += (_, _) =>
+            {
+                // Set the width of the fill to a percentage of the track.
+                // We use SizeChanged on the track parent to keep it
+                // responsive to modal resizes.
+                void ResizeFill()
+                {
+                    var w = confTrack.ActualWidth;
+                    if (w > 2)
+                    {
+                        confFill.Width = System.Math.Max(0, (w - 2) * System.Math.Clamp(proposal.Confidence, 0, 1));
+                    }
+                }
+                ResizeFill();
+                confTrack.SizeChanged += (_, _) => ResizeFill();
+            };
+            confTrackGrid.Children.Add(confFill);
+            confTrack.Child = confTrackGrid;
+            Grid.SetColumn(confTrack, 0);
+            confRow.Children.Add(confTrack);
+
+            var confLabel = new TextBlock
+            {
+                Text = $"CONFIDENCE // {proposal.Confidence:P0}",
+                FontFamily = monoFont,
+                FontSize = 9,
                 CharacterSpacing = 200,
-                Opacity = 0.8,
-            });
+                Foreground = mutedBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(confLabel, 1);
+            confRow.Children.Add(confLabel);
+
+            cardStack.Children.Add(confRow);
 
             var useBtn = new Button
             {
-                Content = "Use this",
+                Content = "USE THIS",
                 Style = (Style)Application.Current.Resources["PrimaryActionButtonStyle"],
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Padding = new Thickness(14, 4, 14, 4),
+                Padding = new Thickness(18, 4, 18, 4),
                 Height = 32,
-                FontSize = 12,
+                FontSize = 11,
+                CharacterSpacing = 200,
+                FontFamily = monoFont,
             };
             var localProposal = proposal;
             useBtn.Click += (_, _) =>
             {
-                // Pre-fill the create form and close the modal.
                 ViewModel.NewTitle = localProposal.Title;
                 ViewModel.NewDescription = localProposal.Rationale;
                 if (!ViewModel.IsCreating)
@@ -185,7 +261,20 @@ public sealed partial class ObjectivesPage : Page
             panel.Children.Add(card);
         }
 
-        ProposalsModal.Title = "COACH PROPOSALS";
+        // Provider tag line — at the bottom, small.
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"[{result.Provider} / {result.Model} / {result.LatencyMs}ms]",
+            FontSize = 10,
+            FontFamily = monoFont,
+            Foreground = mutedBrush,
+            Opacity = 0.7,
+            Margin = new Thickness(0, 8, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+        });
+
+        ProposalsModal.Eyebrow = "COACH // PROPOSALS";
+        ProposalsModal.Title = "Pick an objective";
         ProposalsModal.Body = panel;
         ProposalsModal.Footer = null;
         ProposalsModal.IsOpen = true;

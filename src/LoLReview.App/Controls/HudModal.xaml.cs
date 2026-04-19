@@ -27,6 +27,29 @@ public sealed partial class HudModal : UserControl
         KeyDown += OnKeyDown;
     }
 
+    // ── Eyebrow (tiny monospace breadcrumb above the title) ──
+
+    public static readonly DependencyProperty EyebrowProperty =
+        DependencyProperty.Register(
+            nameof(Eyebrow),
+            typeof(string),
+            typeof(HudModal),
+            new PropertyMetadata("MODAL", OnEyebrowChanged));
+
+    public string Eyebrow
+    {
+        get => (string)GetValue(EyebrowProperty);
+        set => SetValue(EyebrowProperty, value);
+    }
+
+    private static void OnEyebrowChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is HudModal modal)
+        {
+            modal.EyebrowText.Text = (e.NewValue as string ?? "").ToUpperInvariant();
+        }
+    }
+
     // ── Title (string) ──
 
     public static readonly DependencyProperty TitleProperty =
