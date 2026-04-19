@@ -248,20 +248,30 @@ class GoogleAIProvider(LLMProvider):
                 last_user_text = msg.content.strip()
                 break
 
-        # A deliberately narrow, low-risk instruction. No player context,
-        # no system prompt — just "ask for clarification." This
-        # almost never fails.
+        # Narrow the task so Gemini reliably produces output: just ask
+        # for clarification. We deliberately do NOT carry over the full
+        # player context — it's what caused the original call to fail,
+        # and we also don't want the clarification to falsely claim to
+        # know or not-know data about the player's history.
         clarify_instruction = (
-            "The user just asked: "
+            "The user just asked a League of Legends coaching assistant: "
             f"\"{last_user_text[:500]}\""
             "\n\n"
-            "You couldn't form a useful answer because the question was too "
-            "short or too open-ended. Ask them 1-2 specific clarifying "
-            "questions to narrow down what they want to know about their "
-            "League of Legends play. Keep it to 2 sentences maximum. "
-            "Do not apologize. Do not say things like \"I need more info\" or "
-            "\"Could you clarify\" — just ask the specific questions directly. "
-            "Plain text, no quote marks around phrases."
+            "This question is too short or too open-ended to answer without "
+            "more context. Your job is ONLY to ask 1-2 specific clarifying "
+            "questions that will help narrow down what they want to know. "
+            "Examples of good questions to ask:\n"
+            "- Which part of your play do you want to focus on — laning, "
+            "teamfights, mental, champion pool, warding?\n"
+            "- Are you thinking about a specific champion or matchup?\n"
+            "- Is this about a recent game or a general pattern?\n\n"
+            "Rules:\n"
+            "- Keep it to 2 sentences total.\n"
+            "- Do NOT claim to have or not-have data about the player. You "
+            "don't know what's in their history yet.\n"
+            "- Do NOT apologize. Do NOT say \"I need more info\" or \"Could "
+            "you clarify\" — just ask the specific questions directly.\n"
+            "- Plain text only. No quote marks around phrases."
         )
 
         clarify_body: dict[str, Any] = {

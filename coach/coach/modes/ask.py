@@ -22,7 +22,6 @@ from coach.schemas import AskResponse, ChatMessage, LLMMessage, LLMRequest
 logger = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "ask.md"
-_PROMPT_CACHE: str | None = None
 
 # Keep a rolling window of the last N turns in the conversation so context
 # doesn't balloon over long threads.
@@ -30,10 +29,10 @@ MAX_HISTORY_TURNS = 8
 
 
 def _load_prompt() -> str:
-    global _PROMPT_CACHE
-    if _PROMPT_CACHE is None:
-        _PROMPT_CACHE = _PROMPT_PATH.read_text(encoding="utf-8")
-    return _PROMPT_CACHE
+    # Re-read on every call so prompt edits take effect without a sidecar
+    # restart. The file is tiny (<5 KB) and ask.md is only read at the
+    # start of a /coach/ask request, so the I/O is negligible.
+    return _PROMPT_PATH.read_text(encoding="utf-8")
 
 
 async def run_ask(
