@@ -120,10 +120,12 @@ class GoogleAIProvider(LLMProvider):
         async with self._client.stream("POST", url, json=body) as response:
             if response.status_code >= 400:
                 body_text = await response.aread()
-                raise httpx.HTTPStatusError(
-                    f"Streaming error {response.status_code}: {body_text.decode('utf-8', errors='replace')[:500]}",
-                    request=response.request,
-                    response=response,
+                # Don't attach request=... to the exception — httpx
+                # embeds the full URL (including ?key=...) in the
+                # stringified exception, which ends up in log files.
+                raise RuntimeError(
+                    f"Streaming error {response.status_code}: "
+                    f"{body_text.decode('utf-8', errors='replace')[:500]}"
                 )
             any_answer = False
             last_finish_reason: str | None = None
@@ -356,19 +358,35 @@ class GoogleAIProvider(LLMProvider):
             return False
 
     async def _post_with_retry(
-        self, url: str, body: dict[str, Any], max_attempts: int = 4
+        self, url: str, body: dict[str, Any], max_attempts: int = 5
     ) -> dict[str, Any]:
-        backoff = 1.0
+        # Start the backoff high enough that the first retry after a
+        # burst 429 actually clears Gemini's 15 req/min free-tier window.
+        backoff = 4.0
         for attempt in range(1, max_attempts + 1):
             try:
                 r = await self._client.post(url, json=body)
                 if r.status_code == 429 or 500 <= r.status_code < 600:
                     if attempt == max_attempts:
-                        r.raise_for_status()
-                    await asyncio.sleep(backoff)
+                        # Do NOT call r.raise_for_status() — httpx embeds
+                        # the full request URL in the exception message,
+                        # which leaks the ?key= query param into logs.
+                        raise RuntimeError(
+                            f"Google AI returned {r.status_code} after {max_attempts} attempts"
+                        )
+                    # Honor Retry-After if the server told us how long
+                    # to wait (Google AI sends this on 429).
+                    retry_after = r.headers.get("Retry-After")
+                    try:
+                        wait = float(retry_after) if retry_after else backoff
+                    except ValueError:
+                        wait = backoff
+                    await asyncio.sleep(max(wait, backoff))
                     backoff *= 2
                     continue
-                r.raise_for_status()
+                if r.status_code >= 400:
+                    # Same reason as above: avoid raise_for_status().
+                    raise RuntimeError(f"Google AI returned {r.status_code}")
                 return r.json()
             except httpx.TimeoutException:
                 if attempt == max_attempts:
