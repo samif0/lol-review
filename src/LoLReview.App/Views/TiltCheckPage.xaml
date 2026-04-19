@@ -1,7 +1,8 @@
-<Page
+﻿<Page
     x:Class="LoLReview.App.Views.TiltCheckPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:LoLReview.App.Services"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:LoLReview.App.ViewModels"
@@ -82,20 +83,20 @@
                                  Title="Tilt Check"
                                  Subtitle="A 2-MINUTE GUIDED RESET"/>
         <Grid>
-            <!-- ═══════════════════════════════════════════════
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                  STEP 0: CHECK IN
-                 ═══════════════════════════════════════════════ -->
+                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
             <StackPanel x:Name="Step0Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 0), Mode=OneWay}"
                         Spacing="4">
 
                 <TextBlock Style="{StaticResource SectionTitle}" Text="TILT CHECK"/>
-                <TextBlock Style="{StaticResource SectionSubtitle}" Text="A quick guided reset — takes about 2 minutes." Margin="0,0,0,20"/>
+                <TextBlock Style="{StaticResource SectionSubtitle}" Text="A quick guided reset â€” takes about 2 minutes." Margin="0,0,0,20"/>
 
                 <Border Style="{StaticResource CardBorder}" BorderBrush="#8b5cf6">
                     <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource CardLabel}" Text="How are you feeling right now?" FontSize="16"/>
-                        <TextBlock Style="{StaticResource CardHint}" Text="Name it to tame it — labeling emotions reduces their intensity."/>
+                        <TextBlock Style="{StaticResource CardLabel}" Text="How are you feeling right now?" FontSize="{Binding Title, Source={StaticResource FontSizes}}"/>
+                        <TextBlock Style="{StaticResource CardHint}" Text="Name it to tame it â€” labeling emotions reduces their intensity."/>
 
                         <!-- Emotion pills row 1 -->
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -118,7 +119,7 @@
 
                         <!-- Selected emotion display -->
                         <TextBlock Text="{x:Bind ViewModel.SelectedEmotion, Mode=OneWay}"
-                                   FontSize="14" FontWeight="SemiBold"
+                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                    Foreground="#8b5cf6"
                                    Visibility="{x:Bind HasText(ViewModel.SelectedEmotion), Mode=OneWay}"/>
 
@@ -130,14 +131,14 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="1" FontSize="11" Foreground="#666680" VerticalAlignment="Center"/>
+                            <TextBlock Text="1" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#666680" VerticalAlignment="Center"/>
                             <Slider Grid.Column="1" Minimum="1" Maximum="10" StepFrequency="1"
                                     Value="{x:Bind ViewModel.IntensityBefore, Mode=TwoWay}"
                                     Margin="8,0"/>
-                            <TextBlock Grid.Column="2" Text="10" FontSize="11" Foreground="#666680" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="10" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#666680" VerticalAlignment="Center"/>
                         </Grid>
                         <TextBlock Text="{x:Bind ViewModel.IntensityBeforeDisplay, Mode=OneWay}"
-                                   FontSize="20" FontWeight="Bold" Foreground="#8b5cf6"/>
+                                   FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#8b5cf6"/>
 
                         <!-- Next button -->
                         <StackPanel HorizontalAlignment="Right">
@@ -149,9 +150,9 @@
                 </Border>
             </StackPanel>
 
-            <!-- ═══════════════════════════════════════════════
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                  STEP 1: BREATHE
-                 ═══════════════════════════════════════════════ -->
+                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
             <StackPanel x:Name="Step1Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 1), Mode=OneWay}"
                         Spacing="4">
@@ -170,15 +171,15 @@
                                       Margin="0,16,0,8"/>
 
                         <TextBlock Text="{x:Bind ViewModel.BreathePhaseText, Mode=OneWay}"
-                                   FontSize="28" FontWeight="Bold" Foreground="#e8e8f0"
+                                   FontSize="{Binding Hero, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#e8e8f0"
                                    HorizontalAlignment="Center"/>
 
                         <TextBlock Text="{x:Bind ViewModel.BreatheCountdown, Mode=OneWay}"
-                                   FontSize="48" FontWeight="Bold" Foreground="#8b5cf6"
+                                   FontSize="{Binding Display, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#8b5cf6"
                                    HorizontalAlignment="Center"/>
 
-                        <TextBlock Text="4-7-8 breathing — exhale longer than you inhale"
-                                   FontSize="11" Foreground="#a0a0b8" HorizontalAlignment="Center"/>
+                        <TextBlock Text="4-7-8 breathing â€” exhale longer than you inhale"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#a0a0b8" HorizontalAlignment="Center"/>
 
                         <!-- Progress bar -->
                         <ProgressBar Value="{x:Bind ViewModel.BreatheProgress, Mode=OneWay}"
@@ -187,7 +188,7 @@
                                      Background="#2a2a3a"
                                      Margin="0,12,0,4"/>
 
-                        <TextBlock FontSize="12" Foreground="#a0a0b8" HorizontalAlignment="Center">
+                        <TextBlock FontSize="{Binding Body, Source={StaticResource FontSizes}}" Foreground="#a0a0b8" HorizontalAlignment="Center">
                             <Run Text="Cycle "/>
                             <Run Text="{x:Bind ViewModel.CurrentCycle, Mode=OneWay}"/>
                             <Run Text=" of 5"/>
@@ -202,9 +203,9 @@
                 </Border>
             </StackPanel>
 
-            <!-- ═══════════════════════════════════════════════
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                  STEP 2: REFRAME
-                 ═══════════════════════════════════════════════ -->
+                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
             <StackPanel x:Name="Step2Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 2), Mode=OneWay}"
                         Spacing="4">
@@ -254,9 +255,9 @@
                 </Border>
             </StackPanel>
 
-            <!-- ═══════════════════════════════════════════════
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                  STEP 3: RESET
-                 ═══════════════════════════════════════════════ -->
+                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
             <StackPanel x:Name="Step3Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 3), Mode=OneWay}"
                         Spacing="4">
@@ -286,7 +287,7 @@
 
                         <!-- Selected cue word -->
                         <TextBlock Text="{x:Bind ViewModel.SelectedCueWord, Mode=OneWay}"
-                                   FontSize="14" FontWeight="SemiBold" Foreground="#8b5cf6"
+                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold" Foreground="#8b5cf6"
                                    Visibility="{x:Bind HasText(ViewModel.SelectedCueWord), Mode=OneWay}"/>
 
                         <TextBlock Style="{StaticResource CardLabel}"
@@ -308,19 +309,19 @@
                 </Border>
             </StackPanel>
 
-            <!-- ═══════════════════════════════════════════════
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                  STEP 4: DONE
-                 ═══════════════════════════════════════════════ -->
+                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
             <StackPanel x:Name="Step4Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 4), Mode=OneWay}"
                         Spacing="4">
 
-                <TextBlock Text="DONE" FontSize="22" FontWeight="Bold" Foreground="#22c55e" Margin="0,0,0,20"/>
+                <TextBlock Text="DONE" FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#22c55e" Margin="0,0,0,20"/>
 
                 <Border Style="{StaticResource CardBorder}" BorderBrush="#22c55e">
                     <StackPanel Spacing="12">
                         <!-- Summary -->
-                        <TextBlock FontSize="14" Foreground="#e8e8f0">
+                        <TextBlock FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" Foreground="#e8e8f0">
                             <Run Text="You were feeling: "/>
                             <Run Text="{x:Bind ViewModel.SelectedEmotion, Mode=OneWay}" FontWeight="SemiBold"/>
                             <Run Text=" ("/>
@@ -336,23 +337,23 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="1" FontSize="11" Foreground="#666680" VerticalAlignment="Center"/>
+                            <TextBlock Text="1" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#666680" VerticalAlignment="Center"/>
                             <Slider Grid.Column="1" Minimum="1" Maximum="10" StepFrequency="1"
                                     Value="{x:Bind ViewModel.IntensityAfter, Mode=TwoWay}"
                                     Margin="8,0"/>
-                            <TextBlock Grid.Column="2" Text="10" FontSize="11" Foreground="#666680" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="10" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#666680" VerticalAlignment="Center"/>
                         </Grid>
                         <TextBlock Text="{x:Bind ViewModel.IntensityAfterDisplay, Mode=OneWay}"
-                                   FontSize="20" FontWeight="Bold" Foreground="#22c55e"/>
+                                   FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#22c55e"/>
 
                         <!-- Result message -->
                         <TextBlock Text="{x:Bind ViewModel.ResultMessage, Mode=OneWay}"
-                                   FontSize="13" TextWrapping="Wrap"
+                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" TextWrapping="Wrap"
                                    Foreground="{x:Bind ViewModel.ResultColor, Mode=OneWay}"/>
 
                         <!-- Encouragement -->
                         <TextBlock Text="Every pro tilts. The difference is what you do next."
-                                   FontSize="13" FontStyle="Italic" Foreground="#a0a0b8"
+                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontStyle="Italic" Foreground="#a0a0b8"
                                    Margin="0,8,0,0"/>
 
                         <!-- Action buttons -->

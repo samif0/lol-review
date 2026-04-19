@@ -1,7 +1,8 @@
-<Page
+﻿<Page
     x:Class="LoLReview.App.Views.ManualEntryPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:LoLReview.App.Services"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:converters="using:LoLReview.App.Converters"
@@ -34,10 +35,10 @@
                 <!-- Error message -->
                 <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
                            FontFamily="{StaticResource MonoFont}"
-                           FontSize="11" Foreground="{StaticResource LossRedBrush}"
+                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="{StaticResource LossRedBrush}"
                            Visibility="{x:Bind ViewModel.HasError, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
-                <!-- ═══ Champion + Result + KDA ═══ -->
+                <!-- â•â•â• Champion + Result + KDA â•â•â• -->
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}">
                     <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>
@@ -49,7 +50,7 @@
                             <TextBox Text="{x:Bind ViewModel.ChampionName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="Champion Name"
                                      FontFamily="{StaticResource DisplayFont}"
-                                     FontSize="22" FontWeight="Bold"
+                                     FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                      Background="Transparent"
                                      BorderThickness="0,0,0,2"
                                      BorderBrush="{StaticResource AccentGoldBrush}"
@@ -60,10 +61,10 @@
                                 <RadioButton Content="Victory" GroupName="Result"
                                              IsChecked="{x:Bind ViewModel.IsVictory, Mode=TwoWay}"
                                              Foreground="{StaticResource WinGreenBrush}"
-                                             FontSize="13" FontWeight="SemiBold"/>
+                                             FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
                                 <RadioButton Content="Defeat" GroupName="Result"
                                              Foreground="{StaticResource LossRedBrush}"
-                                             FontSize="13" FontWeight="SemiBold"/>
+                                             FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
                             </StackPanel>
                         </StackPanel>
 
@@ -79,35 +80,35 @@
                                      Text="{x:Bind ViewModel.KillsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="K" InputScope="Number"
                                      FontFamily="{StaticResource DisplayFont}"
-                                     FontSize="20" FontWeight="Bold" TextAlignment="Center"
+                                     FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" TextAlignment="Center"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
                                      CornerRadius="2" Height="40"/>
                             <TextBlock Grid.Column="1" Text="/"
                                        FontFamily="{StaticResource DisplayFont}"
-                                       FontSize="20" FontWeight="Bold"
+                                       FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        VerticalAlignment="Center"/>
                             <TextBox Grid.Column="2"
                                      Text="{x:Bind ViewModel.DeathsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="D" InputScope="Number"
                                      FontFamily="{StaticResource DisplayFont}"
-                                     FontSize="20" FontWeight="Bold" TextAlignment="Center"
+                                     FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" TextAlignment="Center"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
                                      CornerRadius="2" Height="40"/>
                             <TextBlock Grid.Column="3" Text="/"
                                        FontFamily="{StaticResource DisplayFont}"
-                                       FontSize="20" FontWeight="Bold"
+                                       FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        VerticalAlignment="Center"/>
                             <TextBox Grid.Column="4"
                                      Text="{x:Bind ViewModel.AssistsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="A" InputScope="Number"
                                      FontFamily="{StaticResource DisplayFont}"
-                                     FontSize="20" FontWeight="Bold" TextAlignment="Center"
+                                     FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" TextAlignment="Center"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -116,7 +117,7 @@
                     </Grid>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Mental Rating ═══ -->
+                <!-- â•â•â• Mental Rating â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="MENTAL RATING"/>
@@ -134,7 +135,7 @@
                             <TextBlock Grid.Column="1"
                                        Text="{x:Bind ViewModel.MentalRating, Mode=OneWay}"
                                        FontFamily="{StaticResource DisplayFont}"
-                                       FontSize="32" FontWeight="Bold"
+                                       FontSize="{Binding HeroLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                        Margin="16,0,0,0"
                                        VerticalAlignment="Center"
                                        MinWidth="44" TextAlignment="Center"/>
@@ -142,7 +143,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Learning Objectives ═══ -->
+                <!-- â•â•â• Learning Objectives â•â•â• -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource AccentBlueBrush}"
                     Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -162,12 +163,12 @@
                                                 <StackPanel Spacing="2">
                                                     <TextBlock Text="{x:Bind Title}"
                                                                FontFamily="{StaticResource HeadingFont}"
-                                                               FontSize="14" FontWeight="SemiBold"
+                                                               FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                                Foreground="{StaticResource PrimaryTextBrush}"
                                                                TextWrapping="Wrap"/>
                                                     <TextBlock Text="{x:Bind PhaseLabel}"
                                                                FontFamily="{StaticResource MonoFont}"
-                                                               FontSize="9"
+                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                                                Foreground="{StaticResource AccentBlueBrush}"/>
                                                 </StackPanel>
                                                 <ToggleSwitch Grid.Column="1"
@@ -178,7 +179,7 @@
                                             </Grid>
                                             <TextBox Text="{x:Bind ExecutionNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                      PlaceholderText="How did you execute on this?"
-                                                     FontSize="12"
+                                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                      Background="{StaticResource InputBackgroundBrush}"
                                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -191,57 +192,57 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Performance Review ═══ -->
+                <!-- â•â•â• Performance Review â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
 
-                        <TextBlock Text="What went well?" FontSize="13"
+                        <TextBlock Text="What went well?" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource PrimaryTextBrush}"/>
                         <TextBox Text="{x:Bind ViewModel.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  PlaceholderText="Good plays, decisions, mechanics..."
                                  TextWrapping="Wrap" AcceptsReturn="True"
-                                 MinHeight="70" FontSize="12"
+                                 MinHeight="70" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                  Background="{StaticResource InputBackgroundBrush}"
                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                  Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
-                        <TextBlock Text="What could improve?" FontSize="13"
+                        <TextBlock Text="What could improve?" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource PrimaryTextBrush}"/>
                         <TextBox Text="{x:Bind ViewModel.Mistakes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  PlaceholderText="Deaths, missed plays, bad decisions..."
                                  TextWrapping="Wrap" AcceptsReturn="True"
-                                 MinHeight="70" FontSize="12"
+                                 MinHeight="70" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                  Background="{StaticResource InputBackgroundBrush}"
                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                  Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
-                        <TextBlock Text="Focus for next game" FontSize="13"
+                        <TextBlock Text="Focus for next game" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource PrimaryTextBrush}"/>
                         <TextBox Text="{x:Bind ViewModel.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  PlaceholderText="What will you focus on improving?"
-                                 FontSize="12" Height="36"
+                                 FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="36"
                                  Background="{StaticResource InputBackgroundBrush}"
                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                  Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Additional Notes ═══ -->
+                <!-- â•â•â• Additional Notes â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="ADDITIONAL NOTES"/>
                         <TextBox Text="{x:Bind ViewModel.ReviewNotes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  PlaceholderText="Any other notes about this game..."
                                  TextWrapping="Wrap" AcceptsReturn="True"
-                                 MinHeight="70" FontSize="12"
+                                 MinHeight="70" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                  Background="{StaticResource InputBackgroundBrush}"
                                  BorderBrush="{StaticResource SubtleBorderBrush}"
                                  Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Action Buttons ═══ -->
+                <!-- â•â•â• Action Buttons â•â•â• -->
                 <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -249,11 +250,11 @@
                     </Grid.ColumnDefinitions>
                     <Button Grid.Column="0" Content="Cancel" Click="OnCancelClick"
                             Style="{StaticResource SecondaryActionButtonStyle}"
-                            FontSize="14" Height="44"
+                            FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" Height="44"
                             HorizontalAlignment="Stretch"/>
                     <Button Grid.Column="1" Content="Save Game Entry" Click="OnSaveClick"
                             Style="{StaticResource PrimaryActionButtonStyle}"
-                            FontSize="14" FontWeight="Bold" Height="44"
+                            FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="Bold" Height="44"
                             HorizontalAlignment="Stretch"/>
                 </Grid>
 

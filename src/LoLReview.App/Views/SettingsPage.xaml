@@ -1,7 +1,8 @@
-<Page
+﻿<Page
     x:Class="LoLReview.App.Views.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:LoLReview.App.Services"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:converters="using:LoLReview.App.Converters"
@@ -19,18 +20,18 @@
                       Padding="40,30,40,40">
             <StackPanel Spacing="14" HorizontalAlignment="Stretch">
 
-                <!-- ═══ Hero ═══ -->
+                <!-- â•â•â• Hero â•â•â• -->
                 <controls:HeroHeader EyebrowText="CONFIGURATION"
                                      Title="Settings"
                                      Subtitle="VOD FOLDERS // BACKUPS // INTEGRATIONS"/>
 
-                <!-- ═══ Ascent VOD Recordings Section ═══ -->
+                <!-- â•â•â• Ascent VOD Recordings Section â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="ASCENT VOD RECORDINGS"/>
 
                         <TextBlock Text="Point this to your Ascent recordings folder to enable VOD playback and timestamped bookmarks in your reviews."
-                                   FontSize="12"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
@@ -44,7 +45,7 @@
                             <TextBox Grid.Column="0"
                                      Text="{x:Bind ViewModel.AscentFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="e.g. C:\Users\you\Videos\Ascent"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -56,13 +57,13 @@
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseAscentFolderCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
-                                    FontSize="12" Height="36"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="36"
                                     Padding="16,0" CornerRadius="2"/>
                         </Grid>
 
                         <!-- Status text -->
                         <TextBlock Text="{x:Bind ViewModel.AscentStatus, Mode=OneWay}"
-                                   FontSize="11"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
 
                         <!-- Action buttons -->
@@ -70,35 +71,35 @@
                             <Button Content="Scan for VODs"
                                     Click="OnScanVodsClick"
                                     Style="{StaticResource PrimaryActionButtonStyle}"
-                                    FontSize="11" Height="30"
+                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Height="30"
                                     Padding="12,0" CornerRadius="2"
                                     HorizontalAlignment="Left"/>
                             <Button Content="Clear Ascent Folder"
                                     Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
                                     Style="{StaticResource SecondaryActionButtonStyle}"
-                                    FontSize="11" Height="30"
+                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Height="30"
                                     Padding="12,0" CornerRadius="2"
                                     HorizontalAlignment="Left"/>
                         </StackPanel>
 
                         <TextBlock x:Name="ScanResultText"
-                                   FontSize="11"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource WinGreenBrush}"
                                    Visibility="Collapsed"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Clip Settings Section ═══ -->
+                <!-- â•â•â• Clip Settings Section â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="CLIP SETTINGS"/>
 
                         <!-- ffmpeg status -->
                         <TextBlock Text="{x:Bind ViewModel.FfmpegStatusText, Mode=OneWay}"
-                                   FontSize="11"/>
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
 
                         <TextBlock Text="Save short video clips from your VOD recordings. Clips are stored separately from Ascent recordings."
-                                   FontSize="12"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
@@ -112,14 +113,14 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="Folder:"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource PrimaryTextBrush}"
                                        VerticalAlignment="Center"
                                        Margin="0,0,8,0"/>
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind ViewModel.ClipsFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -131,53 +132,53 @@
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseClipsFolderCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
-                                    FontSize="12" Height="36"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="36"
                                     Padding="16,0" CornerRadius="2"/>
                         </Grid>
 
                         <!-- Max size row -->
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="Max folder size (MB):"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource PrimaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
                             <TextBox Text="{x:Bind ViewModel.ClipsMaxSizeMbText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                      Width="120" Height="36"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      CornerRadius="2"
                                      Background="#1a1a24"
                                      Foreground="#e8e8f0"
                                      BorderBrush="#1e1e2e"/>
 
                             <TextBlock Text="{x:Bind ViewModel.CurrentClipUsage, Mode=OneWay}"
-                                       FontSize="11"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
 
                         <TextBlock Text="Oldest clips are automatically deleted when the folder exceeds this size."
-                                   FontSize="11"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Database Backup Section ═══ -->
+                <!-- â•â•â• Database Backup Section â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="DATABASE BACKUP"/>
 
                         <TextBlock Text="Back up your database automatically when the app starts. Keeps last 5 backups."
-                                   FontSize="12"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
                         <CheckBox Content="Enable automatic backups"
                                   IsChecked="{x:Bind ViewModel.BackupEnabled, Mode=TwoWay}"
-                                  FontSize="13"
+                                  FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                   Foreground="{StaticResource PrimaryTextBrush}"/>
 
                         <TextBlock Text="Backup folder:"
-                                   FontSize="12"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource PrimaryTextBrush}"/>
 
                         <Grid>
@@ -188,7 +189,7 @@
 
                             <TextBox Grid.Column="0"
                                      Text="{x:Bind ViewModel.BackupFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -200,19 +201,19 @@
                                     Content="Browse"
                                     Command="{x:Bind ViewModel.BrowseBackupFolderCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
-                                    FontSize="12" Height="36"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="36"
                                     Padding="16,0" CornerRadius="2"/>
                         </Grid>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Tilt Fix Mode Section ═══ -->
+                <!-- â•â•â• Tilt Fix Mode Section â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="TILT FIX MODE"/>
 
                         <TextBlock Text="Enable mood check-ins before games, session intention setting, and mental reflection prompts when mental rating is low."
-                                   FontSize="12"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
@@ -222,13 +223,13 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Review Save Behavior ═══ -->
+                <!-- â•â•â• Review Save Behavior â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="REVIEW SAVE BEHAVIOR"/>
 
                         <TextBlock Text="Control whether the review screen requires written review content before save. When this is off, you can intentionally save a game as reviewed even if you leave the main review notes blank."
-                                   FontSize="12"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
@@ -239,17 +240,17 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ App Version & Updates Section ═══ -->
+                <!-- â•â•â• App Version & Updates Section â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="APP VERSION"/>
 
                         <TextBlock Text="{x:Bind ViewModel.AppVersion, Mode=OneWay}"
-                                   FontSize="14" FontWeight="SemiBold"
+                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                    Foreground="{StaticResource PrimaryTextBrush}"/>
 
                         <TextBlock Text="Installed clients check for updates automatically when the app launches."
-                                   FontSize="11"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
@@ -257,24 +258,24 @@
                             <Button Content="Check for Updates"
                                     Command="{x:Bind ViewModel.CheckForUpdateCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
-                                    FontSize="12" Height="32"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
                                     Padding="14,0" CornerRadius="2"/>
 
                             <Button Content="Download &amp; Restart"
                                     Command="{x:Bind ViewModel.DownloadAndApplyUpdateCommand}"
                                     Visibility="{x:Bind ViewModel.IsUpdateAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                     Style="{StaticResource GoldActionButtonStyle}"
-                                    FontSize="12" Height="32"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
                                     Padding="14,0" CornerRadius="2"/>
                         </StackPanel>
 
                         <TextBlock Text="{x:Bind ViewModel.UpdateStatusText, Mode=OneWay}"
-                                   FontSize="11"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{x:Bind ViewModel.UpdateStatusBrush, Mode=OneWay}"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ AI Coach Section ═══ -->
+                <!-- â•â•â• AI Coach Section â•â•â• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <Grid>
@@ -286,7 +287,7 @@
                                     VerticalAlignment="Center"
                                     Margin="80,2,0,0">
                                 <TextBlock Text="ALPHA"
-                                           FontSize="9"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                            FontWeight="Bold"
                                            Foreground="#07060B"/>
                             </Border>
@@ -300,11 +301,11 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Spacing="2">
                                 <TextBlock Text="Enable Coach (alpha)"
-                                           FontSize="13"
+                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                            FontWeight="SemiBold"
                                            Foreground="{StaticResource PrimaryTextBrush}"/>
                                 <TextBlock Text="Still experimental. Answers may be wrong. You can turn this on or off at any time; it only affects your UI."
-                                           FontSize="11"
+                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                            Foreground="{StaticResource SecondaryTextBrush}"
                                            TextWrapping="Wrap"/>
                             </StackPanel>
@@ -319,12 +320,12 @@
                             <StackPanel Spacing="10">
 
                         <TextBlock Text="{x:Bind CoachViewModel.ProviderHint, Mode=OneWay}"
-                                   FontSize="12"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
                         <TextBlock Text="Get a free Google AI Studio API key at https://aistudio.google.com/apikey"
-                                   FontSize="11"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"
                                    Margin="0,0,0,4"
@@ -333,9 +334,9 @@
                         <!-- Core coach runtime (~30 MB). Required for every provider. -->
                         <StackPanel Spacing="2" Margin="0,4,0,4">
                             <TextBlock Text="Coach runtime (~30 MB)"
-                                       FontSize="12" FontWeight="SemiBold"/>
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
                             <TextBlock Text="Embedded Python sidecar. Required to use any coach feature."
-                                       FontSize="11"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
@@ -347,7 +348,7 @@
                             </Grid.ColumnDefinitions>
 
                             <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-                                <TextBlock FontSize="12" FontWeight="SemiBold">
+                                <TextBlock FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold">
                                     <Run Text="Status:"/>
                                     <Run Text="{x:Bind CoachViewModel.InstallStatus, Mode=OneWay}"/>
                                 </TextBlock>
@@ -361,7 +362,7 @@
                                     Content="Install"
                                     Command="{x:Bind CoachViewModel.InstallCoreCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
-                                    FontSize="12" Height="32"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
                                     Padding="16,0" CornerRadius="2"
                                     Margin="0,0,6,0"/>
 
@@ -369,16 +370,16 @@
                                     Content="Uninstall"
                                     Command="{x:Bind CoachViewModel.UninstallCoreCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
-                                    FontSize="12" Height="32"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
                                     Padding="16,0" CornerRadius="2"/>
                         </Grid>
 
                         <!-- ML extras pack (~230 MB). Optional; enables /concepts/* endpoints. -->
                         <StackPanel Spacing="2" Margin="0,10,0,4">
                             <TextBlock Text="ML extras (~230 MB)"
-                                       FontSize="12" FontWeight="SemiBold"/>
-                            <TextBlock Text="Adds sentence embeddings and clustering for concept analysis. Optional — install later if you want coach to index concepts across your games."
-                                       FontSize="11"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
+                            <TextBlock Text="Adds sentence embeddings and clustering for concept analysis. Optional â€” install later if you want coach to index concepts across your games."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
@@ -390,7 +391,7 @@
                             </Grid.ColumnDefinitions>
 
                             <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-                                <TextBlock FontSize="12" FontWeight="SemiBold">
+                                <TextBlock FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold">
                                     <Run Text="Status:"/>
                                     <Run Text="{x:Bind CoachViewModel.MlInstallStatus, Mode=OneWay}"/>
                                 </TextBlock>
@@ -404,7 +405,7 @@
                                     Content="Install"
                                     Command="{x:Bind CoachViewModel.InstallMlCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
-                                    FontSize="12" Height="32"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
                                     Padding="16,0" CornerRadius="2"
                                     Margin="0,0,6,0"/>
 
@@ -412,7 +413,7 @@
                                     Content="Uninstall"
                                     Command="{x:Bind CoachViewModel.UninstallMlCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
-                                    FontSize="12" Height="32"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
                                     Padding="16,0" CornerRadius="2"/>
                         </Grid>
 
@@ -425,7 +426,7 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="Provider"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
@@ -434,7 +435,7 @@
                                       SelectedItem="{x:Bind CoachViewModel.SelectedProvider, Mode=TwoWay}"
                                       Height="32"
                                       MinWidth="200"
-                                      FontSize="12"/>
+                                      FontSize="{Binding Body, Source={StaticResource FontSizes}}"/>
                         </Grid>
 
                         <!-- Ollama settings -->
@@ -446,14 +447,14 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="Ollama URL"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind CoachViewModel.OllamaBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="http://localhost:11434"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -469,14 +470,14 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="Ollama model"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind CoachViewModel.OllamaModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="gemma4:e4b"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -492,14 +493,14 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="Vision model"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind CoachViewModel.OllamaVisionModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="gemma4:e4b"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -516,14 +517,14 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="Google AI model"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind CoachViewModel.GoogleAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="gemini-2.5-flash"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -539,7 +540,7 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="Google AI key"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
@@ -552,7 +553,7 @@
                                              x:Name="GoogleAiApiKeyBox"
                                              PasswordChanged="OnGoogleAiApiKeyChanged"
                                              PlaceholderText="(leave blank to keep existing)"
-                                             FontSize="12"
+                                             FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                              Background="{StaticResource InputBackgroundBrush}"
                                              BorderBrush="{StaticResource SubtleBorderBrush}"
                                              Foreground="{StaticResource PrimaryTextBrush}"
@@ -563,7 +564,7 @@
                                         Command="{x:Bind CoachViewModel.ClearGoogleAiKeyCommand}"
                                         Visibility="{x:Bind CoachViewModel.GoogleAiKeyStored, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                         Style="{StaticResource QuietActionButtonStyle}"
-                                        FontSize="11" Height="32"
+                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Height="32"
                                         Padding="10,0" CornerRadius="2"
                                         Margin="6,0,0,0"/>
                             </Grid>
@@ -575,8 +576,8 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="1"
-                                       Text="✓ Key saved to Windows Credential Manager. Leave blank above to keep it."
-                                       FontSize="10"
+                                       Text="âœ“ Key saved to Windows Credential Manager. Leave blank above to keep it."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
                         </Grid>
 
@@ -589,14 +590,14 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="OpenRouter model"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind CoachViewModel.OpenRouterModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="google/gemma-3-27b-it"
-                                     FontSize="12"
+                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
                                      Foreground="{StaticResource PrimaryTextBrush}"
@@ -612,7 +613,7 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="OpenRouter key"
-                                       FontSize="12"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"/>
 
@@ -625,7 +626,7 @@
                                              x:Name="OpenRouterApiKeyBox"
                                              PasswordChanged="OnOpenRouterApiKeyChanged"
                                              PlaceholderText="(leave blank to keep existing)"
-                                             FontSize="12"
+                                             FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                              Background="{StaticResource InputBackgroundBrush}"
                                              BorderBrush="{StaticResource SubtleBorderBrush}"
                                              Foreground="{StaticResource PrimaryTextBrush}"
@@ -636,7 +637,7 @@
                                         Command="{x:Bind CoachViewModel.ClearOpenRouterKeyCommand}"
                                         Visibility="{x:Bind CoachViewModel.OpenRouterKeyStored, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                         Style="{StaticResource QuietActionButtonStyle}"
-                                        FontSize="11" Height="32"
+                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Height="32"
                                         Padding="10,0" CornerRadius="2"
                                         Margin="6,0,0,0"/>
                             </Grid>
@@ -648,8 +649,8 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="1"
-                                       Text="✓ Key saved to Windows Credential Manager. Leave blank above to keep it."
-                                       FontSize="10"
+                                       Text="âœ“ Key saved to Windows Credential Manager. Leave blank above to keep it."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
                         </Grid>
 
@@ -657,7 +658,7 @@
                         <Button Content="Save coach config"
                                 Command="{x:Bind CoachViewModel.SaveConfigCommand}"
                                 Style="{StaticResource QuietActionButtonStyle}"
-                                FontSize="12" Height="32"
+                                FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
                                 Padding="16,0" CornerRadius="2"
                                 HorizontalAlignment="Left"
                                 Margin="0,6,0,0"/>
@@ -671,13 +672,13 @@
                                 Margin="0,12,0,0">
                             <StackPanel Spacing="6">
                                 <TextBlock Text="TEST CONNECTION"
-                                           FontSize="11"
+                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                            FontWeight="SemiBold"
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
 
                                 <TextBox Text="{x:Bind CoachViewModel.TestPromptText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          PlaceholderText="Prompt for smoke test"
-                                         FontSize="12"
+                                         FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                          AcceptsReturn="True"
                                          TextWrapping="Wrap"
                                          MinHeight="32"
@@ -689,19 +690,19 @@
                                 <Button Content="Send test prompt"
                                         Command="{x:Bind CoachViewModel.TestConnectionCommand}"
                                         Style="{StaticResource QuietActionButtonStyle}"
-                                        FontSize="12" Height="30"
+                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="30"
                                         Padding="14,0" CornerRadius="2"
                                         HorizontalAlignment="Left"/>
 
                                 <TextBlock Text="{x:Bind CoachViewModel.TestResult, Mode=OneWay}"
-                                           FontSize="11"
+                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                            Foreground="{StaticResource SecondaryTextBrush}"
                                            TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
 
                         <!-- How to use -->
-                        <TextBlock FontSize="11"
+                        <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,0">
@@ -712,7 +713,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ Save Button Row ═══ -->
+                <!-- â•â•â• Save Button Row â•â•â• -->
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -721,14 +722,14 @@
 
                     <TextBlock Grid.Column="0"
                                Text="{x:Bind ViewModel.SaveStatusText, Mode=OneWay}"
-                               FontSize="13" FontWeight="SemiBold"
+                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                VerticalAlignment="Center"/>
 
                     <Button Grid.Column="1"
                             Content="Save Settings"
                             Command="{x:Bind ViewModel.SaveCommand}"
                             Style="{StaticResource PrimaryActionButtonStyle}"
-                            FontSize="14" FontWeight="Bold"
+                            FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="Bold"
                             Height="40" Padding="24,0"
                             CornerRadius="2"/>
                 </Grid>

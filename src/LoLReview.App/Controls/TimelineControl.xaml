@@ -1,7 +1,8 @@
-<UserControl
+﻿<UserControl
     x:Class="LoLReview.App.Controls.TimelineControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:LoLReview.App.Services"
     MinHeight="104"
     PointerPressed="OnPointerPressed"
     PointerMoved="OnPointerMoved"
@@ -71,7 +72,7 @@
                 BorderThickness="1"
                 Visibility="Collapsed">
             <TextBlock x:Name="TooltipText"
-                       FontSize="11"
+                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                        TextWrapping="Wrap"
                        Foreground="{StaticResource PrimaryTextBrush}" />
         </Border>

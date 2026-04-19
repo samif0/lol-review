@@ -1,7 +1,8 @@
-<Page
+﻿<Page
     x:Class="LoLReview.App.Views.HistoryPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:LoLReview.App.Services"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:LoLReview.App.ViewModels"
@@ -22,7 +23,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- ═══ Hero ═══ -->
+        <!-- â•â•â• Hero â•â•â• -->
         <controls:HeroHeader Grid.Row="0"
                              EyebrowText="MATCH DATABASE"
                              Title="Match History"
@@ -74,7 +75,7 @@
                             <!-- No games message -->
                             <TextBlock Visibility="{x:Bind ViewModel.HasNoGames, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                        Text="No games recorded yet."
-                                       FontSize="14"
+                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        HorizontalAlignment="Center"
                                        Margin="0,40,0,0"/>
@@ -108,7 +109,7 @@
                                                             Click="HideGameButton_Click">
                                                         <FontIcon Glyph="&#xE74D;"
                                                                   FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                                  FontSize="13"/>
+                                                                  FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
                                                     </Button>
                                                 </StackPanel>
                                             </controls:GameRowCard.Actions>
@@ -125,7 +126,7 @@
                                     HorizontalAlignment="Center"
                                     Margin="0,12,0,24"
                                     Height="32" Width="160"
-                                    FontSize="13"/>
+                                    FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
                         </StackPanel>
             </ScrollViewer>
         </Grid>

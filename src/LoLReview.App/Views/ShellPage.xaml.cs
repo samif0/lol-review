@@ -69,10 +69,9 @@ public sealed partial class ShellPage : Page
         if (!ctrl) return;
 
         // Throttle: Windows key-repeat fires KeyDown ~30/sec when held.
-        // Each zoom change forces the whole content tree to re-rasterize at
-        // the new scale, which can overwhelm weaker GPUs (a user reported
-        // their entire PC crashing while holding Ctrl-=). One zoom step per
-        // ~50 ms gives responsive feel but caps the repaint rate.
+        // Font-scale changes trigger 500+ bound FontSize properties to
+        // recompute and the layout engine to reflow. Cap at ~20/sec so
+        // holding Ctrl-+ feels responsive without pegging the UI thread.
         var now = Environment.TickCount;
         if (now - _lastZoomTick < ZoomThrottleMs) return;
 
@@ -81,33 +80,22 @@ public sealed partial class ShellPage : Page
             case Windows.System.VirtualKey.Add:
             case (Windows.System.VirtualKey)187: // OemPlus (=/+)
                 _lastZoomTick = now;
-                SetZoom(_zoomLevel + ZoomStep);
+                FontSizes.Instance.SetScale(FontSizes.Instance.Scale + FontSizes.ScaleStep);
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.Subtract:
             case (Windows.System.VirtualKey)189: // OemMinus (-/_)
                 _lastZoomTick = now;
-                SetZoom(_zoomLevel - ZoomStep);
+                FontSizes.Instance.SetScale(FontSizes.Instance.Scale - FontSizes.ScaleStep);
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.Number0:
             case Windows.System.VirtualKey.NumberPad0:
                 _lastZoomTick = now;
-                SetZoom(1.0);
+                FontSizes.Instance.SetScale(1.0);
                 e.Handled = true;
                 break;
         }
-    }
-
-    private void SetZoom(double level)
-    {
-        var clamped = Math.Clamp(level, ZoomMin, ZoomMax);
-        // No-op if we're already at the target (prevents a repaint on
-        // held-key bounces when already at ZoomMax/ZoomMin).
-        if (Math.Abs(clamped - _zoomLevel) < 0.001) return;
-        _zoomLevel = clamped;
-        ContentScale.ScaleX = _zoomLevel;
-        ContentScale.ScaleY = _zoomLevel;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -137,11 +125,9 @@ public sealed partial class ShellPage : Page
     private float _pulseTargetY = 120f;
 
     // ── UI Zoom ──────────────────────────────────────────────────────
-    private const double ZoomStep = 0.05;
-    private const double ZoomMin = 0.6;
-    private const double ZoomMax = 1.6;
+    // Scale is held in Services.FontSizes.Instance so XAML bindings can
+    // react directly — see Services/FontSizes.cs.
     private const int ZoomThrottleMs = 50;
-    private double _zoomLevel = 1.0;
     private int _lastZoomTick;
 
     private void UpdateEnergyDrain()

@@ -1,8 +1,9 @@
-<Page
+﻿<Page
     x:Name="RootPage"
     x:Class="LoLReview.App.Views.PreGamePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:LoLReview.App.Services"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:LoLReview.App.ViewModels"
@@ -21,11 +22,11 @@
         <StackPanel Spacing="14" Padding="40,20,40,40"
                     MaxWidth="580" HorizontalAlignment="Center">
 
-            <!-- ═══ Hero ═══ -->
+            <!-- â•â•â• Hero â•â•â• -->
             <controls:HeroHeader EyebrowText="CHAMP SELECT"
                                  Title="Lock In"/>
 
-            <!-- ═══ Mood (Tilt Fix) ═══ -->
+            <!-- â•â•â• Mood (Tilt Fix) â•â•â• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentPurpleBrush}"
                 Visibility="{x:Bind ViewModel.ShowMoodSelector, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -35,7 +36,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- ═══ Priority Objective ═══ -->
+            <!-- â•â•â• Priority Objective â•â•â• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentBlueBrush}"
                 Visibility="{x:Bind ViewModel.HasActiveObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -43,18 +44,18 @@
                     <controls:SectionTitle Text="PRIORITY OBJECTIVE"/>
                     <TextBlock Text="{x:Bind ViewModel.ActiveObjectiveTitle, Mode=OneWay}"
                                FontFamily="{StaticResource HeadingFont}"
-                               FontSize="16" FontWeight="SemiBold"
+                               FontSize="{Binding Title, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                Foreground="{StaticResource PrimaryTextBrush}"
                                TextWrapping="Wrap"/>
                     <TextBlock Text="{x:Bind ViewModel.ActiveObjectiveCriteria, Mode=OneWay}"
                                FontFamily="{StaticResource MonoFont}"
-                               FontSize="10"
+                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                Foreground="{StaticResource SecondaryTextBrush}"
                                TextWrapping="Wrap"/>
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- ═══ Pre-Game Objectives (with practiced toggle) ═══ -->
+            <!-- â•â•â• Pre-Game Objectives (with practiced toggle) â•â•â• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentGoldBrush}"
                 Visibility="{x:Bind ViewModel.HasPreGameObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -75,11 +76,11 @@
                                         <StackPanel Spacing="2">
                                             <TextBlock Text="{x:Bind Title}"
                                                        FontFamily="{StaticResource HeadingFont}"
-                                                       FontSize="14" FontWeight="SemiBold"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                        Foreground="{StaticResource PrimaryTextBrush}"/>
                                             <TextBlock Text="{x:Bind Criteria}"
                                                        FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="10"
+                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource SecondaryTextBrush}"
                                                        TextWrapping="Wrap"/>
                                         </StackPanel>
@@ -94,7 +95,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- ═══ Pick Objective (when no priority set) ═══ -->
+            <!-- â•â•â• Pick Objective (when no priority set) â•â•â• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentGoldBrush}"
                 Visibility="{x:Bind ViewModel.HasObjectiveFocusOptions, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -119,17 +120,17 @@
                                                     Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}}">
                                                 <TextBlock Text="PRIORITY"
                                                            FontFamily="{StaticResource MonoFont}"
-                                                           FontSize="8" FontWeight="Bold"
+                                                           FontSize="{Binding Micro, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                                            Foreground="Black"/>
                                             </Border>
                                             <TextBlock Text="{x:Bind Title}"
                                                        FontFamily="{StaticResource HeadingFont}"
-                                                       FontSize="13" FontWeight="SemiBold"
+                                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                        Foreground="{StaticResource PrimaryTextBrush}"/>
                                         </StackPanel>
                                         <TextBlock Text="{x:Bind Subtitle}"
                                                    FontFamily="{StaticResource MonoFont}"
-                                                   FontSize="9"
+                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                                    Foreground="{StaticResource MutedTextBrush}"
                                                    Visibility="{x:Bind HasSubtitle, Converter={StaticResource BoolToVis}}"/>
                                     </StackPanel>
@@ -140,26 +141,26 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- ═══ Intel from Last Game ═══ -->
+            <!-- â•â•â• Intel from Last Game â•â•â• -->
             <controls:CornerBracketedCard
                 Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <StackPanel Spacing="8">
                     <controls:SectionTitle Text="LAST GAME INTEL"/>
                     <TextBlock Text="{x:Bind ViewModel.LastFocus, Mode=OneWay}"
                                FontFamily="{StaticResource BodyFont}"
-                               FontSize="13"
+                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                Foreground="{StaticResource PrimaryTextBrush}"
                                TextWrapping="Wrap"/>
                     <TextBlock Text="{x:Bind ViewModel.LastMistakes, Mode=OneWay}"
                                FontFamily="{StaticResource MonoFont}"
-                               FontSize="10"
+                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                Foreground="{StaticResource MutedTextBrush}"
                                TextWrapping="Wrap"
                                Visibility="{x:Bind ViewModel.HasLastMistakes, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- ═══ Matchup Notes ═══ -->
+            <!-- â•â•â• Matchup Notes â•â•â• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentGoldBrush}"
                 Visibility="{x:Bind ViewModel.HasMatchupHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -176,12 +177,12 @@
                                         BorderThickness="1" Padding="10,8">
                                     <StackPanel Spacing="3">
                                         <TextBlock Text="{x:Bind Note}"
-                                                   FontSize="12"
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                    Foreground="{StaticResource PrimaryTextBrush}"
                                                    TextWrapping="Wrap"/>
                                         <TextBlock Text="{x:Bind DateText}"
                                                    FontFamily="{StaticResource MonoFont}"
-                                                   FontSize="9"
+                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                                    Foreground="{StaticResource MutedTextBrush}"/>
                                     </StackPanel>
                                 </Border>
@@ -191,7 +192,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- ═══ Set Focus ═══ -->
+            <!-- â•â•â• Set Focus â•â•â• -->
             <controls:CornerBracketedCard
                 CardBackground="{StaticResource FocusPanelBrush}"
                 CardBorderBrush="{StaticResource AccentGoldBrush}">
@@ -201,7 +202,7 @@
                     <TextBox Text="{x:Bind ViewModel.FocusText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              PlaceholderText="What's your #1 focus this game?"
                              TextWrapping="Wrap" AcceptsReturn="True"
-                             MinHeight="60" FontSize="13"
+                             MinHeight="60" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
                              Foreground="{StaticResource PrimaryTextBrush}"
@@ -212,27 +213,27 @@
                                 Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                                 CommandParameter="CS better early"
                                 Style="{StaticResource SecondaryActionButtonStyle}"
-                                Height="26" Padding="10,0" FontSize="10"/>
+                                Height="26" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
                         <Button Content="Map awareness"
                                 Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                                 CommandParameter="Track enemy JG"
                                 Style="{StaticResource SecondaryActionButtonStyle}"
-                                Height="26" Padding="10,0" FontSize="10"/>
+                                Height="26" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
                         <Button Content="Trading"
                                 Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                                 CommandParameter="Trade on power spikes"
                                 Style="{StaticResource SecondaryActionButtonStyle}"
-                                Height="26" Padding="10,0" FontSize="10"/>
+                                Height="26" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
                         <Button Content="Vision"
                                 Command="{x:Bind ViewModel.SetQuickFocusCommand}"
                                 CommandParameter="Ward more"
                                 Style="{StaticResource SecondaryActionButtonStyle}"
-                                Height="26" Padding="10,0" FontSize="10"/>
+                                Height="26" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
                     </StackPanel>
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- ═══ Session Intention (first game) ═══ -->
+            <!-- â•â•â• Session Intention (first game) â•â•â• -->
             <controls:CornerBracketedCard
                 Visibility="{x:Bind ViewModel.ShowIntention, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <StackPanel Spacing="8">
@@ -240,7 +241,7 @@
                     <TextBox Text="{x:Bind ViewModel.SessionIntention, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              PlaceholderText="When [trigger] happens, I will [response]"
                              TextWrapping="Wrap" AcceptsReturn="True"
-                             MinHeight="50" FontSize="12"
+                             MinHeight="50" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                              Background="{StaticResource InputBackgroundBrush}"
                              BorderBrush="{StaticResource SubtleBorderBrush}"
                              Foreground="{StaticResource PrimaryTextBrush}"
@@ -251,7 +252,7 @@
             <!-- Auto-close note -->
             <TextBlock Text="This page closes automatically when your game loads."
                        FontFamily="{StaticResource MonoFont}"
-                       FontSize="9"
+                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                        Foreground="{StaticResource MutedTextBrush}"
                        HorizontalAlignment="Center"
                        Margin="0,4,0,0"/>

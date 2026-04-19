@@ -1,7 +1,8 @@
-<Page
+﻿<Page
     x:Class="LoLReview.App.Views.AnalyticsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:LoLReview.App.Services"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:converters="using:LoLReview.App.Converters"
@@ -21,7 +22,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- ═══ Hero ═══ -->
+        <!-- â•â•â• Hero â•â•â• -->
         <Grid Grid.Row="0" Margin="40,20,40,8">
             <controls:HeroHeader EyebrowText="PERFORMANCE INTELLIGENCE"
                                  Title="Patterns &amp; Signals"
@@ -49,7 +50,7 @@
                       Padding="40,0,40,40">
             <StackPanel Spacing="14">
 
-                <!-- ═══ OVERALL STATS ═══ -->
+                <!-- â•â•â• OVERALL STATS â•â•â• -->
                 <controls:StatStrip>
                     <controls:StatCell Label="Games"
                                        Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
@@ -71,7 +72,7 @@
                                        Value="{x:Bind ViewModel.AvgVision, Mode=OneWay}"/>
                 </controls:StatStrip>
 
-                <!-- ═══ MENTAL vs WIN RATE ═══ -->
+                <!-- â•â•â• MENTAL vs WIN RATE â•â•â• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind HasItems(ViewModel.MentalBrackets.Count), Mode=OneWay}">
                     <StackPanel Spacing="14">
@@ -90,7 +91,7 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="{x:Bind Bracket}"
                                                    FontFamily="{StaticResource HeadingFont}"
-                                                   FontSize="14" FontWeight="SemiBold"
+                                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                    Foreground="{StaticResource AccentBlueBrush}"
                                                    VerticalAlignment="Center"/>
                                         <Border Grid.Column="1" Height="24" CornerRadius="2"
@@ -105,7 +106,7 @@
                                         </Border>
                                         <TextBlock Grid.Column="2" Text="{x:Bind WinrateDisplay}"
                                                    FontFamily="{StaticResource DisplayFont}"
-                                                   FontSize="14" FontWeight="Bold"
+                                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                                    Foreground="{x:Bind WinrateColor}"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Right"/>
@@ -116,7 +117,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ TILT CHECK STATS ═══ -->
+                <!-- â•â•â• TILT CHECK STATS â•â•â• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind ViewModel.HasTiltStats, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <StackPanel Spacing="14">
@@ -132,58 +133,58 @@
                             <StackPanel Grid.Column="0" Spacing="4">
                                 <TextBlock Text="{x:Bind ViewModel.TiltCheckCount, Mode=OneWay}"
                                            FontFamily="{StaticResource DisplayFont}"
-                                           FontSize="24" FontWeight="Bold"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                            Foreground="{StaticResource PrimaryTextBrush}"/>
                                 <TextBlock Text="CHECKS"
                                            FontFamily="{StaticResource MonoFont}"
-                                           FontSize="9" CharacterSpacing="200"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Spacing="4">
                                 <TextBlock Text="{x:Bind ViewModel.AvgTiltBefore, Mode=OneWay}"
                                            FontFamily="{StaticResource DisplayFont}"
-                                           FontSize="24" FontWeight="Bold"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                            Foreground="{StaticResource LossRedBrush}"/>
                                 <TextBlock Text="AVG BEFORE"
                                            FontFamily="{StaticResource MonoFont}"
-                                           FontSize="9" CharacterSpacing="200"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="2" Spacing="4">
                                 <TextBlock Text="{x:Bind ViewModel.AvgTiltAfter, Mode=OneWay}"
                                            FontFamily="{StaticResource DisplayFont}"
-                                           FontSize="24" FontWeight="Bold"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                            Foreground="{StaticResource WinGreenBrush}"/>
                                 <TextBlock Text="AVG AFTER"
                                            FontFamily="{StaticResource MonoFont}"
-                                           FontSize="9" CharacterSpacing="200"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="3" Spacing="4">
                                 <TextBlock Text="{x:Bind ViewModel.AvgTiltReduction, Mode=OneWay}"
                                            FontFamily="{StaticResource DisplayFont}"
-                                           FontSize="24" FontWeight="Bold"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                            Foreground="{StaticResource AccentTealBrush}"/>
                                 <TextBlock Text="REDUCTION"
                                            FontFamily="{StaticResource MonoFont}"
-                                           FontSize="9" CharacterSpacing="200"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="4" Spacing="4">
                                 <TextBlock Text="{x:Bind ViewModel.TopTiltEmotion, Mode=OneWay}"
                                            FontFamily="{StaticResource HeadingFont}"
-                                           FontSize="20" FontWeight="SemiBold"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                            Foreground="{StaticResource AccentGoldBrush}"/>
                                 <TextBlock Text="TOP EMOTION"
                                            FontFamily="{StaticResource MonoFont}"
-                                           FontSize="9" CharacterSpacing="200"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                             </StackPanel>
                         </Grid>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ CHAMPION PERFORMANCE ═══ -->
+                <!-- â•â•â• CHAMPION PERFORMANCE â•â•â• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind HasItems(ViewModel.ChampionStats.Count), Mode=OneWay}">
                     <StackPanel Spacing="12">
@@ -200,26 +201,26 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="CHAMPION"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"/>
                             <TextBlock Grid.Column="1" Text="GAMES"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        HorizontalAlignment="Center"/>
                             <TextBlock Grid.Column="2" Text="WR%"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        HorizontalAlignment="Center"/>
                             <TextBlock Grid.Column="3" Text="KDA"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        HorizontalAlignment="Center"/>
                             <TextBlock Grid.Column="4" Text="CS/M"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        HorizontalAlignment="Center"/>
                         </Grid>
@@ -245,27 +246,27 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Text="{x:Bind ChampionName}"
                                                        FontFamily="{StaticResource HeadingFont}"
-                                                       FontSize="14" FontWeight="SemiBold"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                        Foreground="{StaticResource PrimaryTextBrush}"
                                                        VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="1" Text="{x:Bind Games}"
                                                        FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="12"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource PrimaryTextBrush}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="2" Text="{x:Bind WinrateDisplay}"
                                                        FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="12" FontWeight="SemiBold"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                        Foreground="{x:Bind WinrateColor}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="3" Text="{x:Bind AvgKda}"
                                                        FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="12"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource PrimaryTextBrush}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="4" Text="{x:Bind AvgCsMin}"
                                                        FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="12"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource PrimaryTextBrush}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Grid>
@@ -276,7 +277,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ CONCEPT TAG FREQUENCY ═══ -->
+                <!-- â•â•â• CONCEPT TAG FREQUENCY â•â•â• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind HasItems(ViewModel.TagFrequencies.Count), Mode=OneWay}">
                     <StackPanel Spacing="12">
@@ -295,7 +296,7 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="{x:Bind Name}"
                                                    FontFamily="{StaticResource HeadingFont}"
-                                                   FontSize="13" FontWeight="SemiBold"
+                                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                    Foreground="{StaticResource PrimaryTextBrush}"
                                                    VerticalAlignment="Center"/>
                                         <Border Grid.Column="1" Height="20" CornerRadius="2"
@@ -310,7 +311,7 @@
                                         </Border>
                                         <TextBlock Grid.Column="2" Text="{x:Bind Count}"
                                                    FontFamily="{StaticResource MonoFont}"
-                                                   FontSize="12" FontWeight="SemiBold"
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                    Foreground="{StaticResource SecondaryTextBrush}"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Right"/>
@@ -321,7 +322,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═══ MATCHUP ANALYSIS ═══ -->
+                <!-- â•â•â• MATCHUP ANALYSIS â•â•â• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind HasItems(ViewModel.MatchupStats.Count), Mode=OneWay}">
                     <StackPanel Spacing="12">
@@ -337,25 +338,25 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="YOU"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"/>
                             <TextBlock Grid.Column="1" Text="VS"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"/>
                             <TextBlock Grid.Column="2" Text="GAMES"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        HorizontalAlignment="Center"/>
                             <TextBlock Grid.Column="3" Text="WR%"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        HorizontalAlignment="Center"/>
                             <TextBlock Grid.Column="4" Text="KDA"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="9" CharacterSpacing="200"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        HorizontalAlignment="Center"/>
                         </Grid>
@@ -381,27 +382,27 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Text="{x:Bind YourChampion}"
                                                        FontFamily="{StaticResource HeadingFont}"
-                                                       FontSize="14" FontWeight="SemiBold"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                        Foreground="{StaticResource PrimaryTextBrush}"
                                                        VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="1" Text="{x:Bind EnemyChampion}"
                                                        FontFamily="{StaticResource HeadingFont}"
-                                                       FontSize="14"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource LossRedBrush}"
                                                        VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="2" Text="{x:Bind Games}"
                                                        FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="12"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource PrimaryTextBrush}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="3" Text="{x:Bind WinrateDisplay}"
                                                        FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="12" FontWeight="SemiBold"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                        Foreground="{x:Bind WinrateColor}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="4" Text="{x:Bind AvgKda}"
                                                        FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="12"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource PrimaryTextBrush}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Grid>
