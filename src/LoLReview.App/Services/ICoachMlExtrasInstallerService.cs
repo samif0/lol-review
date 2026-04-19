@@ -16,6 +16,15 @@ public interface ICoachMlExtrasInstallerService
     /// site-packages dir exists where coach/_extras.py probes for it.</summary>
     bool IsInstalled { get; }
 
+    /// <summary>
+    /// Version of the currently installed pack (from manifest.json), or
+    /// null if not installed / manifest unreadable.
+    /// </summary>
+    string? InstalledVersion { get; }
+
+    /// <summary>Bytes on disk for the installed pack, or 0 if not installed.</summary>
+    long InstalledSizeBytes { get; }
+
     /// <summary>Install (download + verify + extract) the ML extras pack.</summary>
     Task<CoachInstallResult> InstallAsync(
         IProgress<CoachInstallProgress>? progress = null,

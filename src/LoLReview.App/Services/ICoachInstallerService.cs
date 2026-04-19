@@ -17,6 +17,15 @@ public interface ICoachInstallerService
     /// <summary>Absolute path to the sidecar executable, or null if not installed.</summary>
     string? SidecarExecutablePath { get; }
 
+    /// <summary>
+    /// Version of the currently installed pack (from manifest.json), or
+    /// null if not installed / manifest unreadable.
+    /// </summary>
+    string? InstalledVersion { get; }
+
+    /// <summary>Bytes on disk for the installed pack, or 0 if not installed.</summary>
+    long InstalledSizeBytes { get; }
+
     /// <summary>Install (download + verify) the sidecar. Progress reported via <paramref name="progress"/>.</summary>
     Task<CoachInstallResult> InstallAsync(IProgress<CoachInstallProgress>? progress = null, CancellationToken cancellationToken = default);
 

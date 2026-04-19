@@ -78,6 +78,12 @@ public sealed class CoachInstallerService : ICoachInstallerService
     /// </summary>
     public string? CorePackRoot => Directory.Exists(CoreDir) ? CoreDir : null;
 
+    public string? InstalledVersion =>
+        IsInstalled ? CoachPackMetadata.ReadVersion(CoreDir) : null;
+
+    public long InstalledSizeBytes =>
+        IsInstalled ? CoachPackMetadata.ComputeSizeBytes(CoreDir) : 0;
+
     public async Task<CoachInstallResult> InstallAsync(
         IProgress<CoachInstallProgress>? progress = null,
         CancellationToken cancellationToken = default)

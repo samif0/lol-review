@@ -33,6 +33,12 @@ public sealed class CoachMlExtrasInstallerService : ICoachMlExtrasInstallerServi
 
     public bool IsInstalled => Directory.Exists(SitePackagesDir);
 
+    public string? InstalledVersion =>
+        IsInstalled ? CoachPackMetadata.ReadVersion(MlDir) : null;
+
+    public long InstalledSizeBytes =>
+        IsInstalled ? CoachPackMetadata.ComputeSizeBytes(MlDir) : 0;
+
     public async Task<CoachInstallResult> InstallAsync(
         IProgress<CoachInstallProgress>? progress = null,
         CancellationToken cancellationToken = default)

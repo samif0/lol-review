@@ -68,6 +68,35 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
         GoogleAiKeyStored = _credentials.HasGoogleAiApiKey();
         OpenRouterKeyStored = _credentials.HasOpenRouterApiKey();
         UpdateProviderHint();
+        RefreshPackStatus();
+    }
+
+    /// <summary>
+    /// Rewrite <see cref="InstallStatus"/> / <see cref="MlInstallStatus"/>
+    /// based on installed state + version match. Called after install
+    /// completes (so the UI flips from a progress message to a
+    /// steady-state "Installed (v2.8.1, 31 MB)" once done).
+    /// </summary>
+    private void RefreshPackStatus()
+    {
+        InstallStatus = FormatPackStatus(_installer.IsInstalled, _installer.InstalledVersion, _installer.InstalledSizeBytes);
+        MlInstallStatus = FormatPackStatus(_mlInstaller.IsInstalled, _mlInstaller.InstalledVersion, _mlInstaller.InstalledSizeBytes);
+    }
+
+    private static string FormatPackStatus(bool installed, string? version, long sizeBytes)
+    {
+        if (!installed) return "Not installed.";
+
+        var appVersion = CoachInstallerService.ResolveAppVersion();
+        var sizeMb = sizeBytes / 1024.0 / 1024.0;
+        var versionText = version ?? "unknown version";
+
+        if (version is not null && !string.Equals(version, appVersion, StringComparison.Ordinal))
+        {
+            return $"v{versionText} installed — app is v{appVersion}. Reinstall to update.";
+        }
+
+        return $"Installed (v{versionText}, {sizeMb:F0} MB).";
     }
 
     partial void OnSelectedProviderChanged(string value) => UpdateProviderHint();
@@ -98,7 +127,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
             if (result.Success)
             {
                 IsInstalled = true;
-                InstallStatus = "Installed. Restart the app to start the coach.";
+                RefreshPackStatus();
             }
             else
             {
@@ -122,7 +151,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
             await _sidecar.StopAsync(CancellationToken.None);
             await _installer.UninstallAsync();
             IsInstalled = false;
-            InstallStatus = "Uninstalled.";
+            RefreshPackStatus();
         }
         finally
         {
@@ -150,7 +179,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
             if (result.Success)
             {
                 IsMlInstalled = true;
-                MlInstallStatus = "Installed. Restart the coach sidecar to activate concept features.";
+                RefreshPackStatus();
             }
             else
             {
@@ -173,7 +202,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
         {
             await _mlInstaller.UninstallAsync();
             IsMlInstalled = false;
-            MlInstallStatus = "Uninstalled. Restart the coach sidecar to take effect.";
+            RefreshPackStatus();
         }
         finally
         {
