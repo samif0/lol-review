@@ -112,6 +112,7 @@ internal static class ServiceCollectionExtensions
         services.AddHttpClient("CoachApi");
 
         services.AddSingleton<ICoachInstallerService, CoachInstallerService>();
+        services.AddSingleton<ICoachMlExtrasInstallerService, CoachMlExtrasInstallerService>();
         services.AddSingleton<ICoachCredentialStore, CoachCredentialStore>();
         services.AddSingleton<CoachSidecarService>();
         services.AddHostedService(sp => sp.GetRequiredService<CoachSidecarService>());

@@ -144,7 +144,13 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
         var executable = _installer.SidecarExecutablePath;
         if (executable is null || !File.Exists(executable)) return false;
 
-        return TryStartProcess(executable, $"--port {_discoveredPort} --log-level info", workingDir: null);
+        // The installed pack ships an embedded python.exe + the coach/
+        // package on sys.path (via python312._pth). This is equivalent to
+        // the coach.cmd shim bundled in the pack; we launch python
+        // directly to skip an extra cmd.exe process.
+        var args = $"-u -X utf8 -m coach.main --port {_discoveredPort} --log-level info";
+        var packRoot = Path.GetDirectoryName(Path.GetDirectoryName(executable));
+        return TryStartProcess(executable, args, workingDir: packRoot);
     }
 
     private bool TryLaunchDevSidecar()
