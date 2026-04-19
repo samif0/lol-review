@@ -460,6 +460,20 @@
                                                                  LostFocus="OnBookmarkNoteLostFocus"
                                                                  TextChanged="OnBookmarkNoteTextChanged"/>
 
+                                                        <ComboBox ItemsSource="{Binding ElementName=RootPage, Path=ViewModel.ObjectiveOptions}"
+                                                                  SelectedValue="{x:Bind ObjectiveId, Mode=TwoWay}"
+                                                                  SelectedValuePath="Id"
+                                                                  DisplayMemberPath="Title"
+                                                                  PlaceholderText="No objective"
+                                                                  Tag="{x:Bind}"
+                                                                  SelectionChanged="OnBookmarkObjectiveSelectionChanged"
+                                                                  HorizontalAlignment="Stretch"
+                                                                  FontSize="11" CornerRadius="2"
+                                                                  IsTabStop="False"
+                                                                  Background="{StaticResource InputBackgroundBrush}"
+                                                                  BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                                  Foreground="{StaticResource PrimaryTextBrush}"/>
+
                                                         <StackPanel Orientation="Horizontal" Spacing="6"
                                                                     Visibility="{x:Bind IsClip, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
                                                             <Border Background="{x:Bind SurfaceBrush}"

@@ -410,6 +410,24 @@ public sealed partial class VodPlayerPage : Page
         FocusPlaybackSurface();
     }
 
+    private async void OnBookmarkObjectiveSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // The ComboBox is inside a DataTemplate — its Tag is x:Bind'd to the
+        // BookmarkItem so we can fetch it without a visual-tree walk.
+        if (sender is not ComboBox combo || combo.Tag is not BookmarkItem bookmark)
+            return;
+
+        var selectedId = combo.SelectedValue as long?;
+
+        // SelectionChanged fires during initial template binding with the same
+        // value that's already on the item — no-op so we don't hammer the DB.
+        if (selectedId == bookmark.ObjectiveId)
+            return;
+
+        await ViewModel.SetBookmarkObjectiveCommand.ExecuteAsync(
+            new BookmarkObjectiveUpdateRequest(bookmark, selectedId));
+    }
+
     private void OnTimelineEventTapped(object sender, PointerRoutedEventArgs e)
     {
         if (sender is FrameworkElement fe && fe.DataContext is TimelineEvent timelineEvent)

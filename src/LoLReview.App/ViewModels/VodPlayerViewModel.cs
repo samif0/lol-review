@@ -369,6 +369,33 @@ public partial class VodPlayerViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task SetBookmarkObjectiveAsync(BookmarkObjectiveUpdateRequest? request)
+    {
+        if (request is null || request.Bookmark is null || request.Bookmark.Id <= 0)
+        {
+            return;
+        }
+
+        var bookmark = request.Bookmark;
+        var previousObjectiveId = bookmark.ObjectiveId;
+
+        // Optimistic local update so the combo doesn't flicker back if the
+        // write is slow.
+        bookmark.ObjectiveId = request.ObjectiveId;
+
+        try
+        {
+            await EnqueueBookmarkMutationAsync(
+                () => _vodRepo.SetBookmarkObjectiveAsync(bookmark.Id, request.ObjectiveId));
+        }
+        catch (Exception ex)
+        {
+            bookmark.ObjectiveId = previousObjectiveId;
+            _logger.LogError(ex, "Failed to set objective on bookmark {Id}", bookmark.Id);
+        }
+    }
+
+    [RelayCommand]
     private Task SetBookmarkQualityAsync(BookmarkQualityUpdateRequest? request)
     {
         if (request is null || request.Bookmark is null || request.Bookmark.Id <= 0 || !request.Bookmark.IsClip)
@@ -797,6 +824,7 @@ public partial class VodPlayerViewModel : ObservableObject
                 ? $"{FormatTime(record.ClipStartSeconds.Value)} - {FormatTime(record.ClipEndSeconds.Value)}"
                 : "",
             Quality = record.Quality,
+            ObjectiveId = record.ObjectiveId,
         };
     }
 
@@ -964,6 +992,13 @@ public class BookmarkItem
     public bool IsClip { get; set; }
     public string ClipRangeText { get; set; } = "";
     public string Quality { get; set; } = "";
+
+    /// <summary>
+    /// Objective attached to this bookmark, or null if unset. SelectedValue
+    /// binding in the bookmark template's ComboBox writes through this —
+    /// code-behind hooks the SelectionChanged to call the VM.
+    /// </summary>
+    public long? ObjectiveId { get; set; }
     public string KindLabel => IsClip ? "CLIP" : "NOTE";
     public bool HasQuality => !string.IsNullOrWhiteSpace(Quality);
     public string QualityLabel => string.IsNullOrWhiteSpace(Quality)
@@ -1016,6 +1051,8 @@ public class BookmarkItem
 }
 
 public sealed record BookmarkQualityUpdateRequest(BookmarkItem Bookmark, string? Quality);
+
+public sealed record BookmarkObjectiveUpdateRequest(BookmarkItem Bookmark, long? ObjectiveId);
 
 public sealed class QualityChipVisual
 {

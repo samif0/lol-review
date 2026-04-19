@@ -61,7 +61,8 @@ public sealed record VodBookmarkRecord(
     int? ClipEndSeconds,
     string ClipPath,
     string Quality,
-    long? CreatedAt);
+    long? CreatedAt,
+    long? ObjectiveId);
 
 public sealed record RuleRecord(
     long Id,

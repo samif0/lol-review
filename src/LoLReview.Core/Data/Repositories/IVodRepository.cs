@@ -29,6 +29,14 @@ public interface IVodRepository
         int? clipStartSeconds = null, int? clipEndSeconds = null,
         string? clipPath = null, string? quality = null);
 
+    /// <summary>
+    /// Update the objective attached to a bookmark. Pass null to detach.
+    /// Separate from <see cref="UpdateBookmarkAsync"/> because long? as a
+    /// parameter can't distinguish "don't change" from "set to null" —
+    /// and both are valid user intents.
+    /// </summary>
+    Task SetBookmarkObjectiveAsync(long bookmarkId, long? objectiveId);
+
     Task DeleteBookmarkAsync(long bookmarkId);
 
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId);

@@ -206,6 +206,17 @@ public sealed class VodRepository : IVodRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task SetBookmarkObjectiveAsync(long bookmarkId, long? objectiveId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE vod_bookmarks SET objective_id = @objectiveId WHERE id = @id";
+        cmd.Parameters.AddWithValue("@objectiveId",
+            objectiveId.HasValue ? objectiveId.Value : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("@id", bookmarkId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task DeleteBookmarkAsync(long bookmarkId)
     {
         using var conn = _factory.CreateConnection();
@@ -296,6 +307,7 @@ public sealed class VodRepository : IVodRepository
             ClipEndSeconds: reader.IsDBNull(reader.GetOrdinal("clip_end_s")) ? null : reader.GetInt32(reader.GetOrdinal("clip_end_s")),
             ClipPath: reader.IsDBNull(reader.GetOrdinal("clip_path")) ? "" : reader.GetString(reader.GetOrdinal("clip_path")),
             Quality: reader.IsDBNull(reader.GetOrdinal("quality")) ? "" : reader.GetString(reader.GetOrdinal("quality")),
-            CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")));
+            CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")),
+            ObjectiveId: reader.IsDBNull(reader.GetOrdinal("objective_id")) ? null : reader.GetInt64(reader.GetOrdinal("objective_id")));
     }
 }
