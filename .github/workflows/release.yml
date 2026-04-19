@@ -158,3 +158,57 @@ jobs:
             --publish `
             --releaseName "LoL Review v${{ env.VERSION }}" `
             --tag "${{ env.TAG }}"
+
+      # ───────────────────────────── Coach sidecar packs ─────────────────────────────
+      #
+      # The coach sidecar ships as two independent zips alongside the
+      # Velopack release assets:
+      #   coach-core-<ver>-win-x64.zip  — ~31 MB, embedded python + core deps
+      #   coach-ml-<ver>-win-x64.zip    — ~234 MB, torch/sentence-transformers/hdbscan
+      #
+      # Both packs are version-pinned to the app version (they share
+      # env.VERSION above) so the C# installer fetches matching assets
+      # by building the URL from its running Assembly version.
+      #
+      # These steps run AFTER `vpk upload` so the release already exists
+      # when we attach assets to it.
+
+      - name: Setup Python 3.12 for coach packaging
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.8'
+
+      - name: Build coach-core pack
+        shell: pwsh
+        run: |
+          .\coach\packaging\build-core.ps1 -Version "${{ env.VERSION }}" -Clean
+
+      - name: Build coach-ml pack
+        shell: pwsh
+        run: |
+          .\coach\packaging\build-ml.ps1 -Version "${{ env.VERSION }}" -Clean
+
+      - name: Verify coach pack outputs
+        shell: pwsh
+        run: |
+          $dist = "coach/dist"
+          $core = "$dist/coach-core-${{ env.VERSION }}-win-x64.zip"
+          $coreSha = "$dist/coach-core-${{ env.VERSION }}-win-x64.sha256"
+          $ml = "$dist/coach-ml-${{ env.VERSION }}-win-x64.zip"
+          $mlSha = "$dist/coach-ml-${{ env.VERSION }}-win-x64.sha256"
+          foreach ($f in @($core, $coreSha, $ml, $mlSha)) {
+            if (-not (Test-Path $f)) { throw "Missing expected coach pack file: $f" }
+            $size = (Get-Item $f).Length
+            Write-Host "OK  $f  ($size bytes)"
+          }
+
+      - name: Attach coach packs to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: |
+            coach/dist/coach-core-${{ env.VERSION }}-win-x64.zip
+            coach/dist/coach-core-${{ env.VERSION }}-win-x64.sha256
+            coach/dist/coach-ml-${{ env.VERSION }}-win-x64.zip
+            coach/dist/coach-ml-${{ env.VERSION }}-win-x64.sha256
+          fail_on_unmatched_files: true
