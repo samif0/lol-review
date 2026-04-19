@@ -902,5 +902,12 @@
                 </StackPanel>
             </Border>
         </Grid>
+
+        <!-- HUD-themed proposals modal. Lives at the root so it
+             overlays the whole page (including celebration storyboard).
+             Visibility toggled via IsOpen from the code-behind. -->
+        <controls:HudModal x:Name="ProposalsModal"
+                           Title="COACH PROPOSALS"
+                           CloseRequested="OnProposalsModalClose"/>
     </Grid>
 </Page>

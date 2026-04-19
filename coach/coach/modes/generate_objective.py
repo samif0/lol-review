@@ -58,7 +58,12 @@ async def run_generate_objective(since: int | None = None) -> GenerateObjectiveR
             messages=[LLMMessage(role="user", content=prompt)],
             model=model,
             temperature=0.2,
-            max_tokens=1500,
+            # Enough headroom for 3 proposals with multi-sentence
+            # rationales. Previously 1500, which silently truncated the
+            # rationale mid-sentence on longer outputs. json_repair
+            # couldn't recover the tail, so the UI showed garbage like
+            # "very strong correlation (".
+            max_tokens=4000,
             response_format="json" if provider.supports_json_mode() else None,
         )
     )

@@ -87,43 +87,64 @@ public sealed partial class ObjectivesPage : Page
         }
     }
 
-    private async System.Threading.Tasks.Task ShowProposalsDialog(CoachGenerateObjectiveResponse result)
+    private System.Threading.Tasks.TaskCompletionSource<bool>? _proposalsTcs;
+
+    private System.Threading.Tasks.Task ShowProposalsDialog(CoachGenerateObjectiveResponse result)
     {
         var panel = new StackPanel { Spacing = 12 };
 
+        var primaryBrush = (SolidColorBrush)Application.Current.Resources["PrimaryTextBrush"];
+        var secondaryBrush = (SolidColorBrush)Application.Current.Resources["SecondaryTextBrush"];
+        var subtleBorder = (SolidColorBrush)Application.Current.Resources["SubtleBorderBrush"];
+        var accentBrush = (SolidColorBrush)Application.Current.Resources["AccentPurpleBrush"];
+        var cardBg = (SolidColorBrush)Application.Current.Resources["SurfaceInsetBrush"];
+
+        // Provider tag line, tiny and quiet.
         panel.Children.Add(new TextBlock
         {
             Text = $"[{result.Provider} / {result.Model} / {result.LatencyMs}ms]",
             FontSize = 10,
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+            FontFamily = new FontFamily("Consolas"),
+            Foreground = secondaryBrush,
             Opacity = 0.6,
         });
 
-        CoachObjectiveProposal? chosen = null;
-        ContentDialog? dialogRef = null;
+        if (result.Proposals.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "The coach didn't find enough patterns in your reviews to propose a specific objective. Try writing a few more detailed review notes and run this again.",
+                Foreground = primaryBrush,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 13,
+            });
+        }
 
         foreach (var proposal in result.Proposals)
         {
             var card = new Border
             {
-                BorderBrush = (SolidColorBrush)Application.Current.Resources["SubtleBorderBrush"],
+                BorderBrush = subtleBorder,
+                Background = cardBg,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(2),
-                Padding = new Thickness(12),
+                Padding = new Thickness(14, 12, 14, 12),
             };
-            var cardStack = new StackPanel { Spacing = 6 };
+            var cardStack = new StackPanel { Spacing = 8 };
 
             cardStack.Children.Add(new TextBlock
             {
                 Text = proposal.Title,
-                FontSize = 14,
+                FontSize = 15,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = primaryBrush,
                 TextWrapping = TextWrapping.Wrap,
             });
             cardStack.Children.Add(new TextBlock
             {
                 Text = proposal.Rationale,
                 FontSize = 12,
+                Foreground = primaryBrush,
                 TextWrapping = TextWrapping.Wrap,
                 Opacity = 0.85,
             });
@@ -131,20 +152,32 @@ public sealed partial class ObjectivesPage : Page
             {
                 Text = $"confidence: {proposal.Confidence:P0}",
                 FontSize = 10,
-                Opacity = 0.6,
+                Foreground = accentBrush,
+                FontFamily = new FontFamily("Consolas"),
+                CharacterSpacing = 200,
+                Opacity = 0.8,
             });
 
             var useBtn = new Button
             {
                 Content = "Use this",
+                Style = (Style)Application.Current.Resources["PrimaryActionButtonStyle"],
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Padding = new Thickness(12, 4, 12, 4),
+                Padding = new Thickness(14, 4, 14, 4),
+                Height = 32,
+                FontSize = 12,
             };
             var localProposal = proposal;
             useBtn.Click += (_, _) =>
             {
-                chosen = localProposal;
-                dialogRef?.Hide();
+                // Pre-fill the create form and close the modal.
+                ViewModel.NewTitle = localProposal.Title;
+                ViewModel.NewDescription = localProposal.Rationale;
+                if (!ViewModel.IsCreating)
+                {
+                    ViewModel.ToggleCreateFormCommand.Execute(null);
+                }
+                CloseProposalsModal();
             };
             cardStack.Children.Add(useBtn);
 
@@ -152,38 +185,72 @@ public sealed partial class ObjectivesPage : Page
             panel.Children.Add(card);
         }
 
-        var dialog = new ContentDialog
-        {
-            Title = "Coach proposals",
-            Content = new ScrollViewer { Content = panel, MaxHeight = 500, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
-            CloseButtonText = "Close",
-            XamlRoot = XamlRoot,
-        };
-        dialogRef = dialog;
-        await dialog.ShowAsync();
+        ProposalsModal.Title = "COACH PROPOSALS";
+        ProposalsModal.Body = panel;
+        ProposalsModal.Footer = null;
+        ProposalsModal.IsOpen = true;
 
-        if (chosen is not null)
-        {
-            // Pre-fill the create form with the chosen proposal and open it.
-            ViewModel.NewTitle = chosen.Title;
-            ViewModel.NewDescription = chosen.Rationale;
-            if (!ViewModel.IsCreating)
-            {
-                ViewModel.ToggleCreateFormCommand.Execute(null);
-            }
-        }
+        // Return a task that completes when the modal closes, so the
+        // caller can await showing it (matches the old ContentDialog
+        // call-site expectations).
+        _proposalsTcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+        return _proposalsTcs.Task;
     }
 
-    private async System.Threading.Tasks.Task ShowInfoDialog(string title, string body)
+    private void CloseProposalsModal()
     {
-        var dialog = new ContentDialog
+        ProposalsModal.IsOpen = false;
+        // Resolve whichever task opened the modal. ShowProposalsDialog
+        // and ShowInfoDialog both use the same HudModal instance.
+        _proposalsTcs?.TrySetResult(true);
+        _proposalsTcs = null;
+        _infoTcs?.TrySetResult(true);
+        _infoTcs = null;
+    }
+
+    private void OnProposalsModalClose(object sender, System.EventArgs e)
+    {
+        CloseProposalsModal();
+    }
+
+    private System.Threading.Tasks.TaskCompletionSource<bool>? _infoTcs;
+
+    private System.Threading.Tasks.Task ShowInfoDialog(string title, string body)
+    {
+        var primaryBrush = (SolidColorBrush)Application.Current.Resources["PrimaryTextBrush"];
+
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(new TextBlock
         {
-            Title = title,
-            Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap },
-            CloseButtonText = "OK",
-            XamlRoot = XamlRoot,
+            Text = body,
+            Foreground = primaryBrush,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 13,
+        });
+
+        var okBtn = new Button
+        {
+            Content = "OK",
+            Style = (Style)Application.Current.Resources["QuietActionButtonStyle"],
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Padding = new Thickness(18, 4, 18, 4),
+            Height = 32,
+            FontSize = 12,
         };
-        await dialog.ShowAsync();
+        okBtn.Click += (_, _) =>
+        {
+            ProposalsModal.IsOpen = false;
+            _infoTcs?.TrySetResult(true);
+            _infoTcs = null;
+        };
+
+        ProposalsModal.Title = title.ToUpperInvariant();
+        ProposalsModal.Body = panel;
+        ProposalsModal.Footer = okBtn;
+        ProposalsModal.IsOpen = true;
+
+        _infoTcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+        return _infoTcs.Task;
     }
 
     private async void MarkComplete_Click(object sender, RoutedEventArgs e)
