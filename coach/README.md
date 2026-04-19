@@ -7,12 +7,19 @@ See `COACH_PLAN.md` at the repo root for the full build plan.
 
 ## Install (dev)
 
+Use Python 3.12 — packaged builds pin to the same version, and some
+heavy deps (hdbscan) don't publish wheels for newer Pythons yet.
+
 ```powershell
 cd coach
-python -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\Activate.ps1
+pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-core.txt -r requirements-ml.txt
 pip install -e ".[dev]"
 ```
+
+The `--extra-index-url` pin keeps torch CPU-only (~200 MB instead of
+~2 GB with CUDA).
 
 ## Run (dev)
 
