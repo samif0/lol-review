@@ -34,7 +34,7 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- â•â•â• SIDEBAR: Collapsed icon rail â•â•â• -->
+            <!-- ••• SIDEBAR: Collapsed icon rail ••• -->
             <Border Grid.Column="0"
                     Background="{StaticResource SidebarBackgroundBrush}"
                     BorderBrush="{StaticResource SubtleBorderBrush}"
@@ -262,7 +262,7 @@
             </Border>
 
 
-            <!-- â•â•â• CONTENT AREA â•â•â• -->
+            <!-- ••• CONTENT AREA ••• -->
             <Grid Grid.Column="1">
                 <!-- Ambient decorative shapes -->
                 <Rectangle Width="420"

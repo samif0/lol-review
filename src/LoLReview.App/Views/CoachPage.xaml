@@ -169,9 +169,9 @@
                                    TextTrimming="CharacterEllipsis">
                             <ToolTipService.ToolTip>
                                 <TextBlock TextWrapping="Wrap" MaxWidth="360" FontSize="{Binding Body, Source={StaticResource FontSizes}}">
-                                    <Run FontWeight="SemiBold" Text="Summaries"/><Run Text=" grow as you log games â€” the coach auto-builds them after each save."/><LineBreak/>
+                                    <Run FontWeight="SemiBold" Text="Summaries"/><Run Text=" grow as you log games — the coach auto-builds them after each save."/><LineBreak/>
                                     <Run FontWeight="SemiBold" Text="Signals"/><Run Text=" are per-game stats (KDA, gold/XP diffs, objectives). Grow every time you log a game."/><LineBreak/>
-                                    <Run FontWeight="SemiBold" Text="Concepts"/><Run Text=" are themes pulled from your review text (mistakes, went well, focus next, matchup notes). Grow when you write reviews â€” requires the ML extras pack from Settings â†’ AI Coach."/>
+                                    <Run FontWeight="SemiBold" Text="Concepts"/><Run Text=" are themes pulled from your review text (mistakes, went well, focus next, matchup notes). Grow when you write reviews — requires the ML extras pack from Settings → AI Coach."/>
                                 </TextBlock>
                             </ToolTipService.ToolTip>
                         </TextBlock>
@@ -229,7 +229,7 @@
                 <TextBox Grid.Column="0"
                          x:Name="InputBox"
                          Text="{x:Bind ViewModel.InputText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         PlaceholderText="Ask anything about your games â€” e.g. 'why am I losing lane on Jinx recently?' (Shift+Enter for newline)"
+                         PlaceholderText="Ask anything about your games — e.g. 'why am I losing lane on Jinx recently?' (Shift+Enter for newline)"
                          AcceptsReturn="True"
                          TextWrapping="Wrap"
                          MinHeight="44"

@@ -22,7 +22,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- â•â•â• Hero â•â•â• -->
+        <!-- ••• Hero ••• -->
         <Grid Grid.Row="0" Margin="40,20,40,8">
             <controls:HeroHeader EyebrowText="PERFORMANCE INTELLIGENCE"
                                  Title="Patterns &amp; Signals"
@@ -50,7 +50,7 @@
                       Padding="40,0,40,40">
             <StackPanel Spacing="14">
 
-                <!-- â•â•â• OVERALL STATS â•â•â• -->
+                <!-- ••• OVERALL STATS ••• -->
                 <controls:StatStrip>
                     <controls:StatCell Label="Games"
                                        Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
@@ -72,7 +72,7 @@
                                        Value="{x:Bind ViewModel.AvgVision, Mode=OneWay}"/>
                 </controls:StatStrip>
 
-                <!-- â•â•â• MENTAL vs WIN RATE â•â•â• -->
+                <!-- ••• MENTAL vs WIN RATE ••• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind HasItems(ViewModel.MentalBrackets.Count), Mode=OneWay}">
                     <StackPanel Spacing="14">
@@ -117,7 +117,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• TILT CHECK STATS â•â•â• -->
+                <!-- ••• TILT CHECK STATS ••• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind ViewModel.HasTiltStats, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <StackPanel Spacing="14">
@@ -184,7 +184,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• CHAMPION PERFORMANCE â•â•â• -->
+                <!-- ••• CHAMPION PERFORMANCE ••• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind HasItems(ViewModel.ChampionStats.Count), Mode=OneWay}">
                     <StackPanel Spacing="12">
@@ -277,7 +277,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• CONCEPT TAG FREQUENCY â•â•â• -->
+                <!-- ••• CONCEPT TAG FREQUENCY ••• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind HasItems(ViewModel.TagFrequencies.Count), Mode=OneWay}">
                     <StackPanel Spacing="12">
@@ -322,7 +322,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• MATCHUP ANALYSIS â•â•â• -->
+                <!-- ••• MATCHUP ANALYSIS ••• -->
                 <controls:CornerBracketedCard
                     Visibility="{x:Bind HasItems(ViewModel.MatchupStats.Count), Mode=OneWay}">
                     <StackPanel Spacing="12">

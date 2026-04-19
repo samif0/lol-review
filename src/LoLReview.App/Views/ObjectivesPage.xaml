@@ -47,7 +47,7 @@
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel Padding="40,30,40,40" Spacing="14">
 
-                <!-- â•â•â• Hero â•â•â• -->
+                <!-- ••• Hero ••• -->
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -721,7 +721,7 @@
                                             <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource SecondaryTextBrush}">
                                                 <Run Text="{x:Bind ChampionName}"/>
-                                                <Run Text="  â€¢  "/>
+                                                <Run Text="  •  "/>
                                                 <Run Text="{x:Bind DatePlayed}"/>
                                             </TextBlock>
                                             <TextBlock Text="{x:Bind ProblemText}"
@@ -830,7 +830,7 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- â•â•â• Celebration Overlay â•â•â• -->
+        <!-- ••• Celebration Overlay ••• -->
         <Grid x:Name="CelebrationOverlay"
               Visibility="{x:Bind ViewModel.ShowCelebration, Mode=OneWay, Converter={StaticResource BoolToVis}}"
               Background="#CC060B0B">

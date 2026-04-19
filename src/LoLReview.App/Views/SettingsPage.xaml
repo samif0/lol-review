@@ -20,12 +20,12 @@
                       Padding="40,30,40,40">
             <StackPanel Spacing="14" HorizontalAlignment="Stretch">
 
-                <!-- â•â•â• Hero â•â•â• -->
+                <!-- ••• Hero ••• -->
                 <controls:HeroHeader EyebrowText="CONFIGURATION"
                                      Title="Settings"
                                      Subtitle="VOD FOLDERS // BACKUPS // INTEGRATIONS"/>
 
-                <!-- â•â•â• Ascent VOD Recordings Section â•â•â• -->
+                <!-- ••• Ascent VOD Recordings Section ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="ASCENT VOD RECORDINGS"/>
@@ -89,7 +89,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Clip Settings Section â•â•â• -->
+                <!-- ••• Clip Settings Section ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="CLIP SETTINGS"/>
@@ -162,7 +162,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Database Backup Section â•â•â• -->
+                <!-- ••• Database Backup Section ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="DATABASE BACKUP"/>
@@ -207,7 +207,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Tilt Fix Mode Section â•â•â• -->
+                <!-- ••• Tilt Fix Mode Section ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="TILT FIX MODE"/>
@@ -223,7 +223,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Review Save Behavior â•â•â• -->
+                <!-- ••• Review Save Behavior ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="REVIEW SAVE BEHAVIOR"/>
@@ -240,7 +240,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• App Version & Updates Section â•â•â• -->
+                <!-- ••• App Version & Updates Section ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="APP VERSION"/>
@@ -275,7 +275,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• AI Coach Section â•â•â• -->
+                <!-- ••• AI Coach Section ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <Grid>
@@ -378,7 +378,7 @@
                         <StackPanel Spacing="2" Margin="0,10,0,4">
                             <TextBlock Text="ML extras (~230 MB)"
                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
-                            <TextBlock Text="Adds sentence embeddings and clustering for concept analysis. Optional â€” install later if you want coach to index concepts across your games."
+                            <TextBlock Text="Adds sentence embeddings and clustering for concept analysis. Optional — install later if you want coach to index concepts across your games."
                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        TextWrapping="Wrap"/>
@@ -713,7 +713,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Save Button Row â•â•â• -->
+                <!-- ••• Save Button Row ••• -->
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>

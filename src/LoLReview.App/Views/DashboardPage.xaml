@@ -31,13 +31,13 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- â•â•â• HERO â•â•â• -->
+            <!-- ••• HERO ••• -->
             <controls:HeroHeader Grid.Row="0"
                                  EyebrowText="DASHBOARD"
                                  Title="{x:Bind ViewModel.Greeting, Mode=OneWay}"
                                  Margin="40,16,40,8"/>
 
-            <!-- â•â•â• CONTENT â•â•â• -->
+            <!-- ••• CONTENT ••• -->
             <ScrollViewer Grid.Row="1"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
@@ -52,7 +52,7 @@
                                             Icon="&#xE946;"
                                             Visibility="{x:Bind ViewModel.ShowSessionBanner, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
-                    <!-- â•â•â• STAT STRIP â•â•â• -->
+                    <!-- ••• STAT STRIP ••• -->
                     <controls:StatStrip>
                         <controls:StatCell Label="Games"
                                            Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
@@ -68,7 +68,7 @@
                                            Sub="STREAK ACTIVE"/>
                     </controls:StatStrip>
 
-                    <!-- â•â•â• MAIN BODY: Unreviewed + Objectives â•â•â• -->
+                    <!-- ••• MAIN BODY: Unreviewed + Objectives ••• -->
                     <Grid ColumnSpacing="14">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="5*"/>
@@ -80,7 +80,7 @@
                             <StackPanel Spacing="12" Padding="4">
                                 <controls:SectionTitle Text="UNREVIEWED"/>
 
-                                <TextBlock Text="Queue is clear â€” everything from the last 3 days has been reviewed."
+                                <TextBlock Text="Queue is clear — everything from the last 3 days has been reviewed."
                                            FontFamily="{StaticResource MonoFont}"
                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                            Foreground="{StaticResource WinGreenBrush}"

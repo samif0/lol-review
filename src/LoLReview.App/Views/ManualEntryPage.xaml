@@ -38,7 +38,7 @@
                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="{StaticResource LossRedBrush}"
                            Visibility="{x:Bind ViewModel.HasError, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
-                <!-- â•â•â• Champion + Result + KDA â•â•â• -->
+                <!-- ••• Champion + Result + KDA ••• -->
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}">
                     <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>
@@ -117,7 +117,7 @@
                     </Grid>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Mental Rating â•â•â• -->
+                <!-- ••• Mental Rating ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="MENTAL RATING"/>
@@ -143,7 +143,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Learning Objectives â•â•â• -->
+                <!-- ••• Learning Objectives ••• -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource AccentBlueBrush}"
                     Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -192,7 +192,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Performance Review â•â•â• -->
+                <!-- ••• Performance Review ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
@@ -228,7 +228,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Additional Notes â•â•â• -->
+                <!-- ••• Additional Notes ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="ADDITIONAL NOTES"/>
@@ -242,7 +242,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Action Buttons â•â•â• -->
+                <!-- ••• Action Buttons ••• -->
                 <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>

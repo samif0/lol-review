@@ -21,7 +21,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- â•â•â• Hero â•â•â• -->
+        <!-- ••• Hero ••• -->
         <controls:HeroHeader Grid.Row="0"
                              EyebrowText="POST GAME"
                              Title="{x:Bind ReviewVM.HeaderText, Mode=OneWay}"
@@ -33,7 +33,7 @@
                       Padding="40,0,40,40">
             <StackPanel Spacing="14" HorizontalAlignment="Stretch">
 
-                <!-- â•â•â• Champion Hero Card â•â•â• -->
+                <!-- ••• Champion Hero Card ••• -->
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}">
                     <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>
@@ -97,7 +97,7 @@
                     </Grid>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Game Stats â•â•â• -->
+                <!-- ••• Game Stats ••• -->
                 <controls:SectionTitle Text="GAME STATS"/>
                 <Grid ColumnSpacing="8" RowSpacing="8">
                     <Grid.ColumnDefinitions>
@@ -120,7 +120,7 @@
                     <controls:StatCard Grid.Row="1" Grid.Column="3" Label="WARDS" Value="{x:Bind ReviewVM.WardsPlacedText, Mode=OneWay}"/>
                 </Grid>
 
-                <!-- â•â•â• Priority Objective â•â•â• -->
+                <!-- ••• Priority Objective ••• -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource AccentGoldBrush}"
                     Visibility="{x:Bind ReviewVM.HasPriorityObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -136,7 +136,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Mental Rating â•â•â• -->
+                <!-- ••• Mental Rating ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="MENTAL RATING"/>
@@ -159,7 +159,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Mental Reflection (low mental) â•â•â• -->
+                <!-- ••• Mental Reflection (low mental) ••• -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource AccentPurpleBrush}"
                     Visibility="{x:Bind ReviewVM.ShowMentalReflection, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -175,7 +175,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Performance Review â•â•â• -->
+                <!-- ••• Performance Review ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
@@ -202,7 +202,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Objective Practice â•â•â• -->
+                <!-- ••• Objective Practice ••• -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource AccentBlueBrush}"
                     Visibility="{x:Bind ReviewVM.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -241,7 +241,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Matchup + Notes â•â•â• -->
+                <!-- ••• Matchup + Notes ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="MATCHUP NOTES"/>
@@ -263,7 +263,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Notes + Session Note â•â•â• -->
+                <!-- ••• Notes + Session Note ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="REVIEW NOTES"/>
@@ -289,7 +289,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- â•â•â• Action Buttons â•â•â• -->
+                <!-- ••• Action Buttons ••• -->
                 <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>

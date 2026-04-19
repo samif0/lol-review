@@ -83,20 +83,20 @@
                                  Title="Tilt Check"
                                  Subtitle="A 2-MINUTE GUIDED RESET"/>
         <Grid>
-            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
                  STEP 0: CHECK IN
-                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
             <StackPanel x:Name="Step0Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 0), Mode=OneWay}"
                         Spacing="4">
 
                 <TextBlock Style="{StaticResource SectionTitle}" Text="TILT CHECK"/>
-                <TextBlock Style="{StaticResource SectionSubtitle}" Text="A quick guided reset â€” takes about 2 minutes." Margin="0,0,0,20"/>
+                <TextBlock Style="{StaticResource SectionSubtitle}" Text="A quick guided reset — takes about 2 minutes." Margin="0,0,0,20"/>
 
                 <Border Style="{StaticResource CardBorder}" BorderBrush="#8b5cf6">
                     <StackPanel Spacing="12">
                         <TextBlock Style="{StaticResource CardLabel}" Text="How are you feeling right now?" FontSize="{Binding Title, Source={StaticResource FontSizes}}"/>
-                        <TextBlock Style="{StaticResource CardHint}" Text="Name it to tame it â€” labeling emotions reduces their intensity."/>
+                        <TextBlock Style="{StaticResource CardHint}" Text="Name it to tame it — labeling emotions reduces their intensity."/>
 
                         <!-- Emotion pills row 1 -->
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -150,9 +150,9 @@
                 </Border>
             </StackPanel>
 
-            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
                  STEP 1: BREATHE
-                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
             <StackPanel x:Name="Step1Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 1), Mode=OneWay}"
                         Spacing="4">
@@ -178,7 +178,7 @@
                                    FontSize="{Binding Display, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#8b5cf6"
                                    HorizontalAlignment="Center"/>
 
-                        <TextBlock Text="4-7-8 breathing â€” exhale longer than you inhale"
+                        <TextBlock Text="4-7-8 breathing — exhale longer than you inhale"
                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#a0a0b8" HorizontalAlignment="Center"/>
 
                         <!-- Progress bar -->
@@ -203,9 +203,9 @@
                 </Border>
             </StackPanel>
 
-            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
                  STEP 2: REFRAME
-                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
             <StackPanel x:Name="Step2Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 2), Mode=OneWay}"
                         Spacing="4">
@@ -255,9 +255,9 @@
                 </Border>
             </StackPanel>
 
-            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
                  STEP 3: RESET
-                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
             <StackPanel x:Name="Step3Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 3), Mode=OneWay}"
                         Spacing="4">
@@ -309,9 +309,9 @@
                 </Border>
             </StackPanel>
 
-            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
                  STEP 4: DONE
-                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
             <StackPanel x:Name="Step4Panel"
                         Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 4), Mode=OneWay}"
                         Spacing="4">

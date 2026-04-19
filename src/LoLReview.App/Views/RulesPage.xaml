@@ -22,7 +22,7 @@
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel Padding="40,30,40,40" Spacing="14">
 
-                <!-- â•â•â• Hero â•â•â• -->
+                <!-- ••• Hero ••• -->
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>

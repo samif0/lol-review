@@ -27,7 +27,7 @@
 
         <Grid RowDefinitions="Auto,*">
 
-            <!-- â•â•â• HERO â•â•â• -->
+            <!-- ••• HERO ••• -->
             <Grid Grid.Row="0" Margin="40,30,40,12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -45,7 +45,7 @@
                         IsTabStop="False"/>
             </Grid>
 
-            <!-- â•â•â• CONTENT â•â•â• -->
+            <!-- ••• CONTENT ••• -->
             <ScrollViewer Grid.Row="1"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
@@ -79,7 +79,7 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- â•â•â• STAT STRIP â•â•â• -->
+                    <!-- ••• STAT STRIP ••• -->
                     <controls:StatStrip>
                         <controls:StatCell Label="Games"
                                            Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
@@ -138,7 +138,7 @@
                         </StackPanel>
                     </controls:CornerBracketedCard>
 
-                    <!-- â•â•â• NEEDS REVIEW â•â•â• -->
+                    <!-- ••• NEEDS REVIEW ••• -->
                     <controls:CornerBracketedCard>
                         <StackPanel Spacing="12">
                             <Grid ColumnDefinitions="*,Auto">
@@ -220,7 +220,7 @@
                         </StackPanel>
                     </controls:CornerBracketedCard>
 
-                    <!-- â•â•â• REVIEWED â•â•â• -->
+                    <!-- ••• REVIEWED ••• -->
                     <controls:CornerBracketedCard>
                         <StackPanel Spacing="12">
                             <Grid ColumnDefinitions="*,Auto">

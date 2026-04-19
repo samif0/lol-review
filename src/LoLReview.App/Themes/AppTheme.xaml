@@ -7,14 +7,14 @@
          deep violet shells, luminous violet (#A78BFA) primary actions,
          alloy bronze (#C9956A) for focus/priority, muted rose/green for outcomes. -->
 
-    <!-- â•â•â• Font Families â•â•â• -->
+    <!-- ••• Font Families ••• -->
     <FontFamily x:Key="DisplayFont">ms-appx:///Assets/Fonts/Orbitron.ttf#Orbitron</FontFamily>
     <FontFamily x:Key="HeadingFont">ms-appx:///Assets/Fonts/Rajdhani-SemiBold.ttf#Rajdhani</FontFamily>
     <FontFamily x:Key="HeadingBoldFont">ms-appx:///Assets/Fonts/Rajdhani-Bold.ttf#Rajdhani</FontFamily>
     <FontFamily x:Key="MonoFont">ms-appx:///Assets/Fonts/ShareTechMono-Regular.ttf#Share Tech Mono</FontFamily>
     <FontFamily x:Key="BodyFont">ms-appx:///Assets/Fonts/Exo2.ttf#Exo 2</FontFamily>
 
-    <!-- â•â•â• Backgrounds â•â•â• -->
+    <!-- ••• Backgrounds ••• -->
     <SolidColorBrush x:Key="AppBackgroundBrush" Color="#07060B"/>
     <SolidColorBrush x:Key="ShellCanvasBrush" Color="#050409"/>
     <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#0C0B12"/>
@@ -34,16 +34,16 @@
     <SolidColorBrush x:Key="WarningSurfaceBrush" Color="#221A12"/>
     <SolidColorBrush x:Key="DangerSurfaceBrush" Color="#221418"/>
 
-    <!-- â•â•â• Borders â•â•â• -->
+    <!-- ••• Borders ••• -->
     <SolidColorBrush x:Key="SubtleBorderBrush" Color="#24203A"/>
     <SolidColorBrush x:Key="BrightBorderBrush" Color="#3D3660"/>
 
-    <!-- â•â•â• Text â•â•â• -->
+    <!-- ••• Text ••• -->
     <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F0EEF8"/>
     <SolidColorBrush x:Key="SecondaryTextBrush" Color="#7A6E96"/>
     <SolidColorBrush x:Key="MutedTextBrush" Color="#4A3E60"/>
 
-    <!-- â•â•â• Accents â•â•â• -->
+    <!-- ••• Accents ••• -->
     <SolidColorBrush x:Key="NeutralAccentBrush" Color="#8A80A8"/>
     <SolidColorBrush x:Key="AccentBlueBrush" Color="#A78BFA"/>
     <SolidColorBrush x:Key="AccentBlueDimBrush" Color="#1A1430"/>
@@ -53,19 +53,19 @@
     <SolidColorBrush x:Key="AccentTealBrush" Color="#8A7AF2"/>
     <SolidColorBrush x:Key="AccentTealDimBrush" Color="#181430"/>
 
-    <!-- â•â•â• Outcomes â•â•â• -->
+    <!-- ••• Outcomes ••• -->
     <SolidColorBrush x:Key="WinGreenBrush" Color="#7EC9A0"/>
     <SolidColorBrush x:Key="WinGreenDimBrush" Color="#0F1E18"/>
     <SolidColorBrush x:Key="LossRedBrush" Color="#D38C90"/>
     <SolidColorBrush x:Key="LossRedDimBrush" Color="#2A1820"/>
 
-    <!-- â•â•â• Objective Levels â•â•â• -->
+    <!-- ••• Objective Levels ••• -->
     <SolidColorBrush x:Key="ObjectiveExploringBrush" Color="#8A80A8"/>
     <SolidColorBrush x:Key="ObjectiveDrillingBrush" Color="#A78BFA"/>
     <SolidColorBrush x:Key="ObjectiveIngrainingBrush" Color="#8A7AF2"/>
     <SolidColorBrush x:Key="ObjectiveReadyBrush" Color="#C9956A"/>
 
-    <!-- â•â•â• UI Elements â•â•â• -->
+    <!-- ••• UI Elements ••• -->
     <SolidColorBrush x:Key="TagBackgroundBrush" Color="#110F1A"/>
     <SolidColorBrush x:Key="StarActiveBrush" Color="#C9956A"/>
     <SolidColorBrush x:Key="StarInactiveBrush" Color="#24203A"/>
@@ -74,7 +74,7 @@
     <SolidColorBrush x:Key="SidebarActiveBorderBrush" Color="#A78BFA"/>
     <SolidColorBrush x:Key="ActionPrimaryForegroundBrush" Color="#07060B"/>
 
-    <!-- â•â•â• Gradient Panels â•â•â• -->
+    <!-- ••• Gradient Panels ••• -->
     <LinearGradientBrush x:Key="HeroPanelBrush" StartPoint="0,0" EndPoint="1,1">
         <GradientStop Color="#1A1630" Offset="0"/>
         <GradientStop Color="#12101E" Offset="0.48"/>
@@ -111,14 +111,14 @@
         <GradientStop Color="#121110" Offset="1"/>
     </LinearGradientBrush>
 
-    <!-- â•â•â• System Overrides â•â•â• -->
+    <!-- ••• System Overrides ••• -->
     <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="#07060B"/>
     <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#14121E"/>
     <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#0C0B12"/>
     <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#0C0B12"/>
     <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#07060B"/>
 
-    <!-- â•â•â• Card Styles â•â•â• -->
+    <!-- ••• Card Styles ••• -->
     <Style x:Key="CardStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
@@ -158,7 +158,7 @@
         <Setter Property="Padding" Value="14"/>
     </Style>
 
-    <!-- â•â•â• Typography â•â•â• -->
+    <!-- ••• Typography ••• -->
     <Style x:Key="StatValueStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}"/>
         <Setter Property="FontSize" Value="28"/>
@@ -201,7 +201,7 @@
         <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
     </Style>
 
-    <!-- â•â•â• Buttons â•â•â• -->
+    <!-- ••• Buttons ••• -->
     <RadialGradientBrush x:Key="ButtonHoverGlow"
                          Center="0.5,0.5"
                          GradientOrigin="0.5,0.5"
@@ -593,7 +593,7 @@
         <Setter Property="Template" Value="{StaticResource NeutralHudButtonTemplate}"/>
     </Style>
 
-    <!-- â•â•â• Chips and Badges â•â•â• -->
+    <!-- ••• Chips and Badges ••• -->
     <Style x:Key="TagChipStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource TagBackgroundBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
@@ -636,7 +636,7 @@
         <Setter Property="Background" Value="{StaticResource LossRedDimBrush}"/>
     </Style>
 
-    <!-- â•â•â• HUD Practiced Toggle â•â•â• -->
+    <!-- ••• HUD Practiced Toggle ••• -->
     <Style x:Key="HudPracticedToggleStyle" TargetType="ToggleButton">
         <Setter Property="Height" Value="30"/>
         <Setter Property="MinWidth" Value="110"/>

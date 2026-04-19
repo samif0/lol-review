@@ -28,7 +28,7 @@
                   MaxHeight="600" MaxWidth="480">
         <StackPanel Spacing="12">
 
-            <!-- â•â•â• Header â•â•â• -->
+            <!-- ••• Header ••• -->
             <TextBlock Text="BEFORE YOU QUEUE UP..."
                        FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                        Foreground="{StaticResource AccentGoldBrush}"/>
@@ -37,7 +37,7 @@
                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                        Foreground="{StaticResource SecondaryTextBrush}"/>
 
-            <!-- â•â•â• Mood Check-in (Tilt Fix) â•â•â• -->
+            <!-- ••• Mood Check-in (Tilt Fix) ••• -->
             <Border Visibility="{x:Bind ViewModel.ShowMoodSelector, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentPurpleBrush}"
@@ -51,7 +51,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- â•â•â• Session Intention (first game only) â•â•â• -->
+            <!-- ••• Session Intention (first game only) ••• -->
             <Border Visibility="{x:Bind ViewModel.ShowIntention, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentGoldBrush}"
@@ -107,7 +107,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- â•â•â• Active Objective â•â•â• -->
+            <!-- ••• Active Objective ••• -->
             <Border Visibility="{x:Bind ViewModel.HasActiveObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Background="{StaticResource CardBackgroundBrush}"
                     BorderBrush="{StaticResource AccentBlueBrush}"
@@ -170,7 +170,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- â•â•â• Last Game Focus â•â•â• -->
+            <!-- ••• Last Game Focus ••• -->
             <Border Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Style="{StaticResource CardStyle}">
                 <StackPanel Spacing="4">
@@ -184,7 +184,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- â•â•â• Last Game Mistakes â•â•â• -->
+            <!-- ••• Last Game Mistakes ••• -->
             <Border Visibility="{x:Bind ViewModel.HasLastMistakes, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                     Style="{StaticResource CardStyle}">
                 <StackPanel Spacing="4">
@@ -201,7 +201,7 @@
             <!-- Separator -->
             <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
 
-            <!-- â•â•â• Set Focus â•â•â• -->
+            <!-- ••• Set Focus ••• -->
             <TextBlock Text="What's your focus this game?"
                        FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="Bold"
                        Foreground="{StaticResource PrimaryTextBrush}"/>

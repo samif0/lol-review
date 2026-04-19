@@ -21,7 +21,7 @@
                   MaxHeight="650" MaxWidth="600">
         <StackPanel Spacing="12">
 
-            <!-- â•â•â• Header â•â•â• -->
+            <!-- ••• Header ••• -->
             <TextBlock Text="MANUAL GAME ENTRY"
                        FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
                        Foreground="{StaticResource AccentGoldBrush}"/>
@@ -30,7 +30,7 @@
                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                        Foreground="{StaticResource SecondaryTextBrush}"/>
 
-            <!-- â•â•â• Basic Info Section â•â•â• -->
+            <!-- ••• Basic Info Section ••• -->
             <TextBlock Text="BASIC INFO"
                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="Bold"
                        Foreground="{StaticResource SecondaryTextBrush}"
@@ -136,7 +136,7 @@
             <!-- Separator -->
             <Border Height="1" Background="{StaticResource SubtleBorderBrush}" Margin="0,4"/>
 
-            <!-- â•â•â• Review Section â•â•â• -->
+            <!-- ••• Review Section ••• -->
             <TextBlock Text="REVIEW NOTES"
                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="Bold"
                        Foreground="{StaticResource SecondaryTextBrush}"/>

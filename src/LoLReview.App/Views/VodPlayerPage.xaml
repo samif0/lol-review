@@ -33,7 +33,7 @@
 
         <Grid RowDefinitions="Auto,*" Padding="28,20,28,28">
 
-            <!-- â•â•â• HERO HEADER â•â•â• -->
+            <!-- ••• HERO HEADER ••• -->
             <Grid Grid.Row="0" Margin="0,0,0,16">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
                     <Button Grid.Column="0"
@@ -86,7 +86,7 @@
                 </Grid>
             </Grid>
 
-            <!-- â•â•â• MAIN 2-COL LAYOUT â•â•â• -->
+            <!-- ••• MAIN 2-COL LAYOUT ••• -->
             <Grid Grid.Row="1" ColumnDefinitions="3*,*" ColumnSpacing="16">
 
                 <!-- â”€â”€ LEFT: Video + Controls + Clip â”€â”€ -->
@@ -251,7 +251,7 @@
                                                           Duration="{x:Bind ViewModel.GameDurationS, Mode=OneWay}"
                                                           Events="{x:Bind ViewModel.GameEvents, Mode=OneWay}"
                                                           Position="{x:Bind ViewModel.CurrentTimeS, Mode=OneWay}"/>
-                                <TextBlock Text="No timeline events â€” LoL Review must be running during the game to capture kills, deaths, and objectives."
+                                <TextBlock Text="No timeline events — LoL Review must be running during the game to capture kills, deaths, and objectives."
                                            Visibility="{x:Bind ViewModel.ShowNoEventsHint, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"
                                            FontFamily="{StaticResource MonoFont}"
                                            FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
@@ -395,7 +395,7 @@
                             </Button>
 
                             <TextBlock x:Name="FfmpegWarning"
-                                       Text="ffmpeg not found â€” install ffmpeg for clip saves."
+                                       Text="ffmpeg not found — install ffmpeg for clip saves."
                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" TextWrapping="Wrap" Visibility="Collapsed"
                                        Foreground="{StaticResource LossRedBrush}"/>
                         </StackPanel>

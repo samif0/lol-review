@@ -22,11 +22,11 @@
         <StackPanel Spacing="14" Padding="40,20,40,40"
                     MaxWidth="580" HorizontalAlignment="Center">
 
-            <!-- â•â•â• Hero â•â•â• -->
+            <!-- ••• Hero ••• -->
             <controls:HeroHeader EyebrowText="CHAMP SELECT"
                                  Title="Lock In"/>
 
-            <!-- â•â•â• Mood (Tilt Fix) â•â•â• -->
+            <!-- ••• Mood (Tilt Fix) ••• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentPurpleBrush}"
                 Visibility="{x:Bind ViewModel.ShowMoodSelector, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -36,7 +36,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- â•â•â• Priority Objective â•â•â• -->
+            <!-- ••• Priority Objective ••• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentBlueBrush}"
                 Visibility="{x:Bind ViewModel.HasActiveObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -55,7 +55,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- â•â•â• Pre-Game Objectives (with practiced toggle) â•â•â• -->
+            <!-- ••• Pre-Game Objectives (with practiced toggle) ••• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentGoldBrush}"
                 Visibility="{x:Bind ViewModel.HasPreGameObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -95,7 +95,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- â•â•â• Pick Objective (when no priority set) â•â•â• -->
+            <!-- ••• Pick Objective (when no priority set) ••• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentGoldBrush}"
                 Visibility="{x:Bind ViewModel.HasObjectiveFocusOptions, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -141,7 +141,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- â•â•â• Intel from Last Game â•â•â• -->
+            <!-- ••• Intel from Last Game ••• -->
             <controls:CornerBracketedCard
                 Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <StackPanel Spacing="8">
@@ -160,7 +160,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- â•â•â• Matchup Notes â•â•â• -->
+            <!-- ••• Matchup Notes ••• -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentGoldBrush}"
                 Visibility="{x:Bind ViewModel.HasMatchupHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -192,7 +192,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- â•â•â• Set Focus â•â•â• -->
+            <!-- ••• Set Focus ••• -->
             <controls:CornerBracketedCard
                 CardBackground="{StaticResource FocusPanelBrush}"
                 CardBorderBrush="{StaticResource AccentGoldBrush}">
@@ -233,7 +233,7 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- â•â•â• Session Intention (first game) â•â•â• -->
+            <!-- ••• Session Intention (first game) ••• -->
             <controls:CornerBracketedCard
                 Visibility="{x:Bind ViewModel.ShowIntention, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <StackPanel Spacing="8">

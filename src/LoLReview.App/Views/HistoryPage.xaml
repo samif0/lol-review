@@ -23,7 +23,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- â•â•â• Hero â•â•â• -->
+        <!-- ••• Hero ••• -->
         <controls:HeroHeader Grid.Row="0"
                              EyebrowText="MATCH DATABASE"
                              Title="Match History"
