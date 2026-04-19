@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -17,7 +16,20 @@ namespace LoLReview.App.Controls;
 public sealed partial class HexPatternLayer : UserControl
 {
     private const double OverscanPx = 0.0;
-    private static readonly Dictionary<string, Geometry> GeometryCache = new();
+
+    // Previously: static Dictionary<string, Geometry> shared across layers.
+    // That crashes under "System.ArgumentException: Value does not fall
+    // within the expected range" because a WinUI Geometry can only belong
+    // to one Path at a time — assigning a shared cached Geometry to a
+    // second layer's Path.Data throws. On heavy reparenting scenarios
+    // (Ctrl+/- zoom, pointer moves hitting many CornerBracketedCards at
+    // once) this surfaced as a rapid-fire exception storm that could hang
+    // the UI thread or trip display driver recovery on weaker GPUs.
+    //
+    // Each instance now builds its own PathGeometry. The build itself is
+    // pure CPU (no GPU involvement) and small (<1 ms for typical sizes),
+    // so the cache wasn't earning its keep anyway.
+
     private bool _patternDirty = true;
     private bool _ensurePending;
 
@@ -186,7 +198,15 @@ public sealed partial class HexPatternLayer : UserControl
         var rowStep = hexHeight;
         var totalWidth = LayoutRoot.ActualWidth + (OverscanPx * 2.0);
         var totalHeight = LayoutRoot.ActualHeight + (OverscanPx * 2.0);
-        var cacheKey = $"{Math.Round(totalWidth)}|{Math.Round(totalHeight)}|{Math.Round(HexSize, 2)}";
+
+        // Guard against degenerate sizes (e.g. during window minimize or
+        // mid-animation collapse). A zero-or-negative box would still
+        // produce a valid empty PathGeometry, but we'd rather skip the
+        // work entirely and wait for the next layout pass.
+        if (totalWidth <= 0 || totalHeight <= 0 || !double.IsFinite(totalWidth) || !double.IsFinite(totalHeight))
+        {
+            return;
+        }
 
         LayoutRoot.Clip = new RectangleGeometry
         {
@@ -201,13 +221,21 @@ public sealed partial class HexPatternLayer : UserControl
         PatternPath.Fill = CreatePatternBrush(accentColor, FillOpacity);
         PatternPath.Stroke = CreatePatternBrush(accentColor, StrokeOpacity);
         PatternPath.StrokeThickness = StrokeThickness;
-        if (!GeometryCache.TryGetValue(cacheKey, out var geometry))
+
+        // Build a fresh geometry per instance — see class-level comment
+        // on why sharing is unsafe. Wrap in a try/catch because even a
+        // valid-looking PathGeometry can be rejected by the compositor
+        // under extreme transform states; better to quietly skip a frame
+        // than to throw into a pointer/key handler.
+        try
         {
-            geometry = BuildPatternGeometry(totalWidth, totalHeight, hexWidth, hexHeight, columnStep, rowStep);
-            GeometryCache[cacheKey] = geometry;
+            PatternPath.Data = BuildPatternGeometry(totalWidth, totalHeight, hexWidth, hexHeight, columnStep, rowStep);
+        }
+        catch (Exception)
+        {
+            return;
         }
 
-        PatternPath.Data = geometry;
         _patternDirty = false;
 
         ApplyOffset();

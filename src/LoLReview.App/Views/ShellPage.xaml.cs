@@ -68,20 +68,31 @@ public sealed partial class ShellPage : Page
             .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
         if (!ctrl) return;
 
+        // Throttle: Windows key-repeat fires KeyDown ~30/sec when held.
+        // Each zoom change forces the whole content tree to re-rasterize at
+        // the new scale, which can overwhelm weaker GPUs (a user reported
+        // their entire PC crashing while holding Ctrl-=). One zoom step per
+        // ~50 ms gives responsive feel but caps the repaint rate.
+        var now = Environment.TickCount;
+        if (now - _lastZoomTick < ZoomThrottleMs) return;
+
         switch (e.Key)
         {
             case Windows.System.VirtualKey.Add:
             case (Windows.System.VirtualKey)187: // OemPlus (=/+)
+                _lastZoomTick = now;
                 SetZoom(_zoomLevel + ZoomStep);
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.Subtract:
             case (Windows.System.VirtualKey)189: // OemMinus (-/_)
+                _lastZoomTick = now;
                 SetZoom(_zoomLevel - ZoomStep);
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.Number0:
             case Windows.System.VirtualKey.NumberPad0:
+                _lastZoomTick = now;
                 SetZoom(1.0);
                 e.Handled = true;
                 break;
@@ -90,7 +101,11 @@ public sealed partial class ShellPage : Page
 
     private void SetZoom(double level)
     {
-        _zoomLevel = Math.Clamp(level, ZoomMin, ZoomMax);
+        var clamped = Math.Clamp(level, ZoomMin, ZoomMax);
+        // No-op if we're already at the target (prevents a repaint on
+        // held-key bounces when already at ZoomMax/ZoomMin).
+        if (Math.Abs(clamped - _zoomLevel) < 0.001) return;
+        _zoomLevel = clamped;
         ContentScale.ScaleX = _zoomLevel;
         ContentScale.ScaleY = _zoomLevel;
     }
@@ -125,7 +140,9 @@ public sealed partial class ShellPage : Page
     private const double ZoomStep = 0.05;
     private const double ZoomMin = 0.6;
     private const double ZoomMax = 1.6;
+    private const int ZoomThrottleMs = 50;
     private double _zoomLevel = 1.0;
+    private int _lastZoomTick;
 
     private void UpdateEnergyDrain()
     {
