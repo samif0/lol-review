@@ -20,6 +20,44 @@ Test: could you ask the player right after a game "did you do that?"
 and get a clear yes or no from their memory? If yes, it's a behavior.
 If they'd have to consult a scoreboard, it's a stat — reject.
 
+## Specific beats general, always
+
+A specific objective names the SITUATION, the TRIGGER, and the
+ACTION. A general objective names only the action or only the goal.
+Specific objectives are actionable in the moment; general
+objectives become lip service.
+
+- TOO GENERAL: "Improve wave management."
+  SPECIFIC: "When the enemy minion wave is 3+ minions ahead on your
+  side, freeze by last-hitting at the edge of your ranged creep
+  aggro range instead of clearing fast."
+- TOO GENERAL: "Play safer when behind."
+  SPECIFIC: "When down 2+ kills in lane by 8 minutes, stop crossing
+  river and only walk up to last-hit when the enemy laner has used
+  their main wave-clear ability."
+- TOO GENERAL: "Better decision making around objectives."
+  SPECIFIC: "At 30 seconds before Drake spawn, check if your jungler
+  is closer than the enemy jungler on minimap; if not, don't rotate
+  bot and instead push wave to shove enemy laner under tower."
+- TOO GENERAL: "Don't tilt after deaths."
+  SPECIFIC: "After any death, ping 'retreating', leave lane to base
+  or jungle, and do not re-enter lane until the next 2 waves have
+  crashed into tower."
+
+Rules for specificity:
+- Name the in-game cue that triggers the behavior (wave state,
+  enemy position, timer, HP threshold, minimap condition, etc.).
+- Name the exact action, not a category. "Last-hit under tower" is
+  an action; "play safer" is a category.
+- If a proposal could apply to a Gold player and a Challenger the
+  same way without any context, it's too general. The objective
+  should feel like advice for THIS player, in situations they've
+  already flagged for themselves.
+- The more review notes reference the same situation, the more
+  specific you can safely be. If the player wrote about Kai'Sa
+  matchups in 5 reviews, it's fair to scope the objective to
+  Kai'Sa specifically rather than "as ADC generally".
+
 ## The reasoning chain (mandatory)
 
 For every proposal, walk this chain internally before you write:

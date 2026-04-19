@@ -261,18 +261,6 @@ public sealed partial class ObjectivesPage : Page
             panel.Children.Add(card);
         }
 
-        // Provider tag line — at the bottom, small.
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"[{result.Provider} / {result.Model} / {result.LatencyMs}ms]",
-            FontSize = 10,
-            FontFamily = monoFont,
-            Foreground = mutedBrush,
-            Opacity = 0.7,
-            Margin = new Thickness(0, 8, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
-
         ProposalsModal.Eyebrow = "COACH // PROPOSALS";
         ProposalsModal.Title = "Pick an objective";
         ProposalsModal.Body = panel;
