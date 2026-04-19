@@ -1,0 +1,16 @@
+# ML extras — sentence embeddings + clustering for coach concepts.
+# Ships in the "coach-ml" pack, downloaded on demand when the user
+# first triggers a concept-extraction feature. ~500-800 MB packed.
+#
+# torch is pinned CPU-only via the PyTorch CPU wheel index. Override
+# with --extra-index-url at install time if you want CUDA.
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch>=2.5,<3
+sentence-transformers>=3.3
+hdbscan>=0.8.38
+python-Levenshtein>=0.26
+pyarrow>=18.0
+pandas>=2.2
+scipy>=1.14

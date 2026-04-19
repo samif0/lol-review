@@ -20,7 +20,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from coach import __version__
+from coach import __version__, _extras
 from coach.config import load_config, log_path, update_config
 from coach.db import ensure_migrations_applied
 from coach.providers import get_provider
@@ -81,6 +81,7 @@ async def lifespan(app: FastAPI):
     _started_at = time.time()
     _configure_logging()
     logger.info("coach sidecar starting, version=%s", __version__)
+    _extras.activate_if_present()
     try:
         ensure_migrations_applied()
     except Exception:
@@ -247,10 +248,30 @@ async def get_summary(game_id: int) -> GetSummaryResponse:
 
 
 # ─────────────────────────────── Concepts (Phase 2) ───────────────────────────────
+#
+# Concept-extraction endpoints depend on the optional "coach-ml" pack
+# (torch + sentence-transformers + hdbscan). If the pack isn't
+# installed, we return 501 with a stable error code so the C# app can
+# prompt the user to install the extras. See coach/_extras.py.
+
+
+def _require_ml_extras() -> None:
+    if not _extras.is_available():
+        raise HTTPException(
+            status_code=501,
+            detail={
+                "error": "ml_extras_not_installed",
+                "message": (
+                    "This feature requires the optional AI Coach ML extras. "
+                    "Install them from Settings → AI Coach."
+                ),
+            },
+        )
 
 
 @app.post("/concepts/extract/{game_id}", response_model=ExtractConceptsResponse)
 async def extract_concepts(game_id: int) -> ExtractConceptsResponse:
+    _require_ml_extras()
     from coach.concepts.extractor import extract_for_game
 
     try:
@@ -265,6 +286,7 @@ async def extract_concepts(game_id: int) -> ExtractConceptsResponse:
 
 @app.post("/concepts/extract-all")
 async def extract_all_concepts(since: int | None = None) -> dict[str, int]:
+    _require_ml_extras()
     from coach.concepts.extractor import extract_all
 
     return await extract_all(since=since)
@@ -272,6 +294,7 @@ async def extract_all_concepts(since: int | None = None) -> dict[str, int]:
 
 @app.post("/concepts/recluster")
 async def recluster_concepts() -> dict[str, Any]:
+    _require_ml_extras()
     from coach.concepts.clusterer import recluster
 
     return recluster()
@@ -279,6 +302,7 @@ async def recluster_concepts() -> dict[str, Any]:
 
 @app.get("/concepts/profile", response_model=ConceptProfileResponse)
 async def get_concept_profile() -> ConceptProfileResponse:
+    _require_ml_extras()
     from coach.concepts.profiler import load_profile
 
     return load_profile()

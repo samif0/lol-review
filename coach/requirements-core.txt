@@ -1,0 +1,18 @@
+# Core sidecar deps — LLM-over-HTTP path only (Google AI).
+# Ships in the "coach-core" pack. ~40-60 MB packed.
+#
+# Heavy ML deps (torch, sentence-transformers, hdbscan, pandas, scipy,
+# pyarrow, python-Levenshtein) live in requirements-ml.txt and ship in a
+# separate optional "coach-ml" pack, loaded at runtime only when the
+# user uses a concept-extraction feature.
+#
+# Keep this list minimal. Every dep here is in every user's install.
+
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+httpx>=0.27
+sqlite-utils>=3.37
+json-repair>=0.30
+numpy>=2.0
+tiktoken>=0.8
