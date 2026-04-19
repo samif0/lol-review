@@ -461,7 +461,7 @@
                                                                  LostFocus="OnBookmarkNoteLostFocus"
                                                                  TextChanged="OnBookmarkNoteTextChanged"/>
 
-                                                        <ComboBox ItemsSource="{Binding ElementName=RootPage, Path=ViewModel.ObjectiveOptions}"
+                                                        <ComboBox ItemsSource="{x:Bind ObjectiveOptions, Mode=OneWay}"
                                                                   SelectedValue="{x:Bind ObjectiveId, Mode=TwoWay}"
                                                                   SelectedValuePath="Id"
                                                                   DisplayMemberPath="Title"

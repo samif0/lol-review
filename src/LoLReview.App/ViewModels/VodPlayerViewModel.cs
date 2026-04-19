@@ -317,6 +317,8 @@ public partial class VodPlayerViewModel : ObservableObject
                 TimeText = FormatTime(timeS),
                 Note = note,
                 IsClip = false,
+                ObjectiveId = objectiveId,
+                ObjectiveOptions = ObjectiveOptions,
             });
             _logger.LogInformation("Bookmark added at {Time}s for game {Id}", timeS, GameId);
         }
@@ -550,6 +552,8 @@ public partial class VodPlayerViewModel : ObservableObject
                     IsClip = true,
                     ClipRangeText = $"{FormatTime(startS)} - {FormatTime(endS)}",
                     Quality = quality,
+                    ObjectiveId = objectiveId,
+                    ObjectiveOptions = ObjectiveOptions,
                 });
 
                 // Phase 4 hook: ask coach sidecar to generate frame descriptions.
@@ -810,7 +814,7 @@ public partial class VodPlayerViewModel : ObservableObject
         Bookmarks.Insert(index, bookmark);
     }
 
-    private static BookmarkItem ToBookmarkItem(VodBookmarkRecord record)
+    private BookmarkItem ToBookmarkItem(VodBookmarkRecord record)
     {
         var isClip = !string.IsNullOrEmpty(record.ClipPath);
         return new BookmarkItem
@@ -825,6 +829,7 @@ public partial class VodPlayerViewModel : ObservableObject
                 : "",
             Quality = record.Quality,
             ObjectiveId = record.ObjectiveId,
+            ObjectiveOptions = ObjectiveOptions,
         };
     }
 
@@ -999,6 +1004,15 @@ public class BookmarkItem
     /// code-behind hooks the SelectionChanged to call the VM.
     /// </summary>
     public long? ObjectiveId { get; set; }
+
+    /// <summary>
+    /// Reference to the same ObservableCollection the VM owns. Each
+    /// bookmark item holds a pointer to it so the per-item ComboBox
+    /// can bind to ObjectiveOptions via x:Bind without going through
+    /// the page's ViewModel — ElementName binding doesn't reach
+    /// outside an ItemsRepeater data template reliably in WinUI 3.
+    /// </summary>
+    public ObservableCollection<ObjectiveOption>? ObjectiveOptions { get; set; }
     public string KindLabel => IsClip ? "CLIP" : "NOTE";
     public bool HasQuality => !string.IsNullOrWhiteSpace(Quality);
     public string QualityLabel => string.IsNullOrWhiteSpace(Quality)
@@ -1046,6 +1060,8 @@ public class BookmarkItem
             IsClip = IsClip,
             ClipRangeText = ClipRangeText,
             Quality = quality,
+            ObjectiveId = ObjectiveId,
+            ObjectiveOptions = ObjectiveOptions,
         };
     }
 }
@@ -1266,7 +1282,22 @@ public class DerivedEventRegion
     public string Name { get; set; } = "";
 }
 
-public sealed record ObjectiveOption(long? Id, string Title)
+// Plain class (not a record) because the WinUI XAML compiler-generated
+// type-info metadata for DisplayMemberPath needs a public settable
+// property, which positional records don't provide. We use this class
+// in two binding contexts (the page-level dropdown and per-bookmark
+// dropdowns), and the DataTemplate path requires init-or-set.
+public sealed class ObjectiveOption
 {
+    public long? Id { get; set; }
+    public string Title { get; set; } = "";
+
+    public ObjectiveOption() { }
+    public ObjectiveOption(long? id, string title)
+    {
+        Id = id;
+        Title = title;
+    }
+
     public override string ToString() => Title;
 }
