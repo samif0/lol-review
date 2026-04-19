@@ -172,6 +172,10 @@ $roboArgs = @(
 )
 & robocopy @roboArgs | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+# Robocopy sets $LASTEXITCODE to 0-7 on success (1 = files copied,
+# 0 = no files copied, etc.). Reset it so the script doesn't
+# inherit a non-zero exit and fail CI.
+$global:LASTEXITCODE = 0
 
 # ─────────────────────────────── Launcher ─────────────────────────────
 
@@ -229,3 +233,7 @@ Write-Host "Built $PackName" -ForegroundColor Green
 Write-Host "  zip:    $ZipPath"
 Write-Host "  sha256: $hash"
 Write-Host ("  size:   {0:N2} MB" -f ($zipSize / 1MB))
+
+# Explicit success exit so the script doesn't inherit a stray
+# $LASTEXITCODE from robocopy/pip and fail CI.
+exit 0

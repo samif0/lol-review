@@ -153,3 +153,7 @@ Write-Host "Built $PackName" -ForegroundColor Green
 Write-Host "  zip:    $ZipPath"
 Write-Host "  sha256: $hash"
 Write-Host ("  size:   {0:N2} MB" -f ($zipSize / 1MB))
+
+# Explicit success exit so the script doesn't inherit a stray
+# $LASTEXITCODE from pip and fail CI.
+exit 0
