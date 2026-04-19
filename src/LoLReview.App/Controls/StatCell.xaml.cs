@@ -24,9 +24,9 @@ public enum StatCellPosition
 /// </summary>
 public sealed partial class StatCell : UserControl
 {
-    private const double HoverLiftY = -1.2;
-    private const double HoverDepthZ = 10.0;
-    private const double MaxTiltDegrees = 1.9;
+    private const double HoverLiftY = -0.5;
+    private const double HoverDepthZ = 4.0;
+    private const double MaxTiltDegrees = 0.6;
     private bool _isHoverActive;
     private readonly HoverTiltController _hoverTilt;
 

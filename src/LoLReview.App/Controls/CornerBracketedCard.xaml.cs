@@ -18,9 +18,9 @@ namespace LoLReview.App.Controls;
 [ContentProperty(Name = nameof(Content))]
 public sealed partial class CornerBracketedCard : UserControl
 {
-    private const double HoverLiftY = -1.0;
-    private const double HoverDepthZ = 8.0;
-    private const double MaxTiltDegrees = 1.2;
+    private const double HoverLiftY = -0.5;
+    private const double HoverDepthZ = 3.0;
+    private const double MaxTiltDegrees = 0.4;
     private bool _cornerHoverAttached;
     private bool _isHoverActive;
     private readonly HoverTiltController _hoverTilt;

@@ -96,9 +96,10 @@ public sealed partial class VodPlayerPage : Page
         _windowRoot?.RemoveHandler(KeyUpEvent, _keyUpHandler);
         _windowRoot = null;
 
-        if (_playerElement is { IsFullWindow: true })
+        if (_isFullscreen)
         {
-            _playerElement.IsFullWindow = false;
+            App.MainWindow?.AppWindow?.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
+            _isFullscreen = false;
         }
 
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
@@ -384,14 +385,26 @@ public sealed partial class VodPlayerPage : Page
 
     private async void OnBookmarkQualityClick(object sender, RoutedEventArgs e)
     {
-        if (ResolveBookmarkItem(sender) is not { } bookmark)
-        {
+        if (sender is not FrameworkElement element)
             return;
+
+        var quality = element.Tag as string;
+
+        // Walk up the visual tree to find the BookmarkItem DataContext
+        BookmarkItem? bookmark = null;
+        DependencyObject? current = element;
+        while (current != null)
+        {
+            if (current is FrameworkElement fe && fe.DataContext is BookmarkItem bm)
+            {
+                bookmark = bm;
+                break;
+            }
+            current = VisualTreeHelper.GetParent(current);
         }
 
-        var quality = sender is FrameworkElement element
-            ? element.Tag as string
-            : null;
+        if (bookmark is null)
+            return;
 
         await ViewModel.SetBookmarkQualityCommand.ExecuteAsync(new BookmarkQualityUpdateRequest(bookmark, quality));
         FocusPlaybackSurface();
@@ -504,21 +517,26 @@ public sealed partial class VodPlayerPage : Page
         FocusPlaybackSurface();
     }
 
+    private bool _isFullscreen;
+
     private void ToggleFullscreen()
     {
-        if (_playerElement == null)
-        {
-            return;
-        }
+        var window = App.MainWindow;
+        if (window == null) return;
 
-        if (_playerElement.IsFullWindow)
+        var appWindow = window.AppWindow;
+        if (appWindow == null) return;
+
+        if (_isFullscreen)
         {
-            _playerElement.IsFullWindow = false;
+            appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
+            _isFullscreen = false;
             FullscreenIcon.Glyph = "\uE740"; // EnterFullScreen
         }
         else
         {
-            _playerElement.IsFullWindow = true;
+            appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+            _isFullscreen = true;
             FullscreenIcon.Glyph = "\uE73F"; // ExitFullScreen
         }
     }

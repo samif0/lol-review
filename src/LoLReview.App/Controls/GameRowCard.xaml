@@ -62,10 +62,11 @@
                 </Rectangle.Fill>
             </Rectangle>
 
-            <Grid ColumnSpacing="8">
+            <Grid ColumnSpacing="10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="3"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
@@ -75,17 +76,17 @@
                            HorizontalAlignment="Stretch"
                            VerticalAlignment="Stretch"/>
 
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Padding="0,6,0,6" Spacing="1">
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Padding="0,7,0,7" Spacing="1">
                     <TextBlock x:Name="ChampionTextBlock"
                                FontFamily="{StaticResource HeadingFont}"
-                               FontSize="13"
+                               FontSize="14"
                                FontWeight="SemiBold"
                                Foreground="{StaticResource PrimaryTextBrush}"
                                TextTrimming="CharacterEllipsis"
                                MaxLines="1"/>
                     <TextBlock x:Name="MetaTextBlock"
                                FontFamily="{StaticResource MonoFont}"
-                               FontSize="8"
+                               FontSize="9"
                                Foreground="{StaticResource MutedTextBrush}"
                                TextTrimming="CharacterEllipsis"
                                MaxLines="1"/>
@@ -94,18 +95,23 @@
                 <TextBlock x:Name="KdaTextBlock"
                            Grid.Column="2"
                            FontFamily="{StaticResource MonoFont}"
-                           FontSize="9"
+                           FontSize="10"
                            Foreground="{StaticResource SecondaryTextBrush}"
+                           VerticalAlignment="Center"/>
+
+                <TextBlock x:Name="StatsTextBlock"
+                           Grid.Column="3"
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="9"
+                           Foreground="{StaticResource MutedTextBrush}"
                            VerticalAlignment="Center"
-                           Margin="0,0,4,0"/>
+                           TextTrimming="CharacterEllipsis"
+                           MaxLines="1"/>
 
                 <ContentPresenter x:Name="ActionsHost"
-                                  Grid.Column="3"
+                                  Grid.Column="4"
                                   VerticalAlignment="Center"
-                                  Margin="0,0,6,0"/>
-
-                <!-- Hidden but kept for binding -->
-                <TextBlock x:Name="StatsTextBlock" Visibility="Collapsed"/>
+                                  Margin="0,0,8,0"/>
             </Grid>
         </Grid>
     </Border>

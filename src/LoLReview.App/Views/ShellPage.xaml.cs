@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.App.Contracts;
 using LoLReview.App.Helpers;
 using LoLReview.App.ViewModels;
+using LoLReview.App.Services;
 using LoLReview.Core.Lcu;
 using Microsoft.UI.Composition;
 using Microsoft.UI;
@@ -42,6 +43,11 @@ public sealed partial class ShellPage : Page
 
         // Initialize the navigation service with the frame (no NavigationView needed)
         _navigationService.Initialize(ContentFrame);
+
+        // Coach is alpha — hidden by default, revealed via env var or settings toggle.
+        NavCoach.Visibility = CoachFeatureFlag.IsEnabled()
+            ? Microsoft.UI.Xaml.Visibility.Visible
+            : Microsoft.UI.Xaml.Visibility.Collapsed;
 
         // Select dashboard by default
         SetActiveNav(NavDashboard);

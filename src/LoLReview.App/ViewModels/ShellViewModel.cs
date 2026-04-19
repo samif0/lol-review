@@ -187,11 +187,14 @@ public partial class ShellViewModel : ObservableRecipient,
             try
             {
                 // 1. Save game stats to DB
+                var practicedIds = PreGameDialogViewModel.LastPracticedObjectiveIds;
+                PreGameDialogViewModel.LastPracticedObjectiveIds = [];
                 var result = await _gameLifecycleWorkflow.ProcessGameEndAsync(
                     new ProcessGameEndRequest(
                         message.Stats,
                         MentalRating: 5,
-                        PreGameMood: message.IsRecovered ? 0 : _preGameMood),
+                        PreGameMood: message.IsRecovered ? 0 : _preGameMood,
+                        PreGamePracticedObjectiveIds: message.IsRecovered ? null : practicedIds),
                     isRecovered: message.IsRecovered);
 
                 if (!result.WasSaved)

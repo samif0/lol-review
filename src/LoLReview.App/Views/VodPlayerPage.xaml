@@ -240,15 +240,26 @@
                         <Border Background="{StaticResource SurfaceInsetBrush}"
                                 BorderBrush="{StaticResource SubtleBorderBrush}"
                                 BorderThickness="1" CornerRadius="2" Padding="10">
-                            <controls:TimelineControl x:Name="Timeline"
-                                                      Height="80"
-                                                      Bookmarks="{x:Bind ViewModel.Bookmarks, Mode=OneWay}"
-                                                      ClipEnd="{x:Bind ViewModel.ClipEndS, Mode=OneWay}"
-                                                      ClipStart="{x:Bind ViewModel.ClipStartS, Mode=OneWay}"
-                                                      DerivedEvents="{x:Bind ViewModel.DerivedEvents, Mode=OneWay}"
-                                                      Duration="{x:Bind ViewModel.GameDurationS, Mode=OneWay}"
-                                                      Events="{x:Bind ViewModel.GameEvents, Mode=OneWay}"
-                                                      Position="{x:Bind ViewModel.CurrentTimeS, Mode=OneWay}"/>
+                            <Grid>
+                                <controls:TimelineControl x:Name="Timeline"
+                                                          Height="80"
+                                                          Bookmarks="{x:Bind ViewModel.Bookmarks, Mode=OneWay}"
+                                                          ClipEnd="{x:Bind ViewModel.ClipEndS, Mode=OneWay}"
+                                                          ClipStart="{x:Bind ViewModel.ClipStartS, Mode=OneWay}"
+                                                          DerivedEvents="{x:Bind ViewModel.DerivedEvents, Mode=OneWay}"
+                                                          Duration="{x:Bind ViewModel.GameDurationS, Mode=OneWay}"
+                                                          Events="{x:Bind ViewModel.GameEvents, Mode=OneWay}"
+                                                          Position="{x:Bind ViewModel.CurrentTimeS, Mode=OneWay}"/>
+                                <TextBlock Text="No timeline events — LoL Review must be running during the game to capture kills, deaths, and objectives."
+                                           Visibility="{x:Bind ViewModel.ShowNoEventsHint, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="9"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Bottom"
+                                           Margin="0,0,0,4"
+                                           TextWrapping="Wrap"/>
+                            </Grid>
                         </Border>
 
                     </StackPanel>
@@ -473,6 +484,7 @@
                                                         <StackPanel Orientation="Horizontal" Spacing="4"
                                                                     Visibility="{x:Bind IsClip, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
                                                             <Button Tag="good" Click="OnBookmarkQualityClick"
+                                                                    DataContext="{x:Bind}"
                                                                     Background="Transparent" BorderThickness="0"
                                                                     Padding="0" MinWidth="0">
                                                                 <Border CornerRadius="2" Padding="8,4"
@@ -484,6 +496,7 @@
                                                                 </Border>
                                                             </Button>
                                                             <Button Tag="neutral" Click="OnBookmarkQualityClick"
+                                                                    DataContext="{x:Bind}"
                                                                     Background="Transparent" BorderThickness="0"
                                                                     Padding="0" MinWidth="0">
                                                                 <Border CornerRadius="2" Padding="8,4"
@@ -495,6 +508,7 @@
                                                                 </Border>
                                                             </Button>
                                                             <Button Tag="bad" Click="OnBookmarkQualityClick"
+                                                                    DataContext="{x:Bind}"
                                                                     Background="Transparent" BorderThickness="0"
                                                                     Padding="0" MinWidth="0">
                                                                 <Border CornerRadius="2" Padding="8,4"

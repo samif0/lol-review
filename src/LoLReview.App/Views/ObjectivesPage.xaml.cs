@@ -36,6 +36,9 @@ public sealed partial class ObjectivesPage : Page
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         AnimationHelper.AnimatePageEnter(RootGrid);
+        GenerateWithCoachButton.Visibility = CoachFeatureFlag.IsEnabled()
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         await ViewModel.LoadCommand.ExecuteAsync(null);
         await RulesVM.LoadCommand.ExecuteAsync(null);
     }
@@ -43,10 +46,25 @@ public sealed partial class ObjectivesPage : Page
     private async void OnGenerateObjectiveClick(object sender, RoutedEventArgs e)
     {
         var btn = sender as Button;
-        if (btn is not null) { btn.IsEnabled = false; btn.Content = "Thinking..."; }
+        if (btn is not null) { btn.IsEnabled = false; btn.Content = "Starting coach..."; }
 
         try
         {
+            // Lazy-start the sidecar if it isn't running yet.
+            var sidecar = App.GetService<CoachSidecarService>();
+            if (!sidecar.IsHealthy)
+            {
+                var started = await sidecar.EnsureSidecarRunningAsync();
+                if (!started)
+                {
+                    await ShowInfoDialog(
+                        "Coach not available",
+                        "Couldn't start the coach sidecar. Make sure the Python environment is set up under coach/.venv and the app has an API key in Settings → AI Coach.");
+                    return;
+                }
+            }
+
+            if (btn is not null) btn.Content = "Thinking...";
             var api = App.GetService<ICoachApiClient>();
             var result = await api.GenerateObjectiveAsync();
             if (result is null || result.Proposals.Count == 0)

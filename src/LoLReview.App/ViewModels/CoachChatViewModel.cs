@@ -104,14 +104,16 @@ public sealed partial class CoachChatViewModel : ObservableObject
 
                     case CoachAskStreamDelta delta:
                         assistantMsg.IsThinking = false;
-                        assistantMsg.Content += delta.Text;
+                        // Strip markdown emphasis the UI doesn't render —
+                        // literal '*word*' / '_word_' / '`word`' look broken.
+                        assistantMsg.Content += StripEmphasis(delta.Text);
                         StatusText = "";
                         break;
 
                     case CoachAskStreamDone done:
                         assistantMsg.Id = done.AssistantMessageId;
                         assistantMsg.IsThinking = false;
-                        assistantMsg.ProviderTag = $"[{done.Provider} / {done.Model} / {done.LatencyMs}ms]";
+                        assistantMsg.ProviderTag = FormatLatency(done.LatencyMs);
                         ProviderTag = assistantMsg.ProviderTag;
                         StatusText = HasScope ? $"Scoped: {ScopeChipText}" : "";
                         if (HasScope) PendingScope = null;
@@ -256,7 +258,7 @@ public sealed partial class CoachChatViewModel : ObservableObject
                     Role = m.Role,
                     Content = m.Content,
                     IsUser = m.Role == "user",
-                    ProviderTag = m.Provider is null ? "" : $"[{m.Provider} / {m.Model} / {m.LatencyMs}ms]",
+                    ProviderTag = m.LatencyMs is null ? "" : FormatLatency(m.LatencyMs.Value),
                 });
             }
             ActiveThreadId = threadId;
@@ -298,6 +300,42 @@ public sealed partial class CoachChatViewModel : ObservableObject
         if (scope.Since is not null) return "Since";
         if (scope.Until is not null) return "Until";
         return "Scoped";
+    }
+
+    private static string FormatLatency(int latencyMs)
+    {
+        if (latencyMs < 1000) return $"{latencyMs}ms";
+        var seconds = latencyMs / 1000.0;
+        return seconds < 10
+            ? $"{seconds:F1}s"
+            : $"{(int)Math.Round(seconds)}s";
+    }
+
+    /// <summary>
+    /// Strip markdown emphasis markers (*italic*, **bold**, _italic_, `code`)
+    /// that Gemma still sneaks into output even when told not to. UI renders
+    /// plain text so these would show as literal characters.
+    /// Preserves [game #ID] link markers.
+    /// </summary>
+    private static string StripEmphasis(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        // Remove any run of asterisks, underscores (between word chars), or
+        // backticks. We leave list-item dashes and [brackets] alone.
+        var sb = new System.Text.StringBuilder(text.Length);
+        foreach (var ch in text)
+        {
+            if (ch == '*' || ch == '`') continue;
+            sb.Append(ch);
+        }
+        // Underscores between word chars only (don't touch file paths, ids).
+        var cleaned = sb.ToString();
+        cleaned = System.Text.RegularExpressions.Regex.Replace(
+            cleaned, @"(?<=\w)_(?=\w)", "");
+        // Word-boundary underscores at start/end of markdown-style emphasis
+        cleaned = System.Text.RegularExpressions.Regex.Replace(
+            cleaned, @"(?<=\s|^)_|_(?=\s|$)", "");
+        return cleaned;
     }
 }
 

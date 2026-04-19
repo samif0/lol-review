@@ -14,442 +14,297 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
     </Page.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Spacing="12" Padding="24,20"
-                    MaxWidth="700" HorizontalAlignment="Stretch">
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-            <!-- ═══ Champion + Result Header ═══ -->
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+        <!-- ═══ Hero ═══ -->
+        <controls:HeroHeader Grid.Row="0"
+                             EyebrowText="POST GAME"
+                             Title="{x:Bind ReviewVM.HeaderText, Mode=OneWay}"
+                             Margin="40,16,40,8"/>
 
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="{x:Bind ReviewVM.ChampionName, Mode=OneWay}"
-                               FontSize="28" FontWeight="Bold"
-                               FontFamily="{StaticResource DisplayFont}"
-                               Foreground="{StaticResource AccentGoldBrush}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="{x:Bind ReviewVM.ResultText, Mode=OneWay}"
-                                   FontSize="16" FontWeight="Bold"/>
-                        <TextBlock FontSize="13"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   VerticalAlignment="Center">
-                            <Run Text="{x:Bind ReviewVM.DurationText, Mode=OneWay}"/>
-                            <Run Text="  "/>
-                            <Run Text="{x:Bind ReviewVM.GameModeText, Mode=OneWay}"/>
-                        </TextBlock>
-                    </StackPanel>
-                </StackPanel>
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="40,0,40,40">
+            <StackPanel Spacing="14" HorizontalAlignment="Stretch">
 
-                <StackPanel Grid.Column="1" HorizontalAlignment="Right">
-                    <TextBlock Text="{x:Bind ReviewVM.KdaText, Mode=OneWay}"
-                               FontSize="26" FontWeight="Bold"
-                               FontFamily="{StaticResource DisplayFont}"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               HorizontalAlignment="Right"/>
-                    <TextBlock Text="{x:Bind ReviewVM.KdaRatioText, Mode=OneWay}"
-                               FontSize="13"
-                               Foreground="{StaticResource SecondaryTextBrush}"
-                               HorizontalAlignment="Right"/>
-                </StackPanel>
-            </Grid>
+                <!-- ═══ Champion Hero Card ═══ -->
+                <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-            <!-- Separator -->
-            <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
-
-            <!-- ═══ VOD Section ═══ -->
-            <Border Visibility="{x:Bind ReviewVM.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                    Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="2"
-                    Padding="14,12"
-                    BorderThickness="1"
-                    BorderBrush="{StaticResource AccentGoldBrush}">
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <Button Command="{x:Bind ReviewVM.WatchVodCommand}"
-                            FontSize="13" FontWeight="SemiBold"
-                            Height="36" Padding="16,0"
-                            Background="{StaticResource AccentGoldDimBrush}"
-                            Foreground="{StaticResource AccentGoldBrush}"
-                            BorderBrush="{StaticResource AccentGoldBrush}"
-                            BorderThickness="1">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE714;" FontSize="14"/>
-                            <TextBlock Text="Review VOD" VerticalAlignment="Center"/>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{x:Bind ReviewVM.ChampionName, Mode=OneWay}"
+                                       FontFamily="{StaticResource DisplayFont}"
+                                       FontSize="26" FontWeight="Bold"
+                                       Foreground="{StaticResource AccentGoldBrush}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="{x:Bind ReviewVM.ResultText, Mode=OneWay}"
+                                           FontFamily="{StaticResource HeadingFont}"
+                                           FontSize="15" FontWeight="Bold"/>
+                                <TextBlock FontFamily="{StaticResource MonoFont}"
+                                           FontSize="11"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           VerticalAlignment="Center">
+                                    <Run Text="{x:Bind ReviewVM.DurationText, Mode=OneWay}"/>
+                                    <Run Text="  "/>
+                                    <Run Text="{x:Bind ReviewVM.GameModeText, Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                            <!-- VOD button -->
+                            <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,6,0,0"
+                                        Visibility="{x:Bind ReviewVM.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Button Command="{x:Bind ReviewVM.WatchVodCommand}"
+                                        Style="{StaticResource GoldActionButtonStyle}"
+                                        Height="34" Padding="14,0" FontSize="12">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE714;" FontSize="13"
+                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                        <TextBlock Text="Review VOD"/>
+                                    </StackPanel>
+                                </Button>
+                                <TextBlock FontFamily="{StaticResource MonoFont}"
+                                           FontSize="11"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           VerticalAlignment="Center">
+                                    <Run Text="{x:Bind ReviewVM.BookmarkCount, Mode=OneWay}"/>
+                                    <Run Text=" bookmarks"/>
+                                </TextBlock>
+                            </StackPanel>
                         </StackPanel>
-                    </Button>
-                    <TextBlock FontSize="12"
-                               Foreground="{StaticResource SecondaryTextBrush}"
-                               VerticalAlignment="Center">
-                        <Run Text="{x:Bind ReviewVM.BookmarkCount, Mode=OneWay}"/>
-                        <Run Text=" bookmarks"/>
-                    </TextBlock>
-                </StackPanel>
-            </Border>
 
-            <Border Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="2"
-                    Padding="14,12"
-                    BorderThickness="1"
-                    BorderBrush="{StaticResource SubtleBorderBrush}">
-                <StackPanel Spacing="6">
-                    <TextBlock Text="SAVE MODE"
-                               FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
-                    <TextBlock Text="{x:Bind ReviewVM.SaveBehaviorText, Mode=OneWay}"
-                               FontSize="12"
-                               Foreground="{StaticResource SecondaryTextBrush}"
-                               TextWrapping="Wrap"/>
-                    <TextBlock Text="{x:Bind ReviewVM.ValidationMessage, Mode=OneWay}"
-                               FontSize="12"
-                               Foreground="{StaticResource LossRedBrush}"
-                               TextWrapping="Wrap"
-                               Visibility="{x:Bind ReviewVM.HasValidationMessage, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
-                </StackPanel>
-            </Border>
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Right"
+                                    VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="{x:Bind ReviewVM.KdaText, Mode=OneWay}"
+                                       FontFamily="{StaticResource DisplayFont}"
+                                       FontSize="24" FontWeight="Bold"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       HorizontalAlignment="Right"/>
+                            <TextBlock Text="{x:Bind ReviewVM.KdaRatioText, Mode=OneWay}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="11"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       HorizontalAlignment="Right"/>
+                        </StackPanel>
+                    </Grid>
+                </controls:CornerBracketedCard>
 
-            <Border Visibility="{x:Bind ReviewVM.HasPriorityObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                    Background="{StaticResource CardBackgroundBrush}"
-                    BorderBrush="{StaticResource AccentGoldBrush}"
-                    BorderThickness="2"
-                    CornerRadius="2"
-                    Padding="14,12">
-                <StackPanel Spacing="4">
-                    <TextBlock Text="PRIORITY OBJECTIVE"
-                               FontSize="11"
-                               FontWeight="Bold"
-                               Foreground="{StaticResource AccentGoldBrush}"/>
-                    <TextBlock Text="{x:Bind ReviewVM.PriorityObjectiveTitle, Mode=OneWay}"
-                               FontSize="14"
-                               FontWeight="Bold"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               TextWrapping="Wrap"/>
-                    <TextBlock Text="{x:Bind ReviewVM.PriorityObjectiveCriteria, Mode=OneWay}"
-                               FontSize="12"
-                               Foreground="{StaticResource SecondaryTextBrush}"
-                               TextWrapping="Wrap"/>
-                </StackPanel>
-            </Border>
-
-            <!-- ═══ Stats Grid ═══ -->
-            <TextBlock Text="GAME STATS"
-                       FontSize="11" FontWeight="Bold"
-                       Foreground="{StaticResource SecondaryTextBrush}"/>
-
-            <Grid ColumnSpacing="8" RowSpacing="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <controls:StatCard Grid.Row="0" Grid.Column="0"
-                                   Label="DAMAGE" Value="{x:Bind ReviewVM.DamageText, Mode=OneWay}"/>
-                <controls:StatCard Grid.Row="0" Grid.Column="1"
-                                   Label="CS" Value="{x:Bind ReviewVM.CsText, Mode=OneWay}"/>
-                <controls:StatCard Grid.Row="0" Grid.Column="2"
-                                   Label="CS/MIN" Value="{x:Bind ReviewVM.CsPerMinText, Mode=OneWay}"/>
-                <controls:StatCard Grid.Row="0" Grid.Column="3"
-                                   Label="VISION" Value="{x:Bind ReviewVM.VisionText, Mode=OneWay}"/>
-
-                <controls:StatCard Grid.Row="1" Grid.Column="0"
-                                   Label="GOLD" Value="{x:Bind ReviewVM.GoldText, Mode=OneWay}"/>
-                <controls:StatCard Grid.Row="1" Grid.Column="1"
-                                   Label="KILL PART." Value="{x:Bind ReviewVM.KillParticipationText, Mode=OneWay}"/>
-                <controls:StatCard Grid.Row="1" Grid.Column="2"
-                                   Label="DMG TAKEN" Value="{x:Bind ReviewVM.DamageTakenText, Mode=OneWay}"/>
-                <controls:StatCard Grid.Row="1" Grid.Column="3"
-                                   Label="WARDS" Value="{x:Bind ReviewVM.WardsPlacedText, Mode=OneWay}"/>
-            </Grid>
-
-            <!-- Separator -->
-            <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
-
-            <!-- ═══ Mental Rating ═══ -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="MENTAL RATING"
-                           FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource SecondaryTextBrush}"/>
-
-                <Grid>
+                <!-- ═══ Game Stats ═══ -->
+                <controls:SectionTitle Text="GAME STATS"/>
+                <Grid ColumnSpacing="8" RowSpacing="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-
-                    <Slider Grid.Column="0"
-                            Value="{x:Bind ReviewVM.MentalRating, Mode=TwoWay}"
-                            Minimum="1" Maximum="10"
-                            StepFrequency="1" TickFrequency="1"
-                            TickPlacement="Outside"
-                            VerticalAlignment="Center"/>
-
-                    <TextBlock Grid.Column="1"
-                               Text="{x:Bind ReviewVM.MentalRating, Mode=OneWay}"
-                               FontSize="36" FontWeight="Bold"
-                               FontFamily="{StaticResource DisplayFont}"
-                               Margin="16,0,0,0"
-                               VerticalAlignment="Center"
-                               MinWidth="50" TextAlignment="Center"/>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <controls:StatCard Grid.Row="0" Grid.Column="0" Label="DAMAGE" Value="{x:Bind ReviewVM.DamageText, Mode=OneWay}"/>
+                    <controls:StatCard Grid.Row="0" Grid.Column="1" Label="CS" Value="{x:Bind ReviewVM.CsText, Mode=OneWay}"/>
+                    <controls:StatCard Grid.Row="0" Grid.Column="2" Label="CS/MIN" Value="{x:Bind ReviewVM.CsPerMinText, Mode=OneWay}"/>
+                    <controls:StatCard Grid.Row="0" Grid.Column="3" Label="VISION" Value="{x:Bind ReviewVM.VisionText, Mode=OneWay}"/>
+                    <controls:StatCard Grid.Row="1" Grid.Column="0" Label="GOLD" Value="{x:Bind ReviewVM.GoldText, Mode=OneWay}"/>
+                    <controls:StatCard Grid.Row="1" Grid.Column="1" Label="KILL PART." Value="{x:Bind ReviewVM.KillParticipationText, Mode=OneWay}"/>
+                    <controls:StatCard Grid.Row="1" Grid.Column="2" Label="DMG TAKEN" Value="{x:Bind ReviewVM.DamageTakenText, Mode=OneWay}"/>
+                    <controls:StatCard Grid.Row="1" Grid.Column="3" Label="WARDS" Value="{x:Bind ReviewVM.WardsPlacedText, Mode=OneWay}"/>
                 </Grid>
-            </StackPanel>
 
-            <!-- ═══ Mental Reflection ═══ -->
-            <Border Visibility="{x:Bind ReviewVM.ShowMentalReflection, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                    Background="{StaticResource CardBackgroundBrush}"
-                    BorderBrush="{StaticResource AccentPurpleBrush}"
-                    BorderThickness="2" CornerRadius="2" Padding="16">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="MENTAL REFLECTION"
-                               FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource AccentPurpleBrush}"/>
+                <!-- ═══ Priority Objective ═══ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentGoldBrush}"
+                    Visibility="{x:Bind ReviewVM.HasPriorityObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Spacing="4">
+                        <controls:SectionTitle Text="PRIORITY OBJECTIVE"/>
+                        <TextBlock Text="{x:Bind ReviewVM.PriorityObjectiveTitle, Mode=OneWay}"
+                                   FontFamily="{StaticResource HeadingFont}"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{StaticResource PrimaryTextBrush}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{x:Bind ReviewVM.PriorityObjectiveCriteria, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="10" Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
 
-                    <TextBlock Text="What triggered the tilt?"
-                               FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
-                    <TextBox Text="{x:Bind ReviewVM.MentalHandled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="What happened and how did you handle it?"
-                             TextWrapping="Wrap" AcceptsReturn="True"
-                             MinHeight="60" FontSize="13"
-                             Background="{StaticResource InputBackgroundBrush}"
-                             BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
-                </StackPanel>
-            </Border>
+                <!-- ═══ Mental Rating ═══ -->
+                <controls:CornerBracketedCard>
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="MENTAL RATING"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Value="{x:Bind ReviewVM.MentalRating, Mode=TwoWay}"
+                                    Minimum="1" Maximum="10" StepFrequency="1"
+                                    TickFrequency="1" TickPlacement="Outside"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind ReviewVM.MentalRating, Mode=OneWay}"
+                                       FontFamily="{StaticResource DisplayFont}"
+                                       FontSize="32" FontWeight="Bold"
+                                       Margin="16,0,0,0" VerticalAlignment="Center"
+                                       MinWidth="44" TextAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
 
-            <!-- ═══ Performance Review ═══ -->
-            <StackPanel Spacing="10">
-                <TextBlock Text="PERFORMANCE REVIEW"
-                           FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                <!-- ═══ Mental Reflection (low mental) ═══ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentPurpleBrush}"
+                    Visibility="{x:Bind ReviewVM.ShowMentalReflection, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Spacing="8">
+                        <controls:SectionTitle Text="MENTAL REFLECTION"/>
+                        <TextBox Text="{x:Bind ReviewVM.MentalHandled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="What triggered the tilt? How did you handle it?"
+                                 TextWrapping="Wrap" AcceptsReturn="True"
+                                 MinHeight="60" FontSize="12"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
 
-                <TextBlock Text="What went well?" FontSize="13"
-                           Foreground="{StaticResource PrimaryTextBrush}"/>
-                <TextBox Text="{x:Bind ReviewVM.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         PlaceholderText="Good plays, decisions, mechanics..."
-                         TextWrapping="Wrap" AcceptsReturn="True"
-                         MinHeight="70" FontSize="13"
-                         Background="{StaticResource InputBackgroundBrush}"
-                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                <!-- ═══ Performance Review ═══ -->
+                <controls:CornerBracketedCard>
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
+                        <TextBlock Text="What went well?" FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
+                        <TextBox Text="{x:Bind ReviewVM.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="Good plays, decisions, mechanics..."
+                                 TextWrapping="Wrap" AcceptsReturn="True" MinHeight="60" FontSize="12"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                        <TextBlock Text="What could improve?" FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
+                        <TextBox Text="{x:Bind ReviewVM.Mistakes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="Deaths, missed plays, bad decisions..."
+                                 TextWrapping="Wrap" AcceptsReturn="True" MinHeight="60" FontSize="12"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                        <TextBlock Text="Focus for next game" FontSize="13" Foreground="{StaticResource PrimaryTextBrush}"/>
+                        <TextBox Text="{x:Bind ReviewVM.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="What will you focus on?" FontSize="12" Height="36"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
 
-                <TextBlock Text="What could improve?" FontSize="13"
-                           Foreground="{StaticResource PrimaryTextBrush}"/>
-                <TextBox Text="{x:Bind ReviewVM.Mistakes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         PlaceholderText="Deaths, missed plays, bad decisions..."
-                         TextWrapping="Wrap" AcceptsReturn="True"
-                         MinHeight="70" FontSize="13"
-                         Background="{StaticResource InputBackgroundBrush}"
-                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
-
-                <TextBlock Text="Focus for next game" FontSize="13"
-                           Foreground="{StaticResource PrimaryTextBrush}"/>
-                <TextBox Text="{x:Bind ReviewVM.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         PlaceholderText="What will you focus on improving?"
-                         FontSize="13" Height="36"
-                         Background="{StaticResource InputBackgroundBrush}"
-                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
-            </StackPanel>
-
-            <!-- ═══ Quick Note ═══ -->
-            <Border Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="2"
-                    Padding="14,12"
-                    BorderThickness="1"
-                    BorderBrush="{StaticResource SubtleBorderBrush}">
-                <StackPanel Spacing="10">
-                    <TextBlock Text="REVIEW NOTES"
-                               FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
-
-                    <TextBlock Text="Additional review notes"
-                               FontSize="13"
-                               Foreground="{StaticResource PrimaryTextBrush}"/>
-                    <TextBox Text="{x:Bind ReviewVM.ReviewNotes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="Anything else you want to remember from this game..."
-                             TextWrapping="Wrap" AcceptsReturn="True"
-                             MinHeight="70" FontSize="13"
-                             Background="{StaticResource InputBackgroundBrush}"
-                             BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
-
-                    <TextBlock Text="Spotted problems"
-                               FontSize="13"
-                               Foreground="{StaticResource PrimaryTextBrush}"/>
-                    <TextBox Text="{x:Bind ReviewVM.SpottedProblems, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="Patterns or repeated issues worth turning into future objectives..."
-                             TextWrapping="Wrap" AcceptsReturn="True"
-                             MinHeight="70" FontSize="13"
-                             Background="{StaticResource InputBackgroundBrush}"
-                             BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
-                </StackPanel>
-            </Border>
-
-            <Border Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="2"
-                    Padding="14,12"
-                    BorderThickness="1"
-                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                <!-- ═══ Objective Practice ═══ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentBlueBrush}"
                     Visibility="{x:Bind ReviewVM.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                <StackPanel Spacing="10">
-                    <TextBlock Text="OBJECTIVE PRACTICE"
-                               FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
-                    <TextBlock Text="Mark whether you actually practiced your active objectives in this game."
-                               FontSize="12"
-                               Foreground="{StaticResource SecondaryTextBrush}"
-                               TextWrapping="Wrap"/>
-
-                    <ItemsRepeater ItemsSource="{x:Bind ReviewVM.ObjectiveAssessments, Mode=OneWay}">
-                        <ItemsRepeater.Layout>
-                            <StackLayout Spacing="8"/>
-                        </ItemsRepeater.Layout>
-                        <ItemsRepeater.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ObjectiveAssessment">
-                                <Border Background="{StaticResource InputBackgroundBrush}"
-                                        CornerRadius="2"
-                                        BorderThickness="1"
-                                        BorderBrush="{StaticResource SubtleBorderBrush}"
-                                        Padding="12">
-                                    <StackPanel Spacing="8">
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <Border Background="{StaticResource AccentGoldBrush}"
-                                                    CornerRadius="2"
-                                                    Padding="6,2"
-                                                    Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}}">
-                                                <TextBlock Text="PRIORITY"
-                                                           FontSize="9"
-                                                           FontWeight="Bold"
-                                                           Foreground="Black"/>
-                                            </Border>
-                                            <CheckBox IsChecked="{x:Bind Practiced, Mode=TwoWay}"
-                                                      Content="{x:Bind Title}"
-                                                      FontSize="13"
-                                                      Foreground="{StaticResource PrimaryTextBrush}"/>
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="OBJECTIVE PRACTICE"/>
+                        <ItemsRepeater ItemsSource="{x:Bind ReviewVM.ObjectiveAssessments, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="8"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ObjectiveAssessment">
+                                    <Border Background="{StaticResource SurfaceInsetBrush}"
+                                            BorderBrush="{StaticResource SubtleBorderBrush}"
+                                            BorderThickness="1" Padding="12">
+                                        <StackPanel Spacing="6">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Text="{x:Bind Title}"
+                                                           FontFamily="{StaticResource HeadingFont}"
+                                                           FontSize="14" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                                                <ToggleButton Grid.Column="1"
+                                                              IsChecked="{x:Bind Practiced, Mode=TwoWay}"
+                                                              Style="{StaticResource HudPracticedToggleStyle}"/>
+                                            </Grid>
+                                            <TextBox Text="{x:Bind ExecutionNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     PlaceholderText="How did this objective go?"
+                                                     TextWrapping="Wrap" AcceptsReturn="True" MinHeight="40" FontSize="12"
+                                                     Background="{StaticResource InputBackgroundBrush}"
+                                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                     Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
                                         </StackPanel>
-                                        <TextBlock Text="{x:Bind Criteria}"
-                                                   FontSize="12"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
-                                        <TextBox Text="{x:Bind ExecutionNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                 PlaceholderText="How did this objective go in the game?"
-                                                 TextWrapping="Wrap" AcceptsReturn="True"
-                                                 MinHeight="52" FontSize="12"
-                                                 Background="{StaticResource CardBackgroundBrush}"
-                                                 BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                 Foreground="{StaticResource PrimaryTextBrush}"
-                                                 CornerRadius="2"/>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsRepeater.ItemTemplate>
-                    </ItemsRepeater>
-                </StackPanel>
-            </Border>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
 
-            <Border Background="{StaticResource CardBackgroundBrush}"
-                    CornerRadius="2"
-                    Padding="14,12"
-                    BorderThickness="1"
-                    BorderBrush="{StaticResource SubtleBorderBrush}">
-                <StackPanel Spacing="10">
-                    <TextBlock Text="MATCHUP NOTES"
-                               FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
-                    <TextBlock Text="{x:Bind ReviewVM.MatchupHeading, Mode=OneWay}"
-                               FontSize="14"
-                               FontWeight="Bold"
-                               Foreground="{StaticResource AccentBlueBrush}"/>
+                <!-- ═══ Matchup + Notes ═══ -->
+                <controls:CornerBracketedCard>
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="MATCHUP NOTES"/>
+                        <TextBlock Text="{x:Bind ReviewVM.MatchupHeading, Mode=OneWay}"
+                                   FontFamily="{StaticResource HeadingFont}"
+                                   FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBlueBrush}"/>
+                        <TextBox Text="{x:Bind ReviewVM.EnemyLaner, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="Enemy laner" FontSize="12" Height="36"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                        <TextBox Text="{x:Bind ReviewVM.MatchupNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="Matchup reminders..."
+                                 TextWrapping="Wrap" AcceptsReturn="True" MinHeight="60" FontSize="12"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
 
-                    <TextBlock Text="Enemy champion"
-                               FontSize="13"
-                               Foreground="{StaticResource PrimaryTextBrush}"/>
-                    <TextBox Text="{x:Bind ReviewVM.EnemyLaner, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="Enemy laner or main matchup champion"
-                             FontSize="13"
-                             Background="{StaticResource InputBackgroundBrush}"
-                             BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}"
-                             CornerRadius="2"
-                             Height="36"/>
+                <!-- ═══ Notes + Session Note ═══ -->
+                <controls:CornerBracketedCard>
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="REVIEW NOTES"/>
+                        <TextBox Text="{x:Bind ReviewVM.ReviewNotes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="Anything else from this game..."
+                                 TextWrapping="Wrap" AcceptsReturn="True" MinHeight="60" FontSize="12"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                        <TextBox Text="{x:Bind ReviewVM.SpottedProblems, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="Spotted problems..."
+                                 TextWrapping="Wrap" AcceptsReturn="True" MinHeight="60" FontSize="12"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                        <controls:SectionTitle Text="SESSION NOTE"/>
+                        <TextBox Text="{x:Bind ReviewVM.ImprovementNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="Quick note for session log..."
+                                 FontSize="12" Height="36"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
 
-                    <TextBlock Text="What should you remember for this matchup?"
-                               FontSize="13"
-                               Foreground="{StaticResource PrimaryTextBrush}"/>
-                    <TextBox Text="{x:Bind ReviewVM.MatchupNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="Lane-specific or matchup-specific reminders..."
-                             TextWrapping="Wrap" AcceptsReturn="True"
-                             MinHeight="70" FontSize="13"
-                             Background="{StaticResource InputBackgroundBrush}"
-                             BorderBrush="{StaticResource SubtleBorderBrush}"
-                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                <!-- ═══ Action Buttons ═══ -->
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Content="Skip" Click="OnSkipClick"
+                            Style="{StaticResource SecondaryActionButtonStyle}"
+                            FontSize="14" Height="44" HorizontalAlignment="Stretch"/>
+                    <Button Grid.Column="1" Content="Save Review" Click="OnSaveClick"
+                            Style="{StaticResource PrimaryActionButtonStyle}"
+                            FontSize="14" FontWeight="Bold" Height="44"
+                            HorizontalAlignment="Stretch"/>
+                </Grid>
 
-                    <ItemsRepeater ItemsSource="{x:Bind ReviewVM.MatchupHistory, Mode=OneWay}"
-                                   Visibility="{x:Bind ReviewVM.HasMatchupHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                        <ItemsRepeater.Layout>
-                            <StackLayout Spacing="6"/>
-                        </ItemsRepeater.Layout>
-                        <ItemsRepeater.ItemTemplate>
-                            <DataTemplate x:DataType="vm:MatchupHistoryItem">
-                                <Border Background="{StaticResource InputBackgroundBrush}"
-                                        CornerRadius="2"
-                                        BorderThickness="1"
-                                        BorderBrush="{StaticResource SubtleBorderBrush}"
-                                        Padding="12">
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="{x:Bind MetaText}"
-                                                   FontSize="11"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
-                                        <TextBlock Text="{x:Bind Note}"
-                                                   FontSize="12"
-                                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsRepeater.ItemTemplate>
-                    </ItemsRepeater>
-                </StackPanel>
-            </Border>
-
-            <StackPanel Spacing="6">
-                <TextBlock Text="SESSION NOTE"
-                           FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                <TextBox Text="{x:Bind ReviewVM.ImprovementNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         PlaceholderText="Quick note for your session log..."
-                         FontSize="13" Height="36"
-                         Background="{StaticResource InputBackgroundBrush}"
-                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                         Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                <Border Height="20"/>
             </StackPanel>
-
-            <!-- ═══ Save / Skip Buttons ═══ -->
-            <StackPanel Orientation="Horizontal" Spacing="10"
-                        HorizontalAlignment="Center" Margin="0,8,0,16">
-                <Button Content="Save Review" Click="OnSaveClick"
-                        FontSize="14" Height="36" Padding="24,0"
-                        CornerRadius="2"
-                        Background="{StaticResource AccentBlueBrush}"
-                        Foreground="{StaticResource ActionPrimaryForegroundBrush}" IsTabStop="False"/>
-                <Button Content="Skip" Click="OnSkipClick"
-                        FontSize="14" Height="36" Padding="24,0"
-                        CornerRadius="2"
-                        Background="{StaticResource TagBackgroundBrush}"
-                        Foreground="{StaticResource SecondaryTextBrush}"
-                        BorderBrush="{StaticResource SubtleBorderBrush}"
-                        BorderThickness="1" IsTabStop="False"/>
-            </StackPanel>
-
-        </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+    </Grid>
 </Page>

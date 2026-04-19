@@ -220,6 +220,7 @@ public partial class DashboardViewModel : ObservableObject
                         GameCount = obj.GameCount,
                         Progress = info.Progress,
                         LevelColorHex = GetLevelColor(info.LevelIndex),
+                        LevelDimColorHex = AppSemanticPalette.ObjectiveLevelDimHex(info.LevelIndex),
                         InfoText = $"{info.LevelName}  \u2022  {obj.Score} pts  \u2022  {obj.GameCount} games"
                     });
                 }
@@ -400,6 +401,7 @@ public class DashboardObjectiveItem
     public int GameCount { get; set; }
     public double Progress { get; set; }
     public string LevelColorHex { get; set; } = "#8A80A8";
+    public string LevelDimColorHex { get; set; } = "#10121A";
     public string InfoText { get; set; } = "";
 
     /// <summary>Short percentage label for the center of HudProgressRing.</summary>
@@ -409,20 +411,9 @@ public class DashboardObjectiveItem
     public string MetaText => string.IsNullOrWhiteSpace(LevelName)
         ? PhaseLabel.ToUpperInvariant()
         : $"{LevelName.ToUpperInvariant()}  //  {PhaseLabel.ToUpperInvariant()}  //  {Score} PTS";
-    public Microsoft.UI.Xaml.Media.SolidColorBrush LevelColorBrush
-    {
-        get
-        {
-            var hex = LevelColorHex.TrimStart('#');
-            if (hex.Length != 6)
-            {
-                return new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 138, 128, 168)); // #8A80A8 neutral
-            }
+    public Microsoft.UI.Xaml.Media.SolidColorBrush LevelColorBrush =>
+        AppSemanticPalette.Brush(LevelColorHex);
 
-            var r = Convert.ToByte(hex[..2], 16);
-            var g = Convert.ToByte(hex[2..4], 16);
-            var b = Convert.ToByte(hex[4..6], 16);
-            return new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, r, g, b));
-        }
-    }
+    public Microsoft.UI.Xaml.Media.SolidColorBrush LevelDimColorBrush =>
+        AppSemanticPalette.Brush(LevelDimColorHex);
 }

@@ -6,26 +6,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Padding="0,0,0,4">
-        <!-- Subtle gradient wash backdrop — soft radial fade, no hard edges -->
-        <Border x:Name="WashRect"
-                HorizontalAlignment="Stretch"
-                Height="180"
-                VerticalAlignment="Top"
-                IsHitTestVisible="False">
-            <Border.Background>
-                <RadialGradientBrush Center="0.3,0.3"
-                                      RadiusX="0.8"
-                                      RadiusY="1.2"
-                                      MappingMode="RelativeToBoundingBox">
-                    <GradientStop Color="#0AA78BFA" Offset="0"/>
-                    <GradientStop Color="#05A78BFA" Offset="0.5"/>
-                    <GradientStop Color="#00000000" Offset="1"/>
-                </RadialGradientBrush>
-            </Border.Background>
-        </Border>
-
-        <StackPanel Spacing="6" Margin="0,0,0,2">
+    <Grid Padding="0">
+        <StackPanel Spacing="4" Margin="0,0,0,0">
             <!-- Eyebrow row: leading dash + label + blinking cursor -->
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <Rectangle Width="20"

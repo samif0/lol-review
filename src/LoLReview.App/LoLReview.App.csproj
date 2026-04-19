@@ -17,7 +17,7 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <ApplicationIcon>Assets\lolreview.ico</ApplicationIcon>
-    <Version>2.6.0</Version>
+    <Version>2.8.0</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(AppxMSBuildToolsPath)' == ''">

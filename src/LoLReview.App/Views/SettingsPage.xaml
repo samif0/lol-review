@@ -277,7 +277,46 @@
                 <!-- ═══ AI Coach Section ═══ -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
-                        <controls:SectionTitle Text="AI COACH (EXPERIMENTAL)"/>
+                        <Grid>
+                            <controls:SectionTitle Text="AI COACH"/>
+                            <Border Background="{StaticResource AccentPurpleBrush}"
+                                    CornerRadius="3"
+                                    Padding="5,1"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Margin="80,2,0,0">
+                                <TextBlock Text="ALPHA"
+                                           FontSize="9"
+                                           FontWeight="Bold"
+                                           Foreground="#07060B"/>
+                            </Border>
+                        </Grid>
+
+                        <!-- Master enable toggle -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="Enable Coach (alpha)"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                                <TextBlock Text="Still experimental. Answers may be wrong. You can turn this on or off at any time; it only affects your UI."
+                                           FontSize="11"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ToggleSwitch x:Name="CoachEnableToggle"
+                                          Grid.Column="1"
+                                          VerticalAlignment="Center"
+                                          Toggled="OnCoachEnableToggled"/>
+                        </Grid>
+
+                        <Border x:Name="CoachSettingsBody"
+                                Visibility="Collapsed">
+                            <StackPanel Spacing="10">
 
                         <TextBlock Text="{x:Bind CoachViewModel.ProviderHint, Mode=OneWay}"
                                    FontSize="12"
@@ -432,7 +471,7 @@
 
                             <TextBox Grid.Column="1"
                                      Text="{x:Bind CoachViewModel.GoogleAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="gemma-4-26b-a4b-it"
+                                     PlaceholderText="gemini-2.5-flash"
                                      FontSize="12"
                                      Background="{StaticResource InputBackgroundBrush}"
                                      BorderBrush="{StaticResource SubtleBorderBrush}"
@@ -615,10 +654,10 @@
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,0">
-                            <Run Text="Once the test prompt works, open any game in the Review page. A"/>
-                            <Run Text="&quot;Draft with coach&quot;" FontWeight="SemiBold"/>
-                            <Run Text="button appears in the Performance Review section."/>
+                            <Run Text="Once the test prompt works, open the Coach tab in the sidebar to chat with your data."/>
                         </TextBlock>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 

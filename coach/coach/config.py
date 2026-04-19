@@ -32,13 +32,19 @@ class OllamaConfig(BaseModel):
 
 
 class GoogleAIConfig(BaseModel):
-    # Gemma 4 26B A4B (MoE, 3.8B active params) on Google AI Studio.
-    # Pros: free of charge, small active param count, Apache 2.0, latest
-    # Google open model. Cons: does not support thinkingConfig, so we
-    # can't cap its reasoning budget or tag 'thought' parts server-side.
-    # We compensate via prompt discipline (see prompts/ask.md) that tells
-    # the model to output only the final answer, not its reasoning.
-    model: str = "gemma-4-26b-a4b-it"
+    # Gemini 2.5 Flash on Google AI Studio.
+    # Chosen as default after 2026-04-18 user test:
+    #   - Gemma 4 was doing 40-60s uncapped internal reasoning per ask
+    #     with no way to bound it (no thinkingConfig support, no penalty
+    #     support). Resulting in 40s+ latency per chat turn, which is
+    #     unusable as a chat UX.
+    #   - Gemini 2.5 Flash accepts thinkingConfig.thinkingBudget=2048,
+    #     keeps reasoning invisible, and returns in 1-3 seconds for
+    #     the same kind of grounded coaching question.
+    # Free of charge on Google AI for text I/O; same API key works.
+    # Power users can swap to `gemma-4-26b-a4b-it` in Settings if they
+    # want pure-Gemma output and don't mind the latency.
+    model: str = "gemini-2.5-flash"
     api_key: str | None = None  # injected by C# at runtime
 
 

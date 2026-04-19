@@ -7,7 +7,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid x:Name="LayoutRoot" Padding="24,10">
+    <Grid x:Name="LayoutRoot" Padding="4,4">
         <Grid x:Name="HoverSurface"
               PointerEntered="OnPointerEntered"
               PointerMoved="OnPointerMoved"

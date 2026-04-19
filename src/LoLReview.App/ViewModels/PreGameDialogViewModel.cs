@@ -118,13 +118,20 @@ public partial class PreGameDialogViewModel : ObservableObject
     };
 
     public ObservableCollection<FocusObjectiveItem> ObjectiveFocusOptions { get; } = new();
+    public ObservableCollection<ObjectiveAssessment> PreGameObjectives { get; } = new();
     public ObservableCollection<PreGameMatchupItem> MatchupHistory { get; } = new();
 
     [ObservableProperty]
     private bool _hasMatchupHistory;
 
     [ObservableProperty]
+    private bool _hasPreGameObjectives;
+
+    [ObservableProperty]
     private string _matchupHeaderText = "";
+
+    /// <summary>Snapshot of practiced objective IDs from the last pre-game session, read by ShellViewModel on game end.</summary>
+    internal static IReadOnlyList<long> LastPracticedObjectiveIds { get; set; } = [];
 
     // ── Constructor ─────────────────────────────────────────────────
 
@@ -214,6 +221,28 @@ public partial class PreGameDialogViewModel : ObservableObject
                 ActiveObjectiveCriteria = "";
             }
 
+            // Populate pre-game objectives with practiced toggles
+            PreGameObjectives.Clear();
+            foreach (var objective in relevantObjectives)
+            {
+                var assessment = new ObjectiveAssessment
+                {
+                    ObjectiveId = objective.Id,
+                    Title = objective.Title,
+                    Criteria = objective.CompletionCriteria,
+                    Phase = objective.Phase,
+                    IsPriority = objective.Id == priorityObjectiveId
+                };
+                assessment.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(ObjectiveAssessment.Practiced))
+                        SnapshotPracticedIds();
+                };
+                PreGameObjectives.Add(assessment);
+            }
+            HasPreGameObjectives = PreGameObjectives.Count > 0;
+            LastPracticedObjectiveIds = [];
+
             // Check if first game of the day
             var today = DateTime.Now.ToString("yyyy-MM-dd");
             var todayEntries = await _sessionLogRepo.GetForDateAsync(today);
@@ -292,5 +321,13 @@ public partial class PreGameDialogViewModel : ObservableObject
     private void SetQuickIntention(string text)
     {
         SessionIntention = text;
+    }
+
+    private void SnapshotPracticedIds()
+    {
+        LastPracticedObjectiveIds = PreGameObjectives
+            .Where(static o => o.Practiced)
+            .Select(static o => o.ObjectiveId)
+            .ToList();
     }
 }

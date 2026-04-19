@@ -635,4 +635,173 @@
         <Setter Property="Background" Value="{StaticResource LossRedDimBrush}"/>
     </Style>
 
+    <!-- ═══ HUD Practiced Toggle ═══ -->
+    <Style x:Key="HudPracticedToggleStyle" TargetType="ToggleButton">
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="MinWidth" Value="110"/>
+        <Setter Property="Padding" Value="12,0"/>
+        <Setter Property="CornerRadius" Value="2"/>
+        <Setter Property="FontFamily" Value="{StaticResource HeadingFont}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="HorizontalAlignment" Value="Right"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Grid Background="Transparent">
+                        <!-- Glow layer (checked only) -->
+                        <Border x:Name="GlowBorder"
+                                Margin="-3"
+                                CornerRadius="4"
+                                Opacity="0"
+                                IsHitTestVisible="False">
+                            <Border.Background>
+                                <SolidColorBrush Color="#20C9956A"/>
+                            </Border.Background>
+                        </Border>
+
+                        <!-- Main chrome -->
+                        <Border x:Name="Chrome"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <Border.Background>
+                                <SolidColorBrush x:Name="ChromeBg" Color="Transparent"/>
+                            </Border.Background>
+                            <Border.BorderBrush>
+                                <SolidColorBrush x:Name="ChromeBorder" Color="#24203A"/>
+                            </Border.BorderBrush>
+
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="6"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                <!-- Checkmark glyph -->
+                                <FontIcon x:Name="CheckGlyph"
+                                          Glyph="&#xE73E;"
+                                          FontSize="12"
+                                          Foreground="{StaticResource AccentGoldBrush}"
+                                          Visibility="Collapsed"/>
+                                <!-- Diamond glyph (unchecked) -->
+                                <FontIcon x:Name="DiamondGlyph"
+                                          Glyph="&#xE7C1;"
+                                          FontSize="8"
+                                          Foreground="{StaticResource MutedTextBrush}"/>
+                                <TextBlock x:Name="Label"
+                                           Text="PRACTICED"
+                                           FontFamily="{StaticResource HeadingFont}"
+                                           FontWeight="SemiBold"
+                                           FontSize="11"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal"/>
+                                <VisualState x:Name="PointerOver">
+                                    <Storyboard>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBorder"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#60C9956A"
+                                                        Duration="0:0:0.12"/>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBg"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#0AC9956A"
+                                                        Duration="0:0:0.12"/>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <Storyboard>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBorder"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#80C9956A"
+                                                        Duration="0:0:0.06"/>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBg"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#18C9956A"
+                                                        Duration="0:0:0.06"/>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Chrome"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="0.4"
+                                                         Duration="0:0:0.1"/>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Checked">
+                                    <VisualState.Setters>
+                                        <Setter Target="CheckGlyph.Visibility" Value="Visible"/>
+                                        <Setter Target="DiamondGlyph.Visibility" Value="Collapsed"/>
+                                        <Setter Target="Label.Foreground" Value="{StaticResource AccentGoldBrush}"/>
+                                    </VisualState.Setters>
+                                    <Storyboard>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBorder"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#80C9956A"
+                                                        Duration="0:0:0.14"/>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBg"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#18C9956A"
+                                                        Duration="0:0:0.14"/>
+                                        <DoubleAnimation Storyboard.TargetName="GlowBorder"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="1"
+                                                         Duration="0:0:0.2"/>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="CheckGlyph.Visibility" Value="Visible"/>
+                                        <Setter Target="DiamondGlyph.Visibility" Value="Collapsed"/>
+                                        <Setter Target="Label.Foreground" Value="{StaticResource AccentGoldBrush}"/>
+                                    </VisualState.Setters>
+                                    <Storyboard>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBorder"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#A0C9956A"
+                                                        Duration="0:0:0.1"/>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBg"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#22C9956A"
+                                                        Duration="0:0:0.1"/>
+                                        <DoubleAnimation Storyboard.TargetName="GlowBorder"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="1"
+                                                         Duration="0:0:0.1"/>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="CheckGlyph.Visibility" Value="Visible"/>
+                                        <Setter Target="DiamondGlyph.Visibility" Value="Collapsed"/>
+                                        <Setter Target="Label.Foreground" Value="{StaticResource AccentGoldBrush}"/>
+                                    </VisualState.Setters>
+                                    <Storyboard>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBorder"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#C0C9956A"
+                                                        Duration="0:0:0.04"/>
+                                        <ColorAnimation Storyboard.TargetName="ChromeBg"
+                                                        Storyboard.TargetProperty="Color"
+                                                        To="#30C9956A"
+                                                        Duration="0:0:0.04"/>
+                                        <DoubleAnimation Storyboard.TargetName="GlowBorder"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="1"
+                                                         Duration="0:0:0.04"/>
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>

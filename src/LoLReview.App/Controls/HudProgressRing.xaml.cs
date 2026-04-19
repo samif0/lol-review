@@ -18,9 +18,15 @@ namespace LoLReview.App.Controls;
 public sealed partial class HudProgressRing : UserControl
 {
     // Ring geometry: 50px diameter, stroke width 3 → radius 25.
-    // Circumference = 2πr ≈ 157.08. Use this as the dash-array length.
+    // Circumference = 2πr ≈ 157.08 px.
+    // WinUI's Shape.StrokeDashArray values are in MULTIPLES of StrokeThickness,
+    // not absolute pixels. Using the raw pixel circumference makes the dash
+    // "longer than the circle can render," so the stroke appears fully drawn
+    // regardless of offset. Scale by stroke thickness to fix.
     private const double Radius = 25.0;
-    private const double Circumference = 2.0 * Math.PI * Radius;
+    private const double StrokeThickness = 3.0;
+    private const double CircumferencePx = 2.0 * Math.PI * Radius;
+    private const double Circumference = CircumferencePx / StrokeThickness;
 
     private bool _drawInPlayed;
 
@@ -75,6 +81,25 @@ public sealed partial class HudProgressRing : UserControl
     {
         get => (Brush?)GetValue(AccentBrushProperty);
         set => SetValue(AccentBrushProperty, value);
+    }
+
+    public static readonly DependencyProperty TrackBrushProperty =
+        DependencyProperty.Register(
+            nameof(TrackBrush),
+            typeof(Brush),
+            typeof(HudProgressRing),
+            new PropertyMetadata(null, (d, e) =>
+            {
+                if (e.NewValue is Brush b)
+                {
+                    ((HudProgressRing)d).TrackEllipse.Stroke = b;
+                }
+            }));
+
+    public Brush? TrackBrush
+    {
+        get => (Brush?)GetValue(TrackBrushProperty);
+        set => SetValue(TrackBrushProperty, value);
     }
 
     private static void OnProgressChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

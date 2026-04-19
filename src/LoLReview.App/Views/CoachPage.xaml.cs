@@ -43,6 +43,27 @@ public sealed partial class CoachPage : Page
                 ViewModel.InputText = args.SeedQuestion;
             }
         }
+
+        // Lazy-start the sidecar in the background. No blocking — the first
+        // ask the user makes will wait on it if it's still coming up.
+        _ = EnsureSidecarAsync();
+    }
+
+    private async Task EnsureSidecarAsync()
+    {
+        var sidecar = App.GetService<CoachSidecarService>();
+        if (sidecar.IsHealthy) return;
+
+        ViewModel.StatusText = "Starting coach...";
+        var ok = await sidecar.EnsureSidecarRunningAsync();
+        if (ok)
+        {
+            ViewModel.StatusText = "";
+        }
+        else
+        {
+            ViewModel.StatusText = "Could not start the coach sidecar. Check Settings → AI Coach.";
+        }
     }
 
     private void ScrollToBottom()

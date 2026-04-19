@@ -267,12 +267,14 @@
                             <!-- Performance Review -->
                             <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
 
-                            <!-- Ask coach about this game (deep-link to Coach page) -->
-                            <Border Background="{StaticResource InputBackgroundBrush}"
+                            <!-- Ask coach about this game (deep-link to Coach page, hidden when flag off) -->
+                            <Border x:Name="AskCoachBanner"
+                                    Background="{StaticResource InputBackgroundBrush}"
                                     BorderBrush="{StaticResource SubtleBorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="2"
-                                    Padding="10,8">
+                                    Padding="10,8"
+                                    Visibility="Collapsed">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>

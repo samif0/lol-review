@@ -71,20 +71,18 @@ public interface IObjectivesRepository
         }
 
         string levelName = levels[levelIdx].Name;
-        int levelStart = levels[levelIdx].Threshold;
 
-        int? nextThreshold;
-        double progress;
-        if (levelIdx + 1 < levels.Length)
-        {
-            nextThreshold = levels[levelIdx + 1].Threshold;
-            progress = Math.Min(1.0, (double)(score - levelStart) / (nextThreshold.Value - levelStart));
-        }
-        else
-        {
-            nextThreshold = null;
-            progress = 1.0;
-        }
+        int? nextThreshold = levelIdx + 1 < levels.Length
+            ? levels[levelIdx + 1].Threshold
+            : null;
+
+        // Overall progress across the whole 0 -> "Ready" arc, not per-stage.
+        // Score of 50 (the highest named threshold) = 100%. This lets the UI
+        // render a single continuous ring that fills as the user advances
+        // through all stages, with the accent color shifting at each
+        // boundary via LevelIndex.
+        const int readyThreshold = 50;
+        double progress = Math.Clamp((double)score / readyThreshold, 0.0, 1.0);
 
         return new ObjectiveLevelInfo(
             LevelName: levelName,
@@ -93,7 +91,7 @@ public interface IObjectivesRepository
             GameCount: gameCount,
             Progress: progress,
             NextThreshold: nextThreshold,
-            CanComplete: score >= 50,
-            SuggestComplete: score >= 50);
+            CanComplete: score >= readyThreshold,
+            SuggestComplete: score >= readyThreshold);
     }
 }

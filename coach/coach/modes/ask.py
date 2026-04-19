@@ -209,12 +209,12 @@ async def run_ask_stream(
             messages=messages,
             model=model,
             temperature=0.3,
-            # 2000 is a balance: enough room for thorough answers, small
-            # enough that a degenerate repetition loop (seen on Gemma 4)
-            # doesn't fill 8000 tokens of garbage before terminating.
-            # frequencyPenalty + presencePenalty in the provider make loops
-            # rarer but not impossible.
-            max_tokens=2000,
+            # 4000 is a compromise: big enough that Gemma's unbounded
+            # thinking can still fit a 1000-2000 token answer after it,
+            # small enough that a bad loop doesn't fill 8K tokens of
+            # garbage. Gemini models won't hit this since thinkingBudget
+            # caps reasoning at 2048 for them.
+            max_tokens=4000,
         )
 
         start = time.perf_counter()
@@ -290,13 +290,18 @@ def _retrieve_context(question: str, scope: dict[str, Any]) -> dict[str, Any]:
     if pinned_game_id is not None:
         context["game_summaries"] = _fetch_summary_and_review(int(pinned_game_id))
         context["session_logs"] = _fetch_session_log(int(pinned_game_id))
-        context["recent_reviews"] = _fetch_review_text([int(pinned_game_id)])
+        # Pull the pinned game's review first, then 5 recent prior reviews
+        # so the coach can connect what happened here to patterns in the
+        # player's recent history.
+        prior_ids = _pick_relevant_games(question, since=None, until=None, limit=6)
+        merged = [int(pinned_game_id)] + [g for g in prior_ids if g != int(pinned_game_id)]
+        context["recent_reviews"] = _fetch_review_text(merged[:6])
         context["matchup_notes"] = _fetch_matchup_for_game(int(pinned_game_id))
     else:
         # Time window or recent-N fallback
         since = scope.get("since") if scope else None
         until = scope.get("until") if scope else None
-        game_ids = _pick_relevant_games(question, since=since, until=until, limit=10)
+        game_ids = _pick_relevant_games(question, since=since, until=until, limit=12)
         context["game_summaries"] = [_fetch_summary_and_review(gid) for gid in game_ids]
         context["session_logs"] = [_fetch_session_log(gid) for gid in game_ids]
         context["recent_reviews"] = _fetch_review_text(game_ids)

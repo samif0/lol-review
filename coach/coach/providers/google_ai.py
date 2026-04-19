@@ -51,12 +51,13 @@ class GoogleAIProvider(LLMProvider):
             "topP": 0.95,
             "topK": 64,
         }
-        # Gemini-only knobs. Gemma 4 on Google AI rejects both thinkingConfig
-        # and frequency/presencePenalty with 400 INVALID_ARGUMENT.
+        # Gemini-only: thinkingConfig caps reasoning tokens.
+        # NOTE: frequencyPenalty/presencePenalty were tried and rejected by
+        # both Gemma ('Penalty is not enabled for this model') AND
+        # Gemini 2.5 Flash ('Penalty is not enabled for models/gemini-2.5-flash').
+        # Don't send them.
         if self._is_gemini_family():
             gen_config["thinkingConfig"] = {"thinkingBudget": 2048}
-            gen_config["frequencyPenalty"] = 0.5
-            gen_config["presencePenalty"] = 0.3
         body: dict[str, Any] = {"contents": contents, "generationConfig": gen_config}
         if req.response_format == "json":
             body["generationConfig"]["responseMimeType"] = "application/json"
@@ -104,17 +105,14 @@ class GoogleAIProvider(LLMProvider):
             "topP": 0.95,
             "topK": 64,
         }
-        # Gemini-only knobs. Gemma 4 on Google AI rejects thinkingConfig AND
-        # frequency/presencePenalty with 400 INVALID_ARGUMENT.
+        # Gemini-only: thinkingConfig caps reasoning.
+        # frequency/presencePenalty were rejected by both Gemma and
+        # Gemini 2.5 Flash — see comment in complete().
         if self._is_gemini_family():
             gen_config["thinkingConfig"] = {
                 "includeThoughts": True,
                 "thinkingBudget": 2048,
             }
-            # Penalties dramatically reduce degenerate repetition loops
-            # (seen on Gemma 4: 'standing than you's' filling 8000 tokens).
-            gen_config["frequencyPenalty"] = 0.5
-            gen_config["presencePenalty"] = 0.3
         body: dict[str, Any] = {"contents": contents, "generationConfig": gen_config}
         if req.response_format == "json":
             body["generationConfig"]["responseMimeType"] = "application/json"
@@ -157,25 +155,69 @@ class GoogleAIProvider(LLMProvider):
                         any_answer = True
                     yield (kind, text)
 
-            # If the stream ended without any answer tokens, surface the reason
-            # as a synthetic answer chunk so the user sees why (safety filter,
-            # max tokens hit during thinking, etc.).
-            if not any_answer:
-                if last_finish_reason == "SAFETY":
+        # If the stream ended without any answer tokens, decide what to do.
+        # STOP + empty is a model behavior bug (no user input was rejected);
+        # transparently retry once. Other reasons (SAFETY, MAX_TOKENS,
+        # RECITATION) are hard stops with real causes — surface them.
+        if not any_answer:
+            if last_finish_reason in (None, "STOP"):
+                # Retry once without yielding anything to the caller.
+                async for kind, chunk in self._retry_stream_once(req, body, url):
+                    yield (kind, chunk)
+                return
+            if last_finish_reason == "SAFETY":
+                yield ("answer",
+                    "Response blocked by Google's safety filter. Try rephrasing — the filter sometimes trips on unrelated words.")
+            elif last_finish_reason == "MAX_TOKENS":
+                yield ("answer",
+                    "Hit the token limit before finishing an answer. Try a shorter/simpler question.")
+            elif last_finish_reason == "RECITATION":
+                yield ("answer",
+                    "Response blocked to avoid reciting copyrighted text. Try asking a different way.")
+            else:
+                yield ("answer",
+                    "No response — the provider returned nothing. Try again.")
+
+    async def _retry_stream_once(
+        self, req: LLMRequest, body: dict[str, Any], url: str
+    ) -> AsyncIterator[tuple[str, str]]:
+        """Single silent retry for empty-STOP responses. Any outcome is final
+        — we don't recurse. Signals final failure via a short note if the
+        retry also returns nothing."""
+        try:
+            async with self._client.stream("POST", url, json=body) as response:
+                if response.status_code >= 400:
+                    yield ("answer", "No response after retry. Try again.")
+                    return
+                any_answer = False
+                async for line in response.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[len("data: "):]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(data_str)
+                    except Exception:
+                        continue
+                    candidates = event.get("candidates", [])
+                    if not candidates:
+                        continue
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    for p in parts:
+                        text = p.get("text", "")
+                        if not text:
+                            continue
+                        kind = "thought" if p.get("thought") else "answer"
+                        if kind == "answer":
+                            any_answer = True
+                        yield (kind, text)
+                if not any_answer:
                     yield ("answer",
-                        "_(Response blocked by Google's safety filter. Try rephrasing — sometimes the filter trips on unrelated-looking words.)_")
-                elif last_finish_reason == "MAX_TOKENS":
-                    yield ("answer",
-                        "_(Hit the max_tokens limit while thinking, before producing an answer. Try a simpler question or ask me to 'keep it short'.)_")
-                elif last_finish_reason == "RECITATION":
-                    yield ("answer",
-                        "_(Response blocked to avoid reciting copyrighted text. Try a different angle.)_")
-                elif last_finish_reason:
-                    yield ("answer",
-                        f"_(No response — finish reason: {last_finish_reason}.)_")
-                else:
-                    yield ("answer",
-                        "_(No response from the model. The provider may be overloaded.)_")
+                        "Model returned no answer after retry. Try rephrasing.")
+        except Exception as exc:
+            logger.exception("retry stream failed")
+            yield ("answer", f"Retry failed: {exc}")
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError(

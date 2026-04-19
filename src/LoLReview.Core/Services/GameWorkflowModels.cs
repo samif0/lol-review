@@ -7,7 +7,8 @@ namespace LoLReview.Core.Services;
 public sealed record ProcessGameEndRequest(
     GameStats Stats,
     int MentalRating = 5,
-    int PreGameMood = 0);
+    int PreGameMood = 0,
+    IReadOnlyList<long>? PreGamePracticedObjectiveIds = null);
 
 public sealed record ProcessGameEndResult(
     long? GameId,

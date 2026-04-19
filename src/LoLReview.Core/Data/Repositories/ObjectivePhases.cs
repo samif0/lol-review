@@ -51,12 +51,12 @@ public static class ObjectivePhases
     public static bool ShowsInPreGame(string? value)
     {
         var phase = Normalize(value);
-        return phase == PreGame || phase == InGame;
+        return phase == PreGame;
     }
 
     public static bool ShowsInPostGame(string? value)
     {
         var phase = Normalize(value);
-        return phase == InGame || phase == PostGame;
+        return phase == PreGame || phase == InGame || phase == PostGame;
     }
 }

@@ -15,7 +15,7 @@ namespace LoLReview.App;
 /// </summary>
 public partial class App : Application
 {
-    private const double DefaultStartupWindowWidth = 1920;
+    private const double DefaultStartupWindowWidth = 1024;
     private const double DefaultStartupWindowHeight = 1080;
     private static IHost? _host;
     private static Window? _mainWindow;

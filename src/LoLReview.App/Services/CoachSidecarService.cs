@@ -56,57 +56,163 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
         _http.Timeout = TimeSpan.FromSeconds(5);
     }
 
+    private readonly SemaphoreSlim _ensureLock = new(1, 1);
+
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _discoveredPort = ResolveConfiguredPort();
 
-        if (!_installer.IsInstalled)
+        // Passive on IHostedService startup — attach to an existing sidecar if
+        // one is already running (e.g. from a dev python -m coach.main), but
+        // do NOT launch a new one. Lazy-start is triggered later by
+        // EnsureSidecarRunningAsync from the Coach page or objective button.
+        if (await CheckHealthAsync(cancellationToken))
         {
-            // Not installed via the bundled path, but the user may be running
-            // the sidecar manually (dev mode). Probe the configured port; if
-            // something responds to /health, treat it as our sidecar and still
-            // inject credentials + start health polling.
             AppDiagnostics.WriteVerbose("startup.log",
-                "CoachSidecarService: installer reports not-installed; probing port for external sidecar");
-            if (await CheckHealthAsync(cancellationToken))
+                $"CoachSidecarService: external sidecar detected on port {_discoveredPort}, attaching");
+            await InjectStoredCredentialsAsync(cancellationToken).ConfigureAwait(false);
+            _healthPollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _healthPollTask = Task.Run(() => PollHealthAsync(_healthPollCts.Token), _healthPollCts.Token);
+            return;
+        }
+
+        AppDiagnostics.WriteVerbose("startup.log",
+            "CoachSidecarService: no sidecar on port at startup; will launch on first coach usage");
+    }
+
+    /// <summary>
+    /// Lazy-start: launch the sidecar if one isn't already running, inject
+    /// credentials, and wait for it to be healthy. Safe to call repeatedly —
+    /// a semaphore prevents concurrent launches, and if a healthy sidecar is
+    /// already attached we return immediately.
+    ///
+    /// Returns true if the sidecar is healthy (or became healthy) by the end
+    /// of the call; false if startup failed.
+    /// </summary>
+    public async Task<bool> EnsureSidecarRunningAsync(CancellationToken cancellationToken = default)
+    {
+        await _ensureLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (IsHealthy)
             {
-                AppDiagnostics.WriteVerbose("startup.log",
-                    $"CoachSidecarService: external sidecar detected on port {_discoveredPort}, attaching");
-                await InjectStoredCredentialsAsync(cancellationToken).ConfigureAwait(false);
-                _healthPollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                _healthPollTask = Task.Run(() => PollHealthAsync(_healthPollCts.Token), _healthPollCts.Token);
-                return;
+                return true;
             }
 
-            AppDiagnostics.WriteVerbose("startup.log",
-                "CoachSidecarService: no sidecar found on port; skipping (enable via Settings)");
-            return;
-        }
+            if (await CheckHealthAsync(cancellationToken))
+            {
+                // Something is already there. Attach and inject credentials.
+                await InjectStoredCredentialsAsync(cancellationToken).ConfigureAwait(false);
+                _healthPollCts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                _healthPollTask ??= Task.Run(() => PollHealthAsync(_healthPollCts.Token), _healthPollCts.Token);
+                return true;
+            }
 
-        var executable = _installer.SidecarExecutablePath;
-        if (executable is null || !File.Exists(executable))
+            // Launch. Priority order:
+            //   1. Installed sidecar exe (release channel path)
+            //   2. Dev fallback: python.exe in coach/.venv + running `-m coach.main`
+            var launched = TryLaunchInstalledSidecar() || TryLaunchDevSidecar();
+            if (!launched)
+            {
+                AppDiagnostics.WriteVerbose("startup.log",
+                    "CoachSidecarService: no installed or dev sidecar available; cannot start");
+                return false;
+            }
+
+            await WaitForHealthAsync(cancellationToken).ConfigureAwait(false);
+            if (!IsHealthy)
+            {
+                AppDiagnostics.WriteVerbose("startup.log",
+                    "CoachSidecarService: launched sidecar but it never became healthy");
+                return false;
+            }
+
+            await InjectStoredCredentialsAsync(cancellationToken).ConfigureAwait(false);
+            _healthPollCts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _healthPollTask ??= Task.Run(() => PollHealthAsync(_healthPollCts.Token), _healthPollCts.Token);
+            return true;
+        }
+        finally
         {
-            _logger.LogWarning("Coach installer reports installed but sidecar exe missing at {Path}", executable);
-            return;
+            _ensureLock.Release();
+        }
+    }
+
+    private bool TryLaunchInstalledSidecar()
+    {
+        if (!_installer.IsInstalled) return false;
+        var executable = _installer.SidecarExecutablePath;
+        if (executable is null || !File.Exists(executable)) return false;
+
+        return TryStartProcess(executable, $"--port {_discoveredPort} --log-level info", workingDir: null);
+    }
+
+    private bool TryLaunchDevSidecar()
+    {
+        // Dev fallback: walk up from the app exe to find the repo root, then
+        // look for coach/.venv/Scripts/python.exe + coach/coach/main.py.
+        // This lets devs run the coach without a published release.
+        var repoRoot = FindRepoRoot();
+        if (repoRoot is null) return false;
+
+        var venvPython = Path.Combine(repoRoot, "coach", ".venv", "Scripts", "python.exe");
+        var coachPkg = Path.Combine(repoRoot, "coach", "coach", "main.py");
+        if (!File.Exists(venvPython) || !File.Exists(coachPkg))
+        {
+            return false;
         }
 
+        var coachDir = Path.Combine(repoRoot, "coach");
+        return TryStartProcess(
+            venvPython,
+            "-u -X utf8 -m coach.main",
+            workingDir: coachDir);
+    }
+
+    private static string? FindRepoRoot()
+    {
+        try
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir is not null)
+            {
+                // Repo marker: presence of coach/coach/main.py relative to this dir
+                var marker = Path.Combine(dir.FullName, "coach", "coach", "main.py");
+                if (File.Exists(marker))
+                {
+                    return dir.FullName;
+                }
+                dir = dir.Parent;
+            }
+        }
+        catch
+        {
+            // Swallow — just means we can't find it.
+        }
+        return null;
+    }
+
+    private bool TryStartProcess(string fileName, string arguments, string? workingDir)
+    {
         var psi = new ProcessStartInfo
         {
-            FileName = executable,
-            Arguments = $"--port {_discoveredPort} --log-level info",
+            FileName = fileName,
+            Arguments = arguments,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardError = true,
             RedirectStandardOutput = true,
         };
+        if (workingDir is not null) psi.WorkingDirectory = workingDir;
 
         try
         {
             _process = Process.Start(psi);
             if (_process is null)
             {
-                _logger.LogError("Failed to start coach sidecar process");
-                return;
+                AppDiagnostics.WriteVerbose("startup.log",
+                    $"CoachSidecarService: Process.Start returned null for {fileName}");
+                return false;
             }
 
             _process.OutputDataReceived += (_, e) =>
@@ -122,22 +228,15 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
 
-            _logger.LogInformation("Coach sidecar started on port {Port}, pid={Pid}", _discoveredPort, _process.Id);
-
-            // Wait for first healthy /health before proceeding.
-            await WaitForHealthAsync(cancellationToken).ConfigureAwait(false);
-
-            // Inject stored API keys into the sidecar once it's up.
             AppDiagnostics.WriteVerbose("startup.log",
-                "CoachSidecarService: sidecar healthy, starting credential injection");
-            await InjectStoredCredentialsAsync(cancellationToken).ConfigureAwait(false);
-
-            _healthPollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _healthPollTask = Task.Run(() => PollHealthAsync(_healthPollCts.Token), _healthPollCts.Token);
+                $"CoachSidecarService: launched sidecar pid={_process.Id} on port {_discoveredPort} via {Path.GetFileName(fileName)}");
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Coach sidecar failed to start");
+            AppDiagnostics.WriteVerbose("startup.log",
+                $"CoachSidecarService: failed to start sidecar via {Path.GetFileName(fileName)}: {ex.Message}");
+            return false;
         }
     }
 

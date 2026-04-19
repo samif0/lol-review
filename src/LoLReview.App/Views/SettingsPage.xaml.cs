@@ -1,6 +1,7 @@
 #nullable enable
 
 using LoLReview.App.Helpers;
+using LoLReview.App.Services;
 using LoLReview.App.ViewModels;
 using LoLReview.Core.Services;
 using Microsoft.UI.Xaml;
@@ -20,7 +21,21 @@ public sealed partial class SettingsPage : Page
         ViewModel = App.GetService<SettingsViewModel>();
         CoachViewModel = App.GetService<CoachSettingsViewModel>();
         InitializeComponent();
-        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
+        Loaded += (_, _) =>
+        {
+            AnimationHelper.AnimatePageEnter(RootGrid);
+            // Initialize the coach-enable toggle from persisted flag.
+            var enabled = CoachFeatureFlag.IsEnabled();
+            CoachEnableToggle.IsOn = enabled;
+            CoachSettingsBody.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        };
+    }
+
+    private void OnCoachEnableToggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleSwitch toggle) return;
+        CoachFeatureFlag.SetEnabled(toggle.IsOn);
+        CoachSettingsBody.Visibility = toggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

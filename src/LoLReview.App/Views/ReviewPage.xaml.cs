@@ -26,7 +26,13 @@ public sealed partial class ReviewPage : Page
             }
         };
         InitializeComponent();
-        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
+        Loaded += (_, _) =>
+        {
+            AnimationHelper.AnimatePageEnter(RootGrid);
+            AskCoachBanner.Visibility = CoachFeatureFlag.IsEnabled()
+                ? Microsoft.UI.Xaml.Visibility.Visible
+                : Microsoft.UI.Xaml.Visibility.Collapsed;
+        };
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

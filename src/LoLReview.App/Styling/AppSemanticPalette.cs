@@ -86,11 +86,20 @@ public static class AppSemanticPalette
 
     public static string ObjectiveLevelHex(int levelIndex) => levelIndex switch
     {
-        0 => "#8A80A8",         // Exploring: Muted violet
-        1 => "#A78BFA",         // Drilling: Violet
-        2 => "#8A7AF2",         // Ingraining: Deep violet
-        3 => "#C9956A",         // Ready: Bronze
+        0 => "#7B8494",         // Exploring: Slate — just starting out
+        1 => "#5EC4D4",         // Drilling: Cyan — gaining momentum
+        2 => "#D4A44E",         // Ingraining: Amber — heating up
+        3 => "#E8C15E",         // Ready: Bright gold — mastered
         _ => NeutralHex,
+    };
+
+    public static string ObjectiveLevelDimHex(int levelIndex) => levelIndex switch
+    {
+        0 => "#10121A",         // Exploring dim
+        1 => "#0E1A1E",         // Drilling dim
+        2 => "#1E1810",         // Ingraining dim
+        3 => "#221C0E",         // Ready dim
+        _ => NeutralDimHex,
     };
 
     public static SolidColorBrush TagAccentBrush(string? polarity, string? sourceHex = null) =>

@@ -34,7 +34,7 @@
             <controls:HeroHeader Grid.Row="0"
                                  EyebrowText="DASHBOARD"
                                  Title="{x:Bind ViewModel.Greeting, Mode=OneWay}"
-                                 Margin="24,24,24,12"/>
+                                 Margin="40,16,40,8"/>
 
             <!-- ═══ CONTENT ═══ -->
             <ScrollViewer Grid.Row="1"
@@ -150,6 +150,7 @@
                                                                               Progress="{x:Bind Progress}"
                                                                               Label="{x:Bind ProgressLabel}"
                                                                               AccentBrush="{x:Bind LevelColorBrush}"
+                                                                              TrackBrush="{x:Bind LevelDimColorBrush}"
                                                                               VerticalAlignment="Center"/>
 
                                                     <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
