@@ -50,6 +50,8 @@ class GoogleAIProvider(LLMProvider):
             "maxOutputTokens": req.max_tokens,
             "topP": 0.95,
             "topK": 64,
+            "frequencyPenalty": 0.5,
+            "presencePenalty": 0.3,
         }
         # thinkingConfig is a Gemini-family feature; Gemma models reject it
         # with 400 INVALID_ARGUMENT. Only add it for Gemini.
@@ -98,9 +100,14 @@ class GoogleAIProvider(LLMProvider):
             "temperature": req.temperature,
             "maxOutputTokens": req.max_tokens,
             # topP + topK nudge Gemma 4 away from pathological token-repeat
-            # loops ('I donleksya_ch_av_av_av_').
+            # loops ('I donleksya_ch_av_av_av_'). Added frequency + presence
+            # penalties because Gemma 4 on large contexts can still loop
+            # catastrophically (seen: 'standing than you's standing than
+            # you's' filling 8000 tokens).
             "topP": 0.95,
             "topK": 64,
+            "frequencyPenalty": 0.5,
+            "presencePenalty": 0.3,
         }
         # Gemini supports thinkingConfig (reasoning-mode control); Gemma
         # rejects it with 400 INVALID_ARGUMENT. Enable only for Gemini.

@@ -209,11 +209,12 @@ async def run_ask_stream(
             messages=messages,
             model=model,
             temperature=0.3,
-            # Generous ceiling so thinking tokens don't starve the answer.
-            # Gemma 4 with includeThoughts burns through 1000+ reasoning
-            # tokens on non-trivial questions before writing the first
-            # answer token.
-            max_tokens=8000,
+            # 2000 is a balance: enough room for thorough answers, small
+            # enough that a degenerate repetition loop (seen on Gemma 4)
+            # doesn't fill 8000 tokens of garbage before terminating.
+            # frequencyPenalty + presencePenalty in the provider make loops
+            # rarer but not impossible.
+            max_tokens=2000,
         )
 
         start = time.perf_counter()
