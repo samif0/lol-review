@@ -674,9 +674,11 @@
     <SolidColorBrush x:Key="AppBarBackground" Color="#FF1F1F1F"/>
     <SolidColorBrush x:Key="AppBarForeground" Color="#FFFFFFFF"/>
     <SolidColorBrush x:Key="AppBarHighContrastBorder" Color="Transparent"/>
+    <!-- WinUI 3 style keys — match the theme brushes above so both
+         naming conventions lead to the same dark surface. -->
     <SolidColorBrush x:Key="ContentDialogForeground" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="ContentDialogBackground" Color="#202020"/>
-    <SolidColorBrush x:Key="ContentDialogBorderBrush" Color="#66757575"/>
+    <SolidColorBrush x:Key="ContentDialogBackground" Color="#14121E"/>
+    <SolidColorBrush x:Key="ContentDialogBorderBrush" Color="#66A78BFA"/>
     <SolidColorBrush x:Key="AccentButtonBackground" Color="Transparent"/>
     <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="Transparent"/>
     <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="Transparent"/>
@@ -1019,10 +1021,14 @@
     <SolidColorBrush x:Key="ComboBoxPressedForegroundThemeBrush" Color="#FF000000" />
     <SolidColorBrush x:Key="ComboBoxSelectedBackgroundThemeBrush" Color="#FF4617B4" />
     <SolidColorBrush x:Key="ComboBoxSelectedPointerOverBackgroundThemeBrush" Color="#FF5F37BE" />
-    <SolidColorBrush x:Key="ContentDialogBackgroundThemeBrush" Color="LightGray" />
-    <SolidColorBrush x:Key="ContentDialogBorderThemeBrush" Color="Transparent"/>
-    <SolidColorBrush x:Key="ContentDialogContentForegroundBrush" Color="Black" />
-    <SolidColorBrush x:Key="ContentDialogDimmingThemeBrush" Color="#99FFFFFF" />
+    <!-- Dark-theme ContentDialog surface: matches the app's card-over-canvas
+         look. Previously LightGray, which produced the windows-default ugly
+         popup. The border brush gets a subtle violet accent so proposal
+         dialogs feel like part of the HUD. -->
+    <SolidColorBrush x:Key="ContentDialogBackgroundThemeBrush" Color="#14121E" />
+    <SolidColorBrush x:Key="ContentDialogBorderThemeBrush" Color="#66A78BFA"/>
+    <SolidColorBrush x:Key="ContentDialogContentForegroundBrush" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="ContentDialogDimmingThemeBrush" Color="#A6000000" />
     <SolidColorBrush x:Key="DatePickerHeaderForegroundThemeBrush" Color="#FFFFFFFF" />
     <SolidColorBrush x:Key="DatePickerForegroundThemeBrush" Color="#FF000000" />
     <SolidColorBrush x:Key="DefaultTextForegroundThemeBrush" Color="#FFFFFF"/>
