@@ -89,7 +89,13 @@ def activate_if_present() -> Path | None:
         logger.info("coach-ml activated from %s", site_str)
         return site
 
-    logger.info("coach-ml not found; concept-extraction features will return 501")
+    # No external pack was found, but that's not necessarily fatal —
+    # in dev, the deps may already be installed directly in the venv's
+    # site-packages. is_available() does the real check.
+    if is_available():
+        logger.info("coach-ml pack not found, but required libs are already importable")
+    else:
+        logger.info("coach-ml not found; concept-extraction features will return 501")
     return None
 
 
