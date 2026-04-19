@@ -176,15 +176,17 @@ public sealed class ReviewWorkflowServiceTests
     }
 
     [Fact]
-    public async Task LoadAsync_FiltersOutPreGameObjectivesFromPostGameAssessmentList()
+    public async Task LoadAsync_IncludesAllActiveObjectivesInPostGameAssessmentList()
     {
+        // All active objectives — regardless of phase — are shown in the
+        // post-game review so the user can mark progress on anything in flight.
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
 
         const long gameId = 4101;
         await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Orianna", win: true));
 
-        await scope.Objectives.CreateAsync(
+        var preGameObjectiveId = await scope.Objectives.CreateAsync(
             "Set loading-screen plan",
             "prep",
             completionCriteria: "Name first three waves",
@@ -204,7 +206,7 @@ public sealed class ReviewWorkflowServiceTests
         var screenData = await workflow.LoadAsync(gameId);
 
         Assert.NotNull(screenData);
-        Assert.DoesNotContain(screenData!.ObjectiveAssessments, item => item.Title == "Set loading-screen plan");
+        Assert.Contains(screenData!.ObjectiveAssessments, item => item.ObjectiveId == preGameObjectiveId);
         Assert.Contains(screenData.ObjectiveAssessments, item => item.ObjectiveId == inGameObjectiveId);
         Assert.Contains(screenData.ObjectiveAssessments, item => item.ObjectiveId == postGameObjectiveId);
     }
@@ -294,6 +296,7 @@ public sealed class ReviewWorkflowServiceTests
             scope.ReviewDrafts,
             scope.MatchupNotes,
             new TestConfigService(new AppConfig { RequireReviewNotes = requireReviewNotes }),
+            new NullCoachSidecarNotifier(),
             NullLogger<ReviewWorkflowService>.Instance);
     }
 
