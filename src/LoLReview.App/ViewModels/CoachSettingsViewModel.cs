@@ -10,6 +10,7 @@ namespace LoLReview.App.ViewModels;
 public sealed partial class CoachSettingsViewModel : ObservableObject
 {
     private readonly ICoachInstallerService _installer;
+    private readonly ICoachMlExtrasInstallerService _mlInstaller;
     private readonly ICoachApiClient _api;
     private readonly ICoachCredentialStore _credentials;
     private readonly CoachSidecarService _sidecar;
@@ -19,14 +20,18 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isInstalling;
     [ObservableProperty] private double _installProgress;
     [ObservableProperty] private string _installStatus = "";
+    [ObservableProperty] private bool _isMlInstalled;
+    [ObservableProperty] private bool _isInstallingMl;
+    [ObservableProperty] private double _mlInstallProgress;
+    [ObservableProperty] private string _mlInstallStatus = "";
     [ObservableProperty] private bool _isLocalProvider;
     [ObservableProperty] private string _providerHint = HostedHint;
     [ObservableProperty] private string _selectedProvider = "google_ai";
 
     private const string HostedHint =
-        "Hosted provider. No local install needed. Paste an API key below and click Save coach config.";
+        "Hosted provider. Install the coach runtime below, then paste an API key and click Save coach config.";
     private const string LocalHint =
-        "Local provider (Ollama). Requires Ollama running and a model pulled (e.g. `ollama pull gemma4:e4b`). Install button downloads the sidecar runtime.";
+        "Local provider (Ollama). Requires Ollama running externally. Install the coach runtime below.";
     [ObservableProperty] private string _ollamaModel = "gemma4:e4b";
     [ObservableProperty] private string _ollamaVisionModel = "gemma4:e4b";
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
@@ -45,18 +50,21 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
 
     public CoachSettingsViewModel(
         ICoachInstallerService installer,
+        ICoachMlExtrasInstallerService mlInstaller,
         ICoachApiClient api,
         ICoachCredentialStore credentials,
         CoachSidecarService sidecar,
         ILogger<CoachSettingsViewModel> logger)
     {
         _installer = installer;
+        _mlInstaller = mlInstaller;
         _api = api;
         _credentials = credentials;
         _sidecar = sidecar;
         _logger = logger;
 
         IsInstalled = _installer.IsInstalled;
+        IsMlInstalled = _mlInstaller.IsInstalled;
         GoogleAiKeyStored = _credentials.HasGoogleAiApiKey();
         OpenRouterKeyStored = _credentials.HasOpenRouterApiKey();
         UpdateProviderHint();
@@ -71,7 +79,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task InstallAsync()
+    private async Task InstallCoreAsync()
     {
         if (IsInstalling) return;
         IsInstalling = true;
@@ -95,7 +103,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
             else
             {
                 InstallStatus = $"Install failed: {result.Error}";
-                _logger.LogWarning("Coach install failed: {Error}", result.Error);
+                _logger.LogWarning("Coach core install failed: {Error}", result.Error);
             }
         }
         finally
@@ -105,7 +113,7 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task UninstallAsync()
+    private async Task UninstallCoreAsync()
     {
         if (IsInstalling) return;
         IsInstalling = true;
@@ -119,6 +127,57 @@ public sealed partial class CoachSettingsViewModel : ObservableObject
         finally
         {
             IsInstalling = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task InstallMlAsync()
+    {
+        if (IsInstallingMl) return;
+        IsInstallingMl = true;
+        MlInstallProgress = 0;
+        MlInstallStatus = "Starting...";
+
+        try
+        {
+            var progress = new Progress<CoachInstallProgress>(p =>
+            {
+                MlInstallProgress = p.PercentComplete;
+                MlInstallStatus = p.Message ?? p.Status.ToString();
+            });
+
+            var result = await _mlInstaller.InstallAsync(progress);
+            if (result.Success)
+            {
+                IsMlInstalled = true;
+                MlInstallStatus = "Installed. Restart the coach sidecar to activate concept features.";
+            }
+            else
+            {
+                MlInstallStatus = $"Install failed: {result.Error}";
+                _logger.LogWarning("Coach ML extras install failed: {Error}", result.Error);
+            }
+        }
+        finally
+        {
+            IsInstallingMl = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task UninstallMlAsync()
+    {
+        if (IsInstallingMl) return;
+        IsInstallingMl = true;
+        try
+        {
+            await _mlInstaller.UninstallAsync();
+            IsMlInstalled = false;
+            MlInstallStatus = "Uninstalled. Restart the coach sidecar to take effect.";
+        }
+        finally
+        {
+            IsInstallingMl = false;
         }
     }
 

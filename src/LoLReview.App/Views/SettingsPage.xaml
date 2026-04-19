@@ -330,8 +330,16 @@
                                    Margin="0,0,0,4"
                                    IsTextSelectionEnabled="True"/>
 
-                        <!-- Install row (only relevant for local Ollama) -->
-                        <Grid Visibility="{x:Bind CoachViewModel.IsLocalProvider, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <!-- Core coach runtime (~30 MB). Required for every provider. -->
+                        <StackPanel Spacing="2" Margin="0,4,0,4">
+                            <TextBlock Text="Coach runtime (~30 MB)"
+                                       FontSize="12" FontWeight="SemiBold"/>
+                            <TextBlock Text="Embedded Python sidecar. Required to use any coach feature."
+                                       FontSize="11"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -351,7 +359,7 @@
 
                             <Button Grid.Column="1"
                                     Content="Install"
-                                    Command="{x:Bind CoachViewModel.InstallCommand}"
+                                    Command="{x:Bind CoachViewModel.InstallCoreCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
                                     FontSize="12" Height="32"
                                     Padding="16,0" CornerRadius="2"
@@ -359,7 +367,50 @@
 
                             <Button Grid.Column="2"
                                     Content="Uninstall"
-                                    Command="{x:Bind CoachViewModel.UninstallCommand}"
+                                    Command="{x:Bind CoachViewModel.UninstallCoreCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
+                                    FontSize="12" Height="32"
+                                    Padding="16,0" CornerRadius="2"/>
+                        </Grid>
+
+                        <!-- ML extras pack (~230 MB). Optional; enables /concepts/* endpoints. -->
+                        <StackPanel Spacing="2" Margin="0,10,0,4">
+                            <TextBlock Text="ML extras (~230 MB)"
+                                       FontSize="12" FontWeight="SemiBold"/>
+                            <TextBlock Text="Adds sentence embeddings and clustering for concept analysis. Optional — install later if you want coach to index concepts across your games."
+                                       FontSize="11"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock FontSize="12" FontWeight="SemiBold">
+                                    <Run Text="Status:"/>
+                                    <Run Text="{x:Bind CoachViewModel.MlInstallStatus, Mode=OneWay}"/>
+                                </TextBlock>
+                                <ProgressBar Value="{x:Bind CoachViewModel.MlInstallProgress, Mode=OneWay}"
+                                             Minimum="0" Maximum="100"
+                                             Height="4"
+                                             Visibility="{x:Bind CoachViewModel.IsInstallingMl, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                            </StackPanel>
+
+                            <Button Grid.Column="1"
+                                    Content="Install"
+                                    Command="{x:Bind CoachViewModel.InstallMlCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
+                                    FontSize="12" Height="32"
+                                    Padding="16,0" CornerRadius="2"
+                                    Margin="0,0,6,0"/>
+
+                            <Button Grid.Column="2"
+                                    Content="Uninstall"
+                                    Command="{x:Bind CoachViewModel.UninstallMlCommand}"
                                     Style="{StaticResource QuietActionButtonStyle}"
                                     FontSize="12" Height="32"
                                     Padding="16,0" CornerRadius="2"/>

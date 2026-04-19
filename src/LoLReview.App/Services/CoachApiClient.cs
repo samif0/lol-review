@@ -94,6 +94,11 @@ public sealed class CoachApiClient : ICoachApiClient
         try
         {
             var r = await _http.PostAsync(Url($"/concepts/extract/{gameId}"), content: null, cancellationToken);
+            if (r.StatusCode == System.Net.HttpStatusCode.NotImplemented)
+            {
+                _logger.LogDebug("concepts/extract: ML extras not installed, skipping");
+                return false;
+            }
             return r.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -104,6 +109,11 @@ public sealed class CoachApiClient : ICoachApiClient
         try
         {
             var r = await _http.PostAsync(Url("/concepts/recluster"), content: null, cancellationToken);
+            if (r.StatusCode == System.Net.HttpStatusCode.NotImplemented)
+            {
+                _logger.LogDebug("concepts/recluster: ML extras not installed, skipping");
+                return false;
+            }
             return r.IsSuccessStatusCode;
         }
         catch { return false; }
