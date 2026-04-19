@@ -63,7 +63,10 @@ async def run_generate_objective(since: int | None = None) -> GenerateObjectiveR
             # rationale mid-sentence on longer outputs. json_repair
             # couldn't recover the tail, so the UI showed garbage like
             # "very strong correlation (".
-            max_tokens=4000,
+            # Big enough for 3 full proposals with multi-sentence
+            # rationales even after the model self-validates against
+            # the "no stats-as-goals" rubric.
+            max_tokens=6000,
             response_format="json" if provider.supports_json_mode() else None,
         )
     )
@@ -135,6 +138,10 @@ def _parse_proposals(text: str) -> list[ObjectiveProposal]:
         if not title:
             continue
         rationale = str(p.get("rationale", "")).strip()
+        trigger_raw = p.get("trigger")
+        trigger = str(trigger_raw).strip() if trigger_raw else None
+        success_raw = p.get("success_criteria")
+        success_criteria = str(success_raw).strip() if success_raw else None
         confidence = float(p.get("confidence", 0.0))
         replaces = p.get("replaces_objective_id")
         replaces_id = int(replaces) if isinstance(replaces, int) else None
@@ -142,6 +149,8 @@ def _parse_proposals(text: str) -> list[ObjectiveProposal]:
             ObjectiveProposal(
                 title=title,
                 rationale=rationale,
+                trigger=trigger or None,
+                success_criteria=success_criteria or None,
                 replaces_objective_id=replaces_id,
                 confidence=max(0.0, min(1.0, confidence)),
             )

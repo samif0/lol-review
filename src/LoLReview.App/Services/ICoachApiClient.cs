@@ -84,7 +84,9 @@ public record CoachObjectiveProposal(
     string Title,
     string Rationale,
     long? ReplacesObjectiveId,
-    double Confidence);
+    double Confidence,
+    string? Trigger = null,
+    string? SuccessCriteria = null);
 
 public record CoachGenerateObjectiveResponse(
     IReadOnlyList<CoachObjectiveProposal> Proposals,

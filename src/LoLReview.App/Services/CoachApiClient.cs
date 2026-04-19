@@ -464,7 +464,12 @@ public sealed class CoachApiClient : ICoachApiClient
             if (payload is null) return null;
             return new CoachGenerateObjectiveResponse(
                 payload.Proposals.Select(p => new CoachObjectiveProposal(
-                    p.Title, p.Rationale, p.ReplacesObjectiveId, p.Confidence)).ToList(),
+                    p.Title,
+                    p.Rationale,
+                    p.ReplacesObjectiveId,
+                    p.Confidence,
+                    p.Trigger,
+                    p.SuccessCriteria)).ToList(),
                 payload.Model,
                 payload.Provider,
                 payload.LatencyMs);
@@ -514,7 +519,12 @@ public sealed class CoachApiClient : ICoachApiClient
     private sealed record ThreadListPayload(List<ThreadSummaryPayload> Threads);
 
     private sealed record ObjectiveProposalPayload(
-        string Title, string Rationale, long? ReplacesObjectiveId, double Confidence);
+        string Title,
+        string Rationale,
+        long? ReplacesObjectiveId,
+        double Confidence,
+        string? Trigger,
+        string? SuccessCriteria);
 
     private sealed record GenerateObjectivePayload(
         List<ObjectiveProposalPayload> Proposals, string Model, string Provider, int LatencyMs);

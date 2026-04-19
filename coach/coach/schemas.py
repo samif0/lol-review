@@ -234,6 +234,12 @@ class GenerateObjectiveRequest(BaseModel):
 class ObjectiveProposal(BaseModel):
     title: str
     rationale: str
+    # New in v2.8.2: specific in-game cue the player uses to
+    # recognize the trigger, and how they'll self-verify success.
+    # Both optional; older clients and older prompt versions can
+    # still return proposals without them.
+    trigger: str | None = None
+    success_criteria: str | None = None
     replaces_objective_id: int | None = None
     confidence: float
 

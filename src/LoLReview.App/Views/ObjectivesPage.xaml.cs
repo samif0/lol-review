@@ -87,6 +87,40 @@ public sealed partial class ObjectivesPage : Page
         }
     }
 
+    /// <summary>
+    /// Build a tiny mono-font section label with a violet leading bar,
+    /// used inside proposal cards for "WHEN TO DO IT" / "HOW YOU'LL KNOW"
+    /// subsections. Kept visually lighter than the card title so it reads
+    /// as a label, not a heading.
+    /// </summary>
+    private static StackPanel BuildFieldLabel(string text, FontFamily monoFont, SolidColorBrush accent)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Margin = new Thickness(0, 4, 0, -2),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        row.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            Width = 10,
+            Height = 1,
+            Fill = accent,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        row.Children.Add(new TextBlock
+        {
+            Text = text,
+            FontFamily = monoFont,
+            FontSize = 9,
+            CharacterSpacing = 300,
+            Foreground = accent,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        return row;
+    }
+
     private System.Threading.Tasks.TaskCompletionSource<bool>? _proposalsTcs;
 
     private System.Threading.Tasks.Task ShowProposalsDialog(CoachGenerateObjectiveResponse result)
@@ -177,6 +211,36 @@ public sealed partial class ObjectivesPage : Page
                 LineHeight = 18,
             });
 
+            // Trigger — the in-game cue. Label + body.
+            if (!string.IsNullOrWhiteSpace(proposal.Trigger))
+            {
+                cardStack.Children.Add(BuildFieldLabel("WHEN TO DO IT", monoFont, accentBrush));
+                cardStack.Children.Add(new TextBlock
+                {
+                    Text = proposal.Trigger,
+                    FontSize = 12,
+                    Foreground = primaryBrush,
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.88,
+                    LineHeight = 18,
+                });
+            }
+
+            // Success criteria — how the player self-verifies post-game.
+            if (!string.IsNullOrWhiteSpace(proposal.SuccessCriteria))
+            {
+                cardStack.Children.Add(BuildFieldLabel("HOW YOU'LL KNOW", monoFont, accentBrush));
+                cardStack.Children.Add(new TextBlock
+                {
+                    Text = proposal.SuccessCriteria,
+                    FontSize = 12,
+                    Foreground = primaryBrush,
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.88,
+                    LineHeight = 18,
+                });
+            }
+
             // Confidence as a mini progress bar + small label to the
             // side — feels more HUD than a plain "confidence: 40%".
             var confRow = new Grid();
@@ -248,7 +312,20 @@ public sealed partial class ObjectivesPage : Page
             useBtn.Click += (_, _) =>
             {
                 ViewModel.NewTitle = localProposal.Title;
-                ViewModel.NewDescription = localProposal.Rationale;
+                // Compose a rich description so the trigger and success
+                // criteria are persisted alongside the rationale rather
+                // than lost after the modal closes.
+                var description = new System.Text.StringBuilder();
+                description.Append(localProposal.Rationale);
+                if (!string.IsNullOrWhiteSpace(localProposal.Trigger))
+                {
+                    description.Append("\n\nWhen to do it: ").Append(localProposal.Trigger);
+                }
+                if (!string.IsNullOrWhiteSpace(localProposal.SuccessCriteria))
+                {
+                    description.Append("\n\nHow you'll know: ").Append(localProposal.SuccessCriteria);
+                }
+                ViewModel.NewDescription = description.ToString();
                 if (!ViewModel.IsCreating)
                 {
                     ViewModel.ToggleCreateFormCommand.Execute(null);

@@ -51,10 +51,10 @@
         <Grid x:Name="CardFrame"
               HorizontalAlignment="Center"
               VerticalAlignment="Center"
-              MinWidth="460"
-              MaxWidth="920"
-              MinHeight="180"
-              MaxHeight="760"
+              MinWidth="720"
+              MaxWidth="1120"
+              MinHeight="220"
+              MaxHeight="820"
               Canvas.ZIndex="1"
               Tapped="OnCardTapped">
 
