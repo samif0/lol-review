@@ -50,13 +50,13 @@ class GoogleAIProvider(LLMProvider):
             "maxOutputTokens": req.max_tokens,
             "topP": 0.95,
             "topK": 64,
-            "frequencyPenalty": 0.5,
-            "presencePenalty": 0.3,
         }
-        # thinkingConfig is a Gemini-family feature; Gemma models reject it
-        # with 400 INVALID_ARGUMENT. Only add it for Gemini.
-        if self._model_supports_thinking_config():
+        # Gemini-only knobs. Gemma 4 on Google AI rejects both thinkingConfig
+        # and frequency/presencePenalty with 400 INVALID_ARGUMENT.
+        if self._is_gemini_family():
             gen_config["thinkingConfig"] = {"thinkingBudget": 2048}
+            gen_config["frequencyPenalty"] = 0.5
+            gen_config["presencePenalty"] = 0.3
         body: dict[str, Any] = {"contents": contents, "generationConfig": gen_config}
         if req.response_format == "json":
             body["generationConfig"]["responseMimeType"] = "application/json"
@@ -100,22 +100,21 @@ class GoogleAIProvider(LLMProvider):
             "temperature": req.temperature,
             "maxOutputTokens": req.max_tokens,
             # topP + topK nudge Gemma 4 away from pathological token-repeat
-            # loops ('I donleksya_ch_av_av_av_'). Added frequency + presence
-            # penalties because Gemma 4 on large contexts can still loop
-            # catastrophically (seen: 'standing than you's standing than
-            # you's' filling 8000 tokens).
+            # loops ('I donleksya_ch_av_av_av_').
             "topP": 0.95,
             "topK": 64,
-            "frequencyPenalty": 0.5,
-            "presencePenalty": 0.3,
         }
-        # Gemini supports thinkingConfig (reasoning-mode control); Gemma
-        # rejects it with 400 INVALID_ARGUMENT. Enable only for Gemini.
-        if self._model_supports_thinking_config():
+        # Gemini-only knobs. Gemma 4 on Google AI rejects thinkingConfig AND
+        # frequency/presencePenalty with 400 INVALID_ARGUMENT.
+        if self._is_gemini_family():
             gen_config["thinkingConfig"] = {
                 "includeThoughts": True,
                 "thinkingBudget": 2048,
             }
+            # Penalties dramatically reduce degenerate repetition loops
+            # (seen on Gemma 4: 'standing than you's' filling 8000 tokens).
+            gen_config["frequencyPenalty"] = 0.5
+            gen_config["presencePenalty"] = 0.3
         body: dict[str, Any] = {"contents": contents, "generationConfig": gen_config}
         if req.response_format == "json":
             body["generationConfig"]["responseMimeType"] = "application/json"
@@ -251,8 +250,9 @@ class GoogleAIProvider(LLMProvider):
             contents.append({"role": role, "parts": parts})
         return contents
 
-    def _model_supports_thinking_config(self) -> bool:
-        """thinkingConfig is Gemini-family only. Gemma rejects it with 400."""
+    def _is_gemini_family(self) -> bool:
+        """thinkingConfig + frequency/presencePenalty are Gemini-only.
+        Gemma rejects them with 400 INVALID_ARGUMENT."""
         name = (self._model or "").lower()
         return name.startswith("gemini-") or "gemini" in name.split("/")
 
