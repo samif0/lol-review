@@ -181,13 +181,15 @@ class GoogleAIProvider(LLMProvider):
     async def _retry_stream_once(
         self, req: LLMRequest, body: dict[str, Any], url: str
     ) -> AsyncIterator[tuple[str, str]]:
-        """Single silent retry for empty-STOP responses. Any outcome is final
-        — we don't recurse. Signals final failure via a short note if the
-        retry also returns nothing."""
+        """Single silent retry for empty-STOP responses. If the retry also
+        returns empty, fall through to a narrower clarification prompt
+        that asks the user what they meant — Gemini handles that
+        reliably even when the original question was too open-ended."""
         try:
             async with self._client.stream("POST", url, json=body) as response:
                 if response.status_code >= 400:
-                    yield ("answer", "No response after retry. Try again.")
+                    async for kind, chunk in self._clarification_stream(req, url):
+                        yield (kind, chunk)
                     return
                 any_answer = False
                 async for line in response.aiter_lines():
@@ -213,11 +215,110 @@ class GoogleAIProvider(LLMProvider):
                             any_answer = True
                         yield (kind, text)
                 if not any_answer:
-                    yield ("answer",
-                        "Model returned no answer after retry. Try rephrasing.")
+                    async for kind, chunk in self._clarification_stream(req, url):
+                        yield (kind, chunk)
         except Exception as exc:
             logger.exception("retry stream failed")
-            yield ("answer", f"Retry failed: {exc}")
+            # Still try to ask for clarification rather than surface a raw
+            # exception message — but fall back to a literal note if even
+            # the clarification attempt fails.
+            try:
+                async for kind, chunk in self._clarification_stream(req, url):
+                    yield (kind, chunk)
+            except Exception:
+                yield ("answer",
+                    "Something went wrong reaching the model. Try asking "
+                    "again, or rephrase with more detail about what you want "
+                    "to know.")
+
+    async def _clarification_stream(
+        self, req: LLMRequest, url: str
+    ) -> AsyncIterator[tuple[str, str]]:
+        """Last-resort: model couldn't produce an answer to the original
+        question (usually because it was too short or too open-ended).
+        Send a narrower prompt asking the model to request clarification.
+        Gemini handles this reliably because the task is bounded."""
+
+        # Pull the user's last question out of the original request so we
+        # can quote it back. Fall back to a generic prompt if we can't
+        # find one.
+        last_user_text = ""
+        for msg in reversed(req.messages):
+            if msg.role == "user" and msg.content:
+                last_user_text = msg.content.strip()
+                break
+
+        # A deliberately narrow, low-risk instruction. No player context,
+        # no system prompt — just "ask for clarification." This
+        # almost never fails.
+        clarify_instruction = (
+            "The user just asked: "
+            f"\"{last_user_text[:500]}\""
+            "\n\n"
+            "You couldn't form a useful answer because the question was too "
+            "short or too open-ended. Ask them 1-2 specific clarifying "
+            "questions to narrow down what they want to know about their "
+            "League of Legends play. Keep it to 2 sentences maximum. "
+            "Do not apologize. Do not say things like \"I need more info\" or "
+            "\"Could you clarify\" — just ask the specific questions directly. "
+            "Plain text, no quote marks around phrases."
+        )
+
+        clarify_body: dict[str, Any] = {
+            "contents": [{"role": "user", "parts": [{"text": clarify_instruction}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 200,
+                "topP": 0.95,
+                "topK": 64,
+            },
+        }
+        # No thinkingConfig — we want minimal reasoning budget and maximum
+        # chance of actual output. Gemini handles the narrower task fine.
+
+        any_answer = False
+        async with self._client.stream("POST", url, json=clarify_body) as response:
+            if response.status_code >= 400:
+                yield ("answer",
+                    "I couldn't form an answer to that — could you be more "
+                    "specific? For example: what part of your play do you "
+                    "want to improve (laning, teamfights, mental, champion "
+                    "pool, warding)?")
+                return
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[len("data: "):]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data_str)
+                except Exception:
+                    continue
+                candidates = event.get("candidates", [])
+                if not candidates:
+                    continue
+                parts = candidates[0].get("content", {}).get("parts", [])
+                for p in parts:
+                    text = p.get("text", "")
+                    if not text:
+                        continue
+                    # Clarification call doesn't use thought tokens but guard
+                    # anyway in case the model emits them.
+                    if p.get("thought"):
+                        continue
+                    any_answer = True
+                    yield ("answer", text)
+
+        if not any_answer:
+            # Even the narrow clarification prompt returned nothing —
+            # extremely rare. Fall back to a hardcoded clarification so the
+            # user is never staring at an empty bubble.
+            yield ("answer",
+                "I couldn't form an answer to that — could you be more "
+                "specific? For example: what part of your play do you want "
+                "to improve (laning, teamfights, mental, champion pool, "
+                "warding)?")
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError(

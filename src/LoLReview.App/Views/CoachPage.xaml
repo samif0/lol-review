@@ -165,7 +165,15 @@
                                    FontSize="11"
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis"/>
+                                   TextTrimming="CharacterEllipsis">
+                            <ToolTipService.ToolTip>
+                                <TextBlock TextWrapping="Wrap" MaxWidth="360" FontSize="12">
+                                    <Run FontWeight="SemiBold" Text="Summaries"/><Run Text=" grow as you log games — the coach auto-builds them after each save."/><LineBreak/>
+                                    <Run FontWeight="SemiBold" Text="Signals"/><Run Text=" are per-game stats (KDA, gold/XP diffs, objectives). Grow every time you log a game."/><LineBreak/>
+                                    <Run FontWeight="SemiBold" Text="Concepts"/><Run Text=" are themes pulled from your review text (mistakes, went well, focus next, matchup notes). Grow when you write reviews — requires the ML extras pack from Settings → AI Coach."/>
+                                </TextBlock>
+                            </ToolTipService.ToolTip>
+                        </TextBlock>
                         <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
                                    FontSize="11"
                                    Foreground="{StaticResource AccentPurpleBrush}"

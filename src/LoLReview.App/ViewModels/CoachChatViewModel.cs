@@ -191,7 +191,10 @@ public sealed partial class CoachChatViewModel : ObservableObject
             // Best-effort: no progress stream, just status text.
             using (var client = new System.Net.Http.HttpClient())
             {
-                client.Timeout = TimeSpan.FromMinutes(10);
+                // Concept backfill runs one LLM call per game; on a large
+                // history (hundreds of games) the full pass can take 20+
+                // minutes. Give it plenty of room.
+                client.Timeout = TimeSpan.FromMinutes(45);
                 var baseUrl = "http://127.0.0.1:5577";
 
                 try
@@ -217,13 +220,22 @@ public sealed partial class CoachChatViewModel : ObservableObject
 
                 try
                 {
-                    BackfillStatus = "Concepts...";
-                    // Concepts require an LLM per review; this could take a long
-                    // time and hit rate limits. Users can trigger this path by
-                    // playing a game (live extraction) — skip it from the
-                    // one-click backfill by default.
-                    // await client.PostAsync($"{baseUrl}/concepts/extract-all", null);
-                    // await client.PostAsync($"{baseUrl}/concepts/recluster", null);
+                    // Concepts require an LLM call per review, so this is the
+                    // slow stage — a few seconds per game. The sidecar's
+                    // extract_all endpoint handles pacing + rate limiting
+                    // internally and returns once done.
+                    BackfillStatus = "Concepts (this can take a few minutes)...";
+                    using var extractReq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/concepts/extract-all");
+                    using var extractResp = await client.SendAsync(extractReq, HttpCompletionOption.ResponseHeadersRead);
+                    if (extractResp.StatusCode == System.Net.HttpStatusCode.NotImplemented)
+                    {
+                        BackfillStatus = "Concepts skipped — ML extras pack not installed.";
+                    }
+                    else
+                    {
+                        BackfillStatus = "Concept clustering...";
+                        await client.PostAsync($"{baseUrl}/concepts/recluster", null);
+                    }
                 }
                 catch (Exception ex) { _logger.LogWarning(ex, "concepts backfill failed"); }
             }
