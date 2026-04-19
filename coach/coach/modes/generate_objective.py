@@ -28,6 +28,7 @@ from coach.modes.ask import (
 )
 from coach.providers import get_provider
 from coach.schemas import GenerateObjectiveResponse, LLMMessage, LLMRequest, ObjectiveProposal
+from coach.text_sanitizer import sanitize
 
 logger = logging.getLogger(__name__)
 
@@ -147,10 +148,13 @@ def _parse_proposals(text: str) -> list[ObjectiveProposal]:
         replaces_id = int(replaces) if isinstance(replaces, int) else None
         out.append(
             ObjectiveProposal(
-                title=title,
-                rationale=rationale,
-                trigger=trigger or None,
-                success_criteria=success_criteria or None,
+                # Sanitize every user-visible string: strips quoted
+                # phrases like 'good mental' and stale [game #N]
+                # references the prompt rules keep leaking.
+                title=sanitize(title),
+                rationale=sanitize(rationale),
+                trigger=sanitize(trigger) if trigger else None,
+                success_criteria=sanitize(success_criteria) if success_criteria else None,
                 replaces_objective_id=replaces_id,
                 confidence=max(0.0, min(1.0, confidence)),
             )

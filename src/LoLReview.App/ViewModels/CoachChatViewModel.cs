@@ -327,26 +327,49 @@ public sealed partial class CoachChatViewModel : ObservableObject
     /// Strip markdown emphasis markers (*italic*, **bold**, _italic_, `code`)
     /// that Gemma still sneaks into output even when told not to. UI renders
     /// plain text so these would show as literal characters.
-    /// Preserves [game #ID] link markers.
+    /// Strip markdown emphasis + inline game-number references + quoted
+    /// phrases from a streamed chunk. Python sanitizes the persisted
+    /// message; this runs on each streamed delta so the UI doesn't
+    /// flash the ugly pattern for a moment before the server-clean
+    /// version lands.
     /// </summary>
     private static string StripEmphasis(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
-        // Remove any run of asterisks, underscores (between word chars), or
-        // backticks. We leave list-item dashes and [brackets] alone.
+        // Remove markdown emphasis characters the UI doesn't render.
         var sb = new System.Text.StringBuilder(text.Length);
         foreach (var ch in text)
         {
             if (ch == '*' || ch == '`') continue;
             sb.Append(ch);
         }
-        // Underscores between word chars only (don't touch file paths, ids).
         var cleaned = sb.ToString();
+        // Underscores between word chars only (don't touch file paths, ids).
         cleaned = System.Text.RegularExpressions.Regex.Replace(
             cleaned, @"(?<=\w)_(?=\w)", "");
-        // Word-boundary underscores at start/end of markdown-style emphasis
         cleaned = System.Text.RegularExpressions.Regex.Replace(
             cleaned, @"(?<=\s|^)_|_(?=\s|$)", "");
+        // Strip single-quoted phrases (but not contractions): `'jungle
+        // proximity'` -> `jungle proximity`. Uses curly + straight
+        // quotes. Inner content must not contain an apostrophe so we
+        // don't eat "don't" or "it's".
+        cleaned = System.Text.RegularExpressions.Regex.Replace(
+            cleaned,
+            @"['\u2018\u2019]([A-Za-z][A-Za-z0-9 \-/+]{0,60}[A-Za-z0-9])['\u2018\u2019]",
+            "$1");
+        // Strip inline game-number references — the user doesn't want
+        // to see raw game IDs until we ship clickable matchup links.
+        cleaned = System.Text.RegularExpressions.Regex.Replace(
+            cleaned, @"\[game\s*#?\d+\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        cleaned = System.Text.RegularExpressions.Regex.Replace(
+            cleaned, @"\bgames\s+#\d+(?:\s*(?:,|and|&)\s*#?\d+)*\b",
+            "your recent games", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        cleaned = System.Text.RegularExpressions.Regex.Replace(
+            cleaned, @"\bgame\s+#\d+\b",
+            "that game", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // Collapse the artifacts from the removals.
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"  +", " ");
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\(\s*\)", "");
         return cleaned;
     }
 }

@@ -18,6 +18,7 @@ from coach.config import load_config
 from coach.db import read_core, write_coach
 from coach.providers import get_provider
 from coach.schemas import AskResponse, ChatMessage, LLMMessage, LLMRequest
+from coach.text_sanitizer import sanitize
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +100,15 @@ async def run_ask(
         )
     )
 
+    # Enforce text rules the prompt keeps leaking: strip quoted
+    # phrases and inline [game #N] references. See text_sanitizer.
+    cleaned_text = sanitize(response.text)
+
     assistant_now = int(time.time())
     assistant_msg_id = _persist_message(
         thread_id=thread_id,
         role="assistant",
-        content=response.text,
+        content=cleaned_text,
         context_json=None,
         model_name=response.model,
         provider=response.provider,
@@ -129,7 +134,7 @@ async def run_ask(
         id=assistant_msg_id,
         thread_id=thread_id,
         role="assistant",
-        content=response.text,
+        content=cleaned_text,
         model=response.model,
         provider=response.provider,
         latency_ms=response.latency_ms,
