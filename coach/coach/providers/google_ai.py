@@ -119,14 +119,33 @@ class GoogleAIProvider(LLMProvider):
 
         async with self._client.stream("POST", url, json=body) as response:
             if response.status_code >= 400:
-                body_text = await response.aread()
-                # Don't attach request=... to the exception — httpx
-                # embeds the full URL (including ?key=...) in the
-                # stringified exception, which ends up in log files.
-                raise RuntimeError(
-                    f"Streaming error {response.status_code}: "
-                    f"{body_text.decode('utf-8', errors='replace')[:500]}"
-                )
+                # Drain the error body so httpx doesn't warn, but don't
+                # surface the raw JSON to the user. And don't include
+                # the request URL (would leak ?key=).
+                try:
+                    await response.aread()
+                except Exception:
+                    pass
+                status = response.status_code
+                if status == 429:
+                    yield ("answer",
+                        "You've hit the Google AI rate limit. The free tier "
+                        "allows ~15 requests per minute and 1,500 per day. "
+                        "Wait a minute and try again, or enable billing at "
+                        "aistudio.google.com to raise the quota.")
+                elif status in (401, 403):
+                    yield ("answer",
+                        "Google AI rejected the API key (status "
+                        f"{status}). Open Settings, paste a valid key, and "
+                        "click Save coach config.")
+                elif 500 <= status < 600:
+                    yield ("answer",
+                        f"Google AI is having a problem (status {status}). "
+                        "Try again in a moment.")
+                else:
+                    yield ("answer",
+                        f"The model call failed with status {status}. Try again.")
+                return
             any_answer = False
             last_finish_reason: str | None = None
 
