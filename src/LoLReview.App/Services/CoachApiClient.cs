@@ -44,6 +44,22 @@ public sealed class CoachApiClient : ICoachApiClient
         catch { return false; }
     }
 
+    public async Task<IReadOnlyDictionary<string, int>?> GetTotalsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var r = await _http.GetAsync(Url("/coach/totals"), cancellationToken);
+            if (!r.IsSuccessStatusCode) return null;
+            var payload = await r.Content.ReadFromJsonAsync<Dictionary<string, int>>(JsonOpts, cancellationToken);
+            return payload;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "coach/totals failed");
+            return null;
+        }
+    }
+
     public async Task<CoachTestPromptResponse?> TestPromptAsync(string prompt, CancellationToken cancellationToken = default)
     {
         try

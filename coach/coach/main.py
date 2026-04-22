@@ -167,6 +167,14 @@ async def coach_ask(req: AskRequest) -> AskResponse:
     return await run_ask(req.question, thread_id=req.thread_id, scope=req.scope)
 
 
+@app.get("/coach/totals")
+async def coach_totals() -> dict[str, int]:
+    """Fresh snapshot of what the coach sees (games/summaries/concepts/signals)."""
+    from coach.modes.ask import _coach_visible_totals
+
+    return _coach_visible_totals()
+
+
 @app.post("/coach/ask-stream")
 async def coach_ask_stream(req: AskRequest) -> StreamingResponse:
     """Server-Sent Events: stream model tokens as they arrive."""

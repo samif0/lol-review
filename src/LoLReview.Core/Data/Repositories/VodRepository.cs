@@ -235,6 +235,25 @@ public sealed class VodRepository : IVodRepository
         return await ReadBookmarksAsync(cmd);
     }
 
+    public async Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksForObjectiveAsync(long objectiveId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        // Pull bookmarks either directly tagged with this objective, OR attached
+        // to any game linked to the objective via game_objectives. Most users
+        // don't tag every clip, so the game-link fallback is what they expect
+        // when they ask "show me the clips for this objective."
+        cmd.CommandText = """
+            SELECT DISTINCT b.* FROM vod_bookmarks b
+            JOIN games g ON g.game_id = b.game_id
+            LEFT JOIN game_objectives go ON go.game_id = b.game_id AND go.objective_id = @objectiveId
+            WHERE b.objective_id = @objectiveId OR go.objective_id = @objectiveId
+            ORDER BY g.timestamp DESC, b.game_time_s ASC
+            """;
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+        return await ReadBookmarksAsync(cmd);
+    }
+
     public async Task<int> GetBookmarkCountAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();

@@ -10,6 +10,8 @@ public interface ICoachApiClient
 {
     Task<bool> HealthAsync(CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyDictionary<string, int>?> GetTotalsAsync(CancellationToken cancellationToken = default);
+
     Task<CoachTestPromptResponse?> TestPromptAsync(string prompt, CancellationToken cancellationToken = default);
 
     // Phase 1

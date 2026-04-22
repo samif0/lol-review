@@ -41,6 +41,8 @@ public interface IVodRepository
 
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId);
 
+    Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksForObjectiveAsync(long objectiveId);
+
     Task<int> GetBookmarkCountAsync(long gameId);
 
     Task DeleteAllBookmarksAsync(long gameId);

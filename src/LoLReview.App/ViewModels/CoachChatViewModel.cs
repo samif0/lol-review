@@ -241,7 +241,8 @@ public sealed partial class CoachChatViewModel : ObservableObject
             }
 
             BackfillStatus = "Done. Ask something to verify.";
-            // Nudge the totals line on next ask by asking coach for health.
+            var totals = await _api.GetTotalsAsync();
+            if (totals is not null) UpdateTotals(totals);
         }
         finally
         {
