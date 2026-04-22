@@ -66,6 +66,23 @@ public partial class App : Application
         // system min/max/close overlays on the right, so we leave room for them.
         _mainWindow.ExtendsContentIntoTitleBar = true;
 
+        // Set the window icon explicitly so Windows' hover-preview thumbnail,
+        // alt-tab, and task-switcher show the right icon. ApplicationIcon in
+        // the csproj only populates the exe's embedded icon (taskbar shortcut);
+        // AppWindow needs its own SetIcon call.
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "lolreview.ico");
+            if (File.Exists(iconPath))
+            {
+                _mainWindow.AppWindow.SetIcon(iconPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteVerbose("startup.log", $"Could not set window icon: {ex.Message}");
+        }
+
         var manager = WinUIEx.WindowManager.Get(_mainWindow);
         manager.MinWidth = 1024;
         manager.MinHeight = 640;

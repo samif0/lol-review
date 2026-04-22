@@ -29,25 +29,17 @@
                    Fill="{StaticResource LossRedBrush}"
                    HorizontalAlignment="Stretch"/>
 
-        <!-- Custom title bar: drag region for the window. Min/max/close stay as
-             OS overlays on the right — we leave ~150px margin there. -->
+        <!-- Custom title bar: drag region sits to the right of the sidebar rail,
+             starting at 72px and ending 150px from the right (room for
+             min/max/close overlays). -->
         <Grid x:Name="AppTitleBar"
               Grid.Row="1"
               Background="{StaticResource SidebarBackgroundBrush}"
-              Padding="16,0,150,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="REVU"
-                       FontFamily="{StaticResource MonoFont}"
-                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                       CharacterSpacing="400"
-                       FontWeight="SemiBold"
-                       Foreground="{StaticResource AccentBlueBrush}"
-                       VerticalAlignment="Center"/>
-        </Grid>
+              Margin="72,0,150,0"/>
 
-        <Grid Grid.Row="2">
+        <!-- Sidebar spans title-bar + content rows so the logo can sit at
+             the very top, covering the 72px left of the title-bar area. -->
+        <Grid Grid.Row="1" Grid.RowSpan="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="72"/>
                 <ColumnDefinition Width="*"/>
@@ -72,17 +64,17 @@
                             IsHitTestVisible="False"
                             Canvas.ZIndex="15"/>
 
-                    <!-- Logo -->
+                    <!-- Logo — sits in the title-bar strip at the top of the sidebar rail. -->
                     <StackPanel Grid.Row="0"
-                                Margin="0,20,0,16"
+                                Margin="0,8,0,12"
                                 HorizontalAlignment="Center">
-                        <TextBlock Text="RV"
+                        <TextBlock Text="REVU"
                                    FontFamily="{StaticResource DisplayFont}"
-                                   FontSize="{Binding Title, Source={StaticResource FontSizes}}"
+                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource AccentBlueBrush}"
                                    HorizontalAlignment="Center"
-                                   CharacterSpacing="200"/>
+                                   CharacterSpacing="300"/>
                         <TextBlock Text="2.9"
                                    FontFamily="{StaticResource MonoFont}"
                                    FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
@@ -293,7 +285,10 @@
 
 
             <!-- ••• CONTENT AREA ••• -->
-            <Grid Grid.Column="1">
+            <!-- Top margin 32px leaves title-bar row visible for window-drag;
+                 sidebar column above extends all the way up. -->
+            <Grid Grid.Column="1"
+                  Margin="0,32,0,0">
                 <!-- Ambient decorative shapes -->
                 <Rectangle Width="420"
                            Height="154"

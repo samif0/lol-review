@@ -19,20 +19,12 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Custom title bar — drag region for the window. Min/max/close overlays
-             stay on the right; we reserve ~150px for them. -->
+        <!-- Custom title bar — empty drag region. Min/max/close overlays stay
+             on the right; we reserve ~150px for them. -->
         <Grid x:Name="AppTitleBar"
               Grid.Row="0"
               Background="{StaticResource SidebarBackgroundBrush}"
-              Padding="16,0,150,0">
-            <TextBlock Text="REVU"
-                       FontFamily="{StaticResource MonoFont}"
-                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                       CharacterSpacing="400"
-                       FontWeight="SemiBold"
-                       Foreground="{StaticResource AccentBlueBrush}"
-                       VerticalAlignment="Center"/>
-        </Grid>
+              Padding="16,0,150,0"/>
 
         <ScrollViewer Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
