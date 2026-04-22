@@ -44,7 +44,7 @@ public sealed class RuleDisplayItem
             {
                 "no_play_day" => $"Days: {ConditionValue}",
                 "no_play_after" => FormatHour(ConditionValue),
-                "loss_streak" => $"Stop after {ConditionValue} consecutive losses",
+                "loss_streak" => FormatLossStreak(ConditionValue),
                 "max_games" => $"Max {ConditionValue} games per day",
                 "min_mental" => $"Don't queue below mental {ConditionValue}",
                 _ => ""
@@ -65,6 +65,15 @@ public sealed class RuleDisplayItem
         var displayH = h <= 12 ? h : h - 12;
         if (displayH == 0) displayH = 12;
         return $"No play after {displayH}:00 {suffix}";
+    }
+
+    private static string FormatLossStreak(string value)
+    {
+        var (threshold, cd) = RulesRepository.ParseLossStreakCondition(value);
+        if (threshold <= 0) return "";
+        if (cd is not int m || m <= 0) return $"Stop after {threshold} consecutive losses";
+        var window = m >= 60 ? $"{m / 60}h{(m % 60 > 0 ? $" {m % 60}m" : "")}" : $"{m}m";
+        return $"Stop after {threshold} losses (unlock after {window})";
     }
 }
 
@@ -135,6 +144,23 @@ public partial class RulesViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _showConditionField;
+
+    // Second input only used by loss_streak: cooldown minutes (blank = rest-of-day).
+    [ObservableProperty]
+    private string _newLossStreakCooldown = "";
+
+    [ObservableProperty]
+    private bool _showLossStreakCooldown;
+
+    // Non-null when the form is editing an existing rule; null when creating.
+    [ObservableProperty]
+    private long? _editingRuleId;
+
+    [ObservableProperty]
+    private string _formTitle = "New Rule";
+
+    [ObservableProperty]
+    private string _formSubmitLabel = "Create";
 
     public ObservableCollection<RuleDisplayItem> ActiveRules { get; } = new();
     public ObservableCollection<RuleDisplayItem> InactiveRules { get; } = new();
@@ -226,6 +252,8 @@ public partial class RulesViewModel : ObservableObject
         var typeKey = typeIndex >= 0 && typeIndex < RuleTypeKeys.Length
             ? RuleTypeKeys[typeIndex] : "custom";
 
+        ShowLossStreakCooldown = typeKey == "loss_streak";
+
         switch (typeKey)
         {
             case "no_play_day":
@@ -283,6 +311,58 @@ public partial class RulesViewModel : ObservableObject
         {
             ClearForm();
         }
+        else
+        {
+            EditingRuleId = null;
+            FormTitle = "New Rule";
+            FormSubmitLabel = "Create";
+        }
+    }
+
+    [RelayCommand]
+    private void StartEditing(long ruleId)
+    {
+        var rule = FindRule(ruleId);
+        if (rule is null) return;
+
+        EditingRuleId = ruleId;
+        FormTitle = "Edit Rule";
+        FormSubmitLabel = "Save";
+
+        NewRuleName = rule.Name;
+        NewDescription = rule.Description;
+        NewRuleTypeIndex = IndexForRuleType(rule.RuleType);
+
+        if (rule.RuleType == "loss_streak")
+        {
+            var (threshold, cd) = RulesRepository.ParseLossStreakCondition(rule.ConditionValue);
+            NewConditionValue = threshold > 0 ? threshold.ToString() : "";
+            NewLossStreakCooldown = cd is int m && m > 0 ? m.ToString() : "";
+        }
+        else
+        {
+            NewConditionValue = rule.ConditionValue;
+            NewLossStreakCooldown = "";
+        }
+
+        CanCreate = !string.IsNullOrWhiteSpace(NewRuleName);
+        IsCreating = true;
+    }
+
+    private RuleDisplayItem? FindRule(long ruleId)
+    {
+        foreach (var r in ActiveRules) if (r.Id == ruleId) return r;
+        foreach (var r in InactiveRules) if (r.Id == ruleId) return r;
+        return null;
+    }
+
+    private static int IndexForRuleType(string ruleType)
+    {
+        for (var i = 0; i < RuleTypeKeys.Length; i++)
+        {
+            if (RuleTypeKeys[i] == ruleType) return i;
+        }
+        return 0;
     }
 
     [RelayCommand]
@@ -293,14 +373,36 @@ public partial class RulesViewModel : ObservableObject
         var typeKey = NewRuleTypeIndex >= 0 && NewRuleTypeIndex < RuleTypeKeys.Length
             ? RuleTypeKeys[NewRuleTypeIndex] : "custom";
 
-        await _rulesRepo.CreateAsync(
-            NewRuleName.Trim(),
-            NewDescription.Trim(),
-            typeKey,
-            NewConditionValue.Trim());
+        var conditionValue = NewConditionValue.Trim();
+        if (typeKey == "loss_streak" && !string.IsNullOrWhiteSpace(NewLossStreakCooldown)
+            && int.TryParse(NewLossStreakCooldown.Trim(), out var cd) && cd > 0)
+        {
+            conditionValue = $"{conditionValue}:{cd}";
+        }
+
+        if (EditingRuleId is long id)
+        {
+            await _rulesRepo.UpdateAsync(
+                id,
+                NewRuleName.Trim(),
+                NewDescription.Trim(),
+                typeKey,
+                conditionValue);
+        }
+        else
+        {
+            await _rulesRepo.CreateAsync(
+                NewRuleName.Trim(),
+                NewDescription.Trim(),
+                typeKey,
+                conditionValue);
+        }
 
         ClearForm();
         IsCreating = false;
+        EditingRuleId = null;
+        FormTitle = "New Rule";
+        FormSubmitLabel = "Create";
         await RefreshDataAsync();
     }
 
@@ -334,6 +436,7 @@ public partial class RulesViewModel : ObservableObject
         NewRuleName = "";
         NewRuleTypeIndex = 0;
         NewConditionValue = "";
+        NewLossStreakCooldown = "";
         NewDescription = "";
     }
 

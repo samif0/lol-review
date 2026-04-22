@@ -14,6 +14,8 @@ public interface IRulesRepository
     Task<long> CreateAsync(string name, string description = "", string ruleType = "custom",
         string conditionValue = "");
 
+    Task UpdateAsync(long ruleId, string name, string description, string ruleType, string conditionValue);
+
     Task<IReadOnlyList<RuleRecord>> GetAllAsync();
 
     Task<IReadOnlyList<RuleRecord>> GetActiveAsync();

@@ -176,6 +176,49 @@ public sealed class RulesRepository : IRulesRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdateAsync(long ruleId, string name, string description, string ruleType, string conditionValue)
+    {
+        using var conn = _factory.CreateConnection();
+        var schema = await GetSchemaAsync(conn);
+
+        using var cmd = conn.CreateCommand();
+        var sets = new List<string>();
+
+        if (schema.HasTitle)
+        {
+            sets.Add("title = @name");
+        }
+        if (schema.HasName)
+        {
+            sets.Add("name = @name");
+        }
+        cmd.Parameters.AddWithValue("@name", name);
+
+        if (schema.HasDescription)
+        {
+            sets.Add("description = @description");
+            cmd.Parameters.AddWithValue("@description", description);
+        }
+
+        if (schema.HasRuleType)
+        {
+            sets.Add("rule_type = @ruleType");
+            cmd.Parameters.AddWithValue("@ruleType", ruleType);
+        }
+
+        if (schema.HasConditionValue)
+        {
+            sets.Add("condition_value = @conditionValue");
+            cmd.Parameters.AddWithValue("@conditionValue", conditionValue);
+        }
+
+        if (sets.Count == 0) return;
+
+        cmd.CommandText = $"UPDATE rules SET {string.Join(", ", sets)} WHERE id = @id";
+        cmd.Parameters.AddWithValue("@id", ruleId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<IReadOnlyList<RuleViolation>> CheckViolationsAsync(
         IReadOnlyList<RuleCheckGame>? todaysGames = null,
         int? mentalRating = null)
@@ -219,25 +262,43 @@ public sealed class RulesRepository : IRulesRepository
 
                 case "loss_streak" when todaysGames is not null:
                 {
-                    if (int.TryParse(rule.ConditionValue, out var threshold))
+                    var (threshold, cooldownMinutes) = ParseLossStreakCondition(rule.ConditionValue);
+                    if (threshold > 0)
                     {
-                        var consecutive = 0;
+                        // Walk back from the end to find the current tail streak of losses.
+                        var streakStartIndex = todaysGames.Count;
                         for (var i = todaysGames.Count - 1; i >= 0; i--)
                         {
-                            if (!todaysGames[i].Win)
-                            {
-                                consecutive++;
-                            }
-                            else
-                            {
-                                break;
-                            }
+                            if (todaysGames[i].Win) break;
+                            streakStartIndex = i;
                         }
+                        var consecutive = todaysGames.Count - streakStartIndex;
 
                         if (consecutive >= threshold)
                         {
-                            violated = true;
-                            reason = $"{consecutive} consecutive losses";
+                            // Cooldown is armed by the loss that first tripped the threshold,
+                            // not by the most recent loss. Further losses during the cooldown
+                            // are the violation; they don't re-arm the timer.
+                            var triggerTs = todaysGames[streakStartIndex + threshold - 1].Timestamp;
+
+                            if (cooldownMinutes is int cd && cd > 0 && triggerTs > 0)
+                            {
+                                var nowUnix = DateTimeOffset.Now.ToUnixTimeSeconds();
+                                var elapsedMin = (nowUnix - triggerTs) / 60;
+                                var remainingMin = cd - elapsedMin;
+                                if (remainingMin > 0)
+                                {
+                                    violated = true;
+                                    reason = remainingMin >= 60
+                                        ? $"{consecutive} consecutive losses — cooldown ends in {remainingMin / 60}h {remainingMin % 60}m"
+                                        : $"{consecutive} consecutive losses — cooldown ends in {remainingMin}m";
+                                }
+                            }
+                            else
+                            {
+                                violated = true;
+                                reason = $"{consecutive} consecutive losses";
+                            }
                         }
                     }
 
@@ -273,6 +334,20 @@ public sealed class RulesRepository : IRulesRepository
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Parses a loss_streak condition value. Format: "X" (threshold only, no cooldown →
+    /// rest-of-day) or "X:Y" where Y is cooldown minutes after the last loss.
+    /// </summary>
+    public static (int Threshold, int? CooldownMinutes) ParseLossStreakCondition(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return (0, null);
+        var parts = raw.Split(':', 2);
+        if (!int.TryParse(parts[0].Trim(), out var threshold) || threshold <= 0) return (0, null);
+        if (parts.Length == 1 || string.IsNullOrWhiteSpace(parts[1])) return (threshold, null);
+        if (int.TryParse(parts[1].Trim(), out var cd) && cd > 0) return (threshold, cd);
+        return (threshold, null);
     }
 
     private static string BuildCanonicalSelect(RulesSchema schema)

@@ -83,7 +83,7 @@
                         BorderBrush="{StaticResource AccentBlueBrush}"
                         Visibility="{x:Bind ViewModel.IsCreating, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <StackPanel Spacing="12">
-                        <TextBlock Text="New Rule"
+                        <TextBlock Text="{x:Bind ViewModel.FormTitle, Mode=OneWay}"
                                    FontSize="{Binding Title, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                    Foreground="{StaticResource PrimaryTextBrush}"/>
 
@@ -125,6 +125,25 @@
                                      CornerRadius="2"/>
                         </StackPanel>
 
+                        <!-- Loss-streak cooldown (only shown for loss_streak) -->
+                        <StackPanel Spacing="4"
+                                    Visibility="{x:Bind ViewModel.ShowLossStreakCooldown, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Cooldown (minutes)"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.NewLossStreakCooldown, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Blank = rest of day. e.g., 120 for 2 hours"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     CornerRadius="2"/>
+                            <TextBlock Text="How long the guardrail stays active after your last loss. After this much time, you can queue again."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"
+                                       FontStyle="Italic"/>
+                        </StackPanel>
+
                         <!-- Description -->
                         <StackPanel Spacing="4">
                             <TextBlock Text="Description" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
@@ -148,7 +167,7 @@
                                     Style="{StaticResource QuietActionButtonStyle}"
                                     CornerRadius="2" Height="32"
                                     BorderThickness="0"/>
-                            <Button Content="Create"
+                            <Button Content="{x:Bind ViewModel.FormSubmitLabel, Mode=OneWay}"
                                     Command="{x:Bind ViewModel.CreateRuleCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanCreate, Mode=OneWay}"
                                     Style="{StaticResource PrimaryActionButtonStyle}"
@@ -309,6 +328,12 @@
                                                 FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                 Tag="{x:Bind Id}"
                                                 Click="DeleteRule_Click"/>
+                                        <Button Content="Edit"
+                                                Style="{StaticResource SecondaryActionButtonStyle}"
+                                                CornerRadius="2" Height="28"
+                                                FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                Tag="{x:Bind Id}"
+                                                Click="EditRule_Click"/>
                                         <Button Content="{x:Bind ToggleText}"
                                                 Style="{StaticResource SecondaryActionButtonStyle}"
                                                 CornerRadius="2" Height="28"
@@ -380,6 +405,12 @@
                                                 FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                 Tag="{x:Bind Id}"
                                                 Click="DeleteRule_Click"/>
+                                        <Button Content="Edit"
+                                                Style="{StaticResource SecondaryActionButtonStyle}"
+                                                CornerRadius="2" Height="28"
+                                                FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                Tag="{x:Bind Id}"
+                                                Click="EditRule_Click"/>
                                         <Button Content="{x:Bind ToggleText}"
                                                 Style="{StaticResource SecondaryActionButtonStyle}"
                                                 Foreground="{StaticResource WinGreenBrush}"

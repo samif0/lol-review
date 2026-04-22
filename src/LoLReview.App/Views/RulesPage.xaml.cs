@@ -32,6 +32,14 @@ public sealed partial class RulesPage : Page
         }
     }
 
+    private void EditRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long ruleId)
+        {
+            ViewModel.StartEditingCommand.Execute(ruleId);
+        }
+    }
+
     private async void DeleteRule_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is long ruleId)
