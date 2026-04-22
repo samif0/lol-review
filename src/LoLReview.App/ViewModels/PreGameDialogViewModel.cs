@@ -2,7 +2,9 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using LoLReview.Core.Data.Repositories;
+using LoLReview.Core.Lcu;
 using LoLReview.Core.Services;
 using System.Collections.ObjectModel;
 using Microsoft.Extensions.Logging;
@@ -31,13 +33,14 @@ public sealed class PreGameMatchupItem
 }
 
 /// <summary>ViewModel for the pre-game focus dialog shown during champion select.</summary>
-public partial class PreGameDialogViewModel : ObservableObject
+public partial class PreGameDialogViewModel : ObservableObject, IRecipient<ChampSelectUpdatedMessage>
 {
     private readonly IGameRepository _gameRepo;
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IMatchupNotesRepository _matchupNotesRepo;
     private readonly IConfigService _configService;
+    private readonly IMessenger _messenger;
     private readonly ILogger<PreGameDialogViewModel> _logger;
 
     // ── Observable Properties ───────────────────────────────────────
@@ -130,6 +133,23 @@ public partial class PreGameDialogViewModel : ObservableObject
     [ObservableProperty]
     private string _matchupHeaderText = "";
 
+    // ── Detected matchup (even when no notes exist) ──────────────────
+
+    /// <summary>Local player's locked-in champion (empty until lock or if only hovered).</summary>
+    [ObservableProperty]
+    private string _myChampionName = "";
+
+    /// <summary>Enemy laner's locked-in champion (empty if enemy not locked, or no lane assignment e.g. ARAM).</summary>
+    [ObservableProperty]
+    private string _enemyChampionName = "";
+
+    /// <summary>
+    /// True when both champions are known — means we can show a visual "VS." card
+    /// even if the user has zero saved notes for this matchup yet.
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasMatchupDetected;
+
     /// <summary>Snapshot of practiced objective IDs from the last pre-game session, read by ShellViewModel on game end.</summary>
     internal static IReadOnlyList<long> LastPracticedObjectiveIds { get; set; } = [];
 
@@ -141,6 +161,7 @@ public partial class PreGameDialogViewModel : ObservableObject
         ISessionLogRepository sessionLogRepo,
         IMatchupNotesRepository matchupNotesRepo,
         IConfigService configService,
+        IMessenger messenger,
         ILogger<PreGameDialogViewModel> logger)
     {
         _gameRepo = gameRepo;
@@ -148,7 +169,27 @@ public partial class PreGameDialogViewModel : ObservableObject
         _sessionLogRepo = sessionLogRepo;
         _matchupNotesRepo = matchupNotesRepo;
         _configService = configService;
+        _messenger = messenger;
         _logger = logger;
+    }
+
+    public void Attach() => _messenger.RegisterAll(this);
+
+    public void Detach() => _messenger.UnregisterAll(this);
+
+    public void Receive(ChampSelectUpdatedMessage message)
+    {
+        _ = Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
+        {
+            try
+            {
+                await LoadMatchupHistoryAsync(message.MyChampion, message.EnemyLaner);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to reload matchup history on champ-select update");
+            }
+        });
     }
 
     // ── Commands ────────────────────────────────────────────────────
@@ -260,38 +301,52 @@ public partial class PreGameDialogViewModel : ObservableObject
             }
 
             // Load matchup history if we have champion info
-            MatchupHistory.Clear();
-            HasMatchupHistory = false;
-            MatchupHeaderText = "";
-            if (champInfo != null
-                && !string.IsNullOrEmpty(champInfo.MyChampion)
-                && !string.IsNullOrEmpty(champInfo.EnemyLaner))
-            {
-                var notes = await _matchupNotesRepo.GetForMatchupAsync(champInfo.MyChampion, champInfo.EnemyLaner);
-                if (notes.Count > 0)
-                {
-                    MatchupHeaderText = $"YOUR NOTES vs {champInfo.EnemyLaner.ToUpperInvariant()}";
-                    foreach (var note in notes)
-                    {
-                        var dateText = note.CreatedAt.HasValue
-                            ? DateTimeOffset.FromUnixTimeSeconds(note.CreatedAt.Value).LocalDateTime.ToString("MMM d")
-                            : "";
-                        MatchupHistory.Add(new PreGameMatchupItem
-                        {
-                            Note = note.Note,
-                            DateText = dateText,
-                            WasHelpful = note.Helpful == 1,
-                            HasHelpfulRating = note.Helpful.HasValue
-                        });
-                    }
-                    HasMatchupHistory = MatchupHistory.Count > 0;
-                }
-            }
+            await LoadMatchupHistoryAsync(champInfo?.MyChampion, champInfo?.EnemyLaner);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load pre-game data");
         }
+    }
+
+    private async Task LoadMatchupHistoryAsync(string? myChampion, string? enemyLaner)
+    {
+        MatchupHistory.Clear();
+        HasMatchupHistory = false;
+        MatchupHeaderText = "";
+
+        MyChampionName = myChampion ?? "";
+        EnemyChampionName = enemyLaner ?? "";
+        // Show the matchup card as soon as MY champ is locked, even if the enemy hasn't
+        // locked yet. The card's enemy column will display the waiting-state below.
+        HasMatchupDetected = !string.IsNullOrEmpty(MyChampionName);
+
+        if (string.IsNullOrEmpty(myChampion) || string.IsNullOrEmpty(enemyLaner))
+        {
+            return;
+        }
+
+        var notes = await _matchupNotesRepo.GetForMatchupAsync(myChampion, enemyLaner);
+        if (notes.Count == 0)
+        {
+            return;
+        }
+
+        MatchupHeaderText = $"YOUR NOTES vs {enemyLaner.ToUpperInvariant()}";
+        foreach (var note in notes)
+        {
+            var dateText = note.CreatedAt.HasValue
+                ? DateTimeOffset.FromUnixTimeSeconds(note.CreatedAt.Value).LocalDateTime.ToString("MMM d")
+                : "";
+            MatchupHistory.Add(new PreGameMatchupItem
+            {
+                Note = note.Note,
+                DateText = dateText,
+                WasHelpful = note.Helpful == 1,
+                HasHelpfulRating = note.Helpful.HasValue
+            });
+        }
+        HasMatchupHistory = MatchupHistory.Count > 0;
     }
 
     [RelayCommand]

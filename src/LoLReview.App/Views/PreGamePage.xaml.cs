@@ -23,6 +23,17 @@ public sealed partial class PreGamePage : Page
     {
         base.OnNavigatedTo(e);
         var champInfo = e.Parameter as PreGameChampInfo;
+        ViewModel.Attach();
         ViewModel.LoadCommand.Execute(champInfo);
     }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        ViewModel.Detach();
+        base.OnNavigatedFrom(e);
+    }
+
+    /// <summary>x:Bind helper — show a placeholder until the enemy laner locks.</summary>
+    public string EnemyOrPlaceholder(string? enemy)
+        => string.IsNullOrEmpty(enemy) ? "..." : enemy;
 }
