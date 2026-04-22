@@ -338,6 +338,12 @@ public partial class ObjectivesViewModel : ObservableObject
         _navigationService.NavigateTo("objectivegames", objectiveId);
     }
 
+    [RelayCommand]
+    private void ViewNotes(long objectiveId)
+    {
+        _navigationService.NavigateTo("objectivenotes", objectiveId);
+    }
+
     private void ClearForm()
     {
         EditingObjectiveId = null;

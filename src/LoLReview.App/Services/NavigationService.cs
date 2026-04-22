@@ -36,6 +36,7 @@ public sealed class NavigationService : INavigationService
         ["postgame"] = typeof(PostGamePage),
         ["manualentry"] = typeof(ManualEntryPage),
         ["objectivegames"] = typeof(ObjectiveGamesPage),
+        ["objectivenotes"] = typeof(ObjectiveNotesPage),
     };
 
     public string? CurrentPageKey => _currentPageKey;

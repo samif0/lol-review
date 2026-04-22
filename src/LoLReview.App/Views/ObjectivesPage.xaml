@@ -436,7 +436,7 @@
                                 BorderBrush="{StaticResource AccentBlueBrush}"
                                 Visibility="{x:Bind RulesVM.IsCreating, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                             <StackPanel Spacing="12">
-                                <TextBlock Text="New Guardrail"
+                                <TextBlock Text="{x:Bind RulesVM.FormTitle, Mode=OneWay}"
                                            FontSize="{Binding Title, Source={StaticResource FontSizes}}"
                                            FontWeight="SemiBold"
                                            Foreground="{StaticResource PrimaryTextBrush}"/>
@@ -479,6 +479,24 @@
                                              CornerRadius="2"/>
                                 </StackPanel>
 
+                                <StackPanel Spacing="4"
+                                            Visibility="{x:Bind RulesVM.ShowLossStreakCooldown, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="Cooldown (minutes)"
+                                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <TextBox Text="{x:Bind RulesVM.NewLossStreakCooldown, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="Blank = rest of day. e.g., 120 for 2 hours"
+                                             Background="{StaticResource InputBackgroundBrush}"
+                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                             CornerRadius="2"/>
+                                    <TextBlock Text="How long the guardrail stays active after your last loss. After this much time, you can queue again."
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               TextWrapping="Wrap"
+                                               FontStyle="Italic"/>
+                                </StackPanel>
+
                                 <StackPanel Spacing="4">
                                     <TextBlock Text="Description"
                                                FontSize="{Binding Body, Source={StaticResource FontSizes}}"
@@ -504,7 +522,7 @@
                                             CornerRadius="2"
                                             Height="32"
                                             BorderThickness="0"/>
-                                    <Button Content="Create"
+                                    <Button Content="{x:Bind RulesVM.FormSubmitLabel, Mode=OneWay}"
                                             Command="{x:Bind RulesVM.CreateRuleCommand}"
                                             IsEnabled="{x:Bind RulesVM.CanCreate, Mode=OneWay}"
                                             Background="{StaticResource AccentBlueBrush}"
@@ -608,6 +626,16 @@
                                                         FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                         Tag="{x:Bind Id}"
                                                         Click="DeleteRule_Click"/>
+                                                <Button Content="Edit"
+                                                        Background="Transparent"
+                                                        Foreground="{StaticResource SecondaryTextBrush}"
+                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="2"
+                                                        Height="28"
+                                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                        Tag="{x:Bind Id}"
+                                                        Click="EditRule_Click"/>
                                                 <Button Content="{x:Bind ToggleText}"
                                                         Background="Transparent"
                                                         Foreground="{StaticResource SecondaryTextBrush}"
@@ -677,6 +705,16 @@
                                                         FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                         Tag="{x:Bind Id}"
                                                         Click="DeleteRule_Click"/>
+                                                <Button Content="Edit"
+                                                        Background="Transparent"
+                                                        Foreground="{StaticResource SecondaryTextBrush}"
+                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="2"
+                                                        Height="28"
+                                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                        Tag="{x:Bind Id}"
+                                                        Click="EditRule_Click"/>
                                                 <Button Content="{x:Bind ToggleText}"
                                                         Background="Transparent"
                                                         Foreground="{StaticResource WinGreenBrush}"
@@ -807,6 +845,15 @@
                                                 FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                 Tag="{x:Bind Id}"
                                                 Click="ViewObjectiveGames_Click"/>
+                                        <Button Content="View Notes"
+                                                Background="{StaticResource TagBackgroundBrush}"
+                                                Foreground="{StaticResource AccentGoldBrush}"
+                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="2" Height="28"
+                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                Tag="{x:Bind Id}"
+                                                Click="ViewObjectiveNotes_Click"/>
                                         <Border Background="{StaticResource SuccessSurfaceBrush}"
                                                 CornerRadius="2" Padding="6,2">
                                             <TextBlock Text="DONE"

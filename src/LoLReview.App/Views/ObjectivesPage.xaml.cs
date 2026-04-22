@@ -462,6 +462,14 @@ public sealed partial class ObjectivesPage : Page
         }
     }
 
+    private void ViewObjectiveNotes_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long objectiveId)
+        {
+            ViewModel.ViewNotesCommand.Execute(objectiveId);
+        }
+    }
+
     private async void ObjectivePhase_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (sender is not ComboBox combo || combo.DataContext is not ObjectiveDisplayItem item)
@@ -486,6 +494,14 @@ public sealed partial class ObjectivesPage : Page
         if (sender is Button btn && btn.Tag is long ruleId)
         {
             await RulesVM.ToggleRuleCommand.ExecuteAsync(ruleId);
+        }
+    }
+
+    private void EditRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long ruleId)
+        {
+            RulesVM.StartEditingCommand.Execute(ruleId);
         }
     }
 
