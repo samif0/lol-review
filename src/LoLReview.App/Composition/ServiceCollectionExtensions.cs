@@ -55,6 +55,10 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IGameService, GameService>();
         services.AddSingleton<IReviewWorkflowService, ReviewWorkflowService>();
         services.AddSingleton<IGameLifecycleWorkflowService, GameLifecycleWorkflowService>();
+
+        // Riot proxy / auth (Path B).
+        services.AddHttpClient<IRiotAuthClient, RiotAuthClient>();
+
         // Register the null default here; AddCoachServices overrides it.
         services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
         return services;
@@ -140,10 +144,12 @@ internal static class ServiceCollectionExtensions
         services.AddTransient<SettingsViewModel>();
         services.AddTransient<ReviewViewModel>();
         services.AddTransient<PreGameDialogViewModel>();
+        services.AddTransient<OnboardingViewModel>();
         services.AddTransient<ManualEntryDialogViewModel>();
         services.AddTransient<GameReviewDialogViewModel>();
         services.AddTransient<VodPlayerViewModel>();
         services.AddTransient<ObjectiveGamesViewModel>();
+        services.AddTransient<ObjectiveNotesViewModel>();
         services.AddTransient<CoachSettingsViewModel>();
         services.AddSingleton<CoachChatViewModel>();
         return services;

@@ -58,8 +58,13 @@ public partial class App : Application
     {
         AppDiagnostics.WriteVerbose("startup.log", "OnLaunched START");
 
-        _mainWindow = new Window { Title = "LoL Review" };
+        _mainWindow = new Window { Title = "Revu" };
         _mainWindow.CenterOnScreen(DefaultStartupWindowWidth, DefaultStartupWindowHeight);
+
+        // Extend the shell content into the title bar area. We'll draw our own
+        // HUD-styled bar in ShellPage/OnboardingPage; Windows still renders the
+        // system min/max/close overlays on the right, so we leave room for them.
+        _mainWindow.ExtendsContentIntoTitleBar = true;
 
         var manager = WinUIEx.WindowManager.Get(_mainWindow);
         manager.MinWidth = 1024;
@@ -67,7 +72,7 @@ public partial class App : Application
 
         var loadingText = new Microsoft.UI.Xaml.Controls.TextBlock
         {
-            Text = "LoL Review - Loading...",
+            Text = "Revu - Loading...",
             Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White),
             FontSize = 24,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -98,9 +103,37 @@ public partial class App : Application
             await GetService<IAppBootstrapper>().BootstrapAsync();
             AppDiagnostics.WriteVerbose("startup.log", "Bootstrap completed");
 
-            await DispatcherHelper.RunOnUIThreadAsync(
-                () => _mainWindow!.Content = new ShellPage());
-            AppDiagnostics.WriteVerbose("startup.log", "ShellPage assigned to main window");
+            // Onboarding gate: if the user hasn't signed up/in AND hasn't opted out,
+            // show the onboarding page first. It swaps to the shell via its Completed event.
+            var configService = GetService<LoLReview.Core.Services.IConfigService>();
+            await configService.LoadAsync();
+
+            await DispatcherHelper.RunOnUIThreadAsync(() =>
+            {
+                if (configService.OnboardingComplete)
+                {
+                    _mainWindow!.Content = new ShellPage();
+                    AppDiagnostics.WriteVerbose("startup.log", "Onboarding complete -- ShellPage assigned");
+                }
+                else
+                {
+                    var onboarding = new Views.OnboardingPage();
+                    onboarding.Completed += () =>
+                    {
+                        try
+                        {
+                            _mainWindow!.Content = new ShellPage();
+                            AppDiagnostics.WriteVerbose("startup.log", "Onboarding completed -- ShellPage swapped in");
+                        }
+                        catch (Exception swapEx)
+                        {
+                            AppDiagnostics.WriteCrash(swapEx);
+                        }
+                    };
+                    _mainWindow!.Content = onboarding;
+                    AppDiagnostics.WriteVerbose("startup.log", "OnboardingPage assigned to main window");
+                }
+            });
 
             await _host.StartAsync();
             AppDiagnostics.WriteVerbose("startup.log", "Host started");
