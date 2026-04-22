@@ -259,13 +259,13 @@ public sealed class LcuClient : ILcuClient
     }
 
     /// <inheritdoc />
-    public async Task<(string MyChampion, string EnemyLaner)> GetChampSelectInfoAsync(CancellationToken ct = default)
+    public async Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default)
     {
         try
         {
             var session = await GetAsync("/lol-champ-select/v1/session", ct).ConfigureAwait(false);
             if (session is not JsonElement el || el.ValueKind != JsonValueKind.Object)
-                return ("", "");
+                return ("", "", "");
 
             // Find local player's cell ID
             var localCellId = -1;
@@ -311,11 +311,13 @@ public sealed class LcuClient : ILcuClient
                 }
             }
 
-            return (myChampion, enemyLaner);
+            // Normalize position to Riot's uppercase form (LCU returns lowercase,
+            // Riot's match-v5 returns uppercase). Downstream role comparisons assume uppercase.
+            return (myChampion, enemyLaner, (myPosition ?? "").ToUpperInvariant());
         }
         catch
         {
-            return ("", "");
+            return ("", "", "");
         }
     }
 

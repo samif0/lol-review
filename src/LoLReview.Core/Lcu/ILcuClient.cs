@@ -63,7 +63,8 @@ public interface ILcuClient
 
     /// <summary>
     /// Get champion select info for the current session.
-    /// Returns (myChampion, enemyLanerChampion) — either may be empty if unavailable.
+    /// Returns (myChampion, enemyLanerChampion, myPosition). Any field may be empty if
+    /// unavailable. myPosition is Riot-internal: TOP|JUNGLE|MIDDLE|BOTTOM|UTILITY|"".
     /// </summary>
-    Task<(string MyChampion, string EnemyLaner)> GetChampSelectInfoAsync(CancellationToken ct = default);
+    Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default);
 }

@@ -99,7 +99,30 @@ internal sealed class TestConfigService : IConfigService
 
     public Dictionary<string, string> Keybinds => GetKeybinds();
 
+    public string RiotSessionToken => Current.RiotSessionToken;
+    public string RiotSessionEmail => Current.RiotSessionEmail;
+    public long RiotSessionExpiresAt => Current.RiotSessionExpiresAt;
+    public string RiotId => Current.RiotId;
+    public string RiotRegion => Current.RiotRegion;
+    public string RiotPuuid => Current.RiotPuuid;
+    public string PrimaryRole => Current.PrimaryRole;
+    public bool OnboardingSkipped => Current.OnboardingSkipped;
+
     public bool IsAscentEnabled => !string.IsNullOrWhiteSpace(AscentFolder);
+
+    public bool HasValidRiotSession =>
+        !string.IsNullOrWhiteSpace(RiotSessionToken)
+        && RiotSessionExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+    public bool RiotProxyEnabled =>
+        HasValidRiotSession
+        && !string.IsNullOrWhiteSpace(RiotId)
+        && RiotId.Contains('#')
+        && !string.IsNullOrWhiteSpace(RiotRegion);
+
+    public bool OnboardingComplete =>
+        OnboardingSkipped
+        || (RiotProxyEnabled && !string.IsNullOrEmpty(PrimaryRole));
 
     public Task<AppConfig> LoadAsync() => Task.FromResult(Current);
 

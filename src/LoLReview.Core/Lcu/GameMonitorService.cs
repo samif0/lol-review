@@ -146,10 +146,17 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         {
             await HandleChampSelectStartedAsync(cancellationToken).ConfigureAwait(false);
         }
+        else if (phase == GamePhase.ChampSelect)
+        {
+            await PollChampSelectUpdatesAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         if (plan.NotifyChampSelectCancelled)
         {
             _logger.LogInformation("Champ select cancelled (went to {Phase})", phase);
+            _state.LastChampSelectMy = "";
+            _state.LastChampSelectEnemy = "";
+            _state.LastChampSelectMyPosition = "";
             _messenger.Send(new ChampSelectCancelledMessage());
         }
 
@@ -271,10 +278,54 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _logger.LogInformation("Champ select started (queue {QueueId} - {Mode})", queueId, modeLabel);
 
         // Best-effort: fetch champion picks to surface matchup history in pre-game
-        var (myChampion, enemyLaner) = await _lcuClient.GetChampSelectInfoAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogDebug("Champ select info: myChamp={MyChamp} enemy={Enemy}", myChampion, enemyLaner);
+        var (myChampion, enemyLaner, myPosition) = await _lcuClient.GetChampSelectInfoAsync(cancellationToken).ConfigureAwait(false);
+        _logger.LogDebug(
+            "Champ select info: myChamp={MyChamp} enemy={Enemy} myPos={MyPos}",
+            myChampion, enemyLaner, myPosition);
+        CoreDiagnostics.WriteVerbose(
+            $"LCU: ChampSelectStarted queue={queueId} myChamp='{myChampion}' enemy='{enemyLaner}' myPos='{myPosition}'");
 
-        _messenger.Send(new ChampSelectStartedMessage(queueId, myChampion, enemyLaner));
+        _state.LastChampSelectMy = myChampion ?? "";
+        _state.LastChampSelectEnemy = enemyLaner ?? "";
+        _state.LastChampSelectMyPosition = myPosition ?? "";
+        _messenger.Send(new ChampSelectStartedMessage(queueId, myChampion, enemyLaner, myPosition ?? ""));
+    }
+
+    private async Task PollChampSelectUpdatesAsync(CancellationToken cancellationToken)
+    {
+        string myChampion, enemyLaner, myPosition;
+        try
+        {
+            (myChampion, enemyLaner, myPosition) = await _lcuClient.GetChampSelectInfoAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CoreDiagnostics.WriteVerbose($"LCU: ChampSelect poll exception={ex.GetType().Name}:{ex.Message}");
+            return;
+        }
+
+        myChampion ??= "";
+        enemyLaner ??= "";
+        myPosition ??= "";
+
+        if (myChampion == _state.LastChampSelectMy
+            && enemyLaner == _state.LastChampSelectEnemy
+            && myPosition == _state.LastChampSelectMyPosition)
+        {
+            return;
+        }
+
+        _logger.LogInformation(
+            "Champ select update: myChamp={MyChamp} enemy={Enemy} myPos={MyPos} (was myChamp={PrevMy} enemy={PrevEnemy} myPos={PrevPos})",
+            myChampion, enemyLaner, myPosition,
+            _state.LastChampSelectMy, _state.LastChampSelectEnemy, _state.LastChampSelectMyPosition);
+        CoreDiagnostics.WriteVerbose(
+            $"LCU: ChampSelectUpdated myChamp='{myChampion}' enemy='{enemyLaner}' myPos='{myPosition}' (was my='{_state.LastChampSelectMy}' enemy='{_state.LastChampSelectEnemy}' pos='{_state.LastChampSelectMyPosition}')");
+
+        _state.LastChampSelectMy = myChampion;
+        _state.LastChampSelectEnemy = enemyLaner;
+        _state.LastChampSelectMyPosition = myPosition;
+        _messenger.Send(new ChampSelectUpdatedMessage(myChampion, enemyLaner, myPosition));
     }
 
     private void StartEventCollector()

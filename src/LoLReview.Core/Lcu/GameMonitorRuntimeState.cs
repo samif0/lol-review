@@ -24,4 +24,13 @@ internal sealed class GameMonitorRuntimeState
     /// The monitor retries every tick until this reaches 0.
     /// </summary>
     public int PostGameReconcileRetriesRemaining { get; set; }
+
+    /// <summary>Last locally-picked champion reported during the current champ-select phase.</summary>
+    public string LastChampSelectMy { get; set; } = "";
+
+    /// <summary>Last opposing-laner champion reported during the current champ-select phase.</summary>
+    public string LastChampSelectEnemy { get; set; } = "";
+
+    /// <summary>Last known local-player position for this champ-select phase (TOP|JUNGLE|MIDDLE|BOTTOM|UTILITY).</summary>
+    public string LastChampSelectMyPosition { get; set; } = "";
 }

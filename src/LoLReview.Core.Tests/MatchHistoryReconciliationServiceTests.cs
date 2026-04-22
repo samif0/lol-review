@@ -292,7 +292,7 @@ public sealed class MatchHistoryReconciliationServiceTests
         public Task<JsonElement?> GetRankedStatsAsync(CancellationToken ct = default) =>
             Task.FromResult<JsonElement?>(null);
 
-        public Task<(string MyChampion, string EnemyLaner)> GetChampSelectInfoAsync(CancellationToken ct = default) =>
-            Task.FromResult(("", ""));
+        public Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default) =>
+            Task.FromResult(("", "", ""));
     }
 }

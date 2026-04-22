@@ -424,8 +424,8 @@ public sealed class GameMonitorServiceTests
         public Task<System.Text.Json.JsonElement?> GetRankedStatsAsync(CancellationToken ct = default) =>
             Task.FromResult<System.Text.Json.JsonElement?>(null);
 
-        public Task<(string MyChampion, string EnemyLaner)> GetChampSelectInfoAsync(CancellationToken ct = default) =>
-            Task.FromResult(("", ""));
+        public Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default) =>
+            Task.FromResult(("", "", ""));
     }
 
     private sealed class FakeLiveEventApi : ILiveEventApi

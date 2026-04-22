@@ -17,7 +17,17 @@ public sealed record GameEndedMessage(GameStats Stats, bool IsRecovered = false)
 public sealed record MissedReviewsDetectedMessage(IReadOnlyList<MissedGameCandidate> Games, bool IsPostGameReconcile = false);
 
 /// <summary>Sent when champion select begins (non-casual queues only).</summary>
-public sealed record ChampSelectStartedMessage(int QueueId, string MyChampion = "", string EnemyLaner = "");
+public sealed record ChampSelectStartedMessage(
+    int QueueId,
+    string MyChampion = "",
+    string EnemyLaner = "",
+    string MyPosition = "");
+
+/// <summary>Sent while champ select is ongoing and the locally-picked or opposing-laner champion changes.</summary>
+public sealed record ChampSelectUpdatedMessage(
+    string MyChampion,
+    string EnemyLaner,
+    string MyPosition);
 
 /// <summary>Sent when the game transitions to loading/in-progress.</summary>
 public sealed record GameStartedMessage;
