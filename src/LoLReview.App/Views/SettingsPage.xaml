@@ -734,6 +734,93 @@
                             CornerRadius="2"/>
                 </Grid>
 
+                <!-- Revu account (compact status; full flow lives in onboarding) -->
+                <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentBlueBrush}">
+                    <StackPanel Spacing="12">
+                        <controls:SectionTitle Text="REVU ACCOUNT"/>
+
+                        <!-- Logged-in: show profile + Riot ID/Region -->
+                        <StackPanel Spacing="10"
+                                    Visibility="{x:Bind IsState(ViewModel.RiotAuthState, 'loggedIn'), Mode=OneWay}">
+                            <TextBlock FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap">
+                                <Run Text="Logged in as "/>
+                                <Run Text="{x:Bind ViewModel.RiotAuthLoggedInEmail, Mode=OneWay}"
+                                     FontWeight="SemiBold"/>
+                                <Run Text="."/>
+                            </TextBlock>
+
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*"/>
+                                    <ColumnDefinition Width="1*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Spacing="4">
+                                    <TextBlock Text="RIOT ID"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="250"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <TextBox Text="{x:Bind ViewModel.RiotId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="gameName#tagLine"
+                                             FontFamily="{StaticResource MonoFont}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="REGION"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="250"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <ComboBox SelectedValue="{x:Bind ViewModel.RiotRegion, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"
+                                              PlaceholderText="Pick region">
+                                        <x:String>na1</x:String>
+                                        <x:String>br1</x:String>
+                                        <x:String>la1</x:String>
+                                        <x:String>la2</x:String>
+                                        <x:String>euw1</x:String>
+                                        <x:String>eun1</x:String>
+                                        <x:String>tr1</x:String>
+                                        <x:String>ru</x:String>
+                                        <x:String>kr</x:String>
+                                        <x:String>jp1</x:String>
+                                        <x:String>oc1</x:String>
+                                        <x:String>ph2</x:String>
+                                        <x:String>sg2</x:String>
+                                        <x:String>th2</x:String>
+                                        <x:String>tw2</x:String>
+                                        <x:String>vn2</x:String>
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+
+                            <Button Content="LOG OUT"
+                                    Command="{x:Bind ViewModel.RiotAuthLogoutCommand}"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
+                                    HorizontalAlignment="Stretch"
+                                    Height="40"
+                                    IsEnabled="{x:Bind Not(ViewModel.RiotAuthBusy), Mode=OneWay}"/>
+                        </StackPanel>
+
+                        <!-- Logged-out: short hint, no form (onboarding handles flow) -->
+                        <TextBlock Text="Not logged in. Restart the app to sign up or log in."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{x:Bind IsState(ViewModel.RiotAuthState, 'loggedOut'), Mode=OneWay}"/>
+
+                        <TextBlock Text="{x:Bind ViewModel.RiotAuthError, Mode=OneWay}"
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource LossRedBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{x:Bind HasText(ViewModel.RiotAuthError), Mode=OneWay}"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
                 <!-- Bottom spacer -->
                 <Border Height="24"/>
 

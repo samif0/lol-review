@@ -44,6 +44,19 @@ public sealed partial class SettingsPage : Page
         ViewModel.LoadCommand.Execute(null);
     }
 
+    /// <summary>x:Bind helper — Visible when the given state string matches.</summary>
+    public Visibility IsState(string current, string target)
+        => string.Equals(current, target, System.StringComparison.Ordinal)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    /// <summary>x:Bind helper — Visible when text is non-empty.</summary>
+    public Visibility HasText(string? text)
+        => string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>x:Bind helper — logical NOT.</summary>
+    public bool Not(bool value) => !value;
+
     private void OnGoogleAiApiKeyChanged(object sender, RoutedEventArgs e)
     {
         if (sender is PasswordBox box)

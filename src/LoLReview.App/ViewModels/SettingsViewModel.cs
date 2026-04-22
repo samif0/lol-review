@@ -89,6 +89,44 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _requireReviewNotes;
 
+    // ── Riot proxy login (Path B) ─────────────────────────────────
+
+    /// <summary>
+    /// View states: "loggedOut" (email form) → "codeSent" (OTP entry) → "loggedIn" (profile).
+    /// </summary>
+    [ObservableProperty]
+    private string _riotAuthState = "loggedOut";
+
+    [ObservableProperty]
+    private bool _riotAuthBusy;
+
+    [ObservableProperty]
+    private string _riotAuthError = "";
+
+    // Logged-out form
+    [ObservableProperty]
+    private string _riotAuthEmail = "";
+
+    [ObservableProperty]
+    private string _riotAuthInviteCode = "";
+
+    // Code-sent form
+    [ObservableProperty]
+    private string _riotAuthOtpCode = "";
+
+    [ObservableProperty]
+    private string _riotAuthInfo = "";  // "We sent a code to <email>..."
+
+    // Logged-in profile
+    [ObservableProperty]
+    private string _riotAuthLoggedInEmail = "";
+
+    [ObservableProperty]
+    private string _riotId = "";
+
+    [ObservableProperty]
+    private string _riotRegion = "";
+
     [ObservableProperty]
     private string _appVersion = "";
 
@@ -117,15 +155,19 @@ public partial class SettingsViewModel : ObservableObject
 
     // ── Constructor ─────────────────────────────────────────────────
 
+    private readonly IRiotAuthClient _riotAuthClient;
+
     public SettingsViewModel(
         IConfigService configService,
         IClipService clipService,
         IUpdateService updateService,
+        IRiotAuthClient riotAuthClient,
         ILogger<SettingsViewModel> logger)
     {
         _configService = configService;
         _clipService = clipService;
         _updateService = updateService;
+        _riotAuthClient = riotAuthClient;
         _logger = logger;
     }
 
@@ -145,6 +187,9 @@ public partial class SettingsViewModel : ObservableObject
             BackupFolder = config.BackupFolder;
             TiltFixEnabled = config.TiltFixMode;
             RequireReviewNotes = config.RequireReviewNotes;
+            RiotId = config.RiotId;
+            RiotRegion = config.RiotRegion;
+            RestoreRiotAuthState(config);
 
             // App version (from Velopack if installed, else assembly)
             AppVersion = _updateService.IsInstalled
@@ -196,6 +241,8 @@ public partial class SettingsViewModel : ObservableObject
             config.BackupFolder = BackupFolder;
             config.TiltFixMode = TiltFixEnabled;
             config.RequireReviewNotes = RequireReviewNotes;
+            config.RiotId = (RiotId ?? "").Trim();
+            config.RiotRegion = (RiotRegion ?? "").Trim().ToLowerInvariant();
 
             await _configService.SaveAsync(config);
 
@@ -358,6 +405,161 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
+
+    private void RestoreRiotAuthState(LoLReview.Core.Models.AppConfig config)
+    {
+        var unixNow = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (!string.IsNullOrWhiteSpace(config.RiotSessionToken) && config.RiotSessionExpiresAt > unixNow)
+        {
+            RiotAuthLoggedInEmail = config.RiotSessionEmail;
+            RiotAuthState = "loggedIn";
+        }
+        else
+        {
+            RiotAuthLoggedInEmail = "";
+            RiotAuthState = "loggedOut";
+        }
+        RiotAuthError = "";
+        RiotAuthInfo = "";
+        RiotAuthOtpCode = "";
+    }
+
+    [RelayCommand]
+    private async Task RiotAuthSignupAsync()
+    {
+        if (RiotAuthBusy) return;
+        RiotAuthError = "";
+        var email = (RiotAuthEmail ?? "").Trim();
+        var code = (RiotAuthInviteCode ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(code))
+        {
+            RiotAuthError = "Enter an email and an invite code.";
+            return;
+        }
+
+        RiotAuthBusy = true;
+        try
+        {
+            await _riotAuthClient.SignupAsync(email, code);
+            RiotAuthState = "codeSent";
+            RiotAuthInfo = $"Check {email} for a code.";
+            RiotAuthOtpCode = "";
+        }
+        catch (RiotAuthException ex) { RiotAuthError = ex.Message; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Signup failed");
+            RiotAuthError = "Couldn't reach the server.";
+        }
+        finally { RiotAuthBusy = false; }
+    }
+
+    [RelayCommand]
+    private async Task RiotAuthLoginAsync()
+    {
+        if (RiotAuthBusy) return;
+        RiotAuthError = "";
+        var email = (RiotAuthEmail ?? "").Trim();
+        if (string.IsNullOrEmpty(email))
+        {
+            RiotAuthError = "Enter an email.";
+            return;
+        }
+
+        RiotAuthBusy = true;
+        try
+        {
+            await _riotAuthClient.LoginAsync(email);
+            RiotAuthState = "codeSent";
+            RiotAuthInfo = $"Check {email} for a code.";
+            RiotAuthOtpCode = "";
+        }
+        catch (RiotAuthException ex) { RiotAuthError = ex.Message; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Login failed");
+            RiotAuthError = "Couldn't reach the server.";
+        }
+        finally { RiotAuthBusy = false; }
+    }
+
+    [RelayCommand]
+    private async Task RiotAuthVerifyAsync()
+    {
+        if (RiotAuthBusy) return;
+        RiotAuthError = "";
+        var code = (RiotAuthOtpCode ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(code))
+        {
+            RiotAuthError = "Paste the code from your email.";
+            return;
+        }
+
+        RiotAuthBusy = true;
+        try
+        {
+            var result = await _riotAuthClient.VerifyAsync(code);
+            var config = await _configService.LoadAsync();
+            config.RiotSessionToken = result.SessionToken;
+            config.RiotSessionEmail = (RiotAuthEmail ?? "").Trim();
+            config.RiotSessionExpiresAt = result.ExpiresAt;
+            await _configService.SaveAsync(config);
+
+            RiotAuthLoggedInEmail = config.RiotSessionEmail;
+            RiotAuthState = "loggedIn";
+            RiotAuthInviteCode = "";
+            RiotAuthOtpCode = "";
+            RiotAuthInfo = "";
+        }
+        catch (RiotAuthException ex) { RiotAuthError = ex.Message; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Verify failed");
+            RiotAuthError = "Couldn't verify the code.";
+        }
+        finally { RiotAuthBusy = false; }
+    }
+
+    [RelayCommand]
+    private void RiotAuthBackToEmail()
+    {
+        RiotAuthState = "loggedOut";
+        RiotAuthOtpCode = "";
+        RiotAuthError = "";
+        RiotAuthInfo = "";
+    }
+
+    [RelayCommand]
+    private async Task RiotAuthLogoutAsync()
+    {
+        if (RiotAuthBusy) return;
+        RiotAuthBusy = true;
+        try
+        {
+            var config = await _configService.LoadAsync();
+            var token = config.RiotSessionToken;
+            config.RiotSessionToken = "";
+            config.RiotSessionEmail = "";
+            config.RiotSessionExpiresAt = 0;
+            await _configService.SaveAsync(config);
+            if (!string.IsNullOrEmpty(token))
+            {
+                await _riotAuthClient.LogoutAsync(token);
+            }
+            RiotAuthLoggedInEmail = "";
+            RiotAuthState = "loggedOut";
+            RiotAuthEmail = "";
+            RiotAuthInviteCode = "";
+            RiotAuthOtpCode = "";
+            RiotAuthInfo = "";
+            RiotAuthError = "";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Logout failed");
+        }
+        finally { RiotAuthBusy = false; }
+    }
 
     private void UpdateAscentStatus(string folder)
     {
