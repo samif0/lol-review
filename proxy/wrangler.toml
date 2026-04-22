@@ -1,0 +1,32 @@
+# Cloudflare Worker config. The `name` below becomes part of the deployed URL:
+# https://<name>.<account-subdomain>.workers.dev
+#
+# Rename freely — after changing, run `wrangler deploy` and update the desktop
+# app's RIOT_PROXY_URL config field to the new URL.
+name = "revu-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-01-10"
+
+# Secrets (set via `wrangler secret put <NAME>`; never commit):
+#   RIOT_API_KEY    — your permanent Riot API key
+#   ALLOWED_TOKENS  — comma-separated list of user tokens
+#
+# Non-secret vars can go here:
+[vars]
+# Aggregate hard cap across all users, as a safety margin under Riot's 20/s
+# app-rate-limit. If you upgrade to a higher-tier key, bump this.
+AGGREGATE_RPS = "18"
+# Per-token cap in requests/second. Session-token (Path B) users share this;
+# static-token (Path A) operators use the same limit.
+PER_TOKEN_RPS = "2"
+
+# Magic-link emails are sent from this address. Must be on a Resend-verified domain.
+MAGIC_LINK_FROM = "login@revu.lol"
+# Link the user clicks in the email. For v1, a minimal landing page served by the
+# Worker itself at /auth/claim — shows the one-time code to paste in the desktop app.
+APP_NAME = "Revu"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "revu-db"
+database_id = "cfdaaa55-8443-480f-96e5-04eb3eb8c6ff"
