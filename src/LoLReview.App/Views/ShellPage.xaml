@@ -19,6 +19,7 @@
     <Grid Background="{StaticResource ShellCanvasBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="3"/>
+            <RowDefinition Height="32"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -28,7 +29,25 @@
                    Fill="{StaticResource LossRedBrush}"
                    HorizontalAlignment="Stretch"/>
 
-        <Grid Grid.Row="1">
+        <!-- Custom title bar: drag region for the window. Min/max/close stay as
+             OS overlays on the right — we leave ~150px margin there. -->
+        <Grid x:Name="AppTitleBar"
+              Grid.Row="1"
+              Background="{StaticResource SidebarBackgroundBrush}"
+              Padding="16,0,150,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="REVU"
+                       FontFamily="{StaticResource MonoFont}"
+                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                       CharacterSpacing="400"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource AccentBlueBrush}"
+                       VerticalAlignment="Center"/>
+        </Grid>
+
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="72"/>
                 <ColumnDefinition Width="*"/>
@@ -46,9 +65,10 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Energy drain trails canvas -->
+                    <!-- Energy drain trails canvas — spans only the nav region (Rows 0-1),
+                         so the footer (Row 2) is free from canvas hit-test interference. -->
                     <Canvas x:Name="EnergyCanvas"
-                            Grid.RowSpan="3"
+                            Grid.RowSpan="2"
                             IsHitTestVisible="False"
                             Canvas.ZIndex="15"/>
 
@@ -56,14 +76,14 @@
                     <StackPanel Grid.Row="0"
                                 Margin="0,20,0,16"
                                 HorizontalAlignment="Center">
-                        <TextBlock Text="LR"
+                        <TextBlock Text="RV"
                                    FontFamily="{StaticResource DisplayFont}"
                                    FontSize="{Binding Title, Source={StaticResource FontSizes}}"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource AccentBlueBrush}"
                                    HorizontalAlignment="Center"
                                    CharacterSpacing="200"/>
-                        <TextBlock Text="2.8"
+                        <TextBlock Text="2.9"
                                    FontFamily="{StaticResource MonoFont}"
                                    FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource MutedTextBrush}"
@@ -257,6 +277,16 @@
                                        HorizontalAlignment="Center"
                                        CharacterSpacing="100"/>
                         </StackPanel>
+
+                        <!-- Account label — display only. Logout lives in Settings. -->
+                        <TextBlock Text="{x:Bind ViewModel.AccountStatusLabel, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
+                                   Foreground="{x:Bind ViewModel.AccountDotBrush, Mode=OneWay}"
+                                   HorizontalAlignment="Center"
+                                   CharacterSpacing="100"
+                                   Margin="0,4,0,0"
+                                   ToolTipService.ToolTip="{x:Bind ViewModel.AccountTooltip, Mode=OneWay}"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -310,5 +340,6 @@
                 </Grid>
             </Grid>
         </Grid>
+
     </Grid>
 </Page>

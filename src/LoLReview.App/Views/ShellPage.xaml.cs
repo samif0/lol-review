@@ -55,6 +55,10 @@ public sealed partial class ShellPage : Page
 
         WeakReferenceMessenger.Default.Register<LcuConnectionChangedMessage>(this, OnConnectionChanged);
 
+        // Tell the window to use our custom title bar as the drag region.
+        // Must run after the window has content; deferred via Loaded.
+        Loaded += OnLoadedRegisterTitleBar;
+
         // Initialize DialogService with XamlRoot once the page is loaded
         Loaded += OnLoaded;
 
@@ -240,5 +244,17 @@ public sealed partial class ShellPage : Page
     private void UpdateContentViewportClip()
     {
         // No-op: clip removed to prevent content from being cut off at edges.
+    }
+
+    /// <summary>x:Bind helper — Visible when non-empty.</summary>
+    public Visibility HasText(string? s)
+        => string.IsNullOrEmpty(s) ? Visibility.Collapsed : Visibility.Visible;
+
+    private void OnLoadedRegisterTitleBar(object sender, RoutedEventArgs e)
+    {
+        if (App.MainWindow is { } w && AppTitleBar is not null)
+        {
+            w.SetTitleBar(AppTitleBar);
+        }
     }
 }

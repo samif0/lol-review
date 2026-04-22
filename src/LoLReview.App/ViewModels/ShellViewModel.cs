@@ -30,6 +30,10 @@ public partial class ShellViewModel : ObservableRecipient,
     private readonly IGameLifecycleWorkflowService _gameLifecycleWorkflow;
     private readonly IMatchHistoryReconciliationService _matchHistoryReconciliationService;
     private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
+    private readonly ISessionLogRepository _sessionLogRepository;
+    private readonly IRulesRepository _rulesRepository;
+    private readonly IConfigService _configService;
+    private readonly IRiotAuthClient _riotAuthClient;
     private readonly IUpdateService _updateService;
     private readonly ILogger<ShellViewModel> _logger;
     private bool _hasInitialized;
@@ -58,12 +62,42 @@ public partial class ShellViewModel : ObservableRecipient,
     [ObservableProperty]
     private bool _hasUnreviewedGames;
 
+    // ── Account indicator (sidebar footer) ──────────────────────────
+
+    /// <summary>"chapy" when logged in, "OFF" when logged out.</summary>
+    [ObservableProperty]
+    private string _accountStatusLabel = "OFF";
+
+    /// <summary>Green when logged in + Riot linked, gold when logged in no ID, muted otherwise.</summary>
+    [ObservableProperty]
+    private Microsoft.UI.Xaml.Media.Brush? _accountDotBrush;
+
+    /// <summary>Hover tooltip — "Logged in as x@y · chapy#hapy" or similar.</summary>
+    [ObservableProperty]
+    private string _accountTooltip = "Not signed in.";
+
+    /// <summary>Flyout header line — "Logged in as email@..." or "Not signed in".</summary>
+    [ObservableProperty]
+    private string _accountFlyoutHeader = "Not signed in.";
+
+    /// <summary>Flyout secondary line — "Riot ID: chapy#hapy (na1)" when linked.</summary>
+    [ObservableProperty]
+    private string _accountFlyoutSubline = "";
+
+    /// <summary>Whether the logout button should be visible in the flyout.</summary>
+    [ObservableProperty]
+    private bool _canLogout;
+
     public ShellViewModel(
         INavigationService navigationService,
         IDialogService dialogService,
         IGameLifecycleWorkflowService gameLifecycleWorkflow,
         IMatchHistoryReconciliationService matchHistoryReconciliationService,
         IMissedGameDecisionRepository missedGameDecisionRepository,
+        ISessionLogRepository sessionLogRepository,
+        IRulesRepository rulesRepository,
+        IConfigService configService,
+        IRiotAuthClient riotAuthClient,
         IUpdateService updateService,
         ILogger<ShellViewModel> logger)
     {
@@ -72,8 +106,13 @@ public partial class ShellViewModel : ObservableRecipient,
         _gameLifecycleWorkflow = gameLifecycleWorkflow;
         _matchHistoryReconciliationService = matchHistoryReconciliationService;
         _missedGameDecisionRepository = missedGameDecisionRepository;
+        _sessionLogRepository = sessionLogRepository;
+        _rulesRepository = rulesRepository;
+        _configService = configService;
+        _riotAuthClient = riotAuthClient;
         _updateService = updateService;
         _logger = logger;
+        RefreshAccountIndicator();
 
         _updateService.StateChanged += OnUpdateStateChanged;
         ApplyUpdateState();
@@ -211,7 +250,20 @@ public partial class ShellViewModel : ObservableRecipient,
 
                 _preGameMood = 0; // Reset for next game
 
-                // 2. Navigate to post-game review page
+                // 2a. Post-loss tilt-check gate: if this loss trips the user's loss_streak rule
+                // exactly on this game, route to the tilt check first. Post-game opens after.
+                var tiltStreak = await TryGetFreshlyTrippedStreakAsync(result.GameId!.Value);
+                if (tiltStreak is int streak)
+                {
+                    _logger.LogInformation(
+                        "Loss streak tripped on game {GameId} (streak={Streak}) -- opening tilt check",
+                        result.GameId!.Value, streak);
+                    WindowActivationHelper.BringMainWindowToFront();
+                    _navigationService.NavigateTo("tiltcheck", new TiltCheckInfo(result.GameId!.Value, streak));
+                    return;
+                }
+
+                // 2b. Navigate to post-game review page
                 _logger.LogInformation("Game end processed for {GameId} -- opening post-game page", result.GameId!.Value);
                 WindowActivationHelper.BringMainWindowToFront();
                 _navigationService.NavigateTo("postgame", result.GameId!.Value);
@@ -222,6 +274,56 @@ public partial class ShellViewModel : ObservableRecipient,
                 _navigationService.NavigateTo("session");
             }
         });
+    }
+
+    /// <summary>
+    /// Returns the consecutive-loss count for the post-loss ritual gate when the just-ended
+    /// game makes the streak <em>exactly</em> equal to any active loss_streak rule's threshold.
+    /// Returns null if the ritual should not fire (game was a win, no active loss_streak rule,
+    /// or the streak is already past the trip point — ritual already fired earlier).
+    /// </summary>
+    private async Task<int?> TryGetFreshlyTrippedStreakAsync(long justEndedGameId)
+    {
+        try
+        {
+            var entries = await _sessionLogRepository.GetTodayAsync();
+            if (entries.Count == 0) return null;
+
+            // The just-ended game must be the last entry for this trip to count.
+            if (entries[^1].GameId != justEndedGameId) return null;
+
+            // Walk back from the most recent entry counting consecutive losses.
+            var consecutive = 0;
+            for (var i = entries.Count - 1; i >= 0; i--)
+            {
+                if (entries[i].Win) break;
+                consecutive++;
+            }
+            if (consecutive == 0) return null;
+
+            var rules = await _rulesRepository.GetActiveAsync();
+            foreach (var rule in rules)
+            {
+                if (!string.Equals(rule.RuleType, "loss_streak", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var cv = rule.ConditionValue ?? "";
+                var thresholdPart = cv.Split(':')[0];
+                if (!int.TryParse(thresholdPart, out var threshold) || threshold <= 0)
+                    continue;
+
+                // Trip exactly when consecutive matches the threshold — no re-trigger on further losses.
+                if (consecutive == threshold)
+                {
+                    return consecutive;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Ritual trip check failed for game {GameId}", justEndedGameId);
+        }
+        return null;
     }
 
     public void Receive(MissedReviewsDetectedMessage message)
@@ -268,6 +370,86 @@ public partial class ShellViewModel : ObservableRecipient,
         UpdateNoticeText = _updateService.IsUpdateAvailable
             ? $"Update ready: v{_updateService.AvailableVersion}"
             : "";
+    }
+
+    /// <summary>
+    /// Refreshes the sidebar account status dot + label. Called on construction
+    /// and any time the session/Riot-ID changes (e.g. from Settings).
+    /// </summary>
+    public void RefreshAccountIndicator()
+    {
+        Helpers.DispatcherHelper.RunOnUIThread(() =>
+        {
+            var loggedIn = _configService.HasValidRiotSession;
+            var riotId = _configService.RiotId;
+            var email = _configService.RiotSessionEmail;
+            var hashPos = riotId.IndexOf('#');
+            var gameName = hashPos > 0 ? riotId.Substring(0, hashPos) : "";
+
+            if (loggedIn && !string.IsNullOrEmpty(gameName))
+            {
+                AccountStatusLabel = Shorten(gameName, 7).ToUpperInvariant();
+                AccountDotBrush = (Microsoft.UI.Xaml.Media.Brush?)Microsoft.UI.Xaml.Application.Current.Resources["WinGreenBrush"];
+                AccountTooltip = $"Logged in as {email} \u00b7 {riotId}";
+                AccountFlyoutHeader = $"Logged in as {email}.";
+                AccountFlyoutSubline = $"{riotId} ({_configService.RiotRegion})";
+                CanLogout = true;
+            }
+            else if (loggedIn)
+            {
+                AccountStatusLabel = "NO ID";
+                AccountDotBrush = (Microsoft.UI.Xaml.Media.Brush?)Microsoft.UI.Xaml.Application.Current.Resources["AccentGoldBrush"];
+                AccountTooltip = $"Logged in as {email}. Link your Riot account in Settings.";
+                AccountFlyoutHeader = $"Logged in as {email}.";
+                AccountFlyoutSubline = "No Riot account linked yet.";
+                CanLogout = true;
+            }
+            else
+            {
+                AccountStatusLabel = "OFF";
+                AccountDotBrush = (Microsoft.UI.Xaml.Media.Brush?)Microsoft.UI.Xaml.Application.Current.Resources["MutedTextBrush"];
+                AccountTooltip = "Not signed in. Restart the app to sign up.";
+                AccountFlyoutHeader = "Not signed in.";
+                AccountFlyoutSubline = "";
+                CanLogout = false;
+            }
+        });
+    }
+
+    private static string Shorten(string s, int max)
+        => s.Length <= max ? s : s.Substring(0, max);
+
+    /// <summary>
+    /// Clears the local session, fires a best-effort /auth/logout, refreshes the
+    /// sidebar indicator. Stays on the current page — no data is destroyed.
+    /// </summary>
+    [RelayCommand]
+    private async Task LogoutAsync()
+    {
+        try
+        {
+            var config = await _configService.LoadAsync();
+            var token = config.RiotSessionToken;
+
+            config.RiotSessionToken = "";
+            config.RiotSessionEmail = "";
+            config.RiotSessionExpiresAt = 0;
+            // Keep RiotId + RiotRegion: the user may log back in and they still apply.
+            await _configService.SaveAsync(config);
+
+            if (!string.IsNullOrEmpty(token))
+            {
+                await _riotAuthClient.LogoutAsync(token);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Shell logout failed");
+        }
+        finally
+        {
+            RefreshAccountIndicator();
+        }
     }
 
     private async Task CheckForMissedGamesOnStartupAsync()
