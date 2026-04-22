@@ -52,6 +52,19 @@
                                             Icon="&#xE946;"
                                             Visibility="{x:Bind ViewModel.ShowSessionBanner, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
+                    <!-- Run reset (voluntary tilt ritual) -->
+                    <Button Command="{x:Bind ViewModel.RunResetCommand}"
+                            HorizontalAlignment="Right"
+                            Background="Transparent"
+                            BorderBrush="{StaticResource LossRedBrush}"
+                            BorderThickness="1"
+                            Padding="14,6">
+                        <TextBlock FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource LossRedBrush}"
+                                   Text="I'M TILTED — RUN RESET"/>
+                    </Button>
+
                     <!-- ••• STAT STRIP ••• -->
                     <controls:StatStrip>
                         <controls:StatCell Label="Games"

@@ -1,372 +1,495 @@
-﻿<Page
+<Page
     x:Class="LoLReview.App.Views.TiltCheckPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:svc="using:LoLReview.App.Services"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:LoLReview.App.ViewModels"
     xmlns:controls="using:LoLReview.App.Controls"
+    xmlns:converters="using:LoLReview.App.Converters"
     mc:Ignorable="d"
     Background="Transparent">
 
     <Page.Resources>
-        <!-- Shared styles -->
-        <Style x:Key="CardBorder" TargetType="Border">
-            <Setter Property="Background" Value="#12121a"/>
-            <Setter Property="CornerRadius" Value="2"/>
-            <Setter Property="BorderBrush" Value="#2a2a3a"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="20,18"/>
-        </Style>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
 
-        <Style x:Key="PillButton" TargetType="Button">
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="MinWidth" Value="100"/>
+        <!-- HUD emotion chip: bordered outline, heading font for readability. -->
+        <Style x:Key="HudChipStyle" TargetType="Button">
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="MinWidth" Value="110"/>
             <Setter Property="CornerRadius" Value="2"/>
-            <Setter Property="Background" Value="#1e1e2e"/>
-            <Setter Property="Foreground" Value="#a0a0b8"/>
-            <Setter Property="BorderBrush" Value="#2a2a3a"/>
+            <Setter Property="Background" Value="{StaticResource TagBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrightBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="16,0"/>
-            <Setter Property="FontSize" Value="13"/>
-        </Style>
-
-        <Style x:Key="AccentButton" TargetType="Button">
-            <Setter Property="Height" Value="40"/>
-            <Setter Property="MinWidth" Value="140"/>
-            <Setter Property="CornerRadius" Value="2"/>
-            <Setter Property="Background" Value="#8b5cf6"/>
-            <Setter Property="Foreground" Value="#e8e8f0"/>
+            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="FontFamily" Value="{StaticResource HeadingFont}"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="20,0"/>
         </Style>
 
-        <Style x:Key="DimButton" TargetType="Button">
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="MinWidth" Value="100"/>
+        <!-- HUD menu row: left-aligned, full-width card-style row button. -->
+        <Style x:Key="HudMenuButtonStyle" TargetType="Button">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="MinHeight" Value="46"/>
             <Setter Property="CornerRadius" Value="2"/>
-            <Setter Property="Background" Value="#1e1e2e"/>
-            <Setter Property="Foreground" Value="#a0a0b8"/>
+            <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="FontFamily" Value="{StaticResource BodyFont}"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="16,0"/>
-        </Style>
-
-        <Style x:Key="SectionTitle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="22"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Foreground" Value="#8b5cf6"/>
-        </Style>
-
-        <Style x:Key="SectionSubtitle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="#a0a0b8"/>
-        </Style>
-
-        <Style x:Key="CardLabel" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#e8e8f0"/>
-        </Style>
-
-        <Style x:Key="CardHint" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Foreground" Value="#a0a0b8"/>
-            <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
     </Page.Resources>
 
-    <ScrollViewer x:Name="RootScroll" VerticalScrollBarVisibility="Auto" Padding="40,30,40,40">
-        <StackPanel Spacing="16">
+    <ScrollViewer x:Name="RootScroll"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="18" Padding="40,20,40,40"
+                    MaxWidth="680" HorizontalAlignment="Center">
+
+            <!-- Hero -->
             <controls:HeroHeader EyebrowText="MENTAL RECOVERY"
                                  Title="Tilt Check"
-                                 Subtitle="A 2-MINUTE GUIDED RESET"/>
-        <Grid>
-            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
-                 STEP 0: CHECK IN
-                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
-            <StackPanel x:Name="Step0Panel"
-                        Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 0), Mode=OneWay}"
-                        Spacing="4">
+                                 Subtitle="A ~3.5-MINUTE GUIDED RESET"/>
 
-                <TextBlock Style="{StaticResource SectionTitle}" Text="TILT CHECK"/>
-                <TextBlock Style="{StaticResource SectionSubtitle}" Text="A quick guided reset — takes about 2 minutes." Margin="0,0,0,20"/>
+            <Grid>
 
-                <Border Style="{StaticResource CardBorder}" BorderBrush="#8b5cf6">
-                    <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource CardLabel}" Text="How are you feeling right now?" FontSize="{Binding Title, Source={StaticResource FontSizes}}"/>
-                        <TextBlock Style="{StaticResource CardHint}" Text="Name it to tame it — labeling emotions reduces their intensity."/>
+                <!-- ══════════════════════════════════════════════════════
+                     STEP 0 — NAME IT
+                     ══════════════════════════════════════════════════════ -->
+                <StackPanel x:Name="Step0Panel"
+                            Spacing="14"
+                            Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 0), Mode=OneWay}">
 
-                        <!-- Emotion pills row 1 -->
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Style="{StaticResource PillButton}" Content="Angry"
-                                    Command="{x:Bind ViewModel.SelectEmotionCommand}" CommandParameter="Angry"/>
-                            <Button Style="{StaticResource PillButton}" Content="Frustrated"
-                                    Command="{x:Bind ViewModel.SelectEmotionCommand}" CommandParameter="Frustrated"/>
-                            <Button Style="{StaticResource PillButton}" Content="Anxious"
-                                    Command="{x:Bind ViewModel.SelectEmotionCommand}" CommandParameter="Anxious"/>
+                    <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource AccentPurpleBrush}">
+                        <StackPanel Spacing="14">
+                            <controls:SectionTitle Text="NAME IT"/>
+                            <TextBlock Text="Pick up to 3 labels that fit right now. Labeling beats venting."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <!-- Rotating chip grid -->
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.Emotions, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VariableSizedWrapGrid Orientation="Horizontal"
+                                                               ItemHeight="46"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:EmotionOption">
+                                        <Button Style="{StaticResource HudChipStyle}"
+                                                Margin="0,0,8,8"
+                                                Tag="{x:Bind Name}"
+                                                Click="OnEmotionChipClick">
+                                            <TextBlock Text="{x:Bind Name}"
+                                                       TextWrapping="NoWrap"
+                                                       TextTrimming="None"/>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Selected labels readout -->
+                            <TextBlock Text="{x:Bind ViewModel.SelectedEmotion, Mode=OneWay}"
+                                       FontFamily="{StaticResource HeadingFont}"
+                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource AccentBlueBrush}"
+                                       TextWrapping="Wrap"
+                                       Visibility="{x:Bind HasText(ViewModel.SelectedEmotion), Mode=OneWay}"/>
+
+                            <!-- Intensity slider -->
+                            <TextBlock Text="INTENSITY"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       Margin="0,8,0,0"/>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Slider Grid.Column="0"
+                                        Value="{x:Bind ViewModel.IntensityBefore, Mode=TwoWay}"
+                                        Minimum="1" Maximum="10"
+                                        StepFrequency="1"
+                                        TickFrequency="1"
+                                        TickPlacement="Outside"
+                                        VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{x:Bind ViewModel.IntensityBefore, Mode=OneWay}"
+                                           FontFamily="{StaticResource DisplayFont}"
+                                           FontSize="{Binding HeroLarge, Source={StaticResource FontSizes}}"
+                                           FontWeight="Bold"
+                                           Foreground="{StaticResource AccentBlueBrush}"
+                                           Margin="16,0,0,0"
+                                           VerticalAlignment="Center"
+                                           MinWidth="50"
+                                           TextAlignment="Center"/>
+                            </Grid>
+
+                            <StackPanel HorizontalAlignment="Right">
+                                <Button Content="NEXT →"
+                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        Command="{x:Bind ViewModel.NextStepCommand}"
+                                        IsEnabled="{x:Bind ViewModel.CanGoNext, Mode=OneWay}"/>
+                            </StackPanel>
                         </StackPanel>
-                        <!-- Emotion pills row 2 -->
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Style="{StaticResource PillButton}" Content="Hopeless"
-                                    Command="{x:Bind ViewModel.SelectEmotionCommand}" CommandParameter="Hopeless"/>
-                            <Button Style="{StaticResource PillButton}" Content="Numb"
-                                    Command="{x:Bind ViewModel.SelectEmotionCommand}" CommandParameter="Numb"/>
-                            <Button Style="{StaticResource PillButton}" Content="Restless"
-                                    Command="{x:Bind ViewModel.SelectEmotionCommand}" CommandParameter="Restless"/>
+                    </controls:CornerBracketedCard>
+                </StackPanel>
+
+                <!-- ══════════════════════════════════════════════════════
+                     STEP 1 — BREATHE
+                     ══════════════════════════════════════════════════════ -->
+                <StackPanel x:Name="Step1Panel"
+                            Spacing="14"
+                            Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 1), Mode=OneWay}">
+
+                    <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource AccentBlueBrush}">
+                        <StackPanel Spacing="14">
+                            <controls:SectionTitle Text="BREATHE"/>
+                            <TextBlock Text="Cyclic sighing — exhale longer than you inhale. 80 seconds."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <!-- Big centered ring with phase label inside -->
+                            <Grid Height="220" Margin="0,8,0,0">
+                                <controls:HudProgressRing
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Width="200" Height="200"
+                                    Progress="{x:Bind ViewModel.BreatheProgress, Mode=OneWay}"
+                                    Label="{x:Bind ViewModel.BreathePhaseText, Mode=OneWay}"
+                                    AccentBrush="{StaticResource AccentBlueBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.BreatheCountdown, Mode=OneWay}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Bottom"
+                                           Margin="0,0,0,8"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                            </Grid>
+
+                            <TextBlock Text="Double-inhale through nose, long exhale through mouth."
+                                       HorizontalAlignment="Center"
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <ProgressBar Value="{x:Bind ViewModel.BreatheProgress, Mode=OneWay}"
+                                         Maximum="1" Height="4"
+                                         Foreground="{StaticResource AccentBlueBrush}"
+                                         Background="{StaticResource SubtleBorderBrush}"
+                                         Margin="0,4,0,0"/>
+
+                            <TextBlock HorizontalAlignment="Center"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}">
+                                <Run Text="CYCLE"/>
+                                <Run Text="{x:Bind ViewModel.CurrentCycle, Mode=OneWay}"/>
+                            </TextBlock>
+
+                            <StackPanel HorizontalAlignment="Right" Margin="0,4,0,0">
+                                <Button Content="SKIP →"
+                                        Style="{StaticResource SecondaryActionButtonStyle}"
+                                        Command="{x:Bind ViewModel.SkipBreathingCommand}"/>
+                            </StackPanel>
                         </StackPanel>
+                    </controls:CornerBracketedCard>
+                </StackPanel>
 
-                        <!-- Selected emotion display -->
-                        <TextBlock Text="{x:Bind ViewModel.SelectedEmotion, Mode=OneWay}"
-                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                   Foreground="#8b5cf6"
-                                   Visibility="{x:Bind HasText(ViewModel.SelectedEmotion), Mode=OneWay}"/>
+                <!-- ══════════════════════════════════════════════════════
+                     STEP 2 — REFRAME
+                     ══════════════════════════════════════════════════════ -->
+                <StackPanel x:Name="Step2Panel"
+                            Spacing="14"
+                            Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 2), Mode=OneWay}">
 
-                        <!-- Intensity slider -->
-                        <TextBlock Style="{StaticResource CardLabel}" Text="Intensity" Margin="0,8,0,0"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="1" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#666680" VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" Minimum="1" Maximum="10" StepFrequency="1"
-                                    Value="{x:Bind ViewModel.IntensityBefore, Mode=TwoWay}"
-                                    Margin="8,0"/>
-                            <TextBlock Grid.Column="2" Text="10" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#666680" VerticalAlignment="Center"/>
-                        </Grid>
-                        <TextBlock Text="{x:Bind ViewModel.IntensityBeforeDisplay, Mode=OneWay}"
-                                   FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#8b5cf6"/>
+                    <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource AccentGoldBrush}">
+                        <StackPanel Spacing="14">
+                            <controls:SectionTitle Text="REFRAME"/>
+                            <TextBlock Text="Pick the one that lands. You can't argue the feeling away — you can shift the frame."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
 
-                        <!-- Next button -->
-                        <StackPanel HorizontalAlignment="Right">
-                            <Button Style="{StaticResource AccentButton}" Content="Next &#x2192;"
-                                    Command="{x:Bind ViewModel.NextStepCommand}"
-                                    IsEnabled="{x:Bind ViewModel.CanGoNext, Mode=OneWay}"/>
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.ReappraisalOptions, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="8"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <Button Style="{StaticResource HudMenuButtonStyle}"
+                                                Content="{x:Bind}"
+                                                Tag="{x:Bind}"
+                                                Click="OnReframeClick"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Selected reframe readout -->
+                            <StackPanel Spacing="4"
+                                        Margin="0,6,0,0"
+                                        Visibility="{x:Bind HasText(ViewModel.ReframeResponse), Mode=OneWay}">
+                                <TextBlock Text="SELECTED"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource MutedTextBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.ReframeResponse, Mode=OneWay}"
+                                           FontFamily="{StaticResource BodyFont}"
+                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource AccentGoldBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <StackPanel HorizontalAlignment="Right">
+                                <Button Content="NEXT →"
+                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        Command="{x:Bind ViewModel.NextStepCommand}"/>
+                            </StackPanel>
                         </StackPanel>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+                    </controls:CornerBracketedCard>
+                </StackPanel>
 
-            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
-                 STEP 1: BREATHE
-                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
-            <StackPanel x:Name="Step1Panel"
-                        Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 1), Mode=OneWay}"
-                        Spacing="4">
+                <!-- ══════════════════════════════════════════════════════
+                     STEP 3 — PLAN (if-then)
+                     ══════════════════════════════════════════════════════ -->
+                <StackPanel x:Name="Step3Panel"
+                            Spacing="14"
+                            Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 3), Mode=OneWay}">
 
-                <TextBlock Style="{StaticResource SectionTitle}" Text="BREATHE"/>
-                <TextBlock Style="{StaticResource SectionSubtitle}"
-                           Text="The chemical surge of tilt lasts ~90 seconds. Let's ride it out."
-                           Margin="0,0,0,20"/>
+                    <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource AccentPurpleBrush}">
+                        <StackPanel Spacing="14">
+                            <controls:SectionTitle Text="PLAN"/>
+                            <TextBlock Text="One trigger, one response. 'If X then Y' beats willpower."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
 
-                <Border Style="{StaticResource CardBorder}" BorderBrush="#8b5cf6">
-                    <StackPanel Spacing="8" HorizontalAlignment="Center">
-                        <!-- Breathing circle area -->
-                        <ProgressRing IsActive="{x:Bind ViewModel.IsBreathing, Mode=OneWay}"
-                                      Width="120" Height="120"
-                                      Foreground="#8b5cf6"
-                                      Margin="0,16,0,8"/>
+                            <!-- IF -->
+                            <TextBlock Text="IF…"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource AccentBlueBrush}"
+                                       Margin="0,4,0,0"/>
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.IfThenTriggers, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="8"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <Button Style="{StaticResource HudMenuButtonStyle}"
+                                                Content="{x:Bind}"
+                                                Tag="{x:Bind}"
+                                                Click="OnTriggerClick"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
 
-                        <TextBlock Text="{x:Bind ViewModel.BreathePhaseText, Mode=OneWay}"
-                                   FontSize="{Binding Hero, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#e8e8f0"
-                                   HorizontalAlignment="Center"/>
+                            <!-- THEN -->
+                            <TextBlock Text="THEN…"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource AccentGoldBrush}"
+                                       Margin="0,6,0,0"/>
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.IfThenResponses, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="8"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <Button Style="{StaticResource HudMenuButtonStyle}"
+                                                Content="{x:Bind}"
+                                                Tag="{x:Bind}"
+                                                Click="OnResponseClick"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
 
-                        <TextBlock Text="{x:Bind ViewModel.BreatheCountdown, Mode=OneWay}"
-                                   FontSize="{Binding Display, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#8b5cf6"
-                                   HorizontalAlignment="Center"/>
+                            <!-- Your plan -->
+                            <StackPanel Spacing="4"
+                                        Margin="0,6,0,0"
+                                        Visibility="{x:Bind HasText(ViewModel.IfThenPlan), Mode=OneWay}">
+                                <TextBlock Text="YOUR PLAN"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource MutedTextBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.IfThenPlan, Mode=OneWay}"
+                                           FontFamily="{StaticResource HeadingFont}"
+                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource AccentBlueBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
 
-                        <TextBlock Text="4-7-8 breathing — exhale longer than you inhale"
-                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#a0a0b8" HorizontalAlignment="Center"/>
-
-                        <!-- Progress bar -->
-                        <ProgressBar Value="{x:Bind ViewModel.BreatheProgress, Mode=OneWay}"
-                                     Maximum="1" Height="8"
-                                     Foreground="#8b5cf6"
-                                     Background="#2a2a3a"
-                                     Margin="0,12,0,4"/>
-
-                        <TextBlock FontSize="{Binding Body, Source={StaticResource FontSizes}}" Foreground="#a0a0b8" HorizontalAlignment="Center">
-                            <Run Text="Cycle "/>
-                            <Run Text="{x:Bind ViewModel.CurrentCycle, Mode=OneWay}"/>
-                            <Run Text=" of 5"/>
-                        </TextBlock>
-
-                        <!-- Skip -->
-                        <StackPanel HorizontalAlignment="Right" Margin="0,12,0,0">
-                            <Button Style="{StaticResource DimButton}" Content="Skip &#x2192;"
-                                    Command="{x:Bind ViewModel.SkipBreathingCommand}"/>
+                            <StackPanel HorizontalAlignment="Right">
+                                <Button Content="NEXT →"
+                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        Command="{x:Bind ViewModel.NextStepCommand}"/>
+                            </StackPanel>
                         </StackPanel>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+                    </controls:CornerBracketedCard>
+                </StackPanel>
 
-            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
-                 STEP 2: REFRAME
-                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
-            <StackPanel x:Name="Step2Panel"
-                        Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 2), Mode=OneWay}"
-                        Spacing="4">
+                <!-- ══════════════════════════════════════════════════════
+                     STEP 4 — DONE / POST-RATE
+                     ══════════════════════════════════════════════════════ -->
+                <StackPanel x:Name="Step4Panel"
+                            Spacing="14"
+                            Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 4), Mode=OneWay}">
 
-                <TextBlock Style="{StaticResource SectionTitle}" Text="REFRAME"/>
-                <TextBlock Style="{StaticResource SectionSubtitle}"
-                           Text="Catch the thought. Challenge it. Replace it."
-                           Margin="0,0,0,20"/>
+                    <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource WinGreenBrush}">
+                        <StackPanel Spacing="14">
+                            <controls:SectionTitle Text="DONE"/>
 
-                <Border Style="{StaticResource CardBorder}" BorderBrush="#8b5cf6">
-                    <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource CardLabel}" Text="What thought keeps replaying?"/>
-                        <TextBlock Style="{StaticResource CardHint}"
-                                   Text='e.g., "My jungler never ganked" or "I always lose lane"'/>
-                        <TextBox Text="{x:Bind ViewModel.ReframeThought, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="The thought on repeat..."
-                                 TextWrapping="Wrap" AcceptsReturn="True"
-                                 MinHeight="60" MaxHeight="100"
-                                 Background="#161622" Foreground="#e8e8f0"
-                                 BorderBrush="#2a2a3a" CornerRadius="2"/>
+                            <!-- You labeled summary -->
+                            <TextBlock FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap">
+                                <Run Text="You labeled: "/>
+                                <Run Text="{x:Bind ViewModel.SelectedEmotion, Mode=OneWay}"
+                                     FontWeight="SemiBold"/>
+                            </TextBlock>
 
-                        <TextBlock Style="{StaticResource CardLabel}" Text="Is this a fact, or an interpretation?" Margin="0,8,0,0"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Style="{StaticResource PillButton}" Content="Fact" MinWidth="130"
-                                    Command="{x:Bind ViewModel.SelectThoughtTypeCommand}" CommandParameter="Fact"/>
-                            <Button Style="{StaticResource PillButton}" Content="Interpretation" MinWidth="130"
-                                    Command="{x:Bind ViewModel.SelectThoughtTypeCommand}" CommandParameter="Interpretation"/>
+                            <!-- BEFORE → AFTER big-number display -->
+                            <Grid Margin="0,4,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- BEFORE -->
+                                <StackPanel Grid.Column="0"
+                                            Spacing="2"
+                                            HorizontalAlignment="Center">
+                                    <TextBlock Text="BEFORE"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="250"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               HorizontalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.IntensityBefore, Mode=OneWay}"
+                                               FontFamily="{StaticResource DisplayFont}"
+                                               FontSize="{Binding Display, Source={StaticResource FontSizes}}"
+                                               FontWeight="Bold"
+                                               Foreground="{StaticResource LossRedBrush}"
+                                               HorizontalAlignment="Center"/>
+                                </StackPanel>
+
+                                <!-- arrow -->
+                                <TextBlock Grid.Column="1"
+                                           Text="→"
+                                           FontFamily="{StaticResource DisplayFont}"
+                                           FontSize="{Binding Hero, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           VerticalAlignment="Center"
+                                           Margin="12,0"/>
+
+                                <!-- AFTER -->
+                                <StackPanel Grid.Column="2"
+                                            Spacing="2"
+                                            HorizontalAlignment="Center">
+                                    <TextBlock Text="AFTER"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="250"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               HorizontalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.IntensityAfter, Mode=OneWay}"
+                                               FontFamily="{StaticResource DisplayFont}"
+                                               FontSize="{Binding Display, Source={StaticResource FontSizes}}"
+                                               FontWeight="Bold"
+                                               Foreground="{StaticResource WinGreenBrush}"
+                                               HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- After slider -->
+                            <TextBlock Text="HOW INTENSE IS THE FEELING NOW?"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Slider Grid.Column="0"
+                                        Value="{x:Bind ViewModel.IntensityAfter, Mode=TwoWay}"
+                                        Minimum="1" Maximum="10"
+                                        StepFrequency="1"
+                                        TickFrequency="1"
+                                        TickPlacement="Outside"
+                                        VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{x:Bind ViewModel.IntensityAfter, Mode=OneWay}"
+                                           FontFamily="{StaticResource DisplayFont}"
+                                           FontSize="{Binding HeroLarge, Source={StaticResource FontSizes}}"
+                                           FontWeight="Bold"
+                                           Foreground="{StaticResource WinGreenBrush}"
+                                           Margin="16,0,0,0"
+                                           VerticalAlignment="Center"
+                                           MinWidth="50"
+                                           TextAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Result message with VM-computed color -->
+                            <TextBlock Text="{x:Bind ViewModel.ResultMessage, Mode=OneWay}"
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{x:Bind ViewModel.ResultColor, Mode=OneWay}"
+                                       TextWrapping="Wrap"/>
+
+                            <!-- Actions -->
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Right"
+                                        Spacing="8"
+                                        Margin="0,8,0,0">
+                                <Button Content="START OVER"
+                                        Style="{StaticResource SecondaryActionButtonStyle}"
+                                        Command="{x:Bind ViewModel.StartOverCommand}"/>
+                                <Button Content="SAVE &amp; CLOSE"
+                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        Command="{x:Bind ViewModel.SaveAndCloseCommand}"/>
+                            </StackPanel>
                         </StackPanel>
+                    </controls:CornerBracketedCard>
+                </StackPanel>
 
-                        <TextBlock Style="{StaticResource CardLabel}"
-                                   Text="What would you tell a friend who said this about their game?"
-                                   Margin="0,8,0,0"/>
-                        <TextBlock Style="{StaticResource CardHint}" Text="Respond with the same kindness you'd give a teammate."/>
-                        <TextBox Text="{x:Bind ViewModel.ReframeResponse, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="What you'd tell a friend..."
-                                 TextWrapping="Wrap" AcceptsReturn="True"
-                                 MinHeight="60" MaxHeight="100"
-                                 Background="#161622" Foreground="#e8e8f0"
-                                 BorderBrush="#2a2a3a" CornerRadius="2"/>
-
-                        <!-- Buttons -->
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                            <Button Style="{StaticResource AccentButton}" Content="Next &#x2192;"
-                                    Command="{x:Bind ViewModel.NextStepCommand}"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-
-            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
-                 STEP 3: RESET
-                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
-            <StackPanel x:Name="Step3Panel"
-                        Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 3), Mode=OneWay}"
-                        Spacing="4">
-
-                <TextBlock Style="{StaticResource SectionTitle}" Text="RESET"/>
-                <TextBlock Style="{StaticResource SectionSubtitle}"
-                           Text="That game is over. Set your intention for the next one."
-                           Margin="0,0,0,20"/>
-
-                <Border Style="{StaticResource CardBorder}" BorderBrush="#8b5cf6">
-                    <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource CardLabel}" Text="Pick one word for your next game:"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Style="{StaticResource PillButton}" Content="Calm"
-                                    Command="{x:Bind ViewModel.SelectCueWordCommand}" CommandParameter="Calm"/>
-                            <Button Style="{StaticResource PillButton}" Content="Patient"
-                                    Command="{x:Bind ViewModel.SelectCueWordCommand}" CommandParameter="Patient"/>
-                            <Button Style="{StaticResource PillButton}" Content="Focused"
-                                    Command="{x:Bind ViewModel.SelectCueWordCommand}" CommandParameter="Focused"/>
-                            <Button Style="{StaticResource PillButton}" Content="Aggressive"
-                                    Command="{x:Bind ViewModel.SelectCueWordCommand}" CommandParameter="Aggressive"/>
-                            <Button Style="{StaticResource PillButton}" Content="Clean"
-                                    Command="{x:Bind ViewModel.SelectCueWordCommand}" CommandParameter="Clean"/>
-                            <Button Style="{StaticResource PillButton}" Content="Fun"
-                                    Command="{x:Bind ViewModel.SelectCueWordCommand}" CommandParameter="Fun"/>
-                        </StackPanel>
-
-                        <!-- Selected cue word -->
-                        <TextBlock Text="{x:Bind ViewModel.SelectedCueWord, Mode=OneWay}"
-                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold" Foreground="#8b5cf6"
-                                   Visibility="{x:Bind HasText(ViewModel.SelectedCueWord), Mode=OneWay}"/>
-
-                        <TextBlock Style="{StaticResource CardLabel}"
-                                   Text="What's ONE thing in your control to focus on?"
-                                   Margin="0,8,0,0"/>
-                        <TextBlock Style="{StaticResource CardHint}"
-                                   Text='e.g., "CS better in the first 10 minutes" or "Track enemy jungler"'/>
-                        <TextBox Text="{x:Bind ViewModel.FocusIntention, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="One specific, controllable thing..."
-                                 Background="#161622" Foreground="#e8e8f0"
-                                 BorderBrush="#2a2a3a" CornerRadius="2"
-                                 Height="38"/>
-
-                        <StackPanel HorizontalAlignment="Right">
-                            <Button Style="{StaticResource AccentButton}" Content="Finish"
-                                    Command="{x:Bind ViewModel.NextStepCommand}"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-
-            <!-- •••••••••••••••••••••••••••••••••••••••••••••••
-                 STEP 4: DONE
-                 ••••••••••••••••••••••••••••••••••••••••••••••• -->
-            <StackPanel x:Name="Step4Panel"
-                        Visibility="{x:Bind IsStepVisible(ViewModel.CurrentStep, 4), Mode=OneWay}"
-                        Spacing="4">
-
-                <TextBlock Text="DONE" FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#22c55e" Margin="0,0,0,20"/>
-
-                <Border Style="{StaticResource CardBorder}" BorderBrush="#22c55e">
-                    <StackPanel Spacing="12">
-                        <!-- Summary -->
-                        <TextBlock FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" Foreground="#e8e8f0">
-                            <Run Text="You were feeling: "/>
-                            <Run Text="{x:Bind ViewModel.SelectedEmotion, Mode=OneWay}" FontWeight="SemiBold"/>
-                            <Run Text=" ("/>
-                            <Run Text="{x:Bind ViewModel.IntensityBefore, Mode=OneWay}"/>
-                            <Run Text="/10)"/>
-                        </TextBlock>
-
-                        <!-- After intensity -->
-                        <TextBlock Style="{StaticResource CardLabel}" Text="How intense is the feeling now?"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="1" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#666680" VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" Minimum="1" Maximum="10" StepFrequency="1"
-                                    Value="{x:Bind ViewModel.IntensityAfter, Mode=TwoWay}"
-                                    Margin="8,0"/>
-                            <TextBlock Grid.Column="2" Text="10" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Foreground="#666680" VerticalAlignment="Center"/>
-                        </Grid>
-                        <TextBlock Text="{x:Bind ViewModel.IntensityAfterDisplay, Mode=OneWay}"
-                                   FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold" Foreground="#22c55e"/>
-
-                        <!-- Result message -->
-                        <TextBlock Text="{x:Bind ViewModel.ResultMessage, Mode=OneWay}"
-                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" TextWrapping="Wrap"
-                                   Foreground="{x:Bind ViewModel.ResultColor, Mode=OneWay}"/>
-
-                        <!-- Encouragement -->
-                        <TextBlock Text="Every pro tilts. The difference is what you do next."
-                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontStyle="Italic" Foreground="#a0a0b8"
-                                   Margin="0,8,0,0"/>
-
-                        <!-- Action buttons -->
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
-                            <Button Style="{StaticResource DimButton}" Content="Start Over"
-                                    Command="{x:Bind ViewModel.StartOverCommand}"/>
-                            <Button Style="{StaticResource AccentButton}" Content="Save &amp; Close"
-                                    Command="{x:Bind ViewModel.SaveAndCloseCommand}"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </Grid>
+            </Grid>
         </StackPanel>
     </ScrollViewer>
 </Page>

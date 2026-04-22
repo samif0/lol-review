@@ -8,6 +8,7 @@ using LoLReview.App.Helpers;
 using LoLReview.App.Styling;
 using LoLReview.Core.Data.Repositories;
 using LoLReview.Core.Models;
+using LoLReview.Core.Services;
 using Microsoft.Extensions.Logging;
 
 namespace LoLReview.App.ViewModels;
@@ -19,6 +20,7 @@ public partial class DashboardViewModel : ObservableObject
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly INavigationService _navigationService;
+    private readonly IConfigService _configService;
     private readonly ILogger<DashboardViewModel> _logger;
 
     // ── Observable Properties ───────────────────────────────────────
@@ -112,12 +114,14 @@ public partial class DashboardViewModel : ObservableObject
         ISessionLogRepository sessionLogRepo,
         IObjectivesRepository objectivesRepo,
         INavigationService navigationService,
+        IConfigService configService,
         ILogger<DashboardViewModel> logger)
     {
         _gameRepo = gameRepo;
         _sessionLogRepo = sessionLogRepo;
         _objectivesRepo = objectivesRepo;
         _navigationService = navigationService;
+        _configService = configService;
         _logger = logger;
     }
 
@@ -131,10 +135,12 @@ public partial class DashboardViewModel : ObservableObject
 
         try
         {
-            // Build greeting
+            // Build greeting. Prefer the Riot gameName (e.g. "chapy") over the email
+            // since it's what the user sees in-client. Falls back to the generic
+            // "lock in." tail when the user isn't logged in or hasn't linked an ID.
             var hour = DateTime.Now.Hour;
             var tod = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
-            Greeting = $"Good {tod} \u2014 lock in.";
+            Greeting = BuildGreeting(tod);
 
             // Today's session stats
             var today = DateTime.Now.ToString("yyyy-MM-dd");
@@ -264,6 +270,30 @@ public partial class DashboardViewModel : ObservableObject
     private void NavigateToReview(long gameId)
     {
         _navigationService.NavigateTo("review", gameId);
+    }
+
+    private string BuildGreeting(string tod)
+    {
+        var id = _configService.RiotId;
+        var hashPos = id.IndexOf('#');
+        var gameName = hashPos > 0 ? id.Substring(0, hashPos) : "";
+
+        if (_configService.HasValidRiotSession && !string.IsNullOrEmpty(gameName))
+        {
+            return $"Good {tod}, {gameName}.";
+        }
+        if (_configService.HasValidRiotSession)
+        {
+            return $"Good {tod} \u2014 link your Riot account.";
+        }
+        return $"Good {tod} \u2014 lock in.";
+    }
+
+    [RelayCommand]
+    private void RunReset()
+    {
+        // Voluntary tilt check — no tied-to-game-id context.
+        _navigationService.NavigateTo("tiltcheck", new TiltCheckInfo(GameId: null, StreakCount: 0));
     }
 
     [RelayCommand]
