@@ -19,7 +19,9 @@ public sealed class TiltCheckRepository : ITiltCheckRepository
         string reframeResponse = "",
         string thoughtType = "",
         string cueWord = "",
-        string focusIntention = "")
+        string focusIntention = "",
+        long? gameId = null,
+        string ifThenPlan = "")
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -27,10 +29,10 @@ public sealed class TiltCheckRepository : ITiltCheckRepository
             INSERT INTO tilt_checks
                 (emotion, intensity_before, intensity_after,
                  reframe_thought, reframe_response, thought_type,
-                 cue_word, focus_intention, created_at)
+                 cue_word, focus_intention, game_id, if_then_plan, created_at)
             VALUES (@emotion, @intensityBefore, @intensityAfter,
                     @reframeThought, @reframeResponse, @thoughtType,
-                    @cueWord, @focusIntention, @createdAt)
+                    @cueWord, @focusIntention, @gameId, @ifThenPlan, @createdAt)
             """;
         cmd.Parameters.AddWithValue("@emotion", emotion);
         cmd.Parameters.AddWithValue("@intensityBefore", intensityBefore);
@@ -41,6 +43,9 @@ public sealed class TiltCheckRepository : ITiltCheckRepository
         cmd.Parameters.AddWithValue("@thoughtType", thoughtType);
         cmd.Parameters.AddWithValue("@cueWord", cueWord);
         cmd.Parameters.AddWithValue("@focusIntention", focusIntention);
+        cmd.Parameters.AddWithValue("@gameId",
+            gameId.HasValue ? gameId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@ifThenPlan", ifThenPlan);
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await cmd.ExecuteNonQueryAsync();
 

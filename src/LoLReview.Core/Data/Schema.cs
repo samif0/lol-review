@@ -318,6 +318,8 @@ public static class Schema
             thought_type      TEXT DEFAULT '',
             cue_word          TEXT DEFAULT '',
             focus_intention   TEXT DEFAULT '',
+            game_id           INTEGER,
+            if_then_plan      TEXT DEFAULT '',
             created_at        INTEGER
         );
         """;
@@ -524,6 +526,13 @@ public static class Schema
 
     // ── Migration statements ─────────────────────────────────────────
 
+    /// <summary>Tilt-check extensions: link to game + implementation-intention plan (Gollwitzer &amp; Sheeran 2006).</summary>
+    public static readonly string[] MigrateTiltChecksGameAndPlan =
+    [
+        "ALTER TABLE tilt_checks ADD COLUMN game_id INTEGER",
+        "ALTER TABLE tilt_checks ADD COLUMN if_then_plan TEXT DEFAULT ''",
+    ];
+
     public static readonly string[] MigrateBookmarksClipColumns =
     [
         "ALTER TABLE vod_bookmarks ADD COLUMN clip_start_s INTEGER",
@@ -672,6 +681,7 @@ public static class Schema
         .. MigrateCoachRecommendationsFeedback,
         .. MigrateGamesHidden,
         .. MigrateBookmarksObjective,
+        .. MigrateTiltChecksGameAndPlan,
     ];
 
     // ── Default seed data ────────────────────────────────────────────

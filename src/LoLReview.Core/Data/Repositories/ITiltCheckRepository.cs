@@ -25,7 +25,9 @@ public interface ITiltCheckRepository
         string reframeResponse = "",
         string thoughtType = "",
         string cueWord = "",
-        string focusIntention = "");
+        string focusIntention = "",
+        long? gameId = null,
+        string ifThenPlan = "");
 
     /// <summary>Get recent tilt checks, newest first.</summary>
     Task<IReadOnlyList<Dictionary<string, object?>>> GetRecentAsync(int limit = 20);

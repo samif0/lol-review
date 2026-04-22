@@ -63,7 +63,34 @@ public sealed class ConfigService : IConfigService
     public string BackupFolder => GetValidatedFolder(GetCached().BackupFolder) ?? "";
     public Dictionary<string, string> Keybinds => GetKeybinds();
 
+    public string RiotSessionToken => GetCached().RiotSessionToken;
+    public string RiotSessionEmail => GetCached().RiotSessionEmail;
+    public long RiotSessionExpiresAt => GetCached().RiotSessionExpiresAt;
+    public string RiotId => GetCached().RiotId;
+    public string RiotRegion => GetCached().RiotRegion;
+    public string RiotPuuid => GetCached().RiotPuuid;
+    public string PrimaryRole => GetCached().PrimaryRole;
+    public bool OnboardingSkipped => GetCached().OnboardingSkipped;
+
     public bool IsAscentEnabled => AscentFolder is not null;
+
+    public bool HasValidRiotSession =>
+        !string.IsNullOrWhiteSpace(RiotSessionToken)
+        && RiotSessionExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+    public bool RiotProxyEnabled =>
+        HasValidRiotSession
+        && !string.IsNullOrWhiteSpace(RiotId)
+        && RiotId.Contains('#')
+        && !string.IsNullOrWhiteSpace(RiotRegion);
+
+    /// <summary>
+    /// Skip onboarding if the user either (a) opted out entirely or
+    /// (b) completed it — which now requires a primary role too.
+    /// </summary>
+    public bool OnboardingComplete =>
+        OnboardingSkipped
+        || (RiotProxyEnabled && !string.IsNullOrEmpty(PrimaryRole));
 
     // ── Load / Save ─────────────────────────────────────────────────
 

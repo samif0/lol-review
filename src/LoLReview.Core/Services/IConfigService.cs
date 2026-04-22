@@ -27,10 +27,29 @@ public interface IConfigService
     string BackupFolder { get; }
     Dictionary<string, string> Keybinds { get; }
 
+    // Riot proxy session (from Path B login flow)
+    string RiotSessionToken { get; }
+    string RiotSessionEmail { get; }
+    long RiotSessionExpiresAt { get; }
+    string RiotId { get; }
+    string RiotRegion { get; }
+    string RiotPuuid { get; }
+    string PrimaryRole { get; }
+    bool OnboardingSkipped { get; }
+
     // ── Derived helpers ─────────────────────────────────────────────
+
+    /// <summary>True if onboarding should NOT be shown at startup.</summary>
+    bool OnboardingComplete { get; }
 
     /// <summary>True if a valid Ascent recordings folder is configured.</summary>
     bool IsAscentEnabled { get; }
+
+    /// <summary>True if the user has an unexpired session token.</summary>
+    bool HasValidRiotSession { get; }
+
+    /// <summary>True when logged in AND Riot ID + region are set (enables backfill).</summary>
+    bool RiotProxyEnabled { get; }
 
     /// <summary>
     /// Return the full keybind map, merging saved values with defaults
