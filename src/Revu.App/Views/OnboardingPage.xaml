@@ -63,7 +63,7 @@
                                      InputScope="EmailSmtpAddress"/>
                         </StackPanel>
 
-                        <!-- Invite field (collapsed by default) -->
+                        <!-- Invite field (collapsed if user toggles to log-in mode) -->
                         <StackPanel Spacing="4"
                                     Visibility="{x:Bind ViewModel.ShowInviteField, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                             <TextBlock Text="INVITE CODE"
@@ -71,6 +71,11 @@
                                        FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                        CharacterSpacing="250"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBlock Text="Given to you by someone who already uses Revu. Not the same as the code we'll email you next."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
                             <TextBox Text="{x:Bind ViewModel.InviteCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="Required for new accounts"
                                      FontFamily="{StaticResource MonoFont}"
@@ -82,7 +87,7 @@
                                          Padding="0"
                                          HorizontalAlignment="Left"/>
 
-                        <Button Content="CONTINUE"
+                        <Button Content="{x:Bind WelcomeButtonLabel(ViewModel.ShowInviteField), Mode=OneWay}"
                                 Command="{x:Bind ViewModel.ContinueFromWelcomeCommand}"
                                 Style="{StaticResource PrimaryActionButtonStyle}"
                                 IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
@@ -90,7 +95,7 @@
                                 Height="44"/>
 
                         <HyperlinkButton Command="{x:Bind ViewModel.SkipCommand}"
-                                         Content="Skip — use LCU only, no Riot login"
+                                         Content="Skip (login not required)"
                                          Padding="0"
                                          HorizontalAlignment="Center"
                                          IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"/>
@@ -110,13 +115,13 @@
                                    TextWrapping="Wrap"/>
 
                         <StackPanel Spacing="4">
-                            <TextBlock Text="CODE"
+                            <TextBlock Text="EMAIL CODE"
                                        FontFamily="{StaticResource MonoFont}"
                                        FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                        CharacterSpacing="250"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
                             <TextBox Text="{x:Bind ViewModel.OtpCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="8-character code"
+                                     PlaceholderText="8-character code from email"
                                      FontFamily="{StaticResource MonoFont}"
                                      CharacterCasing="Upper"/>
                         </StackPanel>
