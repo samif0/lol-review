@@ -13,4 +13,12 @@ public interface IGameMonitorService
     /// Used during match history reconciliation to avoid duplicates.
     /// </summary>
     Func<long, bool>? CheckGameSaved { get; set; }
+
+    /// <summary>
+    /// Current LCU connection state. Lets late-constructed consumers (e.g. a
+    /// ShellViewModel created after onboarding) query the live state instead of
+    /// relying on the edge-triggered <c>LcuConnectionChangedMessage</c> they
+    /// may have missed.
+    /// </summary>
+    bool IsConnected { get; }
 }

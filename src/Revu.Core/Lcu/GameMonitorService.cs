@@ -73,6 +73,9 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     /// <inheritdoc />
     public Func<long, bool>? CheckGameSaved { get; set; }
 
+    /// <inheritdoc />
+    public bool IsConnected => _state.IsConnected;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Game monitor started");

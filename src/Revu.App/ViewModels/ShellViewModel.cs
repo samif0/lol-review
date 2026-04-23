@@ -35,6 +35,7 @@ public partial class ShellViewModel : ObservableRecipient,
     private readonly IConfigService _configService;
     private readonly IRiotAuthClient _riotAuthClient;
     private readonly IUpdateService _updateService;
+    private readonly IGameMonitorService _gameMonitor;
     private readonly ILogger<ShellViewModel> _logger;
     private bool _hasInitialized;
     private bool _hasTriggeredConnectedMissedGamesCheck;
@@ -109,6 +110,7 @@ public partial class ShellViewModel : ObservableRecipient,
         IConfigService configService,
         IRiotAuthClient riotAuthClient,
         IUpdateService updateService,
+        IGameMonitorService gameMonitor,
         ILogger<ShellViewModel> logger)
     {
         _navigationService = navigationService;
@@ -121,11 +123,19 @@ public partial class ShellViewModel : ObservableRecipient,
         _configService = configService;
         _riotAuthClient = riotAuthClient;
         _updateService = updateService;
+        _gameMonitor = gameMonitor;
         _logger = logger;
         RefreshAccountIndicator();
 
         _updateService.StateChanged += OnUpdateStateChanged;
         ApplyUpdateState();
+
+        // Seed initial LCU state. Without this, a ShellViewModel constructed
+        // after onboarding (when the LCU has already connected and fired its
+        // edge-triggered LcuConnectionChangedMessage) would display "OFF"
+        // until the next state change.
+        IsConnected = _gameMonitor.IsConnected;
+        ConnectionStatusText = IsConnected ? "Connected" : "Waiting for League...";
 
         // Activate the messenger so we receive messages
         IsActive = true;

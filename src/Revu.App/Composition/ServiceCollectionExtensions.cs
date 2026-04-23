@@ -95,7 +95,9 @@ internal static class ServiceCollectionExtensions
                 ServerCertificateCustomValidationCallback = bypassSslValidation
             });
 
-        services.AddHostedService<GameMonitorService>();
+        services.AddSingleton<GameMonitorService>();
+        services.AddSingleton<IGameMonitorService>(sp => sp.GetRequiredService<GameMonitorService>());
+        services.AddHostedService(sp => sp.GetRequiredService<GameMonitorService>());
         return services;
     }
 
