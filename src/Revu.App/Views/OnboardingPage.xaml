@@ -45,7 +45,7 @@
                     Visibility="{x:Bind IsState(ViewModel.State, 'welcome'), Mode=OneWay}">
                     <StackPanel Spacing="14">
                         <controls:SectionTitle Text="GET STARTED"/>
-                        <TextBlock Text="Sign up or log in with your email. We'll send a one-time code."
+                        <TextBlock Text="New accounts need an invite code. If you already have an account, leave the invite field blank and we'll send you a login code."
                                    FontFamily="{StaticResource BodyFont}"
                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"

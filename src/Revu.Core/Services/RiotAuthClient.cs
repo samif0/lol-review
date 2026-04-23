@@ -154,6 +154,7 @@ public sealed class RiotAuthClient : IRiotAuthClient
                 "invite_code_required" => "An invite code is required to sign up.",
                 "invite_code_invalid_or_used" => "That invite code is invalid or already used.",
                 "invalid_or_expired_code" => "That code is invalid or expired. Request a new one.",
+                "login_email_not_registered" => "This email isn't registered yet. Go back and enter an invite code to sign up.",
                 "code_required" => "Please enter the code from your email.",
                 _ => message ?? "The request was rejected.",
             },

@@ -176,9 +176,14 @@ export async function handleVerify(request: Request, env: Env): Promise<Response
   } else {
     const existing = await findUserByEmail(env.DB, req.email);
     if (!existing) {
-      // Login code was issued for an email with no user (we send codes
-      // uniformly to avoid leaking account existence). Fail quietly.
-      return jsonResponse({ error: "invalid_or_expired_code" }, 400);
+      // Login code was issued for an email that has no user row (we send
+      // codes uniformly from /auth/login to avoid leaking account existence).
+      // At /auth/verify we can tell the user because they already proved
+      // access to this inbox — telling them "no account yet" is not a leak
+      // to a bystander. Without this distinct error, first-time users who
+      // skip the invite-code field get a misleading "invalid or expired
+      // code" message and can't figure out why signup isn't working.
+      return jsonResponse({ error: "login_email_not_registered" }, 400);
     }
     userId = existing.id;
   }

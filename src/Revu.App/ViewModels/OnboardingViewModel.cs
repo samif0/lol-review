@@ -55,8 +55,12 @@ public partial class OnboardingViewModel : ObservableObject
     [ObservableProperty]
     private string _inviteCode = "";
 
+    // Invite field visible by default so new users don't silently end up in
+    // the login path (which sends them an email whose code fails to verify
+    // because they have no account yet). Existing users can collapse it via
+    // the "Already have an account?" hyperlink.
     [ObservableProperty]
-    private bool _showInviteField;
+    private bool _showInviteField = true;
 
     // ── Code-sent ───────────────────────────────────────────────────
 
