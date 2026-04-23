@@ -88,6 +88,16 @@ public partial class ShellViewModel : ObservableRecipient,
     [ObservableProperty]
     private bool _canLogout;
 
+    /// <summary>Short version string for the sidebar footer (e.g. "2.12").</summary>
+    public string AppVersion
+    {
+        get
+        {
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return v is null ? "" : $"{v.Major}.{v.Minor}";
+        }
+    }
+
     public ShellViewModel(
         INavigationService navigationService,
         IDialogService dialogService,

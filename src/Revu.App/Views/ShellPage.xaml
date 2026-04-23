@@ -76,7 +76,7 @@
                                    Foreground="{StaticResource AccentBlueBrush}"
                                    HorizontalAlignment="Center"
                                    CharacterSpacing="300"/>
-                        <TextBlock Text="2.9"
+                        <TextBlock Text="{x:Bind ViewModel.AppVersion}"
                                    FontFamily="{StaticResource MonoFont}"
                                    FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource MutedTextBrush}"
