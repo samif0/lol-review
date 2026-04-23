@@ -17,7 +17,7 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <ApplicationIcon>Assets\lolreview.ico</ApplicationIcon>
-    <Version>2.9.1</Version>
+    <Version>2.9.2</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(AppxMSBuildToolsPath)' == ''">
@@ -55,6 +55,14 @@
   <!-- SVG pattern assets for HUD overlays -->
   <ItemGroup>
     <Content Include="Assets\Patterns\*.svg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Logo assets: explicit Content so incremental build reliably copies
+       updates to bin/. The exe's embedded icon (ApplicationIcon above) is
+       baked at compile time and needs a clean rebuild after changes. -->
+  <ItemGroup>
+    <Content Include="Assets\lolreview.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\lolreview.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- WinUI 3 unpackaged apps need resources.pri in the output directory -->

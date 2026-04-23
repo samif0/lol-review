@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Runtime.InteropServices;
 using LoLReview.App.Composition;
 using LoLReview.App.Helpers;
 using LoLReview.App.Startup;
@@ -67,15 +68,19 @@ public partial class App : Application
         _mainWindow.ExtendsContentIntoTitleBar = true;
 
         // Set the window icon explicitly so Windows' hover-preview thumbnail,
-        // alt-tab, and task-switcher show the right icon. ApplicationIcon in
-        // the csproj only populates the exe's embedded icon (taskbar shortcut);
-        // AppWindow needs its own SetIcon call.
+        // alt-tab, and task-switcher show the right icon. Two layers required
+        // in unpackaged WinUI 3:
+        //   1. AppWindow.SetIcon — handles alt-tab + hover preview reliably.
+        //   2. Win32 WM_SETICON via SendMessage — forces the taskbar button
+        //      icon to the same resource. Without this, the taskbar often
+        //      keeps showing a stale cached icon even after AppWindow.SetIcon.
         try
         {
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "lolreview.ico");
             if (File.Exists(iconPath))
             {
                 _mainWindow.AppWindow.SetIcon(iconPath);
+                ApplyWin32Icon(_mainWindow, iconPath);
             }
         }
         catch (Exception ex)
@@ -168,6 +173,47 @@ public partial class App : Application
             {
                 AppDiagnostics.WriteCrash(uiException);
             }
+        }
+    }
+
+    // ── Win32 icon helper ──────────────────────────────────────────
+    // WinUI 3's AppWindow.SetIcon handles alt-tab and hover-preview
+    // reliably, but the taskbar button icon often stays stuck on the
+    // cached exe icon. Sending WM_SETICON directly to the HWND forces
+    // the taskbar to refresh. LoadImage with LR_LOADFROMFILE reads the
+    // .ico straight off disk (no cache).
+
+    private const int WM_SETICON = 0x0080;
+    private const int ICON_SMALL = 0;
+    private const int ICON_BIG = 1;
+    private const uint IMAGE_ICON = 1;
+    private const uint LR_LOADFROMFILE = 0x00000010;
+    private const uint LR_DEFAULTSIZE = 0x00000040;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadImage(IntPtr hInst, string name, uint type, int cx, int cy, uint fuLoad);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    private static void ApplyWin32Icon(Window window, string iconPath)
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            if (hwnd == IntPtr.Zero) return;
+
+            var hIconSmall = LoadImage(IntPtr.Zero, iconPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+            var hIconBig = LoadImage(IntPtr.Zero, iconPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+
+            if (hIconSmall != IntPtr.Zero)
+                SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_SMALL, hIconSmall);
+            if (hIconBig != IntPtr.Zero)
+                SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_BIG, hIconBig);
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteVerbose("startup.log", $"ApplyWin32Icon failed: {ex.Message}");
         }
     }
 }
