@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Revu — ranked League, reviewed</title>
+  <meta name="description" content="Local-first desktop app that captures every ranked League match and helps you review what happened, with objectives and rules that track across sessions." />
+
+  <meta property="og:title" content="Revu — ranked League, reviewed" />
+  <meta property="og:description" content="Auto-captures every ranked match. Structured review in seconds. Tracks the habits you're building." />
+  <meta property="og:image" content="https://revu.lol/og-image.jpg" />
+  <meta property="og:url" content="https://revu.lol/" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+
+  <link rel="preload" href="/fonts/Orbitron.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/Rajdhani-Bold.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/ShareTechMono-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/Exo2.woff2" as="font" type="font/woff2" crossorigin />
+
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <span class="hero-bl" aria-hidden="true"></span>
+
+      <p class="eyebrow">Welcome</p>
+
+      <h1 class="wordmark">
+        <span>Revu</span>
+        <span class="cursor" aria-hidden="true"></span>
+      </h1>
+
+      <p class="subhead">Ranked League, Reviewed</p>
+
+      <p class="pitch">
+        Revu is a ranked-only League companion that turns every game into
+        data you can learn from. It captures matches automatically, helps
+        you write a quick review in seconds, and tracks the habits you're
+        trying to build.
+      </p>
+
+      <div class="cta-wrap">
+        <a id="download-btn"
+           class="download-btn"
+           href="https://github.com/samif0/lol-review/releases/latest"
+           rel="noopener">
+          Download for Windows
+        </a>
+        <span class="download-meta">
+          <span id="download-version">v2.12.1</span> · Windows 10/11 · ~140 MB
+        </span>
+      </div>
+
+      <figure class="screenshot-hero">
+        <img src="/screenshot-vod.jpg"
+             alt="Revu VOD review view: a paused League of Legends match with side panels for bookmarks, clips, and saved notes"
+             width="1400" height="758" loading="eager" />
+        <figcaption>VOD Review // Bookmark and clip moments as you rewatch</figcaption>
+      </figure>
+
+      <ul class="features">
+        <li>Auto-captures every ranked match — no manual entry</li>
+        <li>Write a structured review in seconds</li>
+        <li>Track objectives + rules across sessions and seasons</li>
+        <li>Local-first — your games stay on your machine</li>
+      </ul>
+
+      <div class="screenshot-grid">
+        <figure class="screenshot-tile">
+          <img src="/screenshot-session.jpg"
+               alt="Revu Session Log showing seven reviewed games with win/loss markers and mental ratings"
+               width="1004" height="1069" loading="lazy" />
+          <figcaption>Session Log // Every game, reviewed</figcaption>
+        </figure>
+        <figure class="screenshot-tile">
+          <img src="/screenshot-review.jpg"
+               alt="Revu post-game review for Seraphine showing KDA, CS, gold stats and objective practice checklist"
+               width="1008" height="1071" loading="lazy" />
+          <figcaption>Post-Game // Stats + objective practice</figcaption>
+        </figure>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="https://github.com/samif0/lol-review" rel="noopener">github.com/samif0/lol-review</a>
+    <span id="footer-version">v2.12.1</span>
+  </footer>
+
+  <div id="lightbox" class="lightbox" aria-hidden="true" role="dialog" aria-label="Screenshot viewer">
+    <button class="lightbox-close" type="button" aria-label="Close screenshot">&times;</button>
+    <img class="lightbox-img" alt="" />
+    <span class="lightbox-caption"></span>
+  </div>
+
+  <script src="/download.js" defer></script>
+  <script src="/lightbox.js" defer></script>
+</body>
+</html>

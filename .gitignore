@@ -1,3 +1,6 @@
+# Cloudflare Wrangler build cache (never commit — contains deploy metadata)
+**/.wrangler/
+
 # C# / .NET build artifacts
 **/bin/
 **/obj/
