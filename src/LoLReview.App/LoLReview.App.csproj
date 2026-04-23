@@ -17,7 +17,10 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <ApplicationIcon>Assets\lolreview.ico</ApplicationIcon>
-    <Version>2.9.2</Version>
+    <Version>2.9.3</Version>
+    <AssemblyTitle>Revu</AssemblyTitle>
+    <Product>Revu</Product>
+    <Company>Revu</Company>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(AppxMSBuildToolsPath)' == ''">

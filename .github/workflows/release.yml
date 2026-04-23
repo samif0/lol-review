@@ -144,6 +144,7 @@ jobs:
         run: |
           vpk pack `
             --packId LoLReview `
+            --packTitle "Revu" `
             --packVersion "${{ env.VERSION }}" `
             --packDir publish `
             --mainExe LoLReview.App.exe `
@@ -156,7 +157,7 @@ jobs:
             --repoUrl "https://github.com/${{ github.repository }}" `
             --token "${{ secrets.GITHUB_TOKEN }}" `
             --publish `
-            --releaseName "LoL Review v${{ env.VERSION }}" `
+            --releaseName "Revu v${{ env.VERSION }}" `
             --tag "${{ env.TAG }}"
 
       # ───────────────────────────── Coach sidecar packs ─────────────────────────────

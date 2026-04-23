@@ -54,18 +54,19 @@ public static class Program
     }
 
     /// <summary>
-    /// Deletes the redundant shortcut named after the main exe (LoLReview.App.lnk),
-    /// leaving only the packId-named one (LoLReview.lnk). Best-effort; failures
-    /// are silent because shortcut cleanup isn't critical to install success.
+    /// Deletes shortcuts left by prior versions so upgraders don't end up with
+    /// duplicates next to the new Revu.lnk that Velopack creates from packTitle.
+    /// Best-effort; silent on failure.
     /// </summary>
     private static void RemoveRedundantExeShortcut()
     {
         try
         {
-            new Velopack.Windows.Shortcuts().DeleteShortcuts(
-                "LoLReview.App.exe",
-                Velopack.Windows.ShortcutLocation.Desktop
-                | Velopack.Windows.ShortcutLocation.StartMenu);
+            var s = new Velopack.Windows.Shortcuts();
+            var loc = Velopack.Windows.ShortcutLocation.Desktop
+                    | Velopack.Windows.ShortcutLocation.StartMenu;
+            s.DeleteShortcuts("LoLReview.App.exe", loc);
+            s.DeleteShortcuts("LoLReview.exe", loc);
         }
         catch
         {
