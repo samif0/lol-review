@@ -804,13 +804,94 @@
                                     IsEnabled="{x:Bind Not(ViewModel.RiotAuthBusy), Mode=OneWay}"/>
                         </StackPanel>
 
-                        <!-- Logged-out: short hint, no form (onboarding handles flow) -->
-                        <TextBlock Text="Not logged in. Restart the app to sign up or log in."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   TextWrapping="Wrap"
-                                   Visibility="{x:Bind IsState(ViewModel.RiotAuthState, 'loggedOut'), Mode=OneWay}"/>
+                        <!-- Logged-out: inline login/signup form (parallel to onboarding auth) -->
+                        <StackPanel Spacing="12"
+                                    Visibility="{x:Bind IsState(ViewModel.RiotAuthState, 'loggedOut'), Mode=OneWay}">
+                            <TextBlock Text="Log in with your email, or enter an invite code if you're signing up for the first time."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="EMAIL"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                <TextBox Text="{x:Bind ViewModel.RiotAuthEmail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         PlaceholderText="you@example.com"
+                                         FontFamily="{StaticResource MonoFont}"
+                                         InputScope="EmailSmtpAddress"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="INVITE CODE (SIGNUP ONLY — OPTIONAL)"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                <TextBox Text="{x:Bind ViewModel.RiotAuthInviteCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         PlaceholderText="Leave blank if you already have an account"
+                                         FontFamily="{StaticResource MonoFont}"
+                                         CharacterCasing="Upper"/>
+                            </StackPanel>
+
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0"
+                                        Content="LOG IN"
+                                        Command="{x:Bind ViewModel.RiotAuthLoginCommand}"
+                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        IsEnabled="{x:Bind Not(ViewModel.RiotAuthBusy), Mode=OneWay}"
+                                        HorizontalAlignment="Stretch"
+                                        Height="40"/>
+                                <Button Grid.Column="1"
+                                        Content="SIGN UP"
+                                        Command="{x:Bind ViewModel.RiotAuthSignupCommand}"
+                                        IsEnabled="{x:Bind Not(ViewModel.RiotAuthBusy), Mode=OneWay}"
+                                        HorizontalAlignment="Stretch"
+                                        Height="40"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- Code-sent: OTP entry after Send Code / Signup fires -->
+                        <StackPanel Spacing="12"
+                                    Visibility="{x:Bind IsState(ViewModel.RiotAuthState, 'codeSent'), Mode=OneWay}">
+                            <TextBlock Text="{x:Bind ViewModel.RiotAuthInfo, Mode=OneWay}"
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="CODE"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                <TextBox Text="{x:Bind ViewModel.RiotAuthOtpCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         PlaceholderText="8-character code from email"
+                                         FontFamily="{StaticResource MonoFont}"
+                                         CharacterCasing="Upper"/>
+                            </StackPanel>
+
+                            <Button Content="VERIFY"
+                                    Command="{x:Bind ViewModel.RiotAuthVerifyCommand}"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
+                                    IsEnabled="{x:Bind Not(ViewModel.RiotAuthBusy), Mode=OneWay}"
+                                    HorizontalAlignment="Stretch"
+                                    Height="40"/>
+
+                            <HyperlinkButton Command="{x:Bind ViewModel.RiotAuthBackToEmailCommand}"
+                                             Content="Wrong email? Go back"
+                                             Padding="0"
+                                             HorizontalAlignment="Center"
+                                             IsEnabled="{x:Bind Not(ViewModel.RiotAuthBusy), Mode=OneWay}"/>
+                        </StackPanel>
 
                         <TextBlock Text="{x:Bind ViewModel.RiotAuthError, Mode=OneWay}"
                                    FontFamily="{StaticResource BodyFont}"

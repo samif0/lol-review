@@ -55,6 +55,21 @@ public sealed partial class ShellPage : Page
 
         WeakReferenceMessenger.Default.Register<LcuConnectionChangedMessage>(this, OnConnectionChanged);
 
+        // Seed the dot from the live GameMonitor state. Without this, a
+        // ShellPage constructed AFTER the LCU already connected (e.g. the
+        // user just finished onboarding) never catches the edge-triggered
+        // LcuConnectionChangedMessage and the dot stays red even though the
+        // backend is polling League fine.
+        try
+        {
+            var monitor = App.GetService<IGameMonitorService>();
+            SyncConnectionDot(monitor.IsConnected);
+        }
+        catch
+        {
+            // Defensive: never let a seed failure take the shell down.
+        }
+
         // Tell the window to use our custom title bar as the drag region.
         // Must run after the window has content; deferred via Loaded.
         Loaded += OnLoadedRegisterTitleBar;
@@ -224,16 +239,18 @@ public sealed partial class ShellPage : Page
 
     private void OnConnectionChanged(object recipient, LcuConnectionChangedMessage message)
     {
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            var brush = message.IsConnected
-                ? new SolidColorBrush(ColorHelper.FromArgb(255, 126, 201, 160))  // #7EC9A0 positive
-                : new SolidColorBrush(ColorHelper.FromArgb(255, 211, 140, 144)); // #D38C90 negative
+        DispatcherQueue.TryEnqueue(() => SyncConnectionDot(message.IsConnected));
+    }
 
-            ConnectionIndicator.Fill = brush;
-            StatusDot.Background = brush;
-            ConnectionStatusText.Text = "LCU";
-        });
+    private void SyncConnectionDot(bool isConnected)
+    {
+        var brush = isConnected
+            ? new SolidColorBrush(ColorHelper.FromArgb(255, 126, 201, 160))  // #7EC9A0 positive
+            : new SolidColorBrush(ColorHelper.FromArgb(255, 211, 140, 144)); // #D38C90 negative
+
+        ConnectionIndicator.Fill = brush;
+        StatusDot.Background = brush;
+        ConnectionStatusText.Text = "LCU";
     }
 
     private void OnContentViewportSizeChanged(object sender, SizeChangedEventArgs e)

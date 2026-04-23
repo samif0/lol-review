@@ -280,7 +280,7 @@
                     CardBorderBrush="{StaticResource AccentBlueBrush}"
                     Visibility="{x:Bind IsState(ViewModel.State, 'tourWhat'), Mode=OneWay}">
                     <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="WHAT REVU IS — 1 / 4"/>
+                        <controls:SectionTitle Text="WHAT REVU IS — 1 / 5"/>
                         <TextBlock Text="Revu is a ranked-only League companion that turns every game into data you can learn from. It captures your matches automatically, helps you review them in a few sentences, and tracks the habits you're trying to build."
                                    FontFamily="{StaticResource BodyFont}"
                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
@@ -306,7 +306,7 @@
                     CardBorderBrush="{StaticResource AccentGoldBrush}"
                     Visibility="{x:Bind IsState(ViewModel.State, 'tourLoop'), Mode=OneWay}">
                     <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="CAPTURE + REVIEW — 2 / 4"/>
+                        <controls:SectionTitle Text="CAPTURE + REVIEW — 2 / 5"/>
                         <TextBlock Text="Leave Revu running in the background. When you finish a ranked game, it's picked up automatically — stats, champ, KDA, result — no manual entry."
                                    FontFamily="{StaticResource BodyFont}"
                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
@@ -332,12 +332,105 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═════ Tour 3/4: Objectives + rules ═════ -->
+                <!-- ═════ Tour 3/5: Connect Ascent recordings ═════ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentTealBrush}"
+                    Visibility="{x:Bind IsState(ViewModel.State, 'tourAscent'), Mode=OneWay}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="CONNECT ASCENT — 3 / 5"/>
+                        <TextBlock Text="Revu can pair each game with its Ascent VOD so you can rewatch and bookmark moments from inside the app."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="Point it at the folder where Ascent saves your recordings. Ascent's default is:"
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <!-- Example path, mono-styled so it reads as a code sample -->
+                        <Border Background="{StaticResource InputBackgroundBrush}"
+                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                Padding="12,8">
+                            <TextBlock Text="C:\Users\&lt;user&gt;\Videos\Ascent"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource AccentTealBrush}"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </Border>
+
+                        <!-- Picked-folder readout (only visible once a folder is chosen) -->
+                        <Border Background="{StaticResource CardAltBackgroundBrush}"
+                                BorderBrush="{StaticResource AccentGoldBrush}"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                Padding="12,8"
+                                Visibility="{x:Bind ViewModel.HasAscentFolder, Mode=OneWay}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="FOLDER SELECTED"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource AccentGoldBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.AscentFolder, Mode=OneWay}"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                           TextWrapping="NoWrap"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Browse / change-folder button -->
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Button Grid.Column="0"
+                                    Content="CHOOSE FOLDER"
+                                    Command="{x:Bind ViewModel.BrowseAscentFolderCommand}"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
+                                    IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
+                                    HorizontalAlignment="Stretch"
+                                    Height="44"/>
+
+                            <Button Grid.Column="1"
+                                    Content="CLEAR"
+                                    Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
+                                    IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
+                                    Visibility="{x:Bind ViewModel.HasAscentFolder, Mode=OneWay}"
+                                    Height="44"
+                                    Padding="18,0"/>
+                        </Grid>
+
+                        <TextBlock Text="Skip this if you don't use Ascent — but without a folder, VODs won't appear in the client. You can set it anytime in Settings."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <!-- Continue — whether or not a folder was chosen -->
+                        <Button Content="CONTINUE"
+                                Command="{x:Bind ViewModel.NextTourStepCommand}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
+                                HorizontalAlignment="Stretch"
+                                Height="44"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ═════ Tour 4/5: Objectives + rules ═════ -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource AccentPurpleBrush}"
                     Visibility="{x:Bind IsState(ViewModel.State, 'tourHabits'), Mode=OneWay}">
                     <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="OBJECTIVES + RULES — 3 / 4"/>
+                        <controls:SectionTitle Text="OBJECTIVES + RULES — 4 / 5"/>
                         <TextBlock Text="Two tools for building habits between games:"
                                    FontFamily="{StaticResource BodyFont}"
                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
@@ -375,7 +468,7 @@
                     CardBorderBrush="{StaticResource AccentPurpleBrush}"
                     Visibility="{x:Bind IsState(ViewModel.State, 'tourObjective'), Mode=OneWay}">
                     <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="YOUR FIRST OBJECTIVE — 4 / 4"/>
+                        <controls:SectionTitle Text="YOUR FIRST OBJECTIVE — 5 / 5"/>
                         <TextBlock Text="Pick one thing you want to practice. It'll show on your dashboard as your priority for the next games. You can change it later from the Objectives page."
                                    FontFamily="{StaticResource BodyFont}"
                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"

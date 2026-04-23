@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
+using Windows.Storage.Pickers;
 
 namespace Revu.App.ViewModels;
 
@@ -17,10 +18,11 @@ namespace Revu.App.ViewModels;
 ///   "codeSent"      — paste emailed OTP (login path only)
 ///   "account"       — Riot ID + region (login path only)
 ///   "role"          — primary-role pick (login path only)
-///   "tourWhat"      — shared: what Revu is (1/4)
-///   "tourLoop"      — shared: auto-capture + review (2/4)
-///   "tourHabits"    — shared: objectives + rules (3/4)
-///   "tourObjective" — shared: create first objective (4/4, writes to DB)
+///   "tourWhat"      — shared: what Revu is (1/5)
+///   "tourLoop"      — shared: auto-capture + review (2/5)
+///   "tourAscent"    — shared: connect Ascent recordings folder (3/5)
+///   "tourHabits"    — shared: objectives + rules (4/5)
+///   "tourObjective" — shared: create first objective (5/5, writes to DB)
 ///   "done"          — onboarding host swaps in the shell
 ///
 /// Both paths (login and skip) converge at "tourWhat" after any auth steps.
@@ -100,6 +102,20 @@ public partial class OnboardingViewModel : ObservableObject
         OnPropertyChanged(nameof(IsMiddleSelected));
         OnPropertyChanged(nameof(IsBottomSelected));
         OnPropertyChanged(nameof(IsUtilitySelected));
+    }
+
+    // ── Tour: Ascent folder ─────────────────────────────────────────
+
+    /// <summary>Chosen Ascent recordings folder. Empty until the user picks one.</summary>
+    [ObservableProperty]
+    private string _ascentFolder = "";
+
+    /// <summary>True once <see cref="AscentFolder"/> is non-empty (drives CTA label).</summary>
+    public bool HasAscentFolder => !string.IsNullOrWhiteSpace(AscentFolder);
+
+    partial void OnAscentFolderChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasAscentFolder));
     }
 
     // ── Tour: first objective ───────────────────────────────────────
@@ -312,16 +328,64 @@ public partial class OnboardingViewModel : ObservableObject
     // ── Tour (shared by both paths) ─────────────────────────────────
 
     [RelayCommand]
-    private void NextTourStep()
+    private async Task NextTourStepAsync()
     {
         Error = "";
+
+        // Leaving tourAscent: persist whatever the user picked (may be empty).
+        // We only write if it differs, to avoid pointless config churn.
+        if (State == "tourAscent")
+        {
+            try
+            {
+                var config = await _configService.LoadAsync();
+                var picked = (AscentFolder ?? "").Trim();
+                if (!string.Equals(config.AscentFolder ?? "", picked, StringComparison.OrdinalIgnoreCase))
+                {
+                    config.AscentFolder = picked;
+                    await _configService.SaveAsync(config);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Onboarding save-ascent-folder failed");
+                // Non-fatal — keep moving. User can re-set it in Settings.
+            }
+        }
+
         State = State switch
         {
             "tourWhat" => "tourLoop",
-            "tourLoop" => "tourHabits",
+            "tourLoop" => "tourAscent",
+            "tourAscent" => "tourHabits",
             "tourHabits" => "tourObjective",
             _ => State,
         };
+    }
+
+    /// <summary>Open a folder picker and store the result in <see cref="AscentFolder"/>.</summary>
+    [RelayCommand]
+    private async Task BrowseAscentFolderAsync()
+    {
+        if (Busy) return;
+        Busy = true;
+        try
+        {
+            var picked = await PickFolderAsync("Select Ascent Recordings Folder");
+            if (!string.IsNullOrWhiteSpace(picked))
+            {
+                AscentFolder = picked;
+                Error = "";
+            }
+        }
+        finally { Busy = false; }
+    }
+
+    /// <summary>Clear the picked folder (in case the user wants to start over).</summary>
+    [RelayCommand]
+    private void ClearAscentFolder()
+    {
+        AscentFolder = "";
     }
 
     [RelayCommand]
@@ -384,5 +448,31 @@ public partial class OnboardingViewModel : ObservableObject
             Completed?.Invoke();
         }
         finally { Busy = false; }
+    }
+
+    // ── Folder picker helper ────────────────────────────────────────
+    //
+    // Mirrors SettingsViewModel.PickFolderAsync. WinUI 3 FolderPicker needs
+    // the owning window HWND wired via InitializeWithWindow or it throws.
+    private static async Task<string?> PickFolderAsync(string description)
+    {
+        try
+        {
+            var picker = new FolderPicker();
+            picker.SuggestedStartLocation = PickerLocationId.VideosLibrary;
+            picker.FileTypeFilter.Add("*");
+
+            var hwnd = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+            if (hwnd == nint.Zero) return null;
+
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+            var folder = await picker.PickSingleFolderAsync();
+            return folder?.Path;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
