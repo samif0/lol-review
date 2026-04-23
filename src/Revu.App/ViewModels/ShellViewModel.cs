@@ -434,6 +434,11 @@ public partial class ShellViewModel : ObservableRecipient,
             config.RiotSessionToken = "";
             config.RiotSessionEmail = "";
             config.RiotSessionExpiresAt = 0;
+            // Reset OnboardingSkipped so a user who logs out is returned to
+            // the auth flow on next launch. Otherwise a stale Skip from an
+            // earlier session keeps OnboardingComplete true and the user
+            // never sees the signup UI again.
+            config.OnboardingSkipped = false;
             // Keep RiotId + RiotRegion: the user may log back in and they still apply.
             await _configService.SaveAsync(config);
 

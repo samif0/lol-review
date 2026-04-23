@@ -541,6 +541,9 @@ public partial class SettingsViewModel : ObservableObject
             config.RiotSessionToken = "";
             config.RiotSessionEmail = "";
             config.RiotSessionExpiresAt = 0;
+            // Reset Skip so a stale opt-out doesn't keep the user out of
+            // the onboarding flow on next launch.
+            config.OnboardingSkipped = false;
             await _configService.SaveAsync(config);
             if (!string.IsNullOrEmpty(token))
             {
