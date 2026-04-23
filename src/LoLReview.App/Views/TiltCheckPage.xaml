@@ -164,23 +164,36 @@
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        TextWrapping="Wrap"/>
 
-                            <!-- Big centered ring with phase label inside -->
-                            <Grid Height="220" Margin="0,8,0,0">
+                            <!-- Big centered ring (progress only — phase text lives BELOW
+                                 the ring so it can't overflow when font-scaling is active). -->
+                            <Grid Height="240" Margin="0,8,0,0">
                                 <controls:HudProgressRing
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Width="200" Height="200"
+                                    Width="220" Height="220"
                                     Progress="{x:Bind ViewModel.BreatheProgress, Mode=OneWay}"
-                                    Label="{x:Bind ViewModel.BreathePhaseText, Mode=OneWay}"
+                                    Label=""
                                     AccentBrush="{StaticResource AccentBlueBrush}"/>
+                                <!-- Countdown seconds — big, centered inside the ring. -->
                                 <TextBlock Text="{x:Bind ViewModel.BreatheCountdown, Mode=OneWay}"
                                            HorizontalAlignment="Center"
-                                           VerticalAlignment="Bottom"
-                                           Margin="0,0,0,8"
-                                           FontFamily="{StaticResource MonoFont}"
-                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                           VerticalAlignment="Center"
+                                           FontFamily="{StaticResource DisplayFont}"
+                                           FontSize="{Binding Hero, Source={StaticResource FontSizes}}"
+                                           FontWeight="Bold"
+                                           Foreground="{StaticResource AccentBlueBrush}"/>
                             </Grid>
+
+                            <!-- Phase label BELOW the ring so long words like "Exhale slowly"
+                                 never overflow the circle at any font-scale. -->
+                            <TextBlock Text="{x:Bind ViewModel.BreathePhaseText, Mode=OneWay}"
+                                       HorizontalAlignment="Center"
+                                       FontFamily="{StaticResource HeadingFont}"
+                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="None"/>
 
                             <TextBlock Text="Double-inhale through nose, long exhale through mouth."
                                        HorizontalAlignment="Center"
@@ -382,17 +395,15 @@
                                      FontWeight="SemiBold"/>
                             </TextBlock>
 
-                            <!-- BEFORE → AFTER big-number display -->
-                            <Grid Margin="0,4,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-
+                            <!-- BEFORE → AFTER big-number display. Horizontal StackPanel so
+                                 each cluster sizes to content; nothing clips when the card
+                                 is narrow or the font scale is high. -->
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Center"
+                                        Spacing="24"
+                                        Margin="0,4,0,4">
                                 <!-- BEFORE -->
-                                <StackPanel Grid.Column="0"
-                                            Spacing="2"
+                                <StackPanel Spacing="2"
                                             HorizontalAlignment="Center">
                                     <TextBlock Text="BEFORE"
                                                FontFamily="{StaticResource MonoFont}"
@@ -409,17 +420,14 @@
                                 </StackPanel>
 
                                 <!-- arrow -->
-                                <TextBlock Grid.Column="1"
-                                           Text="→"
+                                <TextBlock Text="→"
                                            FontFamily="{StaticResource DisplayFont}"
                                            FontSize="{Binding Hero, Source={StaticResource FontSizes}}"
                                            Foreground="{StaticResource SecondaryTextBrush}"
-                                           VerticalAlignment="Center"
-                                           Margin="12,0"/>
+                                           VerticalAlignment="Center"/>
 
                                 <!-- AFTER -->
-                                <StackPanel Grid.Column="2"
-                                            Spacing="2"
+                                <StackPanel Spacing="2"
                                             HorizontalAlignment="Center">
                                     <TextBlock Text="AFTER"
                                                FontFamily="{StaticResource MonoFont}"
@@ -434,7 +442,7 @@
                                                Foreground="{StaticResource WinGreenBrush}"
                                                HorizontalAlignment="Center"/>
                                 </StackPanel>
-                            </Grid>
+                            </StackPanel>
 
                             <!-- After slider -->
                             <TextBlock Text="HOW INTENSE IS THE FEELING NOW?"
