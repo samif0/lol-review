@@ -1,0 +1,169 @@
+﻿<Page
+    x:Class="Revu.App.Views.ObjectiveGamesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:Revu.App.Services"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:Revu.App.Converters"
+    xmlns:vm="using:Revu.App.ViewModels"
+    mc:Ignorable="d"
+    Background="{StaticResource AppBackgroundBrush}">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <converters:WinLossColorConverter x:Key="WinLossColor"/>
+        <converters:KdaColorConverter x:Key="KdaColor"/>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Padding="24,20,24,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0"
+                    Command="{x:Bind ViewModel.GoBackCommand}"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    VerticalAlignment="Center"
+                    Margin="0,0,12,0"
+                    Padding="6">
+                <FontIcon Glyph="&#xE76B;" FontSize="{Binding Title, Source={StaticResource FontSizes}}"
+                          Foreground="{StaticResource SecondaryTextBrush}"/>
+            </Button>
+
+            <StackPanel Grid.Column="1" Spacing="2">
+                <TextBlock Text="{x:Bind ViewModel.ObjectiveTitle, Mode=OneWay}"
+                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{x:Bind ViewModel.ObjectiveStatus, Mode=OneWay}"
+                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <TextBlock FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <Run Text="{x:Bind ViewModel.PracticedCount, Mode=OneWay}"/>
+                        <Run Text=" practiced / "/>
+                        <Run Text="{x:Bind ViewModel.TotalCount, Mode=OneWay}"/>
+                        <Run Text=" total"/>
+                    </TextBlock>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- Loading -->
+        <ProgressRing Grid.Row="1"
+                      IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Width="48" Height="48"
+                      Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+        <!-- Empty state -->
+        <Border Grid.Row="1"
+                Style="{StaticResource CardStyle}"
+                Margin="24,0"
+                Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+            <TextBlock Text="No games recorded for this objective yet."
+                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                       Foreground="{StaticResource SecondaryTextBrush}"
+                       HorizontalAlignment="Center"
+                       Margin="0,30"/>
+        </Border>
+
+        <!-- Games list -->
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+            <ItemsRepeater ItemsSource="{x:Bind ViewModel.Games, Mode=OneWay}"
+                           Margin="24,0,24,24">
+                <ItemsRepeater.Layout>
+                    <StackLayout Spacing="8"/>
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ObjectiveGameRow">
+                        <Border Background="{StaticResource CardBackgroundBrush}"
+                                CornerRadius="2"
+                                Padding="14,12"
+                                BorderThickness="1"
+                                BorderBrush="{StaticResource SubtleBorderBrush}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Win/Loss indicator -->
+                                <Border Grid.Column="0"
+                                        Width="4" CornerRadius="2"
+                                        Margin="0,0,12,0"
+                                        Background="{x:Bind Win, Converter={StaticResource WinLossColor}}"/>
+
+                                <!-- Main content -->
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <!-- Top row: champion + date + practiced badge -->
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <TextBlock Text="{x:Bind ResultText}"
+                                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                                   Foreground="{x:Bind Win, Converter={StaticResource WinLossColor}}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{x:Bind ChampionName}"
+                                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{x:Bind KdaText}"
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{x:Bind DateText}"
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource MutedTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <!-- Practiced badge -->
+                                        <Border CornerRadius="2"
+                                                Padding="6,2"
+                                                Background="{x:Bind PracticedBackgroundBrush}">
+                                            <TextBlock Text="{x:Bind PracticedText}"
+                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                                       Foreground="{x:Bind PracticedForegroundBrush}"/>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <!-- Execution note -->
+                                    <TextBlock Text="{x:Bind ExecutionNote}"
+                                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               TextWrapping="Wrap"
+                                               FontStyle="Italic"
+                                               Visibility="{x:Bind HasExecutionNote, Converter={StaticResource BoolToVis}}"/>
+                                </StackPanel>
+
+                                <!-- Review button -->
+                                <Button Grid.Column="2"
+                                        Content="Review"
+                                        Background="{StaticResource TagBackgroundBrush}"
+                                        Foreground="{StaticResource AccentGoldBrush}"
+                                        BorderBrush="{StaticResource AccentGoldBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="2" Height="30"
+                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                        VerticalAlignment="Center"
+                                        Tag="{x:Bind GameId}"
+                                        Click="ReviewGame_Click"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+        </ScrollViewer>
+    </Grid>
+</Page>

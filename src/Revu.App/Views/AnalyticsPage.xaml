@@ -1,0 +1,419 @@
+﻿<Page
+    x:Class="Revu.App.Views.AnalyticsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:Revu.App.Services"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:Revu.App.Converters"
+    xmlns:controls="using:Revu.App.Controls"
+    xmlns:vm="using:Revu.App.ViewModels"
+    mc:Ignorable="d"
+    Background="Transparent"
+    Loaded="OnPageLoaded">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </Page.Resources>
+
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ••• Hero ••• -->
+        <Grid Grid.Row="0" Margin="40,20,40,8">
+            <controls:HeroHeader EyebrowText="PERFORMANCE INTELLIGENCE"
+                                 Title="Patterns &amp; Signals"
+                                 Subtitle="MENTAL SPLITS // CONCEPT FREQUENCY"/>
+            <Button Content="&#xE72C;"
+                    FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                    Style="{StaticResource GhostIconButtonStyle}"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="0,16,0,0"
+                    ToolTipService.ToolTip="Refresh"
+                    Command="{x:Bind ViewModel.LoadCommand}"/>
+        </Grid>
+
+        <!-- Loading -->
+        <ProgressRing Grid.Row="1"
+                      IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                      Width="40" Height="40"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="40,0,40,40">
+            <StackPanel Spacing="14">
+
+                <!-- ••• OVERALL STATS ••• -->
+                <controls:StatStrip>
+                    <controls:StatCell Label="Games"
+                                       Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
+                    <controls:StatCell Label="Win Rate"
+                                       Value="{x:Bind ViewModel.Winrate, Mode=OneWay}"
+                                       ValueBrush="{x:Bind ViewModel.WinrateColor, Mode=OneWay}"/>
+                    <controls:StatCell Label="Wins"
+                                       Value="{x:Bind ViewModel.Wins, Mode=OneWay}"
+                                       ValueBrush="{StaticResource WinGreenBrush}"/>
+                    <controls:StatCell Label="Losses"
+                                       Value="{x:Bind ViewModel.Losses, Mode=OneWay}"
+                                       ValueBrush="{StaticResource LossRedBrush}"/>
+                    <controls:StatCell Label="Avg KDA"
+                                       Value="{x:Bind ViewModel.AvgKda, Mode=OneWay}"
+                                       ValueBrush="{StaticResource AccentBlueBrush}"/>
+                    <controls:StatCell Label="CS/min"
+                                       Value="{x:Bind ViewModel.AvgCsMin, Mode=OneWay}"/>
+                    <controls:StatCell Label="Vision"
+                                       Value="{x:Bind ViewModel.AvgVision, Mode=OneWay}"/>
+                </controls:StatStrip>
+
+                <!-- ••• MENTAL vs WIN RATE ••• -->
+                <controls:CornerBracketedCard
+                    Visibility="{x:Bind HasItems(ViewModel.MentalBrackets.Count), Mode=OneWay}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="MENTAL vs WIN RATE"/>
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.MentalBrackets, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="10"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:MentalBracketRow">
+                                    <Grid ColumnSpacing="14">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="60"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{x:Bind Bracket}"
+                                                   FontFamily="{StaticResource HeadingFont}"
+                                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource AccentBlueBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <Border Grid.Column="1" Height="24" CornerRadius="2"
+                                                Background="{StaticResource SurfaceInsetBrush}"
+                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                BorderThickness="1">
+                                            <Border Background="{x:Bind WinrateColor}"
+                                                    CornerRadius="2"
+                                                    Width="{x:Bind BarWidth}"
+                                                    HorizontalAlignment="Left"
+                                                    Opacity="0.8"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind WinrateDisplay}"
+                                                   FontFamily="{StaticResource DisplayFont}"
+                                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                                   Foreground="{x:Bind WinrateColor}"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Right"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ••• TILT CHECK STATS ••• -->
+                <controls:CornerBracketedCard
+                    Visibility="{x:Bind ViewModel.HasTiltStats, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="TILT CHECK STATS"/>
+                        <Grid ColumnSpacing="24">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <TextBlock Text="{x:Bind ViewModel.TiltCheckCount, Mode=OneWay}"
+                                           FontFamily="{StaticResource DisplayFont}"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                                <TextBlock Text="CHECKS"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock Text="{x:Bind ViewModel.AvgTiltBefore, Mode=OneWay}"
+                                           FontFamily="{StaticResource DisplayFont}"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                           Foreground="{StaticResource LossRedBrush}"/>
+                                <TextBlock Text="AVG BEFORE"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="4">
+                                <TextBlock Text="{x:Bind ViewModel.AvgTiltAfter, Mode=OneWay}"
+                                           FontFamily="{StaticResource DisplayFont}"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                           Foreground="{StaticResource WinGreenBrush}"/>
+                                <TextBlock Text="AVG AFTER"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3" Spacing="4">
+                                <TextBlock Text="{x:Bind ViewModel.AvgTiltReduction, Mode=OneWay}"
+                                           FontFamily="{StaticResource DisplayFont}"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                           Foreground="{StaticResource AccentTealBrush}"/>
+                                <TextBlock Text="REDUCTION"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="4" Spacing="4">
+                                <TextBlock Text="{x:Bind ViewModel.TopTiltEmotion, Mode=OneWay}"
+                                           FontFamily="{StaticResource HeadingFont}"
+                                           FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource AccentGoldBrush}"/>
+                                <TextBlock Text="TOP EMOTION"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ••• CHAMPION PERFORMANCE ••• -->
+                <controls:CornerBracketedCard
+                    Visibility="{x:Bind HasItems(ViewModel.ChampionStats.Count), Mode=OneWay}">
+                    <StackPanel Spacing="12">
+                        <controls:SectionTitle Text="CHAMPION PERFORMANCE"/>
+
+                        <!-- Table header -->
+                        <Grid Padding="4,0" Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="80"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="CHAMPION"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"/>
+                            <TextBlock Grid.Column="1" Text="GAMES"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="WR%"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="3" Text="KDA"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="4" Text="CS/M"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                        </Grid>
+
+                        <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
+
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.ChampionStats, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="0"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ChampionStatRow">
+                                    <Border Padding="4,8"
+                                            BorderBrush="{StaticResource SubtleBorderBrush}"
+                                            BorderThickness="0,0,0,1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="80"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{x:Bind ChampionName}"
+                                                       FontFamily="{StaticResource HeadingFont}"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="{x:Bind Games}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{x:Bind WinrateDisplay}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                       Foreground="{x:Bind WinrateColor}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="3" Text="{x:Bind AvgKda}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Text="{x:Bind AvgCsMin}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ••• CONCEPT TAG FREQUENCY ••• -->
+                <controls:CornerBracketedCard
+                    Visibility="{x:Bind HasItems(ViewModel.TagFrequencies.Count), Mode=OneWay}">
+                    <StackPanel Spacing="12">
+                        <controls:SectionTitle Text="CONCEPT TAG FREQUENCY"/>
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.TagFrequencies, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="8"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:TagFrequencyRow">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{x:Bind Name}"
+                                                   FontFamily="{StaticResource HeadingFont}"
+                                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <Border Grid.Column="1" Height="20" CornerRadius="2"
+                                                Background="{StaticResource SurfaceInsetBrush}"
+                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                BorderThickness="1">
+                                            <Border Background="{x:Bind BarColor}"
+                                                    CornerRadius="2"
+                                                    Width="{x:Bind BarWidth}"
+                                                    HorizontalAlignment="Left"
+                                                    Opacity="0.7"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Count}"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Right"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ••• MATCHUP ANALYSIS ••• -->
+                <controls:CornerBracketedCard
+                    Visibility="{x:Bind HasItems(ViewModel.MatchupStats.Count), Mode=OneWay}">
+                    <StackPanel Spacing="12">
+                        <controls:SectionTitle Text="MATCHUP ANALYSIS (Worst First)"/>
+
+                        <Grid Padding="4,0" Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="80"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="YOU"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"/>
+                            <TextBlock Grid.Column="1" Text="VS"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"/>
+                            <TextBlock Grid.Column="2" Text="GAMES"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="3" Text="WR%"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="4" Text="KDA"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}" CharacterSpacing="200"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                        </Grid>
+
+                        <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
+
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.MatchupStats, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="0"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:MatchupStatRow">
+                                    <Border Padding="4,8"
+                                            BorderBrush="{StaticResource SubtleBorderBrush}"
+                                            BorderThickness="0,0,0,1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="80"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{x:Bind YourChampion}"
+                                                       FontFamily="{StaticResource HeadingFont}"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="{x:Bind EnemyChampion}"
+                                                       FontFamily="{StaticResource HeadingFont}"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource LossRedBrush}"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{x:Bind Games}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="3" Text="{x:Bind WinrateDisplay}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                       Foreground="{x:Bind WinrateColor}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Text="{x:Bind AvgKda}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

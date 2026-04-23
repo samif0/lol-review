@@ -1,0 +1,209 @@
+﻿<Page
+    x:Class="Revu.App.Views.DashboardPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:Revu.App.Services"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:Revu.App.Controls"
+    xmlns:vm="using:Revu.App.ViewModels"
+    xmlns:converters="using:Revu.App.Converters"
+    mc:Ignorable="d"
+    Background="Transparent">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </Page.Resources>
+
+    <Grid x:Name="RootGrid" Background="Transparent">
+
+        <!-- Loading spinner -->
+        <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Width="48"
+                      Height="48"
+                      Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- ••• HERO ••• -->
+            <controls:HeroHeader Grid.Row="0"
+                                 EyebrowText="DASHBOARD"
+                                 Title="{x:Bind ViewModel.Greeting, Mode=OneWay}"
+                                 Margin="40,16,40,8"/>
+
+            <!-- ••• CONTENT ••• -->
+            <ScrollViewer Grid.Row="1"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Padding="40,0,40,40">
+                <StackPanel MaxWidth="1600"
+                            HorizontalAlignment="Stretch"
+                            Spacing="14">
+
+                    <!-- Session banner -->
+                    <controls:BannerControl Tone="Positive"
+                                            Message="{x:Bind ViewModel.SessionBannerText, Mode=OneWay}"
+                                            Icon="&#xE946;"
+                                            Visibility="{x:Bind ViewModel.ShowSessionBanner, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+                    <!-- Run reset (voluntary tilt ritual) -->
+                    <Button Command="{x:Bind ViewModel.RunResetCommand}"
+                            HorizontalAlignment="Right"
+                            Background="Transparent"
+                            BorderBrush="{StaticResource LossRedBrush}"
+                            BorderThickness="1"
+                            Padding="14,6">
+                        <TextBlock FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource LossRedBrush}"
+                                   Text="I'M TILTED — RUN RESET"/>
+                    </Button>
+
+                    <!-- ••• STAT STRIP ••• -->
+                    <controls:StatStrip>
+                        <controls:StatCell Label="Games"
+                                           Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
+                        <controls:StatCell Label="Win Rate"
+                                           Value="{x:Bind ViewModel.WinratePercent, Mode=OneWay}"
+                                           ValueBrush="{StaticResource WinGreenBrush}"
+                                           Sub="{x:Bind ViewModel.RecordLine, Mode=OneWay}"/>
+                        <controls:StatCell Label="Avg Mental"
+                                           Value="{x:Bind ViewModel.AvgMental, Mode=OneWay}"/>
+                        <controls:StatCell Label="Adherence"
+                                           Value="{x:Bind ViewModel.AdherenceStreak, Mode=OneWay}"
+                                           ValueBrush="{StaticResource AccentGoldBrush}"
+                                           Sub="STREAK ACTIVE"/>
+                    </controls:StatStrip>
+
+                    <!-- ••• MAIN BODY: Unreviewed + Objectives ••• -->
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="5*"/>
+                            <ColumnDefinition Width="3*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- â”€â”€ LEFT: Unreviewed â”€â”€ -->
+                        <controls:CornerBracketedCard Grid.Column="0">
+                            <StackPanel Spacing="12" Padding="4">
+                                <controls:SectionTitle Text="UNREVIEWED"/>
+
+                                <TextBlock Text="Queue is clear — everything from the last 3 days has been reviewed."
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource WinGreenBrush}"
+                                           TextWrapping="Wrap"
+                                           Visibility="{x:Bind ViewModel.AllReviewed, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.UnreviewedGames, Mode=OneWay}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Spacing="6"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:GameDisplayItem">
+                                            <controls:GameRowCard Champion="{x:Bind ChampionName}"
+                                                                  Win="{x:Bind Win}"
+                                                                  Meta="{x:Bind MetaLine}"
+                                                                  Kda="{x:Bind KdaText}"
+                                                                  Stats="{x:Bind StatsLine}">
+                                                <controls:GameRowCard.Actions>
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <Button Content="Review"
+                                                                Style="{StaticResource ListActionButtonStyle}"
+                                                                Tag="{x:Bind GameId}"
+                                                                Click="ReviewButton_Click"/>
+                                                        <Button Style="{StaticResource GhostIconButtonStyle}"
+                                                                Tag="{x:Bind GameId}"
+                                                                ToolTipService.ToolTip="Hide this game"
+                                                                Click="HideGameButton_Click">
+                                                            <FontIcon Glyph="&#xE74D;"
+                                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                                      FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </controls:GameRowCard.Actions>
+                                            </controls:GameRowCard>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+                            </StackPanel>
+                        </controls:CornerBracketedCard>
+
+                        <!-- â”€â”€ RIGHT: Objectives + Last Focus â”€â”€ -->
+                        <StackPanel Grid.Column="1" Spacing="14">
+                            <controls:CornerBracketedCard>
+                                <StackPanel Spacing="14">
+                                    <controls:SectionTitle Text="ACTIVE OBJECTIVES"/>
+
+                                    <TextBlock Text="No active objectives. Add one when you want a clear practice lane."
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               TextWrapping="Wrap"
+                                               Visibility="{x:Bind HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
+
+                                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.ActiveObjectives, Mode=OneWay}"
+                                                   Visibility="{x:Bind HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="14"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:DashboardObjectiveItem">
+                                                <Grid ColumnSpacing="14">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <controls:HudProgressRing Grid.Column="0"
+                                                                              Progress="{x:Bind Progress}"
+                                                                              Label="{x:Bind ProgressLabel}"
+                                                                              AccentBrush="{x:Bind LevelColorBrush}"
+                                                                              TrackBrush="{x:Bind LevelDimColorBrush}"
+                                                                              VerticalAlignment="Center"/>
+
+                                                    <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                                        <TextBlock Text="{x:Bind Title}"
+                                                                   FontFamily="{StaticResource HeadingFont}"
+                                                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                                   TextWrapping="Wrap"/>
+                                                        <TextBlock Text="{x:Bind MetaText}"
+                                                                   FontFamily="{StaticResource MonoFont}"
+                                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                   Foreground="{StaticResource MutedTextBrush}"
+                                                                   TextWrapping="Wrap"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                </StackPanel>
+                            </controls:CornerBracketedCard>
+
+                            <!-- Last focus (bronze-tinted) -->
+                            <controls:CornerBracketedCard CardBackground="{StaticResource FocusPanelBrush}"
+                                                          CardBorderBrush="{StaticResource AccentGoldBrush}"
+                                                          Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Spacing="8">
+                                    <controls:SectionTitle Text="LAST FOCUS"/>
+                                    <TextBlock Text="{x:Bind ViewModel.LastFocus, Mode=OneWay}"
+                                               FontFamily="{StaticResource BodyFont}"
+                                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </controls:CornerBracketedCard>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Page>

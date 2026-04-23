@@ -1,0 +1,42 @@
+﻿<UserControl
+    x:Class="Revu.App.Controls.HeroHeader"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:Revu.App.Services"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="0">
+        <StackPanel Spacing="4" Margin="0,0,0,0">
+            <!-- Eyebrow row: leading dash + label + blinking cursor -->
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Rectangle Width="20"
+                           Height="1"
+                           Fill="{StaticResource AccentBlueBrush}"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="EyebrowTextBlock"
+                           Style="{StaticResource PanelEyebrowStyle}"
+                           Foreground="{StaticResource AccentBlueBrush}"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="CursorTextBlock"
+                           Text="_"
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                           Foreground="{StaticResource AccentBlueBrush}"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <TextBlock x:Name="TitleTextBlock"
+                       Style="{StaticResource HeroTitleStyle}"
+                       TextWrapping="Wrap"/>
+
+            <TextBlock x:Name="SubtitleTextBlock"
+                       FontFamily="{StaticResource MonoFont}"
+                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                       Foreground="{StaticResource MutedTextBrush}"
+                       Visibility="Collapsed"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

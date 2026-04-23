@@ -1,0 +1,340 @@
+﻿<Page
+    x:Class="Revu.App.Views.ShellPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:Revu.App.Services"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:Revu.App.Controls"
+    xmlns:converters="using:Revu.App.Converters"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <Style x:Key="NavItemStyle" TargetType="Button" BasedOn="{StaticResource SidebarNavButtonStyle}">
+            <Setter Property="Margin" Value="0,0,0,2"/>
+        </Style>
+    </Page.Resources>
+
+    <Grid Background="{StaticResource ShellCanvasBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="3"/>
+            <RowDefinition Height="32"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Connection indicator strip -->
+        <Rectangle x:Name="ConnectionIndicator"
+                   Grid.Row="0"
+                   Fill="{StaticResource LossRedBrush}"
+                   HorizontalAlignment="Stretch"/>
+
+        <!-- Custom title bar: drag region sits to the right of the sidebar rail,
+             starting at 72px and ending 150px from the right (room for
+             min/max/close overlays). -->
+        <Grid x:Name="AppTitleBar"
+              Grid.Row="1"
+              Background="{StaticResource SidebarBackgroundBrush}"
+              Margin="72,0,150,0"/>
+
+        <!-- Sidebar spans title-bar + content rows so the logo can sit at
+             the very top, covering the 72px left of the title-bar area. -->
+        <Grid Grid.Row="1" Grid.RowSpan="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="72"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ••• SIDEBAR: Collapsed icon rail ••• -->
+            <Border Grid.Column="0"
+                    Background="{StaticResource SidebarBackgroundBrush}"
+                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                    BorderThickness="0,0,1,0">
+                <Grid x:Name="SidebarRoot">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Energy drain trails canvas — spans only the nav region (Rows 0-1),
+                         so the footer (Row 2) is free from canvas hit-test interference. -->
+                    <Canvas x:Name="EnergyCanvas"
+                            Grid.RowSpan="2"
+                            IsHitTestVisible="False"
+                            Canvas.ZIndex="15"/>
+
+                    <!-- Logo — sits in the title-bar strip at the top of the sidebar rail. -->
+                    <StackPanel Grid.Row="0"
+                                Margin="0,8,0,12"
+                                HorizontalAlignment="Center">
+                        <TextBlock Text="REVU"
+                                   FontFamily="{StaticResource DisplayFont}"
+                                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource AccentBlueBrush}"
+                                   HorizontalAlignment="Center"
+                                   CharacterSpacing="300"/>
+                        <TextBlock Text="2.9"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <!-- Nav buttons -->
+                    <ScrollViewer Grid.Row="1"
+                                  VerticalScrollBarVisibility="Hidden"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="NavPanel"
+                                    Margin="14,0"
+                                    Spacing="2">
+
+                            <!-- WORKSPACE section -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="6,4,6,8"/>
+
+                            <Button x:Name="NavDashboard"
+                                    Tag="dashboard"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Dashboard"
+                                    IsTabStop="False">
+                                <FontIcon Glyph="&#xE80F;"
+                                          FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
+
+                            <Button x:Name="NavSession"
+                                    Tag="session"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Review"
+                                    IsTabStop="False">
+                                <Grid>
+                                    <FontIcon Glyph="&#xE768;"
+                                              FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                              FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                    <!-- Unreviewed badge -->
+                                    <Border Width="8" Height="8"
+                                            CornerRadius="4"
+                                            Background="{StaticResource LossRedBrush}"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            Margin="0,-2,-2,0"
+                                            Visibility="{x:Bind ViewModel.HasUnreviewedGames, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                                </Grid>
+                            </Button>
+
+                            <Button x:Name="NavObjectives"
+                                    Tag="objectives"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Objectives"
+                                    IsTabStop="False">
+                                <FontIcon Glyph="&#xF16B;"
+                                          FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
+
+                            <!-- INSIGHTS section -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="6,8,6,8"/>
+
+                            <Button x:Name="NavHistory"
+                                    Tag="history"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Archive"
+                                    IsTabStop="False">
+                                <FontIcon Glyph="&#xE81C;"
+                                          FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
+
+                            <Button x:Name="NavAnalytics"
+                                    Tag="analytics"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Trends"
+                                    IsTabStop="False">
+                                <FontIcon Glyph="&#xE9D9;"
+                                          FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
+
+                            <Button x:Name="NavVodPlayer"
+                                    Tag="vodplayer"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="VOD Player"
+                                    IsTabStop="False"
+                                    Visibility="Collapsed">
+                                <FontIcon Glyph="&#xE714;"
+                                          FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
+
+                            <!-- AI COACH section (alpha, hidden unless CoachFeatureFlag.IsEnabled()) -->
+                            <Button x:Name="NavCoach"
+                                    Tag="coach"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Coach (alpha)"
+                                    IsTabStop="False"
+                                    Visibility="Collapsed">
+                                <Grid>
+                                    <FontIcon Glyph="&#xE8BD;"
+                                              FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                              FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                    <!-- Small violet pill in the top-right corner of the icon -->
+                                    <Border Background="{StaticResource AccentPurpleBrush}"
+                                            CornerRadius="3"
+                                            Padding="3,0"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            Margin="0,-6,-10,0">
+                                        <TextBlock Text="Î±"
+                                                   FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
+                                                   FontWeight="Bold"
+                                                   Foreground="#07060B"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
+                                </Grid>
+                            </Button>
+
+                            <!-- DISCIPLINE section -->
+                            <Border Height="1"
+                                    Background="{StaticResource SubtleBorderBrush}"
+                                    Margin="6,8,6,8"/>
+
+                            <Button x:Name="NavRules"
+                                    Tag="rules"
+                                    Style="{StaticResource NavItemStyle}"
+                                    Click="OnNavClick"
+                                    ToolTipService.ToolTip="Rules"
+                                    IsTabStop="False"
+                                    Visibility="Collapsed">
+                                <FontIcon Glyph="&#xE7BA;"
+                                          FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                            </Button>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Footer: status + settings -->
+                    <StackPanel Grid.Row="2"
+                                Margin="14,0,14,16"
+                                Spacing="4">
+
+                        <!-- Settings button -->
+                        <Button x:Name="NavSettings"
+                                Tag="settings"
+                                Style="{StaticResource NavItemStyle}"
+                                Click="OnNavClick"
+                                ToolTipService.ToolTip="Settings"
+                                IsTabStop="False">
+                            <Grid>
+                                <FontIcon Glyph="&#xE713;"
+                                          FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                <!-- Update badge -->
+                                <Border Width="8" Height="8"
+                                        CornerRadius="4"
+                                        Background="{StaticResource AccentGoldBrush}"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Margin="0,-2,-2,0"
+                                        Visibility="{x:Bind ViewModel.ShowSettingsUpdateBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                            </Grid>
+                        </Button>
+
+                        <!-- Connection status -->
+                        <StackPanel HorizontalAlignment="Center"
+                                    Spacing="4"
+                                    Margin="0,8,0,0">
+                            <Border x:Name="StatusDot"
+                                    Width="6" Height="6"
+                                    CornerRadius="3"
+                                    Background="{StaticResource LossRedBrush}"
+                                    HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="ConnectionStatusText"
+                                       Text="LCU"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       HorizontalAlignment="Center"
+                                       CharacterSpacing="100"/>
+                        </StackPanel>
+
+                        <!-- Account label — display only. Logout lives in Settings. -->
+                        <TextBlock Text="{x:Bind ViewModel.AccountStatusLabel, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
+                                   Foreground="{x:Bind ViewModel.AccountDotBrush, Mode=OneWay}"
+                                   HorizontalAlignment="Center"
+                                   CharacterSpacing="100"
+                                   Margin="0,4,0,0"
+                                   ToolTipService.ToolTip="{x:Bind ViewModel.AccountTooltip, Mode=OneWay}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+
+            <!-- ••• CONTENT AREA ••• -->
+            <!-- Top margin 32px leaves title-bar row visible for window-drag;
+                 sidebar column above extends all the way up. -->
+            <Grid Grid.Column="1"
+                  Margin="0,32,0,0">
+                <!-- Ambient decorative shapes -->
+                <Rectangle Width="420"
+                           Height="154"
+                           RadiusX="2"
+                           RadiusY="2"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Top"
+                           Margin="0,-58,-136,0"
+                           Fill="{StaticResource AccentBlueDimBrush}"
+                           Opacity="0.18"
+                           RenderTransformOrigin="0.5,0.5">
+                    <Rectangle.RenderTransform>
+                        <RotateTransform Angle="14"/>
+                    </Rectangle.RenderTransform>
+                </Rectangle>
+
+                <Rectangle Width="280"
+                           Height="120"
+                           RadiusX="2"
+                           RadiusY="2"
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Bottom"
+                           Margin="-80,0,0,-48"
+                           Fill="{StaticResource AccentGoldDimBrush}"
+                           Opacity="0.14"
+                           RenderTransformOrigin="0.5,0.5">
+                    <Rectangle.RenderTransform>
+                        <RotateTransform Angle="-10"/>
+                    </Rectangle.RenderTransform>
+                </Rectangle>
+
+                <Border Background="{StaticResource ShellContentBackgroundBrush}"
+                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                        BorderThickness="0"/>
+
+                <Grid x:Name="ContentViewport"
+                      Margin="0"
+                      SizeChanged="OnContentViewportSizeChanged">
+                    <!-- No RenderTransform. Zoom is driven by FontSize
+                         bindings (Services/FontSizes.cs) so the layout
+                         engine reflows rather than scaling rendered
+                         pixels past the window edge. -->
+                    <Frame x:Name="ContentFrame"/>
+                </Grid>
+            </Grid>
+        </Grid>
+
+    </Grid>
+</Page>

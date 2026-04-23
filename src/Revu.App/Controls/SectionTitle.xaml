@@ -1,0 +1,51 @@
+﻿<UserControl
+    x:Class="Revu.App.Controls.SectionTitle"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:Revu.App.Services"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid ColumnSpacing="8" VerticalAlignment="Center">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Rectangle x:Name="PulseDot"
+                   Grid.Column="0"
+                   Width="5"
+                   Height="5"
+                   Fill="{StaticResource AccentBlueBrush}"
+                   VerticalAlignment="Center"
+                   RenderTransformOrigin="0.5,0.5">
+            <Rectangle.RenderTransform>
+                <CompositeTransform x:Name="PulseDotTransform"/>
+            </Rectangle.RenderTransform>
+        </Rectangle>
+
+        <TextBlock x:Name="TitleTextBlock"
+                   Grid.Column="1"
+                   FontFamily="{StaticResource HeadingFont}"
+                   FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                   FontWeight="SemiBold"
+                   CharacterSpacing="200"
+                   Foreground="{StaticResource SecondaryTextBrush}"
+                   VerticalAlignment="Center"/>
+
+        <Rectangle Grid.Column="2"
+                   Height="1"
+                   VerticalAlignment="Center"
+                   HorizontalAlignment="Stretch"
+                   Margin="6,0,0,0">
+            <Rectangle.Fill>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                    <GradientStop Color="#3D3660" Offset="0"/>
+                    <GradientStop Color="#0007060B" Offset="1"/>
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
+    </Grid>
+</UserControl>

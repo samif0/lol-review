@@ -1,0 +1,46 @@
+﻿<UserControl
+    x:Class="Revu.App.Controls.HudProgressRing"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svc="using:Revu.App.Services"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid x:Name="LayoutRoot" Width="56" Height="56">
+        <!-- Background ring -->
+        <Ellipse x:Name="TrackEllipse"
+                 Width="50"
+                 Height="50"
+                 Stroke="{StaticResource SubtleBorderBrush}"
+                 StrokeThickness="3"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Center"/>
+
+        <!-- Foreground arc: full ellipse rotated -90deg so stroke starts at 12 o'clock.
+             StrokeDashArray + StrokeDashOffset draws a partial arc; the offset animates
+             from full-length (empty) down to target on load. -->
+        <Ellipse x:Name="ArcEllipse"
+                 Width="50"
+                 Height="50"
+                 Stroke="{StaticResource AccentBlueBrush}"
+                 StrokeThickness="3"
+                 StrokeLineJoin="Round"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Center"
+                 RenderTransformOrigin="0.5,0.5">
+            <Ellipse.RenderTransform>
+                <RotateTransform Angle="-90"/>
+            </Ellipse.RenderTransform>
+        </Ellipse>
+
+        <!-- Center label -->
+        <TextBlock x:Name="LabelText"
+                   FontFamily="{StaticResource DisplayFont}"
+                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource AccentBlueBrush}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
+    </Grid>
+</UserControl>
