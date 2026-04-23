@@ -200,7 +200,7 @@ IDs.
 
 ### 5. Sidecar port handshake
 If port 5577 is taken, the sidecar picks a random free port and writes it to
-`%LOCALAPPDATA%\RevuData\coach_port.txt`. The C# side DOES NOT read this
+`%LOCALAPPDATA%\LoLReviewData\coach_port.txt`. The C# side DOES NOT read this
 file — it reads `coach_config.json`'s `port` value. If there's a clash in
 practice, C# will hit a dead port. Fix: update `CoachSidecarService.ResolveConfiguredPort()`
 to check the handshake file first.

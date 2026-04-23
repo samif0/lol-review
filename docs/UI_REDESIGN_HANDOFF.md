@@ -513,7 +513,7 @@ Skip unless you want to add Win2D. Not worth the NuGet interop risk for alpha.
 
 ### Font loading
 Unpackaged WinUI 3 has finicky `ms-appx:///` URI resolution. If all text looks like Segoe UI:
-- Check diagnostic logs in `%LOCALAPPDATA%\RevuData\`
+- Check diagnostic logs in `%LOCALAPPDATA%\LoLReviewData\`
 - Verify `Assets\Fonts\*.ttf` copied to output directory
 - The `.csproj` has `<Content Include="Assets\Fonts\*.ttf" CopyToOutputDirectory="PreserveNewest" />`
 - Fallback: install fonts system-wide on Windows and reference by family name only (e.g. `FontFamily="Orbitron"`)

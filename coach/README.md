@@ -27,7 +27,7 @@ The `--extra-index-url` pin keeps torch CPU-only (~200 MB instead of
 python -m coach.main
 ```
 
-Defaults to `localhost:5577`. Config at `%LOCALAPPDATA%\RevuData\coach_config.json`.
+Defaults to `localhost:5577`. Config at `%LOCALAPPDATA%\LoLReviewData\coach_config.json`.
 
 ## HTTP API
 
@@ -75,7 +75,7 @@ API key once, done. No Ollama install, no model pull, no GPU required.
 - **OpenRouter** (hosted, flexible): `google/gemma-3-27b-it` — pick any
   model OpenRouter supports (Claude, GPT, Gemma, etc.).
 
-Config example at `%LOCALAPPDATA%\RevuData\coach_config.json`:
+Config example at `%LOCALAPPDATA%\LoLReviewData\coach_config.json`:
 
 ```json
 {
@@ -107,8 +107,8 @@ every startup.
 
 ## Data locations
 
-- Config: `%LOCALAPPDATA%\RevuData\coach_config.json`
+- Config: `%LOCALAPPDATA%\LoLReviewData\coach_config.json`
 - Logs: `%LOCALAPPDATA%\LoLReview\coach.log`
-- DB backups: `%LOCALAPPDATA%\RevuData\backups\coach-pre-migration-*.db`
-- Embeddings: `%LOCALAPPDATA%\RevuData\coach\embeddings\*.parquet`
-- Clip frames: `%LOCALAPPDATA%\RevuData\coach_frames\{bookmark_id}\*.png`
+- DB backups: `%LOCALAPPDATA%\LoLReviewData\backups\coach-pre-migration-*.db`
+- Embeddings: `%LOCALAPPDATA%\LoLReviewData\coach\embeddings\*.parquet`
+- Clip frames: `%LOCALAPPDATA%\LoLReviewData\coach_frames\{bookmark_id}\*.png`

@@ -7,7 +7,7 @@ namespace Revu.Core.Data;
 
 /// <summary>
 /// Creates SQLite connections configured for WAL mode with shared cache.
-/// Default database location: %LOCALAPPDATA%\RevuData\revu.db
+/// Default database location: %LOCALAPPDATA%\LoLReviewData\revu.db
 /// </summary>
 public sealed class SqliteConnectionFactory : IDbConnectionFactory
 {
@@ -18,12 +18,15 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
     /// <param name="logger">Logger instance.</param>
     /// <param name="dbPath">
     /// Optional override for the database file path.
-    /// When <c>null</c>, defaults to <c>%LOCALAPPDATA%\RevuData\revu.db</c>.
+    /// When <c>null</c>, defaults to <c>%LOCALAPPDATA%\LoLReviewData\revu.db</c>
+    /// with a safety-net fallback to the legacy <c>lol_review.db</c> filename
+    /// when the new file does not exist but the legacy one does — this handles
+    /// any case where <see cref="AppDataMigrator"/> did not run or failed.
     /// </param>
     public SqliteConnectionFactory(ILogger<SqliteConnectionFactory> logger, string? dbPath = null)
     {
         _logger = logger;
-        DatabasePath = dbPath ?? GetDefaultDatabasePath();
+        DatabasePath = dbPath ?? ResolveDefaultDatabasePath(logger);
 
         // Ensure the directory exists
         var directory = Path.GetDirectoryName(DatabasePath);
@@ -33,6 +36,26 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
         }
 
         _logger.LogInformation("SQLite database path: {DatabasePath}", DatabasePath);
+    }
+
+    private static string ResolveDefaultDatabasePath(ILogger logger)
+    {
+        var preferred = AppDataPaths.DatabasePath;
+        if (File.Exists(preferred))
+        {
+            return preferred;
+        }
+
+        var legacyPath = Path.Combine(AppDataPaths.UserDataRoot, AppDataMigrator.LegacyDatabaseFileName);
+        if (File.Exists(legacyPath))
+        {
+            logger.LogWarning(
+                "Preferred DB {Preferred} missing; falling back to legacy {Legacy}",
+                preferred, legacyPath);
+            return legacyPath;
+        }
+
+        return preferred;
     }
 
     /// <inheritdoc />
@@ -65,13 +88,4 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
         return connection;
     }
 
-    /// <summary>
-    /// Returns the default database path: %LOCALAPPDATA%\RevuData\revu.db
-    /// This path is outside the Velopack install root so reinstall/update cannot
-    /// wipe the live database.
-    /// </summary>
-    private static string GetDefaultDatabasePath()
-    {
-        return AppDataPaths.DatabasePath;
-    }
 }

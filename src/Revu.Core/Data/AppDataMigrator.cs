@@ -6,29 +6,49 @@ using Microsoft.Extensions.Logging;
 namespace Revu.Core.Data;
 
 /// <summary>
-/// Migrates user data from the legacy <c>%LOCALAPPDATA%\LoLReviewData\</c> tree
-/// to the new <c>%LOCALAPPDATA%\RevuData\</c> tree on first launch after the
-/// Revu rename. The legacy tree is preserved as a timestamped backup so users
-/// can recover if something goes wrong.
+/// Renames the SQLite database file from <c>lol_review.db</c> to <c>revu.db</c>
+/// inside the user data folder (<c>%LOCALAPPDATA%\LoLReviewData\</c>) on the
+/// first launch after the Revu rename.
 ///
-/// Migration is safe to run on every startup: it exits early when the new tree
-/// already exists, or when there is no legacy tree to migrate from.
+/// <para>
+/// <b>Why only the DB file and not the whole folder:</b> the data folder also
+/// holds the Coach sidecar's embedded Python distribution (<c>coach/core/</c>,
+/// <c>coach/ml/</c> — ~265 MB combined), credential material, recorded VOD
+/// clips, and other large artifacts. A full-tree copy can fail on any locked
+/// file (Python DLLs loaded by a running sidecar, video clips open in an
+/// external player, etc.), and the migration has no meaningful user-visible
+/// benefit. The folder name is AppData-hidden, never shown in UI.
+/// </para>
+///
+/// <para>
+/// The DB rename is the only file operation Phase 2 actually needs — the
+/// filename is referenced in docs, logs, and developer tooling, so moving it
+/// to <c>revu.db</c> gives the rename end-to-end consistency without the
+/// risk of the tree copy.
+/// </para>
 ///
 /// <para>
 /// NEVER overwrites or deletes the legacy DB. The flow is:
 /// </para>
 /// <list type="number">
-///   <item>Copy entire legacy tree into a <c>RevuData.tmp-&lt;guid&gt;</c> staging folder.</item>
-///   <item>Rename <c>lol_review.db*</c> to <c>revu.db*</c> inside the staging folder.</item>
-///   <item>Open the new DB read-only and smoke-query the <c>games</c> table.</item>
-///   <item>Atomically rename the staging folder to the final <c>RevuData</c> path.</item>
-///   <item>Rename the legacy folder to <c>LoLReviewData.migrated-backup-&lt;ts&gt;</c>.</item>
+///   <item>If <c>revu.db</c> already exists, exit (<see cref="MigrationResult.AlreadyMigrated"/>).</item>
+///   <item>If <c>lol_review.db</c> does not exist, exit (<see cref="MigrationResult.FreshInstall"/>).</item>
+///   <item>Copy (not move) <c>lol_review.db</c> to <c>revu.db.tmp-&lt;guid&gt;</c>.</item>
+///   <item>Smoke-query the copy read-only to confirm the games table exists.</item>
+///   <item>Atomically rename the copy to <c>revu.db</c>.</item>
+///   <item>Leave <c>lol_review.db</c> in place as a self-documenting backup.</item>
 /// </list>
+///
+/// <para>
+/// WAL/SHM files are not copied — SQLite recreates them on first open.
+/// Leaving the legacy <c>lol_review.db</c> in the folder means users can
+/// recover by renaming it back if anything goes wrong later.
+/// </para>
 /// </summary>
 public static class AppDataMigrator
 {
-    public const string LegacyUserDataFolderName = "LoLReviewData";
     public const string LegacyDatabaseFileName = "lol_review.db";
+    public const string NewDatabaseFileName = "revu.db";
 
     public enum MigrationResult
     {
@@ -39,178 +59,118 @@ public static class AppDataMigrator
         CopyFailed,
     }
 
-    public static MigrationResult RunIfNeeded(ILogger logger)
+    /// <summary>
+    /// Runs the DB-file rename if needed. Safe to call on every startup;
+    /// idempotent after the first successful run.
+    /// </summary>
+    /// <param name="userDataRoot">
+    /// Absolute path to the user data folder (typically
+    /// <c>%LOCALAPPDATA%\LoLReviewData</c>). Must exist or migration returns
+    /// <see cref="MigrationResult.FreshInstall"/>.
+    /// </param>
+    public static MigrationResult RunIfNeeded(string userDataRoot, ILogger logger)
     {
-        var localAppDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrEmpty(localAppDataRoot))
+        if (string.IsNullOrEmpty(userDataRoot) || !Directory.Exists(userDataRoot))
         {
-            // No LocalAppData — nothing to migrate. Fresh install behavior.
+            logger.LogDebug("AppData migration: user data root does not exist yet ({Path})", userDataRoot);
             return MigrationResult.FreshInstall;
         }
 
-        var newRoot = Path.Combine(localAppDataRoot, "RevuData");
-        var newDb = Path.Combine(newRoot, "revu.db");
-        var legacyRoot = Path.Combine(localAppDataRoot, LegacyUserDataFolderName);
-        var legacyDb = Path.Combine(legacyRoot, LegacyDatabaseFileName);
+        var newDb = Path.Combine(userDataRoot, NewDatabaseFileName);
+        var legacyDb = Path.Combine(userDataRoot, LegacyDatabaseFileName);
 
         if (File.Exists(newDb))
         {
-            logger.LogDebug("AppData migration: new DB already exists at {Path}", newDb);
             return MigrationResult.AlreadyMigrated;
         }
 
-        if (!Directory.Exists(legacyRoot) || !File.Exists(legacyDb))
+        if (!File.Exists(legacyDb))
         {
-            logger.LogDebug("AppData migration: no legacy data at {Path}", legacyRoot);
             return MigrationResult.FreshInstall;
         }
 
-        var staging = Path.Combine(localAppDataRoot, $"RevuData.tmp-{Guid.NewGuid():N}");
+        var tempDb = Path.Combine(userDataRoot, $"{NewDatabaseFileName}.tmp-{Guid.NewGuid():N}");
 
         try
         {
-            CopyTreeSkippingMigratedBackups(legacyRoot, staging, logger);
+            File.Copy(legacyDb, tempDb, overwrite: false);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "AppData migration: copy failed from {Source} to {Dest}", legacyRoot, staging);
-            TryDeleteDirectory(staging, logger);
+            logger.LogError(ex, "AppData migration: copy {Source} -> {Temp} failed", legacyDb, tempDb);
+            TryDelete(tempDb, logger);
             return MigrationResult.CopyFailed;
         }
 
-        // Rename lol_review.db* → revu.db* inside the staging tree.
-        var stagingLegacyDb = Path.Combine(staging, LegacyDatabaseFileName);
-        var stagingNewDb = Path.Combine(staging, "revu.db");
-        try
-        {
-            if (File.Exists(stagingLegacyDb))
-            {
-                File.Move(stagingLegacyDb, stagingNewDb);
-            }
-            TryRename(staging, LegacyDatabaseFileName + "-shm", "revu.db-shm", logger);
-            TryRename(staging, LegacyDatabaseFileName + "-wal", "revu.db-wal", logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "AppData migration: renaming DB files in staging failed");
-            TryDeleteDirectory(staging, logger);
-            return MigrationResult.CopyFailed;
-        }
-
-        // Smoke-query the new DB to confirm it is readable and has the games table.
         try
         {
             var connString = new SqliteConnectionStringBuilder
             {
-                DataSource = stagingNewDb,
+                DataSource = tempDb,
                 Mode = SqliteOpenMode.ReadOnly,
             }.ToString();
-            using var conn = new SqliteConnection(connString);
-            conn.Open();
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*) FROM games";
-            var count = cmd.ExecuteScalar() is long c ? c : -1;
-            logger.LogInformation("AppData migration: staging DB smoke-query found {Count} games", count);
+
+            using (var conn = new SqliteConnection(connString))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT COUNT(*) FROM games";
+                var count = cmd.ExecuteScalar() is long c ? c : -1;
+                logger.LogInformation("AppData migration: staged DB contains {Count} games", count);
+            }
+
+            // Microsoft.Data.Sqlite pools native handles by connection string
+            // even after Dispose. Release them so File.Move below is not
+            // blocked by a lingering file lock.
+            SqliteConnection.ClearAllPools();
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "AppData migration: staging DB smoke-query failed; rolling back");
-            TryDeleteDirectory(staging, logger);
+            logger.LogError(ex, "AppData migration: staged DB smoke-query failed; rolling back");
+            SqliteConnection.ClearAllPools();
+            TryDelete(tempDb, logger);
+            TryDelete(tempDb + "-shm", logger);
+            TryDelete(tempDb + "-wal", logger);
             return MigrationResult.SmokeFailedRolledBack;
         }
 
-        // Atomically publish the staging folder as RevuData.
         try
         {
-            Directory.Move(staging, newRoot);
+            File.Move(tempDb, newDb);
+            // Clean up any sidecar files left by the readonly smoke-query.
+            // These are harmless but messy; SQLite recreates fresh ones
+            // against revu.db on first real open.
+            TryDelete(tempDb + "-shm", logger);
+            TryDelete(tempDb + "-wal", logger);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "AppData migration: could not publish staging as {Dest}", newRoot);
-            TryDeleteDirectory(staging, logger);
+            logger.LogError(ex, "AppData migration: rename {Temp} -> {New} failed", tempDb, newDb);
+            TryDelete(tempDb, logger);
+            TryDelete(tempDb + "-shm", logger);
+            TryDelete(tempDb + "-wal", logger);
             return MigrationResult.CopyFailed;
         }
 
-        // Rename the legacy folder to a timestamped backup. Best-effort — if this
-        // fails the migration still succeeded; the legacy folder just stays in
-        // place and we never touch it again (because newDb now exists).
-        var ts = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
-        var backupFolder = Path.Combine(localAppDataRoot, $"{LegacyUserDataFolderName}.migrated-backup-{ts}");
-        try
-        {
-            Directory.Move(legacyRoot, backupFolder);
-            logger.LogInformation("AppData migration: legacy folder preserved at {Path}", backupFolder);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "AppData migration: could not rename legacy folder; leaving in place");
-        }
-
-        logger.LogInformation("AppData migration: completed. New root = {Path}", newRoot);
+        logger.LogInformation(
+            "AppData migration: renamed {Legacy} -> {New} (legacy file preserved for recovery)",
+            legacyDb, newDb);
         return MigrationResult.Migrated;
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────
-
-    private static void CopyTreeSkippingMigratedBackups(string source, string dest, ILogger logger)
+    private static void TryDelete(string path, ILogger logger)
     {
-        Directory.CreateDirectory(dest);
-
-        foreach (var dir in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
-        {
-            var rel = Path.GetRelativePath(source, dir);
-            // Skip any stale migration staging folder inside the legacy root
-            if (rel.StartsWith("RevuData.tmp-", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            Directory.CreateDirectory(Path.Combine(dest, rel));
-        }
-
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-        {
-            var rel = Path.GetRelativePath(source, file);
-            if (rel.StartsWith("RevuData.tmp-", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            var targetPath = Path.Combine(dest, rel);
-            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-            File.Copy(file, targetPath, overwrite: false);
-        }
-    }
-
-    private static void TryRename(string dir, string oldName, string newName, ILogger logger)
-    {
-        var src = Path.Combine(dir, oldName);
-        var dst = Path.Combine(dir, newName);
-        if (!File.Exists(src))
+        if (!File.Exists(path))
         {
             return;
         }
         try
         {
-            File.Move(src, dst);
+            File.Delete(path);
         }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, "AppData migration: could not rename {Old} to {New}", oldName, newName);
-        }
-    }
-
-    private static void TryDeleteDirectory(string path, ILogger logger)
-    {
-        if (!Directory.Exists(path))
-        {
-            return;
-        }
-        try
-        {
-            Directory.Delete(path, recursive: true);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "AppData migration: could not clean up staging folder {Path}", path);
+            logger.LogWarning(ex, "AppData migration: could not clean up temporary file {Path}", path);
         }
     }
 }

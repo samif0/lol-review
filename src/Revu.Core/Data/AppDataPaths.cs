@@ -18,8 +18,19 @@ public static class AppDataPaths
     /// </summary>
     public static string InstallRoot => Path.Combine(LocalAppDataRoot, "LoLReview");
 
-    /// <summary>User-owned data root. This tree must survive reinstall/update.</summary>
-    public static string UserDataRoot => Path.Combine(LocalAppDataRoot, "RevuData");
+    /// <summary>
+    /// User-owned data root. Must survive reinstall/update.
+    ///
+    /// <para>
+    /// Intentionally still named "LoLReviewData" even after the Revu rename.
+    /// This folder is AppData-hidden and never shown in UI, and it holds
+    /// several large auxiliary trees (Coach sidecar Python install, clips,
+    /// coach frames) that would be expensive and error-prone to relocate.
+    /// The DB filename inside has been renamed to <c>revu.db</c> by
+    /// <see cref="AppDataMigrator"/>.
+    /// </para>
+    /// </summary>
+    public static string UserDataRoot => Path.Combine(LocalAppDataRoot, "LoLReviewData");
 
     public static string DatabasePath => Path.Combine(UserDataRoot, "revu.db");
 

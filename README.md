@@ -23,7 +23,7 @@ Notes:
 
 - Auto-update is handled by the installed app through GitHub Releases.
 - The install root is `%LOCALAPPDATA%\LoLReview` (the Velopack `packId`, never renamed so auto-update keeps working).
-- User data is stored separately in `%LOCALAPPDATA%\RevuData` so reinstalling the app does not wipe the database.
+- User data is stored separately in `%LOCALAPPDATA%\LoLReviewData` so reinstalling the app does not wipe the database.
 - On startup, the app migrates legacy DB / config / backup files forward from older locations when needed.
 
 ## Data and logs
@@ -31,15 +31,15 @@ Notes:
 Current user-data location:
 
 ```text
-%LOCALAPPDATA%\RevuData\
+%LOCALAPPDATA%\LoLReviewData\
 ```
 
 Important files:
 
-- Database: `%LOCALAPPDATA%\RevuData\revu.db`
-- Config: `%LOCALAPPDATA%\RevuData\config.json`
-- Safety backups: `%LOCALAPPDATA%\RevuData\backups\`
-- Default clips folder: `%LOCALAPPDATA%\RevuData\clips\`
+- Database: `%LOCALAPPDATA%\LoLReviewData\revu.db`
+- Config: `%LOCALAPPDATA%\LoLReviewData\config.json`
+- Safety backups: `%LOCALAPPDATA%\LoLReviewData\backups\`
+- Default clips folder: `%LOCALAPPDATA%\LoLReviewData\clips\`
 
 Install-owned files:
 

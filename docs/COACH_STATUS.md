@@ -168,7 +168,7 @@ Format:
 ### 2026-04-18 — opt-in download model for coach sidecar
 - **Context:** bundling pyinstaller + sentence-transformers + torch in the Velopack installer would add ~1-2GB, unacceptable for non-coaching users.
 - **Options considered:** (A) bundle everything (rejected: size), (B) opt-in "Enable coaching" toggle that downloads sidecar + models on demand (chosen), (C) separate coaching-edition installer (rejected: distribution complexity).
-- **Decision:** B. Base installer ships a bootstrapper only. First-enable downloads from GitHub Releases into `%LOCALAPPDATA%\RevuData\coach\`. Progress UI, resumable, SHA256-verified.
+- **Decision:** B. Base installer ships a bootstrapper only. First-enable downloads from GitHub Releases into `%LOCALAPPDATA%\LoLReviewData\coach\`. Progress UI, resumable, SHA256-verified.
 - **Consequences:** Phase 0 adds `CoachInstallerService.cs` + download/verify logic. Release pipeline publishes sidecar as a separate release asset with a version manifest. Settings page needs an install/uninstall flow. Sidecar version independent of app version (both tracked).
 
 ### 2026-04-18 — hard data-safety guard in `coach/db.py`

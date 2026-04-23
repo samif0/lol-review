@@ -83,16 +83,16 @@ There is a hard split between install-owned files and user-owned files.
 From `AppDataPaths.cs`:
 
 - Install root: `%LOCALAPPDATA%\\LoLReview` (Velopack-owned, matches packId)
-- User data root: `%LOCALAPPDATA%\\RevuData`
-- Database: `%LOCALAPPDATA%\\RevuData\\revu.db`
-- Config: `%LOCALAPPDATA%\\RevuData\\config.json`
-- Backups: `%LOCALAPPDATA%\\RevuData\\backups`
-- Clips: `%LOCALAPPDATA%\\RevuData\\clips`
+- User data root: `%LOCALAPPDATA%\\LoLReviewData`
+- Database: `%LOCALAPPDATA%\\LoLReviewData\\revu.db`
+- Config: `%LOCALAPPDATA%\\LoLReviewData\\config.json`
+- Backups: `%LOCALAPPDATA%\\LoLReviewData\\backups`
+- Clips: `%LOCALAPPDATA%\\LoLReviewData\\clips`
 
 This split matters a lot:
 
 - reinstalling/updating the app should not wipe user data
-- manual DB surgery should happen in `RevuData`, not under the install root
+- manual DB surgery should happen in `LoLReviewData`, not under the install root
 - updater/package files live under `%LOCALAPPDATA%\\LoLReview\\packages`
 
 ## Database Layer
@@ -315,7 +315,7 @@ Important machine-specific note:
 Future sessions should be conservative with the live DB. Before editing user data manually:
 
 1. close the installed app
-2. copy `%LOCALAPPDATA%\\RevuData\\revu.db`
+2. copy `%LOCALAPPDATA%\\LoLReviewData\\revu.db`
 3. then make the change
 4. run `PRAGMA integrity_check`
 5. relaunch the app

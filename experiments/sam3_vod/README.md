@@ -11,12 +11,12 @@ It is intentionally not wired into:
 
 The runner integrates with your local LoL Review install by reading:
 
-- `%LOCALAPPDATA%\RevuData\config.json`
-- `%LOCALAPPDATA%\RevuData\revu.db`
+- `%LOCALAPPDATA%\LoLReviewData\config.json`
+- `%LOCALAPPDATA%\LoLReviewData\revu.db`
 
 and by writing analysis artifacts under:
 
-- `%LOCALAPPDATA%\RevuData\vod-analysis\sam3-experiment`
+- `%LOCALAPPDATA%\LoLReviewData\vod-analysis\sam3-experiment`
 
 ## Local-only gate
 

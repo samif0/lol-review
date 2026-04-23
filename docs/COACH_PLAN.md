@@ -24,7 +24,7 @@ This document is the single source of truth for building the AI coaching layer i
 
 ### What lol-review is
 
-A local-first WinUI 3 desktop app for reviewing League of Legends games. Watches the LCU, captures post-game stats, lets the user write structured reviews, tracks objectives and rules, stores VODs and bookmarks, and persists everything to a local SQLite DB at `%LOCALAPPDATA%\RevuData\revu.db`. Updated via Velopack / GitHub Releases.
+A local-first WinUI 3 desktop app for reviewing League of Legends games. Watches the LCU, captures post-game stats, lets the user write structured reviews, tracks objectives and rules, stores VODs and bookmarks, and persists everything to a local SQLite DB at `%LOCALAPPDATA%\LoLReviewData\revu.db`. Updated via Velopack / GitHub Releases.
 
 **See `CODEBASE_ONBOARDING.md` for the full architecture read.** The onboarding doc is authoritative for the existing codebase; this plan is authoritative for the coach rebuild.
 
@@ -352,7 +352,7 @@ class LLMProvider(ABC):
     def supports_json_mode(self) -> bool: ...
 ~~~
 
-Config lives at `%LOCALAPPDATA%\RevuData\coach_config.json`:
+Config lives at `%LOCALAPPDATA%\LoLReviewData\coach_config.json`:
 
 ~~~json
 {
@@ -466,7 +466,7 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
 
 4. Implement `OllamaProvider` fully. Stub `GoogleAIProvider` and `OpenRouterProvider` with the interface in place — they raise `NotImplementedError` until Phase 6.
 
-5. Implement `coach/config.py` — loads from `%LOCALAPPDATA%\RevuData\coach_config.json`, exposes a `get_provider()` factory. Writes via `POST /config`.
+5. Implement `coach/config.py` — loads from `%LOCALAPPDATA%\LoLReviewData\coach_config.json`, exposes a `get_provider()` factory. Writes via `POST /config`.
 
 6. Implement `coach/db.py`:
    - SQLite connection to `revu.db`. WAL mode. Read connections separate from write connections.
@@ -488,7 +488,7 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
    - Ship a lightweight bootstrapper (`CoachInstallerService.cs`) that, on first-enable, downloads:
      - the sidecar `.exe` (pyinstaller-built, hosted in GitHub Releases as a separate artifact)
      - required model files (sentence-transformers embedding model; Ollama models are user-installed separately)
-   - Target location: `%LOCALAPPDATA%\RevuData\coach\bin\` and `%LOCALAPPDATA%\RevuData\coach\models\`.
+   - Target location: `%LOCALAPPDATA%\LoLReviewData\coach\bin\` and `%LOCALAPPDATA%\LoLReviewData\coach\models\`.
    - Progress UI in settings. Resumable on failure. SHA256 verification.
    - Sidecar is NOT bundled in the Velopack installer. Only the bootstrapper + version manifest.
    - Release pipeline builds sidecar separately and uploads as a release asset.
@@ -616,7 +616,7 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
 
 2. **`coach/concepts/extractor.py`.** For each game's review fields (`mistakes`, `went_well`, `focus_next` from `games`; `improvement_note` from `session_log`; `note` from `matchup_notes` joined by game), call the provider. Parse JSON with retry + `json_repair` fallback. Write to `review_concepts`.
 
-3. **`coach/concepts/embedder.py`.** Wrap `sentence-transformers/all-MiniLM-L6-v2`. Cache embeddings in a Parquet file under `%LOCALAPPDATA%\RevuData\coach\embeddings\`.
+3. **`coach/concepts/embedder.py`.** Wrap `sentence-transformers/all-MiniLM-L6-v2`. Cache embeddings in a Parquet file under `%LOCALAPPDATA%\LoLReviewData\coach\embeddings\`.
 
 4. **`coach/concepts/clusterer.py`.** HDBSCAN: `min_cluster_size=2`, cosine distance, `cluster_selection_epsilon=0.15` (tune against data). Assign `cluster_id` to each row in `review_concepts`. For each cluster, pick the canonical label as the shortest member that appears ≥2 times. Singletons get `cluster_id=NULL` and are excluded from the profile unless they recur later.
 
@@ -694,7 +694,7 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
    - 6 frames evenly spaced across the window
    - 1 frame at `start - 2s` (pre-context)
    - 1 frame at `end + 2s` (post-context)
-   - Save PNG to `%LOCALAPPDATA%\RevuData\coach_frames\{bookmark_id}\`. Filenames encode the timestamp in ms.
+   - Save PNG to `%LOCALAPPDATA%\LoLReviewData\coach_frames\{bookmark_id}\`. Filenames encode the timestamp in ms.
    - If the VOD file is missing or unreadable, fail gracefully with a structured error.
 
 2. **`coach/vision/describer.py`.** For each extracted frame, call the vision provider with `prompts/frame_description.md`. Prompt directs the model to describe concrete observables only — positions, HP bars, visible gold, cooldowns, wards, minion wave state — and explicitly forbids inferring reasoning or predicting future events. Output JSON with keys `positions`, `resources`, `wave_state`, `visible_cooldowns`, `observations`.

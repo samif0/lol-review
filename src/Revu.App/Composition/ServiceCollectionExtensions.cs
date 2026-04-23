@@ -158,9 +158,6 @@ internal static class ServiceCollectionExtensions
     public static IServiceCollection AddStartupPipeline(this IServiceCollection services)
     {
         services.AddSingleton<IAppBootstrapper, AppBootstrapper>();
-        // MUST run first — migrates LoLReviewData → RevuData before any other
-        // task opens a DB connection or reads from UserDataRoot.
-        services.AddSingleton<IStartupTask, AppDataFolderMigrationStartupTask>();
         services.AddSingleton<IStartupTask, LegacyDatabaseMigrationStartupTask>();
         services.AddSingleton<IStartupTask, DatabaseSafetyStartupTask>();
         services.AddSingleton<IStartupTask, DatabaseInitializationStartupTask>();

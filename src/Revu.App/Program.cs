@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using Revu.App.Helpers;
+using Revu.Core.Data;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Velopack;
@@ -29,6 +31,22 @@ public static class Program
         try
         {
             AppDiagnostics.WriteVerbose("startup.log", "Program.Main starting");
+
+            // DB filename migration: rename lol_review.db → revu.db inside
+            // the user data folder, before DI / SqliteConnectionFactory opens
+            // any connection (once open, the file cannot be atomically moved).
+            try
+            {
+                var result = AppDataMigrator.RunIfNeeded(AppDataPaths.UserDataRoot, NullLogger.Instance);
+                AppDiagnostics.WriteVerbose("startup.log", $"AppData migration result: {result}");
+            }
+            catch (Exception migEx)
+            {
+                // Best-effort. If migration fails the app will fall back to
+                // reading the legacy lol_review.db via the fallback logic in
+                // SqliteConnectionFactory; no user data is destroyed.
+                AppDiagnostics.WriteVerbose("startup.log", $"AppData migration threw: {migEx.Message}");
+            }
 
             XamlCheckProcessRequirements();
             AppDiagnostics.WriteVerbose("startup.log", "XamlCheckProcessRequirements passed");
