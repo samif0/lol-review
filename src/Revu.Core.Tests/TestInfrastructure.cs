@@ -20,7 +20,7 @@ internal sealed class TestDatabaseScope : IDisposable
         ConnectionFactory = new SqliteConnectionFactory(NullLogger<SqliteConnectionFactory>.Instance, DatabasePath);
         Initializer = new DatabaseInitializer(ConnectionFactory, NullLogger<DatabaseInitializer>.Instance);
 
-        Games = new GameRepository(ConnectionFactory);
+        Games = new GameRepository(ConnectionFactory, new NoopBackupService());
         GameEvents = new GameEventsRepository(ConnectionFactory);
         DerivedEvents = new DerivedEventsRepository(ConnectionFactory);
         Objectives = new ObjectivesRepository(ConnectionFactory);
@@ -194,4 +194,14 @@ internal static class TestGameStatsFactory
             KillParticipation = 70,
         };
     }
+}
+
+/// <summary>
+/// Test double for IBackupService — backups are disk-touching side effects
+/// the repo layer doesn't need to exercise during unit tests.
+/// </summary>
+internal sealed class NoopBackupService : IBackupService
+{
+    public Task CreateSafetyBackupAsync(string reason) => Task.CompletedTask;
+    public Task RunBackupAsync() => Task.CompletedTask;
 }

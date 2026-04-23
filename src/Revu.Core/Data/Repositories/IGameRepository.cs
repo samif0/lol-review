@@ -164,6 +164,19 @@ public interface IGameRepository
     /// <summary>Soft-delete (or restore) a game. Hidden games are excluded from all views.</summary>
     Task SetHiddenAsync(long gameId, bool hidden);
 
+    /// <summary>
+    /// Permanently remove a game and all rows in child tables that reference its
+    /// <c>game_id</c>. Wrapped in a single transaction so a partial failure rolls
+    /// back the entire delete. Backup of the DB file is snapshotted BEFORE any
+    /// mutation happens.
+    /// </summary>
+    /// <returns>
+    /// Path to the backup file the service created before deleting. Callers
+    /// should surface this to the user (the delete is irreversible inside the
+    /// app, but the backup gives them a way out).
+    /// </returns>
+    Task<string> DeleteAsync(long gameId);
+
     /// <summary>Get a single game by game_id, or null if not found.</summary>
     Task<GameStats?> GetAsync(long gameId);
 

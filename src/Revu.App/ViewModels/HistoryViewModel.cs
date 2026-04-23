@@ -3,9 +3,12 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Contracts;
 using Revu.App.Helpers;
+using Revu.App.Services;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Lcu;
 using Microsoft.Extensions.Logging;
 using System.IO;
 
@@ -17,6 +20,7 @@ public partial class HistoryViewModel : ObservableObject
     private readonly IGameRepository _gameRepo;
     private readonly IVodRepository _vodRepo;
     private readonly INavigationService _navigationService;
+    private readonly IDialogService _dialogService;
     private readonly ILogger<HistoryViewModel> _logger;
 
     private const int PageSize = 20;
@@ -99,11 +103,13 @@ public partial class HistoryViewModel : ObservableObject
         IGameRepository gameRepo,
         IVodRepository vodRepo,
         INavigationService navigationService,
+        IDialogService dialogService,
         ILogger<HistoryViewModel> logger)
     {
         _gameRepo = gameRepo;
         _vodRepo = vodRepo;
         _navigationService = navigationService;
+        _dialogService = dialogService;
         _logger = logger;
     }
 
@@ -187,13 +193,43 @@ public partial class HistoryViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task HideGameAsync(long gameId)
+    private async Task DeleteGameAsync(long gameId)
     {
-        await _gameRepo.SetHiddenAsync(gameId, hidden: true);
-        // Remove from current list immediately without a full reload
-        var item = Games.FirstOrDefault(g => g.GameId == gameId);
-        if (item is not null)
-            Games.Remove(item);
+        // Surface the game's identity in the confirm dialog so the user
+        // doesn't have to trust the row they just clicked. Champion + win/loss
+        // is enough to recognize — the full detail lives one navigation away.
+        var game = Games.FirstOrDefault(g => g.GameId == gameId);
+        var champ = game?.ChampionName ?? "this game";
+        var outcome = game?.Win == true ? "W" : game?.Win == false ? "L" : "";
+        var label = string.IsNullOrEmpty(outcome) ? champ : $"{champ} ({outcome})";
+
+        var confirmed = await _dialogService.ShowConfirmAsync(
+            $"Delete {label}?",
+            "This permanently removes the game, its review, and all practice " +
+            "tracking from your stats. Clips extracted from this game are also " +
+            "deleted. The VOD recording itself is left in your Ascent folder.\n\n" +
+            "A database backup is saved automatically before deletion. " +
+            "This cannot be undone from inside the app.");
+        if (!confirmed) return;
+
+        try
+        {
+            await _gameRepo.DeleteAsync(gameId);
+
+            // Remove from the current list immediately so the UI feels instant.
+            if (game is not null) Games.Remove(game);
+
+            // Tell every other page that caches game state to refresh.
+            WeakReferenceMessenger.Default.Send(new GameDeletedMessage(gameId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete game {GameId}", gameId);
+            await _dialogService.ShowConfirmAsync(
+                "Delete failed",
+                "Couldn't delete the game. The database backup is still on disk; " +
+                "no data was lost. Check the log for details.");
+        }
     }
 
     // ── Private load methods ────────────────────────────────────────

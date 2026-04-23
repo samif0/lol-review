@@ -2,9 +2,11 @@
 
 using System;
 using System.Collections.Generic;
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Helpers;
 using Revu.App.Services;
 using Revu.App.ViewModels;
+using Revu.Core.Lcu;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -31,6 +33,12 @@ public sealed partial class ObjectivesPage : Page
                 CelebrationEnterStoryboard.Begin();
             }
         };
+
+        // Practice counts / objective levels are derived from games — a
+        // delete elsewhere invalidates them, so reload on notification.
+        WeakReferenceMessenger.Default.Register<ObjectivesPage, GameDeletedMessage>(
+            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+        Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)

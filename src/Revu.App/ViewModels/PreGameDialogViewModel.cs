@@ -150,6 +150,18 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     [ObservableProperty]
     private bool _hasMatchupDetected;
 
+    /// <summary>
+    /// True when the INTEL section has nothing else to show yet — drives a
+    /// waiting-state placeholder so the "— INTEL —" header doesn't sit
+    /// orphaned above an empty region while champ select is still loading.
+    /// </summary>
+    public bool ShowIntelWaiting =>
+        !HasMatchupDetected && !HasMatchupHistory && !HasLastFocus;
+
+    partial void OnHasMatchupDetectedChanged(bool value) => OnPropertyChanged(nameof(ShowIntelWaiting));
+    partial void OnHasMatchupHistoryChanged(bool value) => OnPropertyChanged(nameof(ShowIntelWaiting));
+    partial void OnHasLastFocusChanged(bool value) => OnPropertyChanged(nameof(ShowIntelWaiting));
+
     /// <summary>Snapshot of practiced objective IDs from the last pre-game session, read by ShellViewModel on game end.</summary>
     internal static IReadOnlyList<long> LastPracticedObjectiveIds { get; set; } = [];
 

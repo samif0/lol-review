@@ -1,8 +1,10 @@
 #nullable enable
 
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Helpers;
 using Revu.App.ViewModels;
 using Revu.App.Contracts;
+using Revu.Core.Lcu;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
@@ -31,6 +33,12 @@ public sealed partial class DashboardPage : Page
         ViewModel.TodaysGames.CollectionChanged += (_, _) => Bindings.Update();
 
         Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
+
+        // Reload stats + game lists whenever a game is deleted anywhere in
+        // the app so win-rate / adherence / unreviewed counts stay accurate.
+        WeakReferenceMessenger.Default.Register<DashboardPage, GameDeletedMessage>(
+            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+        Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -51,11 +59,11 @@ public sealed partial class DashboardPage : Page
         }
     }
 
-    private void HideGameButton_Click(object sender, RoutedEventArgs e)
+    private void DeleteGameButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is long gameId)
         {
-            ViewModel.HideGameCommand.Execute(gameId);
+            ViewModel.DeleteGameCommand.Execute(gameId);
         }
     }
 

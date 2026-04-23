@@ -37,3 +37,10 @@ public sealed record ChampSelectCancelledMessage;
 
 /// <summary>Sent when the LCU connection state changes.</summary>
 public sealed record LcuConnectionChangedMessage(bool IsConnected);
+
+/// <summary>
+/// Sent after a game is permanently deleted (rows purged from games + all
+/// child tables, clip files removed). ViewModels that cache lists or
+/// computed stats derived from the deleted game should refresh.
+/// </summary>
+public sealed record GameDeletedMessage(long GameId);

@@ -41,6 +41,28 @@
             <TextBlock Style="{StaticResource GroupHeaderStyle}"
                        Text="— INTEL —"/>
 
+            <!-- Waiting-state placeholder: shown while champ select data is still
+                 arriving and none of the other intel cards have anything yet. -->
+            <controls:CornerBracketedCard
+                CardBorderBrush="{StaticResource SubtleBorderBrush}"
+                Visibility="{x:Bind ViewModel.ShowIntelWaiting, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="8" HorizontalAlignment="Center" Padding="0,8">
+                    <TextBlock Text="WAITING FOR CHAMP SELECT"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                               Foreground="{StaticResource AccentBlueBrush}"
+                               CharacterSpacing="250"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Lock in your champion — matchup intel + notes appear here."
+                               FontFamily="{StaticResource BodyFont}"
+                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </controls:CornerBracketedCard>
+
             <!-- Matchup card: visible when MY champ is locked (enemy may still be loading) -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentBlueBrush}"

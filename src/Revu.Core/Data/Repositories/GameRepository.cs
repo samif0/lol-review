@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Revu.Core.Constants;
 using Revu.Core.Models;
+using Revu.Core.Services;
 
 namespace Revu.Core.Data.Repositories;
 
@@ -13,10 +14,12 @@ namespace Revu.Core.Data.Repositories;
 public sealed class GameRepository : IGameRepository
 {
     private readonly IDbConnectionFactory _factory;
+    private readonly IBackupService _backupService;
 
-    public GameRepository(IDbConnectionFactory factory)
+    public GameRepository(IDbConnectionFactory factory, IBackupService backupService)
     {
         _factory = factory;
+        _backupService = backupService;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
@@ -476,6 +479,128 @@ public sealed class GameRepository : IGameRepository
         cmd.Parameters.AddWithValue("@gameId", gameId);
 
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<string> DeleteAsync(long gameId)
+    {
+        // Always snapshot the DB first — deletion cascades across 13 child
+        // tables and there is no per-row undo path. The safety backup gives
+        // the user an out of last resort.
+        await _backupService.CreateSafetyBackupAsync($"delete-game-{gameId}")
+            .ConfigureAwait(false);
+
+        // Child tables that reference games.game_id. Listed explicitly so that
+        // adding a new child-with-game_id in the schema forces this list to
+        // be updated — silent orphan rows are the failure mode we're avoiding.
+        //
+        // Deliberately absent: missed_game_decisions. We want the row in that
+        // table to survive (as 'dismissed') so the reconciler doesn't re-offer
+        // this game on the next startup after Riot's match history still has it.
+        // The tombstone is written explicitly below in the same transaction.
+        string[] childTables =
+        {
+            "session_log",
+            "vod_bookmarks",
+            "vod_files",
+            "game_events",
+            "derived_event_instances",
+            "game_objectives",
+            "game_concept_tags",
+            "prompt_answers",
+            "matchup_notes",
+            "tilt_checks",
+            "review_drafts",
+            "coach_moments",
+        };
+
+        using var conn = _factory.CreateConnection();
+        using var tx = conn.BeginTransaction();
+
+        // Collect clip file paths BEFORE the row is gone — we need them to
+        // clean up on-disk clip extractions after the transaction commits.
+        // VOD source recordings are owned by Ascent; we only touch clips.
+        var clipPaths = new List<string>();
+        try
+        {
+            using (var clipsCmd = conn.CreateCommand())
+            {
+                clipsCmd.Transaction = tx;
+                clipsCmd.CommandText =
+                    "SELECT clip_path FROM vod_bookmarks WHERE game_id = @gameId AND clip_path != ''";
+                clipsCmd.Parameters.AddWithValue("@gameId", gameId);
+                using var reader = await clipsCmd.ExecuteReaderAsync().ConfigureAwait(false);
+                while (await reader.ReadAsync().ConfigureAwait(false))
+                {
+                    var p = reader.GetString(0);
+                    if (!string.IsNullOrWhiteSpace(p)) clipPaths.Add(p);
+                }
+            }
+
+            foreach (var table in childTables)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = $"DELETE FROM {table} WHERE game_id = @gameId";
+                cmd.Parameters.AddWithValue("@gameId", gameId);
+                await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+            }
+
+            // Tombstone: mark the game_id as permanently dismissed in
+            // missed_game_decisions. Without this, the next startup's
+            // reconciler would see Riot still listing this match and
+            // re-offer it for ingestion because the games-table row is
+            // gone. Upsert so we cleanly handle "user previously dismissed
+            // then later deleted" or vice-versa.
+            using (var tombstoneCmd = conn.CreateCommand())
+            {
+                tombstoneCmd.Transaction = tx;
+                tombstoneCmd.CommandText = """
+                    INSERT INTO missed_game_decisions (game_id, decision, created_at, updated_at)
+                    VALUES (@gameId, 'dismissed', @now, @now)
+                    ON CONFLICT(game_id) DO UPDATE SET
+                        decision = 'dismissed',
+                        updated_at = excluded.updated_at
+                    """;
+                tombstoneCmd.Parameters.AddWithValue("@gameId", gameId);
+                tombstoneCmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                await tombstoneCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+            }
+
+            using (var gamesCmd = conn.CreateCommand())
+            {
+                gamesCmd.Transaction = tx;
+                gamesCmd.CommandText = "DELETE FROM games WHERE game_id = @gameId";
+                gamesCmd.Parameters.AddWithValue("@gameId", gameId);
+                await gamesCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+
+        // Delete clip files after the transaction commits. File-system
+        // failures here are non-fatal — the DB is already consistent; a
+        // leftover clip just lingers on disk until the user clears it or the
+        // folder-size limiter prunes it.
+        foreach (var clipPath in clipPaths)
+        {
+            try
+            {
+                if (File.Exists(clipPath)) File.Delete(clipPath);
+            }
+            catch
+            {
+                // Swallow — best-effort cleanup.
+            }
+        }
+
+        var dbDir = Path.GetDirectoryName(_factory.DatabasePath) ?? "";
+        return Path.Combine(dbDir, "backups");
     }
 
     // ── Single reads ─────────────────────────────────────────────────────

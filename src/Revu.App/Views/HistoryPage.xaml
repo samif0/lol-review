@@ -105,11 +105,12 @@
                                                             Click="ReviewButton_Click"/>
                                                     <Button Style="{StaticResource GhostIconButtonStyle}"
                                                             Tag="{x:Bind GameId}"
-                                                            ToolTipService.ToolTip="Hide this game"
-                                                            Click="HideGameButton_Click">
+                                                            ToolTipService.ToolTip="Delete this game permanently"
+                                                            Click="DeleteGameButton_Click">
                                                         <FontIcon Glyph="&#xE74D;"
                                                                   FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                                  FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
+                                                                  FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                                  Foreground="{StaticResource LossRedBrush}"/>
                                                     </Button>
                                                 </StackPanel>
                                             </controls:GameRowCard.Actions>

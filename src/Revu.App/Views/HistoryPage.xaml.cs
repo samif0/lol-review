@@ -1,7 +1,9 @@
 #nullable enable
 
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Helpers;
 using Revu.App.ViewModels;
+using Revu.Core.Lcu;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -25,6 +27,12 @@ public sealed partial class HistoryPage : Page
 
         // Update computed properties when collections change
         ViewModel.ChampionStats.CollectionChanged += (_, _) => Bindings.Update();
+
+        // Reload after a delete triggered anywhere else so stats + the list
+        // reflect the new reality (champion-breakdown totals, win rate, etc.)
+        WeakReferenceMessenger.Default.Register<HistoryPage, GameDeletedMessage>(
+            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+        Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -80,11 +88,11 @@ public sealed partial class HistoryPage : Page
         }
     }
 
-    private void HideGameButton_Click(object sender, RoutedEventArgs e)
+    private void DeleteGameButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is long gameId)
         {
-            ViewModel.HideGameCommand.Execute(gameId);
+            ViewModel.DeleteGameCommand.Execute(gameId);
         }
     }
 }

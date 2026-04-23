@@ -3,10 +3,13 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Contracts;
 using Revu.App.Helpers;
+using Revu.App.Services;
 using Revu.App.Styling;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Lcu;
 using Revu.Core.Models;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -21,6 +24,7 @@ public partial class DashboardViewModel : ObservableObject
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly INavigationService _navigationService;
     private readonly IConfigService _configService;
+    private readonly IDialogService _dialogService;
     private readonly ILogger<DashboardViewModel> _logger;
 
     // ── Observable Properties ───────────────────────────────────────
@@ -115,6 +119,7 @@ public partial class DashboardViewModel : ObservableObject
         IObjectivesRepository objectivesRepo,
         INavigationService navigationService,
         IConfigService configService,
+        IDialogService dialogService,
         ILogger<DashboardViewModel> logger)
     {
         _gameRepo = gameRepo;
@@ -122,6 +127,7 @@ public partial class DashboardViewModel : ObservableObject
         _objectivesRepo = objectivesRepo;
         _navigationService = navigationService;
         _configService = configService;
+        _dialogService = dialogService;
         _logger = logger;
     }
 
@@ -297,14 +303,42 @@ public partial class DashboardViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task HideGameAsync(long gameId)
+    private async Task DeleteGameAsync(long gameId)
     {
-        await _gameRepo.SetHiddenAsync(gameId, hidden: true);
-        var unreviewedItem = UnreviewedGames.FirstOrDefault(g => g.GameId == gameId);
-        if (unreviewedItem is not null) UnreviewedGames.Remove(unreviewedItem);
-        var todayItem = TodaysGames.FirstOrDefault(g => g.GameId == gameId);
-        if (todayItem is not null) TodaysGames.Remove(todayItem);
-        UpdateUnreviewedSummary(UnreviewedGames.Count);
+        var game = UnreviewedGames.FirstOrDefault(g => g.GameId == gameId)
+                   ?? TodaysGames.FirstOrDefault(g => g.GameId == gameId);
+        var champ = game?.ChampionName ?? "this game";
+        var outcome = game?.Win == true ? "W" : game?.Win == false ? "L" : "";
+        var label = string.IsNullOrEmpty(outcome) ? champ : $"{champ} ({outcome})";
+
+        var confirmed = await _dialogService.ShowConfirmAsync(
+            $"Delete {label}?",
+            "This permanently removes the game, its review, and all practice " +
+            "tracking from your stats. Clips extracted from this game are also " +
+            "deleted. The VOD recording itself is left in your Ascent folder.\n\n" +
+            "A database backup is saved automatically before deletion. " +
+            "This cannot be undone from inside the app.");
+        if (!confirmed) return;
+
+        try
+        {
+            await _gameRepo.DeleteAsync(gameId);
+
+            var unreviewedItem = UnreviewedGames.FirstOrDefault(g => g.GameId == gameId);
+            if (unreviewedItem is not null) UnreviewedGames.Remove(unreviewedItem);
+            var todayItem = TodaysGames.FirstOrDefault(g => g.GameId == gameId);
+            if (todayItem is not null) TodaysGames.Remove(todayItem);
+            UpdateUnreviewedSummary(UnreviewedGames.Count);
+
+            WeakReferenceMessenger.Default.Send(new GameDeletedMessage(gameId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete game {GameId}", gameId);
+            await _dialogService.ShowConfirmAsync(
+                "Delete failed",
+                "Couldn't delete the game. Your database backup is still safe on disk.");
+        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────

@@ -3,9 +3,12 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Contracts;
 using Revu.App.Helpers;
+using Revu.App.Services;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Lcu;
 using Revu.Core.Models;
 
 namespace Revu.App.ViewModels;
@@ -31,6 +34,7 @@ public partial class SessionLoggerViewModel : ObservableObject
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IGameRepository _gameRepo;
     private readonly INavigationService _navigationService;
+    private readonly IDialogService _dialogService;
 
     [ObservableProperty]
     private DateOnly _currentDate = DateOnly.FromDateTime(DateTime.Now);
@@ -111,11 +115,52 @@ public partial class SessionLoggerViewModel : ObservableObject
     public SessionLoggerViewModel(
         ISessionLogRepository sessionLogRepo,
         IGameRepository gameRepo,
-        INavigationService navigationService)
+        INavigationService navigationService,
+        IDialogService dialogService)
     {
         _sessionLogRepo = sessionLogRepo;
         _gameRepo = gameRepo;
         _navigationService = navigationService;
+        _dialogService = dialogService;
+    }
+
+    [RelayCommand]
+    private async Task DeleteGameAsync(long gameId)
+    {
+        var game = ReviewedGames.FirstOrDefault(g => g.GameId == gameId)
+                   ?? NeedsReviewGames.FirstOrDefault(g => g.GameId == gameId);
+        var champ = game?.ChampionName ?? "this game";
+        var outcome = game?.Win == true ? "W" : game?.Win == false ? "L" : "";
+        var label = string.IsNullOrEmpty(outcome) ? champ : $"{champ} ({outcome})";
+
+        var confirmed = await _dialogService.ShowConfirmAsync(
+            $"Delete {label}?",
+            "This permanently removes the game, its review, and all practice " +
+            "tracking from your stats. Clips extracted from this game are also " +
+            "deleted. The VOD recording itself is left in your Ascent folder.\n\n" +
+            "A database backup is saved automatically before deletion. " +
+            "This cannot be undone from inside the app.");
+        if (!confirmed) return;
+
+        try
+        {
+            await _gameRepo.DeleteAsync(gameId);
+
+            var reviewed = ReviewedGames.FirstOrDefault(g => g.GameId == gameId);
+            if (reviewed is not null) ReviewedGames.Remove(reviewed);
+            var needs = NeedsReviewGames.FirstOrDefault(g => g.GameId == gameId);
+            if (needs is not null) NeedsReviewGames.Remove(needs);
+            HasReviewedGames = ReviewedGames.Count > 0;
+            HasNeedsReviewGames = NeedsReviewGames.Count > 0;
+
+            WeakReferenceMessenger.Default.Send(new GameDeletedMessage(gameId));
+        }
+        catch
+        {
+            await _dialogService.ShowConfirmAsync(
+                "Delete failed",
+                "Couldn't delete the game. Your database backup is still safe on disk.");
+        }
     }
 
     [RelayCommand]
