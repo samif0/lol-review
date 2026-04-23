@@ -2,6 +2,7 @@
 
 using System.Text.Json;
 using Revu.Core.Constants;
+using Revu.Core.Data;
 using Revu.Core.Models;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -38,9 +39,7 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
                     try
                     {
                         var raw = eog.GetRawText();
-                        var dumpPath = Path.Combine(
-                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                            "LoLReviewData", "last_eog_dump.json");
+                        var dumpPath = Path.Combine(AppDataPaths.UserDataRoot, "last_eog_dump.json");
                         await File.WriteAllTextAsync(dumpPath, raw, cancellationToken).ConfigureAwait(false);
                     }
                     catch { /* best-effort diagnostic */ }

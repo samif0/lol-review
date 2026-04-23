@@ -7,7 +7,7 @@ namespace Revu.Core.Data;
 
 /// <summary>
 /// Creates SQLite connections configured for WAL mode with shared cache.
-/// Default database location: %LOCALAPPDATA%\RevuData\lol_review.db
+/// Default database location: %LOCALAPPDATA%\RevuData\revu.db
 /// </summary>
 public sealed class SqliteConnectionFactory : IDbConnectionFactory
 {
@@ -18,7 +18,7 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
     /// <param name="logger">Logger instance.</param>
     /// <param name="dbPath">
     /// Optional override for the database file path.
-    /// When <c>null</c>, defaults to <c>%LOCALAPPDATA%\RevuData\lol_review.db</c>.
+    /// When <c>null</c>, defaults to <c>%LOCALAPPDATA%\RevuData\revu.db</c>.
     /// </param>
     public SqliteConnectionFactory(ILogger<SqliteConnectionFactory> logger, string? dbPath = null)
     {
@@ -66,7 +66,7 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
     }
 
     /// <summary>
-    /// Returns the default database path: %LOCALAPPDATA%\RevuData\lol_review.db
+    /// Returns the default database path: %LOCALAPPDATA%\RevuData\revu.db
     /// This path is outside the Velopack install root so reinstall/update cannot
     /// wipe the live database.
     /// </summary>

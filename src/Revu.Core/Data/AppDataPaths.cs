@@ -11,13 +11,17 @@ public static class AppDataPaths
 {
     private static readonly string LocalAppDataRoot = GetLocalAppDataRoot();
 
-    /// <summary>Velopack install root. This tree is installer-owned.</summary>
+    /// <summary>
+    /// Velopack install root. This tree is installer-owned. Named "LoLReview"
+    /// because that matches the Velopack <c>packId</c> — changing that would
+    /// break auto-update for existing installs, so this name is permanent.
+    /// </summary>
     public static string InstallRoot => Path.Combine(LocalAppDataRoot, "LoLReview");
 
     /// <summary>User-owned data root. This tree must survive reinstall/update.</summary>
-    public static string UserDataRoot => Path.Combine(LocalAppDataRoot, "LoLReviewData");
+    public static string UserDataRoot => Path.Combine(LocalAppDataRoot, "RevuData");
 
-    public static string DatabasePath => Path.Combine(UserDataRoot, "lol_review.db");
+    public static string DatabasePath => Path.Combine(UserDataRoot, "revu.db");
 
     public static string ConfigPath => Path.Combine(UserDataRoot, "config.json");
 
