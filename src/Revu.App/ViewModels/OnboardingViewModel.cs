@@ -2,6 +2,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
 
@@ -11,25 +12,37 @@ namespace Revu.App.ViewModels;
 /// Viewmodel for the first-launch onboarding flow.
 ///
 /// States (<see cref="State"/>):
-///   "welcome"  — email + optional invite code
-///   "codeSent" — paste OTP
-///   "account"  — Riot ID + region + validate via /account
-///   "role"     — pick main role (TOP / JUNGLE / MIDDLE / BOTTOM / UTILITY)
-///   "done"     — onboarding host swaps in the shell
+///   "welcome"       — hero + "Start using Revu" (primary) / "Log in with email" (secondary)
+///   "emailEntry"    — email input for the optional login path
+///   "codeSent"      — paste emailed OTP (login path only)
+///   "account"       — Riot ID + region (login path only)
+///   "role"          — primary-role pick (login path only)
+///   "tourWhat"      — shared: what Revu is (1/4)
+///   "tourLoop"      — shared: auto-capture + review (2/4)
+///   "tourHabits"    — shared: objectives + rules (3/4)
+///   "tourObjective" — shared: create first objective (4/4, writes to DB)
+///   "done"          — onboarding host swaps in the shell
+///
+/// Both paths (login and skip) converge at "tourWhat" after any auth steps.
+/// Skip sets <c>OnboardingSkipped=true</c>; login sets it false. Either way,
+/// <c>OnboardingComplete</c> becomes true by the time we fire <c>Completed</c>.
 /// </summary>
 public partial class OnboardingViewModel : ObservableObject
 {
     private readonly IConfigService _configService;
     private readonly IRiotAuthClient _authClient;
+    private readonly IObjectivesRepository _objectivesRepo;
     private readonly ILogger<OnboardingViewModel> _logger;
 
     public OnboardingViewModel(
         IConfigService configService,
         IRiotAuthClient authClient,
+        IObjectivesRepository objectivesRepo,
         ILogger<OnboardingViewModel> logger)
     {
         _configService = configService;
         _authClient = authClient;
+        _objectivesRepo = objectivesRepo;
         _logger = logger;
     }
 
@@ -47,27 +60,20 @@ public partial class OnboardingViewModel : ObservableObject
     [ObservableProperty]
     private string _info = "";
 
-    // ── Welcome ────────────────────────────────────────────────────
+    // True once the user has chosen the login path. Used to route the tour's
+    // final step back to "done" directly, and to short-circuit the "Skip auth"
+    // branch on welcome.
+    private bool _chosenLoginPath;
+
+    // ── Email / auth ────────────────────────────────────────────────
 
     [ObservableProperty]
     private string _email = "";
 
     [ObservableProperty]
-    private string _inviteCode = "";
-
-    // Invite field visible by default so new users don't silently end up in
-    // the login path (which sends them an email whose code fails to verify
-    // because they have no account yet). Existing users can collapse it via
-    // the "Already have an account?" hyperlink.
-    [ObservableProperty]
-    private bool _showInviteField = true;
-
-    // ── Code-sent ───────────────────────────────────────────────────
-
-    [ObservableProperty]
     private string _otpCode = "";
 
-    // ── Account (after login) ───────────────────────────────────────
+    // ── Riot account (logged-in only) ───────────────────────────────
 
     [ObservableProperty]
     private string _riotId = "";
@@ -75,7 +81,7 @@ public partial class OnboardingViewModel : ObservableObject
     [ObservableProperty]
     private string _riotRegion = "na1";
 
-    // ── Role (after account) ────────────────────────────────────────
+    // ── Role (logged-in only) ───────────────────────────────────────
 
     /// <summary>Riot internal role code: TOP|JUNGLE|MIDDLE|BOTTOM|UTILITY. Empty until chosen.</summary>
     [ObservableProperty]
@@ -96,24 +102,56 @@ public partial class OnboardingViewModel : ObservableObject
         OnPropertyChanged(nameof(IsUtilitySelected));
     }
 
-    /// <summary>Fires when the flow completes (successfully or via skip).</summary>
+    // ── Tour: first objective ───────────────────────────────────────
+
+    [ObservableProperty]
+    private string _firstObjectiveTitle = "";
+
+    [ObservableProperty]
+    private string _firstObjectiveConfirmation = "";
+
+    /// <summary>Fires when the flow completes (with or without auth).</summary>
     public event Action? Completed;
 
+    // ── Welcome ──────────────────────────────────────────────────────
+
+    /// <summary>Primary action: skip auth, go into the role step then the tour.</summary>
     [RelayCommand]
-    private void ToggleInviteField()
+    private void StartUsingRevu()
     {
-        ShowInviteField = !ShowInviteField;
-        if (!ShowInviteField) InviteCode = "";
+        _chosenLoginPath = false;
+        State = "role";
+        Error = "";
+    }
+
+    /// <summary>Secondary action: reveal email input for the login path.</summary>
+    [RelayCommand]
+    private void BeginLogin()
+    {
+        _chosenLoginPath = true;
+        State = "emailEntry";
+        Error = "";
     }
 
     [RelayCommand]
-    private async Task ContinueFromWelcomeAsync()
+    private void BackToWelcome()
+    {
+        State = "welcome";
+        Email = "";
+        OtpCode = "";
+        Error = "";
+        Info = "";
+        _chosenLoginPath = false;
+    }
+
+    // ── Email entry + OTP ───────────────────────────────────────────
+
+    [RelayCommand]
+    private async Task SendLoginCodeAsync()
     {
         if (Busy) return;
         Error = "";
         var email = (Email ?? "").Trim();
-        var invite = (InviteCode ?? "").Trim().ToUpperInvariant();
-
         if (string.IsNullOrEmpty(email))
         {
             Error = "Enter an email to continue.";
@@ -123,14 +161,7 @@ public partial class OnboardingViewModel : ObservableObject
         Busy = true;
         try
         {
-            if (!string.IsNullOrEmpty(invite))
-            {
-                await _authClient.SignupAsync(email, invite);
-            }
-            else
-            {
-                await _authClient.LoginAsync(email);
-            }
+            await _authClient.LoginAsync(email);
             Info = $"Check {email} for a code.";
             State = "codeSent";
             OtpCode = "";
@@ -138,7 +169,7 @@ public partial class OnboardingViewModel : ObservableObject
         catch (RiotAuthException ex) { Error = ex.Message; }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Onboarding welcome continue failed");
+            _logger.LogError(ex, "Onboarding send-login-code failed");
             Error = "Couldn't reach the server. Check your connection.";
         }
         finally { Busy = false; }
@@ -180,13 +211,15 @@ public partial class OnboardingViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void BackToWelcome()
+    private void BackToEmailEntry()
     {
-        State = "welcome";
+        State = "emailEntry";
         OtpCode = "";
         Error = "";
         Info = "";
     }
+
+    // ── Riot ID + region (logged-in only) ───────────────────────────
 
     [RelayCommand]
     private async Task FinishAccountAsync()
@@ -239,6 +272,8 @@ public partial class OnboardingViewModel : ObservableObject
         finally { Busy = false; }
     }
 
+    // ── Role (logged-in only) ───────────────────────────────────────
+
     [RelayCommand]
     private void SelectRole(string role)
     {
@@ -263,8 +298,8 @@ public partial class OnboardingViewModel : ObservableObject
             config.PrimaryRole = PrimaryRole;
             await _configService.SaveAsync(config);
 
-            State = "done";
-            Completed?.Invoke();
+            State = "tourWhat";
+            Error = "";
         }
         catch (Exception ex)
         {
@@ -274,16 +309,78 @@ public partial class OnboardingViewModel : ObservableObject
         finally { Busy = false; }
     }
 
+    // ── Tour (shared by both paths) ─────────────────────────────────
+
     [RelayCommand]
-    private async Task SkipAsync()
+    private void NextTourStep()
+    {
+        Error = "";
+        State = State switch
+        {
+            "tourWhat" => "tourLoop",
+            "tourLoop" => "tourHabits",
+            "tourHabits" => "tourObjective",
+            _ => State,
+        };
+    }
+
+    [RelayCommand]
+    private async Task CreateFirstObjectiveAsync()
+    {
+        if (Busy) return;
+        Error = "";
+        var title = (FirstObjectiveTitle ?? "").Trim();
+        if (string.IsNullOrEmpty(title))
+        {
+            Error = "Give your objective a name — something short you want to practice this session.";
+            return;
+        }
+
+        Busy = true;
+        try
+        {
+            await _objectivesRepo.CreateAsync(title);
+            FirstObjectiveConfirmation = $"✔ \"{title}\" is now your priority objective.";
+
+            // Stamp skip/finish state and fire Completed. For the login path
+            // OnboardingSkipped is already false (set during FinishAccountAsync);
+            // for the skip path we set it here.
+            var config = await _configService.LoadAsync();
+            if (!_chosenLoginPath)
+            {
+                config.OnboardingSkipped = true;
+                await _configService.SaveAsync(config);
+            }
+
+            State = "done";
+            Completed?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Onboarding first-objective create failed");
+            Error = "Couldn't save your objective. Try again.";
+        }
+        finally { Busy = false; }
+    }
+
+    /// <summary>
+    /// Skip the "create an objective" step. Still records OnboardingSkipped
+    /// as appropriate so the user doesn't land back here.
+    /// </summary>
+    [RelayCommand]
+    private async Task SkipTourObjectiveAsync()
     {
         if (Busy) return;
         Busy = true;
         try
         {
             var config = await _configService.LoadAsync();
-            config.OnboardingSkipped = true;
-            await _configService.SaveAsync(config);
+            if (!_chosenLoginPath)
+            {
+                config.OnboardingSkipped = true;
+                await _configService.SaveAsync(config);
+            }
+            State = "done";
             Completed?.Invoke();
         }
         finally { Busy = false; }

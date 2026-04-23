@@ -44,12 +44,6 @@ public sealed partial class OnboardingPage : Page
 
     public bool Not(bool value) => !value;
 
-    public string InviteToggleLabel(bool shown)
-        => shown ? "Already have an account? Log in instead" : "Have an invite code? Sign up";
-
-    public string WelcomeButtonLabel(bool invitingSignup)
-        => invitingSignup ? "SIGN UP — EMAIL ME A CODE" : "LOG IN — EMAIL ME A CODE";
-
     /// <summary>Returns a highlighted brush for the selected role button, default otherwise.</summary>
     public Microsoft.UI.Xaml.Media.Brush RoleBrush(bool selected)
     {

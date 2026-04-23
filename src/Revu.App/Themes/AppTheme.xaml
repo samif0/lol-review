@@ -805,4 +805,25 @@
         </Setter>
     </Style>
 
+    <!-- ═════ HUD-themed tooltip ═════
+         Overrides the default light Windows tooltip with a dark sidebar-
+         toned background and the Revu purple accent border. Applied
+         globally via the implicit ToolTip style. -->
+    <SolidColorBrush x:Key="ToolTipForeground" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ToolTipBackground" Color="#0C0B12"/>
+    <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#A78BFA"/>
+    <Thickness x:Key="ToolTipBorderThemePadding">10,6,10,6</Thickness>
+
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="{StaticResource ToolTipBackground}"/>
+        <Setter Property="Foreground" Value="{StaticResource ToolTipForeground}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource ToolTipBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="{StaticResource ToolTipBorderThemePadding}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="CharacterSpacing" Value="80"/>
+        <Setter Property="CornerRadius" Value="0"/>
+    </Style>
+
 </ResourceDictionary>

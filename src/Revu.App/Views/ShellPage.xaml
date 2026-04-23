@@ -7,6 +7,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:controls="using:Revu.App.Controls"
     xmlns:converters="using:Revu.App.Converters"
+    xmlns:helpers="using:Revu.App.Helpers"
     mc:Ignorable="d">
 
     <Page.Resources>
@@ -100,7 +101,7 @@
                                     Tag="dashboard"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    ToolTipService.ToolTip="Dashboard"
+                                    helpers:HoverTip.TipText="Dashboard"
                                     IsTabStop="False">
                                 <FontIcon Glyph="&#xE80F;"
                                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
@@ -111,7 +112,7 @@
                                     Tag="session"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    ToolTipService.ToolTip="Review"
+                                    helpers:HoverTip.TipText="Review"
                                     IsTabStop="False">
                                 <Grid>
                                     <FontIcon Glyph="&#xE768;"
@@ -132,7 +133,7 @@
                                     Tag="objectives"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    ToolTipService.ToolTip="Objectives"
+                                    helpers:HoverTip.TipText="Objectives"
                                     IsTabStop="False">
                                 <FontIcon Glyph="&#xF16B;"
                                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
@@ -148,7 +149,7 @@
                                     Tag="history"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    ToolTipService.ToolTip="Archive"
+                                    helpers:HoverTip.TipText="Archive"
                                     IsTabStop="False">
                                 <FontIcon Glyph="&#xE81C;"
                                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
@@ -159,7 +160,7 @@
                                     Tag="analytics"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    ToolTipService.ToolTip="Trends"
+                                    helpers:HoverTip.TipText="Trends"
                                     IsTabStop="False">
                                 <FontIcon Glyph="&#xE9D9;"
                                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
@@ -170,7 +171,7 @@
                                     Tag="vodplayer"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    ToolTipService.ToolTip="VOD Player"
+                                    helpers:HoverTip.TipText="VOD Player"
                                     IsTabStop="False"
                                     Visibility="Collapsed">
                                 <FontIcon Glyph="&#xE714;"
@@ -183,7 +184,7 @@
                                     Tag="coach"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    ToolTipService.ToolTip="Coach (alpha)"
+                                    helpers:HoverTip.TipText="Coach (alpha)"
                                     IsTabStop="False"
                                     Visibility="Collapsed">
                                 <Grid>
@@ -215,7 +216,7 @@
                                     Tag="rules"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    ToolTipService.ToolTip="Rules"
+                                    helpers:HoverTip.TipText="Rules"
                                     IsTabStop="False"
                                     Visibility="Collapsed">
                                 <FontIcon Glyph="&#xE7BA;"
@@ -235,7 +236,7 @@
                                 Tag="settings"
                                 Style="{StaticResource NavItemStyle}"
                                 Click="OnNavClick"
-                                ToolTipService.ToolTip="Settings"
+                                helpers:HoverTip.TipText="Settings"
                                 IsTabStop="False">
                             <Grid>
                                 <FontIcon Glyph="&#xE713;"
@@ -278,7 +279,7 @@
                                    HorizontalAlignment="Center"
                                    CharacterSpacing="100"
                                    Margin="0,4,0,0"
-                                   ToolTipService.ToolTip="{x:Bind ViewModel.AccountTooltip, Mode=OneWay}"/>
+                                   helpers:HoverTip.TipText="{x:Bind ViewModel.AccountTooltip, Mode=OneWay}"/>
                     </StackPanel>
                 </Grid>
             </Border>

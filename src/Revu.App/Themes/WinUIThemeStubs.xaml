@@ -691,11 +691,13 @@
     <SolidColorBrush x:Key="AccentButtonBorderBrushPointerOver" Color="Transparent"/>
     <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="#00FFFFFF"/>
     <SolidColorBrush x:Key="AccentButtonBorderBrushDisabled" Color="#00FFFFFF"/>
-    <SolidColorBrush x:Key="ToolTipForeground" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="ToolTipBackground" Color="#FF2B2B2B"/>
-    <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#33000000"/>
+    <!-- HUD-themed tooltip: dark sidebar bg, purple accent border, mono font via
+         the App.xaml implicit ToolTip style. -->
+    <SolidColorBrush x:Key="ToolTipForeground" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ToolTipBackground" Color="#0C0B12"/>
+    <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#A78BFA"/>
     <Thickness x:Key="ToolTipBorderThemeThickness">1</Thickness>
-    <Thickness x:Key="ToolTipBorderThemePadding">8,5,8,7</Thickness>
+    <Thickness x:Key="ToolTipBorderThemePadding">10,6,10,6</Thickness>
     <SolidColorBrush x:Key="CalendarDatePickerForeground" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="CalendarDatePickerForegroundDisabled" Color="#5DFFFFFF"/>
     <SolidColorBrush x:Key="CalendarDatePickerCalendarGlyphForeground" Color="#C5FFFFFF"/>

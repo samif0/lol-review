@@ -45,7 +45,34 @@
                     Visibility="{x:Bind IsState(ViewModel.State, 'welcome'), Mode=OneWay}">
                     <StackPanel Spacing="14">
                         <controls:SectionTitle Text="GET STARTED"/>
-                        <TextBlock Text="New accounts need an invite code. If you already have an account, leave the invite field blank and we'll send you a login code."
+                        <TextBlock Text="Revu is a local-first League tracker. No sign-up, no account required — just start using it. You can log in with email later if you want, but it's optional."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <Button Content="START USING REVU"
+                                Command="{x:Bind ViewModel.StartUsingRevuCommand}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
+                                HorizontalAlignment="Stretch"
+                                Height="44"/>
+
+                        <HyperlinkButton Command="{x:Bind ViewModel.BeginLoginCommand}"
+                                         Content="Log in or sign up with email (optional)"
+                                         Padding="0"
+                                         HorizontalAlignment="Center"
+                                         IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ═════ Email entry step (login path) ═════ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentBlueBrush}"
+                    Visibility="{x:Bind IsState(ViewModel.State, 'emailEntry'), Mode=OneWay}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="LOG IN"/>
+                        <TextBlock Text="Enter your email. We'll send a one-time code."
                                    FontFamily="{StaticResource BodyFont}"
                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource SecondaryTextBrush}"
@@ -63,46 +90,22 @@
                                      InputScope="EmailSmtpAddress"/>
                         </StackPanel>
 
-                        <!-- Invite field (collapsed if user toggles to log-in mode) -->
-                        <StackPanel Spacing="4"
-                                    Visibility="{x:Bind ViewModel.ShowInviteField, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="INVITE CODE"
-                                       FontFamily="{StaticResource MonoFont}"
-                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                                       CharacterSpacing="250"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBlock Text="Given to you by someone who already uses Revu. Not the same as the code we'll email you next."
-                                       FontFamily="{StaticResource BodyFont}"
-                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       TextWrapping="Wrap"/>
-                            <TextBox Text="{x:Bind ViewModel.InviteCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="Required for new accounts"
-                                     FontFamily="{StaticResource MonoFont}"
-                                     CharacterCasing="Upper"/>
-                        </StackPanel>
-
-                        <HyperlinkButton Command="{x:Bind ViewModel.ToggleInviteFieldCommand}"
-                                         Content="{x:Bind InviteToggleLabel(ViewModel.ShowInviteField), Mode=OneWay}"
-                                         Padding="0"
-                                         HorizontalAlignment="Left"/>
-
-                        <Button Content="{x:Bind WelcomeButtonLabel(ViewModel.ShowInviteField), Mode=OneWay}"
-                                Command="{x:Bind ViewModel.ContinueFromWelcomeCommand}"
+                        <Button Content="EMAIL ME A CODE"
+                                Command="{x:Bind ViewModel.SendLoginCodeCommand}"
                                 Style="{StaticResource PrimaryActionButtonStyle}"
                                 IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
                                 HorizontalAlignment="Stretch"
                                 Height="44"/>
 
-                        <HyperlinkButton Command="{x:Bind ViewModel.SkipCommand}"
-                                         Content="Skip (login not required)"
+                        <HyperlinkButton Command="{x:Bind ViewModel.BackToWelcomeCommand}"
+                                         Content="← Back"
                                          Padding="0"
                                          HorizontalAlignment="Center"
                                          IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═════ Code-sent step ═════ -->
+                <!-- ═════ Code-sent step (login path) ═════ -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource AccentGoldBrush}"
                     Visibility="{x:Bind IsState(ViewModel.State, 'codeSent'), Mode=OneWay}">
@@ -115,7 +118,7 @@
                                    TextWrapping="Wrap"/>
 
                         <StackPanel Spacing="4">
-                            <TextBlock Text="EMAIL CODE"
+                            <TextBlock Text="CODE"
                                        FontFamily="{StaticResource MonoFont}"
                                        FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                        CharacterSpacing="250"
@@ -133,7 +136,7 @@
                                 HorizontalAlignment="Stretch"
                                 Height="44"/>
 
-                        <HyperlinkButton Command="{x:Bind ViewModel.BackToWelcomeCommand}"
+                        <HyperlinkButton Command="{x:Bind ViewModel.BackToEmailEntryCommand}"
                                          Content="Wrong email? Go back"
                                          Padding="0"
                                          HorizontalAlignment="Center"
@@ -141,7 +144,7 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═════ Link Riot ID step ═════ -->
+                <!-- ═════ Link Riot ID step (login path) ═════ -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource WinGreenBrush}"
                     Visibility="{x:Bind IsState(ViewModel.State, 'account'), Mode=OneWay}">
@@ -191,22 +194,16 @@
                             </ComboBox>
                         </StackPanel>
 
-                        <Button Content="FINISH"
+                        <Button Content="CONTINUE"
                                 Command="{x:Bind ViewModel.FinishAccountCommand}"
                                 Style="{StaticResource PrimaryActionButtonStyle}"
                                 IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
                                 HorizontalAlignment="Stretch"
                                 Height="44"/>
-
-                        <HyperlinkButton Command="{x:Bind ViewModel.SkipCommand}"
-                                         Content="Skip for now (you can set this later in Settings)"
-                                         Padding="0"
-                                         HorizontalAlignment="Center"
-                                         IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
-                <!-- ═════ Role step ═════ -->
+                <!-- ═════ Role step (login path) ═════ -->
                 <controls:CornerBracketedCard
                     CardBorderBrush="{StaticResource AccentPurpleBrush}"
                     Visibility="{x:Bind IsState(ViewModel.State, 'role'), Mode=OneWay}">
@@ -269,12 +266,145 @@
                                     Background="{x:Bind RoleBrush(ViewModel.IsUtilitySelected), Mode=OneWay}"/>
                         </Grid>
 
-                        <Button Content="FINISH"
+                        <Button Content="CONTINUE"
                                 Command="{x:Bind ViewModel.FinishRoleCommand}"
                                 Style="{StaticResource PrimaryActionButtonStyle}"
                                 IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
                                 HorizontalAlignment="Stretch"
                                 Height="44"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ═════ Tour 1/4: What Revu is ═════ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentBlueBrush}"
+                    Visibility="{x:Bind IsState(ViewModel.State, 'tourWhat'), Mode=OneWay}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="WHAT REVU IS — 1 / 4"/>
+                        <TextBlock Text="Revu is a ranked-only League companion that turns every game into data you can learn from. It captures your matches automatically, helps you review them in a few sentences, and tracks the habits you're trying to build."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="Your history stacks up across sessions and seasons so you can spot what's actually working — not just what felt good in the moment."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <Button Content="NEXT"
+                                Command="{x:Bind ViewModel.NextTourStepCommand}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
+                                HorizontalAlignment="Stretch"
+                                Height="44"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ═════ Tour 2/4: Auto-capture + review ═════ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentGoldBrush}"
+                    Visibility="{x:Bind IsState(ViewModel.State, 'tourLoop'), Mode=OneWay}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="CAPTURE + REVIEW — 2 / 4"/>
+                        <TextBlock Text="Leave Revu running in the background. When you finish a ranked game, it's picked up automatically — stats, champ, KDA, result — no manual entry."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="Write a quick review while it's fresh: what went well, your biggest mistake, and one thing to focus on next. A sentence each is fine — consistency matters more than length."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="If you miss one, you can add it manually from the Archive. Reviews you haven't written yet show a red dot in the sidebar."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <Button Content="NEXT"
+                                Command="{x:Bind ViewModel.NextTourStepCommand}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
+                                HorizontalAlignment="Stretch"
+                                Height="44"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ═════ Tour 3/4: Objectives + rules ═════ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentPurpleBrush}"
+                    Visibility="{x:Bind IsState(ViewModel.State, 'tourHabits'), Mode=OneWay}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="OBJECTIVES + RULES — 3 / 4"/>
+                        <TextBlock Text="Two tools for building habits between games:"
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="• Objectives — specific things you're practicing (e.g. &quot;ward the enemy jungle at 2:30 every game&quot;). Revu tracks your streak and level as you practice."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="• Rules — things you're committing NOT to do (e.g. &quot;no typing when losing lane&quot;). Revu tracks breakages over time."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <TextBlock Text="Your priority objective shows on the dashboard every session so you don't forget what you're working on."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <Button Content="NEXT"
+                                Command="{x:Bind ViewModel.NextTourStepCommand}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
+                                HorizontalAlignment="Stretch"
+                                Height="44"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- ═════ Tour: First objective ═════ -->
+                <controls:CornerBracketedCard
+                    CardBorderBrush="{StaticResource AccentPurpleBrush}"
+                    Visibility="{x:Bind IsState(ViewModel.State, 'tourObjective'), Mode=OneWay}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="YOUR FIRST OBJECTIVE — 4 / 4"/>
+                        <TextBlock Text="Pick one thing you want to practice. It'll show on your dashboard as your priority for the next games. You can change it later from the Objectives page."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="OBJECTIVE"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.FirstObjectiveTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="e.g. Ward bushes at 2:30 every game"
+                                     FontFamily="{StaticResource MonoFont}"/>
+                        </StackPanel>
+
+                        <Button Content="CREATE OBJECTIVE + START"
+                                Command="{x:Bind ViewModel.CreateFirstObjectiveCommand}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
+                                HorizontalAlignment="Stretch"
+                                Height="44"/>
+
+                        <HyperlinkButton Command="{x:Bind ViewModel.SkipTourObjectiveCommand}"
+                                         Content="Skip — I'll add one later"
+                                         Padding="0"
+                                         HorizontalAlignment="Center"
+                                         IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
