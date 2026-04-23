@@ -1,6 +1,6 @@
-# LoL Review
+# Revu
 
-LoL Review is a Windows desktop app for reviewing your League of Legends games locally. It watches for ranked game flow, surfaces pre-game and post-game prompts, and keeps your review history, notes, objectives, and session data in SQLite on your machine.
+Revu is a Windows desktop app for reviewing your League of Legends games locally. It watches for ranked game flow, surfaces pre-game and post-game prompts, and keeps your review history, notes, objectives, and session data in SQLite on your machine.
 
 ## What it does
 
@@ -16,14 +16,14 @@ LoL Review is a Windows desktop app for reviewing your League of Legends games l
 Use the latest `Setup.exe` from [Releases](https://github.com/samif0/lol-review/releases).
 
 1. Download the newest installer asset.
-2. Run `LoLReview-Setup.exe` or the release `Setup.exe`.
+2. Run `Revu-Setup.exe` or the release `Setup.exe`.
 3. Launch the installed app from Start Menu or Desktop.
 
 Notes:
 
 - Auto-update is handled by the installed app through GitHub Releases.
-- The install root is `%LOCALAPPDATA%\LoLReview`.
-- User data is stored separately in `%LOCALAPPDATA%\LoLReviewData` so reinstalling the app does not wipe the database.
+- The install root is `%LOCALAPPDATA%\LoLReview` (the Velopack `packId`, never renamed so auto-update keeps working).
+- User data is stored separately in `%LOCALAPPDATA%\RevuData` so reinstalling the app does not wipe the database.
 - On startup, the app migrates legacy DB / config / backup files forward from older locations when needed.
 
 ## Data and logs
@@ -31,15 +31,15 @@ Notes:
 Current user-data location:
 
 ```text
-%LOCALAPPDATA%\LoLReviewData\
+%LOCALAPPDATA%\RevuData\
 ```
 
 Important files:
 
-- Database: `%LOCALAPPDATA%\LoLReviewData\lol_review.db`
-- Config: `%LOCALAPPDATA%\LoLReviewData\config.json`
-- Safety backups: `%LOCALAPPDATA%\LoLReviewData\backups\`
-- Default clips folder: `%LOCALAPPDATA%\LoLReviewData\clips\`
+- Database: `%LOCALAPPDATA%\RevuData\revu.db`
+- Config: `%LOCALAPPDATA%\RevuData\config.json`
+- Safety backups: `%LOCALAPPDATA%\RevuData\backups\`
+- Default clips folder: `%LOCALAPPDATA%\RevuData\clips\`
 
 Install-owned files:
 
@@ -68,14 +68,14 @@ Optional runtime dependency:
 ### Open the solution
 
 ```powershell
-start LoLReview.sln
+start Revu.sln
 ```
 
 ### Build from CLI
 
 ```powershell
-dotnet restore src\LoLReview.App\LoLReview.App.csproj -r win-x64
-msbuild LoLReview.sln /p:Configuration=Debug /p:Platform=x64 /p:RuntimeIdentifier=win-x64
+dotnet restore src\Revu.App\Revu.App.csproj -r win-x64
+msbuild Revu.sln /p:Configuration=Debug /p:Platform=x64 /p:RuntimeIdentifier=win-x64
 ```
 
 ### Run a local debug build
@@ -89,7 +89,7 @@ run.bat
 Or run the built executable directly:
 
 ```text
-src\LoLReview.App\bin\x64\Debug\net8.0-windows10.0.19041.0\LoLReview.App.exe
+src\Revu.App\bin\x64\Debug\net8.0-windows10.0.19041.0\Revu.App.exe
 ```
 
 ## Building a release locally
@@ -97,8 +97,8 @@ src\LoLReview.App\bin\x64\Debug\net8.0-windows10.0.19041.0\LoLReview.App.exe
 The GitHub Actions release workflow is the source of truth, but the local publish shape is:
 
 ```powershell
-dotnet restore src\LoLReview.App\LoLReview.App.csproj -r win-x64
-msbuild src\LoLReview.App\LoLReview.App.csproj `
+dotnet restore src\Revu.App\Revu.App.csproj -r win-x64
+msbuild src\Revu.App\Revu.App.csproj `
   /p:Configuration=Release `
   /p:Platform=x64 `
   /p:RuntimeIdentifier=win-x64 `
@@ -130,7 +130,7 @@ git push origin v2.3.1
 
 The workflow will:
 
-- stamp `<Version>` in `src\LoLReview.App\LoLReview.App.csproj` from the tag
+- stamp `<Version>` in `src\Revu.App\Revu.App.csproj` from the tag
 - restore and publish the WinUI app for `win-x64`
 - include `ffmpeg.exe` if available
 - pack the release with `vpk`
@@ -145,10 +145,10 @@ Tag rules currently accepted by the workflow:
 
 ```text
 src/
-  LoLReview.App/        WinUI 3 desktop app, DI wiring, views, view models, update flow
-  LoLReview.Core/       SQLite, repositories, domain services, LCU integration, migrations
+  Revu.App/        WinUI 3 desktop app, DI wiring, views, view models, update flow
+  Revu.Core/       SQLite, repositories, domain services, LCU integration, migrations
 .github/workflows/
   release.yml           GitHub Actions release pipeline
 run.bat                 Helper to launch the local debug build and print startup logs
-LoLReview.sln           Visual Studio solution
+Revu.sln           Visual Studio solution
 ```

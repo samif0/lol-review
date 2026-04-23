@@ -24,7 +24,7 @@ This document is the single source of truth for building the AI coaching layer i
 
 ### What lol-review is
 
-A local-first WinUI 3 desktop app for reviewing League of Legends games. Watches the LCU, captures post-game stats, lets the user write structured reviews, tracks objectives and rules, stores VODs and bookmarks, and persists everything to a local SQLite DB at `%LOCALAPPDATA%\LoLReviewData\lol_review.db`. Updated via Velopack / GitHub Releases.
+A local-first WinUI 3 desktop app for reviewing League of Legends games. Watches the LCU, captures post-game stats, lets the user write structured reviews, tracks objectives and rules, stores VODs and bookmarks, and persists everything to a local SQLite DB at `%LOCALAPPDATA%\RevuData\revu.db`. Updated via Velopack / GitHub Releases.
 
 **See `CODEBASE_ONBOARDING.md` for the full architecture read.** The onboarding doc is authoritative for the existing codebase; this plan is authoritative for the coach rebuild.
 
@@ -59,7 +59,7 @@ The coaching behavior is not hard-coded. The vocabulary comes from the user's re
 
 ~~~
 ┌─────────────────────────────────────────────────────────┐
-│  LoLReview.App (WinUI 3)                                │
+│  Revu.App (WinUI 3)                                │
 │  - ReviewViewModel, DashboardViewModel, etc.            │
 │  - New: CoachPanelViewModel, CoachSettingsViewModel     │
 └───────────────────────┬─────────────────────────────────┘
@@ -78,7 +78,7 @@ The coaching behavior is not hard-coded. The vocabulary comes from the user's re
             ▼                             ▼
     ┌──────────────┐            ┌──────────────────────┐
     │ SQLite       │            │ LLM Provider         │
-    │ lol_review.db│            │ (Ollama / Google AI  │
+    │ revu.db│            │ (Ollama / Google AI  │
     │  coach reads │            │  Studio / OpenRouter)│
     │  + writes    │            │                      │
     │  coach tables│            │                      │
@@ -89,7 +89,7 @@ The coaching behavior is not hard-coded. The vocabulary comes from the user's re
 
 **D1. Sidecar process, not embedded.** Python FastAPI server on localhost. C# starts/stops it as a child process (like `ffmpeg.exe`), communicates over HTTP. Clean language boundary, independent deploy cadence.
 
-**D2. SQLite is the integration contract.** Coach reads `lol_review.db`. Coach writes to *new* coach-specific tables only. C# reads those tables directly when it needs the data. No RPC for data, only for operations.
+**D2. SQLite is the integration contract.** Coach reads `revu.db`. Coach writes to *new* coach-specific tables only. C# reads those tables directly when it needs the data. No RPC for data, only for operations.
 
 **D3. Provider abstraction with three implementations.**
 - `OllamaProvider` — local, default for @samif0
@@ -107,13 +107,13 @@ The coaching behavior is not hard-coded. The vocabulary comes from the user's re
 ~~~
 lol-review/
 ├── src/                              # existing WinUI + Core (additive changes only)
-│   ├── LoLReview.App/
+│   ├── Revu.App/
 │   │   ├── Services/
 │   │   │   └── CoachSidecarService.cs       [NEW - Phase 0]
 │   │   └── ViewModels/
 │   │       ├── CoachPanelViewModel.cs       [NEW - Phase 5]
 │   │       └── CoachSettingsViewModel.cs    [NEW - Phase 0]
-│   └── LoLReview.Core/
+│   └── Revu.Core/
 │       └── Data/
 │           └── Repositories/
 │               └── CoachRepository.cs       [NEW - Phase 1]
@@ -352,7 +352,7 @@ class LLMProvider(ABC):
     def supports_json_mode(self) -> bool: ...
 ~~~
 
-Config lives at `%LOCALAPPDATA%\LoLReviewData\coach_config.json`:
+Config lives at `%LOCALAPPDATA%\RevuData\coach_config.json`:
 
 ~~~json
 {
@@ -466,16 +466,16 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
 
 4. Implement `OllamaProvider` fully. Stub `GoogleAIProvider` and `OpenRouterProvider` with the interface in place — they raise `NotImplementedError` until Phase 6.
 
-5. Implement `coach/config.py` — loads from `%LOCALAPPDATA%\LoLReviewData\coach_config.json`, exposes a `get_provider()` factory. Writes via `POST /config`.
+5. Implement `coach/config.py` — loads from `%LOCALAPPDATA%\RevuData\coach_config.json`, exposes a `get_provider()` factory. Writes via `POST /config`.
 
 6. Implement `coach/db.py`:
-   - SQLite connection to `lol_review.db`. WAL mode. Read connections separate from write connections.
+   - SQLite connection to `revu.db`. WAL mode. Read connections separate from write connections.
    - **Hard data-safety guard.** Maintain an explicit allowlist of coach-owned tables (`game_summary`, `review_concepts`, `user_concept_profile`, `feature_values`, `user_signal_ranking`, `clip_frame_descriptions`, `coach_sessions`, `coach_response_edits`). Any write (INSERT/UPDATE/DELETE) to a table outside this allowlist raises and aborts. Any DDL (ALTER/DROP/CREATE) against non-coach tables raises and aborts. Core tables are read-only from Python.
-   - **Pre-migration backup.** Before running any migration, copy `lol_review.db` to `lol_review.db.backup-YYYY-MM-DD-HHMMSS` alongside it. Keep last 5 backups, prune older. Never overwrite without a fresh backup.
+   - **Pre-migration backup.** Before running any migration, copy `revu.db` to `revu.db.backup-YYYY-MM-DD-HHMMSS` alongside it. Keep last 5 backups, prune older. Never overwrite without a fresh backup.
    - Migration runner for coach tables (additive only, CREATE TABLE IF NOT EXISTS only). Migrations live in `coach/migrations/NNNN_description.sql`. Never modifies core schema.
    - Read-only helpers for core tables the coach needs (`games`, `session_log`, `matchup_notes`, `vod_files`, `vod_bookmarks`, `game_events`, `derived_event_instances`, `objectives`, `rules`).
 
-7. **C# side:** `CoachSidecarService.cs` in `src/LoLReview.App/Services/`.
+7. **C# side:** `CoachSidecarService.cs` in `src/Revu.App/Services/`.
    - Starts the Python process at app start (after DI is wired, before shell creation).
    - Monitors health via `GET /health` on a polling timer.
    - Stops on app exit.
@@ -488,7 +488,7 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
    - Ship a lightweight bootstrapper (`CoachInstallerService.cs`) that, on first-enable, downloads:
      - the sidecar `.exe` (pyinstaller-built, hosted in GitHub Releases as a separate artifact)
      - required model files (sentence-transformers embedding model; Ollama models are user-installed separately)
-   - Target location: `%LOCALAPPDATA%\LoLReviewData\coach\bin\` and `%LOCALAPPDATA%\LoLReviewData\coach\models\`.
+   - Target location: `%LOCALAPPDATA%\RevuData\coach\bin\` and `%LOCALAPPDATA%\RevuData\coach\models\`.
    - Progress UI in settings. Resumable on failure. SHA256 verification.
    - Sidecar is NOT bundled in the Velopack installer. Only the bootstrapper + version manifest.
    - Release pipeline builds sidecar separately and uploads as a release asset.
@@ -542,7 +542,7 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
 
 9. **CLI.** `python -m coach.summaries build --all` for backfill. `python -m coach.summaries build --game-id N` for single game.
 
-10. **C# side:** `CoachRepository.cs` in `src/LoLReview.Core/Data/Repositories/` with read methods for `game_summary`. Wire nothing into UI yet (Phase 5 does that).
+10. **C# side:** `CoachRepository.cs` in `src/Revu.Core/Data/Repositories/` with read methods for `game_summary`. Wire nothing into UI yet (Phase 5 does that).
 
 **Exit criteria:**
 - Backfill completes on @samif0's full game history.
@@ -616,7 +616,7 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
 
 2. **`coach/concepts/extractor.py`.** For each game's review fields (`mistakes`, `went_well`, `focus_next` from `games`; `improvement_note` from `session_log`; `note` from `matchup_notes` joined by game), call the provider. Parse JSON with retry + `json_repair` fallback. Write to `review_concepts`.
 
-3. **`coach/concepts/embedder.py`.** Wrap `sentence-transformers/all-MiniLM-L6-v2`. Cache embeddings in a Parquet file under `%LOCALAPPDATA%\LoLReviewData\coach\embeddings\`.
+3. **`coach/concepts/embedder.py`.** Wrap `sentence-transformers/all-MiniLM-L6-v2`. Cache embeddings in a Parquet file under `%LOCALAPPDATA%\RevuData\coach\embeddings\`.
 
 4. **`coach/concepts/clusterer.py`.** HDBSCAN: `min_cluster_size=2`, cosine distance, `cluster_selection_epsilon=0.15` (tune against data). Assign `cluster_id` to each row in `review_concepts`. For each cluster, pick the canonical label as the shortest member that appears ≥2 times. Singletons get `cluster_id=NULL` and are excluded from the profile unless they recur later.
 
@@ -694,7 +694,7 @@ Each phase is on its own branch. Merges to `main` happen only after exit criteri
    - 6 frames evenly spaced across the window
    - 1 frame at `start - 2s` (pre-context)
    - 1 frame at `end + 2s` (post-context)
-   - Save PNG to `%LOCALAPPDATA%\LoLReviewData\coach_frames\{bookmark_id}\`. Filenames encode the timestamp in ms.
+   - Save PNG to `%LOCALAPPDATA%\RevuData\coach_frames\{bookmark_id}\`. Filenames encode the timestamp in ms.
    - If the VOD file is missing or unreadable, fail gracefully with a structured error.
 
 2. **`coach/vision/describer.py`.** For each extracted frame, call the vision provider with `prompts/frame_description.md`. Prompt directs the model to describe concrete observables only — positions, HP bars, visible gold, cooldowns, wards, minion wave state — and explicitly forbids inferring reasoning or predicting future events. Output JSON with keys `positions`, `resources`, `wave_state`, `visible_cooldowns`, `observations`.

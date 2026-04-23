@@ -4,19 +4,19 @@ This is a local-only sidecar experiment for exploring SAM3 against League of Leg
 
 It is intentionally not wired into:
 
-- `LoLReview.sln`
-- `src/LoLReview.App`
+- `Revu.sln`
+- `src/Revu.App`
 - the release workflow
 - the shipped settings or navigation UI
 
 The runner integrates with your local LoL Review install by reading:
 
-- `%LOCALAPPDATA%\LoLReviewData\config.json`
-- `%LOCALAPPDATA%\LoLReviewData\lol_review.db`
+- `%LOCALAPPDATA%\RevuData\config.json`
+- `%LOCALAPPDATA%\RevuData\revu.db`
 
 and by writing analysis artifacts under:
 
-- `%LOCALAPPDATA%\LoLReviewData\vod-analysis\sam3-experiment`
+- `%LOCALAPPDATA%\RevuData\vod-analysis\sam3-experiment`
 
 ## Local-only gate
 

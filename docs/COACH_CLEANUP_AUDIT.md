@@ -39,7 +39,7 @@ Find and classify every piece of prior AI-coaching code in the repo so Phase 0+ 
 | `experiments/coach_lab/__pycache__/` | — | Build artifact | **DELETE** |
 | `experiments/sam3_vod/` | entire dir | Sam 3 VOD analysis experiment (unrelated to coaching); contains `.venv`, `analyze_vods.py`, `patch_windows_fallbacks.py`, `README.md`, `run_local.ps1`, `setup_local_env.ps1`, `profiles/` | **ARCHIVE** (pre-existing, unrelated to coaching, has independent value as a VOD analysis utility) |
 
-### 2. src/LoLReview.App/
+### 2. src/Revu.App/
 
 | Path | Lines | Description | Classification |
 |---|---|---|---|
@@ -52,7 +52,7 @@ Find and classify every piece of prior AI-coaching code in the repo so Phase 0+ 
 | `Composition/ServiceCollectionExtensions.cs` lines 57-60, 124 | — | DI registrations for `ICoachSidecarClient`, `ICoachRecommendationService`, `ICoachTrainingService`, `ICoachLabService`, `CoachLabViewModel` | **REFACTOR** (remove 5 DI lines) |
 | `ViewModels/VodPlayerViewModel.cs` | — | Coach Lab clip sync (debounce, gate, cancellation): field declarations, constructor injection, `ScheduleCoachLabSync`, `RunCoachLabSyncDebouncedAsync` (lines 22, 31-39, 146-157, 433, 532, 640, 727-770) | **REFACTOR** (remove all coach lab wiring; keep the rest of the viewmodel) |
 
-### 3. src/LoLReview.Core/
+### 3. src/Revu.Core/
 
 | Path | Lines | Description | Classification |
 |---|---|---|---|
@@ -76,10 +76,10 @@ Find and classify every piece of prior AI-coaching code in the repo so Phase 0+ 
 
 | Path | Lines | Description | Classification |
 |---|---|---|---|
-| `LoLReview.Core.Tests/CoachLabServiceTests.cs` | 777 | CoachLabService unit tests | **DELETE** |
-| `LoLReview.Core.Tests/CoachTrainingStatusTests.cs` | 34 | Training status tests | **DELETE** |
-| `LoLReview.Core.Tests/DatabaseInitializerTests.cs` lines 150-247 | — | Two tests: `InitializeAsync_RequeuesLegacyCoachLabelsThatStoredInferredReasonData`, `InitializeAsync_DoesNotSeedLegacyAssistCoachModelRows` | **REFACTOR** (remove both tests; the RequeueLegacyCoachManualLabels code being removed makes them moot) |
-| `LoLReview.Core.Tests/TypedRepositoryContractTests.cs` lines 183-279 | — | `VodRepository_DeleteBookmarkAsync_RemovesClipBackedCoachRows` — validates cascade-delete into coach tables | **REFACTOR** (remove this test; cascade behavior is being removed) |
+| `Revu.Core.Tests/CoachLabServiceTests.cs` | 777 | CoachLabService unit tests | **DELETE** |
+| `Revu.Core.Tests/CoachTrainingStatusTests.cs` | 34 | Training status tests | **DELETE** |
+| `Revu.Core.Tests/DatabaseInitializerTests.cs` lines 150-247 | — | Two tests: `InitializeAsync_RequeuesLegacyCoachLabelsThatStoredInferredReasonData`, `InitializeAsync_DoesNotSeedLegacyAssistCoachModelRows` | **REFACTOR** (remove both tests; the RequeueLegacyCoachManualLabels code being removed makes them moot) |
+| `Revu.Core.Tests/TypedRepositoryContractTests.cs` lines 183-279 | — | `VodRepository_DeleteBookmarkAsync_RemovesClipBackedCoachRows` — validates cascade-delete into coach tables | **REFACTOR** (remove this test; cascade behavior is being removed) |
 
 ### 5. Root-level artifacts
 

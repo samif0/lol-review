@@ -76,7 +76,7 @@ Current state: looks themed, but layouts don't match the mockup.
 
 ## Phase 6A — Custom Controls (Build First)
 
-Build these as `UserControl`s in `src/LoLReview.App/Controls/`. Reuse across pages.
+Build these as `UserControl`s in `src/Revu.App/Controls/`. Reuse across pages.
 
 ### 1. ProgressRing
 Replaces the flat `ObjectiveProgressBar` for objectives. Violet gradient stroke with breathing drop-shadow.
@@ -513,7 +513,7 @@ Skip unless you want to add Win2D. Not worth the NuGet interop risk for alpha.
 
 ### Font loading
 Unpackaged WinUI 3 has finicky `ms-appx:///` URI resolution. If all text looks like Segoe UI:
-- Check diagnostic logs in `%LOCALAPPDATA%\LoLReviewData\`
+- Check diagnostic logs in `%LOCALAPPDATA%\RevuData\`
 - Verify `Assets\Fonts\*.ttf` copied to output directory
 - The `.csproj` has `<Content Include="Assets\Fonts\*.ttf" CopyToOutputDirectory="PreserveNewest" />`
 - Fallback: install fonts system-wide on Windows and reference by family name only (e.g. `FontFamily="Orbitron"`)
@@ -532,13 +532,13 @@ Starting animations in `OnLoaded` but element may be re-loaded (navigation away/
 
 | File | Purpose |
 |------|---------|
-| `src/LoLReview.App/Themes/AppTheme.xaml` | Palette + styles (done) |
-| `src/LoLReview.App/Views/ShellPage.xaml` | Sidebar + frame (done) |
-| `src/LoLReview.App/Views/DashboardPage.xaml` | Rebuild target #1 |
-| `src/LoLReview.App/Views/ReviewPage.xaml` | Rebuild target #2 |
-| `src/LoLReview.App/Views/VodPlayerPage.xaml` | Rebuild target #3 |
-| `src/LoLReview.App/Controls/` | Build new custom controls here |
-| `src/LoLReview.App/Helpers/` | Put `AnimationHelper.cs` here |
+| `src/Revu.App/Themes/AppTheme.xaml` | Palette + styles (done) |
+| `src/Revu.App/Views/ShellPage.xaml` | Sidebar + frame (done) |
+| `src/Revu.App/Views/DashboardPage.xaml` | Rebuild target #1 |
+| `src/Revu.App/Views/ReviewPage.xaml` | Rebuild target #2 |
+| `src/Revu.App/Views/VodPlayerPage.xaml` | Rebuild target #3 |
+| `src/Revu.App/Controls/` | Build new custom controls here |
+| `src/Revu.App/Helpers/` | Put `AnimationHelper.cs` here |
 | `mockups/app-mockup.html` | **Design truth — keep open in browser** |
 
 ---
@@ -546,8 +546,8 @@ Starting animations in `OnLoaded` but element may be re-loaded (navigation away/
 ## Build & Run (reminder)
 
 ```powershell
-dotnet restore src\LoLReview.App\LoLReview.App.csproj -r win-x64
-msbuild LoLReview.sln /p:Configuration=Debug /p:Platform=x64 /p:RuntimeIdentifier=win-x64
+dotnet restore src\Revu.App\Revu.App.csproj -r win-x64
+msbuild Revu.sln /p:Configuration=Debug /p:Platform=x64 /p:RuntimeIdentifier=win-x64
 .\run.bat
 ```
 

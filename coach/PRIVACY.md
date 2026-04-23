@@ -6,7 +6,7 @@ machine, and how you can control it.
 ## Data we touch
 
 The coach reads your local SQLite database at
-`%LOCALAPPDATA%\LoLReviewData\lol_review.db`. It reads:
+`%LOCALAPPDATA%\RevuData\revu.db`. It reads:
 
 - `games` — match stats and your review text (mistakes, went_well, focus_next, review_notes, spotted_problems)
 - `session_log` — mental rating and improvement notes
@@ -74,7 +74,7 @@ We do NOT collect:
 ## Deletion
 
 Uninstalling the coach from Settings removes the sidecar binaries from
-`%LOCALAPPDATA%\LoLReviewData\coach\bin\`. Your data remains untouched;
+`%LOCALAPPDATA%\RevuData\coach\bin\`. Your data remains untouched;
 you can wipe the coach-specific tables manually if you want:
 
 ```sql

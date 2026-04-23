@@ -109,7 +109,7 @@ but has made-up examples. The real tuning happens when you read 20-30
 outputs from your own reviews.
 
 **Reiteration needed:**
-1. **Trigger extraction on 20 games with review text:** `for id in $(sqlite3 lol_review.db "SELECT id FROM games WHERE mistakes != '' LIMIT 20"); do curl -X POST "http://127.0.0.1:5577/concepts/extract/$id"; done`
+1. **Trigger extraction on 20 games with review text:** `for id in $(sqlite3 revu.db "SELECT id FROM games WHERE mistakes != '' LIMIT 20"); do curl -X POST "http://127.0.0.1:5577/concepts/extract/$id"; done`
 2. **Read the output:** `SELECT source_field, concept_raw, polarity, span FROM review_concepts ORDER BY created_at DESC LIMIT 100;`
 3. **If garbage:** edit `coach/coach/prompts/concept_extraction.md`. Replace the 3 example inputs/outputs with real examples from *your* reviews (take actual text from your `games.mistakes` field, hand-label the concepts you'd expect).
 4. **Re-run** until you're happy.
@@ -200,7 +200,7 @@ IDs.
 
 ### 5. Sidecar port handshake
 If port 5577 is taken, the sidecar picks a random free port and writes it to
-`%LOCALAPPDATA%\LoLReviewData\coach_port.txt`. The C# side DOES NOT read this
+`%LOCALAPPDATA%\RevuData\coach_port.txt`. The C# side DOES NOT read this
 file — it reads `coach_config.json`'s `port` value. If there's a clash in
 practice, C# will hit a dead port. Fix: update `CoachSidecarService.ResolveConfiguredPort()`
 to check the handshake file first.
@@ -248,33 +248,33 @@ All of these got my best-guess resolution baked in; you can override.
 **Added:**
 - `COACH_CLEANUP_AUDIT.md`, `MORNING_REPORT.md` (this file)
 - `coach/` (entire directory: 4 SQL migrations files worth, 22 Python modules, 6 prompts, 1 privacy doc, 1 pyproject.toml, 1 README)
-- `src/LoLReview.Core/Services/ICoachSidecarNotifier.cs` + NullCoachSidecarNotifier
-- `src/LoLReview.Core/Data/Repositories/CoachRepository.cs`
-- `src/LoLReview.App/Services/CoachSidecarService.cs`, `CoachInstallerService.cs` + `I*`, `CoachApiClient.cs` + `ICoachApiClient.cs`, `CoachSidecarNotifier.cs`
-- `src/LoLReview.App/ViewModels/CoachSettingsViewModel.cs`, `CoachPanelViewModel.cs`
+- `src/Revu.Core/Services/ICoachSidecarNotifier.cs` + NullCoachSidecarNotifier
+- `src/Revu.Core/Data/Repositories/CoachRepository.cs`
+- `src/Revu.App/Services/CoachSidecarService.cs`, `CoachInstallerService.cs` + `I*`, `CoachApiClient.cs` + `ICoachApiClient.cs`, `CoachSidecarNotifier.cs`
+- `src/Revu.App/ViewModels/CoachSettingsViewModel.cs`, `CoachPanelViewModel.cs`
 
 **Deleted:**
 - `experiments/coach_lab/` (entire)
-- 10 files under `src/LoLReview.Core/Services/Coach*` + `ICoach*`
-- `src/LoLReview.Core/Models/CoachLabModels.cs`
-- `src/LoLReview.App/ViewModels/CoachLabViewModel.cs`
-- `src/LoLReview.App/Views/CoachLabPage.xaml[.cs]`
+- 10 files under `src/Revu.Core/Services/Coach*` + `ICoach*`
+- `src/Revu.Core/Models/CoachLabModels.cs`
+- `src/Revu.App/ViewModels/CoachLabViewModel.cs`
+- `src/Revu.App/Views/CoachLabPage.xaml[.cs]`
 - 2 coach-specific test files
 
 **Modified:**
 - `CODEBASE_ONBOARDING.md`, `COACH_PLAN.md`, `COACH_STATUS.md`
-- `src/LoLReview.Core/Data/AppDataPaths.cs` (removed CoachAnalysisDirectory)
-- `src/LoLReview.Core/Data/DatabaseInitializer.cs` (removed RequeueLegacyCoachManualLabels)
-- `src/LoLReview.Core/Data/Repositories/VodRepository.cs` (removed coach cascade)
-- `src/LoLReview.Core/Data/Schema.cs` (added comment documenting orphaned coach_* tables)
-- `src/LoLReview.Core/Services/GameLifecycleWorkflowService.cs` (notifier wiring)
-- `src/LoLReview.Core/Services/ReviewWorkflowService.cs` (notifier wiring)
-- `src/LoLReview.App/Composition/ServiceCollectionExtensions.cs` (AddCoachServices)
-- `src/LoLReview.App/Composition/AppHostFactory.cs` (chain in coach services)
-- `src/LoLReview.App/Services/NavigationService.cs` (removed coachlab entry)
-- `src/LoLReview.App/Views/ShellPage.xaml[.cs]` (removed NavCoachLab)
-- `src/LoLReview.App/ViewModels/VodPlayerViewModel.cs` (removed coach lab sync + added bookmark hook)
-- `src/LoLReview.Core.Tests/DatabaseInitializerTests.cs`, `TypedRepositoryContractTests.cs` (removed coach tests)
+- `src/Revu.Core/Data/AppDataPaths.cs` (removed CoachAnalysisDirectory)
+- `src/Revu.Core/Data/DatabaseInitializer.cs` (removed RequeueLegacyCoachManualLabels)
+- `src/Revu.Core/Data/Repositories/VodRepository.cs` (removed coach cascade)
+- `src/Revu.Core/Data/Schema.cs` (added comment documenting orphaned coach_* tables)
+- `src/Revu.Core/Services/GameLifecycleWorkflowService.cs` (notifier wiring)
+- `src/Revu.Core/Services/ReviewWorkflowService.cs` (notifier wiring)
+- `src/Revu.App/Composition/ServiceCollectionExtensions.cs` (AddCoachServices)
+- `src/Revu.App/Composition/AppHostFactory.cs` (chain in coach services)
+- `src/Revu.App/Services/NavigationService.cs` (removed coachlab entry)
+- `src/Revu.App/Views/ShellPage.xaml[.cs]` (removed NavCoachLab)
+- `src/Revu.App/ViewModels/VodPlayerViewModel.cs` (removed coach lab sync + added bookmark hook)
+- `src/Revu.Core.Tests/DatabaseInitializerTests.cs`, `TypedRepositoryContractTests.cs` (removed coach tests)
 - `.gitignore`
 
 ---

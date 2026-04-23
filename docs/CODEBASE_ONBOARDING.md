@@ -15,9 +15,9 @@ LoL Review is a local-first WinUI 3 desktop app for League of Legends review.
 
 Top-level structure:
 
-- `src/LoLReview.App`
+- `src/Revu.App`
   WinUI app shell, views, viewmodels, navigation, updater UI, dialogs, theming.
-- `src/LoLReview.Core`
+- `src/Revu.Core`
   SQLite data layer, repositories, migrations, LCU integration, domain services.
 - `.github/workflows/release.yml`
   GitHub Actions build + Velopack release pipeline.
@@ -31,16 +31,16 @@ Top-level structure:
 If you only read a few files at the start of a session, read these in order:
 
 1. `README.md`
-2. `src/LoLReview.App/App.xaml.cs`
-3. `src/LoLReview.Core/Data/AppDataPaths.cs`
-4. `src/LoLReview.Core/Data/DatabaseInitializer.cs`
-5. `src/LoLReview.Core/Lcu/GameMonitorService.cs`
-6. `src/LoLReview.Core/Lcu/StatsExtractor.cs`
-7. `src/LoLReview.Core/Services/GameService.cs`
-8. `src/LoLReview.Core/Data/Repositories/GameRepository.cs`
-9. `src/LoLReview.App/ViewModels/ReviewViewModel.cs`
-10. `src/LoLReview.Core/Services/VodService.cs`
-11. `src/LoLReview.App/Services/UpdateService.cs`
+2. `src/Revu.App/App.xaml.cs`
+3. `src/Revu.Core/Data/AppDataPaths.cs`
+4. `src/Revu.Core/Data/DatabaseInitializer.cs`
+5. `src/Revu.Core/Lcu/GameMonitorService.cs`
+6. `src/Revu.Core/Lcu/StatsExtractor.cs`
+7. `src/Revu.Core/Services/GameService.cs`
+8. `src/Revu.Core/Data/Repositories/GameRepository.cs`
+9. `src/Revu.App/ViewModels/ReviewViewModel.cs`
+10. `src/Revu.Core/Services/VodService.cs`
+11. `src/Revu.App/Services/UpdateService.cs`
 
 That sequence gives you startup, storage, migrations, game ingest, review persistence, VODs, and updater behavior.
 
@@ -48,15 +48,15 @@ That sequence gives you startup, storage, migrations, game ingest, review persis
 
 There are two major layers:
 
-- `LoLReview.App`
+- `Revu.App`
   UI composition, DI bootstrap, navigation, system tray, updater UI, dialogs, page/viewmodel logic.
-- `LoLReview.Core`
+- `Revu.Core`
   Data persistence, business logic, LCU polling, match parsing, VOD matching, config, backups, analytics.
 
 Dependency direction is simple:
 
-- `LoLReview.App` depends on `LoLReview.Core`
-- `LoLReview.Core` does not depend on `LoLReview.App`
+- `Revu.App` depends on `Revu.Core`
+- `Revu.Core` does not depend on `Revu.App`
 
 ### App startup
 
@@ -82,17 +82,17 @@ There is a hard split between install-owned files and user-owned files.
 
 From `AppDataPaths.cs`:
 
-- Install root: `%LOCALAPPDATA%\\LoLReview`
-- User data root: `%LOCALAPPDATA%\\LoLReviewData`
-- Database: `%LOCALAPPDATA%\\LoLReviewData\\lol_review.db`
-- Config: `%LOCALAPPDATA%\\LoLReviewData\\config.json`
-- Backups: `%LOCALAPPDATA%\\LoLReviewData\\backups`
-- Clips: `%LOCALAPPDATA%\\LoLReviewData\\clips`
+- Install root: `%LOCALAPPDATA%\\LoLReview` (Velopack-owned, matches packId)
+- User data root: `%LOCALAPPDATA%\\RevuData`
+- Database: `%LOCALAPPDATA%\\RevuData\\revu.db`
+- Config: `%LOCALAPPDATA%\\RevuData\\config.json`
+- Backups: `%LOCALAPPDATA%\\RevuData\\backups`
+- Clips: `%LOCALAPPDATA%\\RevuData\\clips`
 
 This split matters a lot:
 
 - reinstalling/updating the app should not wipe user data
-- manual DB surgery should happen in `LoLReviewData`, not under the install root
+- manual DB surgery should happen in `RevuData`, not under the install root
 - updater/package files live under `%LOCALAPPDATA%\\LoLReview\\packages`
 
 ## Database Layer
@@ -232,9 +232,9 @@ Important reality:
 
 Main files:
 
-- `src/LoLReview.App/Program.cs`
-- `src/LoLReview.App/Services/UpdateService.cs`
-- `src/LoLReview.App/ViewModels/SettingsViewModel.cs`
+- `src/Revu.App/Program.cs`
+- `src/Revu.App/Services/UpdateService.cs`
+- `src/Revu.App/ViewModels/SettingsViewModel.cs`
 - `.github/workflows/release.yml`
 
 Behavior:
@@ -296,7 +296,7 @@ Normal local build on this machine:
 
 ```powershell
 & 'C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\amd64\MSBuild.exe' `
-  'src\LoLReview.App\LoLReview.App.csproj' `
+  'src\Revu.App\Revu.App.csproj' `
   /t:Build `
   /p:Configuration=Debug `
   /p:Platform=x64 `
@@ -315,7 +315,7 @@ Important machine-specific note:
 Future sessions should be conservative with the live DB. Before editing user data manually:
 
 1. close the installed app
-2. copy `%LOCALAPPDATA%\\LoLReviewData\\lol_review.db`
+2. copy `%LOCALAPPDATA%\\RevuData\\revu.db`
 3. then make the change
 4. run `PRAGMA integrity_check`
 5. relaunch the app
@@ -330,7 +330,7 @@ pipeline) was removed in coach phase -1. A new coaching architecture is
 being built per `COACH_PLAN.md`.
 
 **Cleaned up:**
-- All `Coach*` and `ICoach*` services in `src/LoLReview.Core/Services/`
+- All `Coach*` and `ICoach*` services in `src/Revu.Core/Services/`
 - `CoachLabViewModel.cs`, `CoachLabPage.xaml[.cs]`
 - `CoachLabModels.cs`
 - Coach-specific tests (CoachLabServiceTests, CoachTrainingStatusTests,
@@ -364,9 +364,9 @@ Released commits:
 
 Current uncommitted source changes:
 
-- `src/LoLReview.Core/Lcu/ILcuClient.cs`
-- `src/LoLReview.Core/Lcu/LcuClient.cs`
-- `src/LoLReview.Core/Lcu/GameMonitorService.cs`
+- `src/Revu.Core/Lcu/ILcuClient.cs`
+- `src/Revu.Core/Lcu/LcuClient.cs`
+- `src/Revu.Core/Lcu/GameMonitorService.cs`
 
 Those local edits add champion-name resolution for the match-history reconciliation path so future missed-game backfills do not save `Unknown` when only `championId` is present.
 
