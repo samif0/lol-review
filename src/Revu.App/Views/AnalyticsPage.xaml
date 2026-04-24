@@ -14,6 +14,8 @@
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <converters:ChipBgConverter x:Key="ChipBgConverter"/>
+        <converters:ChipBorderConverter x:Key="ChipBorderConverter"/>
     </Page.Resources>
 
     <Grid x:Name="RootGrid">
@@ -51,6 +53,239 @@
             <StackPanel Spacing="14">
 
                 <!-- ••• OVERALL STATS ••• -->
+                <!-- FILTER BAR -->
+                <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentBlueBrush}">
+                    <StackPanel Spacing="12">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="FILTERS"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource AccentBlueBrush}"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind ViewModel.FiltersSummary, Mode=OneWay}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <Button Grid.Column="2"
+                                    Content="APPLY"
+                                    Command="{x:Bind ViewModel.ApplyFiltersCommand}"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
+                                    IsEnabled="{x:Bind ViewModel.HasUnappliedChanges, Mode=OneWay}"
+                                    Height="32"
+                                    Padding="16,0"/>
+                            <Button Grid.Column="3"
+                                    Content="RESET"
+                                    Command="{x:Bind ViewModel.ResetFiltersCommand}"
+                                    Height="32"
+                                    Padding="14,0"/>
+                            <Button Grid.Column="4"
+                                    Content="{x:Bind ToggleGlyph(ViewModel.FiltersExpanded), Mode=OneWay}"
+                                    Command="{x:Bind ViewModel.ToggleFilterBarCommand}"
+                                    FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                    Style="{StaticResource GhostIconButtonStyle}"
+                                    ToolTipService.ToolTip="Toggle filters"/>
+                        </Grid>
+
+                        <StackPanel Spacing="14"
+                                    Visibility="{x:Bind ViewModel.FiltersExpanded, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <Grid ColumnSpacing="16" RowSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                    <TextBlock Text="MATCH MODE"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="250"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.DraftMatchModeIndex, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch">
+                                        <x:String>ALL (AND)</x:String>
+                                        <x:String>ANY (OR)</x:String>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="OUTCOME"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="250"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.DraftWinLossIndex, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch">
+                                        <x:String>Both W and L</x:String>
+                                        <x:String>Wins only</x:String>
+                                        <x:String>Losses only</x:String>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                                    <TextBlock Text="DATE RANGE"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="250"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.DraftDateRangeIndex, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch">
+                                        <x:String>All time</x:String>
+                                        <x:String>Last 7 days</x:String>
+                                        <x:String>Last 30 days</x:String>
+                                        <x:String>Last 90 days</x:String>
+                                        <x:String>Year to date</x:String>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="ACTIVE OBJECTIVE PRACTICE"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="250"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.DraftObjectivePracticeIndex, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch">
+                                        <x:String>Any</x:String>
+                                        <x:String>All practiced</x:String>
+                                        <x:String>None practiced</x:String>
+                                        <x:String>Mixed</x:String>
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="ROLE"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.RoleChips}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Horizontal" Spacing="6"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FilterRoleChip">
+                                            <Button Content="{x:Bind Label}"
+                                                    DataContext="{x:Bind}"
+                                                    Click="RoleChipClick"
+                                                    Background="{x:Bind IsSelected, Converter={StaticResource ChipBgConverter}, Mode=OneWay}"
+                                                    BorderBrush="{x:Bind IsSelected, Converter={StaticResource ChipBorderConverter}, Mode=OneWay}"
+                                                    BorderThickness="1"
+                                                    Padding="14,6"
+                                                    CornerRadius="2"
+                                                    FontFamily="{StaticResource MonoFont}"
+                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                    CharacterSpacing="200"/>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="MENTAL"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.MentalChips}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Horizontal" Spacing="6"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FilterMentalChip">
+                                            <Button DataContext="{x:Bind}"
+                                                    Click="MentalChipClick"
+                                                    Background="{x:Bind IsSelected, Converter={StaticResource ChipBgConverter}, Mode=OneWay}"
+                                                    BorderBrush="{x:Bind IsSelected, Converter={StaticResource ChipBorderConverter}, Mode=OneWay}"
+                                                    BorderThickness="1"
+                                                    Padding="14,6"
+                                                    CornerRadius="2">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Text="{x:Bind Label}"
+                                                               FontFamily="{StaticResource MonoFont}"
+                                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                               CharacterSpacing="200"/>
+                                                    <TextBlock Text="{x:Bind Range}"
+                                                               FontFamily="{StaticResource MonoFont}"
+                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                               Foreground="{StaticResource MutedTextBrush}"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="DAY OF WEEK"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.DayChips}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Horizontal" Spacing="6"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FilterDayChip">
+                                            <Button Content="{x:Bind Label}"
+                                                    DataContext="{x:Bind}"
+                                                    Click="DayChipClick"
+                                                    Background="{x:Bind IsSelected, Converter={StaticResource ChipBgConverter}, Mode=OneWay}"
+                                                    BorderBrush="{x:Bind IsSelected, Converter={StaticResource ChipBorderConverter}, Mode=OneWay}"
+                                                    BorderThickness="1"
+                                                    Padding="14,6"
+                                                    CornerRadius="2"
+                                                    FontFamily="{StaticResource MonoFont}"
+                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                    CharacterSpacing="200"/>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="CHAMPIONS"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="250"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.AvailableChampions}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Horizontal" Spacing="6"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FilterChampionChip">
+                                            <Button Content="{x:Bind Name}"
+                                                    DataContext="{x:Bind}"
+                                                    Click="ChampionChipClick"
+                                                    Background="{x:Bind IsSelected, Converter={StaticResource ChipBgConverter}, Mode=OneWay}"
+                                                    BorderBrush="{x:Bind IsSelected, Converter={StaticResource ChipBorderConverter}, Mode=OneWay}"
+                                                    BorderThickness="1"
+                                                    Padding="12,6"
+                                                    CornerRadius="2"
+                                                    FontFamily="{StaticResource BodyFont}"
+                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
                 <controls:StatStrip>
                     <controls:StatCell Label="Games"
                                        Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>

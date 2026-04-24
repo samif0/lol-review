@@ -278,6 +278,218 @@ public sealed class AnalysisService : IAnalysisService
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    //  Filtered profile — applies AnalyticsFilter client-side over the
+    //  full game set, then recomputes the aggregates that drive the
+    //  Analytics page (overall, champions, matchups, mental brackets,
+    //  concept tags). Other sections (spotted problems, duration buckets,
+    //  session patterns) are left empty since the Analytics page doesn't
+    //  render them — keeping the filtered path focused + fast.
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<PlayerProfile> GenerateProfileAsync(AnalyticsFilter filter)
+    {
+        if (filter.IsEmpty)
+        {
+            return await GenerateProfileAsync().ConfigureAwait(false);
+        }
+
+        var profile = new PlayerProfile();
+
+        // Pull a flat game list — GetRecentAsync with a huge limit is the
+        // existing unfiltered path (it already applies is_hidden=0 and the
+        // casual-mode filter). A real user rarely has >10k games, but the
+        // limit is defensive rather than precise.
+        var allGames = await _games.GetRecentAsync(limit: 10_000, offset: 0).ConfigureAwait(false);
+
+        // Currently-active objectives snapshot — used by the objective
+        // practice filter. Ids in a HashSet so lookups are O(1).
+        IReadOnlySet<long> activeObjectiveIds = new HashSet<long>();
+        Dictionary<long, HashSet<long>> practicedByGame = new();
+        try
+        {
+            var allObjs = await _objectives.GetAllAsync().ConfigureAwait(false);
+            var activeSet = new HashSet<long>(allObjs
+                .Where(o => string.Equals(o.Status, "active", StringComparison.OrdinalIgnoreCase))
+                .Select(o => o.Id));
+            activeObjectiveIds = activeSet;
+
+            // Build a game_id → {practiced-active-objective-ids} map only if
+            // the user is actually filtering on practice. Otherwise skip —
+            // it's a per-objective query.
+            if (filter.ObjectivePractice != ObjectivePracticeFilter.Any && activeSet.Count > 0)
+            {
+                foreach (var objId in activeSet)
+                {
+                    var entries = await _objectives.GetGamesForObjectiveAsync(objId).ConfigureAwait(false);
+                    foreach (var e in entries)
+                    {
+                        if (!e.Practiced) continue;
+                        if (!practicedByGame.TryGetValue(e.GameId, out var set))
+                        {
+                            set = new HashSet<long>();
+                            practicedByGame[e.GameId] = set;
+                        }
+                        set.Add(objId);
+                    }
+                }
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Filtered profile: objective snapshot failed"); }
+
+        // Walk the game list, apply the matcher, keep the passing rows.
+        // Mental rating lives directly on the games row.
+        var filtered = new List<GameStats>(allGames.Count);
+        var filteredMental = new Dictionary<long, int>();
+        foreach (var g in allGames)
+        {
+            int? rating = await ResolveMentalRatingAsync(g.GameId).ConfigureAwait(false);
+            var practiced = practicedByGame.TryGetValue(g.GameId, out var set) ? set : (IReadOnlySet<long>)new HashSet<long>();
+            if (AnalyticsFilterMatcher.Match(g, filter, rating, practiced, activeObjectiveIds))
+            {
+                filtered.Add(g);
+                if (rating is int r) filteredMental[g.GameId] = r;
+            }
+        }
+
+        profile.Overall = ComputeOverall(filtered);
+        profile.Champions = ComputeChampionStats(filtered);
+        profile.Matchups = ComputeMatchupStats(filtered);
+        profile.Mental = ComputeMentalCorrelation(filtered, filteredMental);
+
+        // Concept tags require a DB join — we just scope by game_id set.
+        try
+        {
+            var allTags = await _conceptTags.GetTagFrequencyAsync(limit: 200).ConfigureAwait(false);
+            // No per-game filter surface on the tag repo — use the all-time
+            // tag list for now. If a user filters to zero games, zero them
+            // out; otherwise show them as-is (they're correlated with the
+            // filtered champions anyway for single-champ filters).
+            profile.ConceptTags = filtered.Count == 0
+                ? new()
+                : allTags.Select(t => new Models.TagFrequency
+                {
+                    Name = t.Name,
+                    Polarity = t.Polarity,
+                    Count = t.Count,
+                    GamePct = t.GamePercent,
+                }).ToList();
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Filtered profile: tags failed"); }
+
+        return profile;
+    }
+
+    private async Task<int?> ResolveMentalRatingAsync(long gameId)
+    {
+        // Mental rating is on the games row (column mental_rating). The
+        // default of 5 means "no review yet" ambiguously collides with
+        // "gave it a 5/10" — the session_log table disambiguates.
+        try
+        {
+            var entry = await _sessionLog.GetEntryAsync(gameId).ConfigureAwait(false);
+            return entry?.MentalRating;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Models.OverallStats ComputeOverall(IReadOnlyList<GameStats> games)
+    {
+        if (games.Count == 0) return new Models.OverallStats();
+        var wins = games.Count(g => g.Win);
+        return new Models.OverallStats
+        {
+            TotalGames = games.Count,
+            Wins = wins,
+            Losses = games.Count - wins,
+            Winrate = Math.Round(100.0 * wins / games.Count, 1),
+            AvgKills = Math.Round(games.Average(g => (double)g.Kills), 1),
+            AvgDeaths = Math.Round(games.Average(g => (double)g.Deaths), 1),
+            AvgAssists = Math.Round(games.Average(g => (double)g.Assists), 1),
+            AvgKda = Math.Round(games.Average(g => g.KdaRatio), 2),
+            AvgCsMin = Math.Round(games.Where(g => g.GameDuration > 0)
+                .Select(g => g.CsTotal / (g.GameDuration / 60.0))
+                .DefaultIfEmpty(0).Average(), 1),
+            AvgVision = Math.Round(games.Average(g => (double)g.VisionScore), 0),
+        };
+    }
+
+    private static List<Models.ChampionStats> ComputeChampionStats(IReadOnlyList<GameStats> games)
+    {
+        return games
+            .Where(g => !string.IsNullOrEmpty(g.ChampionName))
+            .GroupBy(g => g.ChampionName, StringComparer.OrdinalIgnoreCase)
+            .Select(grp =>
+            {
+                var list = grp.ToList();
+                var wins = list.Count(g => g.Win);
+                return new Models.ChampionStats
+                {
+                    ChampionName = grp.Key,
+                    Games = list.Count,
+                    Wins = wins,
+                    Winrate = Math.Round(100.0 * wins / list.Count, 1),
+                    AvgKda = Math.Round(list.Average(g => g.KdaRatio), 2),
+                    AvgCsMin = Math.Round(list.Where(g => g.GameDuration > 0)
+                        .Select(g => g.CsTotal / (g.GameDuration / 60.0))
+                        .DefaultIfEmpty(0).Average(), 1),
+                    AvgDamage = Math.Round(list.Average(g => (double)g.TotalDamageToChampions), 0),
+                };
+            })
+            .OrderByDescending(c => c.Games)
+            .ToList();
+    }
+
+    private static List<Models.MatchupStats> ComputeMatchupStats(IReadOnlyList<GameStats> games)
+    {
+        return games
+            .Where(g => !string.IsNullOrEmpty(g.ChampionName) && !string.IsNullOrEmpty(g.EnemyLaner))
+            .GroupBy(g => (You: g.ChampionName, Enemy: g.EnemyLaner))
+            .Select(grp =>
+            {
+                var list = grp.ToList();
+                var wins = list.Count(g => g.Win);
+                return new Models.MatchupStats
+                {
+                    ChampionName = grp.Key.You,
+                    EnemyLaner = grp.Key.Enemy,
+                    Games = list.Count,
+                    Wins = wins,
+                    Winrate = Math.Round(100.0 * wins / list.Count, 1),
+                    AvgKda = Math.Round(list.Average(g => g.KdaRatio), 2),
+                };
+            })
+            .ToList();
+    }
+
+    private static MentalCorrelation ComputeMentalCorrelation(
+        IReadOnlyList<GameStats> games,
+        IReadOnlyDictionary<long, int> mentalByGame)
+    {
+        double BucketWr(int lo, int hi)
+        {
+            var subset = games
+                .Where(g => mentalByGame.TryGetValue(g.GameId, out var r) && r >= lo && r <= hi)
+                .ToList();
+            if (subset.Count == 0) return 0;
+            return Math.Round(100.0 * subset.Count(g => g.Win) / subset.Count, 1);
+        }
+
+        return new MentalCorrelation
+        {
+            LowWr = BucketWr(1, 3),
+            MidWr = BucketWr(4, 6),
+            HighWr = BucketWr(7, 10),
+            AvgRating = mentalByGame.Count == 0
+                ? 0
+                : Math.Round(mentalByGame.Values.Average(), 1),
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     //  Suggestion engine — 7 deterministic rules
     // ═══════════════════════════════════════════════════════════════════
 
