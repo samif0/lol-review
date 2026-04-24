@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Revu.App.Helpers;
@@ -28,6 +29,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IConfigService _configService;
     private readonly IClipService _clipService;
     private readonly IUpdateService _updateService;
+    private readonly IBackupService _backupService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     private UpdateInfo? _pendingUpdate;
@@ -88,6 +90,35 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _requireReviewNotes;
+
+    // v2.15.0: sidebar/page-enter animation preference. Default true.
+    [ObservableProperty]
+    private bool _sidebarAnimationEnabled = true;
+
+    // v2.15.0: reset/revert state.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsResetConfirmTextValid))]
+    private string _resetConfirmText = "";
+
+    [ObservableProperty]
+    private string _resetStatus = "";
+
+    [ObservableProperty]
+    private bool _isResetting;
+
+    /// <summary>True when the user typed "RESET" into the confirm box.</summary>
+    public bool IsResetConfirmTextValid => string.Equals(ResetConfirmText?.Trim(), "RESET", StringComparison.Ordinal);
+
+    public ObservableCollection<BackupChoiceItem> AvailableBackups { get; } = new();
+
+    [ObservableProperty]
+    private BackupChoiceItem? _selectedBackup;
+
+    [ObservableProperty]
+    private string _restoreStatus = "";
+
+    [ObservableProperty]
+    private bool _isRestoring;
 
     // ── Riot proxy login (Path B) ─────────────────────────────────
 
@@ -162,12 +193,14 @@ public partial class SettingsViewModel : ObservableObject
         IClipService clipService,
         IUpdateService updateService,
         IRiotAuthClient riotAuthClient,
+        IBackupService backupService,
         ILogger<SettingsViewModel> logger)
     {
         _configService = configService;
         _clipService = clipService;
         _updateService = updateService;
         _riotAuthClient = riotAuthClient;
+        _backupService = backupService;
         _logger = logger;
     }
 
@@ -187,6 +220,7 @@ public partial class SettingsViewModel : ObservableObject
             BackupFolder = config.BackupFolder;
             TiltFixEnabled = config.TiltFixMode;
             RequireReviewNotes = config.RequireReviewNotes;
+            SidebarAnimationEnabled = config.SidebarAnimationEnabled;
             RiotId = config.RiotId;
             RiotRegion = config.RiotRegion;
             RestoreRiotAuthState(config);
@@ -241,6 +275,16 @@ public partial class SettingsViewModel : ObservableObject
             config.BackupFolder = BackupFolder;
             config.TiltFixMode = TiltFixEnabled;
             config.RequireReviewNotes = RequireReviewNotes;
+            config.SidebarAnimationEnabled = SidebarAnimationEnabled;
+            // Propagate immediately so the user sees the effect without a restart.
+            // SidebarEnergyDrainAnimator.UpdateTarget checks this flag every time
+            // the nav selection changes; toggling off clears current trails on
+            // next update but leaves any mid-animation trails until then. Force a
+            // re-run: the ShellPage subscribes to nav changes and calls
+            // UpdateTarget on selection — we trigger that by briefly toggling
+            // the flag… actually simpler: let next nav event pick it up. The
+            // trails are subtle; users won't mind one extra second of drift.
+            Helpers.SidebarEnergyDrainAnimator.Enabled = SidebarAnimationEnabled;
             config.RiotId = (RiotId ?? "").Trim();
             config.RiotRegion = (RiotRegion ?? "").Trim().ToLowerInvariant();
 
@@ -729,4 +773,119 @@ public partial class SettingsViewModel : ObservableObject
             return null;
         }
     }
+
+    // ── v2.15.0 reset + revert ──────────────────────────────────────
+
+    /// <summary>Reload the list of available backups from disk for the restore picker.</summary>
+    [RelayCommand]
+    private async Task RefreshBackupsAsync()
+    {
+        try
+        {
+            var list = await _backupService.ListBackupsAsync();
+            AvailableBackups.Clear();
+            foreach (var b in list)
+            {
+                AvailableBackups.Add(new BackupChoiceItem(b));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not list backups");
+        }
+    }
+
+    /// <summary>
+    /// Full reset: creates a pre-reset safety backup, deletes live DB + config,
+    /// then asks the app to exit so the user relaunches into a clean state.
+    /// Only runs when <see cref="IsResetConfirmTextValid"/>.
+    /// </summary>
+    [RelayCommand]
+    private async Task ResetAllDataAsync()
+    {
+        if (IsResetting) return;
+        if (!IsResetConfirmTextValid)
+        {
+            ResetStatus = "Type RESET in the box to confirm.";
+            return;
+        }
+
+        IsResetting = true;
+        ResetStatus = "Backing up and wiping data...";
+        try
+        {
+            var result = await _backupService.ResetAllDataAsync();
+            if (result.Success)
+            {
+                ResetStatus = string.IsNullOrEmpty(result.BackupFilePath)
+                    ? "Data wiped. The app will exit — relaunch to start fresh."
+                    : $"Done. Pre-reset backup saved to {result.BackupFilePath}. Exiting now...";
+                // Exit the process so no in-memory state survives the reset.
+                await Task.Delay(1500);
+                Microsoft.UI.Xaml.Application.Current.Exit();
+            }
+            else
+            {
+                ResetStatus = result.ErrorMessage ?? "Reset failed. Your data is untouched.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ResetAllDataAsync failed");
+            ResetStatus = "Reset failed unexpectedly. Your data is untouched.";
+        }
+        finally
+        {
+            IsResetting = false;
+        }
+    }
+
+    /// <summary>
+    /// Restore the live DB from the selected backup. Backs up the current DB
+    /// as <c>pre_restore_*</c> first so the restore itself is reversible.
+    /// </summary>
+    [RelayCommand]
+    private async Task RestoreSelectedBackupAsync()
+    {
+        if (IsRestoring) return;
+        if (SelectedBackup is null)
+        {
+            RestoreStatus = "Pick a backup to restore.";
+            return;
+        }
+
+        IsRestoring = true;
+        RestoreStatus = $"Restoring from {SelectedBackup.Info.FileName}...";
+        try
+        {
+            var result = await _backupService.RestoreFromBackupAsync(SelectedBackup.Info.FilePath);
+            if (result.Success)
+            {
+                RestoreStatus = "Restore complete. The app will exit — relaunch to load the restored DB.";
+                await Task.Delay(1500);
+                Microsoft.UI.Xaml.Application.Current.Exit();
+            }
+            else
+            {
+                RestoreStatus = result.ErrorMessage ?? "Restore failed. Your current data is untouched.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "RestoreSelectedBackupAsync failed");
+            RestoreStatus = "Restore failed unexpectedly. Your current data is untouched.";
+        }
+        finally
+        {
+            IsRestoring = false;
+        }
+    }
+}
+
+/// <summary>v2.15.0: backup-picker row. Wraps <see cref="BackupFileInfo"/> with a displayable label.</summary>
+public sealed class BackupChoiceItem
+{
+    public BackupChoiceItem(BackupFileInfo info) { Info = info; }
+    public BackupFileInfo Info { get; }
+    public string DisplayLabel => Info.Label;
 }

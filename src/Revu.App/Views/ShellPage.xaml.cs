@@ -136,8 +136,20 @@ public sealed partial class ShellPage : Page
 
         UpdateContentViewportClip();
         _energyDrain = new SidebarEnergyDrainAnimator(EnergyCanvas);
+
+        // v2.15.0: re-run UpdateTarget whenever the user toggles the sidebar
+        // animation setting so the effect disappears (or reappears) without
+        // needing a nav change. Unsubscribed in Unloaded.
+        SidebarEnergyDrainAnimator.EnabledChanged += OnSidebarAnimationEnabledChanged;
+        Unloaded += (_, _) => SidebarEnergyDrainAnimator.EnabledChanged -= OnSidebarAnimationEnabledChanged;
+
         if (_activeNavButton is not null)
             PositionActiveBar(_activeNavButton);
+    }
+
+    private void OnSidebarAnimationEnabledChanged()
+    {
+        _ = DispatcherHelper.RunOnUIThreadAsync(() => UpdateEnergyDrain());
     }
 
     private SidebarEnergyDrainAnimator? _energyDrain;

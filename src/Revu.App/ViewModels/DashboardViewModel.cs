@@ -99,11 +99,12 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     private bool _showSessionBanner;
 
-    [ObservableProperty]
-    private string _lastFocus = "";
-
-    [ObservableProperty]
-    private bool _hasLastFocus;
+    // v2.15.0: LastFocus removed from the Dashboard. The underlying focus_next
+    // field is no longer written to by the slimmed-down Review flow; relying
+    // on it here would produce an increasingly empty card over time.
+    //
+    // PreGamePage still reads it (that's fine — it degrades to blank as old
+    // games fall out of the user's recency window).
 
     [ObservableProperty]
     private string _winLossText = "0 / 0";
@@ -290,18 +291,7 @@ public partial class DashboardViewModel : ObservableObject
                 ShowSessionBanner = false;
             }
 
-            // Last review focus
-            var reviewFocus = await _gameRepo.GetLastReviewFocusAsync();
-            if (reviewFocus != null && !string.IsNullOrWhiteSpace(reviewFocus.FocusNext))
-            {
-                LastFocus = reviewFocus.FocusNext;
-                HasLastFocus = true;
-            }
-            else
-            {
-                LastFocus = "";
-                HasLastFocus = false;
-            }
+            // v2.15.0: LastFocus removed — see comment on the ex-observables above.
 
             // Active objectives
             var objectives = await _objectivesRepo.GetActiveAsync();

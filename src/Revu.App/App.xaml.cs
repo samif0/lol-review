@@ -130,6 +130,12 @@ public partial class App : Application
             var configService = GetService<Revu.Core.Services.IConfigService>();
             await configService.LoadAsync();
 
+            // v2.15.0: apply the sidebar energy-drain animation preference
+            // before the ShellPage is constructed. Setting is persisted in
+            // AppConfig.SidebarAnimationEnabled. Some users find the motion
+            // distracting.
+            Revu.App.Helpers.SidebarEnergyDrainAnimator.Enabled = configService.SidebarAnimationEnabled;
+
             await DispatcherHelper.RunOnUIThreadAsync(() =>
             {
                 if (configService.OnboardingComplete)

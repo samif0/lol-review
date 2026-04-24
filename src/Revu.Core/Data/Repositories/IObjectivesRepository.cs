@@ -19,9 +19,49 @@ public interface IObjectivesRepository
     Task<long> CreateAsync(string title, string skillArea = "", string type = "primary",
         string completionCriteria = "", string description = "", string phase = ObjectivePhases.InGame);
 
+    /// <summary>
+    /// v2.15.0 multi-phase create. At least one of practicePre/In/Post must be true.
+    /// The legacy single <c>phase</c> column gets set to whichever of the three is
+    /// checked first (pre→in→post) for backwards-compatibility with callers that
+    /// still read it.
+    /// </summary>
+    Task<long> CreateWithPhasesAsync(string title, string skillArea, string type,
+        string completionCriteria, string description,
+        bool practicePre, bool practiceIn, bool practicePost);
+
     Task<IReadOnlyList<ObjectiveSummary>> GetAllAsync();
 
     Task<IReadOnlyList<ObjectiveSummary>> GetActiveAsync();
+
+    /// <summary>
+    /// v2.15.0: return all active objectives whose <c>practice_&lt;phase&gt;</c>
+    /// bool is set. <paramref name="phase"/> is "pregame" / "ingame" / "postgame".
+    ///
+    /// When <paramref name="championName"/> is non-null, filters out objectives
+    /// that have an entry in <c>objective_champions</c> that doesn't match the
+    /// given champion. Objectives with zero champion rows apply to everyone and
+    /// always pass. When <paramref name="championName"/> is null, champion
+    /// filtering is skipped entirely.
+    /// </summary>
+    Task<IReadOnlyList<ObjectiveSummary>> GetActiveByPhaseAsync(string phase, string? championName = null);
+
+    // ── v2.15.0 champion gating ─────────────────────────────────────
+
+    /// <summary>List champions the objective is scoped to. Empty list = all champions.</summary>
+    Task<IReadOnlyList<string>> GetChampionsForObjectiveAsync(long objectiveId);
+
+    /// <summary>
+    /// Replace the champion set for an objective with the provided list. Pass
+    /// an empty list to clear (objective applies to all champions). Diff-save
+    /// under the hood so we don't churn rows that are already present.
+    /// </summary>
+    Task SetChampionsForObjectiveAsync(long objectiveId, IReadOnlyList<string> champions);
+
+    /// <summary>
+    /// Distinct champion names from the user's captured games, newest first.
+    /// Used to prime the champion picker UI with champs the user actually plays.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetPlayedChampionsAsync(int limit = 30);
 
     Task<ObjectiveSummary?> GetPriorityAsync();
 
@@ -36,7 +76,15 @@ public interface IObjectivesRepository
     Task UpdateAsync(long objectiveId, string title, string skillArea = "", string type = "primary",
         string completionCriteria = "", string description = "", string phase = ObjectivePhases.InGame);
 
+    /// <summary>v2.15.0 multi-phase update. Mirrors <see cref="CreateWithPhasesAsync"/>.</summary>
+    Task UpdateWithPhasesAsync(long objectiveId, string title, string skillArea, string type,
+        string completionCriteria, string description,
+        bool practicePre, bool practiceIn, bool practicePost);
+
     Task UpdatePhaseAsync(long objectiveId, string phase);
+
+    /// <summary>v2.15.0: update just the three practice bools without touching title/desc/etc.</summary>
+    Task UpdatePracticePhasesAsync(long objectiveId, bool practicePre, bool practiceIn, bool practicePost);
 
     Task DeleteAsync(long objectiveId);
 

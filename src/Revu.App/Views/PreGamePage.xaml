@@ -209,13 +209,14 @@
                                             BorderThickness="1"
                                             BorderBrush="{StaticResource SubtleBorderBrush}"
                                             Padding="12,10">
-                                        <Grid ColumnDefinitions="*,Auto">
-                                            <StackPanel Spacing="2">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                                                 <TextBlock Text="{x:Bind Title}"
                                                            FontFamily="{StaticResource HeadingFont}"
                                                            FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
                                                            FontWeight="SemiBold"
-                                                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                                           TextWrapping="Wrap"/>
                                                 <TextBlock Text="{x:Bind Criteria}"
                                                            FontFamily="{StaticResource MonoFont}"
                                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
@@ -223,6 +224,7 @@
                                                            TextWrapping="Wrap"/>
                                             </StackPanel>
                                             <ToggleButton Grid.Column="1"
+                                                          VerticalAlignment="Center"
                                                           IsChecked="{x:Bind Practiced, Mode=TwoWay}"
                                                           Style="{StaticResource HudPracticedToggleStyle}"/>
                                         </Grid>
@@ -232,89 +234,88 @@
                         </ItemsRepeater>
                     </StackPanel>
 
-                </StackPanel>
-            </controls:CornerBracketedCard>
-
-            <!-- ════════════════════════════════════════════════════════════
-                 GROUP 4: INTENT — What's my plan for THIS game?
-                 Focus + Session Mindset merged into one card.
-                 ════════════════════════════════════════════════════════════ -->
-            <TextBlock Style="{StaticResource GroupHeaderStyle}"
-                       Text="— INTENT —"/>
-
-            <controls:CornerBracketedCard
-                CardBorderBrush="{StaticResource AccentTealBrush}">
-                <StackPanel Spacing="14">
-
-                    <!-- Focus -->
-                    <StackPanel Spacing="8">
-                        <controls:SectionTitle Text="FOCUS"/>
-                        <TextBlock Text="ONE THING YOU'LL CONCENTRATE ON"
+                    <!-- v2.15.0: CUSTOM PRE-GAME PROMPTS per active objective. -->
+                    <StackPanel Spacing="10"
+                                Visibility="{x:Bind ViewModel.HasPreGamePromptBlocks, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="YOUR PRE-GAME PROMPTS"
                                    FontFamily="{StaticResource MonoFont}"
                                    FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                    CharacterSpacing="200"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
-                        <TextBox Text="{x:Bind ViewModel.FocusText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="What's your #1 focus this game?"
-                                 TextWrapping="Wrap" AcceptsReturn="True"
-                                 MinHeight="60"
-                                 FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                 Background="{StaticResource InputBackgroundBrush}"
-                                 BorderBrush="{StaticResource SubtleBorderBrush}"
-                                 Foreground="{StaticResource PrimaryTextBrush}"
-                                 CornerRadius="2"/>
 
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <Button Content="CS/min"
-                                    Command="{x:Bind ViewModel.SetQuickFocusCommand}"
-                                    CommandParameter="CS better early"
-                                    Style="{StaticResource SecondaryActionButtonStyle}"
-                                    Height="26" Padding="10,0"
-                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
-                            <Button Content="Map awareness"
-                                    Command="{x:Bind ViewModel.SetQuickFocusCommand}"
-                                    CommandParameter="Track enemy JG"
-                                    Style="{StaticResource SecondaryActionButtonStyle}"
-                                    Height="26" Padding="10,0"
-                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
-                            <Button Content="Trading"
-                                    Command="{x:Bind ViewModel.SetQuickFocusCommand}"
-                                    CommandParameter="Trade on power spikes"
-                                    Style="{StaticResource SecondaryActionButtonStyle}"
-                                    Height="26" Padding="10,0"
-                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
-                            <Button Content="Vision"
-                                    Command="{x:Bind ViewModel.SetQuickFocusCommand}"
-                                    CommandParameter="Ward more"
-                                    Style="{StaticResource SecondaryActionButtonStyle}"
-                                    Height="26" Padding="10,0"
-                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
-                        </StackPanel>
-                    </StackPanel>
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.PreGamePromptBlocks, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="10"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PreGameObjectivePromptBlock">
+                                    <Border Background="{StaticResource CardAltBackgroundBrush}"
+                                            BorderBrush="{x:Bind AccentBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="2"
+                                            Padding="12,10">
+                                        <StackPanel Spacing="10">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Rectangle Width="14" Height="1"
+                                                           Fill="{x:Bind AccentBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Text="{x:Bind EyebrowText}"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                           CharacterSpacing="300"
+                                                           Foreground="{x:Bind AccentBrush}"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{x:Bind ObjectiveTitle}"
+                                                       FontFamily="{StaticResource HeadingFont}"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
 
-                    <!-- Session mindset (first-game only) -->
-                    <StackPanel Spacing="8"
-                                Visibility="{x:Bind ViewModel.ShowIntention, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                        <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
-                        <controls:SectionTitle Text="SESSION MINDSET"/>
-                        <TextBlock Text="IF-THEN FOR THIS WHOLE SESSION"
-                                   FontFamily="{StaticResource MonoFont}"
-                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                                   CharacterSpacing="200"
-                                   Foreground="{StaticResource SecondaryTextBrush}"/>
-                        <TextBox Text="{x:Bind ViewModel.SessionIntention, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="When [trigger] happens, I will [response]"
-                                 TextWrapping="Wrap" AcceptsReturn="True"
-                                 MinHeight="50"
-                                 FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                 Background="{StaticResource InputBackgroundBrush}"
-                                 BorderBrush="{StaticResource SubtleBorderBrush}"
-                                 Foreground="{StaticResource PrimaryTextBrush}"
-                                 CornerRadius="2"/>
+                                            <ItemsRepeater ItemsSource="{x:Bind Prompts, Mode=OneWay}">
+                                                <ItemsRepeater.Layout>
+                                                    <StackLayout Spacing="8"/>
+                                                </ItemsRepeater.Layout>
+                                                <ItemsRepeater.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:PreGamePromptAnswer">
+                                                        <StackPanel Spacing="6">
+                                                            <!-- v2.15.0: body-size + primary text so the question reads clearly.
+                                                                 Was Caption + SecondaryTextBrush and barely legible against dark bg. -->
+                                                            <TextBlock Text="{x:Bind Label}"
+                                                                       FontFamily="{StaticResource BodyFont}"
+                                                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                                       TextWrapping="Wrap"/>
+                                                            <TextBox Text="{x:Bind AnswerText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     PlaceholderText="Write your answer..."
+                                                                     TextWrapping="Wrap"
+                                                                     AcceptsReturn="True"
+                                                                     MinHeight="48"
+                                                                     Background="{StaticResource InputBackgroundBrush}"
+                                                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                                                     FontFamily="{StaticResource BodyFont}"
+                                                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsRepeater.ItemTemplate>
+                                            </ItemsRepeater>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
                     </StackPanel>
 
                 </StackPanel>
             </controls:CornerBracketedCard>
+
+            <!-- v2.15.0: INTENT section (FOCUS + SESSION MINDSET) removed.
+                 Objectives + their custom prompts above now carry the user's
+                 pre-game intention. VM properties left intact so save/load
+                 paths don't blow up; they'll just stay blank on new games. -->
 
             <!-- Auto-close note -->
             <TextBlock Text="This page closes automatically when your game loads."

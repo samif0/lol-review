@@ -20,6 +20,31 @@ public sealed class SidebarEnergyDrainAnimator
 {
     private static readonly Windows.UI.Color Accent = Windows.UI.Color.FromArgb(255, 167, 139, 250);
 
+    /// <summary>
+    /// v2.15.0: global gate. When false, <see cref="UpdateTarget"/> clears the
+    /// canvas and refuses to spawn new trails. Set by App from IConfigService
+    /// at startup and re-applied from SettingsViewModel when the user toggles.
+    /// Default true to preserve the existing look for users who haven't touched
+    /// the toggle.
+    /// </summary>
+    public static bool Enabled
+    {
+        get => _enabled;
+        set
+        {
+            if (_enabled == value) return;
+            _enabled = value;
+            EnabledChanged?.Invoke();
+        }
+    }
+    private static bool _enabled = true;
+
+    /// <summary>
+    /// Fires when <see cref="Enabled"/> flips. ShellPage subscribes so it can
+    /// immediately clear or rebuild the trails without waiting for a nav event.
+    /// </summary>
+    public static event Action? EnabledChanged;
+
     private readonly Canvas _canvas;
     private readonly List<TrailInfo> _trails = new();
     private bool _running;
@@ -48,6 +73,11 @@ public sealed class SidebarEnergyDrainAnimator
 
         _canvas.Children.Clear();
         _trails.Clear();
+
+        // v2.15.0: bail after clearing if the user disabled sidebar animation.
+        // Clearing first so any currently-drawn trails vanish immediately when
+        // the toggle flips off.
+        if (!Enabled) return;
 
         // Clip to sidebar bounds
         _canvas.Clip = new RectangleGeometry

@@ -14,26 +14,53 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     public async Task<long> CreateAsync(string title, string skillArea = "", string type = "primary",
         string completionCriteria = "", string description = "", string phase = ObjectivePhases.InGame)
     {
+        // Route through the multi-phase method so legacy callers stay working.
+        // Map the single phase string to exactly one bool so existing behavior
+        // is preserved.
+        var normalized = ObjectivePhases.Normalize(phase);
+        var pre  = string.Equals(normalized, ObjectivePhases.PreGame,  StringComparison.OrdinalIgnoreCase);
+        var ing  = string.Equals(normalized, ObjectivePhases.InGame,   StringComparison.OrdinalIgnoreCase);
+        var post = string.Equals(normalized, ObjectivePhases.PostGame, StringComparison.OrdinalIgnoreCase);
+        // Defensive: if Normalize returned something unexpected, default to in-game.
+        if (!pre && !ing && !post) ing = true;
+
+        return await CreateWithPhasesAsync(title, skillArea, type, completionCriteria, description, pre, ing, post);
+    }
+
+    public async Task<long> CreateWithPhasesAsync(string title, string skillArea, string type,
+        string completionCriteria, string description,
+        bool practicePre, bool practiceIn, bool practicePost)
+    {
         using var conn = _factory.CreateConnection();
         var shouldBePriority = await ShouldNewObjectiveBecomePriorityAsync(conn);
-        var normalizedPhase = ObjectivePhases.Normalize(phase);
+        // Legacy phase column is set to the first true bool (pre→in→post).
+        // Readers that haven't migrated to the bools still see something sane.
+        var legacyPhase = practicePre  ? ObjectivePhases.PreGame
+                        : practiceIn   ? ObjectivePhases.InGame
+                        : practicePost ? ObjectivePhases.PostGame
+                        : ObjectivePhases.InGame;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO objectives
                 (title, skill_area, type, phase, completion_criteria, description,
-                 status, is_priority, score, game_count, created_at)
+                 status, is_priority, score, game_count, created_at,
+                 practice_pregame, practice_ingame, practice_postgame)
             VALUES (@title, @skillArea, @type, @phase, @completionCriteria, @description,
-                    'active', @isPriority, 0, 0, @createdAt)
+                    'active', @isPriority, 0, 0, @createdAt,
+                    @practicePre, @practiceIn, @practicePost)
             """;
         cmd.Parameters.AddWithValue("@title", title);
         cmd.Parameters.AddWithValue("@skillArea", skillArea);
         cmd.Parameters.AddWithValue("@type", type);
-        cmd.Parameters.AddWithValue("@phase", normalizedPhase);
+        cmd.Parameters.AddWithValue("@phase", legacyPhase);
         cmd.Parameters.AddWithValue("@completionCriteria", completionCriteria);
         cmd.Parameters.AddWithValue("@description", description);
         cmd.Parameters.AddWithValue("@isPriority", shouldBePriority ? 1 : 0);
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("@practicePre", practicePre ? 1 : 0);
+        cmd.Parameters.AddWithValue("@practiceIn", practiceIn ? 1 : 0);
+        cmd.Parameters.AddWithValue("@practicePost", practicePost ? 1 : 0);
         await cmd.ExecuteNonQueryAsync();
 
         using var idCmd = conn.CreateCommand();
@@ -55,6 +82,153 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM objectives WHERE status = 'active' ORDER BY is_priority DESC, type ASC, created_at ASC";
         return await ReadObjectivesAsync(cmd);
+    }
+
+    public async Task<IReadOnlyList<ObjectiveSummary>> GetActiveByPhaseAsync(string phase, string? championName = null)
+    {
+        var normalized = ObjectivePhases.Normalize(phase);
+        // Map to the specific bool column. No dynamic SQL — we validate the
+        // column name explicitly to prevent any injection surface.
+        string column = normalized switch
+        {
+            ObjectivePhases.PreGame  => "practice_pregame",
+            ObjectivePhases.PostGame => "practice_postgame",
+            _                        => "practice_ingame",
+        };
+
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+
+        // Champion filter: an objective passes when either (a) it has no rows
+        // in objective_champions (applies to all champions), or (b) it has a
+        // row for the given champion. NULL championName disables the filter.
+        if (string.IsNullOrEmpty(championName))
+        {
+            cmd.CommandText = $"""
+                SELECT * FROM objectives
+                WHERE status = 'active' AND {column} = 1
+                ORDER BY is_priority DESC, type ASC, created_at ASC
+                """;
+        }
+        else
+        {
+            cmd.CommandText = $"""
+                SELECT o.* FROM objectives o
+                WHERE o.status = 'active' AND o.{column} = 1
+                  AND (
+                        NOT EXISTS (SELECT 1 FROM objective_champions oc WHERE oc.objective_id = o.id)
+                     OR EXISTS (SELECT 1 FROM objective_champions oc
+                                WHERE oc.objective_id = o.id AND oc.champion_name = @championName)
+                  )
+                ORDER BY o.is_priority DESC, o.type ASC, o.created_at ASC
+                """;
+            cmd.Parameters.AddWithValue("@championName", championName);
+        }
+        return await ReadObjectivesAsync(cmd);
+    }
+
+    // ── v2.15.0 champion gating ─────────────────────────────────────
+
+    public async Task<IReadOnlyList<string>> GetChampionsForObjectiveAsync(long objectiveId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT champion_name FROM objective_champions
+            WHERE objective_id = @id
+            ORDER BY champion_name ASC
+            """;
+        cmd.Parameters.AddWithValue("@id", objectiveId);
+        var results = new List<string>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(reader.GetString(0));
+        }
+        return results;
+    }
+
+    public async Task SetChampionsForObjectiveAsync(long objectiveId, IReadOnlyList<string> champions)
+    {
+        // Diff-save: compute current set, then add/remove only the delta.
+        // Keeps PKs stable + avoids unnecessary churn.
+        using var conn = _factory.CreateConnection();
+        using var tx = conn.BeginTransaction();
+
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var readCmd = conn.CreateCommand())
+        {
+            readCmd.Transaction = tx;
+            readCmd.CommandText = "SELECT champion_name FROM objective_champions WHERE objective_id = @id";
+            readCmd.Parameters.AddWithValue("@id", objectiveId);
+            using var reader = await readCmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                existing.Add(reader.GetString(0));
+            }
+        }
+
+        var desired = new HashSet<string>(
+            champions.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Remove champions no longer in the desired set.
+        foreach (var champ in existing)
+        {
+            if (desired.Contains(champ)) continue;
+            using var delCmd = conn.CreateCommand();
+            delCmd.Transaction = tx;
+            delCmd.CommandText = """
+                DELETE FROM objective_champions
+                WHERE objective_id = @id AND champion_name = @champ
+                """;
+            delCmd.Parameters.AddWithValue("@id", objectiveId);
+            delCmd.Parameters.AddWithValue("@champ", champ);
+            await delCmd.ExecuteNonQueryAsync();
+        }
+
+        // Add newly-desired champions.
+        foreach (var champ in desired)
+        {
+            if (existing.Contains(champ)) continue;
+            using var insCmd = conn.CreateCommand();
+            insCmd.Transaction = tx;
+            insCmd.CommandText = """
+                INSERT OR IGNORE INTO objective_champions (objective_id, champion_name)
+                VALUES (@id, @champ)
+                """;
+            insCmd.Parameters.AddWithValue("@id", objectiveId);
+            insCmd.Parameters.AddWithValue("@champ", champ);
+            await insCmd.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
+    }
+
+    public async Task<IReadOnlyList<string>> GetPlayedChampionsAsync(int limit = 30)
+    {
+        // Pulls distinct champion_name from games ordered by most recent use.
+        // is_hidden excluded so soft-deleted games don't suggest champs the
+        // user hasn't actually played.
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT champion_name
+            FROM games
+            WHERE COALESCE(is_hidden, 0) = 0
+              AND champion_name IS NOT NULL AND champion_name != ''
+            GROUP BY champion_name
+            ORDER BY MAX(COALESCE(timestamp, 0)) DESC
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@limit", limit);
+        var results = new List<string>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(reader.GetString(0));
+        }
+        return results;
     }
 
     public async Task<ObjectiveSummary?> GetPriorityAsync()
@@ -151,6 +325,23 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     public async Task UpdateAsync(long objectiveId, string title, string skillArea = "", string type = "primary",
         string completionCriteria = "", string description = "", string phase = ObjectivePhases.InGame)
     {
+        var normalized = ObjectivePhases.Normalize(phase);
+        var pre  = string.Equals(normalized, ObjectivePhases.PreGame,  StringComparison.OrdinalIgnoreCase);
+        var ing  = string.Equals(normalized, ObjectivePhases.InGame,   StringComparison.OrdinalIgnoreCase);
+        var post = string.Equals(normalized, ObjectivePhases.PostGame, StringComparison.OrdinalIgnoreCase);
+        if (!pre && !ing && !post) ing = true;
+        await UpdateWithPhasesAsync(objectiveId, title, skillArea, type, completionCriteria, description, pre, ing, post);
+    }
+
+    public async Task UpdateWithPhasesAsync(long objectiveId, string title, string skillArea, string type,
+        string completionCriteria, string description,
+        bool practicePre, bool practiceIn, bool practicePost)
+    {
+        var legacyPhase = practicePre  ? ObjectivePhases.PreGame
+                        : practiceIn   ? ObjectivePhases.InGame
+                        : practicePost ? ObjectivePhases.PostGame
+                        : ObjectivePhases.InGame;
+
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -160,25 +351,56 @@ public sealed class ObjectivesRepository : IObjectivesRepository
                 type = @type,
                 phase = @phase,
                 completion_criteria = @completionCriteria,
-                description = @description
+                description = @description,
+                practice_pregame = @practicePre,
+                practice_ingame = @practiceIn,
+                practice_postgame = @practicePost
             WHERE id = @id
             """;
         cmd.Parameters.AddWithValue("@title", title);
         cmd.Parameters.AddWithValue("@skillArea", skillArea);
         cmd.Parameters.AddWithValue("@type", type);
-        cmd.Parameters.AddWithValue("@phase", ObjectivePhases.Normalize(phase));
+        cmd.Parameters.AddWithValue("@phase", legacyPhase);
         cmd.Parameters.AddWithValue("@completionCriteria", completionCriteria);
         cmd.Parameters.AddWithValue("@description", description);
+        cmd.Parameters.AddWithValue("@practicePre", practicePre ? 1 : 0);
+        cmd.Parameters.AddWithValue("@practiceIn", practiceIn ? 1 : 0);
+        cmd.Parameters.AddWithValue("@practicePost", practicePost ? 1 : 0);
         cmd.Parameters.AddWithValue("@id", objectiveId);
         await cmd.ExecuteNonQueryAsync();
     }
 
     public async Task UpdatePhaseAsync(long objectiveId, string phase)
     {
+        var normalized = ObjectivePhases.Normalize(phase);
+        var pre  = string.Equals(normalized, ObjectivePhases.PreGame,  StringComparison.OrdinalIgnoreCase);
+        var ing  = string.Equals(normalized, ObjectivePhases.InGame,   StringComparison.OrdinalIgnoreCase);
+        var post = string.Equals(normalized, ObjectivePhases.PostGame, StringComparison.OrdinalIgnoreCase);
+        if (!pre && !ing && !post) ing = true;
+        await UpdatePracticePhasesAsync(objectiveId, pre, ing, post);
+    }
+
+    public async Task UpdatePracticePhasesAsync(long objectiveId, bool practicePre, bool practiceIn, bool practicePost)
+    {
+        var legacyPhase = practicePre  ? ObjectivePhases.PreGame
+                        : practiceIn   ? ObjectivePhases.InGame
+                        : practicePost ? ObjectivePhases.PostGame
+                        : ObjectivePhases.InGame;
+
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE objectives SET phase = @phase WHERE id = @id";
-        cmd.Parameters.AddWithValue("@phase", ObjectivePhases.Normalize(phase));
+        cmd.CommandText = """
+            UPDATE objectives
+            SET practice_pregame = @practicePre,
+                practice_ingame = @practiceIn,
+                practice_postgame = @practicePost,
+                phase = @phase
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@practicePre", practicePre ? 1 : 0);
+        cmd.Parameters.AddWithValue("@practiceIn", practiceIn ? 1 : 0);
+        cmd.Parameters.AddWithValue("@practicePost", practicePost ? 1 : 0);
+        cmd.Parameters.AddWithValue("@phase", legacyPhase);
         cmd.Parameters.AddWithValue("@id", objectiveId);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -187,11 +409,39 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     {
         using var conn = _factory.CreateConnection();
 
+        // v2.15.0: cascade-delete custom prompts + their answers first.
+        // SQLite doesn't enforce FK cascade without PRAGMA foreign_keys=ON
+        // per-connection, so we delete explicitly to match the existing pattern.
+        using (var deleteAnswers = conn.CreateCommand())
+        {
+            deleteAnswers.CommandText = """
+                DELETE FROM prompt_answers
+                WHERE prompt_id IN (SELECT id FROM objective_prompts WHERE objective_id = @id)
+                """;
+            deleteAnswers.Parameters.AddWithValue("@id", objectiveId);
+            await deleteAnswers.ExecuteNonQueryAsync();
+        }
+
+        using (var deletePrompts = conn.CreateCommand())
+        {
+            deletePrompts.CommandText = "DELETE FROM objective_prompts WHERE objective_id = @id";
+            deletePrompts.Parameters.AddWithValue("@id", objectiveId);
+            await deletePrompts.ExecuteNonQueryAsync();
+        }
+
         using (var cmd1 = conn.CreateCommand())
         {
             cmd1.CommandText = "DELETE FROM game_objectives WHERE objective_id = @id";
             cmd1.Parameters.AddWithValue("@id", objectiveId);
             await cmd1.ExecuteNonQueryAsync();
+        }
+
+        // v2.15.0 champion gating cleanup
+        using (var cmdChamps = conn.CreateCommand())
+        {
+            cmdChamps.CommandText = "DELETE FROM objective_champions WHERE objective_id = @id";
+            cmdChamps.Parameters.AddWithValue("@id", objectiveId);
+            await cmdChamps.ExecuteNonQueryAsync();
         }
 
         using (var cmd2 = conn.CreateCommand())
@@ -457,6 +707,22 @@ public sealed class ObjectivesRepository : IObjectivesRepository
 
     private static ObjectiveSummary ReadObjective(SqliteDataReader reader)
     {
+        // v2.15.0: the three practice_<phase> columns. Tolerate missing columns
+        // in case this reader is hit against a DB that hasn't been migrated yet
+        // (shouldn't happen in production but makes the test harness easier).
+        static bool OptBool(SqliteDataReader r, string col)
+        {
+            try
+            {
+                var idx = r.GetOrdinal(col);
+                return !r.IsDBNull(idx) && r.GetInt64(idx) != 0;
+            }
+            catch (IndexOutOfRangeException)
+            {
+                return false;
+            }
+        }
+
         return new ObjectiveSummary(
             Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
             Title: reader.IsDBNull(reader.GetOrdinal("title")) ? "" : reader.GetString(reader.GetOrdinal("title")),
@@ -470,6 +736,9 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             Score: reader.IsDBNull(reader.GetOrdinal("score")) ? 0 : reader.GetInt32(reader.GetOrdinal("score")),
             GameCount: reader.IsDBNull(reader.GetOrdinal("game_count")) ? 0 : reader.GetInt32(reader.GetOrdinal("game_count")),
             CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")),
-            CompletedAt: reader.IsDBNull(reader.GetOrdinal("completed_at")) ? null : reader.GetInt64(reader.GetOrdinal("completed_at")));
+            CompletedAt: reader.IsDBNull(reader.GetOrdinal("completed_at")) ? null : reader.GetInt64(reader.GetOrdinal("completed_at")),
+            PracticePre: OptBool(reader, "practice_pregame"),
+            PracticeIn: OptBool(reader, "practice_ingame"),
+            PracticePost: OptBool(reader, "practice_postgame"));
     }
 }

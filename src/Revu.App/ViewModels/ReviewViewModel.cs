@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using Revu.App.Contracts;
 using Revu.App.Helpers;
 using Revu.App.Styling;
+using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml.Media;
@@ -17,6 +18,9 @@ public partial class ReviewViewModel : ObservableObject
 {
     private readonly IReviewWorkflowService _reviewWorkflowService;
     private readonly INavigationService _navigationService;
+    private readonly IPromptsRepository _promptsRepository;
+    private readonly IObjectivesRepository _objectivesRepository;
+    private readonly IVodRepository _vodRepository;
     private readonly ILogger<ReviewViewModel> _logger;
 
     [ObservableProperty] private long _gameId;
@@ -67,6 +71,9 @@ public partial class ReviewViewModel : ObservableObject
     [ObservableProperty] private string _priorityObjectiveTitle = "";
     [ObservableProperty] private string _priorityObjectiveCriteria = "";
     [ObservableProperty] private bool _hasPriorityObjective;
+    // v2.15.0: show the collapsible "legacy fields" card only when this game
+    // was reviewed on an earlier version and has data in the cut columns.
+    [ObservableProperty] private bool _showLegacyFields;
 
     public ObservableCollection<ConceptTagItem> AllTags { get; } = new();
     public ObservableCollection<long> SelectedTagIds { get; } = new();
@@ -88,10 +95,16 @@ public partial class ReviewViewModel : ObservableObject
     public ReviewViewModel(
         IReviewWorkflowService reviewWorkflowService,
         INavigationService navigationService,
+        IPromptsRepository promptsRepository,
+        IObjectivesRepository objectivesRepository,
+        IVodRepository vodRepository,
         ILogger<ReviewViewModel> logger)
     {
         _reviewWorkflowService = reviewWorkflowService;
         _navigationService = navigationService;
+        _promptsRepository = promptsRepository;
+        _objectivesRepository = objectivesRepository;
+        _vodRepository = vodRepository;
         _logger = logger;
     }
 
@@ -124,6 +137,27 @@ public partial class ReviewViewModel : ObservableObject
             ApplyObjectives(screenData.ObjectiveAssessments, screenData.PriorityObjective);
             ApplyMatchupHistory(screenData.MatchupHistory);
 
+            // v2.15.0: legacy-field visibility is recomputed from the already-
+            // loaded snapshot (SelfAssessment etc. live in Snapshot). True when
+            // any of the v2.14-and-earlier review fields are populated.
+            ShowLegacyFields = !string.IsNullOrWhiteSpace(WentWell)
+                            || !string.IsNullOrWhiteSpace(Mistakes)
+                            || !string.IsNullOrWhiteSpace(FocusNext)
+                            || !string.IsNullOrWhiteSpace(OutsideControl)
+                            || !string.IsNullOrWhiteSpace(WithinControl)
+                            || !string.IsNullOrWhiteSpace(Attribution)
+                            || !string.IsNullOrWhiteSpace(PersonalContribution)
+                            || !string.IsNullOrWhiteSpace(ImprovementNote);
+
+            // v2.15.0: load custom prompts for each post-phase assessment and
+            // hydrate previously-saved answers for this game.
+            await HydratePromptsAsync(gameId);
+
+            // v2.15.0: bookmark/clip autopopulate — injects [MM:SS] lines into
+            // each assessment's general-notes field from bookmarks/clips
+            // assigned to that objective on this game.
+            await AutoPopulateBookmarkNotesAsync(gameId);
+
             RequireReviewNotes = screenData.RequireReviewNotes;
             HasVod = screenData.HasVod;
             BookmarkCount = screenData.BookmarkCount;
@@ -142,6 +176,174 @@ public partial class ReviewViewModel : ObservableObject
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// v2.15.0: load in-game + post-game custom prompts for each active
+    /// objective assessment, hydrate previously-saved answers for
+    /// <paramref name="gameId"/>, and apply champion-gating to filter out
+    /// objectives that don't apply to this game's champion (unless the user
+    /// already interacted with them — we never hide data they wrote).
+    /// Non-fatal — prompts UI just hides on failure.
+    /// </summary>
+    private async Task HydratePromptsAsync(long gameId)
+    {
+        try
+        {
+            // Pull saved answers once; group by prompt id for O(1) lookup below.
+            var saved = await _promptsRepository.GetAnswersForGameAsync(gameId);
+            var answersByPromptId = saved.ToDictionary(a => a.PromptId, a => a.AnswerText);
+
+            // Track which assessments to drop due to champion mismatch.
+            // Never drop an assessment the user already touched: practiced
+            // toggle, execution note, or an existing prompt answer.
+            var toRemove = new List<ObjectiveAssessment>();
+            var currentChampion = (ChampionName ?? "").Trim();
+
+            foreach (var assessment in ObjectiveAssessments)
+            {
+                var prompts = await _promptsRepository.GetPromptsForObjectiveAsync(assessment.ObjectiveId);
+                assessment.Prompts.Clear();
+                bool hasAnyAnswerForThisGame = false;
+                foreach (var p in prompts)
+                {
+                    // Only render phases that are meaningful post-game: ingame + postgame.
+                    // Pre-game prompts live on the champ-select surface, not here.
+                    if (p.Phase != ObjectivePhases.InGame && p.Phase != ObjectivePhases.PostGame)
+                        continue;
+
+                    var text = answersByPromptId.TryGetValue(p.Id, out var t) ? t : "";
+                    if (!string.IsNullOrWhiteSpace(text)) hasAnyAnswerForThisGame = true;
+
+                    assessment.Prompts.Add(new PromptAnswerField
+                    {
+                        PromptId = p.Id,
+                        Phase = p.Phase,
+                        Label = p.Label,
+                        AnswerText = text,
+                    });
+                }
+
+                // Apply champion-gate filter — but only if the user hasn't
+                // already touched this assessment for this game.
+                if (!string.IsNullOrWhiteSpace(currentChampion))
+                {
+                    var userTouchedIt = assessment.Practiced
+                                       || !string.IsNullOrWhiteSpace(assessment.ExecutionNote)
+                                       || hasAnyAnswerForThisGame;
+                    if (!userTouchedIt)
+                    {
+                        var champs = await _objectivesRepository.GetChampionsForObjectiveAsync(assessment.ObjectiveId);
+                        if (champs.Count > 0
+                            && !champs.Any(c => string.Equals(c, currentChampion, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            toRemove.Add(assessment);
+                        }
+                    }
+                }
+            }
+
+            foreach (var ass in toRemove) ObjectiveAssessments.Remove(ass);
+            HasObjectives = ObjectiveAssessments.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to hydrate custom prompts for game {GameId}", gameId);
+        }
+    }
+
+    /// <summary>
+    /// v2.15.0: for each <see cref="ObjectiveAssessment"/>, format any bookmarks
+    /// + clips assigned to it (on this game) as <c>[MM:SS] note</c> lines and
+    /// merge them into the assessment's <c>ExecutionNote</c>. Never overwrites
+    /// user content — uses substring detection to avoid re-appending on reload.
+    /// </summary>
+    private async Task AutoPopulateBookmarkNotesAsync(long gameId)
+    {
+        try
+        {
+            var bookmarks = await _vodRepository.GetBookmarksAsync(gameId);
+            if (bookmarks.Count == 0) return;
+
+            foreach (var assessment in ObjectiveAssessments)
+            {
+                var relevant = bookmarks
+                    .Where(b => b.ObjectiveId == assessment.ObjectiveId)
+                    .OrderBy(b => b.GameTimeSeconds)
+                    .ToList();
+                if (relevant.Count == 0) continue;
+
+                // Format: "[MM:SS] note" per bookmark, one per line. Clips
+                // (detected via ClipStart/End) get an additional range tail.
+                var lines = new List<string>(relevant.Count);
+                foreach (var bm in relevant)
+                {
+                    var ts = FormatGameTime(bm.GameTimeSeconds);
+                    var note = (bm.Note ?? "").Trim();
+                    var clipTag = (bm.ClipStartSeconds.HasValue && bm.ClipEndSeconds.HasValue)
+                        ? $" (clip {FormatGameTime(bm.ClipStartSeconds.Value)}–{FormatGameTime(bm.ClipEndSeconds.Value)})"
+                        : "";
+                    var line = string.IsNullOrEmpty(note)
+                        ? $"[{ts}]{clipTag}"
+                        : $"[{ts}] {note}{clipTag}";
+                    lines.Add(line);
+                }
+
+                var currentNote = assessment.ExecutionNote ?? "";
+                // Skip lines already present (substring match) so a reload
+                // doesn't multiply them.
+                var toAdd = lines.Where(l => !currentNote.Contains(l, StringComparison.Ordinal)).ToList();
+                if (toAdd.Count == 0) continue;
+
+                var additionBlock = string.Join("\n", toAdd);
+                if (string.IsNullOrWhiteSpace(currentNote))
+                {
+                    assessment.ExecutionNote = additionBlock;
+                }
+                else
+                {
+                    // Separator only if there isn't already one at the tail.
+                    var separator = currentNote.TrimEnd().EndsWith("— Bookmarks/clips —", StringComparison.Ordinal)
+                        ? "\n"
+                        : "\n\n— Bookmarks/clips —\n";
+                    assessment.ExecutionNote = currentNote + separator + additionBlock;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Bookmark autopopulate failed for game {GameId}", gameId);
+        }
+    }
+
+    private static string FormatGameTime(int seconds)
+    {
+        if (seconds < 0) seconds = 0;
+        return $"{seconds / 60:D2}:{seconds % 60:D2}";
+    }
+
+    /// <summary>
+    /// v2.15.0: persist current prompt answers for each assessment. Runs after
+    /// SaveCoreAsync's main write path. Empty/whitespace answers delete the row.
+    /// </summary>
+    private async Task PersistPromptAnswersAsync(long gameId)
+    {
+        foreach (var assessment in ObjectiveAssessments)
+        {
+            foreach (var field in assessment.Prompts)
+            {
+                try
+                {
+                    await _promptsRepository.SaveAnswerAsync(field.PromptId, gameId, field.AnswerText ?? "");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to persist prompt answer game={GameId} prompt={PromptId}",
+                        gameId, field.PromptId);
+                }
+            }
         }
     }
 
@@ -231,6 +433,10 @@ public partial class ReviewViewModel : ObservableObject
 
             EnemyLaner = result.SavedEnemyLaner;
             ClearValidation();
+
+            // v2.15.0: persist custom prompt answers alongside the legacy save.
+            // Non-fatal on error — the main review save already succeeded.
+            await PersistPromptAnswersAsync(GameId);
 
             if (navigateBackOnSuccess)
             {

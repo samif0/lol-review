@@ -18,6 +18,7 @@ namespace Revu.App.Helpers;
 /// </summary>
 public static class AnimationHelper
 {
+
     /// <summary>
     /// Attach a slow, forever-pulsing opacity animation to a UI element.
     /// Used for status dots and selected pills.

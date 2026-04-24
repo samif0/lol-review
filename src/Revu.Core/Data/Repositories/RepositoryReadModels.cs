@@ -21,7 +21,13 @@ public sealed record ObjectiveSummary(
     int Score,
     int GameCount,
     long? CreatedAt,
-    long? CompletedAt);
+    long? CompletedAt,
+    // v2.15.0: multi-phase practice bools. An objective can practice
+    // any subset of {pre, in, post}. Phase (above) is kept for backwards
+    // compatibility — it reflects the first set bool in pre→in→post order.
+    bool PracticePre = false,
+    bool PracticeIn = false,
+    bool PracticePost = false);
 
 public sealed record GameObjectiveRecord(
     long GameId,
@@ -103,6 +109,41 @@ public sealed record ObjectiveGameEntry(
     double KdaRatio,
     string ReviewNotes,
     bool HasReview);
+
+// v2.15.0: free-form per-objective prompts. See docs/OBJECTIVES_CUSTOM_PROMPTS_PLAN.md.
+public sealed record ObjectivePrompt(
+    long Id,
+    long ObjectiveId,
+    string Phase,
+    string Label,
+    int SortOrder,
+    long? CreatedAt);
+
+/// <summary>
+/// Row returned by <see cref="IPromptsRepository.GetActivePromptsForPhaseAsync"/>.
+/// Contains everything the pre/post-game UI needs to render + persist an answer.
+/// </summary>
+public sealed record ActivePrompt(
+    long PromptId,
+    long ObjectiveId,
+    string ObjectiveTitle,
+    bool IsPriority,
+    string Phase,
+    string Label,
+    int SortOrder);
+
+/// <summary>
+/// A prompt + its answer for a specific game. Used when loading a past
+/// game's review so the UI can redisplay what the user answered.
+/// </summary>
+public sealed record PromptAnswer(
+    long PromptId,
+    long ObjectiveId,
+    string ObjectiveTitle,
+    bool IsPriority,
+    string Phase,
+    string Label,
+    string AnswerText);
 
 public sealed record DerivedEventInstanceRecord(
     long Id,

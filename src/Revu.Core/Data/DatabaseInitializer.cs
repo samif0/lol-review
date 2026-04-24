@@ -63,6 +63,13 @@ public sealed class DatabaseInitializer
         await NormalizeObjectivesTableAsync(connection, cancellationToken);
         await BackfillObjectiveScoreFromLegacyGameObjectivesAsync(connection, cancellationToken);
         await NormalizeGameObjectivesTableAsync(connection, cancellationToken);
+        await NormalizeObjectivePromptsTableAsync(connection, cancellationToken);
+        await BackfillObjectivePracticePhasesAsync(connection, cancellationToken);
+
+        // v2.15.0: indexes on objective_prompts(phase, sort_order) and
+        // prompt_answers(game_id) have to land AFTER normalize — the columns
+        // they reference only exist on the rewritten tables.
+        await CreatePostMigrationIndexesAsync(connection, cancellationToken);
 
         // 3. Seed default concept tags if the table is empty
         await SeedConceptTagsAsync(connection, cancellationToken);
@@ -211,7 +218,14 @@ public sealed class DatabaseInitializer
             !columns.Contains("score") ||
             !columns.Contains("game_count") ||
             !columns.Contains("created_at") ||
-            !columns.Contains("completed_at");
+            !columns.Contains("completed_at") ||
+            // v2.15.0: three practice-phase bools. If any are missing we must
+            // rewrite so the re-created objectives table has them (the
+            // ALTER TABLE migrations run BEFORE this normalize step and get
+            // wiped by the rewrite otherwise).
+            !columns.Contains("practice_pregame") ||
+            !columns.Contains("practice_ingame") ||
+            !columns.Contains("practice_postgame");
 
         if (!needsRewrite)
         {
@@ -237,7 +251,10 @@ public sealed class DatabaseInitializer
                     score               INTEGER DEFAULT 0,
                     game_count          INTEGER DEFAULT 0,
                     created_at          INTEGER,
-                    completed_at        INTEGER
+                    completed_at        INTEGER,
+                    practice_pregame    INTEGER NOT NULL DEFAULT 0,
+                    practice_ingame     INTEGER NOT NULL DEFAULT 0,
+                    practice_postgame   INTEGER NOT NULL DEFAULT 0
                 )
                 """;
             await createCmd.ExecuteNonQueryAsync(ct);
@@ -249,7 +266,8 @@ public sealed class DatabaseInitializer
             copyCmd.CommandText = $"""
                 INSERT INTO objectives__migrated (
                     id, title, skill_area, type, phase, completion_criteria, description,
-                    status, is_priority, score, game_count, created_at, completed_at
+                    status, is_priority, score, game_count, created_at, completed_at,
+                    practice_pregame, practice_ingame, practice_postgame
                 )
                 SELECT
                     id,
@@ -273,7 +291,10 @@ public sealed class DatabaseInitializer
                     {GetIntColumnExpr(columns, "score")},
                     {GetIntColumnExpr(columns, "game_count")},
                     {GetNullableColumnExpr(columns, "created_at")},
-                    {GetNullableColumnExpr(columns, "completed_at")}
+                    {GetNullableColumnExpr(columns, "completed_at")},
+                    {GetIntColumnExpr(columns, "practice_pregame")},
+                    {GetIntColumnExpr(columns, "practice_ingame")},
+                    {GetIntColumnExpr(columns, "practice_postgame")}
                 FROM objectives
                 """;
             await copyCmd.ExecuteNonQueryAsync(ct);
@@ -539,6 +560,209 @@ public sealed class DatabaseInitializer
                     WHERE game_objectives.objective_id = objectives.id
                 ), 0)
             )
+            """;
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    // v2.15.0 schema rework — see docs/OBJECTIVES_CUSTOM_PROMPTS_PLAN.md.
+    //
+    // The legacy objective_prompts / prompt_answers tables were shaped for
+    // yes/no event prompts (answer_type='yes_no', answer_value INTEGER,
+    // event_instance_id, event_time_s). Zero app code paths ever wrote to
+    // them. We repurpose the same tables for free-form text prompts the
+    // user designs themselves. Copy-migrate pattern so any stray rows are
+    // preserved (translated into best-effort text labels).
+    private async Task NormalizeObjectivePromptsTableAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        var promptCols = await GetTableColumnsAsync(connection, "objective_prompts", ct);
+        var answerCols = await GetTableColumnsAsync(connection, "prompt_answers", ct);
+
+        if (promptCols.Count == 0 && answerCols.Count == 0)
+        {
+            return;
+        }
+
+        // Fresh schema indicators: `label` column on prompts + `answer_text`
+        // column on answers. If both present, we're already on the new shape.
+        var needsRewrite =
+            !promptCols.Contains("label") ||
+            !promptCols.Contains("phase") ||
+            !answerCols.Contains("answer_text") ||
+            // Old-shape sentinels — if any of these exist, we haven't migrated.
+            promptCols.Contains("question_text") ||
+            promptCols.Contains("answer_type") ||
+            answerCols.Contains("answer_value");
+
+        if (!needsRewrite)
+        {
+            return;
+        }
+
+        using var tx = connection.BeginTransaction();
+
+        // ── Rebuild objective_prompts ──
+        using (var createCmd = connection.CreateCommand())
+        {
+            createCmd.Transaction = tx;
+            createCmd.CommandText = """
+                CREATE TABLE objective_prompts__migrated (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    objective_id    INTEGER NOT NULL,
+                    phase           TEXT NOT NULL DEFAULT 'ingame',
+                    label           TEXT NOT NULL DEFAULT '',
+                    sort_order      INTEGER NOT NULL DEFAULT 0,
+                    created_at      INTEGER,
+                    FOREIGN KEY (objective_id) REFERENCES objectives(id)
+                )
+                """;
+            await createCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (promptCols.Count > 0)
+        {
+            // Translate whatever we can: legacy question_text → label,
+            // phase default 'ingame' (legacy had no phase concept).
+            var labelExpr = promptCols.Contains("label")
+                ? "COALESCE(label, '')"
+                : promptCols.Contains("question_text")
+                    ? "COALESCE(question_text, '')"
+                    : "''";
+            var phaseExpr = promptCols.Contains("phase")
+                ? "COALESCE(phase, 'ingame')"
+                : "'ingame'";
+            var sortExpr = promptCols.Contains("sort_order")
+                ? "COALESCE(sort_order, 0)"
+                : "0";
+            var createdExpr = promptCols.Contains("created_at")
+                ? "created_at"
+                : "NULL";
+
+            using var copyPromptsCmd = connection.CreateCommand();
+            copyPromptsCmd.Transaction = tx;
+            copyPromptsCmd.CommandText = $"""
+                INSERT INTO objective_prompts__migrated
+                    (id, objective_id, phase, label, sort_order, created_at)
+                SELECT id, objective_id,
+                       {phaseExpr},
+                       {labelExpr},
+                       {sortExpr},
+                       {createdExpr}
+                FROM objective_prompts
+                """;
+            await copyPromptsCmd.ExecuteNonQueryAsync(ct);
+
+            using var dropPromptsCmd = connection.CreateCommand();
+            dropPromptsCmd.Transaction = tx;
+            dropPromptsCmd.CommandText = "DROP TABLE objective_prompts";
+            await dropPromptsCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using (var renamePromptsCmd = connection.CreateCommand())
+        {
+            renamePromptsCmd.Transaction = tx;
+            renamePromptsCmd.CommandText =
+                "ALTER TABLE objective_prompts__migrated RENAME TO objective_prompts";
+            await renamePromptsCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        // ── Rebuild prompt_answers ──
+        using (var createAnswersCmd = connection.CreateCommand())
+        {
+            createAnswersCmd.Transaction = tx;
+            createAnswersCmd.CommandText = """
+                CREATE TABLE prompt_answers__migrated (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    prompt_id   INTEGER NOT NULL,
+                    game_id     INTEGER NOT NULL,
+                    answer_text TEXT NOT NULL DEFAULT '',
+                    updated_at  INTEGER,
+                    FOREIGN KEY (prompt_id) REFERENCES objective_prompts(id),
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE(prompt_id, game_id)
+                )
+                """;
+            await createAnswersCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (answerCols.Count > 0)
+        {
+            // Legacy answer_value was 0/1 INTEGER — translate to "yes"/"no"/""
+            // strings so at least the fact that the user answered is preserved.
+            var textExpr = answerCols.Contains("answer_text")
+                ? "COALESCE(answer_text, '')"
+                : answerCols.Contains("answer_value")
+                    ? "CASE answer_value WHEN 1 THEN 'yes' WHEN 0 THEN 'no' ELSE '' END"
+                    : "''";
+            var updatedExpr = answerCols.Contains("updated_at")
+                ? "updated_at"
+                : "NULL";
+
+            // event_instance_id was part of the legacy unique key. We drop
+            // to (prompt_id, game_id). Use INSERT OR REPLACE so duplicates
+            // collapse to the most-recent row.
+            using var copyAnswersCmd = connection.CreateCommand();
+            copyAnswersCmd.Transaction = tx;
+            copyAnswersCmd.CommandText = $"""
+                INSERT OR REPLACE INTO prompt_answers__migrated
+                    (prompt_id, game_id, answer_text, updated_at)
+                SELECT prompt_id, game_id,
+                       {textExpr},
+                       {updatedExpr}
+                FROM prompt_answers
+                """;
+            await copyAnswersCmd.ExecuteNonQueryAsync(ct);
+
+            using var dropAnswersCmd = connection.CreateCommand();
+            dropAnswersCmd.Transaction = tx;
+            dropAnswersCmd.CommandText = "DROP TABLE prompt_answers";
+            await dropAnswersCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using (var renameAnswersCmd = connection.CreateCommand())
+        {
+            renameAnswersCmd.Transaction = tx;
+            renameAnswersCmd.CommandText =
+                "ALTER TABLE prompt_answers__migrated RENAME TO prompt_answers";
+            await renameAnswersCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+        _logger.LogInformation("Normalized legacy objective_prompts / prompt_answers schema to v2.15.0 shape");
+    }
+
+    // v2.15.0: CREATE INDEX statements for tables that got rewritten by
+    // NormalizeObjectivePromptsTableAsync. Called after normalize so the
+    // referenced columns exist.
+    private static async Task CreatePostMigrationIndexesAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        string[] indexes =
+        [
+            Schema.CreateObjectivePromptsIndex,
+            Schema.CreatePromptAnswersIndex,
+        ];
+
+        foreach (var sql in indexes)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = sql;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+    }
+
+    // Backfill the three new practice_<phase> bool columns on objectives
+    // from the legacy single-string `phase` column. Idempotent — the
+    // WHERE guard means this no-ops once any bool has been set.
+    private static async Task BackfillObjectivePracticePhasesAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE objectives
+            SET practice_pregame  = CASE WHEN LOWER(COALESCE(phase, 'ingame')) = 'pregame'  THEN 1 ELSE 0 END,
+                practice_ingame   = CASE WHEN LOWER(COALESCE(phase, 'ingame')) = 'ingame'   THEN 1 ELSE 0 END,
+                practice_postgame = CASE WHEN LOWER(COALESCE(phase, 'ingame')) = 'postgame' THEN 1 ELSE 0 END
+            WHERE COALESCE(practice_pregame, 0) = 0
+              AND COALESCE(practice_ingame, 0) = 0
+              AND COALESCE(practice_postgame, 0) = 0
             """;
         await cmd.ExecuteNonQueryAsync(ct);
     }

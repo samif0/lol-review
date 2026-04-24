@@ -173,7 +173,14 @@
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                                 <ItemsRepeater ItemsSource="{x:Bind ViewModel.RoleChips}">
                                     <ItemsRepeater.Layout>
-                                        <StackLayout Orientation="Horizontal" Spacing="6"/>
+                                        <!-- v2.15.0: UniformGridLayout wraps chips; StackLayout clips at card edge. -->
+                                        <UniformGridLayout Orientation="Horizontal"
+                                                           MinItemWidth="100"
+                                                           MinItemHeight="32"
+                                                           MinColumnSpacing="6"
+                                                           MinRowSpacing="6"
+                                                           ItemsJustification="Start"
+                                                           ItemsStretch="None"/>
                                     </ItemsRepeater.Layout>
                                     <ItemsRepeater.ItemTemplate>
                                         <DataTemplate x:DataType="vm:FilterRoleChip">
@@ -201,7 +208,14 @@
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                                 <ItemsRepeater ItemsSource="{x:Bind ViewModel.MentalChips}">
                                     <ItemsRepeater.Layout>
-                                        <StackLayout Orientation="Horizontal" Spacing="6"/>
+                                        <!-- v2.15.0: UniformGridLayout wraps chips; StackLayout clips at card edge. -->
+                                        <UniformGridLayout Orientation="Horizontal"
+                                                           MinItemWidth="100"
+                                                           MinItemHeight="32"
+                                                           MinColumnSpacing="6"
+                                                           MinRowSpacing="6"
+                                                           ItemsJustification="Start"
+                                                           ItemsStretch="None"/>
                                     </ItemsRepeater.Layout>
                                     <ItemsRepeater.ItemTemplate>
                                         <DataTemplate x:DataType="vm:FilterMentalChip">
@@ -236,7 +250,14 @@
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                                 <ItemsRepeater ItemsSource="{x:Bind ViewModel.DayChips}">
                                     <ItemsRepeater.Layout>
-                                        <StackLayout Orientation="Horizontal" Spacing="6"/>
+                                        <!-- v2.15.0: UniformGridLayout wraps chips; StackLayout clips at card edge. -->
+                                        <UniformGridLayout Orientation="Horizontal"
+                                                           MinItemWidth="100"
+                                                           MinItemHeight="32"
+                                                           MinColumnSpacing="6"
+                                                           MinRowSpacing="6"
+                                                           ItemsJustification="Start"
+                                                           ItemsStretch="None"/>
                                     </ItemsRepeater.Layout>
                                     <ItemsRepeater.ItemTemplate>
                                         <DataTemplate x:DataType="vm:FilterDayChip">
@@ -264,7 +285,14 @@
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
                                 <ItemsRepeater ItemsSource="{x:Bind ViewModel.AvailableChampions}">
                                     <ItemsRepeater.Layout>
-                                        <StackLayout Orientation="Horizontal" Spacing="6"/>
+                                        <!-- v2.15.0: UniformGridLayout wraps chips; StackLayout clips at card edge. -->
+                                        <UniformGridLayout Orientation="Horizontal"
+                                                           MinItemWidth="100"
+                                                           MinItemHeight="32"
+                                                           MinColumnSpacing="6"
+                                                           MinRowSpacing="6"
+                                                           ItemsJustification="Start"
+                                                           ItemsStretch="None"/>
                                     </ItemsRepeater.Layout>
                                     <ItemsRepeater.ItemTemplate>
                                         <DataTemplate x:DataType="vm:FilterChampionChip">

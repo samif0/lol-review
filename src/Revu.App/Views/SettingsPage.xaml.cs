@@ -38,10 +38,12 @@ public sealed partial class SettingsPage : Page
         CoachSettingsBody.Visibility = toggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         ViewModel.LoadCommand.Execute(null);
+        // v2.15.0: prime the restore-picker with available backups.
+        await ViewModel.RefreshBackupsCommand.ExecuteAsync(null);
     }
 
     /// <summary>x:Bind helper — Visible when the given state string matches.</summary>

@@ -24,6 +24,7 @@ internal sealed class TestDatabaseScope : IDisposable
         GameEvents = new GameEventsRepository(ConnectionFactory);
         DerivedEvents = new DerivedEventsRepository(ConnectionFactory);
         Objectives = new ObjectivesRepository(ConnectionFactory);
+        Prompts = new PromptsRepository(ConnectionFactory);
         MatchupNotes = new MatchupNotesRepository(ConnectionFactory);
         Vod = new VodRepository(ConnectionFactory);
         SessionLog = new SessionLogRepository(ConnectionFactory);
@@ -45,6 +46,8 @@ internal sealed class TestDatabaseScope : IDisposable
     public DerivedEventsRepository DerivedEvents { get; }
 
     public ObjectivesRepository Objectives { get; }
+
+    public PromptsRepository Prompts { get; }
 
     public MatchupNotesRepository MatchupNotes { get; }
 
@@ -108,6 +111,7 @@ internal sealed class TestConfigService : IConfigService
     public string PrimaryRole => Current.PrimaryRole;
     public bool OnboardingSkipped => Current.OnboardingSkipped;
     public bool AscentReminderDismissed => Current.AscentReminderDismissed;
+    public bool SidebarAnimationEnabled => Current.SidebarAnimationEnabled;
 
     public bool IsAscentEnabled => !string.IsNullOrWhiteSpace(AscentFolder);
 
@@ -205,4 +209,10 @@ internal sealed class NoopBackupService : IBackupService
 {
     public Task CreateSafetyBackupAsync(string reason) => Task.CompletedTask;
     public Task RunBackupAsync() => Task.CompletedTask;
+    public Task<IReadOnlyList<BackupFileInfo>> ListBackupsAsync() =>
+        Task.FromResult<IReadOnlyList<BackupFileInfo>>(Array.Empty<BackupFileInfo>());
+    public Task<ResetResult> ResetAllDataAsync() =>
+        Task.FromResult(new ResetResult(true, "", null));
+    public Task<RestoreResult> RestoreFromBackupAsync(string backupFilePath) =>
+        Task.FromResult(new RestoreResult(true, null, null));
 }

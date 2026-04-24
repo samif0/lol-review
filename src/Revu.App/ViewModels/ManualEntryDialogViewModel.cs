@@ -8,6 +8,21 @@ using Microsoft.Extensions.Logging;
 
 namespace Revu.App.ViewModels;
 
+/// <summary>
+/// v2.15.0: an in-game or post-game custom prompt + its current answer.
+/// Hangs off <see cref="ObjectiveAssessment"/> for each prompt the parent
+/// objective defines.
+/// </summary>
+public sealed partial class PromptAnswerField : ObservableObject
+{
+    public long PromptId { get; init; }
+    public string Phase { get; init; } = ObjectivePhases.InGame;
+    public string Label { get; init; } = "";
+
+    [ObservableProperty]
+    private string _answerText = "";
+}
+
 /// <summary>Display model for an objective assessment in the review flow.</summary>
 public partial class ObjectiveAssessment : ObservableObject
 {
@@ -17,12 +32,24 @@ public partial class ObjectiveAssessment : ObservableObject
     public string Phase { get; init; } = ObjectivePhases.InGame;
     public bool IsPriority { get; init; }
     public string PhaseLabel => ObjectivePhases.ToDisplayLabel(Phase);
+    public Microsoft.UI.Xaml.Media.SolidColorBrush AccentBrush =>
+        IsPriority
+            ? (Microsoft.UI.Xaml.Media.SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["AccentGoldBrush"]
+            : (Microsoft.UI.Xaml.Media.SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["AccentTealBrush"];
 
     [ObservableProperty]
     private bool _practiced;
 
     [ObservableProperty]
     private string _executionNote = "";
+
+    /// <summary>
+    /// v2.15.0: custom in-game and post-game prompts for this objective.
+    /// Populated at load-time from GetPromptsForObjectiveAsync filtered to
+    /// phases {ingame, postgame}. Empty if the objective has no prompts.
+    /// </summary>
+    public ObservableCollection<PromptAnswerField> Prompts { get; } = new();
+    public bool HasPrompts => Prompts.Count > 0;
 }
 
 /// <summary>ViewModel for the manual game entry page.</summary>

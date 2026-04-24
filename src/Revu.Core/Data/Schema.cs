@@ -256,30 +256,76 @@ public static class Schema
         );
         """;
 
+    // Free-form per-objective prompts the user designs as part of objective
+    // creation. Rendered in Champ Select (phase='pregame') or post-game review
+    // (phase='ingame' or 'postgame'). See docs/OBJECTIVES_CUSTOM_PROMPTS_PLAN.md.
     public const string CreateObjectivePromptsTable = """
         CREATE TABLE IF NOT EXISTS objective_prompts (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             objective_id    INTEGER NOT NULL,
-            question_text   TEXT NOT NULL,
-            event_tag       TEXT DEFAULT '',
-            answer_type     TEXT DEFAULT 'yes_no',
-            sort_order      INTEGER DEFAULT 0,
+            phase           TEXT NOT NULL DEFAULT 'ingame',
+            label           TEXT NOT NULL DEFAULT '',
+            sort_order      INTEGER NOT NULL DEFAULT 0,
+            created_at      INTEGER,
             FOREIGN KEY (objective_id) REFERENCES objectives(id)
         );
         """;
 
     public const string CreatePromptAnswersTable = """
         CREATE TABLE IF NOT EXISTS prompt_answers (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_id           INTEGER NOT NULL,
-            prompt_id         INTEGER NOT NULL,
-            event_instance_id INTEGER,
-            event_time_s      INTEGER,
-            answer_value      INTEGER NOT NULL,
-            FOREIGN KEY (game_id) REFERENCES games(game_id),
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            prompt_id   INTEGER NOT NULL,
+            game_id     INTEGER NOT NULL,
+            answer_text TEXT NOT NULL DEFAULT '',
+            updated_at  INTEGER,
             FOREIGN KEY (prompt_id) REFERENCES objective_prompts(id),
-            UNIQUE(game_id, prompt_id, event_instance_id)
+            FOREIGN KEY (game_id) REFERENCES games(game_id),
+            UNIQUE(prompt_id, game_id)
         );
+        """;
+
+    // PreGamePage stages prompt answers here before a game row exists. Keyed
+    // on LCU champ-select session id. At post-game, answers get copied into
+    // prompt_answers with the real game_id. Drafts are TTL-cleaned.
+    public const string CreatePreGameDraftPromptsTable = """
+        CREATE TABLE IF NOT EXISTS pre_game_draft_prompts (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_key     TEXT NOT NULL,
+            prompt_id       INTEGER NOT NULL,
+            answer_text     TEXT NOT NULL DEFAULT '',
+            updated_at      INTEGER,
+            FOREIGN KEY (prompt_id) REFERENCES objective_prompts(id),
+            UNIQUE(session_key, prompt_id)
+        );
+        """;
+
+    // v2.15.0 (later extension): champion gating for objectives. An objective
+    // with zero rows here applies to all champions. With rows, it only shows
+    // up in pre-game / post-game when the current game's champion matches.
+    // Champion names are stored as Riot's display name (e.g. "Kai'Sa", "Wukong")
+    // to match games.champion_name verbatim — no id lookup needed.
+    public const string CreateObjectiveChampionsTable = """
+        CREATE TABLE IF NOT EXISTS objective_champions (
+            objective_id    INTEGER NOT NULL,
+            champion_name   TEXT NOT NULL,
+            PRIMARY KEY (objective_id, champion_name),
+            FOREIGN KEY (objective_id) REFERENCES objectives(id)
+        );
+        """;
+
+    public const string CreateObjectiveChampionsIndex = """
+        CREATE INDEX IF NOT EXISTS idx_objective_champions_champion
+        ON objective_champions (champion_name);
+        """;
+
+    public const string CreateObjectivePromptsIndex = """
+        CREATE INDEX IF NOT EXISTS idx_objective_prompts_objective
+        ON objective_prompts (objective_id, phase, sort_order);
+        """;
+
+    public const string CreatePromptAnswersIndex = """
+        CREATE INDEX IF NOT EXISTS idx_prompt_answers_game
+        ON prompt_answers (game_id);
         """;
 
     public const string CreateMatchupNotesTable = """
@@ -616,6 +662,18 @@ public static class Schema
         "ALTER TABLE objectives ADD COLUMN phase TEXT DEFAULT 'ingame'",
     ];
 
+    /// <summary>
+    /// v2.15.0: objectives can practice any subset of {pre, in, post} game
+    /// phases instead of being locked to one. Backfilled from the legacy
+    /// <c>phase</c> column by DatabaseInitializer.BackfillObjectivePracticePhasesAsync.
+    /// </summary>
+    public static readonly string[] MigrateObjectivesPracticePhases =
+    [
+        "ALTER TABLE objectives ADD COLUMN practice_pregame INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE objectives ADD COLUMN practice_ingame INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE objectives ADD COLUMN practice_postgame INTEGER NOT NULL DEFAULT 0",
+    ];
+
     public static readonly string[] MigrateBookmarksObjective =
     [
         "ALTER TABLE vod_bookmarks ADD COLUMN objective_id INTEGER",
@@ -647,6 +705,13 @@ public static class Schema
         CreateDerivedEventInstancesTable,
         CreateObjectivePromptsTable,
         CreatePromptAnswersTable,
+        CreatePreGameDraftPromptsTable,
+        CreateObjectiveChampionsTable,
+        CreateObjectiveChampionsIndex,
+        // v2.15.0 NOTE: CreateObjectivePromptsIndex + CreatePromptAnswersIndex
+        // reference columns (phase, etc.) that only exist after
+        // NormalizeObjectivePromptsTableAsync has run. They're applied
+        // separately from DatabaseInitializer after normalize completes.
         CreateMatchupNotesTable,
         CreateSessionsTable,
         CreateTiltChecksTable,
@@ -676,6 +741,7 @@ public static class Schema
         .. MigrateBookmarksClipColumns,
         .. MigrateSessionLogMental,
         .. MigrateObjectivesPriority,
+        .. MigrateObjectivesPracticePhases,
         .. MigrateCoachLabelsAttachment,
         .. MigrateCoachInferencesAttachment,
         .. MigrateCoachRecommendationsFeedback,

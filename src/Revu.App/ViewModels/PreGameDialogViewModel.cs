@@ -32,6 +32,35 @@ public sealed class PreGameMatchupItem
     public bool HasHelpfulRating { get; init; }
 }
 
+/// <summary>
+/// v2.15.0: one pre-game custom prompt + its current answer text. Grouped
+/// into <see cref="PreGameObjectivePromptBlock"/> for rendering per-objective.
+/// </summary>
+public sealed partial class PreGamePromptAnswer : ObservableObject
+{
+    public long PromptId { get; init; }
+    public string Label { get; init; } = "";
+
+    // Upstream SaveDraftAnswerAsync fires when text changes; VM subscribes to
+    // PropertyChanged on AnswerText and debounces the save.
+    [ObservableProperty]
+    private string _answerText = "";
+}
+
+/// <summary>v2.15.0: an objective + its pre-game prompts, grouped for the champ-select UI.</summary>
+public sealed class PreGameObjectivePromptBlock
+{
+    public long ObjectiveId { get; init; }
+    public string ObjectiveTitle { get; init; } = "";
+    public bool IsPriority { get; init; }
+    public ObservableCollection<PreGamePromptAnswer> Prompts { get; } = new();
+    public string EyebrowText => IsPriority ? "PRIORITY" : "ACTIVE";
+    public Microsoft.UI.Xaml.Media.SolidColorBrush AccentBrush =>
+        IsPriority
+            ? (Microsoft.UI.Xaml.Media.SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["AccentGoldBrush"]
+            : (Microsoft.UI.Xaml.Media.SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["AccentTealBrush"];
+}
+
 /// <summary>ViewModel for the pre-game focus dialog shown during champion select.</summary>
 public partial class PreGameDialogViewModel : ObservableObject, IRecipient<ChampSelectUpdatedMessage>
 {
@@ -39,9 +68,20 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IMatchupNotesRepository _matchupNotesRepo;
+    private readonly IPromptsRepository _promptsRepo;
     private readonly IConfigService _configService;
     private readonly IMessenger _messenger;
     private readonly ILogger<PreGameDialogViewModel> _logger;
+
+    // v2.15.0: stable session key for the current champ-select. Used to stage
+    // prompt answers in pre_game_draft_prompts before the game row exists,
+    // then promoted to prompt_answers at post-game via ShellViewModel.
+    // Static so ShellViewModel can read the current key without extra DI wiring.
+    internal static string? LastSessionKey { get; private set; }
+
+    internal static void ResetSessionKey() => LastSessionKey = null;
+
+    private string _sessionKey = "";
 
     // ── Observable Properties ───────────────────────────────────────
 
@@ -124,11 +164,17 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     public ObservableCollection<ObjectiveAssessment> PreGameObjectives { get; } = new();
     public ObservableCollection<PreGameMatchupItem> MatchupHistory { get; } = new();
 
+    // v2.15.0: one block per active pre-phase objective, containing its custom prompts.
+    public ObservableCollection<PreGameObjectivePromptBlock> PreGamePromptBlocks { get; } = new();
+
     [ObservableProperty]
     private bool _hasMatchupHistory;
 
     [ObservableProperty]
     private bool _hasPreGameObjectives;
+
+    [ObservableProperty]
+    private bool _hasPreGamePromptBlocks;
 
     [ObservableProperty]
     private string _matchupHeaderText = "";
@@ -172,6 +218,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         IObjectivesRepository objectivesRepo,
         ISessionLogRepository sessionLogRepo,
         IMatchupNotesRepository matchupNotesRepo,
+        IPromptsRepository promptsRepo,
         IConfigService configService,
         IMessenger messenger,
         ILogger<PreGameDialogViewModel> logger)
@@ -180,6 +227,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         _objectivesRepo = objectivesRepo;
         _sessionLogRepo = sessionLogRepo;
         _matchupNotesRepo = matchupNotesRepo;
+        _promptsRepo = promptsRepo;
         _configService = configService;
         _messenger = messenger;
         _logger = logger;
@@ -232,9 +280,29 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
 
             // Get active objective
             var objectives = await _objectivesRepo.GetActiveAsync();
+            // v2.15.0: champion-gate the practice list too. We apply the filter
+            // in-memory here (rather than adding a champion param to
+            // GetActiveAsync) because the rest of this method is already doing
+            // phase-based in-memory filtering.
+            var champName = champInfo?.MyChampion ?? "";
             var relevantObjectives = objectives
                 .Where(objective => ObjectivePhases.ShowsInPreGame(objective.Phase))
                 .ToList();
+
+            if (!string.IsNullOrWhiteSpace(champName))
+            {
+                var filtered = new List<ObjectiveSummary>();
+                foreach (var o in relevantObjectives)
+                {
+                    var champs = await _objectivesRepo.GetChampionsForObjectiveAsync(o.Id);
+                    if (champs.Count == 0
+                        || champs.Any(c => string.Equals(c, champName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        filtered.Add(o);
+                    }
+                }
+                relevantObjectives = filtered;
+            }
             var priorityObjective = relevantObjectives.FirstOrDefault(objective => objective.IsPriority);
             var priorityObjectiveId = priorityObjective?.Id ?? 0L;
             ObjectiveFocusOptions.Clear();
@@ -314,10 +382,73 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
 
             // Load matchup history if we have champion info
             await LoadMatchupHistoryAsync(champInfo?.MyChampion, champInfo?.EnemyLaner);
+
+            // v2.15.0: mint a fresh session key (so a new champ-select restarts drafts)
+            // and load custom pre-game prompts for active objectives.
+            _sessionKey = Guid.NewGuid().ToString("N");
+            LastSessionKey = _sessionKey;
+            await LoadPreGamePromptsAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load pre-game data");
+        }
+    }
+
+    private async Task LoadPreGamePromptsAsync()
+    {
+        PreGamePromptBlocks.Clear();
+        try
+        {
+            // v2.15.0: champion-gate prompts by the locked-in champion. NULL
+            // champion name (hovering or not locked yet) disables the filter
+            // so the user sees everything they might need.
+            var champGate = string.IsNullOrWhiteSpace(MyChampionName) ? null : MyChampionName;
+            var active = await _promptsRepo.GetActivePromptsForPhaseAsync(ObjectivePhases.PreGame, champGate);
+            // Group by objective; sort is already applied by the repo query.
+            PreGameObjectivePromptBlock? current = null;
+            foreach (var p in active)
+            {
+                if (current is null || current.ObjectiveId != p.ObjectiveId)
+                {
+                    current = new PreGameObjectivePromptBlock
+                    {
+                        ObjectiveId = p.ObjectiveId,
+                        ObjectiveTitle = p.ObjectiveTitle,
+                        IsPriority = p.IsPriority,
+                    };
+                    PreGamePromptBlocks.Add(current);
+                }
+
+                var answer = new PreGamePromptAnswer
+                {
+                    PromptId = p.PromptId,
+                    Label = p.Label,
+                };
+                // Debounce-ish save: write to drafts on every text change. Cheap —
+                // it's a single upsert — and protects against losing the answer
+                // if the app crashes before game end.
+                answer.PropertyChanged += async (_, ev) =>
+                {
+                    if (ev.PropertyName != nameof(PreGamePromptAnswer.AnswerText)) return;
+                    try
+                    {
+                        await _promptsRepo.SaveDraftAnswerAsync(_sessionKey, answer.PromptId, answer.AnswerText);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to persist pre-game prompt draft");
+                    }
+                };
+                current.Prompts.Add(answer);
+            }
+
+            HasPreGamePromptBlocks = PreGamePromptBlocks.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load pre-game prompts");
+            HasPreGamePromptBlocks = false;
         }
     }
 

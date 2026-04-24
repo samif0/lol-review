@@ -72,6 +72,7 @@ public sealed class ConfigService : IConfigService
     public string PrimaryRole => GetCached().PrimaryRole;
     public bool OnboardingSkipped => GetCached().OnboardingSkipped;
     public bool AscentReminderDismissed => GetCached().AscentReminderDismissed;
+    public bool SidebarAnimationEnabled => GetCached().SidebarAnimationEnabled;
 
     public bool IsAscentEnabled => AscentFolder is not null;
 

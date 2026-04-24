@@ -24,6 +24,14 @@ public sealed class BackupService : IBackupService
     private const string SafetyPrefix = "safety_backup_";
     private const string UserPrefix = "lol_review_backup_";
 
+    /// <summary>
+    /// Pre-migration backups dropped by the coach migration layer. They share
+    /// the backups/ directory but aren't touched by the safety/user pruners,
+    /// so they accumulate indefinitely. We cap them at 3 the same way.
+    /// </summary>
+    private const string CoachMigrationPrefix = "coach-pre-migration-";
+    private const int MaxCoachMigrationBackups = 3;
+
     private readonly IConfigService _config;
     private readonly IDbConnectionFactory _connectionFactory;
     private readonly ILogger<BackupService> _logger;
@@ -76,6 +84,12 @@ public sealed class BackupService : IBackupService
         }
 
         await PruneBackupsAsync(backupDir, SafetyPrefix, MaxSafetyBackups).ConfigureAwait(false);
+
+        // Also prune coach-migration leftovers. They land in the same folder
+        // but predate the safety pruner's prefix filter, so without this call
+        // they just pile up over time.
+        await PruneBackupsAsync(backupDir, CoachMigrationPrefix, MaxCoachMigrationBackups)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -117,6 +131,196 @@ public sealed class BackupService : IBackupService
         }
 
         await PruneBackupsAsync(folder, UserPrefix, MaxUserBackups).ConfigureAwait(false);
+    }
+
+    // ── v2.15.0 reset + revert ──────────────────────────────────────
+
+    private const string PreResetPrefix   = "pre_reset_";
+    private const string PreRestorePrefix = "pre_restore_";
+
+    public Task<IReadOnlyList<BackupFileInfo>> ListBackupsAsync()
+    {
+        return Task.Run<IReadOnlyList<BackupFileInfo>>(() =>
+        {
+            var dbPath = _connectionFactory.DatabasePath;
+            var dataDir = Path.GetDirectoryName(dbPath);
+            if (string.IsNullOrEmpty(dataDir)) return Array.Empty<BackupFileInfo>();
+            var backupDir = Path.Combine(dataDir, "backups");
+            if (!Directory.Exists(backupDir)) return Array.Empty<BackupFileInfo>();
+
+            var results = new List<BackupFileInfo>();
+            foreach (var file in Directory.EnumerateFiles(backupDir, "*.db"))
+            {
+                var fi = new FileInfo(file);
+                // Derive a timestamp from the filename when possible
+                // (our backups embed yyyyMMdd_HHmmss); fall back to mtime.
+                var timestamp = TryParseBackupTimestamp(fi.Name) ?? fi.LastWriteTime;
+                var label = BuildBackupLabel(fi.Name, timestamp, fi.Length);
+                results.Add(new BackupFileInfo(
+                    FilePath: fi.FullName,
+                    FileName: fi.Name,
+                    Timestamp: timestamp,
+                    FileSizeBytes: fi.Length,
+                    Label: label));
+            }
+
+            // Newest first so the UI's "most recent" is top of list.
+            return results.OrderByDescending(b => b.Timestamp).ToList();
+        });
+    }
+
+    public async Task<ResetResult> ResetAllDataAsync()
+    {
+        var dbPath = _connectionFactory.DatabasePath;
+        var dataDir = Path.GetDirectoryName(dbPath)!;
+        var backupDir = Path.Combine(dataDir, "backups");
+
+        string backupFilePath;
+        try
+        {
+            Directory.CreateDirectory(backupDir);
+            var name = $"{PreResetPrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db";
+            backupFilePath = Path.Combine(backupDir, name);
+            if (File.Exists(dbPath))
+            {
+                File.Copy(dbPath, backupFilePath, overwrite: false);
+                _logger.LogInformation("Pre-reset backup: {Path}", backupFilePath);
+            }
+            else
+            {
+                _logger.LogWarning("Reset requested but no DB at {Path}", dbPath);
+                backupFilePath = "";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Pre-reset backup failed");
+            return new ResetResult(false, "", "Could not create a safety backup. Reset aborted so no data is lost.");
+        }
+
+        // Wipe the live DB + its WAL/SHM sidecars. File.Delete is a no-op for
+        // missing files so no need to guard.
+        try
+        {
+            foreach (var path in new[] { dbPath, dbPath + "-shm", dbPath + "-wal" })
+            {
+                try { if (File.Exists(path)) File.Delete(path); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not delete {Path}", path); }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DB wipe failed");
+            return new ResetResult(false, backupFilePath, "Could not delete the database. A backup was made.");
+        }
+
+        // Wipe config too — gets the user back to a clean onboarding path.
+        try
+        {
+            var configPath = AppDataPaths.ConfigPath;
+            if (File.Exists(configPath)) File.Delete(configPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Config wipe failed (non-fatal)");
+        }
+
+        await Task.CompletedTask;
+        return new ResetResult(true, backupFilePath, null);
+    }
+
+    public async Task<RestoreResult> RestoreFromBackupAsync(string backupFilePath)
+    {
+        if (string.IsNullOrEmpty(backupFilePath) || !File.Exists(backupFilePath))
+        {
+            return new RestoreResult(false, null, "Backup file not found.");
+        }
+
+        var dbPath = _connectionFactory.DatabasePath;
+        var dataDir = Path.GetDirectoryName(dbPath)!;
+        var backupDir = Path.Combine(dataDir, "backups");
+        Directory.CreateDirectory(backupDir);
+
+        // Back up the current DB first so the restore is itself reversible.
+        string? preRestorePath = null;
+        try
+        {
+            if (File.Exists(dbPath))
+            {
+                var name = $"{PreRestorePrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db";
+                preRestorePath = Path.Combine(backupDir, name);
+                File.Copy(dbPath, preRestorePath, overwrite: false);
+                _logger.LogInformation("Pre-restore backup: {Path}", preRestorePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Pre-restore backup failed");
+            return new RestoreResult(false, null, "Could not back up your current DB. Restore aborted.");
+        }
+
+        // Remove live WAL/SHM so the restored DB boots clean.
+        try
+        {
+            foreach (var path in new[] { dbPath, dbPath + "-shm", dbPath + "-wal" })
+            {
+                try { if (File.Exists(path)) File.Delete(path); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not delete {Path} before restore", path); }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DB wipe before restore failed");
+            return new RestoreResult(false, preRestorePath, "Could not replace the current database.");
+        }
+
+        try
+        {
+            File.Copy(backupFilePath, dbPath, overwrite: false);
+            _logger.LogInformation("Restored DB from {Source}", backupFilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Copy backup into place failed");
+            return new RestoreResult(false, preRestorePath, "Could not copy the backup into place. Your pre-restore snapshot is safe.");
+        }
+
+        await Task.CompletedTask;
+        return new RestoreResult(true, preRestorePath, null);
+    }
+
+    // filename format: <prefix>yyyyMMdd_HHmmss.db
+    private static DateTime? TryParseBackupTimestamp(string fileName)
+    {
+        // Strip the extension and any prefix word before the last underscore chunk.
+        var core = Path.GetFileNameWithoutExtension(fileName);
+        // Last 15 chars should be yyyyMMdd_HHmmss if our format holds.
+        if (core.Length < 15) return null;
+        var tail = core[^15..];
+        if (DateTime.TryParseExact(tail, "yyyyMMdd_HHmmss",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeLocal, out var parsed))
+        {
+            return parsed;
+        }
+        return null;
+    }
+
+    private static string BuildBackupLabel(string fileName, DateTime timestamp, long sizeBytes)
+    {
+        var kind = fileName.StartsWith(PreResetPrefix, StringComparison.OrdinalIgnoreCase)
+            ? "Pre-reset"
+            : fileName.StartsWith(PreRestorePrefix, StringComparison.OrdinalIgnoreCase)
+                ? "Pre-restore"
+                : fileName.StartsWith(SafetyPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? "Safety"
+                    : fileName.StartsWith(UserPrefix, StringComparison.OrdinalIgnoreCase)
+                        ? "User backup"
+                        : fileName.StartsWith(CoachMigrationPrefix, StringComparison.OrdinalIgnoreCase)
+                            ? "Coach migration"
+                            : "Backup";
+        var mb = sizeBytes / (1024.0 * 1024.0);
+        return $"{kind} — {timestamp:MMM d yyyy, h:mm tt} — {mb:F1} MB";
     }
 
     // ── Private helpers ─────────────────────────────────────────────

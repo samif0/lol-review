@@ -37,6 +37,7 @@ public interface IConfigService
     string PrimaryRole { get; }
     bool OnboardingSkipped { get; }
     bool AscentReminderDismissed { get; }
+    bool SidebarAnimationEnabled { get; }
 
     // ── Derived helpers ─────────────────────────────────────────────
 

@@ -538,6 +538,37 @@ public sealed partial class ObjectivesPage : Page
         }
     }
 
+    private void RemovePromptDraftButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is PromptDraftItem draft)
+        {
+            ViewModel.RemovePromptCommand.Execute(draft);
+        }
+    }
+
+    // v2.15.0: champion picker chip handlers.
+    private void AddChampionSuggestion_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string champ)
+        {
+            ViewModel.AddChampionCommand.Execute(champ);
+        }
+    }
+
+    private void RemoveChampionChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string champ)
+        {
+            ViewModel.RemoveChampionCommand.Execute(champ);
+        }
+    }
+
+    private void AddChampionFromInput_Click(object sender, RoutedEventArgs e)
+    {
+        // Pass null to force the VM to read NewChampionInput.
+        ViewModel.AddChampionCommand.Execute(null);
+    }
+
     private async void DeleteRule_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is long ruleId)

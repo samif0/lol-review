@@ -118,18 +118,25 @@
                             </ComboBox>
                         </StackPanel>
 
+                        <!-- v2.15.0: multi-phase practice. Objective can practice any subset. -->
                         <StackPanel Spacing="4">
-                            <TextBlock Text="When" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                            <TextBlock Text="Practice during" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <ComboBox SelectedIndex="{x:Bind ViewModel.NewPhaseIndex, Mode=TwoWay}"
-                                      Background="{StaticResource InputBackgroundBrush}"
-                                      Foreground="{StaticResource PrimaryTextBrush}"
-                                      BorderBrush="{StaticResource SubtleBorderBrush}"
-                                      CornerRadius="2" MinWidth="200">
-                                <ComboBoxItem Content="Pre-Game"/>
-                                <ComboBoxItem Content="In-Game"/>
-                                <ComboBoxItem Content="Post-Game"/>
-                            </ComboBox>
+                            <TextBlock Text="Pick one or more phases where this objective applies. Prompts you design below will only render in the phases you check here."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <CheckBox Content="Pre-Game"
+                                          IsChecked="{x:Bind ViewModel.NewPracticePre, Mode=TwoWay}"
+                                          Foreground="{StaticResource PrimaryTextBrush}"/>
+                                <CheckBox Content="In-Game"
+                                          IsChecked="{x:Bind ViewModel.NewPracticeIn, Mode=TwoWay}"
+                                          Foreground="{StaticResource PrimaryTextBrush}"/>
+                                <CheckBox Content="Post-Game"
+                                          IsChecked="{x:Bind ViewModel.NewPracticePost, Mode=TwoWay}"
+                                          Foreground="{StaticResource PrimaryTextBrush}"/>
+                            </StackPanel>
                         </StackPanel>
 
                         <!-- Completion Criteria -->
@@ -157,6 +164,212 @@
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
                                      MinHeight="60"/>
+                        </StackPanel>
+
+                        <!-- v2.15.0: CUSTOM PROMPTS editor. -->
+                        <StackPanel Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <Rectangle Width="18" Height="1"
+                                           Fill="{StaticResource AccentPurpleBrush}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="CUSTOM PROMPTS"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="300"
+                                           Foreground="{StaticResource AccentPurpleBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="Add labeled text fields you'll answer during the selected phases. Use these to prompt yourself with specific details — e.g. 'Key spells during trading', 'Expected wave state at 3:00'. Blank labels are ignored on save."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.NewPrompts, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Spacing="8"/>
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PromptDraftItem">
+                                        <Border Background="{StaticResource InputBackgroundBrush}"
+                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="2"
+                                                Padding="10,8">
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <ComboBox Grid.Column="0"
+                                                          SelectedIndex="{x:Bind PhaseIndex, Mode=TwoWay}"
+                                                          MinWidth="110"
+                                                          VerticalAlignment="Top">
+                                                    <ComboBoxItem Content="Pre-Game"/>
+                                                    <ComboBoxItem Content="In-Game"/>
+                                                    <ComboBoxItem Content="Post-Game"/>
+                                                </ComboBox>
+
+                                                <TextBox Grid.Column="1"
+                                                         Text="{x:Bind Label, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                         PlaceholderText="e.g. How will the 2v2 go? What spells are key?"
+                                                         Background="{StaticResource InputBackgroundBrush}"
+                                                         Foreground="{StaticResource PrimaryTextBrush}"
+                                                         BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                         AcceptsReturn="True"
+                                                         TextWrapping="Wrap"
+                                                         MinHeight="36"/>
+
+                                                <Button Grid.Column="2"
+                                                        Click="RemovePromptDraftButton_Click"
+                                                        Tag="{x:Bind}"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Padding="8,4"
+                                                        ToolTipService.ToolTip="Remove this prompt">
+                                                    <FontIcon Glyph="&#xE74D;"
+                                                              FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                              FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                              Foreground="{StaticResource LossRedBrush}"/>
+                                                </Button>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+
+                            <Button Content="+ ADD PROMPT"
+                                    Command="{x:Bind ViewModel.AddPromptCommand}"
+                                    Background="Transparent"
+                                    BorderBrush="{StaticResource AccentPurpleBrush}"
+                                    BorderThickness="1"
+                                    Foreground="{StaticResource AccentPurpleBrush}"
+                                    FontFamily="{StaticResource MonoFont}"
+                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                    CharacterSpacing="200"
+                                    CornerRadius="2"
+                                    Padding="14,6"
+                                    HorizontalAlignment="Left"/>
+                        </StackPanel>
+
+                        <!-- v2.15.0: CHAMPIONS filter. Empty = applies to all champions. -->
+                        <StackPanel Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <Rectangle Width="18" Height="1"
+                                           Fill="{StaticResource AccentTealBrush}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="CHAMPIONS"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="300"
+                                           Foreground="{StaticResource AccentTealBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="Optional. Leave empty to apply this objective to every champion. Pick one or more champions below to only surface this objective when you're on one of them."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <!-- Picked champions as chips. UniformGridLayout wraps to the next row
+                                 when it runs out of width — StackLayout clips instead. -->
+                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.NewChampions, Mode=OneWay}"
+                                           Visibility="{x:Bind ViewModel.HasNewChampions, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <ItemsRepeater.Layout>
+                                    <UniformGridLayout Orientation="Horizontal"
+                                                       MinItemWidth="110"
+                                                       MinItemHeight="30"
+                                                       MinColumnSpacing="6"
+                                                       MinRowSpacing="6"
+                                                       ItemsJustification="Start"
+                                                       ItemsStretch="None"/>
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <Button Background="{StaticResource TagBackgroundBrush}"
+                                                BorderBrush="{StaticResource AccentTealBrush}"
+                                                BorderThickness="1"
+                                                Foreground="{StaticResource PrimaryTextBrush}"
+                                                Click="RemoveChampionChip_Click"
+                                                Tag="{x:Bind}"
+                                                CornerRadius="2"
+                                                Padding="10,4"
+                                                Height="28"
+                                                ToolTipService.ToolTip="Click to remove">
+                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="{x:Bind}"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Text="×"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{StaticResource LossRedBrush}"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+
+                            <!-- Suggestions from played-champions history -->
+                            <TextBlock Text="From your recent games:"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.ChampionSuggestions, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <UniformGridLayout Orientation="Horizontal"
+                                                       MinItemWidth="100"
+                                                       MinItemHeight="30"
+                                                       MinColumnSpacing="6"
+                                                       MinRowSpacing="6"
+                                                       ItemsJustification="Start"
+                                                       ItemsStretch="None"/>
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ChampionSuggestion">
+                                        <Button Click="AddChampionSuggestion_Click"
+                                                Tag="{x:Bind Name}"
+                                                Background="{StaticResource InputBackgroundBrush}"
+                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                BorderThickness="1"
+                                                Foreground="{StaticResource PrimaryTextBrush}"
+                                                IsEnabled="{x:Bind NotIsAdded, Mode=OneWay}"
+                                                Opacity="{x:Bind SuggestionOpacity, Mode=OneWay}"
+                                                CornerRadius="2"
+                                                Padding="10,4"
+                                                Height="28">
+                                            <TextBlock Text="{x:Bind Name}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+
+                            <!-- Manual-entry fallback for champs not in recent games -->
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBox Text="{x:Bind ViewModel.NewChampionInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         PlaceholderText="Other champion..."
+                                         Background="{StaticResource InputBackgroundBrush}"
+                                         Foreground="{StaticResource PrimaryTextBrush}"
+                                         BorderBrush="{StaticResource SubtleBorderBrush}"
+                                         CornerRadius="2"
+                                         MinWidth="200"
+                                         Height="32"
+                                         VerticalAlignment="Center"/>
+                                <Button Content="ADD"
+                                        Click="AddChampionFromInput_Click"
+                                        Background="Transparent"
+                                        BorderBrush="{StaticResource AccentTealBrush}"
+                                        BorderThickness="1"
+                                        Foreground="{StaticResource AccentTealBrush}"
+                                        FontFamily="{StaticResource MonoFont}"
+                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                        CharacterSpacing="200"
+                                        CornerRadius="2"
+                                        Padding="14,0"
+                                        Height="32"/>
+                            </StackPanel>
                         </StackPanel>
 
                         <!-- Action Buttons -->

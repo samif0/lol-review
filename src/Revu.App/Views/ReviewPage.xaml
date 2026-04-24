@@ -183,9 +183,9 @@
                                         <Border Background="{StaticResource InputBackgroundBrush}"
                                                 CornerRadius="2"
                                                 BorderThickness="1,1,1,2"
-                                                BorderBrush="{StaticResource AccentGoldBrush}"
+                                                BorderBrush="{x:Bind AccentBrush}"
                                                 Padding="14">
-                                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
                                                 <!-- Row 0: Title + practiced toggle -->
                                                 <Grid ColumnDefinitions="*,Auto">
                                                     <StackPanel Spacing="2">
@@ -209,16 +209,59 @@
                                                            Foreground="{StaticResource SecondaryTextBrush}"
                                                            TextWrapping="Wrap"/>
 
-                                                <!-- Row 2: Execution note -->
-                                                <TextBox Grid.Row="2"
-                                                         Text="{x:Bind ExecutionNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="How did this objective go in the game?"
-                                                         TextWrapping="Wrap" AcceptsReturn="True"
-                                                         MinHeight="52" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                         Background="{StaticResource CardBackgroundBrush}"
-                                                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                         Foreground="{StaticResource PrimaryTextBrush}"
-                                                         CornerRadius="2"/>
+                                                <!-- Row 2: General notes for this objective on this game -->
+                                                <StackPanel Grid.Row="2" Spacing="4">
+                                                    <TextBlock Text="GENERAL NOTES"
+                                                               FontFamily="{StaticResource MonoFont}"
+                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                               CharacterSpacing="200"
+                                                               Foreground="{StaticResource MutedTextBrush}"/>
+                                                    <TextBox Text="{x:Bind ExecutionNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="How did this objective go in the game?"
+                                                             TextWrapping="Wrap" AcceptsReturn="True"
+                                                             MinHeight="52" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                             Background="{StaticResource CardBackgroundBrush}"
+                                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                                             CornerRadius="2"/>
+                                                </StackPanel>
+
+                                                <!-- Row 3: v2.15.0 custom prompts for this objective (in-game + post-game phases) -->
+                                                <StackPanel Grid.Row="3" Spacing="8"
+                                                            Visibility="{x:Bind HasPrompts, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="CUSTOM PROMPTS"
+                                                               FontFamily="{StaticResource MonoFont}"
+                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                               CharacterSpacing="200"
+                                                               Foreground="{StaticResource AccentPurpleBrush}"/>
+                                                    <ItemsRepeater ItemsSource="{x:Bind Prompts, Mode=OneWay}">
+                                                        <ItemsRepeater.Layout>
+                                                            <StackLayout Spacing="8"/>
+                                                        </ItemsRepeater.Layout>
+                                                        <ItemsRepeater.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:PromptAnswerField">
+                                                                <StackPanel Spacing="6">
+                                                                    <!-- v2.15.0: body-size + primary text so prompt reads clearly. -->
+                                                                    <TextBlock Text="{x:Bind Label}"
+                                                                               FontFamily="{StaticResource BodyFont}"
+                                                                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                                               FontWeight="SemiBold"
+                                                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                                                               TextWrapping="Wrap"/>
+                                                                    <TextBox Text="{x:Bind AnswerText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                             PlaceholderText="Write your answer..."
+                                                                             TextWrapping="Wrap" AcceptsReturn="True"
+                                                                             MinHeight="44"
+                                                                             FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                                             Background="{StaticResource CardBackgroundBrush}"
+                                                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                                                             CornerRadius="2"/>
+                                                                </StackPanel>
+                                                            </DataTemplate>
+                                                        </ItemsRepeater.ItemTemplate>
+                                                    </ItemsRepeater>
+                                                </StackPanel>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
@@ -260,89 +303,8 @@
                                            TextAlignment="Center"/>
                             </Grid>
 
-                            <!-- Separator between mental and performance -->
-                            <Border Height="1"
-                                    Background="{StaticResource SubtleBorderBrush}"
-                                    Margin="0,4"/>
-
-                            <!-- Performance Review -->
-                            <controls:SectionTitle Text="PERFORMANCE REVIEW"/>
-
-                            <!-- Ask coach about this game (deep-link to Coach page, hidden when flag off) -->
-                            <Border x:Name="AskCoachBanner"
-                                    Background="{StaticResource InputBackgroundBrush}"
-                                    BorderBrush="{StaticResource SubtleBorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="2"
-                                    Padding="10,8"
-                                    Visibility="Collapsed">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <FontIcon Grid.Column="0"
-                                                  Glyph="&#xE8BD;"
-                                                  FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                                  Foreground="{StaticResource AccentPurpleBrush}"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                  Margin="0,0,8,0"
-                                                  VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1"
-                                                   Text="Write your review first, then ask the coach about this game. The coach sees your review, the compacted stats, and your history."
-                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"
-                                                   VerticalAlignment="Center"/>
-                                    </Grid>
-
-                                    <Button Grid.Column="1"
-                                            Content="Ask coach about this game"
-                                            Click="OnAskCoachAboutGameClick"
-                                            Style="{StaticResource QuietActionButtonStyle}"
-                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Height="28"
-                                            Padding="12,0" CornerRadius="2"/>
-                                </Grid>
-                            </Border>
-
-                            <TextBlock Text="What went well?"
-                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" Foreground="{StaticResource PrimaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="Good plays, decisions, mechanics..."
-                                     TextWrapping="Wrap" AcceptsReturn="True"
-                                     MinHeight="70" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                     Background="{StaticResource InputBackgroundBrush}"
-                                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="2"/>
-
-                            <TextBlock Text="What could improve?"
-                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" Foreground="{StaticResource PrimaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.Mistakes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="Deaths, missed plays, bad decisions..."
-                                     TextWrapping="Wrap" AcceptsReturn="True"
-                                     MinHeight="70" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                     Background="{StaticResource InputBackgroundBrush}"
-                                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="2"/>
-
-                            <TextBlock Text="Focus for next game"
-                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" Foreground="{StaticResource PrimaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="What will you focus on improving?"
-                                     FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                     Background="{StaticResource InputBackgroundBrush}"
-                                     BorderBrush="{StaticResource SubtleBorderBrush}"
-                                     Foreground="{StaticResource PrimaryTextBrush}"
-                                     CornerRadius="2"
-                                     Height="36"/>
+                            <!-- v2.15.0: Performance Review block moved out of this card.
+                                 See the "PERFORMANCE REVIEW (LEGACY)" card at the bottom of the page. -->
                         </StackPanel>
                     </controls:CornerBracketedCard>
 
@@ -454,11 +416,11 @@
                                      Foreground="{StaticResource PrimaryTextBrush}"
                                      CornerRadius="2"/>
 
-                            <TextBlock Text="Spotted problems"
+                            <TextBlock Text="Anything else you noticed (outside your objectives)"
                                        FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource PrimaryTextBrush}"/>
                             <TextBox Text="{x:Bind ViewModel.SpottedProblems, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="Patterns or repeated issues worth turning into future objectives..."
+                                     PlaceholderText="Patterns or issues that aren't one of your active objectives — seeds for future ones."
                                      TextWrapping="Wrap" AcceptsReturn="True"
                                      MinHeight="70" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                      Background="{StaticResource InputBackgroundBrush}"
@@ -510,11 +472,103 @@
                     </controls:CornerBracketedCard>
 
                     <!-- •••••••••••••••••••••••••••••••••••••••••••
-                         ATTRIBUTION + SESSION NOTE (merged)
+                         ATTRIBUTION + SESSION NOTE (v2.15.0 legacy-only)
                          ••••••••••••••••••••••••••••••••••••••••••• -->
-                    <controls:CornerBracketedCard>
+                    <!-- v2.15.0: Performance Review pushed to bottom so Objectives lead the page.
+                         Legacy-only — new reviews skip this entirely. -->
+                    <controls:CornerBracketedCard
+                        Visibility="{x:Bind ViewModel.ShowLegacyFields, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <StackPanel Spacing="10">
-                            <controls:SectionTitle Text="ATTRIBUTION"/>
+                            <controls:SectionTitle Text="PERFORMANCE REVIEW (LEGACY)"/>
+                            <TextBlock Text="Read-only carryover from an earlier version of Revu. New reviews use Objectives + Custom Prompts instead."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <!-- Ask coach about this game (deep-link to Coach page, hidden when flag off) -->
+                            <Border x:Name="AskCoachBanner"
+                                    Background="{StaticResource InputBackgroundBrush}"
+                                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="2"
+                                    Padding="10,8"
+                                    Visibility="Collapsed">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Grid.Column="0"
+                                                  Glyph="&#xE8BD;"
+                                                  FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                  Foreground="{StaticResource AccentPurpleBrush}"
+                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                  Margin="0,0,8,0"
+                                                  VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="Write your review first, then ask the coach about this game. The coach sees your review, the compacted stats, and your history."
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+                                    <Button Grid.Column="1"
+                                            Content="Ask coach about this game"
+                                            Click="OnAskCoachAboutGameClick"
+                                            Style="{StaticResource QuietActionButtonStyle}"
+                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Height="28"
+                                            Padding="12,0" CornerRadius="2"/>
+                                </Grid>
+                            </Border>
+
+                            <TextBlock Text="What went well?"
+                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Good plays, decisions, mechanics..."
+                                     TextWrapping="Wrap" AcceptsReturn="True"
+                                     MinHeight="70" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="2"/>
+
+                            <TextBlock Text="What could improve?"
+                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.Mistakes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Deaths, missed plays, bad decisions..."
+                                     TextWrapping="Wrap" AcceptsReturn="True"
+                                     MinHeight="70" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="2"/>
+
+                            <TextBlock Text="Focus for next game"
+                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" Foreground="{StaticResource PrimaryTextBrush}"/>
+                            <TextBox Text="{x:Bind ViewModel.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="What will you focus on improving?"
+                                     FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                     Background="{StaticResource InputBackgroundBrush}"
+                                     BorderBrush="{StaticResource SubtleBorderBrush}"
+                                     Foreground="{StaticResource PrimaryTextBrush}"
+                                     CornerRadius="2"
+                                     Height="36"/>
+                        </StackPanel>
+                    </controls:CornerBracketedCard>
+
+                    <controls:CornerBracketedCard
+                        Visibility="{x:Bind ViewModel.ShowLegacyFields, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="10">
+                            <controls:SectionTitle Text="ATTRIBUTION (LEGACY)"/>
+                            <TextBlock Text="Carryover from an earlier review shape. Read-only reference — new reviews don't collect this."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"/>
 
                             <TextBlock Text="What most influenced the outcome?"
                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"

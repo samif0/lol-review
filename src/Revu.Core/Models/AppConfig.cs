@@ -58,6 +58,13 @@ public class AppConfig
     public bool AscentReminderDismissed { get; set; }
 
     /// <summary>
+    /// v2.15.0: sidebar page-enter animation. Some users find it distracting.
+    /// Default true to keep the existing feel for anyone who hasn't touched
+    /// the toggle.
+    /// </summary>
+    public bool SidebarAnimationEnabled { get; set; } = true;
+
+    /// <summary>
     /// Default keybind map — each action maps to a key-event string.
     /// Users can remap these in Settings.
     /// </summary>

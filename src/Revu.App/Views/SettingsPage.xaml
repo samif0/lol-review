@@ -240,6 +240,21 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
+                <!-- v2.15.0: Display / motion preferences -->
+                <controls:CornerBracketedCard>
+                    <StackPanel Spacing="8">
+                        <controls:SectionTitle Text="DISPLAY"/>
+                        <TextBlock Text="Turn off the sidebar energy trails — the bezier lines that sweep from the sidebar edges into the active nav item — if the motion feels distracting."
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.SidebarAnimationEnabled, Mode=TwoWay}"
+                                      Header="Sidebar energy trails"
+                                      OnContent="On"
+                                      OffContent="Off"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
                 <!-- ••• App Version & Updates Section ••• -->
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
@@ -997,6 +1012,96 @@
                                        Foreground="{StaticResource PrimaryTextBrush}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- v2.15.0: RESTORE FROM BACKUP -->
+                <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}">
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="RESTORE FROM BACKUP"/>
+                        <TextBlock Text="Roll back to a prior snapshot of your database. Your current data is automatically saved as a pre-restore backup first, so this action is reversible."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Refresh list"
+                                    Command="{x:Bind ViewModel.RefreshBackupsCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                    Height="32" Padding="12,0" CornerRadius="2"/>
+                        </StackPanel>
+
+                        <ComboBox ItemsSource="{x:Bind ViewModel.AvailableBackups, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.SelectedBackup, Mode=TwoWay}"
+                                  DisplayMemberPath="DisplayLabel"
+                                  PlaceholderText="Pick a backup..."
+                                  HorizontalAlignment="Stretch"
+                                  Background="{StaticResource InputBackgroundBrush}"
+                                  Foreground="{StaticResource PrimaryTextBrush}"
+                                  BorderBrush="{StaticResource SubtleBorderBrush}"
+                                  CornerRadius="2"/>
+
+                        <Button Content="Restore selected backup"
+                                Command="{x:Bind ViewModel.RestoreSelectedBackupCommand}"
+                                IsEnabled="{x:Bind Not(ViewModel.IsRestoring), Mode=OneWay}"
+                                Background="{StaticResource AccentGoldBrush}"
+                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
+                                HorizontalAlignment="Left"
+                                Height="32" Padding="14,0" CornerRadius="2"
+                                BorderThickness="0"/>
+
+                        <TextBlock Text="{x:Bind ViewModel.RestoreStatus, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{x:Bind HasText(ViewModel.RestoreStatus), Mode=OneWay}"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- v2.15.0: DANGER ZONE — full reset -->
+                <controls:CornerBracketedCard CardBorderBrush="{StaticResource LossRedBrush}">
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="DANGER ZONE"/>
+                        <TextBlock Text="Erase all games, reviews, objectives, concept tags, session logs, and config. A pre-reset backup is saved to the backups folder before anything is deleted, so you can always restore from it above. The app will exit after the reset."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="Type RESET to enable the button."
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="200"
+                                   Foreground="{StaticResource LossRedBrush}"/>
+                        <TextBox Text="{x:Bind ViewModel.ResetConfirmText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="Type RESET"
+                                 FontFamily="{StaticResource MonoFont}"
+                                 CharacterCasing="Upper"
+                                 MaxLength="5"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 CornerRadius="2"
+                                 MinWidth="160"
+                                 HorizontalAlignment="Left"/>
+
+                        <Button Content="Reset all data"
+                                Command="{x:Bind ViewModel.ResetAllDataCommand}"
+                                IsEnabled="{x:Bind ViewModel.IsResetConfirmTextValid, Mode=OneWay}"
+                                Background="{StaticResource LossRedBrush}"
+                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
+                                HorizontalAlignment="Left"
+                                Height="32" Padding="14,0" CornerRadius="2"
+                                BorderThickness="0"/>
+
+                        <TextBlock Text="{x:Bind ViewModel.ResetStatus, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource LossRedBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{x:Bind HasText(ViewModel.ResetStatus), Mode=OneWay}"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 

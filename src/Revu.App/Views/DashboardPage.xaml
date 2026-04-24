@@ -277,19 +277,7 @@
                                 </StackPanel>
                             </controls:CornerBracketedCard>
 
-                            <!-- Last focus (bronze-tinted) -->
-                            <controls:CornerBracketedCard CardBackground="{StaticResource FocusPanelBrush}"
-                                                          CardBorderBrush="{StaticResource AccentGoldBrush}"
-                                                          Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                <StackPanel Spacing="8">
-                                    <controls:SectionTitle Text="LAST FOCUS"/>
-                                    <TextBlock Text="{x:Bind ViewModel.LastFocus, Mode=OneWay}"
-                                               FontFamily="{StaticResource BodyFont}"
-                                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </controls:CornerBracketedCard>
+                            <!-- v2.15.0: LAST FOCUS card removed. See DashboardViewModel.cs for rationale. -->
                         </StackPanel>
                     </Grid>
                 </StackPanel>

@@ -28,6 +28,7 @@ public partial class ShellViewModel : ObservableRecipient,
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
     private readonly IGameLifecycleWorkflowService _gameLifecycleWorkflow;
+    private readonly IPromptsRepository _promptsRepository;
     private readonly IMatchHistoryReconciliationService _matchHistoryReconciliationService;
     private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
     private readonly ISessionLogRepository _sessionLogRepository;
@@ -107,6 +108,7 @@ public partial class ShellViewModel : ObservableRecipient,
         IMissedGameDecisionRepository missedGameDecisionRepository,
         ISessionLogRepository sessionLogRepository,
         IRulesRepository rulesRepository,
+        IPromptsRepository promptsRepository,
         IConfigService configService,
         IRiotAuthClient riotAuthClient,
         IUpdateService updateService,
@@ -120,6 +122,7 @@ public partial class ShellViewModel : ObservableRecipient,
         _missedGameDecisionRepository = missedGameDecisionRepository;
         _sessionLogRepository = sessionLogRepository;
         _rulesRepository = rulesRepository;
+        _promptsRepository = promptsRepository;
         _configService = configService;
         _riotAuthClient = riotAuthClient;
         _updateService = updateService;
@@ -266,6 +269,23 @@ public partial class ShellViewModel : ObservableRecipient,
                 {
                     _logger.LogInformation("Recovered missed game {GameId} saved silently for later review", result.GameId!.Value);
                     return;
+                }
+
+                // v2.15.0: promote staged pre-game prompt answers into prompt_answers
+                // now that we have a real game_id. Skipped for recovered games since
+                // the champ-select session that produced the drafts is long gone.
+                var sessionKey = PreGameDialogViewModel.LastSessionKey;
+                PreGameDialogViewModel.ResetSessionKey();
+                if (!string.IsNullOrEmpty(sessionKey))
+                {
+                    try
+                    {
+                        await _promptsRepository.PromotePreGameDraftsAsync(sessionKey, result.GameId!.Value);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to promote pre-game prompt drafts for game {GameId}", result.GameId!.Value);
+                    }
                 }
 
                 _preGameMood = 0; // Reset for next game
