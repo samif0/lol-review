@@ -412,18 +412,17 @@
                                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                    Foreground="{StaticResource SecondaryTextBrush}"
                                                    VerticalAlignment="Center"/>
-                                        <ComboBox Grid.Column="1"
-                                                  SelectedIndex="{x:Bind PhaseIndex, Mode=OneWay}"
-                                                  SelectionChanged="ObjectivePhase_SelectionChanged"
-                                                  Background="{StaticResource InputBackgroundBrush}"
-                                                  Foreground="{StaticResource PrimaryTextBrush}"
-                                                  BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                  CornerRadius="2"
-                                                  MinWidth="180">
-                                            <ComboBoxItem Content="Pre-Game"/>
-                                            <ComboBoxItem Content="In-Game"/>
-                                            <ComboBoxItem Content="Post-Game"/>
-                                        </ComboBox>
+                                        <!-- v2.15.1: objectives now support any subset of pre/in/post
+                                             phases — the old single-value ComboBox can't represent
+                                             that. Show the multi-phase summary ("PRE + IN", etc.)
+                                             read-only; use the Edit button to change it. -->
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{x:Bind PhasesSummary}"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                   CharacterSpacing="200"
+                                                   Foreground="{StaticResource AccentBlueBrush}"
+                                                   VerticalAlignment="Center"/>
                                     </Grid>
 
                                     <!-- Level + Score Row -->
