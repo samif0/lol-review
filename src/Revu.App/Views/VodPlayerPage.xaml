@@ -285,11 +285,16 @@
                                      Text="{x:Bind ViewModel.BookmarkNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                <ComboBox Grid.Column="0"
+                                <!-- v2.15.6: SelectedValuePath="Id" with a long? Id property returns a
+                                     boxed `long`, not `long?`. The TwoWay binding to SelectedObjectiveId
+                                     silently failed, so new bookmarks were saved with objective_id=NULL
+                                     even when the user clearly picked one. Use SelectionChanged + read
+                                     ObjectiveOption.Id directly off SelectedItem to bypass that. -->
+                                <ComboBox x:Name="NewBookmarkObjectiveBox"
+                                          Grid.Column="0"
                                           ItemsSource="{x:Bind ViewModel.ObjectiveOptions, Mode=OneWay}"
-                                          SelectedValue="{x:Bind ViewModel.SelectedObjectiveId, Mode=TwoWay}"
-                                          SelectedValuePath="Id"
                                           DisplayMemberPath="Title"
+                                          SelectionChanged="OnNewBookmarkObjectiveSelectionChanged"
                                           PlaceholderText="No objective"
                                           HorizontalAlignment="Stretch"
                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}" CornerRadius="2"

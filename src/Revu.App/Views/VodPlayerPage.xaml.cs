@@ -50,7 +50,45 @@ public sealed partial class VodPlayerPage : Page
             new PointerEventHandler(OnVideoPointerPressed),
             handledEventsToo: true);
 
-        Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
+        Loaded += (_, _) =>
+        {
+            AnimationHelper.AnimatePageEnter(RootGrid);
+            // v2.15.6: initial paint — reflect VM state in the ComboBox.
+            SyncNewBookmarkObjectiveBoxSelection();
+        };
+
+        // v2.15.6: VM property → ComboBox SelectedItem. Keeps the picker in
+        // sync when LoadObjectiveOptionsAsync auto-seeds the priority
+        // objective (which the replaced TwoWay binding used to handle).
+        ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ViewModel.SelectedObjectiveId))
+            {
+                SyncNewBookmarkObjectiveBoxSelection();
+            }
+        };
+        // Options list populates async after LoadAsync. Resync when it changes.
+        ViewModel.ObjectiveOptions.CollectionChanged += (_, _) =>
+            SyncNewBookmarkObjectiveBoxSelection();
+    }
+
+    private void SyncNewBookmarkObjectiveBoxSelection()
+    {
+        if (NewBookmarkObjectiveBox is null) return;
+        var target = ViewModel.SelectedObjectiveId;
+        ObjectiveOption? match = null;
+        foreach (var item in NewBookmarkObjectiveBox.Items)
+        {
+            if (item is ObjectiveOption opt && opt.Id == target)
+            {
+                match = opt;
+                break;
+            }
+        }
+        if (!ReferenceEquals(NewBookmarkObjectiveBox.SelectedItem, match))
+        {
+            NewBookmarkObjectiveBox.SelectedItem = match;
+        }
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -410,6 +448,20 @@ public sealed partial class VodPlayerPage : Page
         FocusPlaybackSurface();
     }
 
+    // v2.15.6: handler for the top-level "new bookmark" objective picker.
+    // Replaces the TwoWay SelectedValue binding which was silently failing
+    // on the long? round-trip.
+    private void OnNewBookmarkObjectiveSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox combo) return;
+        long? selectedId = null;
+        if (combo.SelectedItem is ObjectiveOption option)
+        {
+            selectedId = option.Id;
+        }
+        ViewModel.SelectedObjectiveId = selectedId;
+    }
+
     private async void OnBookmarkObjectiveSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // The ComboBox is inside a DataTemplate — its Tag is x:Bind'd to the
@@ -417,7 +469,16 @@ public sealed partial class VodPlayerPage : Page
         if (sender is not ComboBox combo || combo.Tag is not BookmarkItem bookmark)
             return;
 
-        var selectedId = combo.SelectedValue as long?;
+        // v2.15.6: SelectedValue returns the objective's Id as a BOXED long
+        // (not long?), so `SelectedValue as long?` always returned null and
+        // the no-op guard below short-circuited every real user selection.
+        // That's why per-clip objective picks "didn't save." Pull the Id off
+        // the typed ObjectiveOption via SelectedItem instead.
+        long? selectedId = null;
+        if (combo.SelectedItem is ObjectiveOption option)
+        {
+            selectedId = option.Id;
+        }
 
         // SelectionChanged fires during initial template binding with the same
         // value that's already on the item — no-op so we don't hammer the DB.
