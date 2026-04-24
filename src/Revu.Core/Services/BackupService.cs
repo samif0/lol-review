@@ -65,6 +65,11 @@ public sealed class BackupService : IBackupService
 
         try
         {
+            // v2.15.4: force a WAL checkpoint before copying so the backup
+            // actually contains the latest writes. Without this, anything
+            // written since the last implicit checkpoint lives only in
+            // revu.db-wal and File.Copy of the main .db misses it.
+            CheckpointDatabase();
             Directory.CreateDirectory(backupDir);
             File.Copy(dbPath, dest, overwrite: false);
             var fileSize = new FileInfo(dbPath).Length;
@@ -178,6 +183,11 @@ public sealed class BackupService : IBackupService
         string backupFilePath;
         try
         {
+            // v2.15.4: checkpoint first so WAL-resident writes (everything
+            // between the last implicit checkpoint and now) land in the
+            // main .db file BEFORE the copy. Otherwise the pre-reset
+            // backup will be silently stale — missing any in-session edits.
+            CheckpointDatabase();
             Directory.CreateDirectory(backupDir);
             var name = $"{PreResetPrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db";
             backupFilePath = Path.Combine(backupDir, name);
@@ -278,6 +288,8 @@ public sealed class BackupService : IBackupService
         string? preRestorePath = null;
         try
         {
+            // v2.15.4: checkpoint before backing up — see CreateSafetyBackupAsync.
+            CheckpointDatabase();
             if (File.Exists(dbPath))
             {
                 var name = $"{PreRestorePrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db";
@@ -341,6 +353,22 @@ public sealed class BackupService : IBackupService
             return new RestoreResult(false, preRestorePath, "Could not copy the backup into place. Your pre-restore snapshot is safe.");
         }
 
+        // Clear pools AGAIN after the file is back in place. Any connection
+        // that gets opened next must see the restored file, not the old
+        // cached empty-DB state from just before the delete.
+        //
+        // In production the app exits right after this call (see
+        // SettingsViewModel) — so this is belt-and-suspenders. But tests
+        // hold the same process and would otherwise hit "no such table"
+        // against stale cached connections under SqliteCacheMode.Shared.
+        // Combined pool clear + GC releases the shared-cache in-process
+        // handle so the next CreateConnection sees the restored schema.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
         await Task.CompletedTask;
         return new RestoreResult(true, preRestorePath, null);
     }
@@ -377,6 +405,34 @@ public sealed class BackupService : IBackupService
                             : "Backup";
         var mb = sizeBytes / (1024.0 * 1024.0);
         return $"{kind} — {timestamp:MMM d yyyy, h:mm tt} — {mb:F1} MB";
+    }
+
+    /// <summary>
+    /// v2.15.4: force a full WAL checkpoint so all pending writes land in the
+    /// main .db file. Critical before any File.Copy of the DB — otherwise the
+    /// copy misses everything in the WAL and the resulting backup is silently
+    /// stale.
+    /// </summary>
+    private void CheckpointDatabase()
+    {
+        // If the DB file doesn't exist, don't create an empty one just to
+        // checkpoint nothing. Callers guard their File.Copy on existence
+        // already, so this is a no-op in that case.
+        if (!File.Exists(_connectionFactory.DatabasePath)) return;
+
+        try
+        {
+            using var conn = _connectionFactory.CreateConnection();
+            using var cmd = conn.CreateCommand();
+            // TRUNCATE: writes WAL into main DB + truncates WAL file to zero
+            // length. Blocks until done, which is what we want here.
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            cmd.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "WAL checkpoint failed; backup may be stale");
+        }
     }
 
     // ── Private helpers ─────────────────────────────────────────────
