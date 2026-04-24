@@ -71,6 +71,7 @@ public sealed class ConfigService : IConfigService
     public string RiotPuuid => GetCached().RiotPuuid;
     public string PrimaryRole => GetCached().PrimaryRole;
     public bool OnboardingSkipped => GetCached().OnboardingSkipped;
+    public bool AscentReminderDismissed => GetCached().AscentReminderDismissed;
 
     public bool IsAscentEnabled => AscentFolder is not null;
 

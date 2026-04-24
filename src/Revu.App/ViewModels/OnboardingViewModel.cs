@@ -2,10 +2,8 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
-using Windows.Storage.Pickers;
 
 namespace Revu.App.ViewModels;
 
@@ -13,38 +11,30 @@ namespace Revu.App.ViewModels;
 /// Viewmodel for the first-launch onboarding flow.
 ///
 /// States (<see cref="State"/>):
-///   "welcome"       — hero + "Start using Revu" (primary) / "Log in with email" (secondary)
-///   "emailEntry"    — email input for the optional login path
-///   "codeSent"      — paste emailed OTP (login path only)
-///   "account"       — Riot ID + region (login path only)
-///   "role"          — primary-role pick (login path only)
-///   "tourWhat"      — shared: what Revu is (1/5)
-///   "tourLoop"      — shared: auto-capture + review (2/5)
-///   "tourAscent"    — shared: connect Ascent recordings folder (3/5)
-///   "tourHabits"    — shared: objectives + rules (4/5)
-///   "tourObjective" — shared: create first objective (5/5, writes to DB)
-///   "done"          — onboarding host swaps in the shell
+///   "welcome"    — hero + "Start using Revu" (primary) / "Log in with email" (secondary)
+///   "emailEntry" — email input for the optional login path
+///   "codeSent"   — paste emailed OTP (login path only)
+///   "account"    — Riot ID + region (login path only)
+///   "role"       — primary-role pick; last screen before "done"
+///   "done"       — onboarding host swaps in the shell
 ///
-/// Both paths (login and skip) converge at "tourWhat" after any auth steps.
-/// Skip sets <c>OnboardingSkipped=true</c>; login sets it false. Either way,
-/// <c>OnboardingComplete</c> becomes true by the time we fire <c>Completed</c>.
+/// The old multi-screen tour (tourWhat/tourLoop/tourAscent/tourHabits/tourObjective)
+/// has been cut. Contextual prompts now live on the Dashboard — see
+/// DashboardViewModel's Stage / NextStep / Ascent-reminder properties.
 /// </summary>
 public partial class OnboardingViewModel : ObservableObject
 {
     private readonly IConfigService _configService;
     private readonly IRiotAuthClient _authClient;
-    private readonly IObjectivesRepository _objectivesRepo;
     private readonly ILogger<OnboardingViewModel> _logger;
 
     public OnboardingViewModel(
         IConfigService configService,
         IRiotAuthClient authClient,
-        IObjectivesRepository objectivesRepo,
         ILogger<OnboardingViewModel> logger)
     {
         _configService = configService;
         _authClient = authClient;
-        _objectivesRepo = objectivesRepo;
         _logger = logger;
     }
 
@@ -62,9 +52,8 @@ public partial class OnboardingViewModel : ObservableObject
     [ObservableProperty]
     private string _info = "";
 
-    // True once the user has chosen the login path. Used to route the tour's
-    // final step back to "done" directly, and to short-circuit the "Skip auth"
-    // branch on welcome.
+    // True once the user has chosen the login path. Controls which
+    // OnboardingSkipped value we stamp when role-pick finishes.
     private bool _chosenLoginPath;
 
     // ── Email / auth ────────────────────────────────────────────────
@@ -83,7 +72,7 @@ public partial class OnboardingViewModel : ObservableObject
     [ObservableProperty]
     private string _riotRegion = "na1";
 
-    // ── Role (logged-in only) ───────────────────────────────────────
+    // ── Role ────────────────────────────────────────────────────────
 
     /// <summary>Riot internal role code: TOP|JUNGLE|MIDDLE|BOTTOM|UTILITY. Empty until chosen.</summary>
     [ObservableProperty]
@@ -104,34 +93,12 @@ public partial class OnboardingViewModel : ObservableObject
         OnPropertyChanged(nameof(IsUtilitySelected));
     }
 
-    // ── Tour: Ascent folder ─────────────────────────────────────────
-
-    /// <summary>Chosen Ascent recordings folder. Empty until the user picks one.</summary>
-    [ObservableProperty]
-    private string _ascentFolder = "";
-
-    /// <summary>True once <see cref="AscentFolder"/> is non-empty (drives CTA label).</summary>
-    public bool HasAscentFolder => !string.IsNullOrWhiteSpace(AscentFolder);
-
-    partial void OnAscentFolderChanged(string value)
-    {
-        OnPropertyChanged(nameof(HasAscentFolder));
-    }
-
-    // ── Tour: first objective ───────────────────────────────────────
-
-    [ObservableProperty]
-    private string _firstObjectiveTitle = "";
-
-    [ObservableProperty]
-    private string _firstObjectiveConfirmation = "";
-
     /// <summary>Fires when the flow completes (with or without auth).</summary>
     public event Action? Completed;
 
     // ── Welcome ──────────────────────────────────────────────────────
 
-    /// <summary>Primary action: skip auth, go into the role step then the tour.</summary>
+    /// <summary>Primary action: skip auth and go straight to role pick.</summary>
     [RelayCommand]
     private void StartUsingRevu()
     {
@@ -288,7 +255,7 @@ public partial class OnboardingViewModel : ObservableObject
         finally { Busy = false; }
     }
 
-    // ── Role (logged-in only) ───────────────────────────────────────
+    // ── Role (final step — stamps OnboardingSkipped + fires Completed) ─
 
     [RelayCommand]
     private void SelectRole(string role)
@@ -312,10 +279,20 @@ public partial class OnboardingViewModel : ObservableObject
         {
             var config = await _configService.LoadAsync();
             config.PrimaryRole = PrimaryRole;
+
+            // Skip-path users need OnboardingSkipped=true so the gate stops
+            // firing. Login-path users already had it set false during
+            // FinishAccountAsync — we have RiotProxyEnabled + PrimaryRole,
+            // which is the other branch of OnboardingComplete.
+            if (!_chosenLoginPath)
+            {
+                config.OnboardingSkipped = true;
+            }
             await _configService.SaveAsync(config);
 
-            State = "tourWhat";
+            State = "done";
             Error = "";
+            Completed?.Invoke();
         }
         catch (Exception ex)
         {
@@ -323,156 +300,5 @@ public partial class OnboardingViewModel : ObservableObject
             Error = "Couldn't save your role.";
         }
         finally { Busy = false; }
-    }
-
-    // ── Tour (shared by both paths) ─────────────────────────────────
-
-    [RelayCommand]
-    private async Task NextTourStepAsync()
-    {
-        Error = "";
-
-        // Leaving tourAscent: persist whatever the user picked (may be empty).
-        // We only write if it differs, to avoid pointless config churn.
-        if (State == "tourAscent")
-        {
-            try
-            {
-                var config = await _configService.LoadAsync();
-                var picked = (AscentFolder ?? "").Trim();
-                if (!string.Equals(config.AscentFolder ?? "", picked, StringComparison.OrdinalIgnoreCase))
-                {
-                    config.AscentFolder = picked;
-                    await _configService.SaveAsync(config);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Onboarding save-ascent-folder failed");
-                // Non-fatal — keep moving. User can re-set it in Settings.
-            }
-        }
-
-        State = State switch
-        {
-            "tourWhat" => "tourLoop",
-            "tourLoop" => "tourAscent",
-            "tourAscent" => "tourHabits",
-            "tourHabits" => "tourObjective",
-            _ => State,
-        };
-    }
-
-    /// <summary>Open a folder picker and store the result in <see cref="AscentFolder"/>.</summary>
-    [RelayCommand]
-    private async Task BrowseAscentFolderAsync()
-    {
-        if (Busy) return;
-        Busy = true;
-        try
-        {
-            var picked = await PickFolderAsync("Select Ascent Recordings Folder");
-            if (!string.IsNullOrWhiteSpace(picked))
-            {
-                AscentFolder = picked;
-                Error = "";
-            }
-        }
-        finally { Busy = false; }
-    }
-
-    /// <summary>Clear the picked folder (in case the user wants to start over).</summary>
-    [RelayCommand]
-    private void ClearAscentFolder()
-    {
-        AscentFolder = "";
-    }
-
-    [RelayCommand]
-    private async Task CreateFirstObjectiveAsync()
-    {
-        if (Busy) return;
-        Error = "";
-        var title = (FirstObjectiveTitle ?? "").Trim();
-        if (string.IsNullOrEmpty(title))
-        {
-            Error = "Give your objective a name — something short you want to practice this session.";
-            return;
-        }
-
-        Busy = true;
-        try
-        {
-            await _objectivesRepo.CreateAsync(title);
-            FirstObjectiveConfirmation = $"✔ \"{title}\" is now your priority objective.";
-
-            // Stamp skip/finish state and fire Completed. For the login path
-            // OnboardingSkipped is already false (set during FinishAccountAsync);
-            // for the skip path we set it here.
-            var config = await _configService.LoadAsync();
-            if (!_chosenLoginPath)
-            {
-                config.OnboardingSkipped = true;
-                await _configService.SaveAsync(config);
-            }
-
-            State = "done";
-            Completed?.Invoke();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Onboarding first-objective create failed");
-            Error = "Couldn't save your objective. Try again.";
-        }
-        finally { Busy = false; }
-    }
-
-    /// <summary>
-    /// Skip the "create an objective" step. Still records OnboardingSkipped
-    /// as appropriate so the user doesn't land back here.
-    /// </summary>
-    [RelayCommand]
-    private async Task SkipTourObjectiveAsync()
-    {
-        if (Busy) return;
-        Busy = true;
-        try
-        {
-            var config = await _configService.LoadAsync();
-            if (!_chosenLoginPath)
-            {
-                config.OnboardingSkipped = true;
-                await _configService.SaveAsync(config);
-            }
-            State = "done";
-            Completed?.Invoke();
-        }
-        finally { Busy = false; }
-    }
-
-    // ── Folder picker helper ────────────────────────────────────────
-    //
-    // Mirrors SettingsViewModel.PickFolderAsync. WinUI 3 FolderPicker needs
-    // the owning window HWND wired via InitializeWithWindow or it throws.
-    private static async Task<string?> PickFolderAsync(string description)
-    {
-        try
-        {
-            var picker = new FolderPicker();
-            picker.SuggestedStartLocation = PickerLocationId.VideosLibrary;
-            picker.FileTypeFilter.Add("*");
-
-            var hwnd = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-            if (hwnd == nint.Zero) return null;
-
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-
-            var folder = await picker.PickSingleFolderAsync();
-            return folder?.Path;
-        }
-        catch
-        {
-            return null;
-        }
     }
 }

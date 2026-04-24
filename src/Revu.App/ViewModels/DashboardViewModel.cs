@@ -13,18 +13,48 @@ using Revu.Core.Lcu;
 using Revu.Core.Models;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
+using Windows.Storage.Pickers;
 
 namespace Revu.App.ViewModels;
+
+/// <summary>
+/// The four Dashboard stages. Drives which sections render — new users
+/// see only the Next Step card, veterans see the full stat strip + queue
+/// + objectives grid.
+/// </summary>
+public enum DashboardStage
+{
+    /// <summary>0 games captured — first-launch state.</summary>
+    NoGames,
+
+    /// <summary>1-2 games captured, at least one is unreviewed.</summary>
+    HasUnreviewed,
+
+    /// <summary>3+ reviewed games, no active objectives yet.</summary>
+    NeedsObjective,
+
+    /// <summary>5+ reviewed games — power user, full dashboard visible.</summary>
+    Normal,
+}
 
 /// <summary>ViewModel for the Dashboard page — session overview, stats, unreviewed games.</summary>
 public partial class DashboardViewModel : ObservableObject
 {
+    // Tunable — number of reviewed games before the stat strip + objectives grid
+    // show up. Below this, averages are noisy and streaks feel unearned.
+    private const int NormalStageThreshold = 5;
+
+    // At or above this many *reviewed* games (but below NormalStageThreshold),
+    // if there are no active objectives, nudge toward setting one.
+    private const int NeedsObjectiveThreshold = 3;
+
     private readonly IGameRepository _gameRepo;
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly INavigationService _navigationService;
     private readonly IConfigService _configService;
     private readonly IDialogService _dialogService;
+    private readonly IAnalysisService _analysisService;
     private readonly ILogger<DashboardViewModel> _logger;
 
     // ── Observable Properties ───────────────────────────────────────
@@ -93,6 +123,54 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     private bool _allReviewed;
 
+    // ── Empty-state (stage + next step + ascent reminder) ──────────
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowMainDashboardSections))]
+    [NotifyPropertyChangedFor(nameof(ShowNextStepCard))]
+    [NotifyPropertyChangedFor(nameof(NextStepCardBorderHex))]
+    [NotifyPropertyChangedFor(nameof(ShowNextStepCta))]
+    [NotifyPropertyChangedFor(nameof(ShowNextStepDismiss))]
+    private DashboardStage _stage = DashboardStage.NoGames;
+
+    [ObservableProperty]
+    private string _nextStepEyebrow = "";
+
+    [ObservableProperty]
+    private string _nextStepTitle = "";
+
+    [ObservableProperty]
+    private string _nextStepBody = "";
+
+    [ObservableProperty]
+    private string _nextStepCta = "";
+
+    [ObservableProperty]
+    private bool _showAscentReminder;
+
+    /// <summary>True when the Normal-stage sections (stat strip + queue + objectives) should render.</summary>
+    public bool ShowMainDashboardSections => Stage == DashboardStage.Normal;
+
+    /// <summary>True when the Next Step card should render (anything other than Normal).</summary>
+    public bool ShowNextStepCard => Stage != DashboardStage.Normal;
+
+    /// <summary>Stage-specific border color — blue for the hero stages, violet for the objective nudge.</summary>
+    public string NextStepCardBorderHex => Stage switch
+    {
+        DashboardStage.NeedsObjective => "#8A7CFF", // AccentPurple
+        _ => "#6EC8D7",                             // AccentTeal — reads as "onboarding"
+    };
+
+    /// <summary>Whether the Next Step card should show its CTA button (NoGames is message-only).</summary>
+    public bool ShowNextStepCta => Stage is DashboardStage.HasUnreviewed or DashboardStage.NeedsObjective;
+
+    /// <summary>
+    /// Whether the Next Step card should show a dismiss control. Lowest-data
+    /// states (NoGames, HasUnreviewed) have none — the user needs the prompt.
+    /// Only the NeedsObjective nudge is dismissible.
+    /// </summary>
+    public bool ShowNextStepDismiss => Stage == DashboardStage.NeedsObjective;
+
     public ObservableCollection<GameDisplayItem> TodaysGames { get; } = new();
     public ObservableCollection<GameDisplayItem> UnreviewedGames { get; } = new();
     public ObservableCollection<DashboardObjectiveItem> ActiveObjectives { get; } = new();
@@ -111,6 +189,15 @@ public partial class DashboardViewModel : ObservableObject
     /// <summary>"3W // 2L" compact win/loss line. Empty when there are no games yet.</summary>
     public string RecordLine => (Wins + Losses) == 0 ? "" : $"{Wins}W // {Losses}L";
 
+    // Cached suggestion produced during LoadAsync, so the "SET OBJECTIVE"
+    // button can pre-fill the create form without re-running the full
+    // profile generation when clicked.
+    private ObjectiveSuggestion? _cachedFirstSuggestion;
+
+    // If the user dismisses the "set your first objective" nudge in the
+    // current session, don't re-show it on reload. Resets on app relaunch.
+    private bool _needsObjectiveDismissedForSession;
+
     // ── Constructor ─────────────────────────────────────────────────
 
     public DashboardViewModel(
@@ -120,6 +207,7 @@ public partial class DashboardViewModel : ObservableObject
         INavigationService navigationService,
         IConfigService configService,
         IDialogService dialogService,
+        IAnalysisService analysisService,
         ILogger<DashboardViewModel> logger)
     {
         _gameRepo = gameRepo;
@@ -128,6 +216,7 @@ public partial class DashboardViewModel : ObservableObject
         _navigationService = navigationService;
         _configService = configService;
         _dialogService = dialogService;
+        _analysisService = analysisService;
         _logger = logger;
     }
 
@@ -261,6 +350,14 @@ public partial class DashboardViewModel : ObservableObject
                     TodaysGames.Add(MapGameDisplay(game));
                 }
             });
+
+            // Decide the onboarding/empty-state stage *after* everything else
+            // loaded, using the queries we already have plus overall totals.
+            await ComputeStageAsync(activeObjectiveCount: objectives.Count);
+
+            // Refresh the Ascent reminder from config each load — user may
+            // have picked a folder in Settings since we last looked.
+            RefreshAscentReminder();
         }
         catch (Exception ex)
         {
@@ -341,6 +438,247 @@ public partial class DashboardViewModel : ObservableObject
         }
     }
 
+    // ── Empty-state / next-step commands ────────────────────────────
+
+    /// <summary>
+    /// Primary action on the Next Step card — branches on <see cref="Stage"/>.
+    /// No-op for NoGames (card is message-only) and Normal (card is hidden).
+    /// </summary>
+    [RelayCommand]
+    private async Task TakeNextStepAsync()
+    {
+        switch (Stage)
+        {
+            case DashboardStage.HasUnreviewed:
+                // Jump to the first unreviewed game if we have one, otherwise
+                // fall back to the session logger.
+                var first = UnreviewedGames.FirstOrDefault();
+                if (first is not null)
+                {
+                    _navigationService.NavigateTo("review", first.GameId);
+                }
+                else
+                {
+                    _navigationService.NavigateTo("session");
+                }
+                break;
+
+            case DashboardStage.NeedsObjective:
+                await NavigateToObjectivesWithSeedAsync();
+                break;
+
+            default:
+                // NoGames + Normal have no button wired to this command.
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Navigate to Objectives with a pre-seeded suggestion (if we have one)
+    /// so the create form opens pre-filled with the top AI-rule match.
+    /// </summary>
+    private async Task NavigateToObjectivesWithSeedAsync()
+    {
+        // Re-run the suggestion query if the cache is empty (e.g. user hit
+        // the button without a prior LoadAsync populating it).
+        if (_cachedFirstSuggestion is null)
+        {
+            try
+            {
+                var profile = await _analysisService.GenerateProfileAsync();
+                var list = _analysisService.GenerateSuggestions(profile, limit: 1);
+                _cachedFirstSuggestion = list.FirstOrDefault();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Dashboard: on-demand suggestion generation failed");
+            }
+        }
+
+        // Pass the suggestion (or null) through — ObjectivesPage opens its
+        // create form regardless, just without pre-fill if null.
+        _navigationService.NavigateTo("objectives", _cachedFirstSuggestion);
+    }
+
+    /// <summary>
+    /// Dismiss the "set your first objective" nudge for the rest of the
+    /// current app session. Resets on relaunch.
+    /// </summary>
+    [RelayCommand]
+    private void DismissNextStep()
+    {
+        if (Stage != DashboardStage.NeedsObjective) return;
+        _needsObjectiveDismissedForSession = true;
+        // Promoting to Normal bypasses the card without hiding the rest.
+        Stage = DashboardStage.Normal;
+        PopulateNextStepCopy();
+    }
+
+    /// <summary>Open the folder picker to set the Ascent recordings folder.</summary>
+    [RelayCommand]
+    private async Task PickAscentFolderAsync()
+    {
+        var folder = await PickFolderAsync("Select Ascent Recordings Folder");
+        if (string.IsNullOrWhiteSpace(folder)) return;
+
+        try
+        {
+            var config = await _configService.LoadAsync();
+            config.AscentFolder = folder!;
+            await _configService.SaveAsync(config);
+            RefreshAscentReminder();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save Ascent folder from dashboard reminder");
+        }
+    }
+
+    /// <summary>
+    /// Permanently dismiss the Ascent reminder card (persists in config).
+    /// The user can still set the folder later via Settings.
+    /// </summary>
+    [RelayCommand]
+    private async Task DismissAscentReminderAsync()
+    {
+        try
+        {
+            var config = await _configService.LoadAsync();
+            config.AscentReminderDismissed = true;
+            await _configService.SaveAsync(config);
+            RefreshAscentReminder();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist Ascent-reminder dismiss");
+        }
+    }
+
+    // ── Stage computation ───────────────────────────────────────────
+
+    private async Task ComputeStageAsync(int activeObjectiveCount)
+    {
+        try
+        {
+            // Total captured games (all-time, ranked/normal, is_hidden=0).
+            var overall = await _gameRepo.GetOverallStatsAsync();
+            var totalCaptured = overall.TotalGames;
+
+            if (totalCaptured == 0)
+            {
+                Stage = DashboardStage.NoGames;
+                _cachedFirstSuggestion = null;
+                PopulateNextStepCopy();
+                return;
+            }
+
+            // Count reviewed games — sample the recent 50 and run the same
+            // HasPersistedReview heuristic we use on the Unreviewed queue.
+            // 50 is enough to distinguish 0/1/2/3/5+ since the stage
+            // thresholds are all well under that.
+            var recent = await _gameRepo.GetRecentAsync(limit: 50, offset: 0);
+            var reviewedCount = recent.Count(HasPersistedReview);
+
+            if (reviewedCount >= NormalStageThreshold)
+            {
+                Stage = DashboardStage.Normal;
+                _cachedFirstSuggestion = null;
+            }
+            else if (reviewedCount >= NeedsObjectiveThreshold && activeObjectiveCount == 0)
+            {
+                if (_needsObjectiveDismissedForSession)
+                {
+                    // User opted out for this session — don't nag again.
+                    Stage = DashboardStage.Normal;
+                    _cachedFirstSuggestion = null;
+                }
+                else
+                {
+                    Stage = DashboardStage.NeedsObjective;
+                    // Pre-warm the suggestion so the CTA click feels instant.
+                    try
+                    {
+                        var profile = await _analysisService.GenerateProfileAsync();
+                        var list = _analysisService.GenerateSuggestions(profile, limit: 1);
+                        _cachedFirstSuggestion = list.FirstOrDefault();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Dashboard: suggestion pre-warm failed");
+                        _cachedFirstSuggestion = null;
+                    }
+                }
+            }
+            else
+            {
+                // 1-2 captured games, or (3-4 reviewed AND active objective already exists).
+                // Both paths land on HasUnreviewed: the unreviewed queue or
+                // the natural play-more-games prompt.
+                Stage = DashboardStage.HasUnreviewed;
+                _cachedFirstSuggestion = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to compute Dashboard stage");
+            // Default conservatively to Normal so the user always sees *something*.
+            Stage = DashboardStage.Normal;
+            _cachedFirstSuggestion = null;
+        }
+
+        PopulateNextStepCopy();
+    }
+
+    private void PopulateNextStepCopy()
+    {
+        switch (Stage)
+        {
+            case DashboardStage.NoGames:
+                NextStepEyebrow = "START HERE";
+                NextStepTitle = "Play a ranked game";
+                NextStepBody = "Revu captures it automatically once the game ends. "
+                             + "Leave the app running in the background while you queue.";
+                NextStepCta = "";
+                break;
+
+            case DashboardStage.HasUnreviewed:
+                NextStepEyebrow = "NEXT STEP";
+                NextStepTitle = "Your last game is ready to review";
+                NextStepBody = "Write a few sentences while it's fresh — what went well, the biggest mistake, "
+                             + "and one thing to focus on next. Consistency beats length.";
+                NextStepCta = "REVIEW NOW";
+                break;
+
+            case DashboardStage.NeedsObjective:
+                NextStepEyebrow = "NEXT STEP";
+                NextStepTitle = "Set your first objective";
+                NextStepBody = _cachedFirstSuggestion is not null
+                    ? $"Based on your reviews so far: \u201C{_cachedFirstSuggestion.Title}\u201D. "
+                      + "Try it as a practice focus for your next few games."
+                    : "Pick one specific thing you want to practice over your next few games. "
+                      + "Objectives stack score as you keep at them.";
+                NextStepCta = "SET OBJECTIVE";
+                break;
+
+            default:
+                NextStepEyebrow = "";
+                NextStepTitle = "";
+                NextStepBody = "";
+                NextStepCta = "";
+                break;
+        }
+    }
+
+    private void RefreshAscentReminder()
+    {
+        // Show when the user has never pointed at a folder AND hasn't told
+        // us to stop nagging. IsAscentEnabled returns false on both "empty
+        // config" and "folder configured but missing on disk" — the latter
+        // is still worth a reminder.
+        var dismissed = _configService.AscentReminderDismissed;
+        ShowAscentReminder = !dismissed && !_configService.IsAscentEnabled;
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static GameDisplayItem MapGameDisplay(GameStats game)
@@ -410,6 +748,32 @@ public partial class DashboardViewModel : ObservableObject
 
     private static string GetLevelColor(int levelIndex) =>
         AppSemanticPalette.ObjectiveLevelHex(levelIndex);
+
+    // ── Folder picker helper ────────────────────────────────────────
+    //
+    // Mirrors SettingsViewModel.PickFolderAsync — WinUI 3 FolderPicker needs
+    // the owning window HWND wired via InitializeWithWindow or it throws.
+    private static async Task<string?> PickFolderAsync(string description)
+    {
+        try
+        {
+            var picker = new FolderPicker();
+            picker.SuggestedStartLocation = PickerLocationId.VideosLibrary;
+            picker.FileTypeFilter.Add("*");
+
+            var hwnd = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+            if (hwnd == nint.Zero) return null;
+
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+            var folder = await picker.PickSingleFolderAsync();
+            return folder?.Path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 
 // ── Display models ──────────────────────────────────────────────────

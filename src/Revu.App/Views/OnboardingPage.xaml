@@ -45,11 +45,31 @@
                     Visibility="{x:Bind IsState(ViewModel.State, 'welcome'), Mode=OneWay}">
                     <StackPanel Spacing="14">
                         <controls:SectionTitle Text="GET STARTED"/>
-                        <TextBlock Text="Revu is a local-first League tracker. No sign-up, no account required — just start using it. You can log in with email later if you want, but it's optional."
+                        <TextBlock Text="Revu turns every ranked game into data you can learn from. Local-first, no account required — it works the moment you start playing."
                                    FontFamily="{StaticResource BodyFont}"
                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
                                    TextWrapping="Wrap"/>
+
+                        <!-- Three-line "how Revu works" teaching, kept tight so it doesn't
+                             feel like a tour. Full tour lives under Settings → How Revu works. -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="• Leave it running in the background. Ranked games get captured automatically — stats, champ, KDA, result — no manual entry."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="• Write a quick review while it's fresh: what went well, biggest mistake, one thing to focus on next. A sentence each is fine."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="• Track habits with Objectives (things to practice) and Rules (things not to do). Your dashboard keeps them in front of you."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
 
                         <Button Content="START USING REVU"
                                 Command="{x:Bind ViewModel.StartUsingRevuCommand}"
@@ -272,232 +292,6 @@
                                 IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
                                 HorizontalAlignment="Stretch"
                                 Height="44"/>
-                    </StackPanel>
-                </controls:CornerBracketedCard>
-
-                <!-- ═════ Tour 1/4: What Revu is ═════ -->
-                <controls:CornerBracketedCard
-                    CardBorderBrush="{StaticResource AccentBlueBrush}"
-                    Visibility="{x:Bind IsState(ViewModel.State, 'tourWhat'), Mode=OneWay}">
-                    <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="WHAT REVU IS — 1 / 5"/>
-                        <TextBlock Text="Revu is a ranked-only League companion that turns every game into data you can learn from. It captures your matches automatically, helps you review them in a few sentences, and tracks the habits you're trying to build."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="Your history stacks up across sessions and seasons so you can spot what's actually working — not just what felt good in the moment."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-
-                        <Button Content="NEXT"
-                                Command="{x:Bind ViewModel.NextTourStepCommand}"
-                                Style="{StaticResource PrimaryActionButtonStyle}"
-                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
-                                HorizontalAlignment="Stretch"
-                                Height="44"/>
-                    </StackPanel>
-                </controls:CornerBracketedCard>
-
-                <!-- ═════ Tour 2/4: Auto-capture + review ═════ -->
-                <controls:CornerBracketedCard
-                    CardBorderBrush="{StaticResource AccentGoldBrush}"
-                    Visibility="{x:Bind IsState(ViewModel.State, 'tourLoop'), Mode=OneWay}">
-                    <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="CAPTURE + REVIEW — 2 / 5"/>
-                        <TextBlock Text="Leave Revu running in the background. When you finish a ranked game, it's picked up automatically — stats, champ, KDA, result — no manual entry."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="Write a quick review while it's fresh: what went well, your biggest mistake, and one thing to focus on next. A sentence each is fine — consistency matters more than length."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="If you miss one, you can add it manually from the Archive. Reviews you haven't written yet show a red dot in the sidebar."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-
-                        <Button Content="NEXT"
-                                Command="{x:Bind ViewModel.NextTourStepCommand}"
-                                Style="{StaticResource PrimaryActionButtonStyle}"
-                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
-                                HorizontalAlignment="Stretch"
-                                Height="44"/>
-                    </StackPanel>
-                </controls:CornerBracketedCard>
-
-                <!-- ═════ Tour 3/5: Connect Ascent recordings ═════ -->
-                <controls:CornerBracketedCard
-                    CardBorderBrush="{StaticResource AccentTealBrush}"
-                    Visibility="{x:Bind IsState(ViewModel.State, 'tourAscent'), Mode=OneWay}">
-                    <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="CONNECT ASCENT — 3 / 5"/>
-                        <TextBlock Text="Revu can pair each game with its Ascent VOD so you can rewatch and bookmark moments from inside the app."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="Point it at the folder where Ascent saves your recordings. Ascent's default is:"
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-
-                        <!-- Example path, mono-styled so it reads as a code sample -->
-                        <Border Background="{StaticResource InputBackgroundBrush}"
-                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="2"
-                                Padding="12,8">
-                            <TextBlock Text="C:\Users\&lt;user&gt;\Videos\Ascent"
-                                       FontFamily="{StaticResource MonoFont}"
-                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                       Foreground="{StaticResource AccentTealBrush}"
-                                       TextWrapping="NoWrap"
-                                       TextTrimming="CharacterEllipsis"/>
-                        </Border>
-
-                        <!-- Picked-folder readout (only visible once a folder is chosen) -->
-                        <Border Background="{StaticResource CardAltBackgroundBrush}"
-                                BorderBrush="{StaticResource AccentGoldBrush}"
-                                BorderThickness="1"
-                                CornerRadius="2"
-                                Padding="12,8"
-                                Visibility="{x:Bind ViewModel.HasAscentFolder, Mode=OneWay}">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="FOLDER SELECTED"
-                                           FontFamily="{StaticResource MonoFont}"
-                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                                           CharacterSpacing="250"
-                                           Foreground="{StaticResource AccentGoldBrush}"/>
-                                <TextBlock Text="{x:Bind ViewModel.AscentFolder, Mode=OneWay}"
-                                           FontFamily="{StaticResource MonoFont}"
-                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                           Foreground="{StaticResource PrimaryTextBrush}"
-                                           TextWrapping="NoWrap"
-                                           TextTrimming="CharacterEllipsis"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Browse / change-folder button -->
-                        <Grid ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-
-                            <Button Grid.Column="0"
-                                    Content="CHOOSE FOLDER"
-                                    Command="{x:Bind ViewModel.BrowseAscentFolderCommand}"
-                                    Style="{StaticResource PrimaryActionButtonStyle}"
-                                    IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
-                                    HorizontalAlignment="Stretch"
-                                    Height="44"/>
-
-                            <Button Grid.Column="1"
-                                    Content="CLEAR"
-                                    Command="{x:Bind ViewModel.ClearAscentFolderCommand}"
-                                    IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
-                                    Visibility="{x:Bind ViewModel.HasAscentFolder, Mode=OneWay}"
-                                    Height="44"
-                                    Padding="18,0"/>
-                        </Grid>
-
-                        <TextBlock Text="Skip this if you don't use Ascent — but without a folder, VODs won't appear in the client. You can set it anytime in Settings."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-
-                        <!-- Continue — whether or not a folder was chosen -->
-                        <Button Content="CONTINUE"
-                                Command="{x:Bind ViewModel.NextTourStepCommand}"
-                                Style="{StaticResource PrimaryActionButtonStyle}"
-                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
-                                HorizontalAlignment="Stretch"
-                                Height="44"/>
-                    </StackPanel>
-                </controls:CornerBracketedCard>
-
-                <!-- ═════ Tour 4/5: Objectives + rules ═════ -->
-                <controls:CornerBracketedCard
-                    CardBorderBrush="{StaticResource AccentPurpleBrush}"
-                    Visibility="{x:Bind IsState(ViewModel.State, 'tourHabits'), Mode=OneWay}">
-                    <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="OBJECTIVES + RULES — 4 / 5"/>
-                        <TextBlock Text="Two tools for building habits between games:"
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="• Objectives — specific things you're practicing (e.g. &quot;ward the enemy jungle at 2:30 every game&quot;). Revu tracks your streak and level as you practice."
-                                       FontFamily="{StaticResource BodyFont}"
-                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                       Foreground="{StaticResource PrimaryTextBrush}"
-                                       TextWrapping="Wrap"/>
-                            <TextBlock Text="• Rules — things you're committing NOT to do (e.g. &quot;no typing when losing lane&quot;). Revu tracks breakages over time."
-                                       FontFamily="{StaticResource BodyFont}"
-                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                       Foreground="{StaticResource PrimaryTextBrush}"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
-                        <TextBlock Text="Your priority objective shows on the dashboard every session so you don't forget what you're working on."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-
-                        <Button Content="NEXT"
-                                Command="{x:Bind ViewModel.NextTourStepCommand}"
-                                Style="{StaticResource PrimaryActionButtonStyle}"
-                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
-                                HorizontalAlignment="Stretch"
-                                Height="44"/>
-                    </StackPanel>
-                </controls:CornerBracketedCard>
-
-                <!-- ═════ Tour: First objective ═════ -->
-                <controls:CornerBracketedCard
-                    CardBorderBrush="{StaticResource AccentPurpleBrush}"
-                    Visibility="{x:Bind IsState(ViewModel.State, 'tourObjective'), Mode=OneWay}">
-                    <StackPanel Spacing="14">
-                        <controls:SectionTitle Text="YOUR FIRST OBJECTIVE — 5 / 5"/>
-                        <TextBlock Text="Pick one thing you want to practice. It'll show on your dashboard as your priority for the next games. You can change it later from the Objectives page."
-                                   FontFamily="{StaticResource BodyFont}"
-                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   TextWrapping="Wrap"/>
-
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="OBJECTIVE"
-                                       FontFamily="{StaticResource MonoFont}"
-                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                                       CharacterSpacing="250"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBox Text="{x:Bind ViewModel.FirstObjectiveTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="e.g. Ward bushes at 2:30 every game"
-                                     FontFamily="{StaticResource MonoFont}"/>
-                        </StackPanel>
-
-                        <Button Content="CREATE OBJECTIVE + START"
-                                Command="{x:Bind ViewModel.CreateFirstObjectiveCommand}"
-                                Style="{StaticResource PrimaryActionButtonStyle}"
-                                IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"
-                                HorizontalAlignment="Stretch"
-                                Height="44"/>
-
-                        <HyperlinkButton Command="{x:Bind ViewModel.SkipTourObjectiveCommand}"
-                                         Content="Skip — I'll add one later"
-                                         Padding="0"
-                                         HorizontalAlignment="Center"
-                                         IsEnabled="{x:Bind Not(ViewModel.Busy), Mode=OneWay}"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 

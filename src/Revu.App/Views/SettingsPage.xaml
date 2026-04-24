@@ -902,6 +902,104 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
+                <!-- ••• How Revu works (read-anytime reference) ••• -->
+                <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentBlueBrush}">
+                    <StackPanel Spacing="14">
+                        <controls:SectionTitle Text="HOW REVU WORKS"/>
+                        <TextBlock Text="A quick reference if you want to re-read what Revu is doing in the background."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <!-- 1. What Revu is -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="1  //  WHAT REVU IS"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource AccentBlueBrush}"/>
+                            <TextBlock Text="A ranked-only League companion that turns every game into data you can learn from. Your history stacks up across sessions and seasons so you can spot what's actually working — not just what felt good in the moment."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- 2. Capture + review loop -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="2  //  CAPTURE + REVIEW"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource AccentGoldBrush}"/>
+                            <TextBlock Text="Leave Revu running in the background. When you finish a ranked game, it's picked up automatically — stats, champ, KDA, result — no manual entry. Write a quick review while it's fresh: what went well, your biggest mistake, and one thing to focus on next. A sentence each is fine. Unwritten reviews show a red dot in the sidebar."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- 3. Ascent VODs -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="3  //  ASCENT VODS"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource AccentTealBrush}"/>
+                            <TextBlock Text="If you record with Ascent, point Revu at your Ascent folder (above) and it will pair each game with its VOD so you can rewatch and bookmark moments from inside the app. Ascent's default folder is C:\Users\&lt;you&gt;\Videos\Ascent."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- 4. Objectives vs Rules -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="4  //  OBJECTIVES + RULES"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource AccentPurpleBrush}"/>
+                            <TextBlock FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap">
+                                <Run Text="Objectives"
+                                     FontWeight="SemiBold"/>
+                                <Run Text=" are specific things you're practicing (e.g. &quot;ward the enemy jungle at 2:30 every game&quot;). Revu tracks your streak and level as you practice."/>
+                            </TextBlock>
+                            <TextBlock FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap">
+                                <Run Text="Rules"
+                                     FontWeight="SemiBold"/>
+                                <Run Text=" are things you're committing NOT to do (e.g. &quot;no typing when losing lane&quot;). Revu tracks breakages over time."/>
+                            </TextBlock>
+                            <TextBlock Text="Your priority objective shows on the dashboard every session so you don't forget what you're working on."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- 5. Your data -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="5  //  YOUR DATA"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="250"
+                                       Foreground="{StaticResource WinGreenBrush}"/>
+                            <TextBlock Text="Everything lives locally in %LOCALAPPDATA%\LoLReviewData. No cloud sync, no account required — logging in with email is optional and only used to fetch your ranked history from Riot. Your reviews, notes, objectives, and stats never leave your machine."
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
                 <!-- Bottom spacer -->
                 <Border Height="24"/>
 

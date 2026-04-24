@@ -51,6 +51,13 @@ public class AppConfig
     public bool OnboardingSkipped { get; set; }
 
     /// <summary>
+    /// True if the user dismissed the Dashboard reminder to point at an
+    /// Ascent recordings folder. The reminder only shows when this is false
+    /// AND no folder is configured.
+    /// </summary>
+    public bool AscentReminderDismissed { get; set; }
+
+    /// <summary>
     /// Default keybind map — each action maps to a key-event string.
     /// Users can remap these in Settings.
     /// </summary>

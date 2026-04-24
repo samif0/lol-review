@@ -107,6 +107,7 @@ internal sealed class TestConfigService : IConfigService
     public string RiotPuuid => Current.RiotPuuid;
     public string PrimaryRole => Current.PrimaryRole;
     public bool OnboardingSkipped => Current.OnboardingSkipped;
+    public bool AscentReminderDismissed => Current.AscentReminderDismissed;
 
     public bool IsAscentEnabled => !string.IsNullOrWhiteSpace(AscentFolder);
 

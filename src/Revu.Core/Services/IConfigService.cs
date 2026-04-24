@@ -36,6 +36,7 @@ public interface IConfigService
     string RiotPuuid { get; }
     string PrimaryRole { get; }
     bool OnboardingSkipped { get; }
+    bool AscentReminderDismissed { get; }
 
     // ── Derived helpers ─────────────────────────────────────────────
 

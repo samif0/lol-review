@@ -7,9 +7,11 @@ using Revu.App.Helpers;
 using Revu.App.Services;
 using Revu.App.ViewModels;
 using Revu.Core.Lcu;
+using Revu.Core.Models;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Navigation;
 
 namespace Revu.App.Views;
 
@@ -49,6 +51,29 @@ public sealed partial class ObjectivesPage : Page
             : Visibility.Collapsed;
         await ViewModel.LoadCommand.ExecuteAsync(null);
         await RulesVM.LoadCommand.ExecuteAsync(null);
+    }
+
+    /// <summary>
+    /// When the Dashboard's "SET OBJECTIVE" prompt navigates here with an
+    /// <see cref="ObjectiveSuggestion"/>, pre-fill the create form so the
+    /// user sees the suggested objective instead of a blank page.
+    /// </summary>
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+
+        if (e.Parameter is ObjectiveSuggestion suggestion)
+        {
+            ViewModel.NewTitle = suggestion.Title;
+            ViewModel.NewSkillArea = suggestion.SkillArea;
+            ViewModel.NewCriteria = suggestion.CompletionCriteria;
+            ViewModel.NewDescription = suggestion.Description;
+            ViewModel.NewTypeIndex = string.Equals(suggestion.Type, "mental", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            if (!ViewModel.IsCreating)
+            {
+                ViewModel.ToggleCreateFormCommand.Execute(null);
+            }
+        }
     }
 
     private async void OnGenerateObjectiveClick(object sender, RoutedEventArgs e)

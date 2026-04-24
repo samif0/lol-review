@@ -46,6 +46,93 @@
                             HorizontalAlignment="Stretch"
                             Spacing="14">
 
+                    <!-- ••• NEXT STEP (empty-state prompt — hides at Normal stage) ••• -->
+                    <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource AccentTealBrush}"
+                        Visibility="{x:Bind ViewModel.ShowNextStepCard, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="12">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <Rectangle Width="18" Height="1"
+                                           Fill="{StaticResource AccentTealBrush}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.NextStepEyebrow, Mode=OneWay}"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="300"
+                                           Foreground="{StaticResource AccentTealBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.NextStepTitle, Mode=OneWay}"
+                                       FontFamily="{StaticResource HeadingFont}"
+                                       FontSize="{Binding Title, Source={StaticResource FontSizes}}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{x:Bind ViewModel.NextStepBody, Mode=OneWay}"
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">
+                                <Button Content="{x:Bind ViewModel.NextStepCta, Mode=OneWay}"
+                                        Command="{x:Bind ViewModel.TakeNextStepCommand}"
+                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        Visibility="{x:Bind ViewModel.ShowNextStepCta, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                        Height="44"
+                                        Padding="20,0"/>
+
+                                <HyperlinkButton Command="{x:Bind ViewModel.DismissNextStepCommand}"
+                                                 Content="Dismiss"
+                                                 Padding="0"
+                                                 VerticalAlignment="Center"
+                                                 Visibility="{x:Bind ViewModel.ShowNextStepDismiss, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </controls:CornerBracketedCard>
+
+                    <!-- ••• ASCENT REMINDER (shown until a folder is chosen or the user dismisses) ••• -->
+                    <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource AccentGoldBrush}"
+                        Visibility="{x:Bind ViewModel.ShowAscentReminder, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="10">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <Rectangle Width="18" Height="1"
+                                           Fill="{StaticResource AccentGoldBrush}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="OPTIONAL"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="300"
+                                           Foreground="{StaticResource AccentGoldBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="Connect your Ascent recordings folder"
+                                       FontFamily="{StaticResource HeadingFont}"
+                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="Revu pairs each game with its Ascent VOD so you can rewatch moments from inside the app. Default folder: C:\Users\&lt;you&gt;\Videos\Ascent"
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">
+                                <Button Content="CHOOSE FOLDER"
+                                        Command="{x:Bind ViewModel.PickAscentFolderCommand}"
+                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        Height="44"
+                                        Padding="20,0"/>
+                                <HyperlinkButton Command="{x:Bind ViewModel.DismissAscentReminderCommand}"
+                                                 Content="Not now"
+                                                 Padding="0"
+                                                 VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </controls:CornerBracketedCard>
+
                     <!-- Session banner -->
                     <controls:BannerControl Tone="Positive"
                                             Message="{x:Bind ViewModel.SessionBannerText, Mode=OneWay}"
@@ -58,7 +145,8 @@
                             Background="Transparent"
                             BorderBrush="{StaticResource LossRedBrush}"
                             BorderThickness="1"
-                            Padding="14,6">
+                            Padding="14,6"
+                            Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <TextBlock FontFamily="{StaticResource MonoFont}"
                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{StaticResource LossRedBrush}"
@@ -66,7 +154,7 @@
                     </Button>
 
                     <!-- ••• STAT STRIP ••• -->
-                    <controls:StatStrip>
+                    <controls:StatStrip Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <controls:StatCell Label="Games"
                                            Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
                         <controls:StatCell Label="Win Rate"
@@ -82,7 +170,8 @@
                     </controls:StatStrip>
 
                     <!-- ••• MAIN BODY: Unreviewed + Objectives ••• -->
-                    <Grid ColumnSpacing="14">
+                    <Grid ColumnSpacing="14"
+                          Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="5*"/>
                             <ColumnDefinition Width="3*"/>
