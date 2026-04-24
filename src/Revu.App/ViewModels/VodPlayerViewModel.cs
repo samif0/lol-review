@@ -877,6 +877,12 @@ public partial class VodPlayerViewModel : ObservableObject
         try
         {
             var objectives = await _objectivesRepo.GetActiveAsync();
+            // v2.15.5: default the bookmark-tagger to the priority objective.
+            // Previously it started at "(none)" and users had to manually pick
+            // before every bookmark — which meant 99% of bookmarks shipped
+            // with objective_id=NULL and the post-game autopopulate never
+            // fired. Default to priority so "just hit B" does something useful.
+            var priority = objectives.FirstOrDefault(o => o.IsPriority) ?? objectives.FirstOrDefault();
             DispatcherHelper.RunOnUIThread(() =>
             {
                 ObjectiveOptions.Clear();
@@ -884,6 +890,11 @@ public partial class VodPlayerViewModel : ObservableObject
                 foreach (var obj in objectives)
                 {
                     ObjectiveOptions.Add(new ObjectiveOption(obj.Id, $"{obj.Title} ({ObjectivePhases.ToDisplayLabel(obj.Phase)})"));
+                }
+                // Only auto-seed if the user hasn't already picked something.
+                if (SelectedObjectiveId is null && priority is not null)
+                {
+                    SelectedObjectiveId = priority.Id;
                 }
             });
         }

@@ -266,6 +266,7 @@ public partial class ReviewViewModel : ObservableObject
             var bookmarks = await _vodRepository.GetBookmarksAsync(gameId);
             if (bookmarks.Count == 0) return;
 
+            // Per-objective bookmarks → that objective's general notes.
             foreach (var assessment in ObjectiveAssessments)
             {
                 var relevant = bookmarks
@@ -273,47 +274,69 @@ public partial class ReviewViewModel : ObservableObject
                     .OrderBy(b => b.GameTimeSeconds)
                     .ToList();
                 if (relevant.Count == 0) continue;
+                AppendBookmarkLines(relevant, s => assessment.ExecutionNote ?? "",
+                                    t => assessment.ExecutionNote = t);
+            }
 
-                // Format: "[MM:SS] note" per bookmark, one per line. Clips
-                // (detected via ClipStart/End) get an additional range tail.
-                var lines = new List<string>(relevant.Count);
-                foreach (var bm in relevant)
-                {
-                    var ts = FormatGameTime(bm.GameTimeSeconds);
-                    var note = (bm.Note ?? "").Trim();
-                    var clipTag = (bm.ClipStartSeconds.HasValue && bm.ClipEndSeconds.HasValue)
-                        ? $" (clip {FormatGameTime(bm.ClipStartSeconds.Value)}–{FormatGameTime(bm.ClipEndSeconds.Value)})"
-                        : "";
-                    var line = string.IsNullOrEmpty(note)
-                        ? $"[{ts}]{clipTag}"
-                        : $"[{ts}] {note}{clipTag}";
-                    lines.Add(line);
-                }
-
-                var currentNote = assessment.ExecutionNote ?? "";
-                // Skip lines already present (substring match) so a reload
-                // doesn't multiply them.
-                var toAdd = lines.Where(l => !currentNote.Contains(l, StringComparison.Ordinal)).ToList();
-                if (toAdd.Count == 0) continue;
-
-                var additionBlock = string.Join("\n", toAdd);
-                if (string.IsNullOrWhiteSpace(currentNote))
-                {
-                    assessment.ExecutionNote = additionBlock;
-                }
-                else
-                {
-                    // Separator only if there isn't already one at the tail.
-                    var separator = currentNote.TrimEnd().EndsWith("— Bookmarks/clips —", StringComparison.Ordinal)
-                        ? "\n"
-                        : "\n\n— Bookmarks/clips —\n";
-                    assessment.ExecutionNote = currentNote + separator + additionBlock;
-                }
+            // v2.15.5: bookmarks without an objective (bulk of the user's
+            // existing data — most bookmarks shipped untagged) go into the
+            // "anything else you noticed" box so they're not invisible.
+            var untagged = bookmarks
+                .Where(b => b.ObjectiveId is null)
+                .OrderBy(b => b.GameTimeSeconds)
+                .ToList();
+            if (untagged.Count > 0)
+            {
+                AppendBookmarkLines(untagged, _ => SpottedProblems ?? "",
+                                    t => SpottedProblems = t);
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Bookmark autopopulate failed for game {GameId}", gameId);
+        }
+    }
+
+    /// <summary>
+    /// v2.15.5: shared append logic for autopopulating bookmark lines into a
+    /// free-text field. Uses substring detection to avoid re-appending on
+    /// reload, and appends with a "— Bookmarks/clips —" separator header
+    /// when the target already has user-typed content.
+    /// </summary>
+    private static void AppendBookmarkLines(
+        IReadOnlyList<Revu.Core.Data.Repositories.VodBookmarkRecord> bookmarks,
+        Func<string, string> getCurrent,
+        Action<string> setNext)
+    {
+        var lines = new List<string>(bookmarks.Count);
+        foreach (var bm in bookmarks)
+        {
+            var ts = FormatGameTime(bm.GameTimeSeconds);
+            var note = (bm.Note ?? "").Trim();
+            var clipTag = (bm.ClipStartSeconds.HasValue && bm.ClipEndSeconds.HasValue)
+                ? $" (clip {FormatGameTime(bm.ClipStartSeconds.Value)}–{FormatGameTime(bm.ClipEndSeconds.Value)})"
+                : "";
+            var line = string.IsNullOrEmpty(note)
+                ? $"[{ts}]{clipTag}"
+                : $"[{ts}] {note}{clipTag}";
+            lines.Add(line);
+        }
+
+        var currentNote = getCurrent("");
+        var toAdd = lines.Where(l => !currentNote.Contains(l, StringComparison.Ordinal)).ToList();
+        if (toAdd.Count == 0) return;
+
+        var additionBlock = string.Join("\n", toAdd);
+        if (string.IsNullOrWhiteSpace(currentNote))
+        {
+            setNext(additionBlock);
+        }
+        else
+        {
+            var separator = currentNote.TrimEnd().EndsWith("— Bookmarks/clips —", StringComparison.Ordinal)
+                ? "\n"
+                : "\n\n— Bookmarks/clips —\n";
+            setNext(currentNote + separator + additionBlock);
         }
     }
 
