@@ -314,6 +314,7 @@
                             <!-- v2.15.1: type-to-filter search replaces the chip grid. Shorter,
                                  scales to any champion count, doesn't eat vertical space. -->
                             <AutoSuggestBox x:Name="ChampionSearchBox"
+                                            Style="{StaticResource HudSuggestBoxStyle}"
                                             PlaceholderText="Search champion..."
                                             TextChanged="ChampionSearchBox_TextChanged"
                                             SuggestionChosen="ChampionSearchBox_SuggestionChosen"

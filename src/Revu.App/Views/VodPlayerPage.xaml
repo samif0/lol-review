@@ -284,24 +284,16 @@
                                      FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                      Text="{x:Bind ViewModel.BookmarkNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 
+                            <!-- v2.15.7: ObjectivePicker (custom TextBox+Popup+ListView). Replaces
+                                     AutoSuggestBox because its flyout had a two-click-to-select + hover
+                                     confusion bug. Single-click commits immediately. -->
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                <!-- v2.15.6: SelectedValuePath="Id" with a long? Id property returns a
-                                     boxed `long`, not `long?`. The TwoWay binding to SelectedObjectiveId
-                                     silently failed, so new bookmarks were saved with objective_id=NULL
-                                     even when the user clearly picked one. Use SelectionChanged + read
-                                     ObjectiveOption.Id directly off SelectedItem to bypass that. -->
-                                <ComboBox x:Name="NewBookmarkObjectiveBox"
-                                          Grid.Column="0"
-                                          ItemsSource="{x:Bind ViewModel.ObjectiveOptions, Mode=OneWay}"
-                                          DisplayMemberPath="Title"
-                                          SelectionChanged="OnNewBookmarkObjectiveSelectionChanged"
-                                          PlaceholderText="No objective"
-                                          HorizontalAlignment="Stretch"
-                                          FontSize="{Binding Meta, Source={StaticResource FontSizes}}" CornerRadius="2"
-                                          IsTabStop="False"
-                                          Background="{StaticResource InputBackgroundBrush}"
-                                          BorderBrush="{StaticResource SubtleBorderBrush}"
-                                          Foreground="{StaticResource PrimaryTextBrush}"/>
+                                <controls:ObjectivePicker x:Name="NewBookmarkObjectivePicker"
+                                                          Grid.Column="0"
+                                                          Source="{x:Bind ViewModel.TagOptions, Mode=OneWay}"
+                                                          PlaceholderText="Tag an objective or prompt..."
+                                                          TagChosen="OnNewBookmarkTagChosen"
+                                                          HorizontalAlignment="Stretch"/>
 
                                 <Button Grid.Column="1"
                                         Command="{x:Bind ViewModel.AddBookmarkCommand}"
@@ -385,6 +377,12 @@
                                 </Button>
                             </StackPanel>
 
+                            <controls:ObjectivePicker x:Name="NewClipObjectivePicker"
+                                                      Source="{x:Bind ViewModel.TagOptions, Mode=OneWay}"
+                                                      PlaceholderText="Tag an objective or prompt..."
+                                                      TagChosen="OnNewBookmarkTagChosen"
+                                                      HorizontalAlignment="Stretch"/>
+
                             <Button Command="{x:Bind ViewModel.ExtractClipCommand}"
                                     Click="OnClipButtonClick"
                                     IsEnabled="{x:Bind ViewModel.HasClipRange, Mode=OneWay}"
@@ -466,19 +464,15 @@
                                                                  LostFocus="OnBookmarkNoteLostFocus"
                                                                  TextChanged="OnBookmarkNoteTextChanged"/>
 
-                                                        <ComboBox ItemsSource="{x:Bind ObjectiveOptions, Mode=OneWay}"
-                                                                  SelectedValue="{x:Bind ObjectiveId, Mode=TwoWay}"
-                                                                  SelectedValuePath="Id"
-                                                                  DisplayMemberPath="Title"
-                                                                  PlaceholderText="No objective"
-                                                                  Tag="{x:Bind}"
-                                                                  SelectionChanged="OnBookmarkObjectiveSelectionChanged"
-                                                                  HorizontalAlignment="Stretch"
-                                                                  FontSize="{Binding Meta, Source={StaticResource FontSizes}}" CornerRadius="2"
-                                                                  IsTabStop="False"
-                                                                  Background="{StaticResource InputBackgroundBrush}"
-                                                                  BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                                  Foreground="{StaticResource PrimaryTextBrush}"/>
+                                                        <!-- v2.15.7: per-clip objective picker. The picker's TextBox
+                                                             doubles as the current-state display, so we bind
+                                                             SelectedTitle and skip the separate label above. -->
+                                                        <controls:ObjectivePicker Source="{x:Bind TagOptions, Mode=OneWay}"
+                                                                                  Payload="{x:Bind}"
+                                                                                  SelectedTitle="{x:Bind ObjectiveTitleDisplay, Mode=OneWay}"
+                                                                                  PlaceholderText="No tag. Click to tag..."
+                                                                                  TagChosen="OnClipTagChosen"
+                                                                                  HorizontalAlignment="Stretch"/>
 
                                                         <StackPanel Orientation="Horizontal" Spacing="6"
                                                                     Visibility="{x:Bind IsClip, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
@@ -569,5 +563,6 @@
                 </ScrollViewer>
             </Grid>
         </Grid>
+
     </Grid>
 </Page>

@@ -680,6 +680,17 @@ public static class Schema
         "ALTER TABLE vod_bookmarks ADD COLUMN quality TEXT DEFAULT ''",
     ];
 
+    /// <summary>
+    /// v2.15.7: tag a bookmark/clip to a specific custom prompt (not just its
+    /// parent objective). When set, post-game review routes the clip's note
+    /// into that prompt's answer field. objective_id is also kept populated
+    /// for backwards-compat queries.
+    /// </summary>
+    public static readonly string[] MigrateBookmarksPromptId =
+    [
+        "ALTER TABLE vod_bookmarks ADD COLUMN prompt_id INTEGER",
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -747,6 +758,7 @@ public static class Schema
         .. MigrateCoachRecommendationsFeedback,
         .. MigrateGamesHidden,
         .. MigrateBookmarksObjective,
+        .. MigrateBookmarksPromptId,
         .. MigrateTiltChecksGameAndPlan,
     ];
 

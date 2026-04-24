@@ -266,15 +266,47 @@ public partial class ReviewViewModel : ObservableObject
             var bookmarks = await _vodRepository.GetBookmarksAsync(gameId);
             if (bookmarks.Count == 0) return;
 
-            // Per-objective bookmarks → that objective's general notes.
+            // v2.15.7: prompt-tagged clips/bookmarks route into the answer
+            // field of the specific prompt, not the parent objective's general
+            // notes. Routing is owned by the bookmark row's prompt_id, set by
+            // the VodPlayer's tag picker. Objective-only tags fall through to
+            // ExecutionNote as before.
             foreach (var assessment in ObjectiveAssessments)
             {
-                var relevant = bookmarks
-                    .Where(b => b.ObjectiveId == assessment.ObjectiveId)
+                foreach (var promptField in assessment.Prompts)
+                {
+                    var forPrompt = bookmarks
+                        .Where(b => b.PromptId == promptField.PromptId)
+                        .OrderBy(b => b.GameTimeSeconds)
+                        .ToList();
+                    if (forPrompt.Count == 0) continue;
+                    AppendBookmarkLines(forPrompt, _ => promptField.AnswerText ?? "",
+                                        t => promptField.AnswerText = t);
+                }
+
+                // v2.15.7: clips that USED to be objective-level but are now
+                // prompt-tagged need their old [MM:SS] line removed from
+                // General Notes — otherwise the line appears in both places
+                // (objective notes + the new prompt answer). Match by timestamp;
+                // a tiny risk of scrubbing a hand-typed line at the same MM:SS
+                // is acceptable here because we explicitly opted into this.
+                var promptTaggedHere = bookmarks
+                    .Where(b => b.ObjectiveId == assessment.ObjectiveId && b.PromptId is not null)
+                    .Select(b => FormatGameTime(b.GameTimeSeconds))
+                    .ToHashSet();
+                if (promptTaggedHere.Count > 0
+                    && !string.IsNullOrEmpty(assessment.ExecutionNote))
+                {
+                    assessment.ExecutionNote = ScrubAutoLines(assessment.ExecutionNote, promptTaggedHere);
+                }
+
+                // Per-objective bookmarks (no prompt) → that objective's general notes.
+                var objLevel = bookmarks
+                    .Where(b => b.ObjectiveId == assessment.ObjectiveId && b.PromptId is null)
                     .OrderBy(b => b.GameTimeSeconds)
                     .ToList();
-                if (relevant.Count == 0) continue;
-                AppendBookmarkLines(relevant, s => assessment.ExecutionNote ?? "",
+                if (objLevel.Count == 0) continue;
+                AppendBookmarkLines(objLevel, _ => assessment.ExecutionNote ?? "",
                                     t => assessment.ExecutionNote = t);
             }
 
@@ -282,7 +314,7 @@ public partial class ReviewViewModel : ObservableObject
             // existing data — most bookmarks shipped untagged) go into the
             // "anything else you noticed" box so they're not invisible.
             var untagged = bookmarks
-                .Where(b => b.ObjectiveId is null)
+                .Where(b => b.ObjectiveId is null && b.PromptId is null)
                 .OrderBy(b => b.GameTimeSeconds)
                 .ToList();
             if (untagged.Count > 0)
@@ -344,6 +376,38 @@ public partial class ReviewViewModel : ObservableObject
     {
         if (seconds < 0) seconds = 0;
         return $"{seconds / 60:D2}:{seconds % 60:D2}";
+    }
+
+    /// <summary>
+    /// v2.15.7: drop any line that begins with <c>[MM:SS]</c> for a timestamp
+    /// in <paramref name="timestamps"/>. Used to evict stale auto-populated
+    /// clip lines from General Notes after a clip is re-tagged to a prompt.
+    /// </summary>
+    private static string ScrubAutoLines(string note, HashSet<string> timestamps)
+    {
+        var lines = note.Split('\n');
+        var kept = new List<string>(lines.Length);
+        foreach (var raw in lines)
+        {
+            bool drop = false;
+            foreach (var ts in timestamps)
+            {
+                if (raw.StartsWith($"[{ts}]", StringComparison.Ordinal))
+                {
+                    drop = true;
+                    break;
+                }
+            }
+            if (!drop) kept.Add(raw);
+        }
+        // Also drop a trailing dangling "— Bookmarks/clips —" header if we
+        // emptied everything below it.
+        while (kept.Count > 0
+               && kept[^1].TrimEnd().EndsWith("— Bookmarks/clips —", StringComparison.Ordinal))
+        {
+            kept.RemoveAt(kept.Count - 1);
+        }
+        return string.Join("\n", kept).TrimEnd('\n');
     }
 
     /// <summary>

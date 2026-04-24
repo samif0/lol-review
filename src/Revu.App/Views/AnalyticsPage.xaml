@@ -288,6 +288,7 @@
                                      stayed bound as AvailableChampions under the hood — we just show
                                      only the *selected* chips above the search box. -->
                                 <AutoSuggestBox x:Name="ChampionFilterSearchBox"
+                                                Style="{StaticResource HudSuggestBoxStyle}"
                                                 PlaceholderText="Search champion..."
                                                 TextChanged="ChampionFilterSearchBox_TextChanged"
                                                 SuggestionChosen="ChampionFilterSearchBox_SuggestionChosen"

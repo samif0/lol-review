@@ -68,7 +68,11 @@ public sealed record VodBookmarkRecord(
     string ClipPath,
     string Quality,
     long? CreatedAt,
-    long? ObjectiveId);
+    long? ObjectiveId,
+    // v2.15.7: optional prompt tag. When set, post-game routes this clip's
+    // [MM:SS] note into the prompt's answer field instead of (or in addition
+    // to) the parent objective's General Notes.
+    long? PromptId = null);
 
 public sealed record RuleRecord(
     long Id,

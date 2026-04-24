@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Revu.App.Controls.ObjectivePicker"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Revu.App.ViewModels"
+    mc:Ignorable="d">
+
+    <!-- Replaces AutoSuggestBox for tag-picking surfaces. AutoSuggestBox has a
+         known two-click + hover-confusion issue when the suggestion flyout
+         and the item's hover state race. This control is a plain TextBox +
+         Popup + ListView, so clicks are single-click-to-select with no flyout
+         lifecycle to fight.
+
+         v2.15.7: source is ObservableCollection<TagOption>. Each row is either
+         an Objective header or a Prompt child (rendered with indent). Prompt
+         rows commit both ObjectiveId + PromptId; Objective rows commit only
+         ObjectiveId (PromptId == null). -->
+
+    <Grid x:Name="RootGrid" Background="Transparent">
+        <TextBox x:Name="SearchBox"
+                 PlaceholderText="Type to search..."
+                 Background="{StaticResource InputBackgroundBrush}"
+                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                 Foreground="{StaticResource PrimaryTextBrush}"
+                 FontFamily="{StaticResource MonoFont}"
+                 CornerRadius="2"
+                 BorderThickness="1"
+                 MinHeight="32"
+                 Padding="8,6"
+                 FontSize="12"
+                 TextChanged="OnSearchTextChanged"
+                 GotFocus="OnSearchGotFocus"
+                 LostFocus="OnSearchLostFocus"
+                 KeyDown="OnSearchKeyDown"/>
+
+        <Popup x:Name="SuggestionPopup"
+               IsOpen="False"
+               Closed="OnPopupClosed">
+            <Border x:Name="SuggestionPopupBorder"
+                    Background="#14121E"
+                    BorderBrush="{StaticResource AccentPurpleBrush}"
+                    BorderThickness="1"
+                    CornerRadius="2"
+                    MinWidth="240"
+                    MaxHeight="240"
+                    KeyDown="OnPopupKeyDown">
+                <ListView x:Name="SuggestionsList"
+                          SelectionMode="Single"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          ItemContainerStyle="{StaticResource HudSuggestListItemStyle}"
+                          ItemClick="OnSuggestionItemClick"
+                          IsItemClickEnabled="True">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TagOption">
+                            <Grid Padding="10,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- Indent column: 0px for objectives, 16px for prompts. -->
+                                <Border Grid.Column="0" Width="{x:Bind Indent}"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{x:Bind Title}"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="12"
+                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

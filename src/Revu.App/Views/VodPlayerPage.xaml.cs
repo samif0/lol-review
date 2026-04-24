@@ -53,42 +53,19 @@ public sealed partial class VodPlayerPage : Page
         Loaded += (_, _) =>
         {
             AnimationHelper.AnimatePageEnter(RootGrid);
-            // v2.15.6: initial paint — reflect VM state in the ComboBox.
-            SyncNewBookmarkObjectiveBoxSelection();
+            UpdateSharedObjectiveLabels();
         };
 
-        // v2.15.6: VM property → ComboBox SelectedItem. Keeps the picker in
-        // sync when LoadObjectiveOptionsAsync auto-seeds the priority
-        // objective (which the replaced TwoWay binding used to handle).
         ViewModel.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(ViewModel.SelectedObjectiveId))
+            if (e.PropertyName == nameof(ViewModel.SelectedObjectiveId)
+                || e.PropertyName == nameof(ViewModel.SelectedPromptId))
             {
-                SyncNewBookmarkObjectiveBoxSelection();
+                UpdateSharedObjectiveLabels();
             }
         };
-        // Options list populates async after LoadAsync. Resync when it changes.
-        ViewModel.ObjectiveOptions.CollectionChanged += (_, _) =>
-            SyncNewBookmarkObjectiveBoxSelection();
-    }
-
-    private void SyncNewBookmarkObjectiveBoxSelection()
-    {
-        if (NewBookmarkObjectiveBox is null) return;
-        var target = ViewModel.SelectedObjectiveId;
-        ObjectiveOption? match = null;
-        foreach (var item in NewBookmarkObjectiveBox.Items)
-        {
-            if (item is ObjectiveOption opt && opt.Id == target)
-            {
-                match = opt;
-                break;
-            }
-        }
-        if (!ReferenceEquals(NewBookmarkObjectiveBox.SelectedItem, match))
-        {
-            NewBookmarkObjectiveBox.SelectedItem = match;
-        }
+        ViewModel.TagOptions.CollectionChanged += (_, _) =>
+            UpdateSharedObjectiveLabels();
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -448,45 +425,76 @@ public sealed partial class VodPlayerPage : Page
         FocusPlaybackSurface();
     }
 
-    // v2.15.6: handler for the top-level "new bookmark" objective picker.
-    // Replaces the TwoWay SelectedValue binding which was silently failing
-    // on the long? round-trip.
-    private void OnNewBookmarkObjectiveSelectionChanged(object sender, SelectionChangedEventArgs e)
+    // ── v2.15.7: ObjectivePicker event wiring ─────────────────────────
+    //
+    // Custom TextBox+Popup+ListView UserControl replaced AutoSuggestBox here
+    // because the WinUI flyout lifecycle caused a two-click-to-select +
+    // hover-confusion bug. Now every click on a suggestion commits instantly
+    // through TagChosen. Tag rows are flat: Objective headers + indented
+    // Prompt children, both committing through the same handler.
+
+    private void OnNewBookmarkTagChosen(object sender, Controls.ObjectivePicker.TagChosenEventArgs e)
     {
-        if (sender is not ComboBox combo) return;
-        long? selectedId = null;
-        if (combo.SelectedItem is ObjectiveOption option)
-        {
-            selectedId = option.Id;
-        }
-        ViewModel.SelectedObjectiveId = selectedId;
+        // Both the Quick Bookmark + Clip top-row pickers fire this. They share
+        // VM.SelectedObjectiveId + SelectedPromptId as the "next save will use
+        // this" slot. Prompt rows carry both ids; Objective rows clear PromptId.
+        ViewModel.SelectedObjectiveId = e.Option.ObjectiveId;
+        ViewModel.SelectedPromptId = e.Option.Kind == TagOption.OptionKind.Prompt
+            ? e.Option.PromptId
+            : null;
+        UpdateSharedObjectiveLabels();
     }
 
-    private async void OnBookmarkObjectiveSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnClipTagChosen(object sender, Controls.ObjectivePicker.TagChosenEventArgs e)
     {
-        // The ComboBox is inside a DataTemplate — its Tag is x:Bind'd to the
-        // BookmarkItem so we can fetch it without a visual-tree walk.
-        if (sender is not ComboBox combo || combo.Tag is not BookmarkItem bookmark)
-            return;
+        // Per-saved-clip picker: Payload is the owning BookmarkItem.
+        if (e.Payload is not BookmarkItem bookmark) return;
 
-        // v2.15.6: SelectedValue returns the objective's Id as a BOXED long
-        // (not long?), so `SelectedValue as long?` always returned null and
-        // the no-op guard below short-circuited every real user selection.
-        // That's why per-clip objective picks "didn't save." Pull the Id off
-        // the typed ObjectiveOption via SelectedItem instead.
-        long? selectedId = null;
-        if (combo.SelectedItem is ObjectiveOption option)
+        var newObjectiveId = e.Option.ObjectiveId;
+        var newPromptId = e.Option.Kind == TagOption.OptionKind.Prompt
+            ? e.Option.PromptId
+            : null;
+
+        if (newObjectiveId == bookmark.ObjectiveId && newPromptId == bookmark.PromptId)
         {
-            selectedId = option.Id;
+            return;
         }
 
-        // SelectionChanged fires during initial template binding with the same
-        // value that's already on the item — no-op so we don't hammer the DB.
-        if (selectedId == bookmark.ObjectiveId)
-            return;
+        await ViewModel.SetBookmarkTagCommand.ExecuteAsync(
+            new BookmarkTagUpdateRequest(bookmark, newObjectiveId, newPromptId));
+    }
 
-        await ViewModel.SetBookmarkObjectiveCommand.ExecuteAsync(
-            new BookmarkObjectiveUpdateRequest(bookmark, selectedId));
+    // v2.15.7: both top-of-page pickers share VM.SelectedObjectiveId +
+    // SelectedPromptId. When either flips, resolve a display title from the
+    // matching TagOption row (preferring the Prompt row when a prompt is
+    // selected) and push it into each picker's SelectedTitle DP so the
+    // TextBox doubles as current-state display.
+    private void UpdateSharedObjectiveLabels()
+    {
+        var objId = ViewModel.SelectedObjectiveId;
+        var promptId = ViewModel.SelectedPromptId;
+
+        string title = "";
+        if (promptId is not null)
+        {
+            var promptRow = ViewModel.TagOptions.FirstOrDefault(t =>
+                t.Kind == TagOption.OptionKind.Prompt && t.PromptId == promptId);
+            // The box is narrow — showing only the prompt label fits without
+            // ellipsis-clipping. Re-opening the dropdown shows the parent
+            // objective via the indented row position.
+            if (promptRow is not null) title = promptRow.Title;
+        }
+        if (string.IsNullOrEmpty(title) && objId is not null)
+        {
+            var objRow = ViewModel.TagOptions.FirstOrDefault(t =>
+                t.Kind == TagOption.OptionKind.Objective && t.ObjectiveId == objId);
+            if (objRow is not null) title = objRow.Title;
+        }
+
+        if (NewBookmarkObjectivePicker is not null)
+            NewBookmarkObjectivePicker.SelectedTitle = title;
+        if (NewClipObjectivePicker is not null)
+            NewClipObjectivePicker.SelectedTitle = title;
     }
 
     private void OnTimelineEventTapped(object sender, PointerRoutedEventArgs e)

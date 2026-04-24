@@ -22,7 +22,7 @@ public interface IVodRepository
     Task<long> AddBookmarkAsync(long gameId, int gameTimeSeconds, string note = "",
         IReadOnlyList<string>? tags = null, int? clipStartSeconds = null,
         int? clipEndSeconds = null, string clipPath = "", long? objectiveId = null,
-        string quality = "");
+        string quality = "", long? promptId = null);
 
     Task UpdateBookmarkAsync(long bookmarkId, string? note = null,
         IReadOnlyList<string>? tags = null, int? gameTimeSeconds = null,
@@ -36,6 +36,14 @@ public interface IVodRepository
     /// and both are valid user intents.
     /// </summary>
     Task SetBookmarkObjectiveAsync(long bookmarkId, long? objectiveId);
+
+    /// <summary>
+    /// v2.15.7: set both objective + prompt tags atomically. <paramref name="promptId"/>
+    /// is optional; when set, <paramref name="objectiveId"/> should be the prompt's parent
+    /// objective so non-prompt-aware queries still see the objective association.
+    /// Pass (null, null) to detach entirely.
+    /// </summary>
+    Task SetBookmarkTagAsync(long bookmarkId, long? objectiveId, long? promptId);
 
     Task DeleteBookmarkAsync(long bookmarkId);
 

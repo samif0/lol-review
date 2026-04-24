@@ -826,4 +826,78 @@
         <Setter Property="CornerRadius" Value="0"/>
     </Style>
 
+    <!-- v2.15.7: HUD-themed AutoSuggestBox. The default Fluent style has
+         rounded corners, a wide padding, and a light-theme popup — looks
+         out of place in our dark violet UI. This style flattens it:
+         square corners, HUD input surface, mono font, subtle border. -->
+    <Style x:Key="HudSuggestBoxStyle" TargetType="AutoSuggestBox">
+        <Setter Property="Background" Value="{StaticResource InputBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="CornerRadius" Value="2"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="MinHeight" Value="32"/>
+    </Style>
+
+    <!-- v2.15.7: ListViewItem container style for the ObjectivePicker popup.
+         Flatter hover + selection states so the "row is hovered" feedback
+         doesn't fight with mouse positioning on single-click select. -->
+    <Style x:Key="HudSuggestListItemStyle" TargetType="ListViewItem">
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Margin" Value="0"/>
+        <Setter Property="MinHeight" Value="30"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="UseSystemFocusVisuals" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListViewItem">
+                    <Grid x:Name="Root" Background="Transparent">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal"/>
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="#2218162A"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="#44A78BFA"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Selected">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="#33A78BFA"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="PointerOverSelected">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="#44A78BFA"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <ContentPresenter HorizontalContentAlignment="Stretch"
+                                          VerticalContentAlignment="Center"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- v2.15.7: keep the AutoSuggestBox style for other surfaces, but the
+         three objective pickers on VodPlayer use the custom ObjectivePicker
+         UserControl because AutoSuggestBox had a two-click-to-select quirk. -->
+    <SolidColorBrush x:Key="AutoSuggestBoxSuggestionsListBackground"
+                     Color="#14121E"/>
+    <SolidColorBrush x:Key="AutoSuggestBoxSuggestionsListBorderBrush"
+                     Color="#33A78BFA"/>
+    <Thickness x:Key="AutoSuggestListViewPopupBorderThickness">1</Thickness>
+    <CornerRadius x:Key="AutoSuggestListCornerRadius">2</CornerRadius>
+    <CornerRadius x:Key="OverlayCornerRadius">2</CornerRadius>
+
 </ResourceDictionary>

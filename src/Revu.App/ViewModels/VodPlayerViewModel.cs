@@ -25,6 +25,7 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly IGameEventsRepository _eventsRepo;
     private readonly IDerivedEventsRepository _derivedEventsRepo;
     private readonly IObjectivesRepository _objectivesRepo;
+    private readonly IPromptsRepository _promptsRepo;
     private readonly IClipService _clipService;
     private readonly IConfigService _configService;
     private readonly INavigationService _navigationService;
@@ -71,6 +72,10 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _bookmarkNote = "";
     [ObservableProperty] private string _clipNote = "";
     [ObservableProperty] private long? _selectedObjectiveId;
+    // v2.15.7: if the user picked a prompt-row in the unified tag picker,
+    // _selectedPromptId tracks it. _selectedObjectiveId stays populated with
+    // the prompt's parent objective so non-prompt queries still work.
+    [ObservableProperty] private long? _selectedPromptId;
     [ObservableProperty] private string _selectedClipQuality = "";
 
     public IReadOnlyList<string> QualityOptions { get; } =
@@ -82,6 +87,10 @@ public partial class VodPlayerViewModel : ObservableObject
     public ObservableCollection<TimelineEvent> GameEvents { get; } = new();
     public ObservableCollection<DerivedEventRegion> DerivedEvents { get; } = new();
     public ObservableCollection<ObjectiveOption> ObjectiveOptions { get; } = new();
+    // v2.15.7: unified tag picker — flat list of objectives + their prompts
+    // (indented). BookmarkItem.TagOptions shares this reference so per-clip
+    // pickers see the same options without a round-trip.
+    public ObservableCollection<TagOption> TagOptions { get; } = new();
 
     public static IReadOnlyList<double> SpeedOptions { get; } =
         new[] { 0.25, 0.5, 1.0, 1.5, 2.0 };
@@ -138,6 +147,7 @@ public partial class VodPlayerViewModel : ObservableObject
         IGameEventsRepository eventsRepo,
         IDerivedEventsRepository derivedEventsRepo,
         IObjectivesRepository objectivesRepo,
+        IPromptsRepository promptsRepo,
         IClipService clipService,
         IConfigService configService,
         INavigationService navigationService,
@@ -149,6 +159,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _eventsRepo = eventsRepo;
         _derivedEventsRepo = derivedEventsRepo;
         _objectivesRepo = objectivesRepo;
+        _promptsRepo = promptsRepo;
         _clipService = clipService;
         _configService = configService;
         _navigationService = navigationService;
@@ -303,12 +314,15 @@ public partial class VodPlayerViewModel : ObservableObject
         var timeS = (int)CurrentTimeS;
         var note = BookmarkNote.Trim();
         var objectiveId = SelectedObjectiveId;
+        var promptId = SelectedPromptId;
         BookmarkNote = "";
 
         try
         {
             var bookmarkId = await EnqueueBookmarkMutationAsync(
-                () => _vodRepo.AddBookmarkAsync(GameId, timeS, note, objectiveId: objectiveId));
+                () => _vodRepo.AddBookmarkAsync(GameId, timeS, note,
+                    objectiveId: objectiveId,
+                    promptId: promptId));
 
             InsertBookmark(new BookmarkItem
             {
@@ -318,7 +332,9 @@ public partial class VodPlayerViewModel : ObservableObject
                 Note = note,
                 IsClip = false,
                 ObjectiveId = objectiveId,
+                PromptId = promptId,
                 ObjectiveOptions = ObjectiveOptions,
+                TagOptions = TagOptions,
             });
             _logger.LogInformation("Bookmark added at {Time}s for game {Id}", timeS, GameId);
         }
@@ -394,6 +410,37 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             bookmark.ObjectiveId = previousObjectiveId;
             _logger.LogError(ex, "Failed to set objective on bookmark {Id}", bookmark.Id);
+        }
+    }
+
+    // v2.15.7: per-clip tag edit. The picker can land on either an Objective
+    // header (PromptId == null) or a Prompt child (both ids set). Persist both
+    // atomically so post-game routing can decide where the [MM:SS] note goes.
+    [RelayCommand]
+    private async Task SetBookmarkTagAsync(BookmarkTagUpdateRequest? request)
+    {
+        if (request is null || request.Bookmark is null || request.Bookmark.Id <= 0)
+        {
+            return;
+        }
+
+        var bookmark = request.Bookmark;
+        var prevObj = bookmark.ObjectiveId;
+        var prevPrompt = bookmark.PromptId;
+
+        bookmark.ObjectiveId = request.ObjectiveId;
+        bookmark.PromptId = request.PromptId;
+
+        try
+        {
+            await EnqueueBookmarkMutationAsync(
+                () => _vodRepo.SetBookmarkTagAsync(bookmark.Id, request.ObjectiveId, request.PromptId));
+        }
+        catch (Exception ex)
+        {
+            bookmark.ObjectiveId = prevObj;
+            bookmark.PromptId = prevPrompt;
+            _logger.LogError(ex, "Failed to set tag on bookmark {Id}", bookmark.Id);
         }
     }
 
@@ -522,6 +569,7 @@ public partial class VodPlayerViewModel : ObservableObject
         var note = string.IsNullOrWhiteSpace(ClipNote) ? "Clip" : ClipNote.Trim();
         var quality = SelectedClipQuality;
         var objectiveId = SelectedObjectiveId;
+        var promptId = SelectedPromptId;
 
         try
         {
@@ -541,7 +589,8 @@ public partial class VodPlayerViewModel : ObservableObject
                         clipEndSeconds: endS,
                         clipPath: clipPath,
                         objectiveId: objectiveId,
-                        quality: quality));
+                        quality: quality,
+                        promptId: promptId));
 
                 InsertBookmark(new BookmarkItem
                 {
@@ -553,7 +602,9 @@ public partial class VodPlayerViewModel : ObservableObject
                     ClipRangeText = $"{FormatTime(startS)} - {FormatTime(endS)}",
                     Quality = quality,
                     ObjectiveId = objectiveId,
+                    PromptId = promptId,
                     ObjectiveOptions = ObjectiveOptions,
+                    TagOptions = TagOptions,
                 });
 
                 // Phase 4 hook: ask coach sidecar to generate frame descriptions.
@@ -829,7 +880,9 @@ public partial class VodPlayerViewModel : ObservableObject
                 : "",
             Quality = record.Quality,
             ObjectiveId = record.ObjectiveId,
+            PromptId = record.PromptId,
             ObjectiveOptions = ObjectiveOptions,
+            TagOptions = TagOptions,
         };
     }
 
@@ -878,11 +931,50 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             var objectives = await _objectivesRepo.GetActiveAsync();
             // v2.15.5: default the bookmark-tagger to the priority objective.
-            // Previously it started at "(none)" and users had to manually pick
-            // before every bookmark — which meant 99% of bookmarks shipped
-            // with objective_id=NULL and the post-game autopopulate never
-            // fired. Default to priority so "just hit B" does something useful.
             var priority = objectives.FirstOrDefault(o => o.IsPriority) ?? objectives.FirstOrDefault();
+
+            // v2.15.7: build the unified TagOptions tree. For each active
+            // objective, emit one Objective row + one row per prompt (any phase).
+            // Search indexes on SearchText, so typing "trade" matches prompts
+            // whose label OR parent title contains "trade".
+            var tagRows = new List<TagOption>();
+            foreach (var obj in objectives)
+            {
+                tagRows.Add(new TagOption
+                {
+                    Kind = TagOption.OptionKind.Objective,
+                    ObjectiveId = obj.Id,
+                    Title = obj.Title,
+                    SearchText = obj.Title,
+                });
+                IReadOnlyList<ObjectivePrompt> prompts;
+                try
+                {
+                    prompts = await _promptsRepo.GetPromptsForObjectiveAsync(obj.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to load prompts for objective {ObjectiveId}", obj.Id);
+                    prompts = Array.Empty<ObjectivePrompt>();
+                }
+                foreach (var p in prompts.OrderBy(p => p.SortOrder).ThenBy(p => p.Id))
+                {
+                    tagRows.Add(new TagOption
+                    {
+                        Kind = TagOption.OptionKind.Prompt,
+                        ObjectiveId = obj.Id,
+                        PromptId = p.Id,
+                        // Indent + sibling-of-objective placement already conveys
+                        // "this is a child of <objective>". Showing only the
+                        // prompt label here lets long prompt text fit in the
+                        // dropdown column without ellipsis-clipping.
+                        Title = p.Label,
+                        ParentTitle = obj.Title,
+                        SearchText = $"{obj.Title} {p.Label}",
+                    });
+                }
+            }
+
             DispatcherHelper.RunOnUIThread(() =>
             {
                 ObjectiveOptions.Clear();
@@ -891,7 +983,10 @@ public partial class VodPlayerViewModel : ObservableObject
                 {
                     ObjectiveOptions.Add(new ObjectiveOption(obj.Id, $"{obj.Title} ({ObjectivePhases.ToDisplayLabel(obj.Phase)})"));
                 }
-                // Only auto-seed if the user hasn't already picked something.
+
+                TagOptions.Clear();
+                foreach (var r in tagRows) TagOptions.Add(r);
+
                 if (SelectedObjectiveId is null && priority is not null)
                 {
                     SelectedObjectiveId = priority.Id;
@@ -999,31 +1094,65 @@ public partial class VodPlayerViewModel : ObservableObject
 
 // â"€â"€ Display models â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
-public class BookmarkItem
+public partial class BookmarkItem : ObservableObject
 {
     public long Id { get; set; }
     public int GameTimeS { get; set; }
     public string TimeText { get; set; } = "";
-    public string Note { get; set; } = "";
+
+    [ObservableProperty]
+    private string _note = "";
+
     public bool IsClip { get; set; }
     public string ClipRangeText { get; set; } = "";
     public string Quality { get; set; } = "";
 
     /// <summary>
-    /// Objective attached to this bookmark, or null if unset. SelectedValue
-    /// binding in the bookmark template's ComboBox writes through this —
-    /// code-behind hooks the SelectionChanged to call the VM.
+    /// Objective attached to this bookmark, or null if unset. v2.15.7: changed
+    /// from a plain setter to an ObservableProperty so the picker-button's
+    /// Content binding refreshes when SetBookmarkObjectiveAsync updates it.
     /// </summary>
-    public long? ObjectiveId { get; set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ObjectiveTitleDisplay))]
+    private long? _objectiveId;
 
     /// <summary>
-    /// Reference to the same ObservableCollection the VM owns. Each
-    /// bookmark item holds a pointer to it so the per-item ComboBox
-    /// can bind to ObjectiveOptions via x:Bind without going through
-    /// the page's ViewModel — ElementName binding doesn't reach
-    /// outside an ItemsRepeater data template reliably in WinUI 3.
+    /// v2.15.7: prompt tag on top of the objective. When set, review-time
+    /// autopopulate routes this clip's text into the prompt's answer field.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ObjectiveTitleDisplay))]
+    private long? _promptId;
+
+    /// <summary>
+    /// Reference to the same ObservableCollection the VM owns. Each bookmark
+    /// item holds a pointer to it so the dialog-opener code-behind can
+    /// enumerate the current options without walking up to the page's VM.
     /// </summary>
     public ObservableCollection<ObjectiveOption>? ObjectiveOptions { get; set; }
+
+    /// <summary>v2.15.7: flat objectives+prompts tag list for the unified picker.</summary>
+    public ObservableCollection<TagOption>? TagOptions { get; set; }
+
+    /// <summary>v2.15.7: display label for the picker button. When tagged to
+    /// a prompt we show only the prompt label — the box is narrow and the
+    /// "Objective • Prompt" form ellipsis-clips. Re-opening the picker shows
+    /// the full hierarchy via indent.</summary>
+    public string ObjectiveTitleDisplay
+    {
+        get
+        {
+            if (PromptId is not null && TagOptions is not null)
+            {
+                var row = TagOptions.FirstOrDefault(t =>
+                    t.Kind == TagOption.OptionKind.Prompt && t.PromptId == PromptId);
+                if (row is not null) return row.Title;
+            }
+            if (ObjectiveId is null) return "No objective";
+            var match = ObjectiveOptions?.FirstOrDefault(o => o.Id == ObjectiveId);
+            return match?.Title ?? "No objective";
+        }
+    }
     public string KindLabel => IsClip ? "CLIP" : "NOTE";
     public bool HasQuality => !string.IsNullOrWhiteSpace(Quality);
     public string QualityLabel => string.IsNullOrWhiteSpace(Quality)
@@ -1072,7 +1201,9 @@ public class BookmarkItem
             ClipRangeText = ClipRangeText,
             Quality = quality,
             ObjectiveId = ObjectiveId,
+            PromptId = PromptId,
             ObjectiveOptions = ObjectiveOptions,
+            TagOptions = TagOptions,
         };
     }
 }
@@ -1080,6 +1211,9 @@ public class BookmarkItem
 public sealed record BookmarkQualityUpdateRequest(BookmarkItem Bookmark, string? Quality);
 
 public sealed record BookmarkObjectiveUpdateRequest(BookmarkItem Bookmark, long? ObjectiveId);
+
+/// <summary>v2.15.7: unified tag update — covers objective and optional prompt.</summary>
+public sealed record BookmarkTagUpdateRequest(BookmarkItem Bookmark, long? ObjectiveId, long? PromptId);
 
 public sealed class QualityChipVisual
 {
@@ -1291,6 +1425,32 @@ public class DerivedEventRegion
     public double EndTimeS { get; set; }
     public string Color { get; set; } = "#ff6b6b";
     public string Name { get; set; } = "";
+}
+
+/// <summary>
+/// v2.15.7: tag-picker row that covers both objective headers and their
+/// prompt children. Kind decides which fields the VM consumes:
+/// Objective → ObjectiveId only; Prompt → both ObjectiveId + PromptId.
+/// </summary>
+public sealed class TagOption
+{
+    public enum OptionKind { Objective, Prompt, None }
+
+    public OptionKind Kind { get; set; } = OptionKind.Objective;
+    public long? ObjectiveId { get; set; }
+    public long? PromptId { get; set; }
+    /// <summary>Row text shown in the dropdown list. For Prompt rows this is
+    /// only the prompt label (the indent + position implies the parent), so
+    /// long prompt text doesn't get clipped by the column width.</summary>
+    public string Title { get; set; } = "";
+    /// <summary>Parent objective title — only set on Prompt rows so the
+    /// current-state TextBox can render "Objective • Prompt" without re-
+    /// looking-it-up.</summary>
+    public string ParentTitle { get; set; } = "";
+    /// <summary>Full searchable text — Title plus any parent-objective context for prompts.</summary>
+    public string SearchText { get; set; } = "";
+    /// <summary>Indent applied to prompt rows in the dropdown (px).</summary>
+    public double Indent => Kind == OptionKind.Prompt ? 16.0 : 0.0;
 }
 
 // Plain class (not a record) because the WinUI XAML compiler-generated

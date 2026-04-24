@@ -113,14 +113,14 @@ public sealed class VodRepository : IVodRepository
     public async Task<long> AddBookmarkAsync(long gameId, int gameTimeSeconds, string note = "",
         IReadOnlyList<string>? tags = null, int? clipStartSeconds = null,
         int? clipEndSeconds = null, string clipPath = "", long? objectiveId = null,
-        string quality = "")
+        string quality = "", long? promptId = null)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO vod_bookmarks
-                (game_id, game_time_s, note, tags, clip_start_s, clip_end_s, clip_path, objective_id, quality, created_at)
-            VALUES (@gameId, @gameTimeS, @note, @tags, @clipStartS, @clipEndS, @clipPath, @objectiveId, @quality, @createdAt)
+                (game_id, game_time_s, note, tags, clip_start_s, clip_end_s, clip_path, objective_id, quality, created_at, prompt_id)
+            VALUES (@gameId, @gameTimeS, @note, @tags, @clipStartS, @clipEndS, @clipPath, @objectiveId, @quality, @createdAt, @promptId)
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
         cmd.Parameters.AddWithValue("@gameTimeS", gameTimeSeconds);
@@ -132,6 +132,7 @@ public sealed class VodRepository : IVodRepository
         cmd.Parameters.AddWithValue("@objectiveId", objectiveId.HasValue ? objectiveId.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@quality", quality);
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("@promptId", promptId.HasValue ? promptId.Value : DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
 
         using var idCmd = conn.CreateCommand();
@@ -208,11 +209,20 @@ public sealed class VodRepository : IVodRepository
 
     public async Task SetBookmarkObjectiveAsync(long bookmarkId, long? objectiveId)
     {
+        // v2.15.7: legacy single-tag path. Clears prompt_id since setting an
+        // objective-only tag overrides any prior prompt association.
+        await SetBookmarkTagAsync(bookmarkId, objectiveId, promptId: null);
+    }
+
+    public async Task SetBookmarkTagAsync(long bookmarkId, long? objectiveId, long? promptId)
+    {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE vod_bookmarks SET objective_id = @objectiveId WHERE id = @id";
+        cmd.CommandText = "UPDATE vod_bookmarks SET objective_id = @objectiveId, prompt_id = @promptId WHERE id = @id";
         cmd.Parameters.AddWithValue("@objectiveId",
             objectiveId.HasValue ? objectiveId.Value : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("@promptId",
+            promptId.HasValue ? promptId.Value : (object)DBNull.Value);
         cmd.Parameters.AddWithValue("@id", bookmarkId);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -316,6 +326,21 @@ public sealed class VodRepository : IVodRepository
 
     private static VodBookmarkRecord ReadBookmark(SqliteDataReader reader)
     {
+        // v2.15.7: prompt_id is nullable and may not exist on older rows, so
+        // we tolerate both a missing column (OOR) and a null value.
+        static long? ReadPromptId(SqliteDataReader r)
+        {
+            try
+            {
+                var idx = r.GetOrdinal("prompt_id");
+                return r.IsDBNull(idx) ? null : r.GetInt64(idx);
+            }
+            catch (IndexOutOfRangeException)
+            {
+                return null;
+            }
+        }
+
         return new VodBookmarkRecord(
             Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
             GameId: reader.IsDBNull(reader.GetOrdinal("game_id")) ? 0 : reader.GetInt64(reader.GetOrdinal("game_id")),
@@ -327,6 +352,7 @@ public sealed class VodRepository : IVodRepository
             ClipPath: reader.IsDBNull(reader.GetOrdinal("clip_path")) ? "" : reader.GetString(reader.GetOrdinal("clip_path")),
             Quality: reader.IsDBNull(reader.GetOrdinal("quality")) ? "" : reader.GetString(reader.GetOrdinal("quality")),
             CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")),
-            ObjectiveId: reader.IsDBNull(reader.GetOrdinal("objective_id")) ? null : reader.GetInt64(reader.GetOrdinal("objective_id")));
+            ObjectiveId: reader.IsDBNull(reader.GetOrdinal("objective_id")) ? null : reader.GetInt64(reader.GetOrdinal("objective_id")),
+            PromptId: ReadPromptId(reader));
     }
 }
