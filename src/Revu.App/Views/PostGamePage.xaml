@@ -22,10 +22,34 @@
         </Grid.RowDefinitions>
 
         <!-- ••• Hero ••• -->
-        <controls:HeroHeader Grid.Row="0"
-                             EyebrowText="POST GAME"
-                             Title="{x:Bind ReviewVM.HeaderText, Mode=OneWay}"
-                             Margin="40,16,40,8"/>
+        <Grid Grid.Row="0" Margin="40,16,40,8" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- v2.15.9: paired with VodPlayerPage's "Open Review" button. The
+                 same WatchVodCommand the hero card uses, surfaced top-left so
+                 the user can flip back to the VOD without scrolling. Gated on
+                 HasVod since flipping there is meaningless without a recording. -->
+            <Button Grid.Column="0"
+                    Command="{x:Bind ReviewVM.WatchVodCommand}"
+                    Style="{StaticResource GoldActionButtonStyle}"
+                    Height="34" Padding="14,0" VerticalAlignment="Center"
+                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                    Visibility="{x:Bind ReviewVM.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE714;"
+                              FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                              FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                    <TextBlock Text="Back to VOD" FontSize="{Binding Body, Source={StaticResource FontSizes}}"/>
+                </StackPanel>
+            </Button>
+
+            <controls:HeroHeader Grid.Column="1"
+                                 EyebrowText="POST GAME"
+                                 Title="{x:Bind ReviewVM.HeaderText, Mode=OneWay}"/>
+        </Grid>
 
         <ScrollViewer Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"

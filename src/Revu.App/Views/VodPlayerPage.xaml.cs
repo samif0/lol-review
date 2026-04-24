@@ -96,6 +96,14 @@ public sealed partial class VodPlayerPage : Page
                 break;
         }
 
+        // v2.15.9: every VOD-viewer entry auto-enters fullscreen so the 3*,*
+        // layout has room for the bookmarks column without clipping. Manual
+        // fullscreen button still toggles back to windowed.
+        if (!_isFullscreen)
+        {
+            DispatcherQueue.TryEnqueue(ToggleFullscreen);
+        }
+
         TryLoadMedia();
 
         // Focus the video area so no button holds focus and eats Space.

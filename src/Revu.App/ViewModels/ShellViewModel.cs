@@ -9,6 +9,7 @@ using Revu.App.Helpers;
 using Revu.App.Services;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Lcu;
+using Revu.Core.Models;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
 
@@ -340,7 +341,11 @@ public partial class ShellViewModel : ObservableRecipient,
                 // 2b. Navigate to post-game review page
                 _logger.LogInformation("Game end processed for {GameId} -- opening post-game page", result.GameId!.Value);
                 WindowActivationHelper.BringMainWindowToFront();
-                _navigationService.NavigateTo("postgame", result.GameId!.Value);
+                _navigationService.NavigateTo("vodplayer", new VodPlayerNavigationRequest
+                {
+                    GameId = result.GameId!.Value,
+                    AutoFullscreen = true,
+                });
             }
             catch (Exception ex)
             {
@@ -423,7 +428,11 @@ public partial class ShellViewModel : ObservableRecipient,
                 if (result.WasSaved)
                 {
                     WindowActivationHelper.BringMainWindowToFront();
-                    _navigationService.NavigateTo("postgame", result.GameId!.Value);
+                    _navigationService.NavigateTo("vodplayer", new VodPlayerNavigationRequest
+                    {
+                        GameId = result.GameId!.Value,
+                        AutoFullscreen = true,
+                    });
                 }
                 return;
             }
@@ -620,7 +629,11 @@ public partial class ShellViewModel : ObservableRecipient,
                     "startup.log",
                     $"ShellViewModel opening postgame for recovered gameId={recoveredGameId}");
                 WindowActivationHelper.BringMainWindowToFront();
-                _navigationService.NavigateTo("postgame", recoveredGameId);
+                _navigationService.NavigateTo("vodplayer", new VodPlayerNavigationRequest
+                {
+                    GameId = recoveredGameId,
+                    AutoFullscreen = true,
+                });
             }
             else if (result.IngestedCount > 0)
             {
