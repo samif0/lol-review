@@ -296,6 +296,12 @@ public partial class ObjectivesViewModel : ObservableObject
     /// <summary>Suggested champions derived from the user's played history.</summary>
     public ObservableCollection<ChampionSuggestion> ChampionSuggestions { get; } = new();
 
+    /// <summary>
+    /// v2.15.1: flat list of champion names for the AutoSuggestBox search
+    /// dropdown. Populated from GetPlayedChampionsAsync at load time.
+    /// </summary>
+    public IReadOnlyList<string> AllChampionNames { get; private set; } = Array.Empty<string>();
+
     [ObservableProperty]
     private string _newChampionInput = "";
 
@@ -344,9 +350,13 @@ public partial class ObjectivesViewModel : ObservableObject
     {
         try
         {
-            var played = await _objectivesRepo.GetPlayedChampionsAsync(30);
+            // v2.15.1: pull a wider set (up to 200) for the AutoSuggestBox search.
+            // The flat list drives the typeahead dropdown; the ChampionSuggestions
+            // collection is legacy but kept for any remaining bindings.
+            var played = await _objectivesRepo.GetPlayedChampionsAsync(200);
+            AllChampionNames = played.ToList();
             ChampionSuggestions.Clear();
-            foreach (var name in played)
+            foreach (var name in played.Take(30))
             {
                 ChampionSuggestions.Add(new ChampionSuggestion
                 {

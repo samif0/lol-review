@@ -20,13 +20,14 @@ public sealed partial class HudProgressRing : UserControl
     // Ring geometry: 50px diameter, stroke width 3 → radius 25.
     // Circumference = 2πr ≈ 157.08 px.
     // WinUI's Shape.StrokeDashArray values are in MULTIPLES of StrokeThickness,
-    // not absolute pixels. Using the raw pixel circumference makes the dash
-    // "longer than the circle can render," so the stroke appears fully drawn
-    // regardless of offset. Scale by stroke thickness to fix.
+    // but StrokeDashOffset is in raw pixels. So the dash array gets the scaled
+    // circumference (CircumferenceDash) and the offset gets the raw pixel
+    // circumference (CircumferencePx). Mixing them up was causing 0% to render
+    // as a ~2/3-filled ring (offset of ~52px out of 157px circumference).
     private const double Radius = 25.0;
     private const double StrokeThickness = 3.0;
     private const double CircumferencePx = 2.0 * Math.PI * Radius;
-    private const double Circumference = CircumferencePx / StrokeThickness;
+    private const double CircumferenceDash = CircumferencePx / StrokeThickness;
 
     private bool _drawInPlayed;
 
@@ -109,12 +110,13 @@ public sealed partial class HudProgressRing : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Initialize dash array once — a single dash the length of the circumference,
-        // then use offset to reveal the desired arc portion.
+        // Initialize dash array once — a single dash the length of the circumference
+        // (scaled by stroke thickness, since StrokeDashArray is in those units),
+        // then use StrokeDashOffset in raw pixels to reveal the arc portion.
         if (ArcEllipse.StrokeDashArray.Count == 0)
         {
-            ArcEllipse.StrokeDashArray.Add(Circumference);
-            ArcEllipse.StrokeDashArray.Add(Circumference);  // gap same length so only the dashed part shows
+            ArcEllipse.StrokeDashArray.Add(CircumferenceDash);
+            ArcEllipse.StrokeDashArray.Add(CircumferenceDash);  // gap same length so only the dashed part shows
         }
 
         if (!_drawInPlayed)
@@ -135,7 +137,9 @@ public sealed partial class HudProgressRing : UserControl
         if (ArcEllipse is null) return;
 
         var ratio = double.IsFinite(Progress) ? Math.Clamp(Progress, 0.0, 1.0) : 0.0;
-        var targetOffset = Circumference * (1.0 - ratio);
+        // Offset is in raw pixels. ratio=0 → fully hidden (offset = full px circumference),
+        // ratio=1 → fully revealed (offset = 0).
+        var targetOffset = CircumferencePx * (1.0 - ratio);
 
         if (!animate || !IsLoaded)
         {
@@ -146,7 +150,7 @@ public sealed partial class HudProgressRing : UserControl
         // Animate from "empty" (full circumference offset) to the target.
         var anim = new DoubleAnimation
         {
-            From = Circumference,
+            From = CircumferencePx,
             To = targetOffset,
             Duration = new Duration(TimeSpan.FromMilliseconds(1200)),
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },

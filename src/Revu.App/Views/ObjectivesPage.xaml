@@ -311,65 +311,15 @@
                                 </ItemsRepeater.ItemTemplate>
                             </ItemsRepeater>
 
-                            <!-- Suggestions from played-champions history -->
-                            <TextBlock Text="From your recent games:"
-                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.ChampionSuggestions, Mode=OneWay}">
-                                <ItemsRepeater.Layout>
-                                    <UniformGridLayout Orientation="Horizontal"
-                                                       MinItemWidth="100"
-                                                       MinItemHeight="30"
-                                                       MinColumnSpacing="6"
-                                                       MinRowSpacing="6"
-                                                       ItemsJustification="Start"
-                                                       ItemsStretch="None"/>
-                                </ItemsRepeater.Layout>
-                                <ItemsRepeater.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ChampionSuggestion">
-                                        <Button Click="AddChampionSuggestion_Click"
-                                                Tag="{x:Bind Name}"
-                                                Background="{StaticResource InputBackgroundBrush}"
-                                                BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                BorderThickness="1"
-                                                Foreground="{StaticResource PrimaryTextBrush}"
-                                                IsEnabled="{x:Bind NotIsAdded, Mode=OneWay}"
-                                                Opacity="{x:Bind SuggestionOpacity, Mode=OneWay}"
-                                                CornerRadius="2"
-                                                Padding="10,4"
-                                                Height="28">
-                                            <TextBlock Text="{x:Bind Name}"
-                                                       FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
-                                        </Button>
-                                    </DataTemplate>
-                                </ItemsRepeater.ItemTemplate>
-                            </ItemsRepeater>
-
-                            <!-- Manual-entry fallback for champs not in recent games -->
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBox Text="{x:Bind ViewModel.NewChampionInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                         PlaceholderText="Other champion..."
-                                         Background="{StaticResource InputBackgroundBrush}"
-                                         Foreground="{StaticResource PrimaryTextBrush}"
-                                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                                         CornerRadius="2"
-                                         MinWidth="200"
-                                         Height="32"
-                                         VerticalAlignment="Center"/>
-                                <Button Content="ADD"
-                                        Click="AddChampionFromInput_Click"
-                                        Background="Transparent"
-                                        BorderBrush="{StaticResource AccentTealBrush}"
-                                        BorderThickness="1"
-                                        Foreground="{StaticResource AccentTealBrush}"
-                                        FontFamily="{StaticResource MonoFont}"
-                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                        CharacterSpacing="200"
-                                        CornerRadius="2"
-                                        Padding="14,0"
-                                        Height="32"/>
-                            </StackPanel>
+                            <!-- v2.15.1: type-to-filter search replaces the chip grid. Shorter,
+                                 scales to any champion count, doesn't eat vertical space. -->
+                            <AutoSuggestBox x:Name="ChampionSearchBox"
+                                            PlaceholderText="Search champion..."
+                                            TextChanged="ChampionSearchBox_TextChanged"
+                                            SuggestionChosen="ChampionSearchBox_SuggestionChosen"
+                                            QuerySubmitted="ChampionSearchBox_QuerySubmitted"
+                                            MinWidth="240"
+                                            HorizontalAlignment="Stretch"/>
                         </StackPanel>
 
                         <!-- Action Buttons -->

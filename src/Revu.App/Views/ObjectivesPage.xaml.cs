@@ -546,15 +546,7 @@ public sealed partial class ObjectivesPage : Page
         }
     }
 
-    // v2.15.0: champion picker chip handlers.
-    private void AddChampionSuggestion_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button btn && btn.Tag is string champ)
-        {
-            ViewModel.AddChampionCommand.Execute(champ);
-        }
-    }
-
+    // v2.15.0: picked-chip remove handler (click an already-added chip to remove it).
     private void RemoveChampionChip_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is string champ)
@@ -563,10 +555,64 @@ public sealed partial class ObjectivesPage : Page
         }
     }
 
-    private void AddChampionFromInput_Click(object sender, RoutedEventArgs e)
+    // v2.15.1: AutoSuggestBox type-to-filter replaces the champion-grid UI.
+    private void ChampionSearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
-        // Pass null to force the VM to read NewChampionInput.
-        ViewModel.AddChampionCommand.Execute(null);
+        // Only update the dropdown list when the text change is from user typing,
+        // not programmatic (e.g. when we clear after a selection).
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+
+        var query = (sender.Text ?? "").Trim();
+        var source = ViewModel.AllChampionNames;
+        if (source.Count == 0)
+        {
+            sender.ItemsSource = Array.Empty<string>();
+            return;
+        }
+
+        // Hide champs the user already picked; filter the rest by substring
+        // (case-insensitive). Prefix matches sort first so "Kai" shows Kai'Sa
+        // above Kayle.
+        var already = ViewModel.NewChampions
+            .Select(n => n)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        IEnumerable<string> filtered = source
+            .Where(n => !already.Contains(n));
+
+        if (!string.IsNullOrEmpty(query))
+        {
+            filtered = filtered
+                .Where(n => n.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(n => n.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                .ThenBy(n => n, StringComparer.OrdinalIgnoreCase);
+        }
+        else
+        {
+            filtered = filtered.OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
+        }
+
+        sender.ItemsSource = filtered.Take(50).ToList();
+    }
+
+    private void ChampionSearchBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is string champ)
+        {
+            ViewModel.AddChampionCommand.Execute(champ);
+            sender.Text = "";
+        }
+    }
+
+    private void ChampionSearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        // Enter pressed. If a suggestion was chosen use that; otherwise fall
+        // back to the literal query (user typing a champ they haven't played).
+        var name = args.ChosenSuggestion as string
+                   ?? (args.QueryText ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        ViewModel.AddChampionCommand.Execute(name);
+        sender.Text = "";
     }
 
     private async void DeleteRule_Click(object sender, RoutedEventArgs e)

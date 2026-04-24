@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Linq;
 using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Helpers;
 using Revu.App.ViewModels;
@@ -87,5 +88,61 @@ public sealed partial class AnalyticsPage : Page
     {
         if (sender is Button b && b.DataContext is FilterChampionChip chip)
             ViewModel.ToggleChampionChipCommand.Execute(chip);
+    }
+
+    // v2.15.1: AutoSuggestBox type-to-filter search for the champions filter.
+    // Hides already-selected champions from the dropdown + orders prefix-matches first.
+    private void ChampionFilterSearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+
+        var query = (sender.Text ?? "").Trim();
+        var source = ViewModel.AvailableChampions;
+        if (source.Count == 0)
+        {
+            sender.ItemsSource = System.Array.Empty<string>();
+            return;
+        }
+
+        System.Collections.Generic.IEnumerable<string> filtered = source
+            .Where(c => !c.IsSelected)
+            .Select(c => c.Name);
+
+        if (!string.IsNullOrEmpty(query))
+        {
+            filtered = filtered
+                .Where(n => n.Contains(query, System.StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(n => n.StartsWith(query, System.StringComparison.OrdinalIgnoreCase))
+                .ThenBy(n => n, System.StringComparer.OrdinalIgnoreCase);
+        }
+        else
+        {
+            filtered = filtered.OrderBy(n => n, System.StringComparer.OrdinalIgnoreCase);
+        }
+
+        sender.ItemsSource = filtered.Take(50).ToList();
+    }
+
+    private void ChampionFilterSearchBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is string name)
+        {
+            var chip = ViewModel.AvailableChampions.FirstOrDefault(c =>
+                string.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase));
+            if (chip is not null) ViewModel.ToggleChampionChipCommand.Execute(chip);
+            sender.Text = "";
+        }
+    }
+
+    private void ChampionFilterSearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        var name = args.ChosenSuggestion as string
+                   ?? (args.QueryText ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var chip = ViewModel.AvailableChampions.FirstOrDefault(c =>
+            string.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase));
+        if (chip is not null) ViewModel.ToggleChampionChipCommand.Execute(chip);
+        sender.Text = "";
     }
 }

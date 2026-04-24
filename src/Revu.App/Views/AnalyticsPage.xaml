@@ -283,9 +283,20 @@
                                            FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                                            CharacterSpacing="250"
                                            Foreground="{StaticResource SecondaryTextBrush}"/>
+
+                                <!-- v2.15.1: AutoSuggestBox replaces the full champion grid. The grid
+                                     stayed bound as AvailableChampions under the hood — we just show
+                                     only the *selected* chips above the search box. -->
+                                <AutoSuggestBox x:Name="ChampionFilterSearchBox"
+                                                PlaceholderText="Search champion..."
+                                                TextChanged="ChampionFilterSearchBox_TextChanged"
+                                                SuggestionChosen="ChampionFilterSearchBox_SuggestionChosen"
+                                                QuerySubmitted="ChampionFilterSearchBox_QuerySubmitted"
+                                                HorizontalAlignment="Stretch"
+                                                MinWidth="240"/>
+
                                 <ItemsRepeater ItemsSource="{x:Bind ViewModel.AvailableChampions}">
                                     <ItemsRepeater.Layout>
-                                        <!-- v2.15.0: UniformGridLayout wraps chips; StackLayout clips at card edge. -->
                                         <UniformGridLayout Orientation="Horizontal"
                                                            MinItemWidth="100"
                                                            MinItemHeight="32"
@@ -296,9 +307,11 @@
                                     </ItemsRepeater.Layout>
                                     <ItemsRepeater.ItemTemplate>
                                         <DataTemplate x:DataType="vm:FilterChampionChip">
+                                            <!-- Only render a chip when selected so the UI stays compact. -->
                                             <Button Content="{x:Bind Name}"
                                                     DataContext="{x:Bind}"
                                                     Click="ChampionChipClick"
+                                                    Visibility="{x:Bind IsSelected, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                                     Background="{x:Bind IsSelected, Converter={StaticResource ChipBgConverter}, Mode=OneWay}"
                                                     BorderBrush="{x:Bind IsSelected, Converter={StaticResource ChipBorderConverter}, Mode=OneWay}"
                                                     BorderThickness="1"
