@@ -58,6 +58,8 @@ internal static class ServiceCollectionExtensions
 
         // Riot proxy / auth (Path B).
         services.AddHttpClient<IRiotAuthClient, RiotAuthClient>();
+        services.AddHttpClient<IRiotMatchClient, RiotMatchClient>();
+        services.AddSingleton<EnemyLanerBackfillService>();
 
         // Register the null default here; AddCoachServices overrides it.
         services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();

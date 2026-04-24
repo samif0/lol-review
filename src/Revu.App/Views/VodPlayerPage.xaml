@@ -189,6 +189,15 @@
                                     <Run Text="{x:Bind ViewModel.CurrentTimeText, Mode=OneWay}"/>
                                     <Run Text=" / "/>
                                     <Run Text="{x:Bind ViewModel.TotalTimeText, Mode=OneWay}"/>
+                                    <Run Text="    "/>
+                                    <!-- v2.15.8: persistent seek-step indicator. Up/Down arrows
+                                         change the step; Left/Right scrubs by it. Showing it
+                                         inline beats a transient toast that's easy to miss. -->
+                                    <Run Text="step "
+                                         Foreground="{StaticResource MutedTextBrush}"/>
+                                    <Run Text="{x:Bind ViewModel.SeekStepText, Mode=OneWay}"
+                                         Foreground="{StaticResource AccentPurpleBrush}"
+                                         FontWeight="SemiBold"/>
                                 </TextBlock>
 
                                 <!-- Spacer -->

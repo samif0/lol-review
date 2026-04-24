@@ -1061,6 +1061,34 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
+                <!-- v2.15.8: backfill enemy laners via Riot Match-V5 (proxy) -->
+                <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentBlueBrush}">
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="BACKFILL MATCHUPS"/>
+                        <TextBlock Text="Walk every game with a missing enemy laner and resolve it via the Riot API. Throttled — a hundred games takes ~1 minute. Requires you to be signed in to Riot."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <Button Content="Run backfill"
+                                Command="{x:Bind ViewModel.BackfillEnemyLanersCommand}"
+                                IsEnabled="{x:Bind Not(ViewModel.IsBackfilling), Mode=OneWay}"
+                                Background="{StaticResource AccentBlueBrush}"
+                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
+                                HorizontalAlignment="Left"
+                                Height="32" Padding="14,0" CornerRadius="2"
+                                BorderThickness="0"/>
+
+                        <TextBlock Text="{x:Bind ViewModel.BackfillStatus, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{x:Bind HasText(ViewModel.BackfillStatus), Mode=OneWay}"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
                 <!-- v2.15.0: DANGER ZONE — full reset -->
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource LossRedBrush}">
                     <StackPanel Spacing="10">

@@ -106,6 +106,12 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isResetting;
 
+    [ObservableProperty]
+    private string _backfillStatus = "";
+
+    [ObservableProperty]
+    private bool _isBackfilling;
+
     /// <summary>True when the user typed "RESET" into the confirm box.</summary>
     public bool IsResetConfirmTextValid => string.Equals(ResetConfirmText?.Trim(), "RESET", StringComparison.Ordinal);
 
@@ -187,6 +193,7 @@ public partial class SettingsViewModel : ObservableObject
     // ── Constructor ─────────────────────────────────────────────────
 
     private readonly IRiotAuthClient _riotAuthClient;
+    private readonly EnemyLanerBackfillService _backfillService;
 
     public SettingsViewModel(
         IConfigService configService,
@@ -194,6 +201,7 @@ public partial class SettingsViewModel : ObservableObject
         IUpdateService updateService,
         IRiotAuthClient riotAuthClient,
         IBackupService backupService,
+        EnemyLanerBackfillService backfillService,
         ILogger<SettingsViewModel> logger)
     {
         _configService = configService;
@@ -201,6 +209,7 @@ public partial class SettingsViewModel : ObservableObject
         _updateService = updateService;
         _riotAuthClient = riotAuthClient;
         _backupService = backupService;
+        _backfillService = backfillService;
         _logger = logger;
     }
 
@@ -878,6 +887,37 @@ public partial class SettingsViewModel : ObservableObject
         finally
         {
             IsRestoring = false;
+        }
+    }
+
+    /// <summary>
+    /// v2.15.8: walk every game with a blank enemy_laner and try to fill it
+    /// from Match-V5 via the proxy. Throttled to ~1.5 RPS so a 200-game
+    /// backlog runs in roughly 2 minutes. Synchronous — the user waits.
+    /// </summary>
+    [RelayCommand]
+    private async Task BackfillEnemyLanersAsync()
+    {
+        if (IsBackfilling) return;
+        IsBackfilling = true;
+        BackfillStatus = "Scanning games...";
+        try
+        {
+            var result = await _backfillService.RunAsync();
+            BackfillStatus = result.Scanned == 0
+                ? "Nothing to backfill — every game already has its enemy laner."
+                : $"Done. Updated {result.Updated} of {result.Scanned} games "
+                  + $"(skipped {result.Skipped}, failed {result.Failed}). "
+                  + "Re-open Dashboard / History to see the matchup labels.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Enemy-laner backfill failed");
+            BackfillStatus = "Backfill hit an error — check logs.";
+        }
+        finally
+        {
+            IsBackfilling = false;
         }
     }
 }

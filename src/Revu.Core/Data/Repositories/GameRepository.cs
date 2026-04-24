@@ -469,6 +469,26 @@ public sealed class GameRepository : IGameRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task<IReadOnlyList<long>> GetGameIdsMissingEnemyLanerAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $@"
+            SELECT game_id FROM games
+            WHERE (enemy_laner IS NULL OR enemy_laner = '')
+              {CasualFilter}
+              AND (is_hidden IS NULL OR is_hidden = 0)
+            ORDER BY timestamp DESC";
+
+        var ids = new List<long>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            ids.Add(reader.GetInt64(0));
+        }
+        return ids;
+    }
+
     public async Task SetHiddenAsync(long gameId, bool hidden)
     {
         using var conn = _factory.CreateConnection();
@@ -946,7 +966,7 @@ public sealed class GameRepository : IGameRepository
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $@"
-            SELECT game_id, champion_name, spotted_problems, date_played, win
+            SELECT game_id, champion_name, spotted_problems, date_played, win, enemy_laner
             FROM games
             WHERE spotted_problems IS NOT NULL AND spotted_problems != ''
               {CasualFilter}
@@ -963,7 +983,8 @@ public sealed class GameRepository : IGameRepository
                 ChampionName: reader.GetString(reader.GetOrdinal("champion_name")),
                 SpottedProblems: reader.GetString(reader.GetOrdinal("spotted_problems")),
                 DatePlayed: reader.IsDBNull(reader.GetOrdinal("date_played")) ? "" : reader.GetString(reader.GetOrdinal("date_played")),
-                Win: !reader.IsDBNull(reader.GetOrdinal("win")) && reader.GetInt32(reader.GetOrdinal("win")) != 0
+                Win: !reader.IsDBNull(reader.GetOrdinal("win")) && reader.GetInt32(reader.GetOrdinal("win")) != 0,
+                EnemyChampion: reader.IsDBNull(reader.GetOrdinal("enemy_laner")) ? "" : reader.GetString(reader.GetOrdinal("enemy_laner"))
             ));
         }
         return list;

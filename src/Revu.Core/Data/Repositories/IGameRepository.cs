@@ -60,7 +60,8 @@ public sealed record SpottedProblem(
     string ChampionName,
     string SpottedProblems,
     string DatePlayed,
-    bool Win
+    bool Win,
+    string EnemyChampion = ""
 );
 
 /// <summary>Minimal game data for trend charts.</summary>
@@ -160,6 +161,10 @@ public interface IGameRepository
 
     /// <summary>Update the enemy_laner field for a game.</summary>
     Task UpdateEnemyLanerAsync(long gameId, string enemyLaner);
+
+    /// <summary>v2.15.8: enumerate game_ids that have no enemy_laner set, so a
+    /// backfill pass can resolve them via the Riot API. Excludes hidden games.</summary>
+    Task<IReadOnlyList<long>> GetGameIdsMissingEnemyLanerAsync();
 
     /// <summary>Soft-delete (or restore) a game. Hidden games are excluded from all views.</summary>
     Task SetHiddenAsync(long gameId, bool hidden);

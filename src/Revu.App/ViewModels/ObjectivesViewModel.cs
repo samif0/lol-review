@@ -183,10 +183,16 @@ public sealed class SpottedProblemItem
 {
     public long GameId { get; init; }
     public string ChampionName { get; init; } = "";
+    public string EnemyChampion { get; init; } = "";
     public string DatePlayed { get; init; } = "";
     public string ProblemText { get; init; } = "";
     public bool Win { get; init; }
     public string ResultText => Win ? "W" : "L";
+
+    /// <summary>"Kai'Sa vs Tristana" when enemy known, otherwise just "Kai'Sa".</summary>
+    public string ChampionDisplay => string.IsNullOrWhiteSpace(EnemyChampion)
+        ? ChampionName
+        : $"{ChampionName} vs {EnemyChampion}";
 }
 
 /// <summary>ViewModel for the Objectives page.</summary>
@@ -735,6 +741,7 @@ public partial class ObjectivesViewModel : ObservableObject
             {
                 GameId = problem.GameId,
                 ChampionName = problem.ChampionName,
+                EnemyChampion = problem.EnemyChampion,
                 DatePlayed = problem.DatePlayed,
                 ProblemText = problem.SpottedProblems,
                 Win = problem.Win

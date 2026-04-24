@@ -195,7 +195,7 @@
                                     </ItemsRepeater.Layout>
                                     <ItemsRepeater.ItemTemplate>
                                         <DataTemplate x:DataType="vm:GameDisplayItem">
-                                            <controls:GameRowCard Champion="{x:Bind ChampionName}"
+                                            <controls:GameRowCard Champion="{x:Bind ChampionDisplay}"
                                                                   Win="{x:Bind Win}"
                                                                   Meta="{x:Bind MetaLine}"
                                                                   Kda="{x:Bind KdaText}"

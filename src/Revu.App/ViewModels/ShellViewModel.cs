@@ -37,6 +37,7 @@ public partial class ShellViewModel : ObservableRecipient,
     private readonly IRiotAuthClient _riotAuthClient;
     private readonly IUpdateService _updateService;
     private readonly IGameMonitorService _gameMonitor;
+    private readonly EnemyLanerBackfillService _enemyLanerBackfill;
     private readonly ILogger<ShellViewModel> _logger;
     private bool _hasInitialized;
     private bool _hasTriggeredConnectedMissedGamesCheck;
@@ -113,6 +114,7 @@ public partial class ShellViewModel : ObservableRecipient,
         IRiotAuthClient riotAuthClient,
         IUpdateService updateService,
         IGameMonitorService gameMonitor,
+        EnemyLanerBackfillService enemyLanerBackfill,
         ILogger<ShellViewModel> logger)
     {
         _navigationService = navigationService;
@@ -127,6 +129,7 @@ public partial class ShellViewModel : ObservableRecipient,
         _riotAuthClient = riotAuthClient;
         _updateService = updateService;
         _gameMonitor = gameMonitor;
+        _enemyLanerBackfill = enemyLanerBackfill;
         _logger = logger;
         RefreshAccountIndicator();
 
@@ -169,8 +172,39 @@ public partial class ShellViewModel : ObservableRecipient,
 
         _ = CheckForMissedGamesOnStartupAsync();
         _ = CheckForUpdatesInBackgroundAsync();
+        _ = AutoBackfillEnemyLanersAsync();
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// v2.15.8: silent enemy-laner backfill on launch. Once-per-process,
+    /// gated on a valid Riot session, capped at 50 games per launch so a
+    /// brand-new user with a thousand-game backlog drains over multiple
+    /// sessions instead of hammering the proxy in one go. Failures are
+    /// swallowed — the Settings card stays available for manual retry.
+    /// </summary>
+    private async Task AutoBackfillEnemyLanersAsync()
+    {
+        try
+        {
+            if (!_configService.RiotProxyEnabled)
+            {
+                AppDiagnostics.WriteVerbose("startup.log", "AutoBackfill skipped: Riot proxy not enabled");
+                return;
+            }
+            // Defer briefly so the shell paints first; this is purely a
+            // background nicety, not user-blocking.
+            await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            var result = await _enemyLanerBackfill.RunAsync(maxGames: 50).ConfigureAwait(false);
+            AppDiagnostics.WriteVerbose("startup.log",
+                $"AutoBackfill done: scanned={result.Scanned} updated={result.Updated} " +
+                $"skipped={result.Skipped} failed={result.Failed}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AutoBackfill: silent failure");
+        }
     }
 
     private async Task CheckForUpdatesInBackgroundAsync()

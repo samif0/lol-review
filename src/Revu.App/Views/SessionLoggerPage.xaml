@@ -181,7 +181,7 @@
                                                         <TextBlock FontFamily="{StaticResource HeadingFont}"
                                                                    FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                                    Foreground="{StaticResource PrimaryTextBrush}">
-                                                            <Run Text="{x:Bind ChampionName}"/>
+                                                            <Run Text="{x:Bind ChampionDisplay}"/>
                                                         </TextBlock>
                                                         <TextBlock FontFamily="{StaticResource MonoFont}"
                                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"
@@ -267,7 +267,7 @@
                                                             <TextBlock FontFamily="{StaticResource HeadingFont}"
                                                                        FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                                                        Foreground="{StaticResource PrimaryTextBrush}">
-                                                                <Run Text="{x:Bind ChampionName}"/>
+                                                                <Run Text="{x:Bind ChampionDisplay}"/>
                                                             </TextBlock>
                                                             <TextBlock FontFamily="{StaticResource MonoFont}"
                                                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"

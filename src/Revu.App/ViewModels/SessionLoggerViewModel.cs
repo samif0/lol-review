@@ -18,6 +18,7 @@ public sealed class SessionGameEntry
 {
     public long GameId { get; init; }
     public string ChampionName { get; init; } = "";
+    public string EnemyChampion { get; init; } = "";
     public bool Win { get; init; }
     public int MentalRating { get; init; } = 5;
     public string ImprovementNote { get; init; } = "";
@@ -26,6 +27,11 @@ public sealed class SessionGameEntry
     public string ResultText => Win ? "W" : "L";
     public string MentalText => $"Mental: {MentalRating}/10";
     public bool HasImprovementNote => !string.IsNullOrWhiteSpace(ImprovementNote);
+
+    /// <summary>"Kai'Sa vs Tristana" when known, otherwise just "Kai'Sa".</summary>
+    public string ChampionDisplay => string.IsNullOrWhiteSpace(EnemyChampion)
+        ? ChampionName
+        : $"{ChampionName} vs {EnemyChampion}";
 }
 
 /// <summary>ViewModel for the Session Logger page.</summary>
@@ -266,11 +272,13 @@ public partial class SessionLoggerViewModel : ObservableObject
         foreach (var entry in entries)
         {
             bool hasReview = false;
+            string enemyChampion = "";
             if (entry.GameId.HasValue)
             {
                 var game = await _gameRepo.GetAsync(entry.GameId.Value);
                 if (game != null)
                 {
+                    enemyChampion = game.EnemyLaner ?? "";
                     hasReview = game.Rating > 0
                         || !string.IsNullOrWhiteSpace(game.ReviewNotes)
                         || !string.IsNullOrWhiteSpace(game.Mistakes)
@@ -290,6 +298,7 @@ public partial class SessionLoggerViewModel : ObservableObject
             {
                 GameId = entry.GameId ?? 0,
                 ChampionName = entry.ChampionName,
+                EnemyChampion = enemyChampion,
                 Win = entry.Win,
                 MentalRating = entry.MentalRating,
                 ImprovementNote = entry.ImprovementNote,

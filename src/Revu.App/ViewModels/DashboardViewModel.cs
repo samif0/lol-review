@@ -685,6 +685,7 @@ public partial class DashboardViewModel : ObservableObject
         {
             GameId = game.GameId,
             ChampionName = game.ChampionName,
+            EnemyChampion = game.EnemyLaner,
             Win = game.Win,
             WinLossText = game.Win ? "W" : "L",
             Kills = game.Kills,
@@ -773,7 +774,14 @@ public class GameDisplayItem
 {
     public long GameId { get; set; }
     public string ChampionName { get; set; } = "";
+    public string EnemyChampion { get; set; } = "";
     public bool Win { get; set; }
+
+    /// <summary>"Kai'Sa vs Tristana" when enemy known, otherwise just "Kai'Sa".
+    /// Used by GameRowCard.Champion so games-list pills identify the matchup.</summary>
+    public string ChampionDisplay => string.IsNullOrWhiteSpace(EnemyChampion)
+        ? ChampionName
+        : $"{ChampionName} vs {EnemyChampion}";
     public string WinLossText { get; set; } = "";
     public int Kills { get; set; }
     public int Deaths { get; set; }

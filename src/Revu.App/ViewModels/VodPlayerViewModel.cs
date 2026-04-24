@@ -52,7 +52,9 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _currentTimeText = "0:00";
     [ObservableProperty] private string _totalTimeText = "0:00";
     [ObservableProperty] private double _playbackSpeed = 1.0;
-    [ObservableProperty] private int _seekStepSeconds = 10;
+    // v2.15.8: default to 1s steps so Left/Right does fine-grained scrubbing
+    // out of the box. Up/Down ratchets through SeekStepOptions to expand.
+    [ObservableProperty] private int _seekStepSeconds = 1;
     [ObservableProperty] private bool _hasVod;
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private bool _hasGameEvents;
@@ -1064,7 +1066,9 @@ public partial class VodPlayerViewModel : ObservableObject
 
         var nextIndex = Math.Clamp(currentIndex + direction, 0, SeekStepOptions.Count - 1);
         SeekStepSeconds = SeekStepOptions[nextIndex];
-        ClipStatusText = $"Seek step: {SeekStepText}";
+        // v2.15.8: removed ClipStatusText hijack — that field is only visible
+        // when the clip controls are open. The persistent inline pill next to
+        // the player's timestamp is the surface now.
     }
 
     [RelayCommand]
