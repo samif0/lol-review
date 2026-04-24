@@ -198,20 +198,53 @@ public sealed class BackupService : IBackupService
             return new ResetResult(false, "", "Could not create a safety backup. Reset aborted so no data is lost.");
         }
 
-        // Wipe the live DB + its WAL/SHM sidecars. File.Delete is a no-op for
-        // missing files so no need to guard.
-        try
+        // Wipe the live DB + its WAL/SHM sidecars. SQLite holds open a
+        // connection pool; deleting while the pool is live throws
+        // "file in use". Clear the pool + force GC so any finalizer-pending
+        // connections close before the delete attempt. Retry with backoff
+        // because Windows file locks can linger briefly.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var failed = new List<string>();
+        foreach (var path in new[] { dbPath + "-wal", dbPath + "-shm", dbPath })
         {
-            foreach (var path in new[] { dbPath, dbPath + "-shm", dbPath + "-wal" })
+            if (!File.Exists(path)) continue;
+
+            var ok = false;
+            for (int attempt = 0; attempt < 5; attempt++)
             {
-                try { if (File.Exists(path)) File.Delete(path); }
-                catch (Exception ex) { _logger.LogWarning(ex, "Could not delete {Path}", path); }
+                try
+                {
+                    File.Delete(path);
+                    ok = true;
+                    break;
+                }
+                catch (IOException ex)
+                {
+                    _logger.LogWarning(ex, "Delete attempt {Attempt} failed for {Path}", attempt + 1, path);
+                    System.Threading.Thread.Sleep(150);
+                    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Unexpected delete failure for {Path}", path);
+                    break;
+                }
             }
+
+            if (!ok) failed.Add(Path.GetFileName(path));
         }
-        catch (Exception ex)
+
+        if (failed.Count > 0)
         {
-            _logger.LogError(ex, "DB wipe failed");
-            return new ResetResult(false, backupFilePath, "Could not delete the database. A backup was made.");
+            _logger.LogError("Reset could not delete {Files}", string.Join(", ", failed));
+            return new ResetResult(
+                false,
+                backupFilePath,
+                $"Could not delete {string.Join(", ", failed)}. Close the app fully, then restore from the pre-reset backup if needed. Backup saved to: {backupFilePath}");
         }
 
         // Wipe config too — gets the user back to a clean onboarding path.
@@ -259,19 +292,42 @@ public sealed class BackupService : IBackupService
             return new RestoreResult(false, null, "Could not back up your current DB. Restore aborted.");
         }
 
-        // Remove live WAL/SHM so the restored DB boots clean.
-        try
+        // Remove live WAL/SHM + DB so the restored DB boots clean. Same
+        // connection-pool dance as ResetAllDataAsync — the live DB has an
+        // open pool that blocks File.Delete until it's cleared.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var failedRestore = new List<string>();
+        foreach (var path in new[] { dbPath + "-wal", dbPath + "-shm", dbPath })
         {
-            foreach (var path in new[] { dbPath, dbPath + "-shm", dbPath + "-wal" })
+            if (!File.Exists(path)) continue;
+            var ok = false;
+            for (int attempt = 0; attempt < 5; attempt++)
             {
-                try { if (File.Exists(path)) File.Delete(path); }
-                catch (Exception ex) { _logger.LogWarning(ex, "Could not delete {Path} before restore", path); }
+                try { File.Delete(path); ok = true; break; }
+                catch (IOException ex)
+                {
+                    _logger.LogWarning(ex, "Restore delete attempt {Attempt} failed for {Path}", attempt + 1, path);
+                    System.Threading.Thread.Sleep(150);
+                    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Unexpected delete failure for {Path}", path);
+                    break;
+                }
             }
+            if (!ok) failedRestore.Add(Path.GetFileName(path));
         }
-        catch (Exception ex)
+
+        if (failedRestore.Count > 0)
         {
-            _logger.LogError(ex, "DB wipe before restore failed");
-            return new RestoreResult(false, preRestorePath, "Could not replace the current database.");
+            _logger.LogError("Restore could not delete {Files}", string.Join(", ", failedRestore));
+            return new RestoreResult(false, preRestorePath,
+                $"Could not replace the current database ({string.Join(", ", failedRestore)} locked). Your pre-restore snapshot is safe.");
         }
 
         try
