@@ -268,6 +268,13 @@ public sealed partial class TimelineControl : UserControl
             }
         }
 
+        // v2.16: track the most recent X-position we placed a label at so we
+        // can skip overlapping ones in dense regions. Hover tooltip still
+        // surfaces the full event for any marker (including suppressed labels).
+        const double minLabelGap = 22;
+        double lastEventLabelX = double.NegativeInfinity;
+        double lastBookmarkLabelX = double.NegativeInfinity;
+
         // Game event markers
         if (Events != null)
         {
@@ -279,6 +286,15 @@ public sealed partial class TimelineControl : UserControl
                 Canvas.SetLeft(shape, Math.Clamp(x - MarkerSize / 2, 1, Math.Max(1, ActualWidth - MarkerSize - 1)));
                 Canvas.SetTop(shape, EventMarkerTop);
                 MarkerCanvas.Children.Add(shape);
+
+                if (x - lastEventLabelX >= minLabelGap)
+                {
+                    var label = CreateMarkerLabel(evt.ShortLabel, evt.Color);
+                    Canvas.SetLeft(label, Math.Clamp(x - 12, 0, Math.Max(0, ActualWidth - 28)));
+                    Canvas.SetTop(label, EventMarkerTop - 13);
+                    MarkerCanvas.Children.Add(label);
+                    lastEventLabelX = x;
+                }
 
                 _markerHitAreas.Add(new MarkerHitInfo
                 {
@@ -300,14 +316,41 @@ public sealed partial class TimelineControl : UserControl
                 Canvas.SetTop(shape, BookmarkMarkerTop);
                 MarkerCanvas.Children.Add(shape);
 
-                var label = string.IsNullOrEmpty(bm.Note)
+                if (x - lastBookmarkLabelX >= minLabelGap)
+                {
+                    var labelText = bm.IsClip ? "CLIP" : "BM";
+                    var label = CreateMarkerLabel(labelText, bm.MarkerColorHex);
+                    Canvas.SetLeft(label, Math.Clamp(x - 12, 0, Math.Max(0, ActualWidth - 28)));
+                    Canvas.SetTop(label, BookmarkMarkerTop + 14);
+                    MarkerCanvas.Children.Add(label);
+                    lastBookmarkLabelX = x;
+                }
+
+                var fullLabel = string.IsNullOrEmpty(bm.Note)
                     ? $"{bm.TimeText} Note"
                     : $"{bm.TimeText} {bm.Note}";
-                if (bm.IsClip) label += " [CLIP]";
+                if (bm.IsClip) fullLabel += " [CLIP]";
 
-                _markerHitAreas.Add(new MarkerHitInfo { X = x, Label = label });
+                _markerHitAreas.Add(new MarkerHitInfo { X = x, Label = fullLabel });
             }
         }
+    }
+
+    /// <summary>
+    /// v2.16: small label rendered next to a timeline marker. Color-matched to
+    /// the marker so the user can see "DEAD" in red, "DRG" in gold, etc.
+    /// without relying on the colored bar alone.
+    /// </summary>
+    private static TextBlock CreateMarkerLabel(string text, string colorHex)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            FontSize = 9,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(ParseColor(colorHex)),
+            Opacity = 0.9,
+        };
     }
 
     private static FrameworkElement CreateMarkerShape(MarkerShape shape, string colorHex)

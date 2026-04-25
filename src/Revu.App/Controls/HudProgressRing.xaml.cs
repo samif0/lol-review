@@ -19,11 +19,13 @@ public sealed partial class HudProgressRing : UserControl
 {
     // Ring geometry: 50px diameter, stroke width 3 → radius 25.
     // Circumference = 2πr ≈ 157.08 px.
-    // WinUI's Shape.StrokeDashArray values are in MULTIPLES of StrokeThickness,
-    // but StrokeDashOffset is in raw pixels. So the dash array gets the scaled
-    // circumference (CircumferenceDash) and the offset gets the raw pixel
-    // circumference (CircumferencePx). Mixing them up was causing 0% to render
-    // as a ~2/3-filled ring (offset of ~52px out of 157px circumference).
+    // WinUI/WPF Shape.StrokeDashArray AND StrokeDashOffset are both expressed in
+    // MULTIPLES of StrokeThickness, not raw pixels. v2.15.1 mistakenly mixed
+    // units — dash array in stroke-multiples but offset in raw px — which
+    // produced a partially-filled arc at 0% (offset shifted by 3× the intended
+    // amount, so modulo the dash period left a visible chunk of stroke).
+    // v2.16: both quantities use CircumferenceDash so the math stays in one
+    // unit space.
     private const double Radius = 25.0;
     private const double StrokeThickness = 3.0;
     private const double CircumferencePx = 2.0 * Math.PI * Radius;
@@ -135,9 +137,10 @@ public sealed partial class HudProgressRing : UserControl
         if (ArcEllipse is null) return;
 
         var ratio = double.IsFinite(Progress) ? Math.Clamp(Progress, 0.0, 1.0) : 0.0;
-        // Offset is in raw pixels. ratio=0 → fully hidden (offset = full px circumference),
+        // Both dash array and offset live in stroke-thickness multiples.
+        // ratio=0 → fully hidden (offset = full circumference in that unit),
         // ratio=1 → fully revealed (offset = 0).
-        var targetOffset = CircumferencePx * (1.0 - ratio);
+        var targetOffset = CircumferenceDash * (1.0 - ratio);
 
         if (!animate || !IsLoaded)
         {
@@ -148,7 +151,7 @@ public sealed partial class HudProgressRing : UserControl
         // Animate from "empty" (full circumference offset) to the target.
         var anim = new DoubleAnimation
         {
-            From = CircumferencePx,
+            From = CircumferenceDash,
             To = targetOffset,
             Duration = new Duration(TimeSpan.FromMilliseconds(1200)),
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },

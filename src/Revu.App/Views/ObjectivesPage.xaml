@@ -113,7 +113,7 @@
                                       Foreground="{StaticResource PrimaryTextBrush}"
                                       BorderBrush="{StaticResource SubtleBorderBrush}"
                                       CornerRadius="2" MinWidth="200">
-                                <ComboBoxItem Content="Primary"/>
+                                <ComboBoxItem Content="Gameplay"/>
                                 <ComboBoxItem Content="Mental"/>
                             </ComboBox>
                         </StackPanel>
@@ -462,6 +462,24 @@
                                                                 Margin="8,0,0,0"
                                                                 Visibility="{x:Bind HasScoreHistory, Converter={StaticResource BoolToVis}}"/>
                                     </Grid>
+
+                                    <!-- v2.16: visible level ladder so users can predict the
+                                         next threshold (Exploring 0 → Drilling 15 → … → Ready 50). -->
+                                    <ItemsRepeater ItemsSource="{x:Bind LevelLadder}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Orientation="Horizontal" Spacing="14"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:LevelLadderStep">
+                                                <TextBlock Text="{x:Bind Label}"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                           CharacterSpacing="120"
+                                                           Foreground="{x:Bind ForegroundBrush}"
+                                                           FontWeight="{x:Bind FontWeight}"/>
+                                            </DataTemplate>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
 
                                     <!-- Action Row -->
                                     <Grid>

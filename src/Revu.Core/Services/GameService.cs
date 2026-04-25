@@ -95,6 +95,12 @@ public sealed class GameService : IGameService
             var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null)
                 .ConfigureAwait(false);
             ruleBroken = violations.Any(v => v.Violated);
+
+            // Sticky clear: a prior user clear for this game wins over re-eval.
+            if (ruleBroken && await _sessionLog.IsRuleBreakClearedAsync(stats.GameId).ConfigureAwait(false))
+            {
+                ruleBroken = false;
+            }
         }
         catch (Exception ex)
         {

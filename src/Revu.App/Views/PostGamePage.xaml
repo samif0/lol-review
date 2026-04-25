@@ -264,6 +264,14 @@
                                    FontFamily="{StaticResource HeadingFont}"
                                    FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                    Foreground="{StaticResource AccentBlueBrush}"/>
+                        <!-- v2.16: when the API didn't resolve an enemy, prompt the user
+                             to fill the field instead of silently falling back. -->
+                        <TextBlock Text="+ Add the enemy laner so this matchup can be tracked"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="120"
+                                   Foreground="{StaticResource AccentGoldBrush}"
+                                   Visibility="{x:Bind ReviewVM.HasEnemyLaner, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
                         <TextBox Text="{x:Bind ReviewVM.EnemyLaner, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  PlaceholderText="Enemy laner" FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="36"
                                  Background="{StaticResource InputBackgroundBrush}"

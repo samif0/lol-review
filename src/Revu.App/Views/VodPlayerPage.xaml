@@ -93,7 +93,13 @@
             </Grid>
 
             <!-- ••• MAIN 2-COL LAYOUT ••• -->
-            <Grid Grid.Row="1" ColumnDefinitions="3*,*" ColumnSpacing="16">
+            <!-- v2.16: bookmark/clip sidebar gets a hard MinWidth so the tag
+                 picker + quality chips never clip at smaller window widths. -->
+            <Grid Grid.Row="1" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2.4*"/>
+                    <ColumnDefinition Width="*" MinWidth="380"/>
+                </Grid.ColumnDefinitions>
 
                 <!-- â”€â”€ LEFT: Video + Controls + Clip â”€â”€ -->
                 <ScrollViewer Grid.Column="0"
@@ -129,13 +135,37 @@
                                         HorizontalAlignment="Center" VerticalAlignment="Center"
                                         Background="{StaticResource SurfaceRaisedBrush}"
                                         BorderBrush="{StaticResource SubtleBorderBrush}"
-                                        BorderThickness="1" CornerRadius="2" Padding="18"
+                                        BorderThickness="1" CornerRadius="2" Padding="22,18"
+                                        MaxWidth="420"
                                         Visibility="Collapsed">
-                                    <TextBlock x:Name="NoVodText"
-                                               Text="No VOD linked to this game"
-                                               FontSize="{Binding Title, Source={StaticResource FontSizes}}" TextWrapping="Wrap"
-                                               HorizontalAlignment="Center"
-                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <StackPanel Spacing="10" HorizontalAlignment="Center">
+                                        <TextBlock x:Name="NoVodText"
+                                                   Text="No VOD linked to this game"
+                                                   FontSize="{Binding Title, Source={StaticResource FontSizes}}"
+                                                   TextWrapping="Wrap"
+                                                   HorizontalAlignment="Center"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                        <TextBlock Text="Ascent may still be encoding the recording, or the file lives outside your configured folder."
+                                                   FontFamily="{StaticResource BodyFont}"
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                   TextWrapping="Wrap"
+                                                   HorizontalAlignment="Center"
+                                                   TextAlignment="Center"
+                                                   Foreground="{StaticResource MutedTextBrush}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                            <Button x:Name="RetryVodLinkButton"
+                                                    Content="Try linking again"
+                                                    Click="OnRetryVodLinkClick"
+                                                    Style="{StaticResource PrimaryActionButtonStyle}"
+                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                    Height="32" Padding="14,0" CornerRadius="2"/>
+                                            <Button Content="Open Settings"
+                                                    Click="OnOpenSettingsFromNoVodClick"
+                                                    Style="{StaticResource QuietActionButtonStyle}"
+                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                    Height="32" Padding="14,0" CornerRadius="2"/>
+                                        </StackPanel>
+                                    </StackPanel>
                                 </Border>
 
                                 <Button x:Name="VideoPlayPauseButton"
@@ -507,6 +537,9 @@
                                                                  Foreground="{StaticResource PrimaryTextBrush}"
                                                                  FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Padding="8,6"
                                                                  PlaceholderText="Note"
+                                                                 TextWrapping="Wrap"
+                                                                 AcceptsReturn="True"
+                                                                 HorizontalAlignment="Stretch"
                                                                  KeyDown="OnBookmarkNoteKeyDown"
                                                                  LostFocus="OnBookmarkNoteLostFocus"
                                                                  TextChanged="OnBookmarkNoteTextChanged"/>
@@ -525,11 +558,13 @@
                                                                     Visibility="{x:Bind IsClip, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
                                                             <Border Background="{x:Bind SurfaceBrush}"
                                                                     BorderBrush="{x:Bind AccentBrush}"
-                                                                    BorderThickness="1" CornerRadius="2" Padding="6,3">
+                                                                    BorderThickness="1" CornerRadius="2" Padding="6,3"
+                                                                    HorizontalAlignment="Left">
                                                                 <TextBlock Text="{x:Bind ClipRangeText}"
                                                                            FontFamily="{StaticResource MonoFont}"
                                                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                                                           Foreground="{x:Bind AccentBrush}"/>
+                                                                           Foreground="{x:Bind AccentBrush}"
+                                                                           TextWrapping="NoWrap"/>
                                                             </Border>
                                                             <Border Background="{x:Bind QualitySurfaceBrush}"
                                                                     BorderBrush="{x:Bind QualityAccentBrush}"

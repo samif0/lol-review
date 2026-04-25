@@ -312,7 +312,8 @@ public partial class DashboardViewModel : ObservableObject
                         Progress = info.Progress,
                         LevelColorHex = GetLevelColor(info.LevelIndex),
                         LevelDimColorHex = AppSemanticPalette.ObjectiveLevelDimHex(info.LevelIndex),
-                        InfoText = $"{info.LevelName}  \u2022  {obj.Score} pts  \u2022  {obj.GameCount} games"
+                        InfoText = $"{info.LevelName}  \u2022  {obj.Score} pts  \u2022  {obj.GameCount} games",
+                        IsPriority = obj.IsPriority
                     });
                 }
             });
@@ -671,7 +672,7 @@ public partial class DashboardViewModel : ObservableObject
 
     // ── Helpers ─────────────────────────────────────────────────────
 
-    private static GameDisplayItem MapGameDisplay(GameStats game)
+    private GameDisplayItem MapGameDisplay(GameStats game)
     {
         var duration = game.GameDuration > 0
             ? $"{game.GameDuration / 60}:{game.GameDuration % 60:D2}"
@@ -686,6 +687,13 @@ public partial class DashboardViewModel : ObservableObject
             GameId = game.GameId,
             ChampionName = game.ChampionName,
             EnemyChampion = game.EnemyLaner,
+            ParticipantMapJson = game.ParticipantMap,
+            // v2.16: prefer the role the user actually played this game (from
+            // LCU). Fall back to the configured PrimaryRole when missing
+            // (manual entries, ARAM, off-position imports).
+            GameRole = string.IsNullOrWhiteSpace(game.Position)
+                ? _configService.PrimaryRole
+                : game.Position,
             Win = game.Win,
             WinLossText = game.Win ? "W" : "L",
             Kills = game.Kills,
@@ -775,13 +783,76 @@ public class GameDisplayItem
     public long GameId { get; set; }
     public string ChampionName { get; set; } = "";
     public string EnemyChampion { get; set; } = "";
+
+    /// <summary>v2.16: full role→champion JSON map, used to derive role-aware
+    /// matchup pills like "Kai'Sa+Nautilus vs Tristana+Renata".</summary>
+    public string ParticipantMapJson { get; set; } = "";
+
+    /// <summary>v2.16: the role the user played this specific game. Filled
+    /// from <c>games.position</c> first (LCU truth), then the configured
+    /// <c>IConfigService.PrimaryRole</c> as fallback. Drives which lane
+    /// pairing the matchup pill shows.</summary>
+    public string GameRole { get; set; } = "";
     public bool Win { get; set; }
 
     /// <summary>"Kai'Sa vs Tristana" when enemy known, otherwise just "Kai'Sa".
+    /// v2.16: when <see cref="PrimaryRole"/> + <see cref="ParticipantMapJson"/>
+    /// are populated, expands to a role-aware pairing like "Kai'Sa+Nautilus vs
+    /// Tristana+Renata" (ADC) or "Ahri+Lee vs Syndra+Graves" (Mid).
     /// Used by GameRowCard.Champion so games-list pills identify the matchup.</summary>
-    public string ChampionDisplay => string.IsNullOrWhiteSpace(EnemyChampion)
+    public string ChampionDisplay => RoleAwareDisplay() ?? LaneOnlyDisplay();
+
+    private string LaneOnlyDisplay() => string.IsNullOrWhiteSpace(EnemyChampion)
         ? ChampionName
         : $"{ChampionName} vs {EnemyChampion}";
+
+    private string? RoleAwareDisplay()
+    {
+        if (string.IsNullOrWhiteSpace(GameRole) || string.IsNullOrWhiteSpace(ParticipantMapJson))
+            return null;
+
+        System.Collections.Generic.Dictionary<string, string>? map = null;
+        try
+        {
+            map = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(ParticipantMapJson);
+        }
+        catch { return null; }
+        if (map is null || map.Count == 0) return null;
+
+        // Pairing rules per docs/V2_16_BACKLOG.md. Returns null for top
+        // (no obvious adjacent pairing) so the lane-only fallback kicks in.
+        // Accepts both LCU position names (BOTTOM/UTILITY/JUNGLE/MIDDLE/TOP)
+        // and the user-config short names (adc/supp/jg/mid/top).
+        var role = GameRole.ToLowerInvariant();
+        return role switch
+        {
+            "adc" or "bottom" or "bot" =>
+                Pair(map, "ownBot", "ownSupp", "enemyBot", "enemySupp"),
+            "support" or "supp" or "utility" =>
+                Pair(map, "ownSupp", "ownBot", "enemySupp", "enemyBot"),
+            "mid" or "middle" =>
+                Pair(map, "ownMid", "ownJg", "enemyMid", "enemyJg"),
+            "jungle" or "jg" =>
+                Pair(map, "ownJg", "ownMid", "enemyJg", "enemyMid"),
+            _ => null,
+        };
+    }
+
+    private static string? Pair(
+        System.Collections.Generic.Dictionary<string, string> map,
+        string ownPrimary, string ownPartner,
+        string enemyPrimary, string enemyPartner)
+    {
+        if (!map.TryGetValue(ownPrimary, out var op) || string.IsNullOrEmpty(op)) return null;
+        if (!map.TryGetValue(enemyPrimary, out var ep) || string.IsNullOrEmpty(ep)) return null;
+
+        var ownPart = map.TryGetValue(ownPartner, out var v1) ? v1 : "";
+        var enemyPart = map.TryGetValue(enemyPartner, out var v2) ? v2 : "";
+
+        var ownStr = string.IsNullOrEmpty(ownPart) ? op : $"{op}+{ownPart}";
+        var enemyStr = string.IsNullOrEmpty(enemyPart) ? ep : $"{ep}+{enemyPart}";
+        return $"{ownStr} vs {enemyStr}";
+    }
     public string WinLossText { get; set; } = "";
     public int Kills { get; set; }
     public int Deaths { get; set; }
@@ -829,6 +900,7 @@ public class DashboardObjectiveItem
     public string LevelColorHex { get; set; } = "#8A80A8";
     public string LevelDimColorHex { get; set; } = "#10121A";
     public string InfoText { get; set; } = "";
+    public bool IsPriority { get; set; }
 
     /// <summary>Short percentage label for the center of HudProgressRing.</summary>
     public string ProgressLabel => $"{Math.Clamp((int)Math.Round(Progress * 100.0), 0, 100)}%";
@@ -842,4 +914,10 @@ public class DashboardObjectiveItem
 
     public Microsoft.UI.Xaml.Media.SolidColorBrush LevelDimColorBrush =>
         AppSemanticPalette.Brush(LevelDimColorHex);
+
+    public Microsoft.UI.Xaml.Media.SolidColorBrush PriorityBadgeBackgroundBrush =>
+        AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldDimHex);
+
+    public Microsoft.UI.Xaml.Media.SolidColorBrush PriorityBadgeForegroundBrush =>
+        AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldHex);
 }

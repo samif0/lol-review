@@ -46,6 +46,24 @@
                             HorizontalAlignment="Stretch"
                             Spacing="14">
 
+                    <!-- v2.16: Start Block — manual pre-queue ritual.
+                         Auto-trigger from LCU home-state still TBD. -->
+                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">
+                        <Button Content="Start Block"
+                                Click="StartBlockButton_Click"
+                                Style="{StaticResource GoldActionButtonStyle}"
+                                FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                FontWeight="SemiBold"
+                                Height="36"
+                                Padding="20,0"
+                                CornerRadius="2"/>
+                        <TextBlock Text="Set your intent before you queue up."
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
                     <!-- ••• NEXT STEP (empty-state prompt — hides at Normal stage) ••• -->
                     <controls:CornerBracketedCard
                         CardBorderBrush="{StaticResource AccentTealBrush}"
@@ -258,6 +276,16 @@
                                                                               VerticalAlignment="Center"/>
 
                                                     <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                                        <Border Background="{x:Bind PriorityBadgeBackgroundBrush}"
+                                                                CornerRadius="2" Padding="6,2"
+                                                                HorizontalAlignment="Left"
+                                                                Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}}">
+                                                            <TextBlock Text="PRIORITY"
+                                                                       FontFamily="{StaticResource MonoFont}"
+                                                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                       FontWeight="Bold"
+                                                                       Foreground="{x:Bind PriorityBadgeForegroundBrush}"/>
+                                                        </Border>
                                                         <TextBlock Text="{x:Bind Title}"
                                                                    FontFamily="{StaticResource HeadingFont}"
                                                                    FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"

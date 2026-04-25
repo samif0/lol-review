@@ -403,6 +403,17 @@ public static class Schema
         );
         """;
 
+    // v2.16: per-game sticky stamp recording that the user explicitly cleared a
+    // rule-break flag for this game. Survives session_log row deletion / re-insert
+    // and is consulted by the rules engine before stamping rule_broken=1, so a
+    // clear stays cleared even if rules later re-evaluate the same condition.
+    public const string CreateClearedRuleBreaksTable = """
+        CREATE TABLE IF NOT EXISTS cleared_rule_breaks (
+            game_id     INTEGER PRIMARY KEY,
+            cleared_at  INTEGER
+        );
+        """;
+
     // ────────────────────────────────────────────────────────────────────────
     // LEGACY Coach Lab tables (Phase -1 of coach rebuild, 2026-04-18).
     //
@@ -691,6 +702,19 @@ public static class Schema
         "ALTER TABLE vod_bookmarks ADD COLUMN prompt_id INTEGER",
     ];
 
+    /// <summary>
+    /// v2.16: full 10-participant champion map per game, stored as JSON keyed
+    /// by team-position so role-aware matchup display can show pairings like
+    /// "Kai'Sa+Nautilus vs Tristana+Renata" instead of just the lane opponent.
+    /// JSON shape: { "ownTop":"Garen","ownJg":"...","ownMid":"...",
+    /// "ownBot":"...","ownSupp":"...","enemyTop":"...", ...}.
+    /// Empty string until the EnemyLanerBackfillService re-runs.
+    /// </summary>
+    public static readonly string[] MigrateGamesParticipantMap =
+    [
+        "ALTER TABLE games ADD COLUMN participant_map TEXT DEFAULT ''",
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -727,6 +751,7 @@ public static class Schema
         CreateSessionsTable,
         CreateTiltChecksTable,
         CreateMissedGameDecisionsTable,
+        CreateClearedRuleBreaksTable,
         CreateCoachPlayersTable,
         CreateCoachObjectiveBlocksTable,
         CreateCoachMomentsTable,
@@ -760,6 +785,7 @@ public static class Schema
         .. MigrateBookmarksObjective,
         .. MigrateBookmarksPromptId,
         .. MigrateTiltChecksGameAndPlan,
+        .. MigrateGamesParticipantMap,
     ];
 
     // ── Default seed data ────────────────────────────────────────────

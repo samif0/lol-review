@@ -28,10 +28,63 @@ public sealed class SessionGameEntry
     public string MentalText => $"Mental: {MentalRating}/10";
     public bool HasImprovementNote => !string.IsNullOrWhiteSpace(ImprovementNote);
 
-    /// <summary>"Kai'Sa vs Tristana" when known, otherwise just "Kai'Sa".</summary>
-    public string ChampionDisplay => string.IsNullOrWhiteSpace(EnemyChampion)
+    /// <summary>v2.16: full role→champion JSON for both teams. Drives the
+    /// 2v2/jg+mid pairing display when populated.</summary>
+    public string ParticipantMapJson { get; init; } = "";
+
+    /// <summary>v2.16: role the user played this specific game (LCU truth)
+    /// or the configured PrimaryRole as fallback.</summary>
+    public string GameRole { get; init; } = "";
+
+    /// <summary>"Kai'Sa+Nautilus vs Tristana+Renata" when role + map are
+    /// available, otherwise the lane-only fallback "Kai'Sa vs Tristana".</summary>
+    public string ChampionDisplay => RoleAwareDisplay() ?? LaneOnlyDisplay();
+
+    private string LaneOnlyDisplay() => string.IsNullOrWhiteSpace(EnemyChampion)
         ? ChampionName
         : $"{ChampionName} vs {EnemyChampion}";
+
+    private string? RoleAwareDisplay()
+    {
+        if (string.IsNullOrWhiteSpace(GameRole) || string.IsNullOrWhiteSpace(ParticipantMapJson))
+            return null;
+
+        System.Collections.Generic.Dictionary<string, string>? map = null;
+        try
+        {
+            map = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(ParticipantMapJson);
+        }
+        catch { return null; }
+        if (map is null || map.Count == 0) return null;
+
+        var role = GameRole.ToLowerInvariant();
+        return role switch
+        {
+            "adc" or "bottom" or "bot" =>
+                Pair(map, "ownBot", "ownSupp", "enemyBot", "enemySupp"),
+            "support" or "supp" or "utility" =>
+                Pair(map, "ownSupp", "ownBot", "enemySupp", "enemyBot"),
+            "mid" or "middle" =>
+                Pair(map, "ownMid", "ownJg", "enemyMid", "enemyJg"),
+            "jungle" or "jg" =>
+                Pair(map, "ownJg", "ownMid", "enemyJg", "enemyMid"),
+            _ => null,
+        };
+    }
+
+    private static string? Pair(
+        System.Collections.Generic.Dictionary<string, string> map,
+        string ownPrimary, string ownPartner,
+        string enemyPrimary, string enemyPartner)
+    {
+        if (!map.TryGetValue(ownPrimary, out var op) || string.IsNullOrEmpty(op)) return null;
+        if (!map.TryGetValue(enemyPrimary, out var ep) || string.IsNullOrEmpty(ep)) return null;
+        var ownPart = map.TryGetValue(ownPartner, out var v1) ? v1 : "";
+        var enemyPart = map.TryGetValue(enemyPartner, out var v2) ? v2 : "";
+        var ownStr = string.IsNullOrEmpty(ownPart) ? op : $"{op}+{ownPart}";
+        var enemyStr = string.IsNullOrEmpty(enemyPart) ? ep : $"{ep}+{enemyPart}";
+        return $"{ownStr} vs {enemyStr}";
+    }
 }
 
 /// <summary>ViewModel for the Session Logger page.</summary>
@@ -41,6 +94,7 @@ public partial class SessionLoggerViewModel : ObservableObject
     private readonly IGameRepository _gameRepo;
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
+    private readonly Revu.Core.Services.IConfigService _configService;
 
     [ObservableProperty]
     private DateOnly _currentDate = DateOnly.FromDateTime(DateTime.Now);
@@ -122,12 +176,14 @@ public partial class SessionLoggerViewModel : ObservableObject
         ISessionLogRepository sessionLogRepo,
         IGameRepository gameRepo,
         INavigationService navigationService,
-        IDialogService dialogService)
+        IDialogService dialogService,
+        Revu.Core.Services.IConfigService configService)
     {
         _sessionLogRepo = sessionLogRepo;
         _gameRepo = gameRepo;
         _navigationService = navigationService;
         _dialogService = dialogService;
+        _configService = configService;
     }
 
     [RelayCommand]
@@ -285,12 +341,18 @@ public partial class SessionLoggerViewModel : ObservableObject
         {
             bool hasReview = false;
             string enemyChampion = "";
+            string participantMap = "";
+            string gameRole = "";
             if (entry.GameId.HasValue)
             {
                 var game = await _gameRepo.GetAsync(entry.GameId.Value);
                 if (game != null)
                 {
                     enemyChampion = game.EnemyLaner ?? "";
+                    participantMap = game.ParticipantMap ?? "";
+                    gameRole = string.IsNullOrWhiteSpace(game.Position)
+                        ? _configService.PrimaryRole
+                        : game.Position;
                     hasReview = game.Rating > 0
                         || !string.IsNullOrWhiteSpace(game.ReviewNotes)
                         || !string.IsNullOrWhiteSpace(game.Mistakes)
@@ -311,6 +373,8 @@ public partial class SessionLoggerViewModel : ObservableObject
                 GameId = entry.GameId ?? 0,
                 ChampionName = entry.ChampionName,
                 EnemyChampion = enemyChampion,
+                ParticipantMapJson = participantMap,
+                GameRole = gameRole,
                 Win = entry.Win,
                 MentalRating = entry.MentalRating,
                 ImprovementNote = entry.ImprovementNote,

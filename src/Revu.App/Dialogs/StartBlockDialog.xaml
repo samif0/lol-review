@@ -1,0 +1,153 @@
+<ContentDialog
+    x:Class="Revu.App.Dialogs.StartBlockDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:Revu.App.Converters"
+    xmlns:controls="using:Revu.App.Controls"
+    mc:Ignorable="d"
+    Title=""
+    FullSizeDesired="False"
+    Background="{StaticResource ShellCanvasBrush}"
+    Foreground="{StaticResource PrimaryTextBrush}"
+    BorderBrush="{StaticResource SubtleBorderBrush}"
+    CornerRadius="0">
+
+    <ContentDialog.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </ContentDialog.Resources>
+
+    <Grid MaxWidth="460" MinWidth="420">
+        <StackPanel Spacing="14">
+
+            <!-- Hero block: eyebrow + title + countdown ticker -->
+            <Grid ColumnSpacing="14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="PRE-QUEUE RITUAL"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="10"
+                               CharacterSpacing="300"
+                               Foreground="{StaticResource AccentGoldBrush}"/>
+                    <TextBlock Text="Start Block"
+                               FontFamily="{StaticResource DisplayFont}"
+                               FontSize="26"
+                               FontWeight="Bold"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
+                    <TextBlock Text="LOCK IN"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="9"
+                               CharacterSpacing="250"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               HorizontalAlignment="Right"/>
+                    <TextBlock x:Name="CountdownText"
+                               Text="0:30"
+                               FontFamily="{StaticResource DisplayFont}"
+                               FontSize="22"
+                               FontWeight="Bold"
+                               Foreground="{StaticResource AccentGoldBrush}"
+                               HorizontalAlignment="Right"/>
+                </StackPanel>
+            </Grid>
+
+            <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
+
+            <TextBlock Text="Read your priority. Then type it in your own words. Take the 30 seconds — breathe, settle, then commit."
+                       FontFamily="{StaticResource BodyFont}"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Foreground="{StaticResource SecondaryTextBrush}"/>
+
+            <!-- Priority objective (only shown when one is set). Lives above
+                 the write-it-down card so the user reads it first, then
+                 retypes it below. -->
+            <controls:CornerBracketedCard CardPadding="16"
+                                          CardBorderBrush="{StaticResource AccentBlueBrush}"
+                                          Visibility="{x:Bind HasPriorityObjective, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="6">
+                    <controls:SectionTitle Text="PRIORITY OBJECTIVE"/>
+                    <TextBlock Text="{x:Bind PriorityObjectiveTitle, Mode=OneWay}"
+                               FontFamily="{StaticResource HeadingFont}"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{x:Bind PriorityObjectiveCriteria, Mode=OneWay}"
+                               FontFamily="{StaticResource BodyFont}"
+                               FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </controls:CornerBracketedCard>
+
+            <!-- Write-it-down: forcing the user to type the priority objective
+                 (rather than just read it) makes it stick. -->
+            <controls:CornerBracketedCard CardPadding="16">
+                <StackPanel Spacing="8">
+                    <controls:SectionTitle Text="WRITE YOUR PRIORITY"/>
+                    <TextBlock Text="Type the priority objective in your own words. Saying it back is what locks it in."
+                               FontFamily="{StaticResource BodyFont}"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               TextWrapping="Wrap"/>
+                    <TextBox x:Name="GoalBox"
+                             PlaceholderText="My focus this session is..."
+                             TextWrapping="Wrap"
+                             AcceptsReturn="True"
+                             MinHeight="60"
+                             FontFamily="{StaticResource BodyFont}"
+                             FontSize="13"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}"
+                             CornerRadius="0"/>
+                </StackPanel>
+            </controls:CornerBracketedCard>
+
+            <!-- Empty-state hint when no priority is set -->
+            <Border Padding="14,10"
+                    Background="{StaticResource InfoSurfaceBrush}"
+                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="0"
+                    Visibility="{x:Bind HasPriorityObjective, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+                <TextBlock Text="No priority objective set. Pick one in OBJECTIVES to anchor your sessions."
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="11"
+                           CharacterSpacing="120"
+                           Foreground="{StaticResource MutedTextBrush}"
+                           TextWrapping="Wrap"/>
+            </Border>
+
+            <!-- Primary + Cancel both live inside the content because the
+                 ContentDialog button slots' theme resources override the HUD
+                 styles with the default pastel violet/grey block. -->
+            <Grid ColumnSpacing="10" Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0"
+                        x:Name="LockInButton"
+                        Content="LOCK IN // QUEUE UP"
+                        Click="OnLockInClick"
+                        Style="{StaticResource GoldActionButtonStyle}"
+                        HorizontalAlignment="Stretch"/>
+                <Button Grid.Column="1"
+                        Content="CANCEL"
+                        Click="OnCancelClick"
+                        Style="{StaticResource SecondaryActionButtonStyle}"
+                        HorizontalAlignment="Stretch"/>
+            </Grid>
+
+        </StackPanel>
+    </Grid>
+</ContentDialog>

@@ -12,6 +12,23 @@
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- v2.16: category banners chunk the long Settings scroll into
+             distinct groups. Used between cards to mark a new category. -->
+        <Style x:Key="SettingsCategoryHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource HeadingFont}"/>
+            <Setter Property="FontSize" Value="{Binding Subtitle, Source={StaticResource FontSizes}}"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentBlueBrush}"/>
+            <Setter Property="Margin" Value="0,12,0,2"/>
+            <Setter Property="CharacterSpacing" Value="120"/>
+        </Style>
+        <Style x:Key="SettingsCategoryRuleStyle" TargetType="Border">
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="Background" Value="{StaticResource SubtleBorderBrush}"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
     </Page.Resources>
 
     <Grid x:Name="RootGrid">
@@ -26,6 +43,10 @@
                                      Subtitle="VOD FOLDERS // BACKUPS // INTEGRATIONS"/>
 
                 <!-- ••• Ascent VOD Recordings Section ••• -->
+                <!-- v2.16: RECORDINGS / VOD category -->
+                <TextBlock Text="RECORDINGS &amp; CLIPS" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="ASCENT VOD RECORDINGS"/>
@@ -163,6 +184,10 @@
                 </controls:CornerBracketedCard>
 
                 <!-- ••• Database Backup Section ••• -->
+                <!-- v2.16: BACKUPS category (split: see also lower in page) -->
+                <TextBlock Text="BACKUPS" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="DATABASE BACKUP"/>
@@ -208,6 +233,10 @@
                 </controls:CornerBracketedCard>
 
                 <!-- ••• Tilt Fix Mode Section ••• -->
+                <!-- v2.16: BEHAVIOR category -->
+                <TextBlock Text="APP BEHAVIOR" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="TILT FIX MODE"/>
@@ -241,6 +270,10 @@
                 </controls:CornerBracketedCard>
 
                 <!-- v2.15.0: Display / motion preferences -->
+                <!-- v2.16: APPEARANCE category -->
+                <TextBlock Text="APPEARANCE" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="DISPLAY"/>
@@ -256,6 +289,10 @@
                 </controls:CornerBracketedCard>
 
                 <!-- ••• App Version & Updates Section ••• -->
+                <!-- v2.16: ABOUT category -->
+                <TextBlock Text="ABOUT &amp; UPDATES" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="8">
                         <controls:SectionTitle Text="APP VERSION"/>
@@ -291,6 +328,10 @@
                 </controls:CornerBracketedCard>
 
                 <!-- ••• AI Coach Section ••• -->
+                <!-- v2.16: AI COACH category -->
+                <TextBlock Text="AI COACH" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <controls:CornerBracketedCard>
                     <StackPanel Spacing="10">
                         <Grid>
@@ -749,6 +790,10 @@
                             CornerRadius="2"/>
                 </Grid>
 
+                <!-- v2.16: ACCOUNT category -->
+                <TextBlock Text="RIOT ACCOUNT" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <!-- Revu account (compact status; full flow lives in onboarding) -->
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentBlueBrush}">
                     <StackPanel Spacing="12">
@@ -918,6 +963,10 @@
                 </controls:CornerBracketedCard>
 
                 <!-- ••• How Revu works (read-anytime reference) ••• -->
+                <!-- v2.16: HELP category -->
+                <TextBlock Text="HELP" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentBlueBrush}">
                     <StackPanel Spacing="14">
                         <controls:SectionTitle Text="HOW REVU WORKS"/>
@@ -1016,6 +1065,10 @@
                 </controls:CornerBracketedCard>
 
                 <!-- v2.15.0: RESTORE FROM BACKUP -->
+                <!-- v2.16: BACKUPS category (continued) — restore + backfill -->
+                <TextBlock Text="BACKUPS &amp; DATA TOOLS" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
+
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}">
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="RESTORE FROM BACKUP"/>
@@ -1090,6 +1143,10 @@
                 </controls:CornerBracketedCard>
 
                 <!-- v2.15.0: DANGER ZONE — full reset -->
+                <!-- v2.16: DANGER ZONE category -->
+                <TextBlock Text="DANGER ZONE" Style="{StaticResource SettingsCategoryHeaderStyle}" Foreground="{StaticResource LossRedBrush}"/>
+                <Border Style="{StaticResource SettingsCategoryRuleStyle}" Background="{StaticResource LossRedBrush}"/>
+
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource LossRedBrush}">
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="DANGER ZONE"/>

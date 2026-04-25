@@ -94,8 +94,16 @@ public interface ISessionLogRepository
 
     /// <summary>v2.15.10: clear or set the rule_broken flag for a specific game.
     /// User-initiated only — used to undo a false positive flagged by the
-    /// since-removed heuristic, or by the live rules engine.</summary>
+    /// since-removed heuristic, or by the live rules engine.
+    /// v2.16: clearing also writes a sticky stamp in cleared_rule_breaks so the
+    /// flag stays cleared if the rules engine re-evaluates the same game later.
+    /// Re-flagging removes the sticky stamp.</summary>
     Task SetRuleBrokenAsync(long gameId, bool ruleBroken);
+
+    /// <summary>v2.16: returns true if the user explicitly cleared the
+    /// rule_broken flag for this game. Callers should suppress any
+    /// auto-flagging when this returns true.</summary>
+    Task<bool> IsRuleBreakClearedAsync(long gameId);
 
     /// <summary>Save the post-game mental reflection for a specific game.</summary>
     Task UpdateMentalHandledAsync(long gameId, string mentalHandled);

@@ -294,8 +294,33 @@ public partial class SettingsViewModel : ObservableObject
             // the flag… actually simpler: let next nav event pick it up. The
             // trails are subtle; users won't mind one extra second of drift.
             Helpers.SidebarEnergyDrainAnimator.Enabled = SidebarAnimationEnabled;
-            config.RiotId = (RiotId ?? "").Trim();
-            config.RiotRegion = (RiotRegion ?? "").Trim().ToLowerInvariant();
+            var newRiotId = (RiotId ?? "").Trim();
+            var newRiotRegion = (RiotRegion ?? "").Trim().ToLowerInvariant();
+            var riotIdChanged = !string.Equals(config.RiotId, newRiotId, StringComparison.OrdinalIgnoreCase)
+                              || !string.Equals(config.RiotRegion, newRiotRegion, StringComparison.OrdinalIgnoreCase);
+            config.RiotId = newRiotId;
+            config.RiotRegion = newRiotRegion;
+
+            // v2.16: resolve the Riot ID + region to a PUUID and stash it.
+            // Settings used to skip this step (only Onboarding wrote PUUID),
+            // which left users who logged in via Settings unable to run the
+            // matchup backfill — RunAsync bails when PUUID is empty.
+            if (!string.IsNullOrEmpty(newRiotId)
+                && !string.IsNullOrEmpty(newRiotRegion)
+                && !string.IsNullOrEmpty(config.RiotSessionToken)
+                && (string.IsNullOrEmpty(config.RiotPuuid) || riotIdChanged))
+            {
+                try
+                {
+                    var account = await _riotAuthClient.ResolveAccountAsync(
+                        config.RiotSessionToken, newRiotId, newRiotRegion);
+                    config.RiotPuuid = account.Puuid ?? "";
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not resolve PUUID for {RiotId}/{Region}", newRiotId, newRiotRegion);
+                }
+            }
 
             await _configService.SaveAsync(config);
 
@@ -903,7 +928,18 @@ public partial class SettingsViewModel : ObservableObject
         BackfillStatus = "Scanning games...";
         try
         {
-            var result = await _backfillService.RunAsync();
+            // v2.16: live progress so a 200-game run doesn't look frozen.
+            var progress = new Progress<EnemyLanerBackfillProgress>(p =>
+            {
+                if (p.Total <= 0)
+                {
+                    BackfillStatus = "Scanning games...";
+                    return;
+                }
+                BackfillStatus = $"Scanned {p.Scanned}/{p.Total}  \u2022  matched {p.Updated}  \u2022  skipped {p.Skipped}  \u2022  failed {p.Failed}";
+            });
+
+            var result = await _backfillService.RunAsync(progress: progress);
             BackfillStatus = result.Scanned == 0
                 ? "Nothing to backfill — every game already has its enemy laner."
                 : $"Done. Updated {result.Updated} of {result.Scanned} games "

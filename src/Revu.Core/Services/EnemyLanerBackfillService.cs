@@ -8,6 +8,9 @@ namespace Revu.Core.Services;
 
 public sealed record EnemyLanerBackfillResult(int Scanned, int Updated, int Skipped, int Failed);
 
+/// <summary>v2.16: live progress payload for the Settings backfill card.</summary>
+public sealed record EnemyLanerBackfillProgress(int Scanned, int Total, int Updated, int Skipped, int Failed);
+
 /// <summary>
 /// v2.15.8: walks every game with a blank <c>enemy_laner</c> and tries to
 /// resolve it via the Riot Match-V5 API (through our proxy). The DB stores
@@ -40,7 +43,10 @@ public sealed class EnemyLanerBackfillService
         _logger = logger;
     }
 
-    public async Task<EnemyLanerBackfillResult> RunAsync(int maxGames = int.MaxValue, CancellationToken ct = default)
+    public async Task<EnemyLanerBackfillResult> RunAsync(
+        int maxGames = int.MaxValue,
+        IProgress<EnemyLanerBackfillProgress>? progress = null,
+        CancellationToken ct = default)
     {
         var region = _config.RiotRegion;
         var puuid = _config.RiotPuuid;
@@ -57,13 +63,16 @@ public sealed class EnemyLanerBackfillService
         var ids = allIds.Take(maxGames).ToList();
         _logger.LogInformation("Backfill: scanning {Count} of {Total} games", ids.Count, allIds.Count);
 
+
         int scanned = 0, updated = 0, skipped = 0, failed = 0;
         var platform = region.ToUpperInvariant();
+        progress?.Report(new EnemyLanerBackfillProgress(0, ids.Count, 0, 0, 0));
 
         foreach (var gameId in ids)
         {
             ct.ThrowIfCancellationRequested();
             scanned++;
+            progress?.Report(new EnemyLanerBackfillProgress(scanned, ids.Count, updated, skipped, failed));
 
             // Reconstruct Match-V5 id. Riot game_ids are platform-scoped, so
             // {platform}_{gameId} maps 1:1 for games actually played on that
@@ -80,17 +89,42 @@ public sealed class EnemyLanerBackfillService
             }
 
             var enemy = ExtractEnemyLaner(match, puuid);
-            if (string.IsNullOrEmpty(enemy))
+            string mapJson = "";
+            try
+            {
+                mapJson = ExtractParticipantMap(match, puuid);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Backfill: participant map extraction failed for game {GameId}", gameId);
+            }
+
+            // v2.16: a game counts as "updated" if EITHER enemy_laner or the
+            // role→champion map got new data. Pre-v2.16 rows often have
+            // enemy_laner already and only need the map.
+            var wroteAnything = false;
+            if (!string.IsNullOrEmpty(enemy))
+            {
+                await _games.UpdateEnemyLanerAsync(gameId, enemy).ConfigureAwait(false);
+                wroteAnything = true;
+            }
+            if (!string.IsNullOrEmpty(mapJson))
+            {
+                await _games.UpdateParticipantMapAsync(gameId, mapJson).ConfigureAwait(false);
+                wroteAnything = true;
+            }
+
+            if (!wroteAnything)
             {
                 skipped++;
-                _logger.LogDebug("Backfill: no enemy resolved for game {GameId}", gameId);
+                _logger.LogDebug("Backfill: nothing resolved for game {GameId}", gameId);
                 await Throttle(ct).ConfigureAwait(false);
                 continue;
             }
 
-            await _games.UpdateEnemyLanerAsync(gameId, enemy).ConfigureAwait(false);
             updated++;
-            _logger.LogDebug("Backfill: game {GameId} → {Enemy}", gameId, enemy);
+            _logger.LogDebug("Backfill: game {GameId} → enemy='{Enemy}' map={MapLen}",
+                gameId, enemy, mapJson.Length);
 
             await Throttle(ct).ConfigureAwait(false);
         }
@@ -148,6 +182,66 @@ public sealed class EnemyLanerBackfillService
             }
         }
         return "";
+    }
+
+    /// <summary>
+    /// v2.16: build a role→champion JSON map for both teams keyed from the
+    /// user's perspective. Returns "" for ARAM and other non-positional queues.
+    /// Output shape:
+    /// <c>{"ownTop":"Garen","ownJg":"Lee Sin","ownMid":"Ahri","ownBot":"Kai'Sa",
+    /// "ownSupp":"Nautilus","enemyTop":"...","enemyJg":"...","enemyMid":"...",
+    /// "enemyBot":"...","enemySupp":"..."}</c>. Missing positions are omitted.
+    /// </summary>
+    public static string ExtractParticipantMap(JsonElement match, string puuid)
+    {
+        if (!match.TryGetProperty("info", out var info)) return "";
+        if (!info.TryGetProperty("participants", out var participants)
+            || participants.ValueKind != JsonValueKind.Array) return "";
+
+        int selfTeam = 0;
+        bool foundSelf = false;
+        foreach (var p in participants.EnumerateArray())
+        {
+            if (p.TryGetProperty("puuid", out var pPuuid)
+                && pPuuid.ValueKind == JsonValueKind.String
+                && string.Equals(pPuuid.GetString(), puuid, StringComparison.OrdinalIgnoreCase))
+            {
+                selfTeam = p.TryGetProperty("teamId", out var stEl) && stEl.ValueKind == JsonValueKind.Number
+                    ? stEl.GetInt32() : 0;
+                foundSelf = true;
+                break;
+            }
+        }
+        if (!foundSelf || selfTeam == 0) return "";
+
+        var dict = new System.Collections.Generic.Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var p in participants.EnumerateArray())
+        {
+            var team = p.TryGetProperty("teamId", out var tEl) && tEl.ValueKind == JsonValueKind.Number
+                ? tEl.GetInt32() : 0;
+            var pos = p.TryGetProperty("teamPosition", out var pEl) && pEl.ValueKind == JsonValueKind.String
+                ? (pEl.GetString() ?? "") : "";
+            var champ = p.TryGetProperty("championName", out var cEl) && cEl.ValueKind == JsonValueKind.String
+                ? (cEl.GetString() ?? "") : "";
+            if (team == 0 || string.IsNullOrEmpty(pos) || string.IsNullOrEmpty(champ)) continue;
+
+            var prefix = team == selfTeam ? "own" : "enemy";
+            var roleKey = pos switch
+            {
+                "TOP"     => "Top",
+                "JUNGLE"  => "Jg",
+                "MIDDLE"  => "Mid",
+                "BOTTOM"  => "Bot",
+                "UTILITY" => "Supp",
+                _ => null,
+            };
+            if (roleKey is null) continue;
+
+            dict[$"{prefix}{roleKey}"] = champ;
+        }
+
+        if (dict.Count == 0) return "";
+        return JsonSerializer.Serialize(dict);
     }
 
     private static Task Throttle(CancellationToken ct)

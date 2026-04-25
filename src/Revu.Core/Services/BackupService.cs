@@ -189,8 +189,7 @@ public sealed class BackupService : IBackupService
             // backup will be silently stale — missing any in-session edits.
             CheckpointDatabase();
             Directory.CreateDirectory(backupDir);
-            var name = $"{PreResetPrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db";
-            backupFilePath = Path.Combine(backupDir, name);
+            backupFilePath = ResolveUniqueBackupPath(backupDir, PreResetPrefix);
             if (File.Exists(dbPath))
             {
                 File.Copy(dbPath, backupFilePath, overwrite: false);
@@ -208,53 +207,14 @@ public sealed class BackupService : IBackupService
             return new ResetResult(false, "", "Could not create a safety backup. Reset aborted so no data is lost.");
         }
 
-        // Wipe the live DB + its WAL/SHM sidecars. SQLite holds open a
-        // connection pool; deleting while the pool is live throws
-        // "file in use". Clear the pool + force GC so any finalizer-pending
-        // connections close before the delete attempt. Retry with backoff
-        // because Windows file locks can linger briefly.
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-
-        var failed = new List<string>();
-        foreach (var path in new[] { dbPath + "-wal", dbPath + "-shm", dbPath })
+        var deleteFailed = await TryDeleteSqliteFamilyAsync(dbPath).ConfigureAwait(false);
+        if (deleteFailed.Count > 0)
         {
-            if (!File.Exists(path)) continue;
-
-            var ok = false;
-            for (int attempt = 0; attempt < 5; attempt++)
-            {
-                try
-                {
-                    File.Delete(path);
-                    ok = true;
-                    break;
-                }
-                catch (IOException ex)
-                {
-                    _logger.LogWarning(ex, "Delete attempt {Attempt} failed for {Path}", attempt + 1, path);
-                    System.Threading.Thread.Sleep(150);
-                    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Unexpected delete failure for {Path}", path);
-                    break;
-                }
-            }
-
-            if (!ok) failed.Add(Path.GetFileName(path));
-        }
-
-        if (failed.Count > 0)
-        {
-            _logger.LogError("Reset could not delete {Files}", string.Join(", ", failed));
+            _logger.LogError("Reset could not delete {Files}", string.Join(", ", deleteFailed));
             return new ResetResult(
                 false,
                 backupFilePath,
-                $"Could not delete {string.Join(", ", failed)}. Close the app fully, then restore from the pre-reset backup if needed. Backup saved to: {backupFilePath}");
+                $"Could not delete {string.Join(", ", deleteFailed)}. Close the app fully, then restore from the pre-reset backup if needed. Backup saved to: {backupFilePath}");
         }
 
         // Wipe config too — gets the user back to a clean onboarding path.
@@ -268,8 +228,81 @@ public sealed class BackupService : IBackupService
             _logger.LogWarning(ex, "Config wipe failed (non-fatal)");
         }
 
-        await Task.CompletedTask;
         return new ResetResult(true, backupFilePath, null);
+    }
+
+    /// <summary>
+    /// Clears SQLite pools + forces finalizers, then tries to delete the live
+    /// DB plus its WAL/SHM sidecars. Returns the names of any files that
+    /// remained after the retry budget — empty list means full success.
+    /// Centralised so reset and restore use the same timing semantics.
+    /// </summary>
+    private async Task<List<string>> TryDeleteSqliteFamilyAsync(string dbPath)
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var failed = new List<string>();
+        foreach (var path in new[] { dbPath + "-wal", dbPath + "-shm", dbPath })
+        {
+            if (!File.Exists(path)) continue;
+
+            var ok = false;
+            // ~3s total budget. Windows file locks (AV scans, indexer,
+            // pending finalizers) can linger past the old 750ms ceiling.
+            for (int attempt = 0; attempt < 12; attempt++)
+            {
+                try
+                {
+                    File.Delete(path);
+                    ok = true;
+                    break;
+                }
+                catch (IOException ex)
+                {
+                    _logger.LogWarning(ex, "Delete attempt {Attempt} failed for {Path}", attempt + 1, path);
+                    await Task.Delay(250).ConfigureAwait(false);
+                    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    // Same lock category as IOException on some Windows builds.
+                    _logger.LogWarning(ex, "Delete attempt {Attempt} unauthorized for {Path}", attempt + 1, path);
+                    await Task.Delay(250).ConfigureAwait(false);
+                    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Unexpected delete failure for {Path}", path);
+                    break;
+                }
+            }
+
+            if (!ok) failed.Add(Path.GetFileName(path));
+        }
+        return failed;
+    }
+
+    /// <summary>
+    /// Returns a fresh path under <paramref name="backupDir"/> using the
+    /// timestamp-suffixed naming scheme. If the base name already exists
+    /// (e.g. user pressed reset twice in the same second), appends "_2",
+    /// "_3", … so File.Copy with overwrite:false never collides.
+    /// </summary>
+    private static string ResolveUniqueBackupPath(string backupDir, string prefix)
+    {
+        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var basePath = Path.Combine(backupDir, $"{prefix}{stamp}.db");
+        if (!File.Exists(basePath)) return basePath;
+
+        for (int suffix = 2; suffix < 100; suffix++)
+        {
+            var candidate = Path.Combine(backupDir, $"{prefix}{stamp}_{suffix}.db");
+            if (!File.Exists(candidate)) return candidate;
+        }
+        return basePath; // fall back; copy will surface the collision error.
     }
 
     public async Task<RestoreResult> RestoreFromBackupAsync(string backupFilePath)
@@ -292,8 +325,7 @@ public sealed class BackupService : IBackupService
             CheckpointDatabase();
             if (File.Exists(dbPath))
             {
-                var name = $"{PreRestorePrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db";
-                preRestorePath = Path.Combine(backupDir, name);
+                preRestorePath = ResolveUniqueBackupPath(backupDir, PreRestorePrefix);
                 File.Copy(dbPath, preRestorePath, overwrite: false);
                 _logger.LogInformation("Pre-restore backup: {Path}", preRestorePath);
             }
@@ -304,37 +336,7 @@ public sealed class BackupService : IBackupService
             return new RestoreResult(false, null, "Could not back up your current DB. Restore aborted.");
         }
 
-        // Remove live WAL/SHM + DB so the restored DB boots clean. Same
-        // connection-pool dance as ResetAllDataAsync — the live DB has an
-        // open pool that blocks File.Delete until it's cleared.
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-
-        var failedRestore = new List<string>();
-        foreach (var path in new[] { dbPath + "-wal", dbPath + "-shm", dbPath })
-        {
-            if (!File.Exists(path)) continue;
-            var ok = false;
-            for (int attempt = 0; attempt < 5; attempt++)
-            {
-                try { File.Delete(path); ok = true; break; }
-                catch (IOException ex)
-                {
-                    _logger.LogWarning(ex, "Restore delete attempt {Attempt} failed for {Path}", attempt + 1, path);
-                    System.Threading.Thread.Sleep(150);
-                    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Unexpected delete failure for {Path}", path);
-                    break;
-                }
-            }
-            if (!ok) failedRestore.Add(Path.GetFileName(path));
-        }
-
+        var failedRestore = await TryDeleteSqliteFamilyAsync(dbPath).ConfigureAwait(false);
         if (failedRestore.Count > 0)
         {
             _logger.LogError("Restore could not delete {Files}", string.Join(", ", failedRestore));

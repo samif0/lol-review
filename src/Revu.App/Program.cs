@@ -28,6 +28,19 @@ public static class Program
             .OnAfterUpdateFastCallback((v) => RemoveRedundantExeShortcut())
             .Run();
 
+        // v2.16: ensure the Add/Remove Programs uninstall entry exists. Velopack
+        // normally writes this during Setup.exe; this is a defensive top-up for
+        // installs that ended up without it.
+        try
+        {
+            var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+            UninstallEntryRegistrar.EnsureRegistered(version);
+        }
+        catch
+        {
+            // best-effort; never fatal
+        }
+
         try
         {
             AppDiagnostics.WriteVerbose("startup.log", "Program.Main starting");

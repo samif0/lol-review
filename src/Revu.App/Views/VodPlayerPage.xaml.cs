@@ -96,13 +96,12 @@ public sealed partial class VodPlayerPage : Page
                 break;
         }
 
-        // v2.15.9: every VOD-viewer entry auto-enters fullscreen so the 3*,*
-        // layout has room for the bookmarks column without clipping. Manual
-        // fullscreen button still toggles back to windowed.
-        if (!_isFullscreen)
-        {
-            DispatcherQueue.TryEnqueue(ToggleFullscreen);
-        }
+        // v2.16: replace v2.15.9 auto-fullscreen with a "minimum usable" window
+        // resize. If the window is already big enough for the bookmark column
+        // to render without clipping, leave it alone. Otherwise grow it to a
+        // VOD-friendly minimum so the user doesn't end up in a takeover
+        // fullscreen they didn't ask for.
+        DispatcherQueue.TryEnqueue(EnsureMinimumVodWindowSize);
 
         TryLoadMedia();
 
@@ -119,11 +118,9 @@ public sealed partial class VodPlayerPage : Page
         _windowRoot?.RemoveHandler(KeyUpEvent, _keyUpHandler);
         _windowRoot = null;
 
-        if (_isFullscreen)
-        {
-            App.MainWindow?.AppWindow?.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
-            _isFullscreen = false;
-        }
+        // v2.16: don't auto-restore Default presenter on leave. Auto-fullscreen
+        // is gone (see OnNavigatedTo). If the user opted into fullscreen via
+        // the manual button, it's their choice — leave them in it.
 
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         Cleanup();
@@ -652,6 +649,46 @@ public sealed partial class VodPlayerPage : Page
 
     private bool _isFullscreen;
 
+    /// <summary>
+    /// v2.16: ensures the window is at least <c>MinVodWindowWidth</c> ×
+    /// <c>MinVodWindowHeight</c> so the bookmark column in the 3*,* grid
+    /// doesn't clip. Never shrinks a window the user has already sized
+    /// larger; just bumps small windows up.
+    /// </summary>
+    private const int MinVodWindowWidth = 1400;
+    private const int MinVodWindowHeight = 800;
+
+    private void EnsureMinimumVodWindowSize()
+    {
+        try
+        {
+            var appWindow = App.MainWindow?.AppWindow;
+            if (appWindow is null) return;
+
+            // FullScreen / Maximized presenter already covers the screen — skip.
+            if (appWindow.Presenter is Microsoft.UI.Windowing.FullScreenPresenter) return;
+            if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op
+                && op.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
+            {
+                return;
+            }
+
+            var size = appWindow.Size;
+            var targetW = Math.Max(size.Width, MinVodWindowWidth);
+            var targetH = Math.Max(size.Height, MinVodWindowHeight);
+            if (targetW != size.Width || targetH != size.Height)
+            {
+                appWindow.Resize(new Windows.Graphics.SizeInt32(targetW, targetH));
+            }
+        }
+        catch
+        {
+            // Window APIs can throw if the window is closing; swallowing here
+            // is fine because the layout still works at any size, just with
+            // a clipped bookmark column at small widths.
+        }
+    }
+
     private void ToggleFullscreen()
     {
         var window = App.MainWindow;
@@ -794,5 +831,51 @@ public sealed partial class VodPlayerPage : Page
                 e.Handled = true;
                 break;
         }
+    }
+
+    /// <summary>
+    /// v2.16: user-driven retry from the "No VOD linked" empty state. Asks
+    /// VodService to scan again and reload the page if a match was found.
+    /// Falls back to a friendly status if nothing turned up.
+    /// </summary>
+    private async void OnRetryVodLinkClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn)
+        {
+            btn.IsEnabled = false;
+            btn.Content = "Linking...";
+        }
+
+        try
+        {
+            if (ViewModel.LoadCommand.CanExecute(ViewModel.GameId))
+            {
+                await ViewModel.LoadCommand.ExecuteAsync(ViewModel.GameId);
+            }
+
+            if (ViewModel.HasVod)
+            {
+                TryLoadMedia();
+            }
+            else if (sender is Button b)
+            {
+                b.Content = "Still no match — try scanning in Settings";
+                // Re-enable so the user can click again after Ascent finishes.
+                b.IsEnabled = true;
+            }
+        }
+        catch
+        {
+            if (sender is Button b)
+            {
+                b.Content = "Try linking again";
+                b.IsEnabled = true;
+            }
+        }
+    }
+
+    private void OnOpenSettingsFromNoVodClick(object sender, RoutedEventArgs e)
+    {
+        App.GetService<Revu.App.Contracts.INavigationService>().NavigateTo("settings");
     }
 }

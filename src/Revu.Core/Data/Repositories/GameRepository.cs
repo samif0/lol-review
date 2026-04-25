@@ -96,6 +96,7 @@ public sealed class GameRepository : IGameRepository
             TeamKills = GetIntOrDefault(reader, "team_kills"),
             KillParticipation = GetDoubleOrDefault(reader, "kill_participation"),
             EnemyLaner = GetStringOrDefault(reader, "enemy_laner"),
+            ParticipantMap = GetStringOrDefault(reader, "participant_map"),
 
             // Review fields
             ReviewNotes = GetStringOrDefault(reader, "review_notes"),
@@ -469,13 +470,30 @@ public sealed class GameRepository : IGameRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdateParticipantMapAsync(long gameId, string participantMapJson)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE games SET participant_map = @map WHERE game_id = @game_id";
+        cmd.Parameters.AddWithValue("@map", participantMapJson ?? "");
+        cmd.Parameters.AddWithValue("@game_id", gameId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<IReadOnlyList<long>> GetGameIdsMissingEnemyLanerAsync()
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
+        // v2.16: also pick up games that have enemy_laner but a blank
+        // participant_map. Pre-v2.16 backfill only stored the lane opponent;
+        // now we want the full 10-champion map for role-aware matchup pills,
+        // so any row missing EITHER column needs a Match-V5 round-trip.
         cmd.CommandText = $@"
             SELECT game_id FROM games
-            WHERE (enemy_laner IS NULL OR enemy_laner = '')
+            WHERE (
+                    (enemy_laner IS NULL OR enemy_laner = '')
+                 OR (participant_map IS NULL OR participant_map = '')
+                  )
               {CasualFilter}
               AND (is_hidden IS NULL OR is_hidden = 0)
             ORDER BY timestamp DESC";

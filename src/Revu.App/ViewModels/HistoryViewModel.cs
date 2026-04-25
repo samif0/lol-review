@@ -19,6 +19,7 @@ public partial class HistoryViewModel : ObservableObject
 {
     private readonly IGameRepository _gameRepo;
     private readonly IVodRepository _vodRepo;
+    private readonly Revu.Core.Services.IConfigService _configService;
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
     private readonly ILogger<HistoryViewModel> _logger;
@@ -104,12 +105,14 @@ public partial class HistoryViewModel : ObservableObject
         IVodRepository vodRepo,
         INavigationService navigationService,
         IDialogService dialogService,
+        Revu.Core.Services.IConfigService configService,
         ILogger<HistoryViewModel> logger)
     {
         _gameRepo = gameRepo;
         _vodRepo = vodRepo;
         _navigationService = navigationService;
         _dialogService = dialogService;
+        _configService = configService;
         _logger = logger;
     }
 
@@ -350,7 +353,7 @@ public partial class HistoryViewModel : ObservableObject
 
     // ── Helpers ─────────────────────────────────────────────────────
 
-    private static GameDisplayItem MapGameDisplay(Core.Models.GameStats game)
+    private GameDisplayItem MapGameDisplay(Core.Models.GameStats game)
     {
         var duration = game.GameDuration > 0
             ? $"{game.GameDuration / 60}:{game.GameDuration % 60:D2}"
@@ -364,6 +367,11 @@ public partial class HistoryViewModel : ObservableObject
         {
             GameId = game.GameId,
             ChampionName = game.ChampionName,
+            EnemyChampion = game.EnemyLaner,
+            ParticipantMapJson = game.ParticipantMap,
+            GameRole = string.IsNullOrWhiteSpace(game.Position)
+                ? _configService.PrimaryRole
+                : game.Position,
             Win = game.Win,
             WinLossText = game.Win ? "W" : "L",
             Kills = game.Kills,

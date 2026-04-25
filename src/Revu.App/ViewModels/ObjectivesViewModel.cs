@@ -102,7 +102,7 @@ public sealed class ObjectiveDisplayItem
 
     // Derived display properties
     public bool IsMental => Type == "mental";
-    public string TypeBadge => IsMental ? "MENTAL" : "PRIMARY";
+    public string TypeBadge => IsMental ? "MENTAL" : "GAMEPLAY";
     public string PriorityBadge => IsPriority ? "PRIORITY" : "";
     public string ScoreText => $"{Score} pts  \u2022  {GameCount} games";
     public string ProgressText
@@ -165,6 +165,49 @@ public sealed class ObjectiveDisplayItem
             return $"{needed} more pts to unlock completion (reach Ready level)";
         }
     }
+
+    /// <summary>v2.16: visible progression ladder. Renders all four named
+    /// levels with their score thresholds so the user can predict when "Ready"
+    /// unlocks instead of guessing. The current level is flagged via
+    /// <see cref="LevelLadderStep.IsCurrent"/> for visual highlight.</summary>
+    public IReadOnlyList<LevelLadderStep> LevelLadder
+    {
+        get
+        {
+            (int Threshold, string Name)[] stops =
+            [
+                (0, "Exploring"),
+                (15, "Drilling"),
+                (30, "Ingraining"),
+                (50, "Ready"),
+            ];
+
+            var list = new List<LevelLadderStep>(stops.Length);
+            for (int i = 0; i < stops.Length; i++)
+            {
+                list.Add(new LevelLadderStep(
+                    Name: stops[i].Name,
+                    Threshold: stops[i].Threshold,
+                    IsCurrent: i == LevelIndex,
+                    IsReached: Score >= stops[i].Threshold));
+            }
+            return list;
+        }
+    }
+}
+
+/// <summary>Single step on the objective progression ladder for display.</summary>
+public sealed record LevelLadderStep(string Name, int Threshold, bool IsCurrent, bool IsReached)
+{
+    public string Label => $"{Name.ToUpperInvariant()} \u00B7 {Threshold}";
+    public Microsoft.UI.Xaml.Media.SolidColorBrush ForegroundBrush => IsCurrent
+        ? AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldHex)
+        : (IsReached
+            ? AppSemanticPalette.Brush(AppSemanticPalette.PrimaryTextHex)
+            : AppSemanticPalette.Brush(AppSemanticPalette.MutedTextHex));
+    public Windows.UI.Text.FontWeight FontWeight => IsCurrent
+        ? Microsoft.UI.Text.FontWeights.Bold
+        : Microsoft.UI.Text.FontWeights.Normal;
 }
 
 /// <summary>Display model for a completed objective.</summary>

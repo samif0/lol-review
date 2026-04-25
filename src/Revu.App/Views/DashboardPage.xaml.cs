@@ -1,6 +1,7 @@
 #nullable enable
 
 using CommunityToolkit.Mvvm.Messaging;
+using Revu.App.Dialogs;
 using Revu.App.Helpers;
 using Revu.App.ViewModels;
 using Revu.App.Contracts;
@@ -75,5 +76,14 @@ public sealed partial class DashboardPage : Page
     private void TiltResetButton_Click(object sender, RoutedEventArgs e)
     {
         App.GetService<INavigationService>().NavigateTo("tiltcheck");
+    }
+
+    private async void StartBlockButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new StartBlockDialog
+        {
+            XamlRoot = XamlRoot,
+        };
+        await dialog.ShowAsync();
     }
 }

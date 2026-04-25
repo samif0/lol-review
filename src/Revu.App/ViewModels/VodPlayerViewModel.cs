@@ -30,6 +30,7 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly IConfigService _configService;
     private readonly INavigationService _navigationService;
     private readonly ICoachSidecarNotifier _coachNotifier;
+    private readonly IVodService _vodService;
     private readonly ILogger<VodPlayerViewModel> _logger;
     private readonly object _bookmarkMutationQueueGate = new();
     private readonly object _bookmarkNoteSaveGate = new();
@@ -154,6 +155,7 @@ public partial class VodPlayerViewModel : ObservableObject
         IConfigService configService,
         INavigationService navigationService,
         ICoachSidecarNotifier coachNotifier,
+        IVodService vodService,
         ILogger<VodPlayerViewModel> logger)
     {
         _vodRepo = vodRepo;
@@ -166,6 +168,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _configService = configService;
         _navigationService = navigationService;
         _coachNotifier = coachNotifier;
+        _vodService = vodService;
         _logger = logger;
     }
 
@@ -193,6 +196,28 @@ public partial class VodPlayerViewModel : ObservableObject
 
             // Load VOD metadata
             var vod = await _vodRepo.GetVodAsync(gameId);
+
+            // v2.16: if no link exists yet, try to match a recording right now.
+            // Covers the case where ProcessGameEndAsync's 90s retry fired before
+            // Ascent finished encoding — the user opens the VOD viewer minutes
+            // later and the file is now ready. Mirrors ReviewWorkflowService.
+            if (vod == null && _configService.IsAscentEnabled)
+            {
+                try
+                {
+                    await _vodService.TryLinkRecordingAsync(game);
+                    vod = await _vodRepo.GetVodAsync(gameId);
+                    if (vod is not null)
+                    {
+                        _logger.LogInformation("On-demand VOD link succeeded for game {Id}", gameId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "On-demand VOD link failed for game {Id}", gameId);
+                }
+            }
+
             if (vod == null) { HasVod = false; return; }
 
             HasVod = true;
@@ -338,6 +363,7 @@ public partial class VodPlayerViewModel : ObservableObject
                 ObjectiveOptions = ObjectiveOptions,
                 TagOptions = TagOptions,
             });
+            await MarkObjectivePracticedFromBookmarkAsync(objectiveId);
             _logger.LogInformation("Bookmark added at {Time}s for game {Id}", timeS, GameId);
         }
         catch (Exception ex)
@@ -407,6 +433,7 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             await EnqueueBookmarkMutationAsync(
                 () => _vodRepo.SetBookmarkObjectiveAsync(bookmark.Id, request.ObjectiveId));
+            await MarkObjectivePracticedFromBookmarkAsync(request.ObjectiveId);
         }
         catch (Exception ex)
         {
@@ -437,6 +464,7 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             await EnqueueBookmarkMutationAsync(
                 () => _vodRepo.SetBookmarkTagAsync(bookmark.Id, request.ObjectiveId, request.PromptId));
+            await MarkObjectivePracticedFromBookmarkAsync(request.ObjectiveId);
         }
         catch (Exception ex)
         {
@@ -614,6 +642,7 @@ public partial class VodPlayerViewModel : ObservableObject
                     ObjectiveOptions = ObjectiveOptions,
                     TagOptions = TagOptions,
                 });
+                await MarkObjectivePracticedFromBookmarkAsync(objectiveId);
 
                 // Phase 4 hook: ask coach sidecar to generate frame descriptions.
                 _ = _coachNotifier.NotifyBookmarkCreatedAsync(bookmarkId)
@@ -781,6 +810,37 @@ public partial class VodPlayerViewModel : ObservableObject
             var next = Task.Run(() => RunQueuedBookmarkMutationAsync(previous, mutation));
             _bookmarkMutationQueueTail = next;
             return next;
+        }
+    }
+
+    /// <summary>
+    /// v2.16: tagging a bookmark/clip to an objective is itself an act of
+    /// practice — record game_objectives(practiced=1) so the user doesn't have
+    /// to remember the redundant toggle. Skips when a row already exists for
+    /// this game + objective so any prior user-set state (including an explicit
+    /// practiced=false) is preserved.
+    /// </summary>
+    private async Task MarkObjectivePracticedFromBookmarkAsync(long? objectiveId)
+    {
+        if (objectiveId is null || objectiveId.Value <= 0 || GameId <= 0) return;
+
+        try
+        {
+            var existing = await _objectivesRepo.GetGameObjectivesAsync(GameId).ConfigureAwait(false);
+            if (existing.Any(g => g.ObjectiveId == objectiveId.Value)) return;
+
+            await _objectivesRepo.RecordGameAsync(
+                GameId,
+                objectiveId.Value,
+                practiced: true,
+                executionNote: "Auto: tagged via VOD bookmark").ConfigureAwait(false);
+            _logger.LogInformation(
+                "Auto-marked objective {ObjectiveId} as practiced for game {GameId} (bookmark tag)",
+                objectiveId.Value, GameId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to auto-mark objective {ObjectiveId} practiced", objectiveId);
         }
     }
 
@@ -1304,6 +1364,24 @@ public class TimelineEvent
     public string Summary => FormatSummary();
     public string DisplayText => string.IsNullOrEmpty(Summary) ? Label : $"{Label}: {Summary}";
     public string TooltipText => $"{TimeText} {DisplayText}";
+
+    /// <summary>v2.16: 2-4 char tag rendered next to the marker on the timeline,
+    /// so users see *what* the marker means without hovering.</summary>
+    public string ShortLabel => EventType.ToUpperInvariant() switch
+    {
+        "KILL"        => "KILL",
+        "DEATH"       => "DEAD",
+        "ASSIST"      => "AST",
+        "DRAGON"      => "DRG",
+        "BARON"       => "BAR",
+        "HERALD"      => "HRD",
+        "TURRET"      => "TWR",
+        "INHIBITOR"   => "INH",
+        "FIRST_BLOOD" => "FB",
+        "MULTI_KILL"  => "MULTI",
+        "LEVEL_UP"    => "LVL",
+        _             => "EVT",
+    };
     public SolidColorBrush AccentBrush => AppSemanticPalette.Brush(Color);
     public SolidColorBrush SurfaceBrush => AppSemanticPalette.Brush(SurfaceColor);
 

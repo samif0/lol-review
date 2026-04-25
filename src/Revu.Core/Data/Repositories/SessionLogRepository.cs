@@ -97,6 +97,12 @@ public sealed class SessionLogRepository : ISessionLogRepository
 
         var (sessionDate, sessionTimestamp) = await ResolveGameSessionDateAsync(conn, gameId);
 
+        // v2.16: a prior user clear is sticky — never re-flag a cleared game.
+        if (ruleBroken && await IsRuleBreakClearedAsync(conn, gameId))
+        {
+            ruleBroken = false;
+        }
+
         // Check if entry already exists
         using (var checkCmd = conn.CreateCommand())
         {
@@ -220,12 +226,51 @@ public sealed class SessionLogRepository : ISessionLogRepository
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
 
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE session_log SET rule_broken = @ruleBroken WHERE game_id = @gameId";
-        cmd.Parameters.AddWithValue("@ruleBroken", ruleBroken ? 1 : 0);
-        cmd.Parameters.AddWithValue("@gameId", gameId);
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE session_log SET rule_broken = @ruleBroken WHERE game_id = @gameId";
+            cmd.Parameters.AddWithValue("@ruleBroken", ruleBroken ? 1 : 0);
+            cmd.Parameters.AddWithValue("@gameId", gameId);
+            await cmd.ExecuteNonQueryAsync();
+        }
 
-        await cmd.ExecuteNonQueryAsync();
+        // Sticky cleared-stamp: clearing inserts, re-flagging removes. The stamp
+        // outlives the session_log row so subsequent rule re-evaluation can't
+        // overturn the user's decision.
+        using (var stickyCmd = conn.CreateCommand())
+        {
+            if (ruleBroken)
+            {
+                stickyCmd.CommandText = "DELETE FROM cleared_rule_breaks WHERE game_id = @gameId";
+                stickyCmd.Parameters.AddWithValue("@gameId", gameId);
+            }
+            else
+            {
+                stickyCmd.CommandText = @"
+                    INSERT INTO cleared_rule_breaks (game_id, cleared_at)
+                    VALUES (@gameId, @clearedAt)
+                    ON CONFLICT(game_id) DO UPDATE SET cleared_at = excluded.cleared_at";
+                stickyCmd.Parameters.AddWithValue("@gameId", gameId);
+                stickyCmd.Parameters.AddWithValue("@clearedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            }
+            await stickyCmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    public async Task<bool> IsRuleBreakClearedAsync(long gameId)
+    {
+        using var conn = _factory.CreateConnection();
+        await conn.OpenAsync();
+        return await IsRuleBreakClearedAsync(conn, gameId);
+    }
+
+    private static async Task<bool> IsRuleBreakClearedAsync(SqliteConnection conn, long gameId)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT 1 FROM cleared_rule_breaks WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        var result = await cmd.ExecuteScalarAsync();
+        return result is not null;
     }
 
     public async Task SetSessionIntentionAsync(string dateStr, string intention)

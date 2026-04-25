@@ -31,6 +31,13 @@ public class GameStats
     public string Role { get; set; } = "";
     public string EnemyLaner { get; set; } = "";
 
+    /// <summary>
+    /// v2.16: JSON map of role→champion for both teams keyed from the user's
+    /// perspective. See <c>EnemyLanerBackfillService.ExtractParticipantMap</c>
+    /// for the shape. Empty until the backfill pass populates it.
+    /// </summary>
+    public string ParticipantMap { get; set; } = "";
+
     // ── Outcome ──────────────────────────────────────────────────────
 
     public bool Win { get; set; }

@@ -162,6 +162,14 @@ public interface IGameRepository
     /// <summary>Update the enemy_laner field for a game.</summary>
     Task UpdateEnemyLanerAsync(long gameId, string enemyLaner);
 
+    /// <summary>
+    /// v2.16: write the full 10-participant role→champion JSON map. Empty
+    /// string clears it. Persisted alongside enemy_laner during the same
+    /// Match-V5 round-trip so role-aware matchup display can render pairings
+    /// like "Kai'Sa+Nautilus vs Tristana+Renata".
+    /// </summary>
+    Task UpdateParticipantMapAsync(long gameId, string participantMapJson);
+
     /// <summary>v2.15.8: enumerate game_ids that have no enemy_laner set, so a
     /// backfill pass can resolve them via the Riot API. Excludes hidden games.</summary>
     Task<IReadOnlyList<long>> GetGameIdsMissingEnemyLanerAsync();
