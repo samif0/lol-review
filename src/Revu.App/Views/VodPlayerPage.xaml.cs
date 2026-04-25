@@ -220,6 +220,14 @@ public sealed partial class VodPlayerPage : Page
         if (_mediaPlayer == null) return;
         try
         {
+            // v2.15.10: post-game lands on the VOD viewer immediately, but the
+            // recorder may still be flushing the encoder + writing the moov
+            // atom. Opening mid-finalize fires MediaFailed because the MP4
+            // index hasn't landed yet. Wait until the file size is stable for
+            // a beat — that's the cheapest stability signal and avoids the
+            // "click out and back in" workaround.
+            await WaitForStableFileAsync(filePath);
+
             var file = await StorageFile.GetFileFromPathAsync(filePath);
             var source = MediaSource.CreateFromStorageFile(file);
             _mediaPlayer.Source = source;
@@ -231,6 +239,30 @@ public sealed partial class VodPlayerPage : Page
                 NoVodText.Text = $"Failed to load VOD: {ex.Message}";
                 NoVodText.Visibility = Visibility.Visible;
             });
+        }
+    }
+
+    /// <summary>
+    /// v2.15.10: poll the file size until two consecutive reads ~400ms apart
+    /// match. Caps at ~3s so we don't hang forever on a recorder that never
+    /// finishes (then we just try opening anyway and let MediaFailed trigger
+    /// the existing error path).
+    /// </summary>
+    private static async Task WaitForStableFileAsync(string filePath)
+    {
+        const int maxWaitMs = 3000;
+        const int pollIntervalMs = 400;
+        long lastSize = -1;
+        var elapsed = 0;
+        while (elapsed < maxWaitMs)
+        {
+            long size;
+            try { size = new System.IO.FileInfo(filePath).Length; }
+            catch { return; } // file gone or locked — let the open try and fail
+            if (size > 0 && size == lastSize) return;
+            lastSize = size;
+            await Task.Delay(pollIntervalMs);
+            elapsed += pollIntervalMs;
         }
     }
 
@@ -497,6 +529,12 @@ public sealed partial class VodPlayerPage : Page
             var objRow = ViewModel.TagOptions.FirstOrDefault(t =>
                 t.Kind == TagOption.OptionKind.Objective && t.ObjectiveId == objId);
             if (objRow is not null) title = objRow.Title;
+        }
+        // v2.15.10: explicit "(no tag)" display when both ids are null. Beats
+        // showing a blank pill that looks like "the dropdown didn't load".
+        if (string.IsNullOrEmpty(title) && objId is null && promptId is null)
+        {
+            title = "(no tag)";
         }
 
         if (NewBookmarkObjectivePicker is not null)

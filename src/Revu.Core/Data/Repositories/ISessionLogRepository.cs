@@ -92,6 +92,11 @@ public interface ISessionLogRepository
     /// <summary>Update the mental rating for a specific game.</summary>
     Task UpdateMentalRatingAsync(long gameId, int mentalRating);
 
+    /// <summary>v2.15.10: clear or set the rule_broken flag for a specific game.
+    /// User-initiated only — used to undo a false positive flagged by the
+    /// since-removed heuristic, or by the live rules engine.</summary>
+    Task SetRuleBrokenAsync(long gameId, bool ruleBroken);
+
     /// <summary>Save the post-game mental reflection for a specific game.</summary>
     Task UpdateMentalHandledAsync(long gameId, string mentalHandled);
 

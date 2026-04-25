@@ -215,6 +215,19 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task SetRuleBrokenAsync(long gameId, bool ruleBroken)
+    {
+        using var conn = _factory.CreateConnection();
+        await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE session_log SET rule_broken = @ruleBroken WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@ruleBroken", ruleBroken ? 1 : 0);
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task SetSessionIntentionAsync(string dateStr, string intention)
     {
         using var conn = _factory.CreateConnection();

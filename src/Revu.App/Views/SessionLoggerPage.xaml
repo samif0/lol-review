@@ -188,14 +188,22 @@
                                                                    Foreground="{StaticResource MutedTextBrush}">
                                                             <Run Text="{x:Bind ResultText}"/>
                                                         </TextBlock>
-                                                        <Border Background="{StaticResource LossRedBrush}"
+                                                        <!-- v2.15.10: click to clear a false-positive rule break.
+                                                             The flag is set by the rules engine + a since-removed
+                                                             heuristic, both of which can mis-fire. -->
+                                                        <Button Background="{StaticResource LossRedBrush}"
+                                                                BorderThickness="0"
                                                                 CornerRadius="2" Padding="6,2"
+                                                                MinHeight="0" MinWidth="0"
+                                                                Tag="{x:Bind GameId}"
+                                                                Click="ClearRuleBreakButton_Click"
+                                                                ToolTipService.ToolTip="Click to clear this rule break"
                                                                 Visibility="{x:Bind RuleBroken, Converter={StaticResource BoolToVis}}">
                                                             <TextBlock Text="RULE BREAK"
                                                                        FontFamily="{StaticResource MonoFont}"
                                                                        FontSize="{Binding Micro, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                                                        Foreground="White"/>
-                                                        </Border>
+                                                        </Button>
                                                     </StackPanel>
                                                     <TextBlock Text="{x:Bind ImprovementNote}"
                                                                FontFamily="{StaticResource MonoFont}"

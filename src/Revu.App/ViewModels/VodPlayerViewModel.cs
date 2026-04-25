@@ -516,7 +516,13 @@ public partial class VodPlayerViewModel : ObservableObject
     [RelayCommand]
     private void SeekToBookmark(BookmarkItem bookmark)
     {
-        SeekRequested?.Invoke(bookmark.GameTimeS);
+        // v2.15.10: clip rows jump to the clip's in-point (start of the
+        // range), not the marker time — the marker is usually mid-action so
+        // jumping to it dropped users into the middle of the clip.
+        var target = bookmark.IsClip && bookmark.ClipStartSeconds is int start
+            ? start
+            : bookmark.GameTimeS;
+        SeekRequested?.Invoke(target);
     }
 
     [RelayCommand]
@@ -887,6 +893,7 @@ public partial class VodPlayerViewModel : ObservableObject
             TimeText = FormatTime(record.GameTimeSeconds),
             Note = record.Note,
             IsClip = isClip,
+            ClipStartSeconds = record.ClipStartSeconds,
             ClipRangeText = record.ClipStartSeconds != null && record.ClipEndSeconds != null
                 ? $"{FormatTime(record.ClipStartSeconds.Value)} - {FormatTime(record.ClipEndSeconds.Value)}"
                 : "",
@@ -949,7 +956,20 @@ public partial class VodPlayerViewModel : ObservableObject
             // objective, emit one Objective row + one row per prompt (any phase).
             // Search indexes on SearchText, so typing "trade" matches prompts
             // whose label OR parent title contains "trade".
-            var tagRows = new List<TagOption>();
+            //
+            // v2.15.10: prepend an explicit "(no tag)" row so the user can
+            // pick "no objective" without the picker fighting back to the
+            // priority-default. Untagged clips/bookmarks route into Spotted
+            // Problems on the post-game review.
+            var tagRows = new List<TagOption>
+            {
+                new TagOption
+                {
+                    Kind = TagOption.OptionKind.None,
+                    Title = "(no tag)",
+                    SearchText = "no tag none clear",
+                },
+            };
             foreach (var obj in objectives)
             {
                 tagRows.Add(new TagOption
@@ -1118,6 +1138,10 @@ public partial class BookmarkItem : ObservableObject
     private string _note = "";
 
     public bool IsClip { get; set; }
+    /// <summary>v2.15.10: when this is a clip, where the clip range starts.
+    /// Null for plain note bookmarks. Used by Jump to seek to the first frame
+    /// of the clip rather than the marker time, which often sits in the middle.</summary>
+    public int? ClipStartSeconds { get; set; }
     public string ClipRangeText { get; set; } = "";
     public string Quality { get; set; } = "";
 
@@ -1162,9 +1186,9 @@ public partial class BookmarkItem : ObservableObject
                     t.Kind == TagOption.OptionKind.Prompt && t.PromptId == PromptId);
                 if (row is not null) return row.Title;
             }
-            if (ObjectiveId is null) return "No objective";
+            if (ObjectiveId is null) return "(no tag)";
             var match = ObjectiveOptions?.FirstOrDefault(o => o.Id == ObjectiveId);
-            return match?.Title ?? "No objective";
+            return match?.Title ?? "(no tag)";
         }
     }
     public string KindLabel => IsClip ? "CLIP" : "NOTE";

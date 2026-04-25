@@ -83,26 +83,17 @@
                                     <Run Text="{x:Bind ReviewVM.GameModeText, Mode=OneWay}"/>
                                 </TextBlock>
                             </StackPanel>
-                            <!-- VOD button -->
-                            <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,6,0,0"
-                                        Visibility="{x:Bind ReviewVM.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                <Button Command="{x:Bind ReviewVM.WatchVodCommand}"
-                                        Style="{StaticResource GoldActionButtonStyle}"
-                                        Height="34" Padding="14,0" FontSize="{Binding Body, Source={StaticResource FontSizes}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon Glyph="&#xE714;" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
-                                        <TextBlock Text="Review VOD"/>
-                                    </StackPanel>
-                                </Button>
-                                <TextBlock FontFamily="{StaticResource MonoFont}"
-                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                           VerticalAlignment="Center">
-                                    <Run Text="{x:Bind ReviewVM.BookmarkCount, Mode=OneWay}"/>
-                                    <Run Text=" bookmarks"/>
-                                </TextBlock>
-                            </StackPanel>
+                            <!-- v2.15.10: bookmarks count moved here standalone — the
+                                 "Review VOD" button on this card was redundant with the
+                                 top-left "Back to VOD" button now anchoring the page. -->
+                            <TextBlock FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       Margin="0,6,0,0"
+                                       Visibility="{x:Bind ReviewVM.HasVod, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Run Text="{x:Bind ReviewVM.BookmarkCount, Mode=OneWay}"/>
+                                <Run Text=" bookmarks"/>
+                            </TextBlock>
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" HorizontalAlignment="Right"

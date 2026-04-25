@@ -51,6 +51,14 @@ public sealed partial class SessionLoggerPage : Page
         }
     }
 
+    private void ClearRuleBreakButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long gameId)
+        {
+            ViewModel.ClearRuleBreakCommand.Execute(gameId);
+        }
+    }
+
     private void OnManualEntryClick(object sender, RoutedEventArgs e)
     {
         var nav = App.GetService<INavigationService>();

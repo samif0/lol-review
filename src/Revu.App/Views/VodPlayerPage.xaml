@@ -44,7 +44,8 @@
                             Command="{x:Bind ViewModel.OpenReviewCommand}"
                             Style="{StaticResource GoldActionButtonStyle}"
                             Height="34" Padding="14,0" VerticalAlignment="Center"
-                            FontSize="{Binding Body, Source={StaticResource FontSizes}}">
+                            FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                            IsTabStop="False" AllowFocusOnInteraction="False">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE70B;"
                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
@@ -326,12 +327,32 @@
                             <controls:SectionTitle Text="CLIP"/>
 
                             <StackPanel Orientation="Horizontal" Spacing="6">
+                                <!-- v2.15.10: surface the I / O keyboard shortcuts as
+                                     keycap chips next to the buttons. Users were
+                                     bouncing between bookmark + clip because the
+                                     in/out trigger wasn't discoverable. -->
                                 <Button Command="{x:Bind ViewModel.SetClipInCommand}"
                                         Click="OnClipButtonClick"
                                         Style="{StaticResource SecondaryActionButtonStyle}"
                                         Height="30" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                        IsTabStop="False" AllowFocusOnInteraction="False"
-                                        Content="Start"/>
+                                        IsTabStop="False" AllowFocusOnInteraction="False">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="Start" VerticalAlignment="Center"/>
+                                        <Border Background="{StaticResource AccentGoldBrush}"
+                                                CornerRadius="2" Padding="6,1"
+                                                VerticalAlignment="Center">
+                                            <!-- v2.15.10: serif/mono I and O are nearly indistinguishable
+                                                 (Orbitron's I has no serifs, looks like a vertical line that
+                                                 reads as | or 1). Switch to Segoe UI sans-serif so the cap
+                                                 letterforms are unambiguous keycaps. -->
+                                            <TextBlock Text="I"
+                                                       FontFamily="Segoe UI"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       FontWeight="Bold"
+                                                       Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Button>
                                 <TextBlock FontFamily="{StaticResource MonoFont}"
                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"
                                            Foreground="{StaticResource AccentGoldBrush}">
@@ -341,8 +362,20 @@
                                         Click="OnClipButtonClick"
                                         Style="{StaticResource SecondaryActionButtonStyle}"
                                         Height="30" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                        IsTabStop="False" AllowFocusOnInteraction="False"
-                                        Content="End"/>
+                                        IsTabStop="False" AllowFocusOnInteraction="False">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="End" VerticalAlignment="Center"/>
+                                        <Border Background="{StaticResource AccentGoldBrush}"
+                                                CornerRadius="2" Padding="6,1"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="O"
+                                                       FontFamily="Segoe UI"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       FontWeight="Bold"
+                                                       Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
 
                             <TextBox x:Name="ClipNoteBox"
@@ -551,7 +584,12 @@
                                                     </StackPanel>
 
                                                     <StackPanel Grid.Column="2" Spacing="6" VerticalAlignment="Top">
+                                                        <!-- v2.15.10: explicit Tag binding so ResolveBookmarkItem
+                                                             always finds the row's BookmarkItem. DataContext
+                                                             inheritance through the item-template was unreliable
+                                                             for ghost-styled buttons inside a ScrollViewer. -->
                                                         <Button Click="OnBookmarkJumpClick"
+                                                                Tag="{x:Bind}"
                                                                 Style="{StaticResource GhostIconButtonStyle}"
                                                                 Width="56" Height="30" Padding="0"
                                                                 ToolTipService.ToolTip="Jump to this time">

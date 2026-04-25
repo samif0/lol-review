@@ -34,6 +34,13 @@ public sealed partial class HudProgressRing : UserControl
     public HudProgressRing()
     {
         InitializeComponent();
+        // v2.15.10: dash array MUST be set before any StrokeDashOffset write,
+        // otherwise the ellipse renders as a solid ring (offset has no effect
+        // without a dash pattern). DP value-changed callbacks fire BEFORE the
+        // first Loaded event, so deferring this to OnLoaded made the ring
+        // briefly render at 100% on every page entry.
+        ArcEllipse.StrokeDashArray.Add(CircumferenceDash);
+        ArcEllipse.StrokeDashArray.Add(CircumferenceDash);
         Loaded += OnLoaded;
     }
 
@@ -110,15 +117,6 @@ public sealed partial class HudProgressRing : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Initialize dash array once — a single dash the length of the circumference
-        // (scaled by stroke thickness, since StrokeDashArray is in those units),
-        // then use StrokeDashOffset in raw pixels to reveal the arc portion.
-        if (ArcEllipse.StrokeDashArray.Count == 0)
-        {
-            ArcEllipse.StrokeDashArray.Add(CircumferenceDash);
-            ArcEllipse.StrokeDashArray.Add(CircumferenceDash);  // gap same length so only the dashed part shows
-        }
-
         if (!_drawInPlayed)
         {
             _drawInPlayed = true;

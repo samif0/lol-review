@@ -224,6 +224,18 @@ public partial class SessionLoggerViewModel : ObservableObject
         _navigationService.NavigateTo("review", gameId);
     }
 
+    /// <summary>v2.15.10: clear a false-positive rule break flag for a game.
+    /// Used when a since-removed heuristic or the live rules engine flagged
+    /// the game incorrectly. Persists via session_log; refreshes the day so
+    /// the pill disappears + the day stats roll up correctly.</summary>
+    [RelayCommand]
+    private async Task ClearRuleBreakAsync(long gameId)
+    {
+        if (gameId <= 0) return;
+        await _sessionLogRepo.SetRuleBrokenAsync(gameId, ruleBroken: false);
+        await RefreshDataAsync();
+    }
+
     private async Task RefreshDataAsync()
     {
         var today = DateOnly.FromDateTime(DateTime.Now);
