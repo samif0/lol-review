@@ -297,18 +297,24 @@ public sealed class LcuClient : ILcuClient
                 }
             }
 
-            // theirTeam: enemies don't expose their assignedPosition during
-            // champ select (it's a Riot privacy choice), so position-matching
-            // returns nothing. In Solo/Flex Queue both teams are ordered by
-            // role (Top, Jg, Mid, Bot, Supp), so the same index in theirTeam
-            // is the lane opponent. Fall back to position matching only for
-            // queues where enemy positions ARE exposed (rare but cheap to try).
+            // theirTeam: enemies don't expose assignedPosition during champ
+            // select. Two-pass match:
+            // 1. Position match — works for queues that DO expose enemy
+            //    assignedPosition (rare).
+            // 2. Role-index match — map our assignedPosition to a canonical
+            //    role index (TOP=0, JUNGLE=1, MIDDLE=2, BOTTOM=3, UTILITY=4)
+            //    and pull theirTeam[that index]. Reliable in solo/flex since
+            //    Riot orders both teams by role for client display, even when
+            //    OUR myTeam cell order reflects lobby slots (which differ from
+            //    lane after autofill).
+            // 3. myTeam-index fallback — last-resort same-slot match. Used when
+            //    we don't have a usable assignedPosition (draft, blind, ARAM).
             if (el.TryGetProperty("theirTeam", out var theirTeam)
                 && theirTeam.ValueKind == JsonValueKind.Array)
             {
                 JsonElement? matched = null;
 
-                // Pass 1: position match (handles odd queues that expose it).
+                // Pass 1: position match.
                 if (!string.IsNullOrEmpty(myPosition))
                 {
                     foreach (var member in theirTeam.EnumerateArray())
@@ -322,7 +328,22 @@ public sealed class LcuClient : ILcuClient
                     }
                 }
 
-                // Pass 2: same index in theirTeam as the local player in myTeam.
+                // Pass 2: role-index match (handles autofill correctly).
+                if (matched is null)
+                {
+                    var roleIdx = RoleToIndex(myPosition);
+                    if (roleIdx >= 0)
+                    {
+                        int idx = 0;
+                        foreach (var member in theirTeam.EnumerateArray())
+                        {
+                            if (idx == roleIdx) { matched = member; break; }
+                            idx++;
+                        }
+                    }
+                }
+
+                // Pass 3: myTeam-index fallback (no role info available).
                 if (matched is null && myTeamIndex >= 0)
                 {
                     int idx = 0;
@@ -349,6 +370,24 @@ public sealed class LcuClient : ILcuClient
         {
             return ("", "", "");
         }
+    }
+
+    /// <summary>v2.16.2: canonical role-to-cell-index used by Riot when
+    /// ordering theirTeam for client display. Returns -1 for unknown
+    /// positions (manual queues / ARAM / pre-position-assignment ticks).</summary>
+    private static int RoleToIndex(string position)
+    {
+        if (string.IsNullOrEmpty(position)) return -1;
+        return position.ToUpperInvariant() switch
+        {
+            "TOP"     => 0,
+            "JUNGLE"  => 1,
+            "MIDDLE"  => 2,
+            "BOTTOM"  => 3,
+            "UTILITY" => 4,
+            "SUPPORT" => 4, // some clients spell it this way
+            _ => -1,
+        };
     }
 
     // ── Internal helper ─────────────────────────────────────────────────
