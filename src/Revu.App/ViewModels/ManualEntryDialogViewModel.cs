@@ -21,6 +21,13 @@ public sealed partial class PromptAnswerField : ObservableObject
 
     [ObservableProperty]
     private string _answerText = "";
+
+    /// <summary>v2.16.2: post-game review surfaces pre-game answers as a
+    /// read-only reminder of what the user committed to before queueing.
+    /// Editing them after the fact defeats the point.</summary>
+    public bool IsPreGame =>
+        string.Equals(Phase, ObjectivePhases.PreGame, System.StringComparison.OrdinalIgnoreCase);
+    public bool IsEditable => !IsPreGame;
 }
 
 /// <summary>Display model for an objective assessment in the review flow.</summary>

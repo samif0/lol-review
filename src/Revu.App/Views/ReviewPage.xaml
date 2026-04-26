@@ -241,6 +241,15 @@
                                                         <ItemsRepeater.ItemTemplate>
                                                             <DataTemplate x:DataType="vm:PromptAnswerField">
                                                                 <StackPanel Spacing="6">
+                                                                    <!-- v2.16.2: pre-game answers carry a small caps eyebrow
+                                                                         so the user can tell read-only carryover from the
+                                                                         editable in-game/post-game prompts below. -->
+                                                                    <TextBlock Text="YOUR PRE-GAME ANSWER"
+                                                                               FontFamily="{StaticResource MonoFont}"
+                                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                               CharacterSpacing="200"
+                                                                               Foreground="{StaticResource AccentGoldBrush}"
+                                                                               Visibility="{x:Bind IsPreGame, Converter={StaticResource BoolToVis}}"/>
                                                                     <!-- v2.15.0: body-size + primary text so prompt reads clearly. -->
                                                                     <TextBlock Text="{x:Bind Label}"
                                                                                FontFamily="{StaticResource BodyFont}"
@@ -252,6 +261,7 @@
                                                                              PlaceholderText="Write your answer..."
                                                                              TextWrapping="Wrap" AcceptsReturn="True"
                                                                              MinHeight="44"
+                                                                             IsReadOnly="{x:Bind IsPreGame}"
                                                                              FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                                              Background="{StaticResource CardBackgroundBrush}"
                                                                              BorderBrush="{StaticResource SubtleBorderBrush}"

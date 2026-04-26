@@ -206,14 +206,28 @@ public partial class ReviewViewModel : ObservableObject
                 var prompts = await _promptsRepository.GetPromptsForObjectiveAsync(assessment.ObjectiveId);
                 assessment.Prompts.Clear();
                 bool hasAnyAnswerForThisGame = false;
-                foreach (var p in prompts)
+                // v2.16.2: include PreGame answers as read-only reminders so
+                // the user can see what they committed to before queueing.
+                // Sort pre-game first so it reads top-down: "here's what I
+                // said pre-game → here's how I'll answer post-game."
+                var ordered = prompts
+                    .Where(p => p.Phase == ObjectivePhases.PreGame
+                             || p.Phase == ObjectivePhases.InGame
+                             || p.Phase == ObjectivePhases.PostGame)
+                    .OrderBy(p => p.Phase == ObjectivePhases.PreGame ? 0
+                               : p.Phase == ObjectivePhases.InGame ? 1
+                               : 2);
+
+                foreach (var p in ordered)
                 {
-                    // Only render phases that are meaningful post-game: ingame + postgame.
-                    // Pre-game prompts live on the champ-select surface, not here.
-                    if (p.Phase != ObjectivePhases.InGame && p.Phase != ObjectivePhases.PostGame)
+                    var text = answersByPromptId.TryGetValue(p.Id, out var t) ? t : "";
+
+                    // Pre-game prompts that the user never filled out (e.g.
+                    // they never opened champ-select) shouldn't surface as
+                    // empty read-only fields — skip them.
+                    if (p.Phase == ObjectivePhases.PreGame && string.IsNullOrWhiteSpace(text))
                         continue;
 
-                    var text = answersByPromptId.TryGetValue(p.Id, out var t) ? t : "";
                     if (!string.IsNullOrWhiteSpace(text)) hasAnyAnswerForThisGame = true;
 
                     assessment.Prompts.Add(new PromptAnswerField
