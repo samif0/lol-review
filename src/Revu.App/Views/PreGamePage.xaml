@@ -41,6 +41,13 @@
             <TextBlock Style="{StaticResource GroupHeaderStyle}"
                        Text="— INTEL —"/>
 
+            <!-- v2.16.1: rotating intel deck — passive learning during champ-select
+                 dead time. Cycles priority objective → last game → matchup notes →
+                 prior pre-game answers → enemy ability cooldowns. -->
+            <controls:IntelRotatorControl
+                ItemsSource="{x:Bind ViewModel.IntelDeck, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.HasIntelDeck, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
             <!-- Waiting-state placeholder: shown while champ select data is still
                  arriving and none of the other intel cards have anything yet. -->
             <controls:CornerBracketedCard

@@ -275,10 +275,12 @@ public sealed class LcuClient : ILcuClient
             var myChampion = "";
             var myPosition = "";
             var enemyLaner = "";
+            var myTeamIndex = -1;
 
-            // myTeam: find local player's champion + position
+            // myTeam: find local player's champion + position + index
             if (el.TryGetProperty("myTeam", out var myTeam) && myTeam.ValueKind == JsonValueKind.Array)
             {
+                int idx = 0;
                 foreach (var member in myTeam.EnumerateArray())
                 {
                     var cellId = member.GetPropertyIntOrDefault("cellId", -99);
@@ -288,26 +290,54 @@ public sealed class LcuClient : ILcuClient
                         if (champId > 0)
                             myChampion = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
                         myPosition = member.GetPropertyOrDefault("assignedPosition", "");
+                        myTeamIndex = idx;
                         break;
                     }
+                    idx++;
                 }
             }
 
-            // theirTeam: find enemy in same position as local player
-            if (!string.IsNullOrEmpty(myPosition)
-                && el.TryGetProperty("theirTeam", out var theirTeam)
+            // theirTeam: enemies don't expose their assignedPosition during
+            // champ select (it's a Riot privacy choice), so position-matching
+            // returns nothing. In Solo/Flex Queue both teams are ordered by
+            // role (Top, Jg, Mid, Bot, Supp), so the same index in theirTeam
+            // is the lane opponent. Fall back to position matching only for
+            // queues where enemy positions ARE exposed (rare but cheap to try).
+            if (el.TryGetProperty("theirTeam", out var theirTeam)
                 && theirTeam.ValueKind == JsonValueKind.Array)
             {
-                foreach (var member in theirTeam.EnumerateArray())
+                JsonElement? matched = null;
+
+                // Pass 1: position match (handles odd queues that expose it).
+                if (!string.IsNullOrEmpty(myPosition))
                 {
-                    var pos = member.GetPropertyOrDefault("assignedPosition", "");
-                    if (pos.Equals(myPosition, StringComparison.OrdinalIgnoreCase))
+                    foreach (var member in theirTeam.EnumerateArray())
                     {
-                        var champId = member.GetPropertyIntOrDefault("championId", 0);
-                        if (champId > 0)
-                            enemyLaner = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
-                        break;
+                        var pos = member.GetPropertyOrDefault("assignedPosition", "");
+                        if (pos.Equals(myPosition, StringComparison.OrdinalIgnoreCase))
+                        {
+                            matched = member;
+                            break;
+                        }
                     }
+                }
+
+                // Pass 2: same index in theirTeam as the local player in myTeam.
+                if (matched is null && myTeamIndex >= 0)
+                {
+                    int idx = 0;
+                    foreach (var member in theirTeam.EnumerateArray())
+                    {
+                        if (idx == myTeamIndex) { matched = member; break; }
+                        idx++;
+                    }
+                }
+
+                if (matched is JsonElement m)
+                {
+                    var champId = m.GetPropertyIntOrDefault("championId", 0);
+                    if (champId > 0)
+                        enemyLaner = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
                 }
             }
 

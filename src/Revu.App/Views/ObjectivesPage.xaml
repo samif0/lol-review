@@ -762,7 +762,7 @@
                                                             CornerRadius="2"
                                                             Padding="8,2"
                                                             Visibility="{x:Bind IsViolated, Converter={StaticResource BoolToVis}}">
-                                                        <TextBlock Text="VIOLATED"
+                                                        <TextBlock Text="BROKEN"
                                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                                    FontWeight="Bold"
                                                                    Foreground="White"/>
@@ -1059,76 +1059,96 @@
         </ScrollViewer>
 
         <!-- ••• Celebration Overlay ••• -->
+        <!-- v2.16.1: HUD-styled — corner brackets, mono eyebrow, Orbitron
+             title, gold HUD button. Mirrors the rest of the app's vocabulary. -->
         <Grid x:Name="CelebrationOverlay"
               Visibility="{x:Bind ViewModel.ShowCelebration, Mode=OneWay, Converter={StaticResource BoolToVis}}"
               Background="#CC060B0B">
-            <Border MaxWidth="420"
-                    Background="{StaticResource CardAltBackgroundBrush}"
-                    BorderBrush="{StaticResource AccentGoldBrush}"
-                    BorderThickness="2"
-                    CornerRadius="2"
-                    Padding="36,32"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    RenderTransformOrigin="0.5,0.5">
-                <Border.RenderTransform>
+            <Grid MaxWidth="460"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center"
+                  RenderTransformOrigin="0.5,0.5">
+                <Grid.RenderTransform>
                     <CompositeTransform x:Name="CelebrationCardTransform"/>
-                </Border.RenderTransform>
+                </Grid.RenderTransform>
 
-                <StackPanel Spacing="16" HorizontalAlignment="Center">
-                    <!-- Trophy icon -->
-                    <FontIcon Glyph="&#xE735;" FontSize="{Binding Display, Source={StaticResource FontSizes}}"
-                              Foreground="{StaticResource AccentGoldBrush}"
-                              HorizontalAlignment="Center"/>
+                <Border Background="{StaticResource ShellCanvasBrush}"
+                        BorderBrush="{StaticResource AccentGoldBrush}"
+                        BorderThickness="1"
+                        CornerRadius="0"
+                        Padding="32,28">
+                    <StackPanel Spacing="14" HorizontalAlignment="Stretch">
 
-                    <!-- Heading -->
-                    <TextBlock Text="OBJECTIVE MASTERED"
-                               FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}" FontWeight="Bold"
-                               Foreground="{StaticResource AccentGoldBrush}"
-                               HorizontalAlignment="Center"
-                               CharacterSpacing="80"/>
+                        <!-- Eyebrow + Orbitron headline -->
+                        <StackPanel Spacing="2" HorizontalAlignment="Center">
+                            <TextBlock Text="MILESTONE REACHED"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="10"
+                                       CharacterSpacing="300"
+                                       Foreground="{StaticResource AccentGoldBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Objective Ready"
+                                       FontFamily="{StaticResource DisplayFont}"
+                                       FontSize="26"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
 
-                    <!-- Objective title -->
-                    <TextBlock Text="{x:Bind ViewModel.CelebrationTitle, Mode=OneWay}"
-                               FontSize="{Binding Title, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               HorizontalAlignment="Center"
-                               TextAlignment="Center"
-                               TextWrapping="Wrap"/>
+                        <Border Height="1" Background="{StaticResource SubtleBorderBrush}"/>
 
-                    <!-- Stats -->
-                    <TextBlock Text="{x:Bind ViewModel.CelebrationStats, Mode=OneWay}"
-                               FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
-                               Foreground="{StaticResource SecondaryTextBrush}"
-                               HorizontalAlignment="Center"/>
+                        <!-- Objective title + stats -->
+                        <StackPanel Spacing="6" HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.CelebrationTitle, Mode=OneWay}"
+                                       FontFamily="{StaticResource HeadingFont}"
+                                       FontSize="18"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       HorizontalAlignment="Center"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{x:Bind ViewModel.CelebrationStats, Mode=OneWay}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="11"
+                                       CharacterSpacing="120"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
 
-                    <!-- Separator -->
-                    <Border Height="1" Width="120"
-                            Background="{StaticResource AccentGoldDimBrush}"
-                            HorizontalAlignment="Center"/>
+                        <TextBlock Text="Skill acquired. On to the next challenge."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="12"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   HorizontalAlignment="Center"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"/>
 
-                    <!-- Motivational text -->
-                    <TextBlock Text="Skill acquired. On to the next challenge."
-                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                               Foreground="{StaticResource MutedTextBrush}"
-                               HorizontalAlignment="Center"
-                               TextAlignment="Center"/>
+                        <Button Content="CONTINUE"
+                                Command="{x:Bind ViewModel.DismissCelebrationCommand}"
+                                Style="{StaticResource GoldActionButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
 
-                    <!-- Dismiss button -->
-                    <Button Content="Continue"
-                            Command="{x:Bind ViewModel.DismissCelebrationCommand}"
-                            Background="{StaticResource AccentGoldDimBrush}"
-                            Foreground="{StaticResource AccentGoldBrush}"
-                            BorderBrush="{StaticResource AccentGoldBrush}"
-                            BorderThickness="1"
-                            CornerRadius="2"
-                            Height="38"
-                            Padding="28,0"
-                            HorizontalAlignment="Center"
-                            FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
-                            FontWeight="SemiBold"/>
-                </StackPanel>
-            </Border>
+                <!-- Corner brackets — matches CornerBracketedCard idiom -->
+                <Border Width="12" Height="12" HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Margin="-1,-1,0,0"
+                        BorderBrush="{StaticResource AccentGoldBrush}" BorderThickness="2,2,0,0"
+                        IsHitTestVisible="False"/>
+                <Border Width="12" Height="12" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,-1,-1,0"
+                        BorderBrush="{StaticResource AccentGoldBrush}" BorderThickness="0,2,2,0"
+                        IsHitTestVisible="False"/>
+                <Border Width="12" Height="12" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                        Margin="-1,0,0,-1"
+                        BorderBrush="{StaticResource AccentGoldBrush}" BorderThickness="2,0,0,2"
+                        IsHitTestVisible="False"/>
+                <Border Width="12" Height="12" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                        Margin="0,0,-1,-1"
+                        BorderBrush="{StaticResource AccentGoldBrush}" BorderThickness="0,0,2,2"
+                        IsHitTestVisible="False"/>
+            </Grid>
         </Grid>
 
         <!-- HUD-themed proposals modal. Lives at the root so it

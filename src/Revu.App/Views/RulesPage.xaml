@@ -51,7 +51,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE7BA;" FontSize="{Binding Title, Source={StaticResource FontSizes}}"
                                       Foreground="{StaticResource LossRedBrush}"/>
-                            <TextBlock Text="RULES VIOLATED"
+                            <TextBlock Text="RULES BROKEN"
                                        FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                        Foreground="{StaticResource LossRedBrush}"/>
                         </StackPanel>
@@ -285,7 +285,7 @@
                                             <Border Background="{StaticResource LossRedBrush}"
                                                     CornerRadius="2" Padding="8,2"
                                                     Visibility="{x:Bind IsViolated, Converter={StaticResource BoolToVis}}">
-                                                <TextBlock Text="VIOLATED"
+                                                <TextBlock Text="BROKEN"
                                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                                            Foreground="White"/>
                                             </Border>

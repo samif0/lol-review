@@ -136,6 +136,12 @@ public partial class App : Application
             // distracting.
             Revu.App.Helpers.SidebarEnergyDrainAnimator.Enabled = configService.SidebarAnimationEnabled;
 
+            // v2.16.1: instantiate the in-game background orchestrator so it
+            // subscribes to Game{Started,Ended}Message before the first game
+            // event lands. DI is lazy, so without an explicit GetService here
+            // the singleton would never construct and never minimize.
+            _ = GetService<Revu.App.Services.InGameBackgroundOrchestrator>();
+
             await DispatcherHelper.RunOnUIThreadAsync(() =>
             {
                 if (configService.OnboardingComplete)

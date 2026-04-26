@@ -65,6 +65,13 @@ public class AppConfig
     public bool SidebarAnimationEnabled { get; set; } = true;
 
     /// <summary>
+    /// v2.16.1: minimize the window + suspend always-on UI animations
+    /// (sidebar trails, ring pulses) while a League game is in progress.
+    /// Restores both on game end. Cuts steady-state GPU/CPU during play.
+    /// </summary>
+    public bool MinimizeDuringGame { get; set; } = true;
+
+    /// <summary>
     /// Default keybind map — each action maps to a key-event string.
     /// Users can remap these in Settings.
     /// </summary>

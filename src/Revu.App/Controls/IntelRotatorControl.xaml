@@ -1,0 +1,56 @@
+<UserControl
+    x:Class="Revu.App.Controls.IntelRotatorControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Border Background="{StaticResource SurfaceInsetBrush}"
+            BorderBrush="{StaticResource SubtleBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="0"
+            MinHeight="120"
+            Padding="18,14">
+        <Grid>
+            <StackPanel x:Name="EmptyHint"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="4"
+                        Visibility="Collapsed">
+                <TextBlock Text="LOADING INTEL..."
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="10"
+                           CharacterSpacing="300"
+                           Foreground="{StaticResource MutedTextBrush}"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <StackPanel x:Name="CardSurface" Spacing="6">
+                <TextBlock x:Name="EyebrowText"
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="10"
+                           CharacterSpacing="300"
+                           Foreground="{StaticResource AccentGoldBrush}"/>
+                <TextBlock x:Name="HeadlineText"
+                           FontFamily="{StaticResource HeadingFont}"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource PrimaryTextBrush}"
+                           TextWrapping="Wrap"/>
+                <TextBlock x:Name="BodyText"
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="11"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <!-- Pagination dots -->
+            <StackPanel x:Name="DotsRow"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"/>
+        </Grid>
+    </Border>
+</UserControl>

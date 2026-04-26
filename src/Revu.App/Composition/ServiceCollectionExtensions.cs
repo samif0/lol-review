@@ -61,6 +61,13 @@ internal static class ServiceCollectionExtensions
         services.AddHttpClient<IRiotMatchClient, RiotMatchClient>();
         services.AddSingleton<EnemyLanerBackfillService>();
 
+        // v2.16.1: pre-game intel rotator data sources.
+        services.AddHttpClient<IRiotChampionDataClient, RiotChampionDataClient>();
+        services.AddSingleton<PreGameIntelService>();
+
+        // v2.16.1: minimize window + suspend animations while a game is running.
+        services.AddSingleton<Revu.App.Services.InGameBackgroundOrchestrator>();
+
         // Register the null default here; AddCoachServices overrides it.
         services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
         return services;

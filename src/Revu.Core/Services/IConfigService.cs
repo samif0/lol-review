@@ -38,6 +38,7 @@ public interface IConfigService
     bool OnboardingSkipped { get; }
     bool AscentReminderDismissed { get; }
     bool SidebarAnimationEnabled { get; }
+    bool MinimizeDuringGame { get; }
 
     // ── Derived helpers ─────────────────────────────────────────────
 

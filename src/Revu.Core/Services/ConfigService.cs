@@ -73,6 +73,7 @@ public sealed class ConfigService : IConfigService
     public bool OnboardingSkipped => GetCached().OnboardingSkipped;
     public bool AscentReminderDismissed => GetCached().AscentReminderDismissed;
     public bool SidebarAnimationEnabled => GetCached().SidebarAnimationEnabled;
+    public bool MinimizeDuringGame => GetCached().MinimizeDuringGame;
 
     public bool IsAscentEnabled => AscentFolder is not null;
 

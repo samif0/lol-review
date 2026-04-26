@@ -269,6 +269,23 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
+                <!-- v2.16.1: minimize-during-game -->
+                <controls:CornerBracketedCard>
+                    <StackPanel Spacing="8">
+                        <controls:SectionTitle Text="DURING A GAME"/>
+
+                        <TextBlock Text="Minimize the window and pause sidebar trails while a League game is in progress, then restore both at game end. Cuts steady-state GPU/CPU while you're playing."
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.MinimizeDuringGame, Mode=TwoWay}"
+                                      Header="Minimize during games"
+                                      OnContent="On"
+                                      OffContent="Off"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
                 <!-- v2.15.0: Display / motion preferences -->
                 <!-- v2.16: APPEARANCE category -->
                 <TextBlock Text="APPEARANCE" Style="{StaticResource SettingsCategoryHeaderStyle}"/>

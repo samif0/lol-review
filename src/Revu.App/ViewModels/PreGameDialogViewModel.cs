@@ -71,6 +71,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     private readonly IPromptsRepository _promptsRepo;
     private readonly IConfigService _configService;
     private readonly IMessenger _messenger;
+    private readonly PreGameIntelService _intelService;
     private readonly ILogger<PreGameDialogViewModel> _logger;
 
     // v2.15.0: stable session key for the current champ-select. Used to stage
@@ -164,6 +165,15 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     public ObservableCollection<ObjectiveAssessment> PreGameObjectives { get; } = new();
     public ObservableCollection<PreGameMatchupItem> MatchupHistory { get; } = new();
 
+    /// <summary>v2.16.1: rotating intel deck shown at the top of the INTEL
+    /// section. Mixes priority objective + last game + matchup notes + last
+    /// pre-game answers + enemy ability cooldowns. IntelRotatorControl
+    /// crossfades through these every few seconds.</summary>
+    public ObservableCollection<IntelCard> IntelDeck { get; } = new();
+
+    [ObservableProperty]
+    private bool _hasIntelDeck;
+
     // v2.15.0: one block per active pre-phase objective, containing its custom prompts.
     public ObservableCollection<PreGameObjectivePromptBlock> PreGamePromptBlocks { get; } = new();
 
@@ -221,6 +231,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         IPromptsRepository promptsRepo,
         IConfigService configService,
         IMessenger messenger,
+        PreGameIntelService intelService,
         ILogger<PreGameDialogViewModel> logger)
     {
         _gameRepo = gameRepo;
@@ -230,6 +241,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         _promptsRepo = promptsRepo;
         _configService = configService;
         _messenger = messenger;
+        _intelService = intelService;
         _logger = logger;
     }
 
@@ -464,6 +476,11 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         // locked yet. The card's enemy column will display the waiting-state below.
         HasMatchupDetected = !string.IsNullOrEmpty(MyChampionName);
 
+        // v2.16.1: refresh the rotating intel deck on EVERY champ-select tick,
+        // not just when both champs are locked. Priority-objective + last-game
+        // cards don't depend on enemy, so the rotator should pop immediately.
+        _ = RefreshIntelDeckAsync();
+
         if (string.IsNullOrEmpty(myChampion) || string.IsNullOrEmpty(enemyLaner))
         {
             return;
@@ -490,6 +507,24 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
             });
         }
         HasMatchupHistory = MatchupHistory.Count > 0;
+    }
+
+    private async Task RefreshIntelDeckAsync()
+    {
+        try
+        {
+            var cards = await _intelService.BuildAsync(MyChampionName, EnemyChampionName);
+            await Helpers.DispatcherHelper.RunOnUIThreadAsync(() =>
+            {
+                IntelDeck.Clear();
+                foreach (var c in cards) IntelDeck.Add(c);
+                HasIntelDeck = IntelDeck.Count > 0;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Intel deck refresh failed");
+        }
     }
 
     [RelayCommand]

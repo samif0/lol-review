@@ -112,6 +112,7 @@ internal sealed class TestConfigService : IConfigService
     public bool OnboardingSkipped => Current.OnboardingSkipped;
     public bool AscentReminderDismissed => Current.AscentReminderDismissed;
     public bool SidebarAnimationEnabled => Current.SidebarAnimationEnabled;
+    public bool MinimizeDuringGame => Current.MinimizeDuringGame;
 
     public bool IsAscentEnabled => !string.IsNullOrWhiteSpace(AscentFolder);
 
