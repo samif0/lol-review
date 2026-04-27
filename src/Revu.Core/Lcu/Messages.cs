@@ -21,13 +21,15 @@ public sealed record ChampSelectStartedMessage(
     int QueueId,
     string MyChampion = "",
     string EnemyLaner = "",
-    string MyPosition = "");
+    string MyPosition = "",
+    string ParticipantMapJson = "");
 
 /// <summary>Sent while champ select is ongoing and the locally-picked or opposing-laner champion changes.</summary>
 public sealed record ChampSelectUpdatedMessage(
     string MyChampion,
     string EnemyLaner,
-    string MyPosition);
+    string MyPosition,
+    string ParticipantMapJson = "");
 
 /// <summary>Sent when the game transitions to loading/in-progress.</summary>
 public sealed record GameStartedMessage;

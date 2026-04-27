@@ -259,13 +259,28 @@ public sealed class LcuClient : ILcuClient
     }
 
     /// <inheritdoc />
+    public async Task<ChampSelectSnapshot> GetChampSelectSnapshotAsync(CancellationToken ct = default)
+    {
+        var (my, enemy, pos, map) = await GetChampSelectInternalAsync(ct).ConfigureAwait(false);
+        return new ChampSelectSnapshot(my, pos, enemy, map);
+    }
+
+    /// <inheritdoc />
     public async Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default)
     {
+        var (my, enemy, pos, _) = await GetChampSelectInternalAsync(ct).ConfigureAwait(false);
+        return (my, enemy, pos);
+    }
+
+    private async Task<(string MyChampion, string EnemyLaner, string MyPosition, IReadOnlyDictionary<string, string> Map)>
+        GetChampSelectInternalAsync(CancellationToken ct)
+    {
+        var emptyMap = (IReadOnlyDictionary<string, string>)new Dictionary<string, string>();
         try
         {
             var session = await GetAsync("/lol-champ-select/v1/session", ct).ConfigureAwait(false);
             if (session is not JsonElement el || el.ValueKind != JsonValueKind.Object)
-                return ("", "", "");
+                return ("", "", "", emptyMap);
 
             // Find local player's cell ID
             var localCellId = -1;
@@ -362,14 +377,120 @@ public sealed class LcuClient : ILcuClient
                 }
             }
 
+            // v2.16.4 diag: dump champ-select state to disk so we can see
+            // why role-index matching is picking the wrong enemy. Cheap to
+            // leave on — fires once per champ-select tick (~1Hz) and writes
+            // ~2kB. Remove once the matchup bug is closed.
+            try
+            {
+                var dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Revu");
+                System.IO.Directory.CreateDirectory(dir);
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"--- {DateTime.Now:HH:mm:ss.fff} ---");
+                sb.AppendLine($"localCellId={localCellId} myChampion='{myChampion}' myPosition='{myPosition}' myTeamIndex={myTeamIndex} resolvedEnemy='{enemyLaner}'");
+                if (el.TryGetProperty("myTeam", out var mtDump) && mtDump.ValueKind == JsonValueKind.Array)
+                {
+                    int i = 0;
+                    foreach (var m in mtDump.EnumerateArray())
+                    {
+                        sb.AppendLine($"  myTeam[{i}] cellId={m.GetPropertyIntOrDefault("cellId", -99)} champId={m.GetPropertyIntOrDefault("championId", 0)} pos='{m.GetPropertyOrDefault("assignedPosition", "")}'");
+                        i++;
+                    }
+                }
+                if (el.TryGetProperty("theirTeam", out var ttDump) && ttDump.ValueKind == JsonValueKind.Array)
+                {
+                    int i = 0;
+                    foreach (var t in ttDump.EnumerateArray())
+                    {
+                        sb.AppendLine($"  theirTeam[{i}] cellId={t.GetPropertyIntOrDefault("cellId", -99)} champId={t.GetPropertyIntOrDefault("championId", 0)} pos='{t.GetPropertyOrDefault("assignedPosition", "")}'");
+                        i++;
+                    }
+                }
+                System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "champ-select-diag.log"), sb.ToString());
+            }
+            catch { }
+
+            // v2.16.4: build the role→champion map for both teams. Used by
+            // PreGamePage to render 2v2 pairings + per-enemy cooldown cards.
+            // Lazy: only walks the team arrays once each.
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (el.TryGetProperty("myTeam", out var mt) && mt.ValueKind == JsonValueKind.Array)
+            {
+                int idx = 0;
+                foreach (var member in mt.EnumerateArray())
+                {
+                    var champId = member.GetPropertyIntOrDefault("championId", 0);
+                    if (champId <= 0) { idx++; continue; }
+                    var champName = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
+                    if (string.IsNullOrEmpty(champName)) { idx++; continue; }
+
+                    // Prefer assignedPosition when present (solo/flex on myTeam),
+                    // fall back to slot order (Top, Jg, Mid, Bot, Supp).
+                    var rolePos = member.GetPropertyOrDefault("assignedPosition", "");
+                    var key = ResolveRoleKey("own", rolePos, idx);
+                    if (key is not null) map[key] = champName;
+                    idx++;
+                }
+            }
+            if (el.TryGetProperty("theirTeam", out var tt) && tt.ValueKind == JsonValueKind.Array)
+            {
+                int idx = 0;
+                foreach (var member in tt.EnumerateArray())
+                {
+                    var champId = member.GetPropertyIntOrDefault("championId", 0);
+                    if (champId <= 0) { idx++; continue; }
+                    var champName = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
+                    if (string.IsNullOrEmpty(champName)) { idx++; continue; }
+                    // Enemy assignedPosition is unreliable in champ select; lean
+                    // on slot order. Riot orders theirTeam by canonical role for
+                    // client display.
+                    var rolePos = member.GetPropertyOrDefault("assignedPosition", "");
+                    var key = ResolveRoleKey("enemy", rolePos, idx);
+                    if (key is not null) map[key] = champName;
+                    idx++;
+                }
+            }
+
             // Normalize position to Riot's uppercase form (LCU returns lowercase,
             // Riot's match-v5 returns uppercase). Downstream role comparisons assume uppercase.
-            return (myChampion, enemyLaner, (myPosition ?? "").ToUpperInvariant());
+            return (myChampion, enemyLaner, (myPosition ?? "").ToUpperInvariant(), map);
         }
         catch
         {
-            return ("", "", "");
+            return ("", "", "", emptyMap);
         }
+    }
+
+    /// <summary>v2.16.4: build a "ownTop"/"enemyJg"/etc. dictionary key from
+    /// either the explicit assignedPosition or the slot index. Returns null
+    /// if neither produces a valid mapping.</summary>
+    private static string? ResolveRoleKey(string prefix, string assignedPosition, int slotIndex)
+    {
+        var roleSuffix = (assignedPosition ?? "").ToUpperInvariant() switch
+        {
+            "TOP"     => "Top",
+            "JUNGLE"  => "Jg",
+            "MIDDLE"  => "Mid",
+            "BOTTOM"  => "Bot",
+            "UTILITY" => "Supp",
+            "SUPPORT" => "Supp",
+            _ => null,
+        };
+        if (roleSuffix is null)
+        {
+            roleSuffix = slotIndex switch
+            {
+                0 => "Top",
+                1 => "Jg",
+                2 => "Mid",
+                3 => "Bot",
+                4 => "Supp",
+                _ => null,
+            };
+        }
+        return roleSuffix is null ? null : $"{prefix}{roleSuffix}";
     }
 
     /// <summary>v2.16.2: canonical role-to-cell-index used by Riot when

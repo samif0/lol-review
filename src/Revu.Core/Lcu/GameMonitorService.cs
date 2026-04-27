@@ -160,6 +160,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             _state.LastChampSelectMy = "";
             _state.LastChampSelectEnemy = "";
             _state.LastChampSelectMyPosition = "";
+            _state.LastChampSelectMapJson = "";
             _messenger.Send(new ChampSelectCancelledMessage());
         }
 
@@ -281,25 +282,37 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _logger.LogInformation("Champ select started (queue {QueueId} - {Mode})", queueId, modeLabel);
 
         // Best-effort: fetch champion picks to surface matchup history in pre-game
-        var (myChampion, enemyLaner, myPosition) = await _lcuClient.GetChampSelectInfoAsync(cancellationToken).ConfigureAwait(false);
+        var snap = await _lcuClient.GetChampSelectSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        var myChampion = snap.MyChampion;
+        var enemyLaner = snap.EnemyLaner;
+        var myPosition = snap.MyPosition;
+        var mapJson = SerializeParticipantMap(snap.ParticipantMap);
         _logger.LogDebug(
-            "Champ select info: myChamp={MyChamp} enemy={Enemy} myPos={MyPos}",
-            myChampion, enemyLaner, myPosition);
+            "Champ select info: myChamp={MyChamp} enemy={Enemy} myPos={MyPos} mapKeys={MapKeys}",
+            myChampion, enemyLaner, myPosition, snap.ParticipantMap.Count);
         CoreDiagnostics.WriteVerbose(
-            $"LCU: ChampSelectStarted queue={queueId} myChamp='{myChampion}' enemy='{enemyLaner}' myPos='{myPosition}'");
+            $"LCU: ChampSelectStarted queue={queueId} myChamp='{myChampion}' enemy='{enemyLaner}' myPos='{myPosition}' mapKeys={snap.ParticipantMap.Count}");
 
         _state.LastChampSelectMy = myChampion ?? "";
         _state.LastChampSelectEnemy = enemyLaner ?? "";
         _state.LastChampSelectMyPosition = myPosition ?? "";
-        _messenger.Send(new ChampSelectStartedMessage(queueId, myChampion, enemyLaner, myPosition ?? ""));
+        _state.LastChampSelectMapJson = mapJson;
+        _messenger.Send(new ChampSelectStartedMessage(queueId, myChampion, enemyLaner, myPosition ?? "", mapJson));
+    }
+
+    private static string SerializeParticipantMap(IReadOnlyDictionary<string, string> map)
+    {
+        if (map is null || map.Count == 0) return "";
+        try { return System.Text.Json.JsonSerializer.Serialize(map); }
+        catch { return ""; }
     }
 
     private async Task PollChampSelectUpdatesAsync(CancellationToken cancellationToken)
     {
-        string myChampion, enemyLaner, myPosition;
+        ChampSelectSnapshot snap;
         try
         {
-            (myChampion, enemyLaner, myPosition) = await _lcuClient.GetChampSelectInfoAsync(cancellationToken).ConfigureAwait(false);
+            snap = await _lcuClient.GetChampSelectSnapshotAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -307,28 +320,30 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             return;
         }
 
-        myChampion ??= "";
-        enemyLaner ??= "";
-        myPosition ??= "";
+        var myChampion = snap.MyChampion ?? "";
+        var enemyLaner = snap.EnemyLaner ?? "";
+        var myPosition = snap.MyPosition ?? "";
+        var mapJson = SerializeParticipantMap(snap.ParticipantMap);
 
         if (myChampion == _state.LastChampSelectMy
             && enemyLaner == _state.LastChampSelectEnemy
-            && myPosition == _state.LastChampSelectMyPosition)
+            && myPosition == _state.LastChampSelectMyPosition
+            && mapJson == _state.LastChampSelectMapJson)
         {
             return;
         }
 
         _logger.LogInformation(
-            "Champ select update: myChamp={MyChamp} enemy={Enemy} myPos={MyPos} (was myChamp={PrevMy} enemy={PrevEnemy} myPos={PrevPos})",
-            myChampion, enemyLaner, myPosition,
-            _state.LastChampSelectMy, _state.LastChampSelectEnemy, _state.LastChampSelectMyPosition);
+            "Champ select update: myChamp={MyChamp} enemy={Enemy} myPos={MyPos} mapKeys={MapKeys}",
+            myChampion, enemyLaner, myPosition, snap.ParticipantMap.Count);
         CoreDiagnostics.WriteVerbose(
-            $"LCU: ChampSelectUpdated myChamp='{myChampion}' enemy='{enemyLaner}' myPos='{myPosition}' (was my='{_state.LastChampSelectMy}' enemy='{_state.LastChampSelectEnemy}' pos='{_state.LastChampSelectMyPosition}')");
+            $"LCU: ChampSelectUpdated myChamp='{myChampion}' enemy='{enemyLaner}' myPos='{myPosition}' mapKeys={snap.ParticipantMap.Count}");
 
         _state.LastChampSelectMy = myChampion;
         _state.LastChampSelectEnemy = enemyLaner;
         _state.LastChampSelectMyPosition = myPosition;
-        _messenger.Send(new ChampSelectUpdatedMessage(myChampion, enemyLaner, myPosition));
+        _state.LastChampSelectMapJson = mapJson;
+        _messenger.Send(new ChampSelectUpdatedMessage(myChampion, enemyLaner, myPosition, mapJson));
     }
 
     private void StartEventCollector()

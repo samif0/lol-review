@@ -199,6 +199,63 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     [ObservableProperty]
     private string _enemyChampionName = "";
 
+    /// <summary>v2.16.4: full role→champion JSON map for both teams keyed
+    /// from user perspective. Drives the 2v2 matchup pairing string.</summary>
+    [ObservableProperty]
+    private string _liveParticipantMapJson = "";
+
+    /// <summary>v2.16.4: 2v2 matchup pairing string when role + map allow it,
+    /// otherwise empty so the lane-only "Champ vs Enemy" card stays the
+    /// fallback. ADC = "Kai'Sa+Nautilus vs Tristana+Renata" etc.</summary>
+    public string PairingHeadline => BuildPairingHeadline();
+
+    public bool HasPairingHeadline => !string.IsNullOrEmpty(PairingHeadline);
+
+    private string BuildPairingHeadline()
+    {
+        if (string.IsNullOrWhiteSpace(LiveParticipantMapJson)) return "";
+        var role = (MyPositionInternal ?? "").ToLowerInvariant();
+        if (string.IsNullOrEmpty(role)) return "";
+
+        Dictionary<string, string>? map = null;
+        try { map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(LiveParticipantMapJson); }
+        catch { return ""; }
+        if (map is null || map.Count == 0) return "";
+
+        return role switch
+        {
+            "adc" or "bottom" or "bot" =>
+                Pair(map, "ownBot", "ownSupp", "enemyBot", "enemySupp"),
+            "support" or "supp" or "utility" =>
+                Pair(map, "ownSupp", "ownBot", "enemySupp", "enemyBot"),
+            "mid" or "middle" =>
+                Pair(map, "ownMid", "ownJg", "enemyMid", "enemyJg"),
+            "jungle" or "jg" =>
+                Pair(map, "ownJg", "ownMid", "enemyJg", "enemyMid"),
+            _ => "",
+        };
+    }
+
+    private static string Pair(IReadOnlyDictionary<string, string> map,
+        string ownPrimary, string ownPartner, string enemyPrimary, string enemyPartner)
+    {
+        if (!map.TryGetValue(ownPrimary, out var op) || string.IsNullOrEmpty(op)) return "";
+        if (!map.TryGetValue(enemyPrimary, out var ep) || string.IsNullOrEmpty(ep)) return "";
+        var ownPart = map.TryGetValue(ownPartner, out var v1) ? v1 : "";
+        var enemyPart = map.TryGetValue(enemyPartner, out var v2) ? v2 : "";
+        var ownStr = string.IsNullOrEmpty(ownPart) ? op : $"{op}+{ownPart}";
+        var enemyStr = string.IsNullOrEmpty(enemyPart) ? ep : $"{ep}+{enemyPart}";
+        return $"{ownStr} vs {enemyStr}";
+    }
+
+    /// <summary>v2.16.4: cached uppercase role for pairing derivation.
+    /// Set from ChampSelect{Started,Updated}Message handlers.</summary>
+    [ObservableProperty]
+    private string _myPositionInternal = "";
+
+    partial void OnLiveParticipantMapJsonChanged(string value) { OnPropertyChanged(nameof(PairingHeadline)); OnPropertyChanged(nameof(HasPairingHeadline)); }
+    partial void OnMyPositionInternalChanged(string value) { OnPropertyChanged(nameof(PairingHeadline)); OnPropertyChanged(nameof(HasPairingHeadline)); }
+
     /// <summary>
     /// True when both champions are known — means we can show a visual "VS." card
     /// even if the user has zero saved notes for this matchup yet.
@@ -255,6 +312,8 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         {
             try
             {
+                MyPositionInternal = message.MyPosition ?? "";
+                LiveParticipantMapJson = message.ParticipantMapJson ?? "";
                 await LoadMatchupHistoryAsync(message.MyChampion, message.EnemyLaner);
             }
             catch (Exception ex)
@@ -513,7 +572,8 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     {
         try
         {
-            var cards = await _intelService.BuildAsync(MyChampionName, EnemyChampionName);
+            var cards = await _intelService.BuildAsync(
+                MyChampionName, EnemyChampionName, MyPositionInternal, LiveParticipantMapJson);
             await Helpers.DispatcherHelper.RunOnUIThreadAsync(() =>
             {
                 IntelDeck.Clear();

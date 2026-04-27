@@ -294,5 +294,8 @@ public sealed class MatchHistoryReconciliationServiceTests
 
         public Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default) =>
             Task.FromResult(("", "", ""));
+
+        public Task<ChampSelectSnapshot> GetChampSelectSnapshotAsync(CancellationToken ct = default) =>
+            Task.FromResult(new ChampSelectSnapshot("", "", "", new Dictionary<string, string>()));
     }
 }

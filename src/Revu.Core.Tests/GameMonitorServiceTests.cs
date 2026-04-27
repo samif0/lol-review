@@ -426,6 +426,9 @@ public sealed class GameMonitorServiceTests
 
         public Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default) =>
             Task.FromResult(("", "", ""));
+
+        public Task<ChampSelectSnapshot> GetChampSelectSnapshotAsync(CancellationToken ct = default) =>
+            Task.FromResult(new ChampSelectSnapshot("", "", "", new Dictionary<string, string>()));
     }
 
     private sealed class FakeLiveEventApi : ILiveEventApi

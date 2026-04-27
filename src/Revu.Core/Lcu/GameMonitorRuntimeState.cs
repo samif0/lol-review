@@ -33,4 +33,9 @@ internal sealed class GameMonitorRuntimeState
 
     /// <summary>Last known local-player position for this champ-select phase (TOP|JUNGLE|MIDDLE|BOTTOM|UTILITY).</summary>
     public string LastChampSelectMyPosition { get; set; } = "";
+
+    /// <summary>v2.16.4: serialized role→champion JSON map for both teams,
+    /// captured each champ-select tick. Drives 2v2 matchup pairings + per-
+    /// enemy cooldown intel cards on PreGamePage.</summary>
+    public string LastChampSelectMapJson { get; set; } = "";
 }

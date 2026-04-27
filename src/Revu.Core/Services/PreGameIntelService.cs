@@ -58,6 +58,18 @@ public sealed class PreGameIntelService
         string myChampion,
         string enemyChampion,
         CancellationToken ct = default)
+        => await BuildAsync(myChampion, enemyChampion, "", "", ct).ConfigureAwait(false);
+
+    /// <summary>v2.16.4 overload: when the role + 10-champion map are known
+    /// from LCU, emit cooldown cards for BOTH enemies in the lane pairing
+    /// (lane opponent + their duo partner) instead of just the lane opponent.
+    /// Falls back to single-enemy mode when the map is missing.</summary>
+    public async Task<IReadOnlyList<IntelCard>> BuildAsync(
+        string myChampion,
+        string enemyChampion,
+        string myPosition,
+        string participantMapJson,
+        CancellationToken ct = default)
     {
         var cards = new List<IntelCard>();
 
@@ -65,9 +77,55 @@ public sealed class PreGameIntelService
         await TryAddLastGameIntel(cards, myChampion, ct).ConfigureAwait(false);
         await TryAddMatchupHistory(cards, myChampion, enemyChampion, ct).ConfigureAwait(false);
         await TryAddPreGameAnswers(cards, myChampion, ct).ConfigureAwait(false);
-        await TryAddEnemyAbilities(cards, enemyChampion, ct).ConfigureAwait(false);
+
+        var pairEnemies = ResolvePairingEnemies(myPosition, participantMapJson);
+        if (pairEnemies.Count > 0)
+        {
+            foreach (var enemy in pairEnemies)
+            {
+                await TryAddEnemyAbilities(cards, enemy, ct).ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            await TryAddEnemyAbilities(cards, enemyChampion, ct).ConfigureAwait(false);
+        }
 
         return cards;
+    }
+
+    /// <summary>v2.16.4: derive the (lane opponent, duo partner) pair of
+    /// enemies whose cooldowns matter for this user's role. Returns an empty
+    /// list when role/map don't allow it (top, ARAM, missing data).</summary>
+    private static IReadOnlyList<string> ResolvePairingEnemies(string myPosition, string participantMapJson)
+    {
+        if (string.IsNullOrWhiteSpace(myPosition) || string.IsNullOrWhiteSpace(participantMapJson))
+            return Array.Empty<string>();
+
+        Dictionary<string, string>? map = null;
+        try { map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(participantMapJson); }
+        catch { return Array.Empty<string>(); }
+        if (map is null || map.Count == 0) return Array.Empty<string>();
+
+        var role = myPosition.ToLowerInvariant();
+        return role switch
+        {
+            "adc" or "bottom" or "bot" => Take(map, "enemyBot", "enemySupp"),
+            "support" or "supp" or "utility" => Take(map, "enemySupp", "enemyBot"),
+            "mid" or "middle" => Take(map, "enemyMid", "enemyJg"),
+            "jungle" or "jg" => Take(map, "enemyJg", "enemyMid"),
+            _ => Array.Empty<string>(),
+        };
+    }
+
+    private static IReadOnlyList<string> Take(IReadOnlyDictionary<string, string> map, params string[] keys)
+    {
+        var result = new List<string>(keys.Length);
+        foreach (var k in keys)
+        {
+            if (map.TryGetValue(k, out var v) && !string.IsNullOrWhiteSpace(v)) result.Add(v);
+        }
+        return result;
     }
 
     private async Task TryAddPriorityObjective(List<IntelCard> cards, CancellationToken ct)

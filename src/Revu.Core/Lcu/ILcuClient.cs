@@ -67,4 +67,22 @@ public interface ILcuClient
     /// unavailable. myPosition is Riot-internal: TOP|JUNGLE|MIDDLE|BOTTOM|UTILITY|"".
     /// </summary>
     Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// v2.16.4: full team snapshot of the active champ select. Returns the
+    /// user's champ + position plus a role→champion map for both teams keyed
+    /// from the user's perspective. Drives 2v2 matchup pairings + per-enemy
+    /// cooldown cards on PreGamePage.
+    /// Map keys: "ownTop"/"ownJg"/"ownMid"/"ownBot"/"ownSupp",
+    /// "enemyTop"/"enemyJg"/"enemyMid"/"enemyBot"/"enemySupp". Missing keys
+    /// = champion not yet locked or LCU didn't expose the slot.
+    /// </summary>
+    Task<ChampSelectSnapshot> GetChampSelectSnapshotAsync(CancellationToken ct = default);
 }
+
+/// <summary>v2.16.4: structured champ-select state for role-aware UIs.</summary>
+public sealed record ChampSelectSnapshot(
+    string MyChampion,
+    string MyPosition,
+    string EnemyLaner,
+    System.Collections.Generic.IReadOnlyDictionary<string, string> ParticipantMap);

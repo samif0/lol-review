@@ -70,12 +70,28 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- Matchup card: visible when MY champ is locked (enemy may still be loading) -->
+            <!-- Matchup card: visible when MY champ is locked (enemy may still be loading).
+                 v2.16.4: when role + full team map are available, show the 2v2/jg+mid
+                 pairing headline (e.g. "Kai'Sa+Nautilus vs Tristana+Renata") above the
+                 lane-only "Champ vs Enemy" line. -->
             <controls:CornerBracketedCard
                 CardBorderBrush="{StaticResource AccentBlueBrush}"
                 Visibility="{x:Bind ViewModel.HasMatchupDetected, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                <StackPanel Spacing="6">
+                <StackPanel Spacing="8">
                     <controls:SectionTitle Text="MATCHUP"/>
+
+                    <!-- Pairing headline (ADC: bot+supp, Mid: mid+jg, etc.) -->
+                    <TextBlock Text="{x:Bind ViewModel.PairingHeadline, Mode=OneWay}"
+                               FontFamily="{StaticResource HeadingFont}"
+                               FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentGoldBrush}"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               HorizontalAlignment="Center"
+                               Visibility="{x:Bind ViewModel.HasPairingHeadline, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+                    <!-- Lane-only line (always visible — pairing or not) -->
                     <StackPanel Orientation="Horizontal"
                                 Spacing="12"
                                 HorizontalAlignment="Center">
