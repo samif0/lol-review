@@ -46,3 +46,8 @@ public sealed record LcuConnectionChangedMessage(bool IsConnected);
 /// computed stats derived from the deleted game should refresh.
 /// </summary>
 public sealed record GameDeletedMessage(long GameId);
+
+/// <summary>v2.16.6: a VOD bookmark or clip was created, retagged, or
+/// deleted. Lets the review/post-game pages re-run the bookmark→objective
+/// auto-merge live instead of waiting for the user to leave + re-enter.</summary>
+public sealed record BookmarkChangedMessage(long GameId);

@@ -3,6 +3,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Contracts;
 using Revu.App.Helpers;
 using Revu.App.Styling;
@@ -14,13 +15,15 @@ using Microsoft.UI.Xaml.Media;
 namespace Revu.App.ViewModels;
 
 /// <summary>ViewModel for the inline game review page.</summary>
-public partial class ReviewViewModel : ObservableObject
+public partial class ReviewViewModel : ObservableObject,
+    IRecipient<Revu.Core.Lcu.BookmarkChangedMessage>
 {
     private readonly IReviewWorkflowService _reviewWorkflowService;
     private readonly INavigationService _navigationService;
     private readonly IPromptsRepository _promptsRepository;
     private readonly IObjectivesRepository _objectivesRepository;
     private readonly IVodRepository _vodRepository;
+    private readonly IMessenger _messenger;
     private readonly ILogger<ReviewViewModel> _logger;
 
     [ObservableProperty] private long _gameId;
@@ -98,6 +101,7 @@ public partial class ReviewViewModel : ObservableObject
         IPromptsRepository promptsRepository,
         IObjectivesRepository objectivesRepository,
         IVodRepository vodRepository,
+        IMessenger messenger,
         ILogger<ReviewViewModel> logger)
     {
         _reviewWorkflowService = reviewWorkflowService;
@@ -105,7 +109,23 @@ public partial class ReviewViewModel : ObservableObject
         _promptsRepository = promptsRepository;
         _objectivesRepository = objectivesRepository;
         _vodRepository = vodRepository;
+        _messenger = messenger;
         _logger = logger;
+        _messenger.RegisterAll(this);
+    }
+
+    /// <summary>v2.16.6: when a bookmark/clip is added, retagged, or its
+    /// note is edited in the VOD player, re-merge into the per-objective
+    /// notes / spotted-problems on the live review form. No-op when the
+    /// event is for a different game (e.g. user has another VOD open).</summary>
+    public void Receive(Revu.Core.Lcu.BookmarkChangedMessage message)
+    {
+        if (message.GameId != GameId) return;
+        _ = Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
+        {
+            try { await AutoPopulateBookmarkNotesAsync(GameId); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Live bookmark auto-populate failed"); }
+        });
     }
 
     [RelayCommand]

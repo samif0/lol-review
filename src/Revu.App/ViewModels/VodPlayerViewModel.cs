@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Contracts;
 using Revu.App.Helpers;
 using Revu.App.Styling;
@@ -31,6 +32,7 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly INavigationService _navigationService;
     private readonly ICoachSidecarNotifier _coachNotifier;
     private readonly IVodService _vodService;
+    private readonly IMessenger _messenger;
     private readonly ILogger<VodPlayerViewModel> _logger;
     private readonly object _bookmarkMutationQueueGate = new();
     private readonly object _bookmarkNoteSaveGate = new();
@@ -156,6 +158,7 @@ public partial class VodPlayerViewModel : ObservableObject
         INavigationService navigationService,
         ICoachSidecarNotifier coachNotifier,
         IVodService vodService,
+        IMessenger messenger,
         ILogger<VodPlayerViewModel> logger)
     {
         _vodRepo = vodRepo;
@@ -169,6 +172,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _navigationService = navigationService;
         _coachNotifier = coachNotifier;
         _vodService = vodService;
+        _messenger = messenger;
         _logger = logger;
     }
 
@@ -855,6 +859,13 @@ public partial class VodPlayerViewModel : ObservableObject
         }
     }
 
+    private void BroadcastBookmarkChanged()
+    {
+        if (GameId <= 0) return;
+        try { _messenger.Send(new Revu.Core.Lcu.BookmarkChangedMessage(GameId)); }
+        catch (Exception ex) { _logger.LogDebug(ex, "BookmarkChanged broadcast failed"); }
+    }
+
     private async Task RunQueuedBookmarkMutationAsync(Task previous, Func<Task> mutation)
     {
         try
@@ -867,6 +878,7 @@ public partial class VodPlayerViewModel : ObservableObject
         }
 
         await mutation().ConfigureAwait(false);
+        BroadcastBookmarkChanged();
     }
 
     private async Task<T> RunQueuedBookmarkMutationAsync<T>(Task previous, Func<Task<T>> mutation)
@@ -880,7 +892,9 @@ public partial class VodPlayerViewModel : ObservableObject
             _logger.LogDebug(ex, "Previous queued VOD bookmark mutation failed");
         }
 
-        return await mutation().ConfigureAwait(false);
+        var result = await mutation().ConfigureAwait(false);
+        BroadcastBookmarkChanged();
+        return result;
     }
 
     private void InsertBookmark(BookmarkItem bookmark)
