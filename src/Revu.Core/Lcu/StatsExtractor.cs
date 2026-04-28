@@ -138,32 +138,47 @@ public static class StatsExtractor
                 teamKillsTotal = teamKillsFromPlayers;
             }
 
-            // Extract enemy team champion names and positions for matchup reference
+            // Extract champion names + positions for both teams. The lane
+            // opponent goes into EnemyLaner; the full role->champion map for
+            // both teams goes into ParticipantMap so role-aware matchup pills
+            // (e.g. "Kai'Sa+Nautilus vs Tristana+Renata") work without a
+            // post-game Match-V5 backfill round-trip.
             var enemyChampions = new List<string>();
             var enemyByPosition = new Dictionary<string, string>();
+            var participantMap = new Dictionary<string, string>(StringComparer.Ordinal);
             var myPosition = localPlayer.Value.GetPropertyOrDefault("selectedPosition", "");
 
             if (eogData.TryGetProperty("teams", out var teamsForEnemy) && teamsForEnemy.ValueKind == JsonValueKind.Array)
             {
                 foreach (var teamData in teamsForEnemy.EnumerateArray())
                 {
-                    if (teamData.GetPropertyIntOrDefault("teamId", 0) != teamId
-                        && teamData.TryGetProperty("players", out var players)
-                        && players.ValueKind == JsonValueKind.Array)
+                    var dataTeamId = teamData.GetPropertyIntOrDefault("teamId", 0);
+                    var isMyTeam = dataTeamId == teamId;
+                    if (!teamData.TryGetProperty("players", out var players)
+                        || players.ValueKind != JsonValueKind.Array)
                     {
-                        foreach (var p in players.EnumerateArray())
+                        continue;
+                    }
+
+                    int slotIdx = 0;
+                    foreach (var p in players.EnumerateArray())
+                    {
+                        var champ = p.GetPropertyOrDefault("championName", "");
+                        var pos = p.GetPropertyOrDefault("selectedPosition", "");
+
+                        if (!isMyTeam && !string.IsNullOrEmpty(champ))
                         {
-                            var champ = p.GetPropertyOrDefault("championName", "");
-                            if (!string.IsNullOrEmpty(champ))
-                            {
-                                enemyChampions.Add(champ);
-                                var pos = p.GetPropertyOrDefault("selectedPosition", "");
-                                if (!string.IsNullOrEmpty(pos))
-                                {
-                                    enemyByPosition[pos] = champ;
-                                }
-                            }
+                            enemyChampions.Add(champ);
+                            if (!string.IsNullOrEmpty(pos))
+                                enemyByPosition[pos] = champ;
                         }
+
+                        if (!string.IsNullOrEmpty(champ))
+                        {
+                            var roleKey = ResolveParticipantRoleKey(isMyTeam ? "own" : "enemy", pos, slotIdx);
+                            if (roleKey is not null) participantMap[roleKey] = champ;
+                        }
+                        slotIdx++;
                     }
                 }
             }
@@ -258,6 +273,17 @@ public static class StatsExtractor
             if (!string.IsNullOrEmpty(myPosition) && enemyByPosition.TryGetValue(myPosition, out var laneOpponent))
             {
                 gs.EnemyLaner = laneOpponent;
+            }
+
+            // v2.16.5: stamp the role->champion map for both teams so
+            // role-aware matchup pills work immediately after game end —
+            // no Match-V5 backfill round-trip required. Empty when LCU
+            // didn't expose enough info (ARAM, etc.) — caller falls back
+            // to lane-only display.
+            if (participantMap.Count > 0)
+            {
+                try { gs.ParticipantMap = JsonSerializer.Serialize(participantMap); }
+                catch { /* leave empty; backfill will fill it later */ }
             }
 
             return gs;
@@ -477,6 +503,39 @@ public static class StatsExtractor
                 Items = ExtractItems(stats, "item"),
             };
 
+            // v2.16.5: build the role->champion map for both teams from the
+            // match-history payload so role-aware matchup pills work for
+            // recovered missed games too.
+            try
+            {
+                if (game.TryGetProperty("participants", out var allParts2)
+                    && allParts2.ValueKind == JsonValueKind.Array)
+                {
+                    var map = new Dictionary<string, string>(StringComparer.Ordinal);
+                    var ownSlot = 0;
+                    var enemySlot = 0;
+                    foreach (var part in allParts2.EnumerateArray())
+                    {
+                        var partTeamId = part.GetPropertyIntOrDefault("teamId", 0);
+                        var partChamp = part.GetPropertyOrDefault("championName", "");
+                        if (string.IsNullOrEmpty(partChamp)) continue;
+
+                        var partTimeline = part.GetPropertyObjectOrDefault("timeline");
+                        var partLane = partTimeline?.GetPropertyOrDefault("lane", "") ?? "";
+
+                        var isMine = partTeamId == teamId;
+                        var slotIdx = isMine ? ownSlot++ : enemySlot++;
+                        var roleKey = ResolveParticipantRoleKey(isMine ? "own" : "enemy", partLane, slotIdx);
+                        if (roleKey is not null) map[roleKey] = partChamp;
+                    }
+                    if (map.Count > 0) gs.ParticipantMap = JsonSerializer.Serialize(map);
+                }
+            }
+            catch
+            {
+                // best-effort; backfill will fill it later
+            }
+
             return gs;
         }
         catch (Exception ex)
@@ -492,6 +551,38 @@ public static class StatsExtractor
     /// Read an integer stat from the stats block, handling both string and numeric JSON values.
     /// The EOG stats block often has numeric values as strings.
     /// </summary>
+    /// <summary>v2.16.5: build "ownTop"/"enemyJg"/etc. dictionary keys from
+    /// either an explicit selectedPosition or the team-row slot index. LCU
+    /// usually fills selectedPosition by game-end (unlike champ-select where
+    /// theirTeam doesn't expose it). Returns null if neither path produces a
+    /// valid 5-role mapping.</summary>
+    private static string? ResolveParticipantRoleKey(string prefix, string selectedPosition, int slotIndex)
+    {
+        var roleSuffix = (selectedPosition ?? "").ToUpperInvariant() switch
+        {
+            "TOP"     => "Top",
+            "JUNGLE"  => "Jg",
+            "MIDDLE"  => "Mid",
+            "BOTTOM"  => "Bot",
+            "UTILITY" => "Supp",
+            "SUPPORT" => "Supp",
+            _ => null,
+        };
+        if (roleSuffix is null)
+        {
+            roleSuffix = slotIndex switch
+            {
+                0 => "Top",
+                1 => "Jg",
+                2 => "Mid",
+                3 => "Bot",
+                4 => "Supp",
+                _ => null,
+            };
+        }
+        return roleSuffix is null ? null : $"{prefix}{roleSuffix}";
+    }
+
     private static int GetStatInt(JsonElement stats, string key)
     {
         if (!stats.TryGetProperty(key, out var prop))
