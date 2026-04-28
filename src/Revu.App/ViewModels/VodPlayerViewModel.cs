@@ -820,9 +820,15 @@ public partial class VodPlayerViewModel : ObservableObject
     /// <summary>
     /// v2.16: tagging a bookmark/clip to an objective is itself an act of
     /// practice — record game_objectives(practiced=1) so the user doesn't have
-    /// to remember the redundant toggle. Skips when a row already exists for
-    /// this game + objective so any prior user-set state (including an explicit
-    /// practiced=false) is preserved.
+    /// to remember the redundant toggle.
+    ///
+    /// v2.16.7: previously we skipped when ANY row existed for this
+    /// game+objective. That broke the live VOD review case: the post-game
+    /// pipeline auto-inserts a default <c>practiced=false</c> row, so the
+    /// helper bailed out without flipping the toggle on. Now we only skip
+    /// when the existing row already has <c>practiced=true</c> or a
+    /// user-typed <c>ExecutionNote</c> — anything else means the user hasn't
+    /// touched it yet and the bookmark is the act of practice.
     /// </summary>
     private async Task MarkObjectivePracticedFromBookmarkAsync(long? objectiveId)
     {
@@ -831,13 +837,26 @@ public partial class VodPlayerViewModel : ObservableObject
         try
         {
             var existing = await _objectivesRepo.GetGameObjectivesAsync(GameId).ConfigureAwait(false);
-            if (existing.Any(g => g.ObjectiveId == objectiveId.Value)) return;
+            var existingRow = existing.FirstOrDefault(g => g.ObjectiveId == objectiveId.Value);
+
+            // Already practiced or has user content → leave alone.
+            if (existingRow is not null
+                && (existingRow.Practiced
+                    || !string.IsNullOrWhiteSpace(existingRow.ExecutionNote)))
+            {
+                return;
+            }
+
+            // No row, or row exists but is the auto-inserted default
+            // (practiced=false, empty note) — flip it on. Preserve any
+            // existing executionNote (will be empty here by definition).
+            var note = existingRow?.ExecutionNote ?? "Auto: tagged via VOD bookmark";
 
             await _objectivesRepo.RecordGameAsync(
                 GameId,
                 objectiveId.Value,
                 practiced: true,
-                executionNote: "Auto: tagged via VOD bookmark").ConfigureAwait(false);
+                executionNote: note).ConfigureAwait(false);
             _logger.LogInformation(
                 "Auto-marked objective {ObjectiveId} as practiced for game {GameId} (bookmark tag)",
                 objectiveId.Value, GameId);

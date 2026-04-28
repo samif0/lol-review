@@ -117,15 +117,45 @@ public partial class ReviewViewModel : ObservableObject,
     /// <summary>v2.16.6: when a bookmark/clip is added, retagged, or its
     /// note is edited in the VOD player, re-merge into the per-objective
     /// notes / spotted-problems on the live review form. No-op when the
-    /// event is for a different game (e.g. user has another VOD open).</summary>
+    /// event is for a different game (e.g. user has another VOD open).
+    /// v2.16.7: also re-pull game_objectives so the "Practiced" toggle
+    /// reflects the auto-flip that VodPlayerVM does when a bookmark gets
+    /// tagged to an objective.</summary>
     public void Receive(Revu.Core.Lcu.BookmarkChangedMessage message)
     {
         if (message.GameId != GameId) return;
         _ = Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
         {
-            try { await AutoPopulateBookmarkNotesAsync(GameId); }
+            try
+            {
+                await AutoPopulateBookmarkNotesAsync(GameId);
+                await SyncPracticedFlagsAsync(GameId);
+            }
             catch (Exception ex) { _logger.LogDebug(ex, "Live bookmark auto-populate failed"); }
         });
+    }
+
+    /// <summary>v2.16.7: re-read game_objectives and update the live
+    /// ObjectiveAssessment rows' Practiced flag in place so the toggle
+    /// pip flips on without forcing a page reload.</summary>
+    private async Task SyncPracticedFlagsAsync(long gameId)
+    {
+        try
+        {
+            var rows = await _objectivesRepository.GetGameObjectivesAsync(gameId);
+            var byId = rows.ToDictionary(r => r.ObjectiveId, r => r);
+            foreach (var assessment in ObjectiveAssessments)
+            {
+                if (byId.TryGetValue(assessment.ObjectiveId, out var row))
+                {
+                    if (assessment.Practiced != row.Practiced) assessment.Practiced = row.Practiced;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Practiced-flag sync failed for game {GameId}", gameId);
+        }
     }
 
     [RelayCommand]
