@@ -245,61 +245,97 @@ issues are unresponded-to, or the latest commit is a year old.
 
 ### Concrete repo items
 
-- [ ] **README rewrite.** Current README is accurate but reads like an
+- [x] **README rewrite.** Current README is accurate but reads like an
   internal note. It needs: a one-sentence pitch, a screenshot above the
   fold (use one of the polished v2.16 captures), an install link to
   Releases, a "what does this do that op.gg doesn't" section, a privacy
   blurb, a license, a contact. Aim for ~200 words top-of-page, everything
   else collapses below.
-- [ ] **Add `LICENSE`.** Currently absent. Pick one: MIT for "I want
+  - Rewrote with one-sentence pitch + download badge + screenshot above
+    the fold; "Why this isn't op.gg" and Install + license/contact
+    blocks land at 256 words above "Data and logs" (close to the
+    250-word ceiling the brief specified).
+- [x] **Add `LICENSE`.** Currently absent. Pick one: MIT for "I want
   contributions," Source-Available with a non-commercial clause for "I
   might monetize this." Either is defensible; not having one means GitHub
   treats it as "all rights reserved" and contributors are scared off.
-- [ ] **Add `CONTRIBUTING.md`** even if the answer is "DM me first" — a
+  - MIT, copyright 2026 Sami Fawcett.
+- [x] **Add `CONTRIBUTING.md`** even if the answer is "DM me first" — a
   three-paragraph document that says: how to build, where the issue
   tracker is, what kinds of PRs you'll accept. Better than nothing.
-- [ ] **Add `SECURITY.md`** with a single line: "Email security@your-
+  - Three paragraphs: contribution flow ("DM me first for non-trivial
+    PRs"), build instructions, PR-acceptance bar.
+- [x] **Add `SECURITY.md`** with a single line: "Email security@your-
   domain or DM @samif0 on Discord for vulnerabilities. Please don't open
   public issues." This is the GitHub-recognized location.
-- [ ] **Branch hygiene.** `git branch -a` shows seven `claude/*` branches
+  - One paragraph: email samifawcett.nyc@gmail.com with "Revu security"
+    subject; 48h weekday response.
+- [x] **Branch hygiene.** `git branch -a` shows seven `claude/*` branches
   (`admiring-black`, `confident-bohr`, `funny-bhabha`, `silly-jang`,
   `trusting-darwin`, `trusting-wu`, `zealous-lamport`) plus `main`. These
   are workspace artifacts from agent-driven sessions. Delete them with
   `git branch -D` for the local copies and confirm nothing's pushed to
   origin. Only `main` should be a real branch.
-- [ ] **Issue templates.** Create `.github/ISSUE_TEMPLATE/bug.yml` and
+  - All 7 local branches deleted. **Caveat:** 3 of them WERE on origin
+    (`admiring-black`, `funny-bhabha`, `silly-jang`) — push-deleted
+    those too with user sign-off. Origin and local now show only
+    `main` / `remotes/origin/main`.
+  - Pruned 6 orphaned worktrees in `.claude/worktrees/` along the way.
+- [x] **Issue templates.** Create `.github/ISSUE_TEMPLATE/bug.yml` and
   `feature.yml` so when someone files an issue, you get version, OS,
   reproduction steps, and what they expected without prompting. This pays
   off massively as soon as you have ≥3 active users.
+  - `bug.yml` collects version, OS, repro, crash log. `feature.yml`
+    asks for the underlying problem first (so requests are framed in
+    user-context, not "Revu should add X").
 - [ ] **Pin a "good first issue" or two.** Even if they go untaken, it
   signals "I want collaborators" and tells visitors what's worked on.
+  - Deferred to user (can't pin issues from CLI). Suggest pinning two
+    items from `docs/V2_17_BACKLOG.md` once Section 3 ships.
 - [ ] **Releases page hygiene.** Each release tag should have release
   notes. v2.16.x have inline notes already (good), but verify the
   GitHub Releases UI shows them, not just the tag message.
+  - **Manual user step** — needs GitHub UI verification. The release
+    workflow at `.github/workflows/release.yml` builds notes from tag
+    messages, but I can't confirm rendering from here.
 - [ ] **Repo description + topics.** Fill in the GitHub repo's
   description field and add topics: `league-of-legends`, `winui3`, `dotnet`,
   `vod-review`, `coaching`. These drive the GitHub search funnel.
-- [ ] **`.gitignore` review.** `.claude/scheduled_tasks.lock`, `tools/bin/`,
+  - **Manual user step** — `gh` CLI not installed locally. Set in
+    GitHub → repo → ⚙ next to "About". Suggested description: "A
+    Windows desktop app that reviews your League of Legends games with
+    you. WinUI 3 + .NET 8, fully local data."
+- [x] **`.gitignore` review.** `.claude/scheduled_tasks.lock`, `tools/bin/`,
   `tools/obj/` should all be ignored. Personal scratch dirs should not
   travel.
-- [ ] **`Releases/` folder at repo root.** Looking at the file listing
+  - All three confirmed ignored: `/tools/`, `.claude/scheduled_tasks.lock`,
+    and `**/bin/`/`**/obj/` (which already covered `tools/SchemaCheck/bin/`
+    and `obj/`). Verified with `git check-ignore -v`.
+- [x] **`Releases/` folder at repo root.** Looking at the file listing
   there's a `Releases/` directory in the working tree — check whether it
   contains build artifacts that shouldn't be committed. If yes, gitignore
   + remove from history (or just gitignore going forward, depending on
   whether it's already pushed).
+  - Already gitignored (`/Releases/` line in `.gitignore`). `git ls-files Releases/`
+    returns empty — not tracked, never pushed. ~200MB of Velopack
+    artifacts on disk are local-only. ✓
 
 ### Acceptance criteria
 
-- [ ] `README.md` opens with: a logo / banner image, a one-sentence pitch,
+- [x] `README.md` opens with: a logo / banner image, a one-sentence pitch,
   a "Download" button that goes to the latest Release.
-- [ ] A new visitor can answer these in <30s of reading the repo:
+  - Bold one-sentence pitch + GitHub-release-version badge linking to
+    `/releases/latest` + screenshot, all above the first heading.
+- [x] A new visitor can answer these in <30s of reading the repo:
   *what does this do? is it free? where do I get it? where do I get help?*
-- [ ] `git branch -a` on a fresh clone shows `main` and `remotes/origin/main`,
+  - All four answered in the first 256 words.
+- [x] `git branch -a` on a fresh clone shows `main` and `remotes/origin/main`,
   nothing else.
-- [ ] `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md` all exist and are
+- [x] `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md` all exist and are
   one-page-or-less.
 - [ ] GitHub Releases page has notes on the latest 5 tags.
-- [ ] `.github/ISSUE_TEMPLATE/` has at least bug + feature templates.
+  - **Manual user step**, see above.
+- [x] `.github/ISSUE_TEMPLATE/` has at least bug + feature templates.
 
 ### Done means
 

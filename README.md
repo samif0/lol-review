@@ -1,30 +1,49 @@
 # Revu
 
-Revu is a Windows desktop app for reviewing your League of Legends games locally. It watches for ranked game flow, surfaces pre-game and post-game prompts, and keeps your review history, notes, objectives, and session data in SQLite on your machine.
+**A Windows desktop app that reviews your League of Legends games with you.**
 
-## What it does
+[![Download latest release](https://img.shields.io/github/v/release/samif0/lol-review?label=Download&style=for-the-badge)](https://github.com/samif0/lol-review/releases/latest)
 
-- Shows a pre-game focus window during champ select
-- Captures post-game stats and review notes after each match
-- Tracks dashboard, history, losses, analytics, rules, objectives, and VOD review
-- Filters out non-target game modes such as ARAM
-- Stores all user data locally in SQLite
-- Installs and updates through Velopack / GitHub Releases
+![Revu screenshot — VOD review with bookmarks and objective tags](site/screenshot-review.jpg)
+
+## What it actually does
+
+Most League stats sites tell you *what* happened. Revu helps you ask *why*
+and *what to work on next*. It detects champ select, prompts you for a
+pre-game intention, captures post-game stats, and walks you through a
+structured review — mistakes, what went well, focus for next game.
+Objectives are journaled across the games where you practiced them.
+Optional VOD recording (via [Ascent](https://ascent.gg)) auto-links so
+review notes are timestamped.
+
+## Why this isn't op.gg
+
+- **It's a coach, not a scoreboard.** The post-game flow forces a
+  2-minute reflection — tilt-check, attribution, what's within your
+  control. Not a stat dashboard.
+- **Your data is yours.** SQLite at `%LOCALAPPDATA%`, no cloud sync,
+  no telemetry. Riot ID + region only go through our Cloudflare Worker
+  proxy for Match-V5 lookups.
+- **Open source.** Read the code, fork it, file a PR.
 
 ## Install
 
-Use the latest `Setup.exe` from [Releases](https://github.com/samif0/lol-review/releases).
+Latest **`Setup.exe`** is at
+[Releases](https://github.com/samif0/lol-review/releases/latest). Run it,
+launch from Start Menu. Auto-update is built in — no need to re-download.
+See [revu-lol.app](https://revu-lol.app) for a walkthrough.
 
-1. Download the newest installer asset.
-2. Run `Revu-Setup.exe` or the release `Setup.exe`.
-3. Launch the installed app from Start Menu or Desktop.
+MIT-licensed ([LICENSE](LICENSE)). Bug reports via the
+[issue templates](https://github.com/samif0/lol-review/issues/new/choose);
+security issues to [SECURITY.md](SECURITY.md); contributions via
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-Notes:
+> *Revu isn't endorsed by Riot Games and doesn't reflect the views or
+> opinions of anyone officially involved in producing or managing
+> League of Legends. League of Legends and Riot Games are trademarks
+> or registered trademarks of Riot Games, Inc.*
 
-- Auto-update is handled by the installed app through GitHub Releases.
-- The install root is `%LOCALAPPDATA%\LoLReview` (the Velopack `packId`, never renamed so auto-update keeps working).
-- User data is stored separately in `%LOCALAPPDATA%\LoLReviewData` so reinstalling the app does not wipe the database.
-- On startup, the app migrates legacy DB / config / backup files forward from older locations when needed.
+---
 
 ## Data and logs
 
@@ -65,90 +84,52 @@ Optional runtime dependency:
 
 - `ffmpeg.exe` in `deps\` for clip extraction
 
-### Open the solution
-
-```powershell
-start Revu.sln
-```
-
 ### Build from CLI
 
 ```powershell
-dotnet restore src\Revu.App\Revu.App.csproj -r win-x64
-msbuild Revu.sln /p:Configuration=Debug /p:Platform=x64 /p:RuntimeIdentifier=win-x64
+dotnet build src\Revu.App\Revu.App.csproj -c Debug -r win-x64
 ```
 
-### Run a local debug build
+To run from CLI after building, use `run.bat` or launch the exe directly
+at `src\Revu.App\bin\x64\Debug\net8.0-windows10.0.19041.0\Revu.App.exe`.
 
-After building `Debug|x64`, launch the app with:
+Tests live in `src\Revu.Core.Tests\`:
 
 ```powershell
-run.bat
+dotnet test src\Revu.Core.Tests\
 ```
 
-Or run the built executable directly:
+See [docs/CODEBASE_ONBOARDING.md](docs/CODEBASE_ONBOARDING.md) for an
+architecture overview and [CONTRIBUTING.md](CONTRIBUTING.md) for the
+contribution flow.
 
-```text
-src\Revu.App\bin\x64\Debug\net8.0-windows10.0.19041.0\Revu.App.exe
-```
+## Releases
 
-## Building a release locally
-
-The GitHub Actions release workflow is the source of truth, but the local publish shape is:
+Releases are automated through `.github/workflows/release.yml`. To
+publish a new version, commit to `main`, tag `v2.x.y`, and push both:
 
 ```powershell
-dotnet restore src\Revu.App\Revu.App.csproj -r win-x64
-msbuild src\Revu.App\Revu.App.csproj `
-  /p:Configuration=Release `
-  /p:Platform=x64 `
-  /p:RuntimeIdentifier=win-x64 `
-  /p:SelfContained=true `
-  /t:Publish
+git tag -a v2.17.0 -m "v2.17.0"
+git push origin main v2.17.0
 ```
 
-If `deps\ffmpeg.exe` exists, copy it into the publish output before packing.
+The workflow stamps the version, publishes for `win-x64`, includes
+`ffmpeg.exe` if available, packs with `vpk`, and publishes a GitHub
+Release that the in-app updater consumes.
 
-## Releasing
-
-Releases are automated through `.github/workflows/release.yml`.
-
-To publish a new version:
-
-1. Commit your changes to `main`.
-2. Create a version tag such as `v2.3.1`.
-3. Push `main` and the tag.
-
-Example:
-
-```powershell
-git add .
-git commit -m "fix: describe your release"
-git tag -a v2.3.1 -m "v2.3.1"
-git push origin main
-git push origin v2.3.1
-```
-
-The workflow will:
-
-- stamp `<Version>` in `src\Revu.App\Revu.App.csproj` from the tag
-- restore and publish the WinUI app for `win-x64`
-- include `ffmpeg.exe` if available
-- pack the release with `vpk`
-- publish the GitHub Release used by the in-app updater
-
-Tag rules currently accepted by the workflow:
-
-- `v2.[1-9].*`
-- `v3.*`
+Tag rules currently accepted: `v2.[1-9].*`, `v3.*`.
 
 ## Project structure
 
 ```text
 src/
-  Revu.App/        WinUI 3 desktop app, DI wiring, views, view models, update flow
-  Revu.Core/       SQLite, repositories, domain services, LCU integration, migrations
-.github/workflows/
-  release.yml           GitHub Actions release pipeline
-run.bat                 Helper to launch the local debug build and print startup logs
-Revu.sln           Visual Studio solution
+  Revu.App/        WinUI 3 desktop app, DI, views, view models, update flow
+  Revu.Core/       SQLite, repositories, services, LCU integration, migrations
+  Revu.Core.Tests/ xUnit, in-memory SQLite fixtures
+.github/
+  ISSUE_TEMPLATE/  Bug + feature templates
+  workflows/       GitHub Actions release pipeline
+docs/              CODEBASE_ONBOARDING, LAUNCH_READINESS, etc.
+site/              Static landing site at revu-lol.app
+proxy/             Cloudflare Worker that proxies Riot Match-V5
 ```

@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest something Revu doesn't do yet
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation in your review or coaching workflow where Revu falls short. Skip the "Revu should add X" framing — start with what you were trying to do.
+      placeholder: |
+        After every game I want to see how my pre-game intention played out, but
+        Revu shows the post-game review form first and the intention is buried
+        three clicks deep.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What might solve it?
+      description: Optional. If you already have a UI/flow in mind, sketch it. Otherwise leave blank — sometimes the right solution is different from the first one that comes to mind.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Are you a jungle main, a coach, a Diamond player, a returning player? Context helps me weigh tradeoffs against other requests.

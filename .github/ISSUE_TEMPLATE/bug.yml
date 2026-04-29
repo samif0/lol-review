@@ -1,0 +1,47 @@
+name: Bug report
+description: Something is broken or behaving unexpectedly
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Revu version
+      description: Settings → About, or the title bar. e.g. v2.16.7
+      placeholder: v2.16.7
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Other (note in details)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what did you see instead?
+      placeholder: |
+        1. Opened the app
+        2. Clicked Settings → Backfill enemy laners
+        3. Expected: progress card animates
+           Got: app froze for ~10 seconds
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Crash log (if applicable)
+      description: |
+        If the app crashed, paste the contents of `%LOCALAPPDATA%\LoLReview\crash.log`.
+        If you can also share `velopack.log` from the same folder, even better.
+      render: shell
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else?
+      description: Screenshots, repro frequency, what you tried, anything you suspect.
