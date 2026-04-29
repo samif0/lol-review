@@ -67,9 +67,10 @@ Install-owned files:
 
 Logs:
 
-- Startup log: `%LOCALAPPDATA%\LoLReview\startup.log`
-- Crash log: `%LOCALAPPDATA%\LoLReview\crash.log`
-- Velopack log: `%LOCALAPPDATA%\LoLReview\velopack.log`
+- App logs (startup, crash, coach): `%LOCALAPPDATA%\Revu\`
+  - Settings → About → "Open log folder" jumps you here.
+- Velopack updater log: `%LOCALAPPDATA%\LoLReview\velopack.log`
+  - Settings → About → "Diagnose update" surfaces the last 50 lines inline.
 
 ## Development
 

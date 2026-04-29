@@ -336,11 +336,59 @@
                                     Style="{StaticResource GoldActionButtonStyle}"
                                     FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
                                     Padding="14,0" CornerRadius="2"/>
+
+                            <Button Content="Diagnose update"
+                                    Command="{x:Bind ViewModel.DiagnoseUpdateCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
+                                    ToolTipService.ToolTip="Show the last 50 lines of velopack.log to debug a silent update failure"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
+                                    Padding="14,0" CornerRadius="2"/>
+
+                            <Button Content="Open log folder"
+                                    Command="{x:Bind ViewModel.OpenLogFolderCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
+                                    ToolTipService.ToolTip="Open %LOCALAPPDATA%\Revu — contains crash.log, startup.log, etc"
+                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="32"
+                                    Padding="14,0" CornerRadius="2"/>
                         </StackPanel>
 
                         <TextBlock Text="{x:Bind ViewModel.UpdateStatusText, Mode=OneWay}"
                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    Foreground="{x:Bind ViewModel.UpdateStatusBrush, Mode=OneWay}"/>
+
+                        <!-- Velopack log tail panel: shown when DiagnoseUpdate is clicked.
+                             Read-only TextBox + monospace font + IsTextSelectionEnabled
+                             so users can copy-paste into a bug report. -->
+                        <Border Background="{StaticResource InputBackgroundBrush}"
+                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                Padding="10"
+                                Margin="0,4,0,0"
+                                Visibility="{x:Bind ViewModel.IsVelopackTailVisible, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <ScrollViewer MaxHeight="240"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto">
+                                <TextBlock Text="{x:Bind ViewModel.VelopackLogTail, Mode=OneWay}"
+                                           FontFamily="Consolas, Cascadia Code, Courier New"
+                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           IsTextSelectionEnabled="True"/>
+                            </ScrollViewer>
+                        </Border>
+
+                        <!-- v2.17 cross-cutting: Riot disclaimer in-app. Required to keep
+                             us in the clear when the app mentions League by name. -->
+                        <Border BorderBrush="{StaticResource SubtleBorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Margin="0,12,0,0"
+                                Padding="0,12,0,0">
+                            <TextBlock TextWrapping="Wrap"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       IsTextSelectionEnabled="True"
+                                       Text="Revu isn't endorsed by Riot Games and doesn't reflect the views or opinions of anyone officially involved in producing or managing League of Legends. League of Legends and Riot Games are trademarks or registered trademarks of Riot Games, Inc."/>
+                        </Border>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 

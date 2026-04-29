@@ -1,6 +1,8 @@
 #nullable enable
 
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Revu.App.Helpers;
@@ -193,6 +195,16 @@ public partial class SettingsViewModel : ObservableObject
     private int _updateProgress;
 
     public SolidColorBrush UpdateStatusBrush => HexBrush(UpdateStatusColorHex);
+
+    // v2.17 cross-cutting: surface the last 50 lines of velopack.log when the
+    // user clicks "Diagnose update". Shown inline in the About card so first-
+    // cohort users can paste it into a bug report when their update silently
+    // fails. Set to "" when the panel is collapsed.
+    [ObservableProperty]
+    private string _velopackLogTail = "";
+
+    [ObservableProperty]
+    private bool _isVelopackTailVisible;
 
     // ── Constructor ─────────────────────────────────────────────────
 
@@ -433,6 +445,78 @@ public partial class SettingsViewModel : ObservableObject
         AscentFolder = "";
         AscentStatus = "Ascent VOD disabled";
         AscentStatusColorHex = "#8A80A8";
+    }
+
+    /// <summary>
+    /// v2.17 cross-cutting: opens %LOCALAPPDATA%\Revu in Explorer so users
+    /// don't need to navigate AppData manually when filing a bug. The folder
+    /// holds crash.log, startup.log, and the coach-host log.
+    /// </summary>
+    [RelayCommand]
+    private void OpenLogFolder()
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Revu");
+            Directory.CreateDirectory(dir);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = dir,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not open log folder");
+        }
+    }
+
+    /// <summary>
+    /// v2.17 cross-cutting: reads the last 50 lines of
+    /// %LOCALAPPDATA%\LoLReview\velopack.log and surfaces them inline.
+    /// V2_16_BACKLOG Investigation #1 — gives users a way to see what
+    /// happened during a silent update failure without having to dig
+    /// through AppData themselves.
+    /// </summary>
+    [RelayCommand]
+    private void DiagnoseUpdate()
+    {
+        if (IsVelopackTailVisible)
+        {
+            IsVelopackTailVisible = false;
+            VelopackLogTail = "";
+            return;
+        }
+
+        try
+        {
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LoLReview",
+                "velopack.log");
+            if (!File.Exists(path))
+            {
+                VelopackLogTail = "(no velopack.log found — the auto-updater may not have run yet on this install)";
+                IsVelopackTailVisible = true;
+                return;
+            }
+
+            // Use FileShare.ReadWrite — Velopack may still hold the file.
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs);
+            var allLines = reader.ReadToEnd().Split('\n');
+            var tail = allLines.Length > 50 ? allLines[^50..] : allLines;
+            VelopackLogTail = string.Join("\n", tail).TrimEnd();
+            IsVelopackTailVisible = true;
+        }
+        catch (Exception ex)
+        {
+            VelopackLogTail = $"(could not read velopack.log: {ex.Message})";
+            IsVelopackTailVisible = true;
+            _logger.LogWarning(ex, "Could not read velopack.log");
+        }
     }
 
     partial void OnUpdateStatusColorHexChanged(string value)

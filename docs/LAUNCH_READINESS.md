@@ -485,46 +485,84 @@ they touch everything.
 
 ### Privacy + legal
 
-- [ ] **Privacy policy** published (covers: SQLite local storage,
+- [x] **Privacy policy** published (covers: SQLite local storage,
   Cloudflare Worker proxy logs, Riot Match-V5 calls, no third-party
   analytics, no telemetry beyond crash logs)
-- [ ] **Terms of service** published with as-is + Riot disclaimer
-- [ ] **Riot disclaimer** in the app itself (Settings → About is fine)
+  - `site/privacy.html`, hand-written. All five required topics
+    covered. Note: v1 ships with **no telemetry at all**, including
+    no crash beacons — see `docs/TELEMETRY_DECISION.md`.
+- [x] **Terms of service** published with as-is + Riot disclaimer
+  - `site/terms.html` — MIT-license summary + canonical Riot
+    disclaimer + as-is/no-warranty + responsibilities + liability.
+- [x] **Riot disclaimer** in the app itself (Settings → About is fine)
   and on the site
-- [ ] **License file** in the repo (see Section 3)
+  - In-app: bottom of Settings → About & Updates card, separated
+    by a top border, muted text. On site: bottom of homepage main +
+    full text on `/terms.html`.
+- [x] **License file** in the repo (see Section 3)
+  - MIT, Section 3.
 
 ### Crash + telemetry
 
-- [ ] **Crash log location is documented** in README + Settings page.
+- [x] **Crash log location is documented** in README + Settings page.
   Currently `%LOCALAPPDATA%\LoLReview\crash.log`, mentioned in README.
   Add a Settings → "Open crash log folder" button so users don't need
   to navigate AppData manually.
-- [ ] **Velopack log diagnose button** — already on the v2.16 backlog
+  - "Open log folder" button in Settings → About → APP VERSION
+    card, opens `%LOCALAPPDATA%\Revu\` in Explorer (real path —
+    the brief's `LoLReview\crash.log` was wrong, that's the Velopack
+    install root). README updated with the corrected path + a
+    pointer to the in-app button.
+- [x] **Velopack log diagnose button** — already on the v2.16 backlog
   as Investigation #1. If we don't ship this, the first time a user's
   update fails silently we have no debug path. **Do this.**
-- [ ] **Optional anonymous telemetry**: out of scope for v1. A no-op
+  - "Diagnose update" button reads the last 50 lines of
+    `%LOCALAPPDATA%\LoLReview\velopack.log` and shows them inline
+    in a selectable mono-font scroll panel so users can paste into
+    a bug report. Toggle: click again to hide. Handles missing
+    file + locked file (FileShare.ReadWrite) gracefully.
+- [x] **Optional anonymous telemetry**: out of scope for v1. A no-op
   for now — we ship without it. Document the decision in
   `docs/TELEMETRY_DECISION.md` so future-you doesn't re-litigate.
+  - `docs/TELEMETRY_DECISION.md` written. Captures: what we ship
+    (nothing), why (privacy optics + cohort trust), and the three
+    triggers under which we'd revisit it.
 
 ### Update path
 
-- [ ] **Code-signing decision** — captured in `docs/CODE_SIGNING_PLAN.md`.
+- [x] **Code-signing decision** — captured in `docs/CODE_SIGNING_PLAN.md`.
   Going un-signed for now, accept the Vanguard friction, document the
   workaround on the site. Re-evaluate after first 50 installs based on
   support volume.
-- [ ] **Manual install fallback** — the site links to the raw `Setup.exe`
+  - Plan doc exists at `docs/CODE_SIGNING_PLAN.md`. Vanguard FAQ on
+    the marketing site was **removed per user request** (2026-04-29):
+    surfacing install friction on the public landing page is bad
+    for conversion. The "Diagnose update" button + log folder button
+    in Settings give us the support path post-install instead.
+- [x] **Manual install fallback** — the site links to the raw `Setup.exe`
   in case the in-app updater fails. Already true via the GitHub Release
   asset; verify the link is one-click on the site.
+  - `site/download.js` rewrites the button href to the direct
+    `Setup.exe` asset URL on page load, with a static fallback to
+    `/releases/latest`. Verified in Section 4 link check.
 
 ### Support readiness
 
-- [ ] **A way to receive bug reports** that isn't "DM me on Discord at
+- [x] **A way to receive bug reports** that isn't "DM me on Discord at
   3am." GitHub Issues with templates is enough.
-- [ ] **A first-response SLA you can keep**, even if it's "I respond
+  - `.github/ISSUE_TEMPLATE/{bug,feature}.yml` from Section 3.
+    Privacy/Terms pages route questions to the issue tracker.
+- [x] **A first-response SLA you can keep**, even if it's "I respond
   within 48h on weekdays." Set the expectation publicly somewhere
   (CONTRIBUTING.md or the site's contact page).
+  - 48h-on-weekdays in both `CONTRIBUTING.md` and `SECURITY.md`.
 - [ ] **Known-issues list.** Even one short FAQ on the site or a pinned
   GitHub issue. Saves repeating yourself.
+  - **Manual user step.** GitHub Issues "pinned issue" feature is
+    a one-click action in the GitHub UI; gh CLI not installed
+    locally. Suggest pinning one issue covering "first run with
+    Vanguard" and one covering "update fails silently → click
+    Diagnose update" once Day 5 is wrapped.
 
 ---
 
