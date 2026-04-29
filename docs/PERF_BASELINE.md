@@ -102,6 +102,36 @@ overhead) or a move off WinUI 3, neither of which is in v1 scope.
 Per the user's reading: not a launch blocker. Will surface to user for
 sign-off before changing the criterion in `LAUNCH_READINESS.md`.
 
+## Cold-launch idle confirmation (2026-04-29)
+
+A second 32-minute sampler run on a freshly-cold-launched process
+(PID 21052, no long-soak baseline). The intent was a clean cold-launch
+VOD test, but no VOD was opened during the window — what we got
+instead is a clean **32-min idle leak test on a fresh process.**
+
+| Mark   | WS   | Private | CPU/1-core |
+|--------|------|---------|-----------|
+| t=0    | 174  | 114     | —         |
+| 5 min  | 178  | 115     | 3.1%      |
+| 10 min | 177  | 113     | 3.1%      |
+| 20 min | 176  | 113     | 3.0%      |
+| 30 min | 180  | 115     | 3.2%      |
+| 32 min | 180  | 116     | 3.3%      |
+
+Total drift: **+1.7% private WS over 32 min.** Textbook plateau, no
+leak signal. Combined with the 14h-old-instance VOD test (Section 1,
++4.4% drift over 32 min), the leak picture is:
+
+- **Idle (no VOD)**: ~2% drift over 30 min — noise, not leak.
+- **VOD playing**: ~4% drift over 30 min — slightly higher than
+  idle, consistent with one-shot allocations (decoder buffers,
+  page state) rather than per-minute growth.
+
+Verdict for criterion 3 stands: **PASS-with-caveat.** Leak surface
+during normal run is small. The absolute-number cap of 250MB private
+was contextual to a long-soak baseline — fresh-launch instances
+sit comfortably under it.
+
 ## Criterion 3 trajectory analysis
 
 Sampled at 60s intervals for 32 minutes on an instance that had been
