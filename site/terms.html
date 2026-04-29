@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Terms of service — Revu</title>
+  <meta name="description" content="The agreement under which you can use Revu — short, plain-English." />
+  <meta name="robots" content="index, follow" />
+
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main>
+    <article class="legal">
+      <p class="eyebrow">Legal // Terms</p>
+      <h1 class="legal-h1">Terms of service</h1>
+      <p class="legal-meta">Last updated: 2026-04-29</p>
+
+      <p>
+        Revu is open-source software released under the
+        <a href="https://github.com/samif0/lol-review/blob/main/LICENSE">MIT License</a>.
+        This page is the plain-English summary of what that means
+        for you as a user, plus the disclaimers that have to live
+        somewhere.
+      </p>
+
+      <h2>The deal</h2>
+      <p>
+        Revu is provided <strong>as-is, without warranty of any
+        kind</strong>. You install and use it at your own risk. We
+        try to be careful — see
+        <a href="/privacy.html">our privacy policy</a> for what data
+        the app reads and writes — but we're not promising the app
+        won't crash, that the auto-updater won't fail, or that the
+        Cloudflare Worker proxy will be available.
+      </p>
+      <p>
+        You can use Revu for free, for any purpose, including
+        commercial use. The MIT License lets you fork, modify, and
+        redistribute the source. If you do redistribute, please keep
+        the copyright notice in the LICENSE file intact.
+      </p>
+
+      <h2>Riot Games disclaimer</h2>
+      <p>
+        Revu isn't endorsed by Riot Games and doesn't reflect the
+        views or opinions of anyone officially involved in producing
+        or managing League of Legends. League of Legends and Riot
+        Games are trademarks or registered trademarks of Riot Games,
+        Inc.
+      </p>
+      <p>
+        Revu reads the local League client's LCU API and Riot's
+        public Match-V5 API. Both are documented and intended for
+        third-party use. Revu does not modify the game client, does
+        not interact with the game's memory while it's running, and
+        does not provide any in-game advantage.
+      </p>
+
+      <h2>Your responsibilities</h2>
+      <ul>
+        <li>
+          Use Revu in compliance with Riot's
+          <a href="https://www.riotgames.com/en/terms-of-service">
+            Terms of Service
+          </a>
+          and your local laws. Don't use Revu in a way that
+          violates either.
+        </li>
+        <li>
+          Keep your machine reasonably secure — Revu stores your
+          review data locally; we can't help you recover it if your
+          drive fails and you have no backups.
+        </li>
+        <li>
+          If Revu auto-creates safety backups before destructive
+          operations (it does, in
+          <code>%LOCALAPPDATA%\LoLReviewData\backups\</code>), don't
+          assume those backups will survive every failure mode.
+          Periodically copy the
+          <code>revu.db</code> file to external storage if your
+          review notes matter to you.
+        </li>
+      </ul>
+
+      <h2>Limitation of liability</h2>
+      <p>
+        To the maximum extent permitted by law, Sami Fawcett (the
+        author) and any contributors will not be liable for any
+        damages arising from your use of Revu — lost data, lost time,
+        lost LP, missed promos, anything. The MIT License's "as-is"
+        clause governs.
+      </p>
+
+      <h2>Termination</h2>
+      <p>
+        You can stop using Revu at any time by uninstalling it. We
+        can stop providing the Cloudflare Worker proxy at any time;
+        if we do, the app will continue to function locally for
+        review and history features, but live Match-V5 backfill
+        will stop working until you point it at a different proxy
+        or run your own.
+      </p>
+
+      <h2>Changes to these terms</h2>
+      <p>
+        Material changes will be reflected in the
+        <em>Last updated</em> date above and called out in the
+        release notes for the version that introduces them. Continued
+        use of the app after a change constitutes acceptance.
+      </p>
+
+      <h2>Questions</h2>
+      <p>
+        Open an issue at
+        <a href="https://github.com/samif0/lol-review/issues">
+          github.com/samif0/lol-review/issues
+        </a>.
+      </p>
+
+      <p class="legal-back">
+        <a href="/">← back to revu-lol.app</a>
+      </p>
+    </article>
+  </main>
+
+  <footer>
+    <a href="https://github.com/samif0/lol-review" rel="noopener">github.com/samif0/lol-review</a>
+    <a href="/privacy.html">privacy</a>
+    <a href="/terms.html">terms</a>
+  </footer>
+</body>
+</html>

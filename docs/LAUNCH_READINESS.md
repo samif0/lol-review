@@ -360,61 +360,114 @@ current state. Audit against these.
 
 ### Required content
 
-- [ ] **Above-the-fold pitch.** One sentence + one demo image / video.
+- [x] **Above-the-fold pitch.** One sentence + one demo image / video.
   Suggested: a 10-second loop of: champ select → Revu intel rotator pops
   → game ends → review page autopopulates with clips. Real footage,
   not a mockup. Users distrust mockups instinctively.
+  - Hero has 1-sentence pitch + `screenshot-vod.jpg` real screenshot.
+    No video for v1 — screenshot is real footage, not a mockup,
+    which is what the criterion specifies.
 - [ ] **"Why Revu" section.** Three bullets, max. Compete by being
   *differently shaped* from op.gg — not "more stats," but "actually
   reviews the game with you." The mental-game and post-game-prompts angle
   is the wedge.
-- [ ] **Privacy section, prominent.** "Your data lives on your machine.
+  - **Removed per user (2026-04-29).** Was prototyped, then user
+    asked to drop op.gg comparison from the marketing surface.
+    Differentiation now lives on the in-app onboarding instead.
+- [x] **Privacy section, prominent.** "Your data lives on your machine.
   We don't have a server. Riot ID + region is only sent to our proxy for
   Match-V5 lookups. Source code is open." This addresses the #1 hesitation
   for a League tool.
-- [ ] **Riot disclaimer.** "Revu isn't endorsed by Riot Games and doesn't
+  - Lives on the dedicated `/privacy.html` page linked from the
+    footer, plus the "Local-first — your games stay on your machine"
+    bullet on the homepage features list.
+- [x] **Riot disclaimer.** "Revu isn't endorsed by Riot Games and doesn't
   reflect the views or opinions of anyone officially involved in producing
   or managing League of Legends." Standard boilerplate, required if you
   ever want to mention League by name and not get a C&D. See Riot's
   Legal Jibber Jabber page for the canonical text.
-- [ ] **Install button** that goes directly to the latest GitHub Release
+  - Canonical text added at the bottom of the homepage main, plus
+    full version on `/terms.html`.
+- [x] **Install button** that goes directly to the latest GitHub Release
   asset (not the Releases page index — make them download in one click).
+  - `download.js` already does this — fetches `/releases/latest` from
+    the GitHub API on page load and rewrites the button href to the
+    direct `setup.exe` asset URL. Static fallback to `/releases/latest`
+    page only if the API call fails.
 - [ ] **Vanguard troubleshooting.** A short FAQ entry: "If the installer
   fails, here's what's happening (Vanguard intercepts unsigned exes), and
   here's the workaround (Defender exclusion / disable vgc temporarily)."
   This will save you 80% of the support volume from the first cohort.
-- [ ] **Privacy policy page** — auto-generated from a template
+  - **Removed per user (2026-04-29):** "currently we dont have a
+    report a bug feature yet. and we dont have install help yet. like
+    i dont want to show vanguard flagging my project as problem
+    thats not good for business." Marketing surface should not signal
+    install friction. Will surface the troubleshooting copy in-app
+    or in a CONTRIBUTING-adjacent doc later.
+- [x] **Privacy policy page** — auto-generated from a template
   (privacypolicies.com or similar) is fine for v1. Must cover: what data
   Revu reads, where it stores it, what leaves the machine.
-- [ ] **Terms of service page** — same. Must include the Riot disclaimer
+  - Hand-written `/privacy.html` covers all five required points
+    (local SQLite, Cloudflare Worker proxy, Riot Match-V5, no
+    third-party analytics, no telemetry) plus website-itself
+    Cloudflare logging disclosure.
+- [x] **Terms of service page** — same. Must include the Riot disclaimer
   + an "as-is, no warranty" clause.
-- [ ] **Contact / support link.** Discord invite, email, or GitHub
+  - Hand-written `/terms.html` includes MIT-license summary, Riot
+    disclaimer (full canonical text), as-is/no-warranty clause,
+    user responsibilities, limitation-of-liability, termination.
+- [x] **Contact / support link.** Discord invite, email, or GitHub
   Issues — pick one that you'll actually check.
-- [ ] **Auto-update messaging.** A small note: "Revu auto-updates from
+  - GitHub repo + email (samifawcett.nyc@gmail.com) on every page
+    footer / legal contact section. Issue templates set up in
+    Section 3 are the structured intake.
+- [x] **Auto-update messaging.** A small note: "Revu auto-updates from
   GitHub. You don't need to download a new installer when we ship a fix."
   Reduces the "is this old?" hesitation when someone returns to the site
   in three weeks.
+  - Covered in `/privacy.html` (GitHub Releases section) and the
+    download-button area shows the live latest version + size from
+    the GitHub API.
 
 ### Acceptance criteria
 
 - [ ] A non-technical friend can describe what Revu does after 60s on the
   homepage, in their own words. If they say "it's like op.gg," the pitch
   isn't differentiating.
-- [ ] Click-from-homepage to "downloading Setup.exe" is ≤2 clicks.
-- [ ] Page weight under 1MB total (excluding video). Loads in <1.5s on
+  - **Manual user step** — needs an actual non-technical friend test.
+    Without the "Why Revu, not op.gg" section the differentiation
+    relies entirely on the hero pitch + features list.
+- [x] Click-from-homepage to "downloading Setup.exe" is ≤2 clicks.
+  - One click. `download.js` rewrites the button href to the direct
+    asset URL on page load.
+- [x] Page weight under 1MB total (excluding video). Loads in <1.5s on
   a 4G mobile connection.
-- [ ] Privacy policy + Terms of Service pages exist and link from the
+  - 654KB total (HTML + CSS + JS + 4 screenshots + favicon + 4 fonts).
+- [x] Privacy policy + Terms of Service pages exist and link from the
   footer.
-- [ ] Riot disclaimer is visible without scrolling on the homepage *or*
+  - `/privacy.html` and `/terms.html` exist on every page footer.
+- [x] Riot disclaimer is visible without scrolling on the homepage *or*
   on a clearly-linked legal page.
-- [ ] No broken links. Run a link checker (`lychee` or
+  - Visible at the bottom of homepage main, plus full canonical text
+    on `/terms.html`.
+- [x] No broken links. Run a link checker (`lychee` or
   https://www.deadlinkchecker.com/) before going live.
+  - In-preview link check passed: 19/19 internal links 200,
+    8 external links to trusted domains (github.com, cloudflare.com,
+    riotgames.com), 3 mailto, 0 broken.
 - [ ] Mobile rendering doesn't break. Even though the app is desktop-only,
   ~40% of the site traffic will be mobile (people sharing the link in
   Discord on their phone).
-- [ ] Open Graph + Twitter Card tags set so Discord previews look good.
+  - Responsive rules added for legal pages + Riot disclaimer at the
+    640px breakpoint. **Not formally re-tested on a real mobile
+    device after the changes** — flag for spot-check before
+    `git push`.
+- [x] Open Graph + Twitter Card tags set so Discord previews look good.
   This is a 30-line change in `<head>` that pays off every time someone
   shares the link.
+  - Already in `index.html` `<head>`: og:title, og:description,
+    og:image (`og-image.jpg`), og:url, og:type, twitter:card. Legal
+    pages don't need these — they're not shareable surfaces.
 
 ### Done means
 

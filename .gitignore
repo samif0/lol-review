@@ -45,8 +45,9 @@
 # nothing under here goes into the public repo.
 /tools/
 
-# Claude Code runtime artifacts (lock + scheduled-tasks)
+# Claude Code runtime artifacts (lock + scheduled-tasks + launch config)
 /.claude/scheduled_tasks.lock
+/.claude/launch.json
 
 # Build logs
 /build.binlog

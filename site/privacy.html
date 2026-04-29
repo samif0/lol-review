@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Privacy policy — Revu</title>
+  <meta name="description" content="What data Revu reads, where it stores it, and what leaves your machine." />
+  <meta name="robots" content="index, follow" />
+
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main>
+    <article class="legal">
+      <p class="eyebrow">Legal // Privacy</p>
+      <h1 class="legal-h1">Privacy policy</h1>
+      <p class="legal-meta">Last updated: 2026-04-29</p>
+
+      <p>
+        Revu is a local-first Windows desktop app. Your review data, game
+        history, notes, objectives, and clips live on your machine. We do
+        not run a server that holds your data. This page explains exactly
+        what Revu reads, what it stores, and what (if anything) leaves
+        your computer.
+      </p>
+
+      <h2>What Revu stores locally</h2>
+      <p>
+        Revu writes to two folders on your machine:
+      </p>
+      <ul>
+        <li>
+          <code>%LOCALAPPDATA%\LoLReviewData\</code> — your data:
+          SQLite database (<code>revu.db</code>), config, safety
+          backups, captured clips. Persists across reinstalls.
+        </li>
+        <li>
+          <code>%LOCALAPPDATA%\LoLReview\</code> — app binaries +
+          updater files. Replaced on each update; doesn't contain
+          user data.
+        </li>
+      </ul>
+      <p>
+        Crash logs, startup logs, and updater logs land in
+        <code>%LOCALAPPDATA%\LoLReview\</code>. They contain stack
+        traces, version info, and timing data — no Riot account
+        credentials, no other users' data.
+      </p>
+
+      <h2>What leaves your machine</h2>
+      <p>
+        Revu makes outbound network calls to a small number of
+        third-party services. Nothing else.
+      </p>
+      <ul>
+        <li>
+          <strong>Cloudflare Worker proxy</strong>
+          (<code>revu-proxy.lol-review.workers.dev</code>) —
+          forwards Riot Match-V5 requests using a server-side API
+          key. Your Riot ID, region, and match IDs flow through;
+          your local game data does not. The proxy logs request
+          metadata (timestamps, status codes) for rate limiting and
+          abuse prevention; it does not log request bodies.
+        </li>
+        <li>
+          <strong>Riot Games' Match-V5 API</strong> (via the proxy
+          above) — read-only, returns the same public match data
+          you can see on op.gg.
+        </li>
+        <li>
+          <strong>GitHub Releases</strong>
+          (<code>api.github.com</code>, <code>github.com</code>) —
+          for the auto-updater. The app checks for new versions on
+          launch and downloads them when available. GitHub sees the
+          download as a normal anonymous release fetch.
+        </li>
+        <li>
+          <strong>CommunityDragon</strong>
+          (<code>raw.communitydragon.org</code>) — read-only static
+          champion data (icons, ability info). Cached on disk after
+          the first fetch.
+        </li>
+        <li>
+          <strong>Local LCU connection</strong> — Revu talks to your
+          League client over <code>127.0.0.1</code> using credentials
+          the LCU exposes locally. This traffic never leaves your
+          machine.
+        </li>
+      </ul>
+
+      <h2>What we do NOT collect</h2>
+      <ul>
+        <li>No third-party analytics (no Google Analytics, no Mixpanel, no Sentry).</li>
+        <li>No telemetry events, usage tracking, or feature pings.</li>
+        <li>No sale or sharing of any data with third parties.</li>
+        <li>No advertising tracking or A/B-testing instrumentation.</li>
+        <li>No remote feature flags that report your behavior back to us.</li>
+      </ul>
+      <p>
+        If we ever add optional, anonymous crash telemetry in a
+        future version, it will be off-by-default, clearly labeled
+        in the app's settings, and announced in that version's
+        release notes before it ships.
+      </p>
+
+      <h2>The website itself</h2>
+      <p>
+        This site is hosted on Cloudflare Pages. Cloudflare logs
+        request metadata (IP, User-Agent, timestamp) per their
+        standard infrastructure logging — see
+        <a href="https://www.cloudflare.com/privacypolicy/">
+          Cloudflare's privacy policy
+        </a>.
+        We do not run any analytics on this site.
+      </p>
+
+      <h2>Your rights</h2>
+      <p>
+        Because Revu's data lives on your machine, "deleting your
+        data" means uninstalling Revu and removing the
+        <code>%LOCALAPPDATA%\LoLReviewData\</code> folder. We have
+        no remote copy to delete.
+      </p>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        Material changes will be reflected in the
+        <em>Last updated</em> date above and called out in the
+        release notes for the version that introduces them.
+      </p>
+
+      <h2>Questions</h2>
+      <p>
+        Open an issue at
+        <a href="https://github.com/samif0/lol-review/issues">
+          github.com/samif0/lol-review/issues
+        </a>.
+      </p>
+
+      <p class="legal-back">
+        <a href="/">← back to revu-lol.app</a>
+      </p>
+    </article>
+  </main>
+
+  <footer>
+    <a href="https://github.com/samif0/lol-review" rel="noopener">github.com/samif0/lol-review</a>
+    <a href="/privacy.html">privacy</a>
+    <a href="/terms.html">terms</a>
+  </footer>
+</body>
+</html>
