@@ -8,6 +8,12 @@ using Microsoft.Extensions.Logging;
 
 namespace Revu.Core.Lcu;
 
+/// <summary>
+/// Reconciles the LCU's recent-match history against our local <c>games</c>
+/// table to detect games the user played but Revu didn't ingest (Revu was
+/// closed mid-game, Ascent failed, etc). Surfaces them as
+/// <c>MissedGameCandidate</c>s the user can choose to ingest or dismiss.
+/// </summary>
 public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliationService
 {
     private readonly ILcuClient _lcuClient;

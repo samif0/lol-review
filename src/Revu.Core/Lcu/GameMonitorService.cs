@@ -297,7 +297,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _state.LastChampSelectEnemy = enemyLaner ?? "";
         _state.LastChampSelectMyPosition = myPosition ?? "";
         _state.LastChampSelectMapJson = mapJson;
-        _messenger.Send(new ChampSelectStartedMessage(queueId, myChampion, enemyLaner, myPosition ?? "", mapJson));
+        _messenger.Send(new ChampSelectStartedMessage(queueId, myChampion ?? "", enemyLaner ?? "", myPosition ?? "", mapJson));
     }
 
     private static string SerializeParticipantMap(IReadOnlyDictionary<string, string> map)

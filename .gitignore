@@ -40,6 +40,14 @@
 /coach/.mypy_cache/
 /.pytest_cache/
 
+# Personal scratchpad tools (SchemaCheck etc) — never built by CI, never
+# shipped. Source files live on disk for the dev who needs them, but
+# nothing under here goes into the public repo.
+/tools/
+
+# Claude Code runtime artifacts (lock + scheduled-tasks)
+/.claude/scheduled_tasks.lock
+
 # Build logs
 /build.binlog
 *.binlog

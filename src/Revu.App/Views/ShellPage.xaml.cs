@@ -24,8 +24,6 @@ public sealed partial class ShellPage : Page
     private readonly INavigationService _navigationService;
     private Button? _activeNavButton;
     private bool _startupInitialized;
-    private CompositionRoundedRectangleGeometry? _contentViewportGeometry;
-    private CompositionGeometricClip? _contentViewportClip;
 
     // Mockup: active = subtle 8% violet bg + violet glyph + thin right-edge accent (handled by ActiveBar)
     // No border box — keep it minimal.

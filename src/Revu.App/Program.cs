@@ -89,6 +89,13 @@ public static class Program
     /// duplicates next to the new Revu.lnk that Velopack creates from packTitle.
     /// Best-effort; silent on failure.
     /// </summary>
+    // Velopack's Shortcuts API is marked obsolete because they now manage
+    // shortcuts automatically — but our use case is the inverse, *removing*
+    // legacy-named shortcuts (LoLReview.App.exe, LoLReview.exe) that exist
+    // from the pre-rename install. The new auto-management doesn't help
+    // there. Suppressing CS0618 locally until Velopack ships a non-obsolete
+    // delete-by-name API.
+#pragma warning disable CS0618
     private static void RemoveRedundantExeShortcut()
     {
         try
@@ -104,4 +111,5 @@ public static class Program
             // Best-effort; nothing to do if we can't clean it up.
         }
     }
+#pragma warning restore CS0618
 }

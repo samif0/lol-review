@@ -1,0 +1,25 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{json,yml,yaml,md}]
+indent_size = 2
+
+# ── Diagnostic suppressions ──────────────────────────────────────────────
+# MVVMTK0045: CommunityToolkit.Mvvm's [ObservableProperty] source generator
+# wants partial properties for AOT-clean WinRT marshalling. The migration
+# from `[ObservableProperty] private T _field;` to partial-property form
+# is a multi-day repo-wide refactor on ~400 fields.
+#
+# We're shipping v1 unpackaged (no Native AOT, no WinRT marshalling
+# involved at runtime), so the warning is a forward-looking nudge with
+# zero current-build consequences. Suppressing repo-wide so build output
+# is readable; revisit when Native AOT becomes a goal (post-launch).
+[*.cs]
+dotnet_diagnostic.MVVMTK0045.severity = none

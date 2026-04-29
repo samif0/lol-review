@@ -377,40 +377,8 @@ public sealed class LcuClient : ILcuClient
                 }
             }
 
-            // v2.16.4 diag: dump champ-select state to disk so we can see
-            // why role-index matching is picking the wrong enemy. Cheap to
-            // leave on — fires once per champ-select tick (~1Hz) and writes
-            // ~2kB. Remove once the matchup bug is closed.
-            try
-            {
-                var dir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Revu");
-                System.IO.Directory.CreateDirectory(dir);
-                var sb = new System.Text.StringBuilder();
-                sb.AppendLine($"--- {DateTime.Now:HH:mm:ss.fff} ---");
-                sb.AppendLine($"localCellId={localCellId} myChampion='{myChampion}' myPosition='{myPosition}' myTeamIndex={myTeamIndex} resolvedEnemy='{enemyLaner}'");
-                if (el.TryGetProperty("myTeam", out var mtDump) && mtDump.ValueKind == JsonValueKind.Array)
-                {
-                    int i = 0;
-                    foreach (var m in mtDump.EnumerateArray())
-                    {
-                        sb.AppendLine($"  myTeam[{i}] cellId={m.GetPropertyIntOrDefault("cellId", -99)} champId={m.GetPropertyIntOrDefault("championId", 0)} pos='{m.GetPropertyOrDefault("assignedPosition", "")}'");
-                        i++;
-                    }
-                }
-                if (el.TryGetProperty("theirTeam", out var ttDump) && ttDump.ValueKind == JsonValueKind.Array)
-                {
-                    int i = 0;
-                    foreach (var t in ttDump.EnumerateArray())
-                    {
-                        sb.AppendLine($"  theirTeam[{i}] cellId={t.GetPropertyIntOrDefault("cellId", -99)} champId={t.GetPropertyIntOrDefault("championId", 0)} pos='{t.GetPropertyOrDefault("assignedPosition", "")}'");
-                        i++;
-                    }
-                }
-                System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "champ-select-diag.log"), sb.ToString());
-            }
-            catch { }
+            // %LOCALAPPDATA%\Revu\champ-select-diag.log was written here in
+            // v2.16.4 to debug role-index matchup bugs; removed in v2.17.
 
             // v2.16.4: build the role→champion map for both teams. Used by
             // PreGamePage to render 2v2 pairings + per-enemy cooldown cards.

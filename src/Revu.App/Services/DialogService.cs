@@ -55,7 +55,11 @@ public sealed class DialogService : IDialogService
 
     public async Task<ContentDialogResult> ShowManualEntryDialogAsync()
     {
-        // TODO: Replace with actual ManualEntryDialog content
+        // v1 ships a placeholder text dialog here; ManualEntryPage is the
+        // full-form path users actually navigate to. This dialog only
+        // exists for code paths that historically called the dialog
+        // version. v2.17 backlog will either remove the dialog entry
+        // point or wire up a real ManualEntryDialog control.
         var dialog = CreateDialog("Manual Game Entry", "Enter game details manually.");
         await PrepareDialogAsync(dialog);
         dialog.PrimaryButtonText = "Save";
@@ -65,7 +69,10 @@ public sealed class DialogService : IDialogService
 
     public async Task<ContentDialogResult> ShowSessionDebriefDialogAsync(string date)
     {
-        // TODO: Replace with actual SessionDebriefDialog content
+        // v1 ships a placeholder confirm dialog; the full debrief flow is
+        // SessionLoggerPage (sidebar nav). This dialog is the prompt that
+        // points users there. v2.17 backlog: either inline the rating
+        // capture here or remove the dialog.
         var dialog = CreateDialog("Session Debrief", $"How was your session on {date}?");
         await PrepareDialogAsync(dialog);
         dialog.PrimaryButtonText = "Save";
