@@ -20,10 +20,12 @@ public sealed partial class SessionLoggerPage : Page
         ViewModel = App.GetService<SessionLoggerViewModel>();
         InitializeComponent();
 
-        // Reload whenever a game is deleted from any page. Without this,
-        // deleting a game on the Dashboard or History tab would leave a
-        // stale row here until the user navigated away and back.
+        // Reload whenever a game is deleted or reviewed from any page.
+        // Without this, mutating a game on the Dashboard or History tab
+        // would leave a stale row here until the user navigated away and back.
         WeakReferenceMessenger.Default.Register<SessionLoggerPage, GameDeletedMessage>(
+            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+        WeakReferenceMessenger.Default.Register<SessionLoggerPage, GameReviewedMessage>(
             this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
 
         Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
@@ -48,6 +50,14 @@ public sealed partial class SessionLoggerPage : Page
         if (sender is Button btn && btn.Tag is long gameId)
         {
             ViewModel.DeleteGameCommand.Execute(gameId);
+        }
+    }
+
+    private void SkipReviewButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long gameId)
+        {
+            ViewModel.SkipReviewCommand.Execute(gameId);
         }
     }
 

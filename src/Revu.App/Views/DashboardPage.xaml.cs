@@ -35,9 +35,12 @@ public sealed partial class DashboardPage : Page
 
         Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
 
-        // Reload stats + game lists whenever a game is deleted anywhere in
-        // the app so win-rate / adherence / unreviewed counts stay accurate.
+        // Reload stats + game lists whenever a game is deleted or reviewed
+        // anywhere in the app so win-rate / adherence / unreviewed counts
+        // stay accurate.
         WeakReferenceMessenger.Default.Register<DashboardPage, GameDeletedMessage>(
+            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+        WeakReferenceMessenger.Default.Register<DashboardPage, GameReviewedMessage>(
             this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
         Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
@@ -65,6 +68,14 @@ public sealed partial class DashboardPage : Page
         if (sender is Button btn && btn.Tag is long gameId)
         {
             ViewModel.DeleteGameCommand.Execute(gameId);
+        }
+    }
+
+    private void SkipReviewButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long gameId)
+        {
+            ViewModel.SkipReviewCommand.Execute(gameId);
         }
     }
 

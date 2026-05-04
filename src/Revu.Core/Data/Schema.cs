@@ -112,6 +112,7 @@ public static class Schema
             improvement_note TEXT DEFAULT '',
             rule_broken     INTEGER DEFAULT 0,
             timestamp       INTEGER,
+            is_skipped      INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (game_id) REFERENCES games(game_id)
         );
         """;
@@ -644,6 +645,15 @@ public static class Schema
         "ALTER TABLE session_log ADD COLUMN pre_game_mood INTEGER DEFAULT 0",
     ];
 
+    /// <summary>"Skip review" marker — game is acknowledged but the user
+    /// chose not to record a mental rating or notes. Excluded from
+    /// AvgMental / mental-trend / tilt-warning queries so a one-click
+    /// queue clear doesn't pollute behavioral signal.</summary>
+    public static readonly string[] MigrateSessionLogIsSkipped =
+    [
+        "ALTER TABLE session_log ADD COLUMN is_skipped INTEGER NOT NULL DEFAULT 0",
+    ];
+
     public static readonly string[] MigrateCoachLabelsAttachment =
     [
         "ALTER TABLE coach_labels ADD COLUMN attached_objective_id INTEGER",
@@ -786,6 +796,7 @@ public static class Schema
         .. MigrateBookmarksPromptId,
         .. MigrateTiltChecksGameAndPlan,
         .. MigrateGamesParticipantMap,
+        .. MigrateSessionLogIsSkipped,
     ];
 
     // ── Default seed data ────────────────────────────────────────────

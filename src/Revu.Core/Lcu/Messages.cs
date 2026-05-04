@@ -51,3 +51,8 @@ public sealed record GameDeletedMessage(long GameId);
 /// deleted. Lets the review/post-game pages re-run the bookmark→objective
 /// auto-merge live instead of waiting for the user to leave + re-enter.</summary>
 public sealed record BookmarkChangedMessage(long GameId);
+
+/// <summary>Sent after a game is marked reviewed (including a skip-review
+/// from a list view). Lets other open list views refresh their unreviewed /
+/// reviewed bucketing without a full reload.</summary>
+public sealed record GameReviewedMessage(long GameId);

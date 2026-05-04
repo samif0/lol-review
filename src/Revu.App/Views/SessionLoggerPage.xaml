@@ -164,64 +164,77 @@
                                 </ItemsRepeater.Layout>
                                 <ItemsRepeater.ItemTemplate>
                                     <DataTemplate x:DataType="vm:SessionGameEntry">
-                                        <Button Style="{StaticResource SecondaryActionButtonStyle}"
-                                                Background="{StaticResource CardBackgroundBrush}"
-                                                HorizontalAlignment="Stretch"
-                                                HorizontalContentAlignment="Stretch"
-                                                Height="Auto" Padding="0"
-                                                Tag="{x:Bind GameId}"
-                                                Click="ReviewButton_Click">
-                                            <Grid ColumnDefinitions="3,*,Auto" ColumnSpacing="12">
-                                                <Rectangle Fill="{x:Bind Win, Converter={StaticResource WinLossColor}}"
-                                                           Width="3" HorizontalAlignment="Stretch"
-                                                           VerticalAlignment="Stretch"/>
-                                                <StackPanel Grid.Column="1" VerticalAlignment="Center"
-                                                            Spacing="3" Padding="0,10">
-                                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <TextBlock FontFamily="{StaticResource HeadingFont}"
-                                                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                                                   Foreground="{StaticResource PrimaryTextBrush}">
-                                                            <Run Text="{x:Bind ChampionDisplay}"/>
-                                                        </TextBlock>
-                                                        <TextBlock FontFamily="{StaticResource MonoFont}"
-                                                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"
-                                                                   Foreground="{StaticResource MutedTextBrush}">
-                                                            <Run Text="{x:Bind ResultText}"/>
-                                                        </TextBlock>
-                                                        <!-- v2.15.10: click to clear a false-positive rule break.
-                                                             The flag is set by the rules engine + a since-removed
-                                                             heuristic, both of which can mis-fire. -->
-                                                        <Button Background="{StaticResource LossRedBrush}"
-                                                                BorderThickness="0"
-                                                                CornerRadius="2" Padding="6,2"
-                                                                MinHeight="0" MinWidth="0"
-                                                                Tag="{x:Bind GameId}"
-                                                                Click="ClearRuleBreakButton_Click"
-                                                                ToolTipService.ToolTip="Click to clear this rule break"
-                                                                Visibility="{x:Bind RuleBroken, Converter={StaticResource BoolToVis}}">
-                                                            <TextBlock Text="RULE BREAK"
-                                                                       FontFamily="{StaticResource MonoFont}"
-                                                                       FontSize="{Binding Micro, Source={StaticResource FontSizes}}" FontWeight="Bold"
-                                                                       Foreground="White"/>
-                                                        </Button>
+                                        <!-- Grid wraps the main Review button AND a trailing Skip
+                                             button so the skip click doesn't bubble up into "open review". -->
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                                            <Button Grid.Column="0"
+                                                    Style="{StaticResource SecondaryActionButtonStyle}"
+                                                    Background="{StaticResource CardBackgroundBrush}"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    Height="Auto" Padding="0"
+                                                    Tag="{x:Bind GameId}"
+                                                    Click="ReviewButton_Click">
+                                                <Grid ColumnDefinitions="3,*,Auto" ColumnSpacing="12">
+                                                    <Rectangle Fill="{x:Bind Win, Converter={StaticResource WinLossColor}}"
+                                                               Width="3" HorizontalAlignment="Stretch"
+                                                               VerticalAlignment="Stretch"/>
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center"
+                                                                Spacing="3" Padding="0,10">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock FontFamily="{StaticResource HeadingFont}"
+                                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource PrimaryTextBrush}">
+                                                                <Run Text="{x:Bind ChampionDisplay}"/>
+                                                            </TextBlock>
+                                                            <TextBlock FontFamily="{StaticResource MonoFont}"
+                                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"
+                                                                       Foreground="{StaticResource MutedTextBrush}">
+                                                                <Run Text="{x:Bind ResultText}"/>
+                                                            </TextBlock>
+                                                            <!-- v2.15.10: click to clear a false-positive rule break.
+                                                                 The flag is set by the rules engine + a since-removed
+                                                                 heuristic, both of which can mis-fire. -->
+                                                            <Button Background="{StaticResource LossRedBrush}"
+                                                                    BorderThickness="0"
+                                                                    CornerRadius="2" Padding="6,2"
+                                                                    MinHeight="0" MinWidth="0"
+                                                                    Tag="{x:Bind GameId}"
+                                                                    Click="ClearRuleBreakButton_Click"
+                                                                    ToolTipService.ToolTip="Click to clear this rule break"
+                                                                    Visibility="{x:Bind RuleBroken, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Text="RULE BREAK"
+                                                                           FontFamily="{StaticResource MonoFont}"
+                                                                           FontSize="{Binding Micro, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                                                           Foreground="White"/>
+                                                            </Button>
+                                                        </StackPanel>
+                                                        <TextBlock Text="{x:Bind ImprovementNote}"
+                                                                   FontFamily="{StaticResource MonoFont}"
+                                                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                                   Foreground="{StaticResource MutedTextBrush}"
+                                                                   TextTrimming="CharacterEllipsis" MaxLines="1"
+                                                                   Visibility="{x:Bind HasImprovementNote, Converter={StaticResource BoolToVis}}"/>
                                                     </StackPanel>
-                                                    <TextBlock Text="{x:Bind ImprovementNote}"
-                                                               FontFamily="{StaticResource MonoFont}"
-                                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                               Foreground="{StaticResource MutedTextBrush}"
-                                                               TextTrimming="CharacterEllipsis" MaxLines="1"
-                                                               Visibility="{x:Bind HasImprovementNote, Converter={StaticResource BoolToVis}}"/>
-                                                </StackPanel>
 
-                                                <TextBlock Grid.Column="2"
-                                                           Text="{x:Bind MentalText}"
-                                                           FontFamily="{StaticResource DisplayFont}"
-                                                           FontSize="{Binding Title, Source={StaticResource FontSizes}}" FontWeight="Bold"
-                                                           Foreground="{x:Bind MentalRating, Converter={StaticResource MentalColor}}"
-                                                           VerticalAlignment="Center"
-                                                           Margin="0,0,14,0"/>
-                                            </Grid>
-                                        </Button>
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{x:Bind MentalText}"
+                                                               FontFamily="{StaticResource DisplayFont}"
+                                                               FontSize="{Binding Title, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                                                               Foreground="{x:Bind MentalRating, Converter={StaticResource MentalColor}}"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,14,0"/>
+                                                </Grid>
+                                            </Button>
+
+                                            <Button Grid.Column="1"
+                                                    Content="Skip"
+                                                    Style="{StaticResource ListActionButtonStyle}"
+                                                    VerticalAlignment="Center"
+                                                    Tag="{x:Bind GameId}"
+                                                    ToolTipService.ToolTip="Mark reviewed without opening — clears it from the queue"
+                                                    Click="SkipReviewButton_Click"/>
+                                        </Grid>
                                     </DataTemplate>
                                 </ItemsRepeater.ItemTemplate>
                             </ItemsRepeater>

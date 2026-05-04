@@ -224,6 +224,11 @@
                                                                 Style="{StaticResource ListActionButtonStyle}"
                                                                 Tag="{x:Bind GameId}"
                                                                 Click="ReviewButton_Click"/>
+                                                        <Button Content="Skip"
+                                                                Style="{StaticResource ListActionButtonStyle}"
+                                                                Tag="{x:Bind GameId}"
+                                                                ToolTipService.ToolTip="Mark reviewed without opening — clears it from the queue"
+                                                                Click="SkipReviewButton_Click"/>
                                                         <Button Style="{StaticResource GhostIconButtonStyle}"
                                                                 Tag="{x:Bind GameId}"
                                                                 ToolTipService.ToolTip="Delete this game permanently"

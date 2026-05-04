@@ -208,6 +208,30 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task MarkSkippedAsync(long gameId)
+    {
+        using var conn = _factory.CreateConnection();
+        await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE session_log SET is_skipped = 1 WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task ClearSkippedAsync(long gameId)
+    {
+        using var conn = _factory.CreateConnection();
+        await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE session_log SET is_skipped = 0 WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task UpdateMentalHandledAsync(long gameId, string mentalHandled)
     {
         using var conn = _factory.CreateConnection();
@@ -455,7 +479,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
                 COUNT(*) as games,
                 SUM(win) as wins,
                 COUNT(*) - SUM(win) as losses,
-                ROUND(AVG(mental_rating), 1) as avg_mental,
+                ROUND(AVG(CASE WHEN COALESCE(is_skipped, 0) = 0 THEN mental_rating END), 1) as avg_mental,
                 SUM(rule_broken) as rule_breaks
             FROM session_log
             WHERE date = @date";
@@ -495,7 +519,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
                 COUNT(*) as games,
                 SUM(win) as wins,
                 COUNT(*) - SUM(win) as losses,
-                ROUND(AVG(mental_rating), 1) as avg_mental,
+                ROUND(AVG(CASE WHEN COALESCE(is_skipped, 0) = 0 THEN mental_rating END), 1) as avg_mental,
                 SUM(rule_broken) as rule_breaks,
                 GROUP_CONCAT(DISTINCT champion_name) as champions_played
             FROM session_log
@@ -585,6 +609,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
                 SUM(win) as wins,
                 ROUND(AVG(win) * 100, 1) as winrate
             FROM session_log
+            WHERE COALESCE(is_skipped, 0) = 0
             GROUP BY bracket
             ORDER BY bracket";
 
@@ -611,6 +636,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         cmd.CommandText = @"
             SELECT timestamp, mental_rating, win, champion_name
             FROM session_log
+            WHERE COALESCE(is_skipped, 0) = 0
             ORDER BY timestamp DESC
             LIMIT @limit";
         cmd.Parameters.AddWithValue("@limit", limit);
@@ -672,6 +698,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
             SELECT mental_rating, champion_name, game_id
             FROM session_log
             WHERE date = @date
+              AND COALESCE(is_skipped, 0) = 0
             ORDER BY timestamp ASC";
         cmd.Parameters.AddWithValue("@date", dateStr);
 
@@ -735,6 +762,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
                         FIRST_VALUE(mental_rating) OVER (PARTITION BY date ORDER BY timestamp DESC) as last_mental
                 FROM session_log
                 WHERE mental_rating IS NOT NULL
+                  AND COALESCE(is_skipped, 0) = 0
                 GROUP BY date";
 
             var deltas = new List<double>();

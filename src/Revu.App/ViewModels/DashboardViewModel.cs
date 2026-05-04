@@ -55,6 +55,7 @@ public partial class DashboardViewModel : ObservableObject
     private readonly IConfigService _configService;
     private readonly IDialogService _dialogService;
     private readonly IAnalysisService _analysisService;
+    private readonly IReviewWorkflowService _reviewWorkflowService;
     private readonly ILogger<DashboardViewModel> _logger;
 
     // ── Observable Properties ───────────────────────────────────────
@@ -209,6 +210,7 @@ public partial class DashboardViewModel : ObservableObject
         IConfigService configService,
         IDialogService dialogService,
         IAnalysisService analysisService,
+        IReviewWorkflowService reviewWorkflowService,
         ILogger<DashboardViewModel> logger)
     {
         _gameRepo = gameRepo;
@@ -218,6 +220,7 @@ public partial class DashboardViewModel : ObservableObject
         _configService = configService;
         _dialogService = dialogService;
         _analysisService = analysisService;
+        _reviewWorkflowService = reviewWorkflowService;
         _logger = logger;
     }
 
@@ -428,6 +431,64 @@ public partial class DashboardViewModel : ObservableObject
                 "Couldn't delete the game. Your database backup is still safe on disk.");
         }
     }
+
+    /// <summary>Mark a game reviewed without opening the review page. Saves
+    /// an empty review with a neutral mental rating, dropping the game out
+    /// of the unreviewed queue. RequireReviewNotes is bypassed on purpose —
+    /// the user is opting out of detail.</summary>
+    [RelayCommand]
+    private async Task SkipReviewAsync(long gameId)
+    {
+        var game = UnreviewedGames.FirstOrDefault(g => g.GameId == gameId);
+        if (game is null) return;
+
+        try
+        {
+            var result = await _reviewWorkflowService.SaveAsync(new SaveReviewRequest(
+                GameId: gameId,
+                ChampionName: game.ChampionName,
+                Win: game.Win,
+                RequireReviewNotes: false,
+                Snapshot: BuildEmptySnapshot()));
+
+            if (!result.Success)
+            {
+                _logger.LogWarning("Skip-review save failed for {GameId}: {Error}", gameId, result.ErrorMessage);
+                return;
+            }
+
+            // Stamp is_skipped after the workflow's LogGameAsync runs so
+            // AvgMental / mental-trend queries exclude this row's neutral
+            // rating from behavioral signal.
+            await _sessionLogRepo.MarkSkippedAsync(gameId);
+
+            UnreviewedGames.Remove(game);
+            UpdateUnreviewedSummary(UnreviewedGames.Count);
+            WeakReferenceMessenger.Default.Send(new GameReviewedMessage(gameId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to skip review for game {GameId}", gameId);
+        }
+    }
+
+    private static ReviewSnapshot BuildEmptySnapshot() => new(
+        MentalRating: 5,
+        WentWell: "",
+        Mistakes: "",
+        FocusNext: "",
+        ReviewNotes: "",
+        ImprovementNote: "",
+        Attribution: "",
+        MentalHandled: "",
+        SpottedProblems: "",
+        OutsideControl: "",
+        WithinControl: "",
+        PersonalContribution: "",
+        EnemyLaner: "",
+        MatchupNote: "",
+        SelectedTagIds: Array.Empty<long>(),
+        ObjectivePractices: Array.Empty<SaveObjectivePracticeRequest>());
 
     // ── Empty-state / next-step commands ────────────────────────────
 

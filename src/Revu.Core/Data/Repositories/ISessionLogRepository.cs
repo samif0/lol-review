@@ -92,6 +92,16 @@ public interface ISessionLogRepository
     /// <summary>Update the mental rating for a specific game.</summary>
     Task UpdateMentalRatingAsync(long gameId, int mentalRating);
 
+    /// <summary>Mark a game as skip-reviewed — the user cleared it from the
+    /// queue without supplying a mental rating or notes. Skipped games are
+    /// excluded from AvgMental / mental-trend / tilt-warning queries so a
+    /// one-click skip doesn't pollute behavioral signal.</summary>
+    Task MarkSkippedAsync(long gameId);
+
+    /// <summary>Reset is_skipped to 0 — used when a previously-skipped game
+    /// gets a real review on a follow-up open of the review page.</summary>
+    Task ClearSkippedAsync(long gameId);
+
     /// <summary>v2.15.10: clear or set the rule_broken flag for a specific game.
     /// User-initiated only — used to undo a false positive flagged by the
     /// since-removed heuristic, or by the live rules engine.

@@ -181,6 +181,9 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 request.Snapshot.MentalRating,
                 request.Snapshot.ImprovementNote.Trim());
             await _sessionLogRepository.UpdateMentalHandledAsync(request.GameId, request.Snapshot.MentalHandled.Trim());
+            // Clear any prior skip-marker; if the caller is doing a true
+            // skip-save, they re-stamp is_skipped after this returns.
+            await _sessionLogRepository.ClearSkippedAsync(request.GameId);
 
             var existingGame = await _gameRepository.GetAsync(request.GameId);
             if (!string.Equals(existingGame?.EnemyLaner ?? "", trimmedEnemy, StringComparison.Ordinal))

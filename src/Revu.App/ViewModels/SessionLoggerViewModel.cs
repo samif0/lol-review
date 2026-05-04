@@ -95,6 +95,7 @@ public partial class SessionLoggerViewModel : ObservableObject
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
     private readonly Revu.Core.Services.IConfigService _configService;
+    private readonly Revu.Core.Services.IReviewWorkflowService _reviewWorkflowService;
 
     [ObservableProperty]
     private DateOnly _currentDate = DateOnly.FromDateTime(DateTime.Now);
@@ -177,13 +178,15 @@ public partial class SessionLoggerViewModel : ObservableObject
         IGameRepository gameRepo,
         INavigationService navigationService,
         IDialogService dialogService,
-        Revu.Core.Services.IConfigService configService)
+        Revu.Core.Services.IConfigService configService,
+        Revu.Core.Services.IReviewWorkflowService reviewWorkflowService)
     {
         _sessionLogRepo = sessionLogRepo;
         _gameRepo = gameRepo;
         _navigationService = navigationService;
         _dialogService = dialogService;
         _configService = configService;
+        _reviewWorkflowService = reviewWorkflowService;
     }
 
     [RelayCommand]
@@ -279,6 +282,52 @@ public partial class SessionLoggerViewModel : ObservableObject
         // Navigate to game review page with the game ID as parameter
         _navigationService.NavigateTo("review", gameId);
     }
+
+    /// <summary>Mark a needs-review game reviewed without opening the review
+    /// page. Saves an empty review with a neutral mental rating, dropping
+    /// the game out of the unreviewed bucket. RequireReviewNotes is bypassed
+    /// on purpose — the user is opting out of detail.</summary>
+    [RelayCommand]
+    private async Task SkipReviewAsync(long gameId)
+    {
+        var entry = NeedsReviewGames.FirstOrDefault(g => g.GameId == gameId);
+        if (entry is null) return;
+
+        var result = await _reviewWorkflowService.SaveAsync(new Revu.Core.Services.SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: entry.ChampionName,
+            Win: entry.Win,
+            RequireReviewNotes: false,
+            Snapshot: BuildEmptySnapshot()));
+
+        if (!result.Success) return;
+
+        // Stamp is_skipped after the workflow's LogGameAsync runs so
+        // AvgMental / mental-trend queries exclude this row's neutral
+        // rating from behavioral signal.
+        await _sessionLogRepo.MarkSkippedAsync(gameId);
+
+        WeakReferenceMessenger.Default.Send(new GameReviewedMessage(gameId));
+        await RefreshDataAsync();
+    }
+
+    private static Revu.Core.Services.ReviewSnapshot BuildEmptySnapshot() => new(
+        MentalRating: 5,
+        WentWell: "",
+        Mistakes: "",
+        FocusNext: "",
+        ReviewNotes: "",
+        ImprovementNote: "",
+        Attribution: "",
+        MentalHandled: "",
+        SpottedProblems: "",
+        OutsideControl: "",
+        WithinControl: "",
+        PersonalContribution: "",
+        EnemyLaner: "",
+        MatchupNote: "",
+        SelectedTagIds: Array.Empty<long>(),
+        ObjectivePractices: Array.Empty<Revu.Core.Services.SaveObjectivePracticeRequest>());
 
     /// <summary>v2.15.10: clear a false-positive rule break flag for a game.
     /// Used when a since-removed heuristic or the live rules engine flagged
