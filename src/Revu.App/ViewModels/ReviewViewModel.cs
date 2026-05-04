@@ -541,8 +541,6 @@ public partial class ReviewViewModel : ObservableObject,
         }
     }
 
-    public Task<bool> SaveForPostGameAsync() => SaveCoreAsync(navigateBackOnSuccess: false);
-
     partial void OnMentalRatingChanged(int value)
     {
         UpdateMentalColor();

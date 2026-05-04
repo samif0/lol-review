@@ -38,7 +38,7 @@
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
                     <!-- v2.15.9: post-game now lands on the VOD viewer; the
                          primary navigation from here is into the review (paired
-                         with PostGamePage's "Back to VOD" button on the other
+                         with ReviewPage's "Review VOD" button on the other
                          side). The shell sidebar still owns global back-nav. -->
                     <Button Grid.Column="0"
                             Command="{x:Bind ViewModel.OpenReviewCommand}"

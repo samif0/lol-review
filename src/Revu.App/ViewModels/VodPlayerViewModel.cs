@@ -685,14 +685,14 @@ public partial class VodPlayerViewModel : ObservableObject
         _navigationService.GoBack();
     }
 
-    /// <summary>v2.15.9: jump to the post-game review page for the same gameId.
-    /// Pairs with the existing "Review VOD" button on PostGamePage so users
-    /// can flip back and forth without losing context.</summary>
+    /// <summary>Jump to the review page for the same gameId. Pairs with the
+    /// "Review VOD" button on ReviewPage so users can flip back and forth
+    /// without losing context.</summary>
     [RelayCommand]
     private void OpenReview()
     {
         if (GameId <= 0) return;
-        _navigationService.NavigateTo("postgame", GameId);
+        _navigationService.NavigateTo("review", GameId);
     }
 
     // â"€â"€ Public methods for the view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€

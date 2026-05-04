@@ -623,11 +623,11 @@ public partial class ShellViewModel : ObservableRecipient,
             {
                 var recoveredGameId = selectedGames[0].GameId;
                 _logger.LogInformation(
-                    "Recovered single missed game {GameId} -- opening post-game page",
+                    "Recovered single missed game {GameId} -- opening VOD player",
                     recoveredGameId);
                 AppDiagnostics.WriteVerbose(
                     "startup.log",
-                    $"ShellViewModel opening postgame for recovered gameId={recoveredGameId}");
+                    $"ShellViewModel opening vodplayer for recovered gameId={recoveredGameId}");
                 WindowActivationHelper.BringMainWindowToFront();
                 _navigationService.NavigateTo("vodplayer", new VodPlayerNavigationRequest
                 {
