@@ -85,7 +85,10 @@ def config_path() -> Path:
 
 
 def db_path() -> Path:
-    return user_data_root() / "lol_review.db"
+    # v2.10.0 rename: previously "lol_review.db". The C# AppDataMigrator
+    # renames the file in place on first launch; the coach never sees the
+    # legacy name on a current install.
+    return user_data_root() / "revu.db"
 
 
 def coach_data_root() -> Path:

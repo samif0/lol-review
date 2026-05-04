@@ -8,7 +8,7 @@ Safety model (per COACH_PLAN.md §7 Phase 0 task 6, amendment 2026-04-18):
    raise AllowlistViolation.
 3. DDL (ALTER/DROP/CREATE) against non-coach tables raises. Migrations may only
    CREATE TABLE IF NOT EXISTS, and only against COACH_TABLES.
-4. Before running any migration, a timestamped backup of lol_review.db is made
+4. Before running any migration, a timestamped backup of revu.db is made
    next to the DB, and the last 5 backups are retained.
 
 This is a Python-side guard. The C# side does not need changes — its usual
@@ -54,7 +54,7 @@ COACH_TABLES: frozenset[str] = frozenset(
 )
 
 
-# Core tables the coach needs read access to. Source of truth is lol_review.db;
+# Core tables the coach needs read access to. Source of truth is revu.db;
 # listed here for documentation. This list is not used to enforce anything — any
 # SELECT against any table is fine; we only block non-SELECT on non-COACH tables.
 CORE_READ_TABLES: frozenset[str] = frozenset(
@@ -224,7 +224,7 @@ def write_coach() -> Iterator[SafeWriteConnection]:
 
 
 def backup_database() -> Path | None:
-    """Copy lol_review.db to backups/ with a timestamp. Retain last 5.
+    """Copy revu.db to backups/ with a timestamp. Retain last 5.
 
     Returns the path of the new backup, or None if the source DB doesn't exist
     yet (first run).
