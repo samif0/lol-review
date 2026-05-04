@@ -830,6 +830,15 @@ public sealed partial class VodPlayerPage : Page
                 ToggleFullscreen();
                 e.Handled = true;
                 break;
+            case Windows.System.VirtualKey.Escape:
+                if (App.MainWindow?.AppWindow?.Presenter
+                    is Microsoft.UI.Windowing.FullScreenPresenter)
+                {
+                    _isFullscreen = true; // resync so ToggleFullscreen takes the exit branch
+                    ToggleFullscreen();
+                    e.Handled = true;
+                }
+                break;
         }
     }
 
