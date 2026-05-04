@@ -290,12 +290,10 @@ public sealed class LcuClient : ILcuClient
             var myChampion = "";
             var myPosition = "";
             var enemyLaner = "";
-            var myTeamIndex = -1;
 
-            // myTeam: find local player's champion + position + index
+            // myTeam: find local player's champion + position
             if (el.TryGetProperty("myTeam", out var myTeam) && myTeam.ValueKind == JsonValueKind.Array)
             {
-                int idx = 0;
                 foreach (var member in myTeam.EnumerateArray())
                 {
                     var cellId = member.GetPropertyIntOrDefault("cellId", -99);
@@ -305,80 +303,46 @@ public sealed class LcuClient : ILcuClient
                         if (champId > 0)
                             myChampion = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
                         myPosition = member.GetPropertyOrDefault("assignedPosition", "");
-                        myTeamIndex = idx;
                         break;
                     }
-                    idx++;
                 }
             }
 
-            // theirTeam: enemies don't expose assignedPosition during champ
-            // select. Two-pass match:
-            // 1. Position match — works for queues that DO expose enemy
-            //    assignedPosition (rare).
-            // 2. Role-index match — map our assignedPosition to a canonical
-            //    role index (TOP=0, JUNGLE=1, MIDDLE=2, BOTTOM=3, UTILITY=4)
-            //    and pull theirTeam[that index]. Reliable in solo/flex since
-            //    Riot orders both teams by role for client display, even when
-            //    OUR myTeam cell order reflects lobby slots (which differ from
-            //    lane after autofill).
-            // 3. myTeam-index fallback — last-resort same-slot match. Used when
-            //    we don't have a usable assignedPosition (draft, blind, ARAM).
+            // theirTeam: LCU does not expose assignedPosition for enemies
+            // during champ select, and theirTeam slot order is meaningless
+            // (verified 2026-05 with diag dump: cellIds are sequential lobby
+            // order, NOT canonical role order). The only signal we have is
+            // champion identity. Resolve roles via per-champion priors +
+            // permutation search so the whole enemy team gets assigned to
+            // unique roles, then pick the enemy in our role as the matchup.
+            var enemyChampsBySlot = new List<string>();
             if (el.TryGetProperty("theirTeam", out var theirTeam)
                 && theirTeam.ValueKind == JsonValueKind.Array)
             {
-                JsonElement? matched = null;
-
-                // Pass 1: position match.
-                if (!string.IsNullOrEmpty(myPosition))
+                foreach (var member in theirTeam.EnumerateArray())
                 {
-                    foreach (var member in theirTeam.EnumerateArray())
-                    {
-                        var pos = member.GetPropertyOrDefault("assignedPosition", "");
-                        if (pos.Equals(myPosition, StringComparison.OrdinalIgnoreCase))
-                        {
-                            matched = member;
-                            break;
-                        }
-                    }
-                }
-
-                // Pass 2: role-index match (handles autofill correctly).
-                if (matched is null)
-                {
-                    var roleIdx = RoleToIndex(myPosition);
-                    if (roleIdx >= 0)
-                    {
-                        int idx = 0;
-                        foreach (var member in theirTeam.EnumerateArray())
-                        {
-                            if (idx == roleIdx) { matched = member; break; }
-                            idx++;
-                        }
-                    }
-                }
-
-                // Pass 3: myTeam-index fallback (no role info available).
-                if (matched is null && myTeamIndex >= 0)
-                {
-                    int idx = 0;
-                    foreach (var member in theirTeam.EnumerateArray())
-                    {
-                        if (idx == myTeamIndex) { matched = member; break; }
-                        idx++;
-                    }
-                }
-
-                if (matched is JsonElement m)
-                {
-                    var champId = m.GetPropertyIntOrDefault("championId", 0);
+                    var champId = member.GetPropertyIntOrDefault("championId", 0);
                     if (champId > 0)
-                        enemyLaner = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
+                    {
+                        var name = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
+                        enemyChampsBySlot.Add(name);
+                    }
+                    else
+                    {
+                        enemyChampsBySlot.Add("");
+                    }
                 }
             }
 
-            // %LOCALAPPDATA%\Revu\champ-select-diag.log was written here in
-            // v2.16.4 to debug role-index matchup bugs; removed in v2.17.
+            // enemyByRole[roleIdx] = champion name in that role, or "" if the
+            // slot is empty (champ not yet picked, or fewer than 5 enemies).
+            var enemyByRole = RoleAssignment.AssignRoles(enemyChampsBySlot);
+
+            var userRoleIdx = RoleToIndex(myPosition);
+            if (userRoleIdx >= 0 && userRoleIdx < enemyByRole.Length)
+            {
+                enemyLaner = enemyByRole[userRoleIdx];
+            }
 
             // v2.16.4: build the role→champion map for both teams. Used by
             // PreGamePage to render 2v2 pairings + per-enemy cooldown cards.
@@ -402,23 +366,15 @@ public sealed class LcuClient : ILcuClient
                     idx++;
                 }
             }
-            if (el.TryGetProperty("theirTeam", out var tt) && tt.ValueKind == JsonValueKind.Array)
+            // Enemy map: feed champion names through the role-assignment
+            // solver (above) instead of trusting slot order, since neither
+            // assignedPosition nor cellId order is reliable on theirTeam.
+            for (int roleIdx = 0; roleIdx < enemyByRole.Length; roleIdx++)
             {
-                int idx = 0;
-                foreach (var member in tt.EnumerateArray())
-                {
-                    var champId = member.GetPropertyIntOrDefault("championId", 0);
-                    if (champId <= 0) { idx++; continue; }
-                    var champName = await GetChampionNameAsync(champId, ct).ConfigureAwait(false) ?? "";
-                    if (string.IsNullOrEmpty(champName)) { idx++; continue; }
-                    // Enemy assignedPosition is unreliable in champ select; lean
-                    // on slot order. Riot orders theirTeam by canonical role for
-                    // client display.
-                    var rolePos = member.GetPropertyOrDefault("assignedPosition", "");
-                    var key = ResolveRoleKey("enemy", rolePos, idx);
-                    if (key is not null) map[key] = champName;
-                    idx++;
-                }
+                var champName = enemyByRole[roleIdx];
+                if (string.IsNullOrEmpty(champName)) continue;
+                var key = "enemy" + RoleIndexToKeySuffix(roleIdx);
+                map[key] = champName;
             }
 
             // Normalize position to Riot's uppercase form (LCU returns lowercase,
@@ -460,6 +416,18 @@ public sealed class LcuClient : ILcuClient
         }
         return roleSuffix is null ? null : $"{prefix}{roleSuffix}";
     }
+
+    /// <summary>Inverse of <see cref="RoleToIndex"/>: canonical role index
+    /// to the suffix used in the role→champion map (Top/Jg/Mid/Bot/Supp).</summary>
+    private static string RoleIndexToKeySuffix(int roleIdx) => roleIdx switch
+    {
+        0 => "Top",
+        1 => "Jg",
+        2 => "Mid",
+        3 => "Bot",
+        4 => "Supp",
+        _ => "",
+    };
 
     /// <summary>v2.16.2: canonical role-to-cell-index used by Riot when
     /// ordering theirTeam for client display. Returns -1 for unknown
