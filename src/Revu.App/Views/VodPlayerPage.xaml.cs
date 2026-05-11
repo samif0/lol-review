@@ -44,6 +44,7 @@ public sealed partial class VodPlayerPage : Page
         ViewModel.SeekRequested += OnSeekRequested;
         ViewModel.SpeedChangeRequested += OnSpeedChangeRequested;
         ViewModel.PlayPauseRequested += OnPlayPauseRequested;
+        ViewModel.ClipPlaybackRequested += OnClipPlaybackRequested;
         Timeline.SeekRequested += OnTimelineSeek;
         VideoContainer.AddHandler(
             PointerPressedEvent,
@@ -177,7 +178,11 @@ public sealed partial class VodPlayerPage : Page
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ViewModel.VodPath) or nameof(ViewModel.HasVod))
+        if (e.PropertyName is nameof(ViewModel.VodPath)
+            or nameof(ViewModel.HasVod)
+            or nameof(ViewModel.HasPlayableVod)
+            or nameof(ViewModel.HasPlayableClips)
+            or nameof(ViewModel.VodAvailabilityText))
             DispatcherQueue.TryEnqueue(() =>
             {
                 TryLoadMedia();
@@ -195,6 +200,7 @@ public sealed partial class VodPlayerPage : Page
         if (string.IsNullOrEmpty(ViewModel.VodPath) || !ViewModel.HasVod)
         {
             NoVodBorder.Visibility = ViewModel.IsLoading ? Visibility.Collapsed : Visibility.Visible;
+            NoVodText.Text = ViewModel.VodAvailabilityText;
             VideoPlayPauseButton.Visibility = Visibility.Collapsed;
             return;
         }
@@ -203,7 +209,7 @@ public sealed partial class VodPlayerPage : Page
 
         if (!System.IO.File.Exists(ViewModel.VodPath))
         {
-            NoVodText.Text = "VOD file not found";
+            NoVodText.Text = ViewModel.VodAvailabilityText;
             NoVodBorder.Visibility = Visibility.Visible;
             VideoPlayPauseButton.Visibility = Visibility.Collapsed;
             return;
@@ -237,6 +243,20 @@ public sealed partial class VodPlayerPage : Page
                 NoVodText.Visibility = Visibility.Visible;
             });
         }
+    }
+
+    private async void OnClipPlaybackRequested(BookmarkItem bookmark)
+    {
+        if (string.IsNullOrWhiteSpace(bookmark.ClipPath) || !System.IO.File.Exists(bookmark.ClipPath))
+        {
+            NoVodText.Text = "Clip file not found";
+            NoVodBorder.Visibility = Visibility.Visible;
+            return;
+        }
+
+        NoVodBorder.Visibility = Visibility.Collapsed;
+        await LoadMediaAsync(bookmark.ClipPath);
+        FocusPlaybackSurface();
     }
 
     /// <summary>

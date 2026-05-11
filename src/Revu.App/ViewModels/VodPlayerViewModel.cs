@@ -1,6 +1,7 @@
 ﻿#nullable enable
 
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -58,6 +59,9 @@ public partial class VodPlayerViewModel : ObservableObject
     // out of the box. Up/Down ratchets through SeekStepOptions to expand.
     [ObservableProperty] private int _seekStepSeconds = 1;
     [ObservableProperty] private bool _hasVod;
+    [ObservableProperty] private bool _hasPlayableVod;
+    [ObservableProperty] private bool _hasPlayableClips;
+    [ObservableProperty] private string _vodAvailabilityText = "Loading recording...";
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private bool _hasGameEvents;
     [ObservableProperty] private bool _showNoEventsHint;
@@ -131,7 +135,14 @@ public partial class VodPlayerViewModel : ObservableObject
     // â"€â"€ Events for the view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     public string OutcomeLabel => Win ? "Victory" : "Defeat";
-    public string VodStatusLabel => HasVod ? "VOD linked" : "No recording";
+    public string VodStatusLabel => HasPlayableVod
+        ? "VOD linked"
+        : HasPlayableClips
+            ? "Clips available"
+            : HasVod
+                ? "VOD missing"
+                : "No recording";
+    public bool ShowClipFallbackHint => !HasPlayableVod && HasPlayableClips;
     public string PlaybackStateLabel => IsPlaying ? "Playing" : "Paused";
 
     /// <summary>Raised when the view should seek the media player.</summary>
@@ -142,6 +153,9 @@ public partial class VodPlayerViewModel : ObservableObject
 
     /// <summary>Raised when play/pause should toggle.</summary>
     public event Action? PlayPauseRequested;
+
+    /// <summary>Raised when the original VOD is missing and a saved clip should play instead.</summary>
+    public event Action<BookmarkItem>? ClipPlaybackRequested;
 
     // â"€â"€ Constructor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -222,12 +236,16 @@ public partial class VodPlayerViewModel : ObservableObject
                 }
             }
 
-            if (vod == null) { HasVod = false; return; }
+            HasVod = vod is not null;
+            VodPath = vod?.FilePath ?? "";
+            HasPlayableVod = vod is not null && !string.IsNullOrWhiteSpace(vod.FilePath) && File.Exists(vod.FilePath);
+            VodAvailabilityText = HasPlayableVod
+                ? "Recording ready."
+                : vod is null
+                    ? "No VOD linked to this game."
+                    : "The linked VOD file is no longer available.";
 
-            HasVod = true;
-            VodPath = vod.FilePath;
-
-            if (vod.DurationSeconds > 0)
+            if (vod?.DurationSeconds > 0)
             {
                 GameDurationS = vod.DurationSeconds;
                 TotalTimeText = FormatTime(vod.DurationSeconds);
@@ -389,6 +407,7 @@ public partial class VodPlayerViewModel : ObservableObject
             if (bookmark is not null)
             {
                 Bookmarks.Remove(bookmark);
+                RefreshClipAvailabilityText();
             }
         });
 
@@ -554,6 +573,12 @@ public partial class VodPlayerViewModel : ObservableObject
     [RelayCommand]
     private void SeekToBookmark(BookmarkItem bookmark)
     {
+        if (!HasPlayableVod && bookmark.HasPlayableClip)
+        {
+            ClipPlaybackRequested?.Invoke(bookmark);
+            return;
+        }
+
         // v2.15.10: clip rows jump to the clip's in-point (start of the
         // range), not the marker time — the marker is usually mid-action so
         // jumping to it dropped users into the middle of the clip.
@@ -646,6 +671,9 @@ public partial class VodPlayerViewModel : ObservableObject
                     Note = note,
                     IsClip = true,
                     ClipRangeText = $"{FormatTime(startS)} - {FormatTime(endS)}",
+                    ClipStartSeconds = startS,
+                    ClipPath = clipPath,
+                    HasPlayableClip = File.Exists(clipPath),
                     Quality = quality,
                     ObjectiveId = objectiveId,
                     PromptId = promptId,
@@ -728,6 +756,8 @@ public partial class VodPlayerViewModel : ObservableObject
             {
                 Bookmarks.Add(ToBookmarkItem(b));
             }
+
+            RefreshClipAvailabilityText();
         });
     }
 
@@ -949,6 +979,24 @@ public partial class VodPlayerViewModel : ObservableObject
         }
 
         Bookmarks.Insert(index, bookmark);
+        RefreshClipAvailabilityText();
+    }
+
+    private void RefreshClipAvailabilityText()
+    {
+        HasPlayableClips = Bookmarks.Any(bookmark => bookmark.HasPlayableClip);
+        if (!HasPlayableVod && HasPlayableClips)
+        {
+            VodAvailabilityText = HasVod
+                ? "The linked VOD file is missing. Saved clips can still be played here."
+                : "No full VOD is linked. Saved clips can still be played here.";
+        }
+        else if (!HasPlayableVod)
+        {
+            VodAvailabilityText = HasVod
+                ? "The linked VOD file is no longer available."
+                : "No VOD linked to this game.";
+        }
     }
 
     private BookmarkItem ToBookmarkItem(VodBookmarkRecord record)
@@ -962,6 +1010,8 @@ public partial class VodPlayerViewModel : ObservableObject
             Note = record.Note,
             IsClip = isClip,
             ClipStartSeconds = record.ClipStartSeconds,
+            ClipPath = record.ClipPath,
+            HasPlayableClip = isClip && File.Exists(record.ClipPath),
             ClipRangeText = record.ClipStartSeconds != null && record.ClipEndSeconds != null
                 ? $"{FormatTime(record.ClipStartSeconds.Value)} - {FormatTime(record.ClipEndSeconds.Value)}"
                 : "",
@@ -1142,6 +1192,18 @@ public partial class VodPlayerViewModel : ObservableObject
 
     partial void OnHasVodChanged(bool value) => OnPropertyChanged(nameof(VodStatusLabel));
 
+    partial void OnHasPlayableVodChanged(bool value)
+    {
+        OnPropertyChanged(nameof(VodStatusLabel));
+        OnPropertyChanged(nameof(ShowClipFallbackHint));
+    }
+
+    partial void OnHasPlayableClipsChanged(bool value)
+    {
+        OnPropertyChanged(nameof(VodStatusLabel));
+        OnPropertyChanged(nameof(ShowClipFallbackHint));
+    }
+
     partial void OnIsPlayingChanged(bool value) => OnPropertyChanged(nameof(PlaybackStateLabel));
 
     private void AdjustSeekStep(int direction)
@@ -1210,6 +1272,8 @@ public partial class BookmarkItem : ObservableObject
     /// Null for plain note bookmarks. Used by Jump to seek to the first frame
     /// of the clip rather than the marker time, which often sits in the middle.</summary>
     public int? ClipStartSeconds { get; set; }
+    public string ClipPath { get; set; } = "";
+    public bool HasPlayableClip { get; set; }
     public string ClipRangeText { get; set; } = "";
     public string Quality { get; set; } = "";
 
@@ -1260,6 +1324,7 @@ public partial class BookmarkItem : ObservableObject
         }
     }
     public string KindLabel => IsClip ? "CLIP" : "NOTE";
+    public string JumpActionLabel => IsClip && HasPlayableClip ? "Play" : "Jump";
     public bool HasQuality => !string.IsNullOrWhiteSpace(Quality);
     public string QualityLabel => string.IsNullOrWhiteSpace(Quality)
         ? ""
@@ -1304,6 +1369,9 @@ public partial class BookmarkItem : ObservableObject
             TimeText = TimeText,
             Note = Note,
             IsClip = IsClip,
+            ClipStartSeconds = ClipStartSeconds,
+            ClipPath = ClipPath,
+            HasPlayableClip = HasPlayableClip,
             ClipRangeText = ClipRangeText,
             Quality = quality,
             ObjectiveId = ObjectiveId,

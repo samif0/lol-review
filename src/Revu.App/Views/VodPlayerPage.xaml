@@ -140,12 +140,12 @@
                                         Visibility="Collapsed">
                                     <StackPanel Spacing="10" HorizontalAlignment="Center">
                                         <TextBlock x:Name="NoVodText"
-                                                   Text="No VOD linked to this game"
+                                                   Text="{x:Bind ViewModel.VodAvailabilityText, Mode=OneWay}"
                                                    FontSize="{Binding Title, Source={StaticResource FontSizes}}"
                                                    TextWrapping="Wrap"
                                                    HorizontalAlignment="Center"
                                                    Foreground="{StaticResource SecondaryTextBrush}"/>
-                                        <TextBlock Text="Ascent may still be encoding the recording, or the file lives outside your configured folder."
+                                        <TextBlock Text="Ascent may still be encoding the recording, or the file lives outside your configured folder. If saved clips exist, use Play on a clip card."
                                                    FontFamily="{StaticResource BodyFont}"
                                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                    TextWrapping="Wrap"
@@ -501,12 +501,24 @@
                             <ScrollViewer Grid.Row="1"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
-                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.Bookmarks, Mode=OneWay}">
-                                    <ItemsRepeater.Layout>
-                                        <StackLayout Spacing="6"/>
-                                    </ItemsRepeater.Layout>
-                                    <ItemsRepeater.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:BookmarkItem">
+                                <StackPanel Spacing="8">
+                                    <Border Background="{StaticResource SurfaceInsetBrush}"
+                                            BorderBrush="{StaticResource AccentGoldBrush}"
+                                            BorderThickness="1" CornerRadius="2" Padding="10,8"
+                                            Visibility="{x:Bind ViewModel.ShowClipFallbackHint, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="Full VOD unavailable. Play saved clips from this list."
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource AccentGoldBrush}"
+                                                   TextWrapping="Wrap"/>
+                                    </Border>
+
+                                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.Bookmarks, Mode=OneWay}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="6"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:BookmarkItem">
                                             <Border Background="{x:Bind SurfaceBrush}"
                                                     BorderBrush="{x:Bind AccentBrush}"
                                                     BorderThickness="1" CornerRadius="2" Padding="12,10">
@@ -627,8 +639,8 @@
                                                                 Tag="{x:Bind}"
                                                                 Style="{StaticResource GhostIconButtonStyle}"
                                                                 Width="56" Height="30" Padding="0"
-                                                                ToolTipService.ToolTip="Jump to this time">
-                                                            <TextBlock Text="Jump" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
+                                                                ToolTipService.ToolTip="Jump to this time or play the saved clip">
+                                                            <TextBlock Text="{x:Bind JumpActionLabel}" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
                                                         </Button>
                                                         <Button CommandParameter="{x:Bind Id}"
                                                                 Click="OnDeleteBookmark"
@@ -640,9 +652,10 @@
                                                     </StackPanel>
                                                 </Grid>
                                             </Border>
-                                        </DataTemplate>
-                                    </ItemsRepeater.ItemTemplate>
-                                </ItemsRepeater>
+                                            </DataTemplate>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                </StackPanel>
                             </ScrollViewer>
                         </Grid>
                     </controls:CornerBracketedCard>
