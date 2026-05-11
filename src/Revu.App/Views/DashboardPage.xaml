@@ -187,6 +187,24 @@
                                            Sub="STREAK ACTIVE"/>
                     </controls:StatStrip>
 
+                    <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}"
+                                                  Visibility="{x:Bind ViewModel.ShowVodEvidencePending, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Padding="4">
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <controls:SectionTitle Text="VOD EVIDENCE PENDING"/>
+                                <TextBlock Text="{x:Bind ViewModel.VodEvidencePendingText, Mode=OneWay}"
+                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="Review VOD"
+                                    Command="{x:Bind ViewModel.NavigateToVodEvidenceCommand}"
+                                    Style="{StaticResource GoldListActionButtonStyle}"
+                                    VerticalAlignment="Center"/>
+                        </Grid>
+                    </controls:CornerBracketedCard>
+
                     <!-- ••• MAIN BODY: Unreviewed + Objectives ••• -->
                     <Grid ColumnSpacing="14"
                           Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">

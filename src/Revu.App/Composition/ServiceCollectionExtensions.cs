@@ -28,7 +28,11 @@ internal static class ServiceCollectionExtensions
 
     public static IServiceCollection AddRepositories(this IServiceCollection services)
     {
-        services.AddSingleton<IGameRepository, GameRepository>();
+        services.AddSingleton<GameRepository>();
+        services.AddSingleton<IGameRepository>(sp => sp.GetRequiredService<GameRepository>());
+        services.AddSingleton<IGameHistoryQuery>(sp => sp.GetRequiredService<GameRepository>());
+        services.AddSingleton<IGameAnalyticsQuery>(sp => sp.GetRequiredService<GameRepository>());
+        services.AddSingleton<IGameDeletionService>(sp => sp.GetRequiredService<GameRepository>());
         services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
         services.AddSingleton<IObjectivesRepository, ObjectivesRepository>();
         services.AddSingleton<IRulesRepository, RulesRepository>();
@@ -48,6 +52,7 @@ internal static class ServiceCollectionExtensions
 
     public static IServiceCollection AddCoreServices(this IServiceCollection services)
     {
+        services.AddSingleton<IProtectedSecretStore, ProtectedSecretStore>();
         services.AddSingleton<IConfigService, ConfigService>();
         services.AddSingleton<IClipService, ClipService>();
         services.AddSingleton<IAnalysisService, AnalysisService>();
@@ -146,6 +151,7 @@ internal static class ServiceCollectionExtensions
     {
         services.AddTransient<ShellViewModel>();
         services.AddTransient<DashboardViewModel>();
+        services.AddTransient<GamesViewModel>();
         services.AddTransient<SessionLoggerViewModel>();
         services.AddTransient<ObjectivesViewModel>();
         services.AddTransient<RulesViewModel>();

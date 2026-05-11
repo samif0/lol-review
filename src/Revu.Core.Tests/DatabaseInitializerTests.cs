@@ -5,6 +5,22 @@ namespace Revu.Core.Tests;
 public sealed class DatabaseInitializerTests
 {
     [Fact]
+    public async Task InitializeAsync_RecordsCurrentSchemaVersion()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        await using var connection = scope.OpenConnection();
+        var version = await ExecuteScalarAsync<string>(connection, """
+            SELECT value
+            FROM schema_metadata
+            WHERE key = 'app_schema_version'
+            """);
+
+        Assert.Equal("1", version);
+    }
+
+    [Fact]
     public async Task InitializeAsync_NormalizesLegacyRulesObjectivesAndGameObjectivesTables()
     {
         using var scope = new TestDatabaseScope();

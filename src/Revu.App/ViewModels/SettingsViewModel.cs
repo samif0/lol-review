@@ -5,8 +5,10 @@ using System.Diagnostics;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Helpers;
 using Revu.App.Services;
+using Revu.Core.Lcu;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI;
@@ -1030,11 +1032,16 @@ public partial class SettingsViewModel : ObservableObject
             });
 
             var result = await _backfillService.RunAsync(progress: progress);
+            if (result.Updated > 0)
+            {
+                WeakReferenceMessenger.Default.Send(new GameMatchupsBackfilledMessage(result.Updated));
+            }
+
             BackfillStatus = result.Scanned == 0
                 ? "Nothing to backfill — every game already has its enemy laner."
                 : $"Done. Updated {result.Updated} of {result.Scanned} games "
                   + $"(skipped {result.Skipped}, failed {result.Failed}). "
-                  + "Re-open Dashboard / History to see the matchup labels.";
+                  + "Dashboard / History will refresh automatically.";
         }
         catch (Exception ex)
         {

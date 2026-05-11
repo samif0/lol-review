@@ -24,7 +24,9 @@ public partial class ShellViewModel : ObservableRecipient,
     IRecipient<ChampSelectCancelledMessage>,
     IRecipient<GameStartedMessage>,
     IRecipient<GameEndedMessage>,
-    IRecipient<MissedReviewsDetectedMessage>
+    IRecipient<MissedReviewsDetectedMessage>,
+    IRecipient<GameReviewedMessage>,
+    IRecipient<GameDeletedMessage>
 {
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
@@ -33,6 +35,7 @@ public partial class ShellViewModel : ObservableRecipient,
     private readonly IMatchHistoryReconciliationService _matchHistoryReconciliationService;
     private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
     private readonly ISessionLogRepository _sessionLogRepository;
+    private readonly IGameHistoryQuery _gameHistory;
     private readonly IRulesRepository _rulesRepository;
     private readonly IConfigService _configService;
     private readonly IRiotAuthClient _riotAuthClient;
@@ -65,6 +68,20 @@ public partial class ShellViewModel : ObservableRecipient,
 
     [ObservableProperty]
     private bool _hasUnreviewedGames;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNewUserMode))]
+    [NotifyPropertyChangedFor(nameof(IsVeteranMode))]
+    [NotifyPropertyChangedFor(nameof(ShowReviewQueueNav))]
+    [NotifyPropertyChangedFor(nameof(ShowGamesNav))]
+    [NotifyPropertyChangedFor(nameof(ShowObjectivesNav))]
+    private UserNavigationMode _navigationMode = UserNavigationMode.NewUser;
+
+    public bool IsNewUserMode => NavigationMode == UserNavigationMode.NewUser;
+    public bool IsVeteranMode => NavigationMode == UserNavigationMode.Veteran;
+    public bool ShowReviewQueueNav => IsNewUserMode && HasUnreviewedGames;
+    public bool ShowGamesNav => IsVeteranMode;
+    public bool ShowObjectivesNav => IsVeteranMode;
 
     // ── Account indicator (sidebar footer) ──────────────────────────
 
@@ -109,6 +126,7 @@ public partial class ShellViewModel : ObservableRecipient,
         IMatchHistoryReconciliationService matchHistoryReconciliationService,
         IMissedGameDecisionRepository missedGameDecisionRepository,
         ISessionLogRepository sessionLogRepository,
+        IGameHistoryQuery gameHistory,
         IRulesRepository rulesRepository,
         IPromptsRepository promptsRepository,
         IConfigService configService,
@@ -124,6 +142,7 @@ public partial class ShellViewModel : ObservableRecipient,
         _matchHistoryReconciliationService = matchHistoryReconciliationService;
         _missedGameDecisionRepository = missedGameDecisionRepository;
         _sessionLogRepository = sessionLogRepository;
+        _gameHistory = gameHistory;
         _rulesRepository = rulesRepository;
         _promptsRepository = promptsRepository;
         _configService = configService;
@@ -160,22 +179,52 @@ public partial class ShellViewModel : ObservableRecipient,
         _navigationService.NavigateTo("settings");
     }
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
         if (_hasInitialized)
         {
             AppDiagnostics.WriteVerbose("startup.log", "ShellViewModel.InitializeAsync skipped (already initialized)");
-            return Task.CompletedTask;
+            return;
         }
 
         _hasInitialized = true;
         AppDiagnostics.WriteVerbose("startup.log", "ShellViewModel.InitializeAsync started");
 
-        _ = CheckForMissedGamesOnStartupAsync();
-        _ = CheckForUpdatesInBackgroundAsync();
-        _ = AutoBackfillEnemyLanersAsync();
+        await RefreshNavigationModeAsync().ConfigureAwait(true);
 
-        return Task.CompletedTask;
+        BackgroundTaskRunner.Run(CheckForMissedGamesOnStartupAsync, _logger, "startup missed-games check");
+        BackgroundTaskRunner.Run(CheckForUpdatesInBackgroundAsync, _logger, "startup update check");
+        BackgroundTaskRunner.Run(AutoBackfillEnemyLanersAsync, _logger, "startup enemy-laner backfill");
+    }
+
+    private async Task RefreshNavigationModeAsync()
+    {
+        try
+        {
+            var reviewedCountTask = _gameHistory.GetReviewedCountAsync();
+            var unreviewedTask = _gameHistory.GetUnreviewedGamesAsync(days: 14);
+            await Task.WhenAll(reviewedCountTask, unreviewedTask).ConfigureAwait(false);
+
+            Helpers.DispatcherHelper.RunOnUIThread(() =>
+            {
+                NavigationMode = reviewedCountTask.Result > 0
+                    ? UserNavigationMode.Veteran
+                    : UserNavigationMode.NewUser;
+                HasUnreviewedGames = unreviewedTask.Result.Count > 0;
+                OnPropertyChanged(nameof(ShowReviewQueueNav));
+                OnPropertyChanged(nameof(ShowGamesNav));
+                OnPropertyChanged(nameof(ShowObjectivesNav));
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to refresh navigation mode");
+        }
+    }
+
+    partial void OnHasUnreviewedGamesChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowReviewQueueNav));
     }
 
     /// <summary>
@@ -201,6 +250,10 @@ public partial class ShellViewModel : ObservableRecipient,
             AppDiagnostics.WriteVerbose("startup.log",
                 $"AutoBackfill done: scanned={result.Scanned} updated={result.Updated} " +
                 $"skipped={result.Skipped} failed={result.Failed}");
+            if (result.Updated > 0)
+            {
+                WeakReferenceMessenger.Default.Send(new GameMatchupsBackfilledMessage(result.Updated));
+            }
         }
         catch (Exception ex)
         {
@@ -236,7 +289,10 @@ public partial class ShellViewModel : ObservableRecipient,
         {
             _hasTriggeredConnectedMissedGamesCheck = true;
             AppDiagnostics.WriteVerbose("startup.log", "ShellViewModel triggering missed-games check after first LCU connection");
-            _ = CheckForMissedGamesOnStartupAsync();
+            BackgroundTaskRunner.Run(
+                CheckForMissedGamesOnStartupAsync,
+                _logger,
+                "connected missed-games check");
         }
     }
 
@@ -279,7 +335,7 @@ public partial class ShellViewModel : ObservableRecipient,
 
     public void Receive(GameEndedMessage message)
     {
-        _ = Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
+        BackgroundTaskRunner.Run(() => Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
         {
             try
             {
@@ -299,6 +355,8 @@ public partial class ShellViewModel : ObservableRecipient,
                     _logger.LogInformation("Game skipped (casual/remake)");
                     return;
                 }
+
+                await RefreshNavigationModeAsync();
 
                 if (result.IsRecovered)
                 {
@@ -352,7 +410,17 @@ public partial class ShellViewModel : ObservableRecipient,
                 _logger.LogError(ex, "Failed to process game end");
                 _navigationService.NavigateTo("session");
             }
-        });
+        }), _logger, $"process game end {message.Stats.GameId}");
+    }
+
+    public void Receive(GameReviewedMessage message)
+    {
+        BackgroundTaskRunner.Run(RefreshNavigationModeAsync, _logger, "refresh navigation after review");
+    }
+
+    public void Receive(GameDeletedMessage message)
+    {
+        BackgroundTaskRunner.Run(RefreshNavigationModeAsync, _logger, "refresh navigation after delete");
     }
 
     /// <summary>
@@ -407,7 +475,7 @@ public partial class ShellViewModel : ObservableRecipient,
 
     public void Receive(MissedReviewsDetectedMessage message)
     {
-        _ = Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
+        BackgroundTaskRunner.Run(() => Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
         {
             // When reconcile fires immediately after a game the monitor tracked (InProgress → idle),
             // skip the selection dialog and go straight to post-game for the most recent candidate.
@@ -438,7 +506,7 @@ public partial class ShellViewModel : ObservableRecipient,
             }
 
             await HandleMissedGamesAsync(message.Games);
-        });
+        }), _logger, "handle missed reviews");
     }
 
     private void OnUpdateStateChanged(object? sender, EventArgs e)

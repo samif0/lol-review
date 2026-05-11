@@ -214,10 +214,11 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
 
             // Fire-and-forget: ask the coach sidecar to extract concepts from
             // the freshly-saved review text. No-op if sidecar is off.
-            _ = _coachNotifier.NotifyReviewSavedAsync(request.GameId, cancellationToken)
-                .ContinueWith(
-                    t => _logger.LogDebug(t.Exception, "Coach NotifyReviewSavedAsync failed (non-fatal)"),
-                    TaskContinuationOptions.OnlyOnFaulted);
+            BackgroundTaskRunner.Run(
+                () => _coachNotifier.NotifyReviewSavedAsync(request.GameId, cancellationToken),
+                _logger,
+                $"coach review-saved notify {request.GameId}",
+                cancellationToken);
 
             return ReviewSaveResult.Ok(trimmedEnemy);
         }

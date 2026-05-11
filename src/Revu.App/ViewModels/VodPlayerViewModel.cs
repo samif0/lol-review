@@ -34,10 +34,9 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly IVodService _vodService;
     private readonly IMessenger _messenger;
     private readonly ILogger<VodPlayerViewModel> _logger;
-    private readonly object _bookmarkMutationQueueGate = new();
+    private readonly SerializedTaskQueue _bookmarkMutationQueue;
     private readonly object _bookmarkNoteSaveGate = new();
     private readonly Dictionary<long, CancellationTokenSource> _bookmarkNoteSaveDelays = [];
-    private Task _bookmarkMutationQueueTail = Task.CompletedTask;
 
     // â"€â"€ Game info â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -174,6 +173,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _vodService = vodService;
         _messenger = messenger;
         _logger = logger;
+        _bookmarkMutationQueue = new SerializedTaskQueue(logger, "VOD bookmark mutation");
     }
 
     // â"€â"€ Load â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -401,7 +401,10 @@ public partial class VodPlayerViewModel : ObservableObject
             bookmarkId,
             GameId);
 
-        _ = DeleteBookmarkQueuedAsync(bookmarkId, bookmark);
+        BackgroundTaskRunner.Run(
+            () => DeleteBookmarkQueuedAsync(bookmarkId, bookmark),
+            _logger,
+            $"delete VOD bookmark {bookmarkId}");
         return Task.CompletedTask;
     }
 
@@ -503,7 +506,10 @@ public partial class VodPlayerViewModel : ObservableObject
             }
         });
 
-        _ = SetBookmarkQualityQueuedAsync(originalBookmark, normalizedQuality);
+        BackgroundTaskRunner.Run(
+            () => SetBookmarkQualityQueuedAsync(originalBookmark, normalizedQuality),
+            _logger,
+            $"set VOD bookmark quality {originalBookmark.Id}");
         return Task.CompletedTask;
     }
 
@@ -649,10 +655,10 @@ public partial class VodPlayerViewModel : ObservableObject
                 await MarkObjectivePracticedFromBookmarkAsync(objectiveId);
 
                 // Phase 4 hook: ask coach sidecar to generate frame descriptions.
-                _ = _coachNotifier.NotifyBookmarkCreatedAsync(bookmarkId)
-                    .ContinueWith(
-                        t => _logger.LogDebug(t.Exception, "Coach NotifyBookmarkCreatedAsync failed"),
-                        TaskContinuationOptions.OnlyOnFaulted);
+                BackgroundTaskRunner.Run(
+                    () => _coachNotifier.NotifyBookmarkCreatedAsync(bookmarkId),
+                    _logger,
+                    $"notify coach bookmark {bookmarkId}");
 
                 ClipNote = "";
                 ClearClip();
@@ -748,7 +754,10 @@ public partial class VodPlayerViewModel : ObservableObject
             _bookmarkNoteSaveDelays[bookmarkId] = saveDelay;
         }
 
-        _ = SaveBookmarkNoteQueuedAsync(bookmarkId, note, isClip, immediate, saveDelay);
+        BackgroundTaskRunner.Run(
+            () => SaveBookmarkNoteQueuedAsync(bookmarkId, note, isClip, immediate, saveDelay),
+            _logger,
+            $"save VOD bookmark note {bookmarkId}");
     }
 
     private async Task SaveBookmarkNoteQueuedAsync(
@@ -808,13 +817,11 @@ public partial class VodPlayerViewModel : ObservableObject
 
     private Task EnqueueBookmarkMutationAsync(Func<Task> mutation)
     {
-        lock (_bookmarkMutationQueueGate)
+        return _bookmarkMutationQueue.EnqueueAsync(async () =>
         {
-            var previous = _bookmarkMutationQueueTail;
-            var next = Task.Run(() => RunQueuedBookmarkMutationAsync(previous, mutation));
-            _bookmarkMutationQueueTail = next;
-            return next;
-        }
+            await mutation().ConfigureAwait(false);
+            BroadcastBookmarkChanged();
+        });
     }
 
     /// <summary>
@@ -869,13 +876,12 @@ public partial class VodPlayerViewModel : ObservableObject
 
     private Task<T> EnqueueBookmarkMutationAsync<T>(Func<Task<T>> mutation)
     {
-        lock (_bookmarkMutationQueueGate)
+        return _bookmarkMutationQueue.EnqueueAsync(async () =>
         {
-            var previous = _bookmarkMutationQueueTail;
-            var next = Task.Run(() => RunQueuedBookmarkMutationAsync(previous, mutation));
-            _bookmarkMutationQueueTail = next;
-            return next;
-        }
+            var result = await mutation().ConfigureAwait(false);
+            BroadcastBookmarkChanged();
+            return result;
+        });
     }
 
     private void BroadcastBookmarkChanged()
@@ -883,37 +889,6 @@ public partial class VodPlayerViewModel : ObservableObject
         if (GameId <= 0) return;
         try { _messenger.Send(new Revu.Core.Lcu.BookmarkChangedMessage(GameId)); }
         catch (Exception ex) { _logger.LogDebug(ex, "BookmarkChanged broadcast failed"); }
-    }
-
-    private async Task RunQueuedBookmarkMutationAsync(Task previous, Func<Task> mutation)
-    {
-        try
-        {
-            await previous.ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Previous queued VOD bookmark mutation failed");
-        }
-
-        await mutation().ConfigureAwait(false);
-        BroadcastBookmarkChanged();
-    }
-
-    private async Task<T> RunQueuedBookmarkMutationAsync<T>(Task previous, Func<Task<T>> mutation)
-    {
-        try
-        {
-            await previous.ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Previous queued VOD bookmark mutation failed");
-        }
-
-        var result = await mutation().ConfigureAwait(false);
-        BroadcastBookmarkChanged();
-        return result;
     }
 
     private void InsertBookmark(BookmarkItem bookmark)

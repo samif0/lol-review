@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.ObjectModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -48,9 +49,12 @@ public partial class DashboardViewModel : ObservableObject
     // if there are no active objectives, nudge toward setting one.
     private const int NeedsObjectiveThreshold = 3;
 
-    private readonly IGameRepository _gameRepo;
+    private readonly IGameHistoryQuery _gameHistory;
+    private readonly IGameAnalyticsQuery _gameAnalytics;
+    private readonly IGameDeletionService _gameDeletion;
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IObjectivesRepository _objectivesRepo;
+    private readonly IVodRepository _vodRepo;
     private readonly INavigationService _navigationService;
     private readonly IConfigService _configService;
     private readonly IDialogService _dialogService;
@@ -99,6 +103,15 @@ public partial class DashboardViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _showSessionBanner;
+
+    [ObservableProperty]
+    private bool _showVodEvidencePending;
+
+    [ObservableProperty]
+    private string _vodEvidencePendingText = "";
+
+    [ObservableProperty]
+    private long _vodEvidencePendingGameId;
 
     // v2.15.0: LastFocus removed from the Dashboard. The underlying focus_next
     // field is no longer written to by the slimmed-down Review flow; relying
@@ -203,9 +216,12 @@ public partial class DashboardViewModel : ObservableObject
     // ── Constructor ─────────────────────────────────────────────────
 
     public DashboardViewModel(
-        IGameRepository gameRepo,
+        IGameHistoryQuery gameHistory,
+        IGameAnalyticsQuery gameAnalytics,
+        IGameDeletionService gameDeletion,
         ISessionLogRepository sessionLogRepo,
         IObjectivesRepository objectivesRepo,
+        IVodRepository vodRepo,
         INavigationService navigationService,
         IConfigService configService,
         IDialogService dialogService,
@@ -213,9 +229,12 @@ public partial class DashboardViewModel : ObservableObject
         IReviewWorkflowService reviewWorkflowService,
         ILogger<DashboardViewModel> logger)
     {
-        _gameRepo = gameRepo;
+        _gameHistory = gameHistory;
+        _gameAnalytics = gameAnalytics;
+        _gameDeletion = gameDeletion;
         _sessionLogRepo = sessionLogRepo;
         _objectivesRepo = objectivesRepo;
+        _vodRepo = vodRepo;
         _navigationService = navigationService;
         _configService = configService;
         _dialogService = dialogService;
@@ -264,7 +283,7 @@ public partial class DashboardViewModel : ObservableObject
             AdherenceColorHex = AdherenceStreak >= 3 ? "#7EC9A0" : "#F0EEF8";
 
             // Win streak
-            WinStreak = await _gameRepo.GetWinStreakAsync();
+            WinStreak = await _gameAnalytics.GetWinStreakAsync();
 
             // Session banner
             if (TotalGames > 0)
@@ -322,7 +341,7 @@ public partial class DashboardViewModel : ObservableObject
             });
 
             // Unreviewed games
-            var unreviewed = await _gameRepo.GetUnreviewedGamesAsync(days: 3);
+            var unreviewed = await _gameHistory.GetUnreviewedGamesAsync(days: 3);
             UpdateUnreviewedSummary(unreviewed.Count);
 
             DispatcherHelper.RunOnUIThread(() =>
@@ -335,7 +354,7 @@ public partial class DashboardViewModel : ObservableObject
             });
 
             // Today's games
-            var todaysGames = await _gameRepo.GetTodaysGamesAsync();
+            var todaysGames = await _gameHistory.GetTodaysGamesAsync();
             DispatcherHelper.RunOnUIThread(() =>
             {
                 TodaysGames.Clear();
@@ -344,6 +363,8 @@ public partial class DashboardViewModel : ObservableObject
                     TodaysGames.Add(MapGameDisplay(game));
                 }
             });
+
+            await RefreshVodEvidencePendingAsync();
 
             // Decide the onboarding/empty-state stage *after* everything else
             // loaded, using the queries we already have plus overall totals.
@@ -367,6 +388,19 @@ public partial class DashboardViewModel : ObservableObject
     private void NavigateToReview(long gameId)
     {
         _navigationService.NavigateTo("review", gameId);
+    }
+
+    [RelayCommand]
+    private void NavigateToVodEvidence()
+    {
+        if (VodEvidencePendingGameId > 0)
+        {
+            _navigationService.NavigateTo("vodplayer", VodEvidencePendingGameId);
+        }
+        else
+        {
+            _navigationService.NavigateTo("games");
+        }
     }
 
     private string BuildGreeting(string tod)
@@ -413,7 +447,7 @@ public partial class DashboardViewModel : ObservableObject
 
         try
         {
-            await _gameRepo.DeleteAsync(gameId);
+            await _gameDeletion.DeleteAsync(gameId);
 
             var unreviewedItem = UnreviewedGames.FirstOrDefault(g => g.GameId == gameId);
             if (unreviewedItem is not null) UnreviewedGames.Remove(unreviewedItem);
@@ -613,7 +647,7 @@ public partial class DashboardViewModel : ObservableObject
         try
         {
             // Total captured games (all-time, ranked/normal, is_hidden=0).
-            var overall = await _gameRepo.GetOverallStatsAsync();
+            var overall = await _gameAnalytics.GetOverallStatsAsync();
             var totalCaptured = overall.TotalGames;
 
             if (totalCaptured == 0)
@@ -628,7 +662,7 @@ public partial class DashboardViewModel : ObservableObject
             // HasPersistedReview heuristic we use on the Unreviewed queue.
             // 50 is enough to distinguish 0/1/2/3/5+ since the stage
             // thresholds are all well under that.
-            var recent = await _gameRepo.GetRecentAsync(limit: 50, offset: 0);
+            var recent = await _gameHistory.GetRecentAsync(limit: 50, offset: 0);
             var reviewedCount = recent.Count(HasPersistedReview);
 
             if (reviewedCount >= NormalStageThreshold)
@@ -732,6 +766,41 @@ public partial class DashboardViewModel : ObservableObject
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
+
+    private async Task RefreshVodEvidencePendingAsync()
+    {
+        try
+        {
+            var recent = await _gameHistory.GetRecentAsync(limit: 30, offset: 0);
+            var reviewed = recent.Where(HasPersistedReview).ToList();
+            var vodPaths = await _vodRepo.GetVodPathsAsync(reviewed.Select(g => g.GameId).ToArray());
+
+            foreach (var game in reviewed)
+            {
+                if (!vodPaths.TryGetValue(game.GameId, out var path) || !File.Exists(path)) continue;
+
+                var objectiveRows = await _objectivesRepo.GetGameObjectivesAsync(game.GameId);
+                if (!objectiveRows.Any(o => o.Practiced)) continue;
+
+                var bookmarks = await _vodRepo.GetBookmarksAsync(game.GameId);
+                if (bookmarks.Any(b => b.ObjectiveId is not null)) continue;
+
+                ShowVodEvidencePending = true;
+                VodEvidencePendingGameId = game.GameId;
+                VodEvidencePendingText = $"{game.ChampionName} has VOD but no objective-tagged evidence yet.";
+                return;
+            }
+
+            ShowVodEvidencePending = false;
+            VodEvidencePendingGameId = 0;
+            VodEvidencePendingText = "";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Dashboard: VOD evidence pending scan failed");
+            ShowVodEvidencePending = false;
+        }
+    }
 
     private GameDisplayItem MapGameDisplay(GameStats game)
     {
@@ -934,6 +1003,10 @@ public class GameDisplayItem
     public bool HasVod { get; set; }
     public string DamageText { get; set; } = "";
     public string StatsLine { get; set; } = "";
+    public string ReviewStateText { get; set; } = "";
+    public string VodStateText { get; set; } = "";
+    public string ObjectiveStateText { get; set; } = "";
+    public string PrimaryActionText { get; set; } = "Review";
 
     /// <summary>"GAMEMODE // DATE // DURATION" for the GameRowCard meta line.</summary>
     public string MetaLine

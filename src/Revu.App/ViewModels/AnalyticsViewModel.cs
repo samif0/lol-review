@@ -18,7 +18,7 @@ public partial class AnalyticsViewModel : ObservableObject
 {
     private readonly IAnalysisService _analysis;
     private readonly ITiltCheckRepository _tiltChecks;
-    private readonly IGameRepository _games;
+    private readonly IGameAnalyticsQuery _games;
 
     /// <summary>Last filter that was applied + fed to the analysis service.</summary>
     private AnalyticsFilter _appliedFilter = AnalyticsFilter.None;
@@ -27,7 +27,7 @@ public partial class AnalyticsViewModel : ObservableObject
     {
         _analysis = App.GetService<IAnalysisService>();
         _tiltChecks = App.GetService<ITiltCheckRepository>();
-        _games = App.GetService<IGameRepository>();
+        _games = App.GetService<IGameAnalyticsQuery>();
     }
 
     [ObservableProperty]

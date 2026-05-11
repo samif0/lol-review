@@ -1,0 +1,54 @@
+{
+  "gameId": 5531387190,
+  "gameCreation": 1710000000000,
+  "gameDuration": 1800,
+  "gameMode": "CLASSIC",
+  "gameType": "MATCHED_GAME",
+  "queueId": 420,
+  "participantIdentities": [
+    {
+      "participantId": 1,
+      "player": {
+        "currentPlayer": true
+      }
+    }
+  ],
+  "participants": [
+    {
+      "participantId": 1,
+      "teamId": 100,
+      "championId": 103,
+      "championName": "Ahri",
+      "spell1Id": 4,
+      "spell2Id": 14,
+      "timeline": {
+        "lane": "MIDDLE",
+        "role": "SOLO"
+      },
+      "stats": {
+        "win": true,
+        "kills": 7,
+        "deaths": 3,
+        "assists": 8,
+        "totalMinionsKilled": 180,
+        "neutralMinionsKilled": 12,
+        "visionScore": 24
+      }
+    },
+    {
+      "participantId": 6,
+      "teamId": 200,
+      "championId": 134,
+      "championName": "Syndra",
+      "timeline": {
+        "lane": "MIDDLE",
+        "role": "SOLO"
+      },
+      "stats": {
+        "kills": 4,
+        "deaths": 6,
+        "assists": 9
+      }
+    }
+  ]
+}

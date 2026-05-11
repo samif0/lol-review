@@ -8,34 +8,13 @@ using Microsoft.Extensions.Logging;
 namespace Revu.Core.Services;
 
 /// <summary>
-/// Thread-safe config service that reads/writes %LOCALAPPDATA%\RevuData\config.json.
+/// Thread-safe config service that reads/writes %LOCALAPPDATA%\LoLReviewData\config.json.
 /// Ported from Python config.py.
 /// </summary>
 public sealed class ConfigService : IConfigService
 {
-    private static readonly string ConfigDir = Path.GetDirectoryName(AppDataPaths.ConfigPath)!;
-
-    private static readonly string ConfigFile = AppDataPaths.ConfigPath;
-
-    static ConfigService()
-    {
-        if (File.Exists(ConfigFile))
-        {
-            return;
-        }
-
-        foreach (var legacyConfig in AppDataPaths.EnumerateLegacyConfigPaths())
-        {
-            if (!File.Exists(legacyConfig))
-            {
-                continue;
-            }
-
-            Directory.CreateDirectory(ConfigDir);
-            File.Copy(legacyConfig, ConfigFile);
-            break;
-        }
-    }
+    private const string GithubTokenSecretName = "github_token";
+    private const string RiotSessionTokenSecretName = "riot_session_token";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -44,12 +23,25 @@ public sealed class ConfigService : IConfigService
     };
 
     private readonly ILogger<ConfigService> _logger;
+    private readonly IProtectedSecretStore _secrets;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly string _configDir;
+    private readonly string _configFile;
     private AppConfig? _cached;
 
-    public ConfigService(ILogger<ConfigService> logger)
+    public ConfigService(ILogger<ConfigService> logger, IProtectedSecretStore secrets)
+        : this(logger, secrets, AppDataPaths.ConfigPath)
+    {
+    }
+
+    public ConfigService(ILogger<ConfigService> logger, IProtectedSecretStore secrets, string configFile)
     {
         _logger = logger;
+        _secrets = secrets;
+        _configFile = configFile;
+        _configDir = Path.GetDirectoryName(_configFile)!;
+
+        TryCopyLegacyConfig();
     }
 
     // ── IConfigService convenience properties ───────────────────────
@@ -116,10 +108,11 @@ public sealed class ConfigService : IConfigService
         await _lock.WaitAsync().ConfigureAwait(false);
         try
         {
-            Directory.CreateDirectory(ConfigDir);
-            var json = JsonSerializer.Serialize(config, JsonOptions);
-            await File.WriteAllTextAsync(ConfigFile, json).ConfigureAwait(false);
-            _cached = config;
+            var persistable = PersistSecretsAndCreateSanitizedConfig(config);
+            Directory.CreateDirectory(_configDir);
+            var json = JsonSerializer.Serialize(persistable, JsonOptions);
+            await File.WriteAllTextAsync(_configFile, json).ConfigureAwait(false);
+            _cached = HydrateSecrets(persistable);
         }
         finally
         {
@@ -166,34 +159,155 @@ public sealed class ConfigService : IConfigService
     {
         try
         {
-            if (File.Exists(ConfigFile))
+            if (File.Exists(_configFile))
             {
-                var json = await File.ReadAllTextAsync(ConfigFile).ConfigureAwait(false);
-                return JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+                var json = await File.ReadAllTextAsync(_configFile).ConfigureAwait(false);
+                var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+                if (!TryMigrateSecretsFromConfig(config, out var migrated))
+                {
+                    return config;
+                }
+
+                var sanitized = CreateSanitizedConfig(config);
+                if (migrated)
+                {
+                    Directory.CreateDirectory(_configDir);
+                    var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
+                    await File.WriteAllTextAsync(_configFile, sanitizedJson).ConfigureAwait(false);
+                }
+
+                return HydrateSecrets(sanitized);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not read config from {Path}", ConfigFile);
+            _logger.LogWarning(ex, "Could not read config from {Path}", _configFile);
         }
-        return new AppConfig();
+        return HydrateSecrets(new AppConfig());
     }
 
     private AppConfig LoadFromDiskSync()
     {
         try
         {
-            if (File.Exists(ConfigFile))
+            if (File.Exists(_configFile))
             {
-                var json = File.ReadAllText(ConfigFile);
-                return JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+                var json = File.ReadAllText(_configFile);
+                var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+                if (!TryMigrateSecretsFromConfig(config, out var migrated))
+                {
+                    return config;
+                }
+
+                var sanitized = CreateSanitizedConfig(config);
+                if (migrated)
+                {
+                    Directory.CreateDirectory(_configDir);
+                    var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
+                    File.WriteAllText(_configFile, sanitizedJson);
+                }
+
+                return HydrateSecrets(sanitized);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not read config from {Path}", ConfigFile);
+            _logger.LogWarning(ex, "Could not read config from {Path}", _configFile);
         }
-        return new AppConfig();
+        return HydrateSecrets(new AppConfig());
+    }
+
+    private void TryCopyLegacyConfig()
+    {
+        if (!string.Equals(_configFile, AppDataPaths.ConfigPath, StringComparison.OrdinalIgnoreCase)
+            || File.Exists(_configFile))
+        {
+            return;
+        }
+
+        foreach (var legacyConfig in AppDataPaths.EnumerateLegacyConfigPaths())
+        {
+            if (!File.Exists(legacyConfig))
+            {
+                continue;
+            }
+
+            Directory.CreateDirectory(_configDir);
+            File.Copy(legacyConfig, _configFile);
+            break;
+        }
+    }
+
+    private bool TryMigrateSecretsFromConfig(AppConfig config, out bool migrated)
+    {
+        migrated = false;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(config.GithubToken))
+            {
+                _secrets.SetSecret(GithubTokenSecretName, config.GithubToken);
+                migrated = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.RiotSessionToken))
+            {
+                _secrets.SetSecret(RiotSessionTokenSecretName, config.RiotSessionToken);
+                migrated = true;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not migrate config secrets into protected storage; leaving config in legacy shape.");
+            migrated = false;
+            return false;
+        }
+    }
+
+    private AppConfig PersistSecretsAndCreateSanitizedConfig(AppConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.GithubToken))
+        {
+            _secrets.ClearSecret(GithubTokenSecretName);
+        }
+        else
+        {
+            _secrets.SetSecret(GithubTokenSecretName, config.GithubToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(config.RiotSessionToken))
+        {
+            _secrets.ClearSecret(RiotSessionTokenSecretName);
+        }
+        else
+        {
+            _secrets.SetSecret(RiotSessionTokenSecretName, config.RiotSessionToken);
+        }
+
+        return CreateSanitizedConfig(config);
+    }
+
+    private static AppConfig CreateSanitizedConfig(AppConfig config)
+    {
+        var copy = CloneConfig(config);
+        copy.GithubToken = "";
+        copy.RiotSessionToken = "";
+        return copy;
+    }
+
+    private AppConfig HydrateSecrets(AppConfig config)
+    {
+        var copy = CloneConfig(config);
+        copy.GithubToken = _secrets.GetSecret(GithubTokenSecretName) ?? "";
+        copy.RiotSessionToken = _secrets.GetSecret(RiotSessionTokenSecretName) ?? "";
+        return copy;
+    }
+
+    private static AppConfig CloneConfig(AppConfig config)
+    {
+        var json = JsonSerializer.Serialize(config, JsonOptions);
+        return JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
     }
 
     private static string? GetValidatedFolder(string path)

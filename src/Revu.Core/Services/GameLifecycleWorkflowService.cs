@@ -49,10 +49,11 @@ public sealed class GameLifecycleWorkflowService : IGameLifecycleWorkflowService
         // Fire-and-forget sidecar notify. Coach sidecar may be off, not
         // installed, or not healthy — the notifier implementation swallows
         // those cases and returns immediately.
-        _ = _coachNotifier.NotifyGameEndedAsync(gameId.Value, cancellationToken)
-            .ContinueWith(
-                t => _logger.LogDebug(t.Exception, "Coach NotifyGameEndedAsync failed (non-fatal)"),
-                TaskContinuationOptions.OnlyOnFaulted);
+        BackgroundTaskRunner.Run(
+            () => _coachNotifier.NotifyGameEndedAsync(gameId.Value, cancellationToken),
+            _logger,
+            $"coach game-ended notify {gameId.Value}",
+            cancellationToken);
 
         return new ProcessGameEndResult(gameId.Value, IsSkipped: false, IsRecovered: isRecovered);
     }

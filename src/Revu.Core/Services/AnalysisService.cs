@@ -12,20 +12,23 @@ namespace Revu.Core.Services;
 /// </summary>
 public sealed class AnalysisService : IAnalysisService
 {
-    private readonly IGameRepository _games;
+    private readonly IGameAnalyticsQuery _analytics;
+    private readonly IGameHistoryQuery _history;
     private readonly ISessionLogRepository _sessionLog;
     private readonly IConceptTagRepository _conceptTags;
     private readonly IObjectivesRepository _objectives;
     private readonly ILogger<AnalysisService> _logger;
 
     public AnalysisService(
-        IGameRepository games,
+        IGameAnalyticsQuery analytics,
+        IGameHistoryQuery history,
         ISessionLogRepository sessionLog,
         IConceptTagRepository conceptTags,
         IObjectivesRepository objectives,
         ILogger<AnalysisService> logger)
     {
-        _games = games;
+        _analytics = analytics;
+        _history = history;
         _sessionLog = sessionLog;
         _conceptTags = conceptTags;
         _objectives = objectives;
@@ -44,7 +47,7 @@ public sealed class AnalysisService : IAnalysisService
         // Overall stats (all-time)
         try
         {
-            var overall = await _games.GetOverallStatsAsync().ConfigureAwait(false);
+            var overall = await _analytics.GetOverallStatsAsync().ConfigureAwait(false);
             profile.Overall = new Models.OverallStats
             {
                 TotalGames = overall.TotalGames,
@@ -64,7 +67,7 @@ public sealed class AnalysisService : IAnalysisService
         // Recent stats (last 20 games)
         try
         {
-            var recent = await _games.GetRecentStatsAsync(limit: 20).ConfigureAwait(false);
+            var recent = await _analytics.GetRecentStatsAsync(limit: 20).ConfigureAwait(false);
             profile.Recent = new Models.OverallStats
             {
                 TotalGames = recent.Games,
@@ -81,7 +84,7 @@ public sealed class AnalysisService : IAnalysisService
         // Per-champion performance
         try
         {
-            var champStats = await _games.GetChampionStatsAsync().ConfigureAwait(false);
+            var champStats = await _analytics.GetChampionStatsAsync().ConfigureAwait(false);
             profile.Champions = champStats.Select(c => new Models.ChampionStats
             {
                 ChampionName = c.ChampionName,
@@ -98,7 +101,7 @@ public sealed class AnalysisService : IAnalysisService
         // Matchup stats
         try
         {
-            var matchups = await _games.GetMatchupStatsAsync().ConfigureAwait(false);
+            var matchups = await _analytics.GetMatchupStatsAsync().ConfigureAwait(false);
             profile.Matchups = matchups.Select(m => new Models.MatchupStats
             {
                 ChampionName = m.ChampionName,
@@ -190,7 +193,7 @@ public sealed class AnalysisService : IAnalysisService
         // Recent form
         try
         {
-            var recentCharts = await _games.GetRecentForChartsAsync(limit: 20).ConfigureAwait(false);
+            var recentCharts = await _analytics.GetRecentForChartsAsync(limit: 20).ConfigureAwait(false);
             if (recentCharts.Count > 0)
             {
                 var last10 = recentCharts.TakeLast(10).ToList();
@@ -199,7 +202,7 @@ public sealed class AnalysisService : IAnalysisService
                     ? Math.Round(100.0 * last10.Count(g => g.Win) / last10.Count, 1) : 0;
                 double l20Wr = last20.Count > 0
                     ? Math.Round(100.0 * last20.Count(g => g.Win) / last20.Count, 1) : 0;
-                var winStreak = await _games.GetWinStreakAsync().ConfigureAwait(false);
+                var winStreak = await _analytics.GetWinStreakAsync().ConfigureAwait(false);
 
                 profile.RecentForm = new RecentFormStats
                 {
@@ -214,7 +217,7 @@ public sealed class AnalysisService : IAnalysisService
         // Spotted problems (group similar ones)
         try
         {
-            var problems = await _games.GetRecentSpottedProblemsAsync(limit: 50).ConfigureAwait(false);
+            var problems = await _analytics.GetRecentSpottedProblemsAsync(limit: 50).ConfigureAwait(false);
             var counter = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in problems)
             {
@@ -235,7 +238,7 @@ public sealed class AnalysisService : IAnalysisService
         // Role stats
         try
         {
-            var roles = await _games.GetRoleStatsAsync().ConfigureAwait(false);
+            var roles = await _analytics.GetRoleStatsAsync().ConfigureAwait(false);
             profile.Roles = roles.Select(r => new Models.RoleStats
             {
                 Role = r.Position,
@@ -250,7 +253,7 @@ public sealed class AnalysisService : IAnalysisService
         // Duration buckets
         try
         {
-            var durations = await _games.GetDurationStatsAsync().ConfigureAwait(false);
+            var durations = await _analytics.GetDurationStatsAsync().ConfigureAwait(false);
             profile.DurationBuckets = durations.Select(d => new DurationBucket
             {
                 Label = d.Bucket,
@@ -300,7 +303,7 @@ public sealed class AnalysisService : IAnalysisService
         // existing unfiltered path (it already applies is_hidden=0 and the
         // casual-mode filter). A real user rarely has >10k games, but the
         // limit is defensive rather than precise.
-        var allGames = await _games.GetRecentAsync(limit: 10_000, offset: 0).ConfigureAwait(false);
+        var allGames = await _history.GetRecentAsync(limit: 10_000, offset: 0).ConfigureAwait(false);
 
         // Currently-active objectives snapshot — used by the objective
         // practice filter. Ids in a HashSet so lookups are O(1).

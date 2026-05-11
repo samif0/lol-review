@@ -56,3 +56,10 @@ public sealed record BookmarkChangedMessage(long GameId);
 /// from a list view). Lets other open list views refresh their unreviewed /
 /// reviewed bucketing without a full reload.</summary>
 public sealed record GameReviewedMessage(long GameId);
+
+/// <summary>
+/// Sent after the Match-V5 backfill writes lane matchup metadata. Open game
+/// lists should reload so old rows can switch from "champion vs enemy" to
+/// role-aware duo labels when participant maps become available.
+/// </summary>
+public sealed record GameMatchupsBackfilledMessage(int Updated);

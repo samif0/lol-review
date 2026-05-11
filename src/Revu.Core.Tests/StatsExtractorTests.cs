@@ -116,6 +116,28 @@ public sealed class StatsExtractorTests
     }
 
     [Theory]
+    [InlineData("eog_ranked_kai_sa.json", "eog", 5531387189, "Kai'Sa", "Ranked Solo/Duo")]
+    [InlineData("match_history_ranked_ahri.json", "match", 5531387190, "Ahri", "Ranked Solo/Duo")]
+    public void Extractors_ParseFixturePayloads(
+        string fileName,
+        string source,
+        long expectedGameId,
+        string expectedChampion,
+        string expectedQueue)
+    {
+        var payload = ParseJson(File.ReadAllText(GetFixturePath(fileName)));
+        var stats = source == "eog"
+            ? StatsExtractor.ExtractFromEog(payload, NullLogger.Instance)
+            : StatsExtractor.ExtractFromMatchHistory(payload, NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        Assert.Equal(expectedGameId, stats!.GameId);
+        Assert.Equal(expectedChampion, stats.ChampionName);
+        Assert.Equal(expectedQueue, stats.QueueType);
+        Assert.True(stats.KillParticipation >= 0);
+    }
+
+    [Theory]
     [InlineData("CLASSIC", "420", "Ranked Solo/Duo")]
     [InlineData("Ranked Solo", "420", "Ranked Solo/Duo")]
     [InlineData("CLASSIC", "Ranked Flex", "Ranked Flex")]
@@ -135,5 +157,28 @@ public sealed class StatsExtractorTests
     {
         using var document = JsonDocument.Parse(json);
         return document.RootElement.Clone();
+    }
+
+    private static string GetFixturePath(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "src",
+                "Revu.Core.Tests",
+                "Fixtures",
+                "StatsExtractor",
+                fileName);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate StatsExtractor fixture {fileName}");
     }
 }

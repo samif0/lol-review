@@ -308,7 +308,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
 
     public void Receive(ChampSelectUpdatedMessage message)
     {
-        _ = Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
+        BackgroundTaskRunner.Run(() => Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
         {
             try
             {
@@ -320,7 +320,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
             {
                 _logger.LogError(ex, "Failed to reload matchup history on champ-select update");
             }
-        });
+        }), _logger, "champ-select matchup refresh");
     }
 
     // ── Commands ────────────────────────────────────────────────────
@@ -538,7 +538,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         // v2.16.1: refresh the rotating intel deck on EVERY champ-select tick,
         // not just when both champs are locked. Priority-objective + last-game
         // cards don't depend on enemy, so the rotator should pop immediately.
-        _ = RefreshIntelDeckAsync();
+        BackgroundTaskRunner.Run(RefreshIntelDeckAsync, _logger, "pre-game intel refresh");
 
         if (string.IsNullOrEmpty(myChampion) || string.IsNullOrEmpty(enemyLaner))
         {

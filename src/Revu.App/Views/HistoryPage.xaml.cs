@@ -32,6 +32,12 @@ public sealed partial class HistoryPage : Page
         // reflect the new reality (champion-breakdown totals, win rate, etc.)
         WeakReferenceMessenger.Default.Register<HistoryPage, GameDeletedMessage>(
             this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+        WeakReferenceMessenger.Default.Register<HistoryPage, GameMatchupsBackfilledMessage>(
+            this, (r, message) =>
+            {
+                var ignored = DispatcherHelper.RunOnUIThreadAsync(
+                    () => r.ViewModel.LoadCommand.ExecuteAsync(null));
+            });
         Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
 

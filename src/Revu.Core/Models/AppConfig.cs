@@ -7,6 +7,10 @@ namespace Revu.Core.Models;
 /// </summary>
 public class AppConfig
 {
+    /// <summary>
+    /// Legacy plaintext GitHub token field. ConfigService migrates this into
+    /// protected storage and writes an empty value back to config.json.
+    /// </summary>
     public string GithubToken { get; set; } = "";
     public string AscentFolder { get; set; } = "";
     public Dictionary<string, string> Keybinds { get; set; } = new();
@@ -22,7 +26,10 @@ public class AppConfig
     // invite code, receives a magic-link email, and pastes the one-time code
     // back into the app. Stored here so the app can authenticate on restart.
 
-    /// <summary>Opaque session bearer token. Empty if the user is not logged in.</summary>
+    /// <summary>
+    /// Legacy plaintext session bearer token. ConfigService migrates this into
+    /// protected storage and writes an empty value back to config.json.
+    /// </summary>
     public string RiotSessionToken { get; set; } = "";
 
     /// <summary>Email the user signed up with. Displayed in Settings as "Logged in as X".</summary>
