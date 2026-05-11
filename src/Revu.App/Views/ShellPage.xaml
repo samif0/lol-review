@@ -101,7 +101,7 @@
                                     Tag="dashboard"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    helpers:HoverTip.TipText="Dashboard"
+                                    helpers:HoverTip.TipText="Home"
                                     IsTabStop="False">
                                 <FontIcon Glyph="&#xE80F;"
                                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
@@ -112,8 +112,9 @@
                                     Tag="session"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    helpers:HoverTip.TipText="Review"
-                                    IsTabStop="False">
+                                    helpers:HoverTip.TipText="Review Queue"
+                                    IsTabStop="False"
+                                    Visibility="{x:Bind ViewModel.ShowReviewQueueNav, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <Grid>
                                     <FontIcon Glyph="&#xE768;"
                                               FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
@@ -134,7 +135,8 @@
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
                                     helpers:HoverTip.TipText="Objectives"
-                                    IsTabStop="False">
+                                    IsTabStop="False"
+                                    Visibility="{x:Bind ViewModel.ShowObjectivesNav, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <FontIcon Glyph="&#xF16B;"
                                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
                                           FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
@@ -146,11 +148,12 @@
                                     Margin="6,8,6,8"/>
 
                             <Button x:Name="NavHistory"
-                                    Tag="history"
+                                    Tag="games"
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
-                                    helpers:HoverTip.TipText="Archive"
-                                    IsTabStop="False">
+                                    helpers:HoverTip.TipText="Games"
+                                    IsTabStop="False"
+                                    Visibility="{x:Bind ViewModel.ShowGamesNav, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <FontIcon Glyph="&#xE81C;"
                                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
                                           FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
@@ -161,7 +164,8 @@
                                     Style="{StaticResource NavItemStyle}"
                                     Click="OnNavClick"
                                     helpers:HoverTip.TipText="Trends"
-                                    IsTabStop="False">
+                                    IsTabStop="False"
+                                    Visibility="Collapsed">
                                 <FontIcon Glyph="&#xE9D9;"
                                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
                                           FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>

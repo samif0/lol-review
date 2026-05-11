@@ -124,7 +124,7 @@ public partial class ReviewViewModel : ObservableObject,
     public void Receive(Revu.Core.Lcu.BookmarkChangedMessage message)
     {
         if (message.GameId != GameId) return;
-        _ = Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
+        BackgroundTaskRunner.Run(() => Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
         {
             try
             {
@@ -132,7 +132,7 @@ public partial class ReviewViewModel : ObservableObject,
                 await SyncPracticedFlagsAsync(GameId);
             }
             catch (Exception ex) { _logger.LogDebug(ex, "Live bookmark auto-populate failed"); }
-        });
+        }), _logger, $"live bookmark refresh {message.GameId}");
     }
 
     /// <summary>v2.16.7: re-read game_objectives and update the live
@@ -508,7 +508,7 @@ public partial class ReviewViewModel : ObservableObject,
     private void Cancel()
     {
         _vodRetryCts?.Cancel();
-        _navigationService.GoBack();
+        _navigationService.NavigateTo("games");
     }
 
     [RelayCommand]
@@ -559,7 +559,10 @@ public partial class ReviewViewModel : ObservableObject,
 
         if (!IsLoading && GameId > 0)
         {
-            _ = LoadMatchupHistoryAsync(value.Trim());
+            BackgroundTaskRunner.Run(
+                () => LoadMatchupHistoryAsync(value.Trim()),
+                _logger,
+                $"load matchup history {GameId}");
         }
     }
 
@@ -589,7 +592,14 @@ public partial class ReviewViewModel : ObservableObject,
 
             if (navigateBackOnSuccess)
             {
-                _navigationService.GoBack();
+                // Land on the Session Logger (review queue) regardless
+                // of how the user got here. Routes like Dashboard →
+                // Review → VOD player → "Open review" → Save would
+                // otherwise pop back to the VOD player, which feels
+                // stuck in the review/VOD detour. Session logger is the
+                // canonical review-queue page so the next game is one
+                // click away.
+                _navigationService.NavigateTo("games");
             }
 
             return true;
@@ -809,7 +819,7 @@ public partial class ReviewViewModel : ObservableObject,
         _vodRetryCts = new CancellationTokenSource();
         var token = _vodRetryCts.Token;
 
-        _ = Task.Run(async () =>
+        BackgroundTaskRunner.Run(async () =>
         {
             // Retry a few times with increasing delays to catch recordings that
             // are still being finalized when the post-game page first loads.
@@ -839,7 +849,7 @@ public partial class ReviewViewModel : ObservableObject,
                     _logger.LogDebug(ex, "VOD recheck failed for game {GameId}", gameId);
                 }
             }
-        }, token);
+        }, _logger, $"VOD recheck {gameId}", token);
     }
 
     private static string FormatNumber(int n) => n switch

@@ -382,7 +382,15 @@ public sealed class CoachSidecarService : IHostedService, IAsyncDisposable
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            await Task.Delay(HealthPollInterval, cancellationToken).ContinueWith(_ => { }, cancellationToken);
+            try
+            {
+                await Task.Delay(HealthPollInterval, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             if (cancellationToken.IsCancellationRequested)
                 return;
             await CheckHealthAsync(cancellationToken);

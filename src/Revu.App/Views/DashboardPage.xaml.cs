@@ -1,5 +1,7 @@
 #nullable enable
 
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Dialogs;
 using Revu.App.Helpers;
@@ -13,9 +15,11 @@ using Microsoft.UI.Xaml.Navigation;
 namespace Revu.App.Views;
 
 /// <summary>Dashboard page — session overview, stats summary, and quick actions.</summary>
-public sealed partial class DashboardPage : Page
+public sealed partial class DashboardPage : Page, INotifyPropertyChanged
 {
     public DashboardViewModel ViewModel { get; }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>Whether there are active objectives to display.</summary>
     public bool HasObjectives => ViewModel.ActiveObjectives.Count > 0;
@@ -30,8 +34,16 @@ public sealed partial class DashboardPage : Page
         DataContext = ViewModel;
 
         // Update computed properties when collections change
-        ViewModel.ActiveObjectives.CollectionChanged += (_, _) => Bindings.Update();
-        ViewModel.TodaysGames.CollectionChanged += (_, _) => Bindings.Update();
+        ViewModel.ActiveObjectives.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasObjectives));
+            Bindings.Update();
+        };
+        ViewModel.TodaysGames.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasNoTodaysGames));
+            Bindings.Update();
+        };
 
         Loaded += (_, _) => AnimationHelper.AnimatePageEnter(RootGrid);
 
@@ -42,6 +54,12 @@ public sealed partial class DashboardPage : Page
             this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
         WeakReferenceMessenger.Default.Register<DashboardPage, GameReviewedMessage>(
             this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+        WeakReferenceMessenger.Default.Register<DashboardPage, GameMatchupsBackfilledMessage>(
+            this, (r, message) =>
+            {
+                var ignored = DispatcherHelper.RunOnUIThreadAsync(
+                    () => r.ViewModel.LoadCommand.ExecuteAsync(null));
+            });
         Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
 
@@ -61,6 +79,11 @@ public sealed partial class DashboardPage : Page
         {
             ViewModel.NavigateToReviewCommand.Execute(gameId);
         }
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     private void DeleteGameButton_Click(object sender, RoutedEventArgs e)

@@ -1,5 +1,7 @@
 #nullable enable
 
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using Revu.App.Contracts;
 using Revu.App.Helpers;
 using Revu.App.Services;
@@ -11,9 +13,11 @@ using Microsoft.UI.Xaml.Navigation;
 namespace Revu.App.Views;
 
 /// <summary>Inline game review page -- navigated to from game list or dashboard.</summary>
-public sealed partial class ReviewPage : Page
+public sealed partial class ReviewPage : Page, INotifyPropertyChanged
 {
     public ReviewViewModel ViewModel { get; }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public ReviewPage()
     {
@@ -22,6 +26,10 @@ public sealed partial class ReviewPage : Page
         {
             if (e.PropertyName is nameof(ReviewViewModel.Attribution))
             {
+                OnPropertyChanged(nameof(IsMyPlaySelected));
+                OnPropertyChanged(nameof(IsTeamEffortSelected));
+                OnPropertyChanged(nameof(IsTeammatesSelected));
+                OnPropertyChanged(nameof(IsExternalSelected));
                 Bindings.Update();
             }
         };
@@ -74,5 +82,10 @@ public sealed partial class ReviewPage : Page
         {
             ViewModel.Attribution = tag;
         }
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

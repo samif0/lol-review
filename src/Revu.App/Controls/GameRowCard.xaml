@@ -66,9 +66,9 @@
             <Grid ColumnSpacing="10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="3"/>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="2.5*" MinWidth="210"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*" MinWidth="0"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
@@ -83,8 +83,9 @@
                                FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
                                FontWeight="SemiBold"
                                Foreground="{StaticResource PrimaryTextBrush}"
+                               TextWrapping="WrapWholeWords"
                                TextTrimming="CharacterEllipsis"
-                               MaxLines="1"/>
+                               MaxLines="2"/>
                     <TextBlock x:Name="MetaTextBlock"
                                FontFamily="{StaticResource MonoFont}"
                                FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
@@ -106,6 +107,7 @@
                            FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                            Foreground="{StaticResource MutedTextBrush}"
                            VerticalAlignment="Center"
+                           HorizontalAlignment="Stretch"
                            TextTrimming="CharacterEllipsis"
                            MaxLines="1"/>
 

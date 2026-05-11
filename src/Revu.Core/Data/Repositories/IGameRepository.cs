@@ -1,10 +1,10 @@
-#nullable enable
+﻿#nullable enable
 
 using Revu.Core.Models;
 
 namespace Revu.Core.Data.Repositories;
 
-// ── Result record types ──────────────────────────────────────────────
+// â”€â”€ Result record types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// <summary>Aggregate stats for a single champion.</summary>
 public sealed record ChampionStats(
@@ -125,12 +125,13 @@ public sealed record RecentStats(
     double AvgKills
 );
 
-// ── Interface ────────────────────────────────────────────────────────
+// â”€â”€ Interface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// <summary>
-/// Repository for game stats CRUD — ported from Python GameRepository.
+/// Repository for game stats CRUD â€” ported from Python GameRepository.
 /// </summary>
-public interface IGameRepository
+/// <summary>Writes game rows and review metadata.</summary>
+public interface IGameWriter
 {
     /// <summary>
     /// Save game stats to the database. Returns the row id.
@@ -163,32 +164,20 @@ public interface IGameRepository
     Task UpdateEnemyLanerAsync(long gameId, string enemyLaner);
 
     /// <summary>
-    /// v2.16: write the full 10-participant role→champion JSON map. Empty
+    /// v2.16: write the full 10-participant role-to-champion JSON map. Empty
     /// string clears it. Persisted alongside enemy_laner during the same
     /// Match-V5 round-trip so role-aware matchup display can render pairings
     /// like "Kai'Sa+Nautilus vs Tristana+Renata".
     /// </summary>
     Task UpdateParticipantMapAsync(long gameId, string participantMapJson);
+}
 
+/// <summary>Read model for game history and review queues.</summary>
+public interface IGameHistoryQuery
+{
     /// <summary>v2.15.8: enumerate game_ids that have no enemy_laner set, so a
     /// backfill pass can resolve them via the Riot API. Excludes hidden games.</summary>
     Task<IReadOnlyList<long>> GetGameIdsMissingEnemyLanerAsync();
-
-    /// <summary>Soft-delete (or restore) a game. Hidden games are excluded from all views.</summary>
-    Task SetHiddenAsync(long gameId, bool hidden);
-
-    /// <summary>
-    /// Permanently remove a game and all rows in child tables that reference its
-    /// <c>game_id</c>. Wrapped in a single transaction so a partial failure rolls
-    /// back the entire delete. Backup of the DB file is snapshotted BEFORE any
-    /// mutation happens.
-    /// </summary>
-    /// <returns>
-    /// Path to the backup file the service created before deleting. Callers
-    /// should surface this to the user (the delete is irreversible inside the
-    /// app, but the backup gives them a way out).
-    /// </returns>
-    Task<string> DeleteAsync(long gameId);
 
     /// <summary>Get a single game by game_id, or null if not found.</summary>
     Task<GameStats?> GetAsync(long gameId);
@@ -202,6 +191,12 @@ public interface IGameRepository
 
     /// <summary>Count recent ranked/normal games for the given history filters.</summary>
     Task<int> GetRecentCountAsync(string? champion = null, bool? win = null);
+
+    /// <summary>
+    /// Count ranked/normal games that have persisted review signal in the game
+    /// row, session log, or concept tags.
+    /// </summary>
+    Task<int> GetReviewedCountAsync();
 
     /// <summary>Get ranked/normal games played on a specific date (YYYY-MM-DD).</summary>
     Task<List<GameStats>> GetGamesForDateAsync(string dateStr);
@@ -222,14 +217,18 @@ public interface IGameRepository
     /// <summary>Get list of unique champion names from ranked/normal games.</summary>
     Task<List<string>> GetUniqueChampionsAsync(bool lossesOnly = false);
 
+    /// <summary>Get the focus_next and mistakes from the most recent reviewed game.</summary>
+    Task<ReviewFocus?> GetLastReviewFocusAsync();
+}
+
+/// <summary>Read model for aggregate analytics and trend views.</summary>
+public interface IGameAnalyticsQuery
+{
     /// <summary>Aggregate stats grouped by champion (excludes casual modes).</summary>
     Task<List<ChampionStats>> GetChampionStatsAsync();
 
     /// <summary>Get aggregate stats across all ranked/normal games.</summary>
     Task<OverallStats> GetOverallStatsAsync();
-
-    /// <summary>Get the focus_next and mistakes from the most recent reviewed game.</summary>
-    Task<ReviewFocus?> GetLastReviewFocusAsync();
 
     /// <summary>
     /// Get current win/loss streak. Positive = wins, negative = losses.
@@ -259,4 +258,36 @@ public interface IGameRepository
 
     /// <summary>Get aggregate stats over the last N games for suggestion thresholds.</summary>
     Task<RecentStats> GetRecentStatsAsync(int limit = 20);
+}
+
+/// <summary>Destructive and visibility-changing game operations.</summary>
+public interface IGameDeletionService
+{
+    /// <summary>Soft-delete (or restore) a game. Hidden games are excluded from all views.</summary>
+    Task SetHiddenAsync(long gameId, bool hidden);
+
+    /// <summary>
+    /// Permanently remove a game and all rows in child tables that reference its
+    /// <c>game_id</c>. Wrapped in a single transaction so a partial failure rolls
+    /// back the entire delete. Backup of the DB file is snapshotted BEFORE any
+    /// mutation happens.
+    /// </summary>
+    /// <returns>
+    /// Path to the backup file the service created before deleting. Callers
+    /// should surface this to the user (the delete is irreversible inside the
+    /// app, but the backup gives them a way out).
+    /// </returns>
+    Task<string> DeleteAsync(long gameId);
+}
+
+/// <summary>
+/// Compatibility facade for game stats CRUD and read models.
+/// Prefer the focused interfaces above for new consumers.
+/// </summary>
+public interface IGameRepository :
+    IGameWriter,
+    IGameHistoryQuery,
+    IGameAnalyticsQuery,
+    IGameDeletionService
+{
 }

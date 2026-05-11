@@ -58,6 +58,19 @@ Dependency direction is simple:
 - `Revu.App` depends on `Revu.Core`
 - `Revu.Core` does not depend on `Revu.App`
 
+```mermaid
+flowchart LR
+    League["League Client / LCU"] --> CoreLcu["Revu.Core LCU services"]
+    CoreLcu --> CoreServices["Revu.Core domain services"]
+    CoreServices --> Repos["Repositories and query interfaces"]
+    Repos --> SQLite["%LOCALAPPDATA%/LoLReviewData/revu.db"]
+    App["Revu.App WinUI shell"] --> ViewModels["ViewModels"]
+    ViewModels --> CoreServices
+    ViewModels --> Repos
+    App --> Coach["Coach sidecar / proxy clients"]
+    Coach --> SQLite
+```
+
 ### App startup
 
 Startup is controlled by `Program.cs` and `App.xaml.cs`.
@@ -95,6 +108,17 @@ This split matters a lot:
 - manual DB surgery should happen in `LoLReviewData`, not under the install root
 - updater/package files live under `%LOCALAPPDATA%\\LoLReview\\packages`
 
+## Theme Resources
+
+`AppResourcesStartupTask` owns app resource loading. It adds
+`XamlControlsResources`, then `Themes/AppTheme.xaml`, then registers the
+`FontSizes` singleton resource for XAML bindings.
+
+The old `WinUIThemeStubs.xaml` workaround was removed after confirming it was
+not referenced. If `XamlControlsResources` becomes unstable again in unpackaged
+mode, fix the startup task or document the replacement strategy here instead
+of restoring an unused stub dictionary.
+
 ## Database Layer
 
 ### Initialization and migration
@@ -102,7 +126,8 @@ This split matters a lot:
 `DatabaseInitializer.cs` is the main schema normalizer.
 
 - schema creation statements come from `Schema.cs`
-- additive migrations come from `Schema.AllMigrations`
+- additive migrations come from `Schema.VersionedMigrations`, with the legacy flattened list still exposed as `Schema.AllMigrations`
+- applied schema version is recorded in `schema_metadata` under `app_schema_version`
 - initializer also rewrites legacy/hybrid tables to the current schema where necessary
 - initializer seeds concept tags, derived event definitions, and persistent notes
 - initializer backfills some objective state
@@ -112,7 +137,7 @@ This file is a real hotspot. Many "why is this old DB weird?" issues end here.
 ### Important repositories
 
 - `GameRepository`
-  Main game row CRUD, review persistence, history queries, analytics-facing aggregates.
+  Main game row writes and review persistence. Read-heavy callers should prefer the focused interfaces: `IGameHistoryQuery`, `IGameAnalyticsQuery`, and `IGameDeletionService`.
 - `SessionLogRepository`
   Session log rows, adherence streak calculation, mental/rule analytics.
 - `ObjectivesRepository`

@@ -8,6 +8,9 @@ namespace Revu.Core.Data;
 /// </summary>
 public static class Schema
 {
+    public const int CurrentAppSchemaVersion = 1;
+    public const string AppSchemaVersionKey = "app_schema_version";
+
     // ── CREATE TABLE statements ──────────────────────────────────────
 
     public const string CreateGamesTable = """
@@ -98,6 +101,14 @@ public static class Schema
             went_well       TEXT DEFAULT '',
             focus_next      TEXT DEFAULT '',
             spotted_problems TEXT DEFAULT ''
+        );
+        """;
+
+    public const string CreateSchemaMetadataTable = """
+        CREATE TABLE IF NOT EXISTS schema_metadata (
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
         );
         """;
 
@@ -733,6 +744,7 @@ public static class Schema
     /// </summary>
     public static readonly string[] AllCreateStatements =
     [
+        CreateSchemaMetadataTable,
         CreateGamesTable,
         CreateSessionLogTable,
         CreateReviewDraftsTable,
@@ -797,6 +809,13 @@ public static class Schema
         .. MigrateTiltChecksGameAndPlan,
         .. MigrateGamesParticipantMap,
         .. MigrateSessionLogIsSkipped,
+    ];
+
+    public sealed record VersionedMigration(int Version, string Name, string[] Statements);
+
+    public static readonly VersionedMigration[] VersionedMigrations =
+    [
+        new(CurrentAppSchemaVersion, "legacy-additive-columns", AllMigrations),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

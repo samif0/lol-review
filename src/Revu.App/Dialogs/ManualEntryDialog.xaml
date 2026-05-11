@@ -54,7 +54,7 @@
             <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                        Foreground="{StaticResource LossRedBrush}"
-                       Visibility="{x:Bind HasError, Mode=OneWay}"/>
+                       Visibility="{x:Bind ViewModel.HasError, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
             <!-- Result -->
             <StackPanel Orientation="Horizontal" Spacing="12">

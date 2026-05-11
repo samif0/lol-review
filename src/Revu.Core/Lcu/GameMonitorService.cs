@@ -348,7 +348,10 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
     private void StartEventCollector()
     {
-        _ = StopEventCollectorAsync();
+        BackgroundTaskRunner.Run(
+            async () => { await StopEventCollectorAsync().ConfigureAwait(false); },
+            _logger,
+            "stop previous live event collector");
 
         _collectorCts = new CancellationTokenSource();
         _eventCollector = new LiveEventCollector(

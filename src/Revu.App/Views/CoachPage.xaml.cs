@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using Revu.App.Helpers;
 using Revu.App.Services;
@@ -44,25 +44,28 @@ public sealed partial class CoachPage : Page
             }
         }
 
-        // Lazy-start the sidecar in the background. No blocking — the first
+        // Lazy-start the sidecar in the background. No blocking â€” the first
         // ask the user makes will wait on it if it's still coming up.
         _ = EnsureSidecarAsync();
     }
 
     private async Task EnsureSidecarAsync()
     {
-        var sidecar = App.GetService<CoachSidecarService>();
-        if (sidecar.IsHealthy) return;
+        try
+        {
+            var sidecar = App.GetService<CoachSidecarService>();
+            if (sidecar.IsHealthy) return;
 
-        ViewModel.StatusText = "Starting coach...";
-        var ok = await sidecar.EnsureSidecarRunningAsync();
-        if (ok)
-        {
-            ViewModel.StatusText = "";
+            ViewModel.StatusText = "Starting coach...";
+            var ok = await sidecar.EnsureSidecarRunningAsync();
+            ViewModel.StatusText = ok
+                ? ""
+                : "Could not start the coach sidecar. Check Settings -> AI Coach.";
         }
-        else
+        catch (Exception ex)
         {
-            ViewModel.StatusText = "Could not start the coach sidecar. Check Settings → AI Coach.";
+            AppDiagnostics.WriteVerbose("coach.log", $"Coach sidecar lazy start failed: {ex.Message}");
+            ViewModel.StatusText = "Could not start the coach sidecar. Check Settings -> AI Coach.";
         }
     }
 
@@ -143,3 +146,4 @@ public sealed partial class CoachPage : Page
 
 /// <summary>Navigation argument for deep-linking from other pages.</summary>
 public sealed record CoachScopeArgs(CoachScope Scope, string Label, string? SeedQuestion = null);
+

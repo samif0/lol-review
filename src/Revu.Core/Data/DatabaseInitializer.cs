@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -28,7 +28,7 @@ public sealed class DatabaseInitializer
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        // The old-path → data/ migration is handled by SqliteConnectionFactory.GetDefaultDatabasePath()
+        // The old-path â†’ data/ migration is handled by SqliteConnectionFactory.GetDefaultDatabasePath()
         // and ConfigService's static ctor. Legacy exe-relative migration code has been removed entirely.
 
         using var connection = _connectionFactory.CreateConnection();
@@ -42,20 +42,22 @@ public sealed class DatabaseInitializer
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        // 2. Execute all ALTER TABLE migrations (tolerate "duplicate column" errors)
-        foreach (var migration in Schema.AllMigrations)
+        // 2. Execute additive migrations by metadata version. Databases from
+        // older builds have no metadata row, so version 0 deliberately runs
+        // the legacy additive set with duplicate-column tolerance.
+        var appliedSchemaVersion = await GetAppliedSchemaVersionAsync(connection, cancellationToken);
+        foreach (var migrationSet in Schema.VersionedMigrations
+                     .Where(static migration => migration.Version > 0)
+                     .OrderBy(static migration => migration.Version))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
+            if (migrationSet.Version <= appliedSchemaVersion)
             {
-                using var cmd = connection.CreateCommand();
-                cmd.CommandText = migration;
-                await cmd.ExecuteNonQueryAsync(cancellationToken);
+                continue;
             }
-            catch (SqliteException ex) when (ex.SqliteErrorCode == 1 && ex.Message.Contains("duplicate column"))
-            {
-                // Column already exists -- expected for previously-migrated databases
-            }
+
+            await ExecuteMigrationSetAsync(connection, migrationSet, cancellationToken);
+            await SetAppliedSchemaVersionAsync(connection, migrationSet.Version, cancellationToken);
+            appliedSchemaVersion = migrationSet.Version;
         }
 
         // 2b. Normalize legacy/hybrid tables into the current schema.
@@ -67,7 +69,7 @@ public sealed class DatabaseInitializer
         await BackfillObjectivePracticePhasesAsync(connection, cancellationToken);
 
         // v2.15.0: indexes on objective_prompts(phase, sort_order) and
-        // prompt_answers(game_id) have to land AFTER normalize — the columns
+        // prompt_answers(game_id) have to land AFTER normalize â€” the columns
         // they reference only exist on the rewritten tables.
         await CreatePostMigrationIndexesAsync(connection, cancellationToken);
 
@@ -87,8 +89,67 @@ public sealed class DatabaseInitializer
         _logger.LogInformation("Database initialized at {Path}", _connectionFactory.DatabasePath);
     }
 
-    // ── Seeding helpers ──────────────────────────────────────────────
+    // â”€â”€ Seeding helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+    private async Task ExecuteMigrationSetAsync(
+        SqliteConnection connection,
+        Schema.VersionedMigration migrationSet,
+        CancellationToken cancellationToken)
+    {
+        foreach (var migration in migrationSet.Statements)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = migration;
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 1 && ex.Message.Contains("duplicate column"))
+            {
+                // Column already exists -- expected for previously-migrated databases.
+            }
+        }
+
+        _logger.LogInformation(
+            "Applied schema migration set {MigrationName} version {Version}",
+            migrationSet.Name,
+            migrationSet.Version);
+    }
+
+    private static async Task<int> GetAppliedSchemaVersionAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT value
+            FROM schema_metadata
+            WHERE key = $key
+            """;
+        cmd.Parameters.AddWithValue("$key", Schema.AppSchemaVersionKey);
+        var value = await cmd.ExecuteScalarAsync(ct);
+        return value is not null && int.TryParse(Convert.ToString(value), out var version)
+            ? version
+            : 0;
+    }
+
+    private static async Task SetAppliedSchemaVersionAsync(
+        SqliteConnection connection,
+        int version,
+        CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO schema_metadata (key, value, updated_at)
+            VALUES ($key, $value, $updatedAt)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """;
+        cmd.Parameters.AddWithValue("$key", Schema.AppSchemaVersionKey);
+        cmd.Parameters.AddWithValue("$value", version.ToString());
+        cmd.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
     private async Task NormalizeRulesTableAsync(SqliteConnection connection, CancellationToken ct)
     {
         var columns = await GetTableColumnsAsync(connection, "rules", ct);
@@ -564,7 +625,7 @@ public sealed class DatabaseInitializer
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    // v2.15.0 schema rework — see docs/OBJECTIVES_CUSTOM_PROMPTS_PLAN.md.
+    // v2.15.0 schema rework â€” see docs/OBJECTIVES_CUSTOM_PROMPTS_PLAN.md.
     //
     // The legacy objective_prompts / prompt_answers tables were shaped for
     // yes/no event prompts (answer_type='yes_no', answer_value INTEGER,
@@ -588,7 +649,7 @@ public sealed class DatabaseInitializer
             !promptCols.Contains("label") ||
             !promptCols.Contains("phase") ||
             !answerCols.Contains("answer_text") ||
-            // Old-shape sentinels — if any of these exist, we haven't migrated.
+            // Old-shape sentinels â€” if any of these exist, we haven't migrated.
             promptCols.Contains("question_text") ||
             promptCols.Contains("answer_type") ||
             answerCols.Contains("answer_value");
@@ -600,7 +661,7 @@ public sealed class DatabaseInitializer
 
         using var tx = connection.BeginTransaction();
 
-        // ── Rebuild objective_prompts ──
+        // â”€â”€ Rebuild objective_prompts â”€â”€
         using (var createCmd = connection.CreateCommand())
         {
             createCmd.Transaction = tx;
@@ -620,7 +681,7 @@ public sealed class DatabaseInitializer
 
         if (promptCols.Count > 0)
         {
-            // Translate whatever we can: legacy question_text → label,
+            // Translate whatever we can: legacy question_text â†’ label,
             // phase default 'ingame' (legacy had no phase concept).
             var labelExpr = promptCols.Contains("label")
                 ? "COALESCE(label, '')"
@@ -665,7 +726,7 @@ public sealed class DatabaseInitializer
             await renamePromptsCmd.ExecuteNonQueryAsync(ct);
         }
 
-        // ── Rebuild prompt_answers ──
+        // â”€â”€ Rebuild prompt_answers â”€â”€
         using (var createAnswersCmd = connection.CreateCommand())
         {
             createAnswersCmd.Transaction = tx;
@@ -686,7 +747,7 @@ public sealed class DatabaseInitializer
 
         if (answerCols.Count > 0)
         {
-            // Legacy answer_value was 0/1 INTEGER — translate to "yes"/"no"/""
+            // Legacy answer_value was 0/1 INTEGER â€” translate to "yes"/"no"/""
             // strings so at least the fact that the user answered is preserved.
             var textExpr = answerCols.Contains("answer_text")
                 ? "COALESCE(answer_text, '')"
@@ -750,7 +811,7 @@ public sealed class DatabaseInitializer
     }
 
     // Backfill the three new practice_<phase> bool columns on objectives
-    // from the legacy single-string `phase` column. Idempotent — the
+    // from the legacy single-string `phase` column. Idempotent â€” the
     // WHERE guard means this no-ops once any bool has been set.
     private static async Task BackfillObjectivePracticePhasesAsync(SqliteConnection connection, CancellationToken ct)
     {
@@ -768,3 +829,4 @@ public sealed class DatabaseInitializer
     }
 
 }
+

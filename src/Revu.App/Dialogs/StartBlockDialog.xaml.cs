@@ -1,6 +1,8 @@
 #nullable enable
 
 using System;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Revu.Core.Data.Repositories;
@@ -18,7 +20,7 @@ namespace Revu.App.Dialogs;
 /// Trigger is currently manual (button on Dashboard). Auto-trigger from LCU
 /// home-state detection is in scope but punted to a follow-up.
 /// </summary>
-public sealed partial class StartBlockDialog : ContentDialog
+public sealed partial class StartBlockDialog : ContentDialog, INotifyPropertyChanged
 {
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly ISessionLogRepository _sessionLogRepo;
@@ -27,6 +29,8 @@ public sealed partial class StartBlockDialog : ContentDialog
     public string PriorityObjectiveTitle { get; private set; } = "";
     public string PriorityObjectiveCriteria { get; private set; } = "";
     public bool HasPriorityObjective => !string.IsNullOrWhiteSpace(PriorityObjectiveTitle);
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>The session goal text the user entered. Read after the dialog returns.</summary>
     public string SessionGoal => GoalBox.Text;
@@ -51,6 +55,9 @@ public sealed partial class StartBlockDialog : ContentDialog
                 PriorityObjectiveCriteria = string.IsNullOrWhiteSpace(priority.CompletionCriteria)
                     ? ""
                     : $"Success: {priority.CompletionCriteria}";
+                OnPropertyChanged(nameof(PriorityObjectiveTitle));
+                OnPropertyChanged(nameof(PriorityObjectiveCriteria));
+                OnPropertyChanged(nameof(HasPriorityObjective));
                 Bindings.Update();
             }
         }
@@ -120,5 +127,10 @@ public sealed partial class StartBlockDialog : ContentDialog
     private void OnCancelClick(object sender, RoutedEventArgs e)
     {
         Hide();
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

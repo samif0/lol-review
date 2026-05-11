@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -14,10 +14,12 @@ using System.IO;
 
 namespace Revu.App.ViewModels;
 
-/// <summary>ViewModel for the History page — browse past games, stats, champion breakdown.</summary>
+/// <summary>ViewModel for the History page â€” browse past games, stats, champion breakdown.</summary>
 public partial class HistoryViewModel : ObservableObject
 {
-    private readonly IGameRepository _gameRepo;
+    private readonly IGameHistoryQuery _gameHistory;
+    private readonly IGameAnalyticsQuery _gameAnalytics;
+    private readonly IGameDeletionService _gameDeletion;
     private readonly IVodRepository _vodRepo;
     private readonly Revu.Core.Services.IConfigService _configService;
     private readonly INavigationService _navigationService;
@@ -26,7 +28,7 @@ public partial class HistoryViewModel : ObservableObject
 
     private const int PageSize = 20;
 
-    // ── Observable Properties ───────────────────────────────────────
+    // â”€â”€ Observable Properties â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [ObservableProperty]
     private bool _isLoading;
@@ -40,7 +42,7 @@ public partial class HistoryViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasNoGames;
 
-    // ── Stats Overview properties ───────────────────────────────────
+    // â”€â”€ Stats Overview properties â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [ObservableProperty]
     private string _overallWinRateText = "0.0%";
@@ -84,7 +86,7 @@ public partial class HistoryViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasStats;
 
-    // ── Champion filter ─────────────────────────────────────────────
+    // â”€â”€ Champion filter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [ObservableProperty]
     private string _selectedChampionFilter = "All Champions";
@@ -92,23 +94,27 @@ public partial class HistoryViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedWinLossFilter; // 0=All, 1=Wins, 2=Losses
 
-    // ── Collections ─────────────────────────────────────────────────
+    // â”€â”€ Collections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public ObservableCollection<GameDisplayItem> Games { get; } = new();
     public ObservableCollection<ChampionStatsDisplayItem> ChampionStats { get; } = new();
     public ObservableCollection<string> ChampionFilters { get; } = new() { "All Champions" };
 
-    // ── Constructor ─────────────────────────────────────────────────
+    // â”€â”€ Constructor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public HistoryViewModel(
-        IGameRepository gameRepo,
+        IGameHistoryQuery gameHistory,
+        IGameAnalyticsQuery gameAnalytics,
+        IGameDeletionService gameDeletion,
         IVodRepository vodRepo,
         INavigationService navigationService,
         IDialogService dialogService,
         Revu.Core.Services.IConfigService configService,
         ILogger<HistoryViewModel> logger)
     {
-        _gameRepo = gameRepo;
+        _gameHistory = gameHistory;
+        _gameAnalytics = gameAnalytics;
+        _gameDeletion = gameDeletion;
         _vodRepo = vodRepo;
         _navigationService = navigationService;
         _dialogService = dialogService;
@@ -116,7 +122,7 @@ public partial class HistoryViewModel : ObservableObject
         _logger = logger;
     }
 
-    // ── Commands ────────────────────────────────────────────────────
+    // â”€â”€ Commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [RelayCommand]
     private async Task LoadAsync()
@@ -200,7 +206,7 @@ public partial class HistoryViewModel : ObservableObject
     {
         // Surface the game's identity in the confirm dialog so the user
         // doesn't have to trust the row they just clicked. Champion + win/loss
-        // is enough to recognize — the full detail lives one navigation away.
+        // is enough to recognize â€” the full detail lives one navigation away.
         var game = Games.FirstOrDefault(g => g.GameId == gameId);
         var champ = game?.ChampionName ?? "this game";
         var outcome = game?.Win == true ? "W" : game?.Win == false ? "L" : "";
@@ -217,7 +223,7 @@ public partial class HistoryViewModel : ObservableObject
 
         try
         {
-            await _gameRepo.DeleteAsync(gameId);
+            await _gameDeletion.DeleteAsync(gameId);
 
             // Remove from the current list immediately so the UI feels instant.
             if (game is not null) Games.Remove(game);
@@ -235,7 +241,7 @@ public partial class HistoryViewModel : ObservableObject
         }
     }
 
-    // ── Private load methods ────────────────────────────────────────
+    // â”€â”€ Private load methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async Task LoadGamesPageAsync()
     {
@@ -247,12 +253,12 @@ public partial class HistoryViewModel : ObservableObject
             _ => null
         };
 
-        var gamesTask = _gameRepo.GetRecentAsync(
+        var gamesTask = _gameHistory.GetRecentAsync(
             limit: PageSize,
             offset: offset,
             champion: SelectedChampionFilter,
             win: selectedWin);
-        var totalCountTask = _gameRepo.GetRecentCountAsync(
+        var totalCountTask = _gameHistory.GetRecentCountAsync(
             champion: SelectedChampionFilter,
             win: selectedWin);
 
@@ -285,7 +291,7 @@ public partial class HistoryViewModel : ObservableObject
 
     private async Task LoadStatsOverviewAsync()
     {
-        var overall = await _gameRepo.GetOverallStatsAsync();
+        var overall = await _gameAnalytics.GetOverallStatsAsync();
 
         if (overall.TotalGames == 0)
         {
@@ -314,7 +320,7 @@ public partial class HistoryViewModel : ObservableObject
 
     private async Task LoadChampionStatsAsync()
     {
-        var champStats = await _gameRepo.GetChampionStatsAsync();
+        var champStats = await _gameAnalytics.GetChampionStatsAsync();
 
         DispatcherHelper.RunOnUIThread(() =>
         {
@@ -338,7 +344,7 @@ public partial class HistoryViewModel : ObservableObject
 
     private async Task LoadChampionFiltersAsync()
     {
-        var champions = await _gameRepo.GetUniqueChampionsAsync();
+        var champions = await _gameHistory.GetUniqueChampionsAsync();
 
         DispatcherHelper.RunOnUIThread(() =>
         {
@@ -351,7 +357,7 @@ public partial class HistoryViewModel : ObservableObject
         });
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────
+    // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private GameDisplayItem MapGameDisplay(Core.Models.GameStats game)
     {
@@ -402,7 +408,7 @@ public partial class HistoryViewModel : ObservableObject
     };
 }
 
-// ── Display models ──────────────────────────────────────────────────
+// â”€â”€ Display models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// <summary>Flattened champion stats for display binding.</summary>
 public class ChampionStatsDisplayItem

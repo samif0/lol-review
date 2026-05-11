@@ -1,0 +1,93 @@
+{
+  "gameId": 5531387189,
+  "gameLength": 1662,
+  "gameMode": "CLASSIC",
+  "queueType": "RANKED_SOLO_5x5",
+  "gameType": "MATCHED_GAME",
+  "localPlayer": {
+    "teamId": 100,
+    "summonerName": "Tester",
+    "championName": "Kai'Sa",
+    "championId": 145,
+    "selectedPosition": "BOTTOM",
+    "stats": {
+      "CHAMPIONS_KILLED": "14",
+      "NUM_DEATHS": "0",
+      "ASSISTS": "3",
+      "MINIONS_KILLED": "266",
+      "NEUTRAL_MINIONS_KILLED": "0",
+      "WIN": "1",
+      "VISION_SCORE": "22"
+    }
+  },
+  "teams": [
+    {
+      "teamId": 100,
+      "stats": {
+        "CHAMPIONS_KILLED": 27
+      },
+      "players": [
+        {
+          "championName": "Garen",
+          "selectedPosition": "TOP",
+          "stats": {
+            "CHAMPIONS_KILLED": 2
+          }
+        },
+        {
+          "championName": "Lee Sin",
+          "selectedPosition": "JUNGLE",
+          "stats": {
+            "CHAMPIONS_KILLED": 6
+          }
+        },
+        {
+          "championName": "Ahri",
+          "selectedPosition": "MIDDLE",
+          "stats": {
+            "CHAMPIONS_KILLED": 4
+          }
+        },
+        {
+          "championName": "Kai'Sa",
+          "selectedPosition": "BOTTOM",
+          "stats": {
+            "CHAMPIONS_KILLED": 14
+          }
+        },
+        {
+          "championName": "Nautilus",
+          "selectedPosition": "UTILITY",
+          "stats": {
+            "CHAMPIONS_KILLED": 1
+          }
+        }
+      ]
+    },
+    {
+      "teamId": 200,
+      "players": [
+        {
+          "championName": "Camille",
+          "selectedPosition": "TOP"
+        },
+        {
+          "championName": "Vi",
+          "selectedPosition": "JUNGLE"
+        },
+        {
+          "championName": "Syndra",
+          "selectedPosition": "MIDDLE"
+        },
+        {
+          "championName": "Tristana",
+          "selectedPosition": "BOTTOM"
+        },
+        {
+          "championName": "Renata Glasc",
+          "selectedPosition": "UTILITY"
+        }
+      ]
+    }
+  ]
+}

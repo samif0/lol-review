@@ -158,7 +158,10 @@ public sealed class GameService : IGameService
                 var linkedNow = await _vodService.TryLinkRecordingAsync(stats).ConfigureAwait(false);
                 if (!linkedNow)
                 {
-                    _ = ScheduleVodRetryAsync(stats.GameId);
+                    BackgroundTaskRunner.Run(
+                        () => ScheduleVodRetryAsync(stats.GameId),
+                        _logger,
+                        $"delayed VOD retry {stats.GameId}");
                 }
             }
             catch (Exception ex)

@@ -565,8 +565,13 @@ public sealed class SessionLogRepository : ISessionLogRepository
         using var cmd = conn.CreateCommand();
         if (rulesExistSince is not null)
         {
+            // Skipped games are adherence-neutral. The user opted out of
+            // engaging with the game, so its rule_broken flag (whether
+            // set by the rules engine at ingest or by the legacy
+            // heuristic) shouldn't terminate the streak.
             cmd.CommandText = @"
-                SELECT date, SUM(rule_broken) as breaks
+                SELECT date,
+                    SUM(CASE WHEN COALESCE(is_skipped, 0) = 0 THEN rule_broken ELSE 0 END) as breaks
                 FROM session_log
                 WHERE date >= @since
                 GROUP BY date

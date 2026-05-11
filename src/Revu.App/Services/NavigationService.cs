@@ -22,6 +22,7 @@ public sealed class NavigationService : INavigationService
     private static readonly Dictionary<string, Type> PageMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["dashboard"] = typeof(DashboardPage),
+        ["games"] = typeof(GamesPage),
         ["session"] = typeof(SessionLoggerPage),
         ["objectives"] = typeof(ObjectivesPage),
         ["rules"] = typeof(RulesPage),
