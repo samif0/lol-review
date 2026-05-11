@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.ObjectModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -23,6 +24,7 @@ public partial class ReviewViewModel : ObservableObject,
     private readonly IPromptsRepository _promptsRepository;
     private readonly IObjectivesRepository _objectivesRepository;
     private readonly IVodRepository _vodRepository;
+    private readonly IReviewExportService _reviewExportService;
     private readonly IMessenger _messenger;
     private readonly ILogger<ReviewViewModel> _logger;
 
@@ -74,6 +76,8 @@ public partial class ReviewViewModel : ObservableObject,
     [ObservableProperty] private string _priorityObjectiveTitle = "";
     [ObservableProperty] private string _priorityObjectiveCriteria = "";
     [ObservableProperty] private bool _hasPriorityObjective;
+    [ObservableProperty] private bool _isExportingReview;
+    [ObservableProperty] private string _exportStatusText = "";
     // v2.15.0: show the collapsible "legacy fields" card only when this game
     // was reviewed on an earlier version and has data in the cut columns.
     [ObservableProperty] private bool _showLegacyFields;
@@ -101,6 +105,7 @@ public partial class ReviewViewModel : ObservableObject,
         IPromptsRepository promptsRepository,
         IObjectivesRepository objectivesRepository,
         IVodRepository vodRepository,
+        IReviewExportService reviewExportService,
         IMessenger messenger,
         ILogger<ReviewViewModel> logger)
     {
@@ -109,6 +114,7 @@ public partial class ReviewViewModel : ObservableObject,
         _promptsRepository = promptsRepository;
         _objectivesRepository = objectivesRepository;
         _vodRepository = vodRepository;
+        _reviewExportService = reviewExportService;
         _messenger = messenger;
         _logger = logger;
         _messenger.RegisterAll(this);
@@ -522,6 +528,51 @@ public partial class ReviewViewModel : ObservableObject,
         }
 
         _navigationService.NavigateTo("vodplayer", GameId);
+    }
+
+    [RelayCommand]
+    private async Task ExportReviewAsync()
+    {
+        if (IsExportingReview || GameId <= 0)
+        {
+            return;
+        }
+
+        IsExportingReview = true;
+        ExportStatusText = "Building export...";
+
+        try
+        {
+            var markdown = await _reviewExportService.ExportGameAsync(GameId);
+            if (string.IsNullOrWhiteSpace(markdown))
+            {
+                ExportStatusText = "Could not find this game.";
+                return;
+            }
+
+            var champion = string.IsNullOrWhiteSpace(ChampionName)
+                ? "game"
+                : string.Join("", ChampionName.Trim().Replace(' ', '-').Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '-' : ch));
+            var fileName = $"revu-{GameId}-{champion}-review.md";
+            var path = await MarkdownExportPicker.PickSavePathAsync(fileName);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                ExportStatusText = "Export canceled.";
+                return;
+            }
+
+            await File.WriteAllTextAsync(path, markdown);
+            ExportStatusText = $"Exported to {path}";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to export review for game {GameId}", GameId);
+            ExportStatusText = "Export failed. Check the logs and try again.";
+        }
+        finally
+        {
+            IsExportingReview = false;
+        }
     }
 
     [RelayCommand]

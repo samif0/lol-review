@@ -76,6 +76,11 @@ public sealed partial class ReviewPage : Page, INotifyPropertyChanged
     public bool IsTeammatesSelected => ViewModel.Attribution == "Teammates";
     public bool IsExternalSelected => ViewModel.Attribution == "External";
 
+    public bool Not(bool value) => !value;
+
+    public Visibility HasText(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
+
     private void OnAttributionChanged(object sender, RoutedEventArgs e)
     {
         if (sender is RadioButton rb && rb.Tag is string tag)

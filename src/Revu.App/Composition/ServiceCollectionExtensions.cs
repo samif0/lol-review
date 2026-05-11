@@ -59,6 +59,7 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IVodService, VodService>();
         services.AddSingleton<IGameService, GameService>();
         services.AddSingleton<IReviewWorkflowService, ReviewWorkflowService>();
+        services.AddSingleton<IReviewExportService, ReviewExportService>();
         services.AddSingleton<IGameLifecycleWorkflowService, GameLifecycleWorkflowService>();
 
         // Riot proxy / auth (Path B).

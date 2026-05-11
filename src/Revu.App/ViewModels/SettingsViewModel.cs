@@ -34,6 +34,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IClipService _clipService;
     private readonly IUpdateService _updateService;
     private readonly IBackupService _backupService;
+    private readonly IReviewExportService _reviewExportService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     private UpdateInfo? _pendingUpdate;
@@ -134,6 +135,12 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isRestoring;
 
+    [ObservableProperty]
+    private string _reviewExportStatus = "";
+
+    [ObservableProperty]
+    private bool _isExportingReviewData;
+
     // ── Riot proxy login (Path B) ─────────────────────────────────
 
     /// <summary>
@@ -219,6 +226,7 @@ public partial class SettingsViewModel : ObservableObject
         IUpdateService updateService,
         IRiotAuthClient riotAuthClient,
         IBackupService backupService,
+        IReviewExportService reviewExportService,
         EnemyLanerBackfillService backfillService,
         ILogger<SettingsViewModel> logger)
     {
@@ -227,6 +235,7 @@ public partial class SettingsViewModel : ObservableObject
         _updateService = updateService;
         _riotAuthClient = riotAuthClient;
         _backupService = backupService;
+        _reviewExportService = reviewExportService;
         _backfillService = backfillService;
         _logger = logger;
     }
@@ -286,6 +295,42 @@ public partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load settings");
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExportReviewDataAsync()
+    {
+        if (IsExportingReviewData)
+        {
+            return;
+        }
+
+        IsExportingReviewData = true;
+        ReviewExportStatus = "Building review export...";
+
+        try
+        {
+            var markdown = await _reviewExportService.ExportAllAsync();
+            var fileName = $"revu-review-export-{DateTime.Now:yyyyMMdd-HHmm}.md";
+            var path = await MarkdownExportPicker.PickSavePathAsync(fileName);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                ReviewExportStatus = "Export canceled.";
+                return;
+            }
+
+            await File.WriteAllTextAsync(path, markdown);
+            ReviewExportStatus = $"Exported to {path}";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to export review data");
+            ReviewExportStatus = "Export failed. Check the logs and try again.";
+        }
+        finally
+        {
+            IsExportingReviewData = false;
         }
     }
 

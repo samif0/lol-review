@@ -1134,6 +1134,33 @@
                 <TextBlock Text="BACKUPS &amp; DATA TOOLS" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
                 <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
 
+                <controls:CornerBracketedCard CardBorderBrush="{StaticResource WinGreenBrush}">
+                    <StackPanel Spacing="10">
+                        <controls:SectionTitle Text="EXPORT REVIEW DATA"/>
+                        <TextBlock Text="Save a human-readable Markdown file with your games, post-game notes, prompt answers, objectives, concept tags, matchup notes, VOD links, and bookmarks."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <Button Content="Export all review data"
+                                Command="{x:Bind ViewModel.ExportReviewDataCommand}"
+                                IsEnabled="{x:Bind Not(ViewModel.IsExportingReviewData), Mode=OneWay}"
+                                Background="{StaticResource WinGreenBrush}"
+                                Foreground="{StaticResource ActionPrimaryForegroundBrush}"
+                                HorizontalAlignment="Left"
+                                Height="32" Padding="14,0" CornerRadius="2"
+                                BorderThickness="0"/>
+
+                        <TextBlock Text="{x:Bind ViewModel.ReviewExportStatus, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{x:Bind HasText(ViewModel.ReviewExportStatus), Mode=OneWay}"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
                 <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}">
                     <StackPanel Spacing="10">
                         <controls:SectionTitle Text="RESTORE FROM BACKUP"/>
