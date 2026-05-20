@@ -160,3 +160,49 @@ public sealed record DerivedEventInstanceRecord(
     string DefinitionName,
     string Color,
     IReadOnlyList<string> SourceTypes);
+
+public sealed record EvidenceItemRecord(
+    long Id,
+    long GameId,
+    string SourceKind,
+    long? SourceId,
+    string SourceKey,
+    int? StartTimeSeconds,
+    int? EndTimeSeconds,
+    string Title,
+    string Note,
+    long? ObjectiveId,
+    string ObjectiveTitle,
+    long? ConceptTagId,
+    string ConceptTagName,
+    long? MatchupNoteId,
+    string Polarity,
+    string Status,
+    long? CreatedAt,
+    long? UpdatedAt,
+    string ChampionName,
+    bool? Win,
+    long? GameTimestamp);
+
+public sealed record EvidenceUpsert(
+    long GameId,
+    string SourceKind,
+    long? SourceId,
+    string SourceKey,
+    int? StartTimeSeconds,
+    int? EndTimeSeconds,
+    string Title,
+    string Note = "",
+    long? ObjectiveId = null,
+    long? ConceptTagId = null,
+    long? MatchupNoteId = null,
+    string Polarity = EvidencePolarities.Neutral,
+    string Status = EvidenceStatuses.NeedsReview);
+
+public sealed record ObjectivePatternCard(
+    string Kind,
+    string Title,
+    string Detail,
+    long? GameId = null,
+    long? ObjectiveId = null,
+    string Severity = "medium");

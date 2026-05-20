@@ -202,7 +202,7 @@
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Top"
                                             Margin="0,-6,-10,0">
-                                        <TextBlock Text="Î±"
+                                        <TextBlock Text="A"
                                                    FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
                                                    FontWeight="Bold"
                                                    Foreground="#07060B"

@@ -5,7 +5,10 @@ or repeatable local repros.
 
 ## Current
 
-- None confirmed for the current working branch.
+- AI coach is alpha. It is included for feedback, but answer quality and setup
+  friction are expected to need iteration. Treat coach-caused install, launch,
+  navigation, Settings, or data-safety failures as blockers; treat poor coach
+  output as alpha feedback unless it misrepresents user data in a harmful way.
 
 ## Intake Rule
 

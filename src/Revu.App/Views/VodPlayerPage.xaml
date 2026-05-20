@@ -31,10 +31,10 @@
                       HorizontalAlignment="Center" VerticalAlignment="Center"
                       Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"/>
 
-        <Grid RowDefinitions="Auto,*" Padding="28,20,28,28">
+        <Grid x:Name="VodPageLayout" RowDefinitions="Auto,*" Padding="28,20,28,28">
 
             <!-- ••• HERO HEADER ••• -->
-            <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid x:Name="VodHeader" Grid.Row="0" Margin="0,0,0,16">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
                     <!-- v2.15.9: post-game now lands on the VOD viewer; the
                          primary navigation from here is into the review (paired
@@ -95,17 +95,18 @@
             <!-- ••• MAIN 2-COL LAYOUT ••• -->
             <!-- v2.16: bookmark/clip sidebar gets a hard MinWidth so the tag
                  picker + quality chips never clip at smaller window widths. -->
-            <Grid Grid.Row="1" ColumnSpacing="16">
+            <Grid x:Name="VodMainLayout" Grid.Row="1" ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2.4*"/>
-                    <ColumnDefinition Width="*" MinWidth="380"/>
+                    <ColumnDefinition x:Name="VideoColumnDefinition" Width="2.4*"/>
+                    <ColumnDefinition x:Name="SidebarColumnDefinition" Width="*" MinWidth="380"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- â”€â”€ LEFT: Video + Controls + Clip â”€â”€ -->
-                <ScrollViewer Grid.Column="0"
+                <ScrollViewer x:Name="VideoColumnScrollViewer"
+                              Grid.Column="0"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel Spacing="12" Padding="0,0,0,40">
+                    <StackPanel x:Name="VideoColumnStack" Spacing="12" Padding="0,0,0,40">
 
                         <!-- Video container -->
                         <Border x:Name="VideoBorder"
@@ -186,7 +187,8 @@
                         </Border>
 
                         <!-- Transport bar -->
-                        <Border Background="{StaticResource SurfaceInsetBrush}"
+                        <Border x:Name="TransportBar"
+                                Background="{StaticResource SurfaceInsetBrush}"
                                 BorderBrush="{StaticResource SubtleBorderBrush}"
                                 BorderThickness="1" CornerRadius="2" Padding="12,8">
                             <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto"
@@ -283,7 +285,8 @@
                         </Border>
 
                         <!-- Timeline -->
-                        <Border Background="{StaticResource SurfaceInsetBrush}"
+                        <Border x:Name="TimelineBar"
+                                Background="{StaticResource SurfaceInsetBrush}"
                                 BorderBrush="{StaticResource SubtleBorderBrush}"
                                 BorderThickness="1" CornerRadius="2" Padding="10">
                             <Grid>
@@ -312,7 +315,8 @@
                 </ScrollViewer>
 
                 <!-- â”€â”€ RIGHT: Bookmark Sidebar â”€â”€ -->
-                <ScrollViewer Grid.Column="1"
+                <ScrollViewer x:Name="BookmarkSidebar"
+                              Grid.Column="1"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="12" Padding="0,0,0,40">
@@ -479,6 +483,144 @@
                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" TextWrapping="Wrap" Visibility="Collapsed"
                                        Foreground="{StaticResource LossRedBrush}"/>
                         </StackPanel>
+                    </controls:CornerBracketedCard>
+
+                    <controls:CornerBracketedCard
+                        Visibility="{x:Bind ViewModel.HasEvidenceInboxItems, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                        <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                                <controls:SectionTitle Text="TIMELINE INBOX"/>
+                                <Border Grid.Column="1"
+                                        Background="{StaticResource SurfaceInsetBrush}"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                        BorderThickness="1" CornerRadius="2" Padding="8,4">
+                                    <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                               Foreground="{StaticResource PrimaryTextBrush}">
+                                        <Run Text="{x:Bind ViewModel.EvidenceInbox.Count, Mode=OneWay}"/>
+                                        <Run Text=" open"/>
+                                    </TextBlock>
+                                </Border>
+                            </Grid>
+
+                            <ScrollViewer x:Name="TimelineInboxScroll"
+                                          Grid.Row="1"
+                                          MaxHeight="360"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.EvidenceInbox, Mode=OneWay}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Spacing="6"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:EvidenceInboxItem">
+                                            <Border Background="{StaticResource SurfaceInsetBrush}"
+                                                    BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
+                                                    BorderThickness="1" CornerRadius="2" Padding="10,9">
+                                                <StackPanel Spacing="7">
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                        <StackPanel Grid.Column="0" Spacing="3">
+                                                            <TextBlock Text="{x:Bind Title}"
+                                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                                       TextWrapping="Wrap"/>
+                                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                <Border Background="{StaticResource CardBackgroundBrush}"
+                                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                                        BorderThickness="1" CornerRadius="2" Padding="5,2">
+                                                                    <TextBlock Text="{x:Bind SourceLabel}"
+                                                                               FontFamily="{StaticResource MonoFont}"
+                                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                               Foreground="{StaticResource MutedTextBrush}"/>
+                                                                </Border>
+                                                                <TextBlock Text="{x:Bind TimeRangeText}"
+                                                                           FontFamily="{StaticResource MonoFont}"
+                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                        <Button Grid.Column="1"
+                                                                Style="{StaticResource GhostIconButtonStyle}"
+                                                                DataContext="{x:Bind}"
+                                                                Click="OnOpenEvidenceClick"
+                                                                ToolTipService.ToolTip="Open moment">
+                                                            <FontIcon Glyph="&#xE768;"
+                                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                                      FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
+                                                        </Button>
+                                                    </Grid>
+
+                                                    <controls:ObjectivePicker Source="{x:Bind TagOptions, Mode=OneWay}"
+                                                                              Payload="{x:Bind}"
+                                                                              SelectedTitle="{x:Bind ObjectiveTitleDisplay, Mode=OneWay}"
+                                                                              PlaceholderText="Tag objective..."
+                                                                              TagChosen="OnEvidenceTagChosen"
+                                                                              HorizontalAlignment="Stretch"/>
+
+                                                    <TextBox Text="{x:Bind Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             DataContext="{x:Bind}"
+                                                             Background="{StaticResource InputBackgroundBrush}"
+                                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                             BorderThickness="1" CornerRadius="2"
+                                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                                             FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                             Padding="8,5"
+                                                             PlaceholderText="Evidence note"
+                                                             TextWrapping="Wrap"
+                                                             AcceptsReturn="True"
+                                                             LostFocus="OnEvidenceNoteLostFocus"/>
+
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                                                            <Border BorderBrush="{x:Bind PolarityAccentBrush, Mode=OneWay}"
+                                                                    Background="{StaticResource CardBackgroundBrush}"
+                                                                    BorderThickness="1" CornerRadius="2" Padding="6,3">
+                                                                <TextBlock Text="{x:Bind PolarityLabel, Mode=OneWay}"
+                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                                           Foreground="{x:Bind PolarityAccentBrush, Mode=OneWay}"/>
+                                                            </Border>
+                                                            <Border BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
+                                                                    Background="{StaticResource CardBackgroundBrush}"
+                                                                    BorderThickness="1" CornerRadius="2" Padding="6,3">
+                                                                <TextBlock Text="{x:Bind StatusLabel, Mode=OneWay}"
+                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                                           Foreground="{x:Bind StatusAccentBrush, Mode=OneWay}"/>
+                                                            </Border>
+                                                        </StackPanel>
+
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                                            <Button Content="Good" Tag="good" DataContext="{x:Bind}"
+                                                                    Click="OnEvidencePolarityClick"
+                                                                    Style="{StaticResource ListActionButtonStyle}"
+                                                                    Height="28" Padding="8,0"/>
+                                                            <Button Content="Bad" Tag="bad" DataContext="{x:Bind}"
+                                                                    Click="OnEvidencePolarityClick"
+                                                                    Style="{StaticResource ListActionButtonStyle}"
+                                                                    Height="28" Padding="8,0"/>
+                                                        </StackPanel>
+                                                    </Grid>
+
+                                                    <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+                                                        <Button Content="Evidence" Tag="evidence" DataContext="{x:Bind}"
+                                                                Click="OnEvidenceStatusClick"
+                                                                Style="{StaticResource ListActionButtonStyle}"
+                                                                Height="28" Padding="8,0"/>
+                                                        <Button Content="Highlight" Tag="highlight" DataContext="{x:Bind}"
+                                                                Click="OnEvidenceStatusClick"
+                                                                Style="{StaticResource ListActionButtonStyle}"
+                                                                Height="28" Padding="8,0"/>
+                                                        <Button Content="Dismiss" Tag="dismissed" DataContext="{x:Bind}"
+                                                                Click="OnEvidenceStatusClick"
+                                                                Style="{StaticResource ListActionButtonStyle}"
+                                                                Height="28" Padding="8,0"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+                            </ScrollViewer>
+                        </Grid>
                     </controls:CornerBracketedCard>
 
                     <!-- Saved bookmarks + clips -->

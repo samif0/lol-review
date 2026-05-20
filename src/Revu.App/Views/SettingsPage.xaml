@@ -32,7 +32,71 @@
     </Page.Resources>
 
     <Grid x:Name="RootGrid">
-        <ScrollViewer VerticalScrollBarVisibility="Auto"
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="216"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0"
+                Background="{StaticResource SidebarBackgroundBrush}"
+                BorderBrush="{StaticResource SubtleBorderBrush}"
+                BorderThickness="0,0,1,0"
+                Padding="18,28,18,18">
+            <StackPanel Spacing="8">
+                <TextBlock Text="SETTINGS"
+                           FontFamily="{StaticResource HeadingFont}"
+                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                           FontWeight="Bold"
+                           Foreground="{StaticResource AccentBlueBrush}"
+                           CharacterSpacing="120"/>
+                <Button Content="Recordings"
+                        Tag="recordings"
+                        Click="OnSettingsNavClick"
+                        Style="{StaticResource QuietActionButtonStyle}"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"/>
+                <Button Content="Backups"
+                        Tag="backups"
+                        Click="OnSettingsNavClick"
+                        Style="{StaticResource QuietActionButtonStyle}"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"/>
+                <Button Content="Behavior"
+                        Tag="behavior"
+                        Click="OnSettingsNavClick"
+                        Style="{StaticResource QuietActionButtonStyle}"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"/>
+                <Button Content="Appearance"
+                        Tag="appearance"
+                        Click="OnSettingsNavClick"
+                        Style="{StaticResource QuietActionButtonStyle}"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"/>
+                <Button Content="Updates"
+                        Tag="updates"
+                        Click="OnSettingsNavClick"
+                        Style="{StaticResource QuietActionButtonStyle}"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"/>
+                <Button Content="AI Coach"
+                        Tag="coach"
+                        Click="OnSettingsNavClick"
+                        Style="{StaticResource QuietActionButtonStyle}"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"/>
+                <Button Content="Account"
+                        Tag="account"
+                        Click="OnSettingsNavClick"
+                        Style="{StaticResource QuietActionButtonStyle}"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer x:Name="SettingsScroll"
+                      Grid.Column="1"
+                      VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Padding="40,30,40,40">
             <StackPanel Spacing="14" HorizontalAlignment="Stretch">
@@ -44,7 +108,9 @@
 
                 <!-- ••• Ascent VOD Recordings Section ••• -->
                 <!-- v2.16: RECORDINGS / VOD category -->
-                <TextBlock Text="RECORDINGS &amp; CLIPS" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <TextBlock x:Name="RecordingsSection"
+                           Text="RECORDINGS &amp; CLIPS"
+                           Style="{StaticResource SettingsCategoryHeaderStyle}"/>
                 <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
 
                 <controls:CornerBracketedCard>
@@ -185,7 +251,9 @@
 
                 <!-- ••• Database Backup Section ••• -->
                 <!-- v2.16: BACKUPS category (split: see also lower in page) -->
-                <TextBlock Text="BACKUPS" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <TextBlock x:Name="BackupsSection"
+                           Text="BACKUPS"
+                           Style="{StaticResource SettingsCategoryHeaderStyle}"/>
                 <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
 
                 <controls:CornerBracketedCard>
@@ -234,7 +302,9 @@
 
                 <!-- ••• Tilt Fix Mode Section ••• -->
                 <!-- v2.16: BEHAVIOR category -->
-                <TextBlock Text="APP BEHAVIOR" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <TextBlock x:Name="BehaviorSection"
+                           Text="APP BEHAVIOR"
+                           Style="{StaticResource SettingsCategoryHeaderStyle}"/>
                 <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
 
                 <controls:CornerBracketedCard>
@@ -288,7 +358,9 @@
 
                 <!-- v2.15.0: Display / motion preferences -->
                 <!-- v2.16: APPEARANCE category -->
-                <TextBlock Text="APPEARANCE" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <TextBlock x:Name="AppearanceSection"
+                           Text="APPEARANCE"
+                           Style="{StaticResource SettingsCategoryHeaderStyle}"/>
                 <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
 
                 <controls:CornerBracketedCard>
@@ -307,7 +379,9 @@
 
                 <!-- ••• App Version & Updates Section ••• -->
                 <!-- v2.16: ABOUT category -->
-                <TextBlock Text="ABOUT &amp; UPDATES" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <TextBlock x:Name="UpdatesSection"
+                           Text="ABOUT &amp; UPDATES"
+                           Style="{StaticResource SettingsCategoryHeaderStyle}"/>
                 <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
 
                 <controls:CornerBracketedCard>
@@ -394,7 +468,9 @@
 
                 <!-- ••• AI Coach Section ••• -->
                 <!-- v2.16: AI COACH category -->
-                <TextBlock Text="AI COACH" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <TextBlock x:Name="CoachSection"
+                           Text="AI COACH"
+                           Style="{StaticResource SettingsCategoryHeaderStyle}"/>
                 <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
 
                 <controls:CornerBracketedCard>
@@ -697,7 +773,7 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="1"
-                                       Text="âœ“ Key saved to Windows Credential Manager. Leave blank above to keep it."
+                                       Text="Key saved to Windows Credential Manager. Leave blank above to keep it."
                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
                         </Grid>
@@ -770,7 +846,7 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="1"
-                                       Text="âœ“ Key saved to Windows Credential Manager. Leave blank above to keep it."
+                                       Text="Key saved to Windows Credential Manager. Leave blank above to keep it."
                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
                         </Grid>
@@ -856,7 +932,9 @@
                 </Grid>
 
                 <!-- v2.16: ACCOUNT category -->
-                <TextBlock Text="RIOT ACCOUNT" Style="{StaticResource SettingsCategoryHeaderStyle}"/>
+                <TextBlock x:Name="AccountSection"
+                           Text="RIOT ACCOUNT"
+                           Style="{StaticResource SettingsCategoryHeaderStyle}"/>
                 <Border Style="{StaticResource SettingsCategoryRuleStyle}"/>
 
                 <!-- Revu account (compact status; full flow lives in onboarding) -->

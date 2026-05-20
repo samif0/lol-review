@@ -23,6 +23,7 @@ internal sealed class TestDatabaseScope : IDisposable
         Games = new GameRepository(ConnectionFactory, new NoopBackupService());
         GameEvents = new GameEventsRepository(ConnectionFactory);
         DerivedEvents = new DerivedEventsRepository(ConnectionFactory);
+        Evidence = new EvidenceRepository(ConnectionFactory);
         Objectives = new ObjectivesRepository(ConnectionFactory);
         Prompts = new PromptsRepository(ConnectionFactory);
         MatchupNotes = new MatchupNotesRepository(ConnectionFactory);
@@ -44,6 +45,8 @@ internal sealed class TestDatabaseScope : IDisposable
     public GameEventsRepository GameEvents { get; }
 
     public DerivedEventsRepository DerivedEvents { get; }
+
+    public EvidenceRepository Evidence { get; }
 
     public ObjectivesRepository Objectives { get; }
 

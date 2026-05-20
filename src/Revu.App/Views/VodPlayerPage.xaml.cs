@@ -50,6 +50,10 @@ public sealed partial class VodPlayerPage : Page
             PointerPressedEvent,
             new PointerEventHandler(OnVideoPointerPressed),
             handledEventsToo: true);
+        TimelineInboxScroll.AddHandler(
+            UIElement.PointerWheelChangedEvent,
+            new PointerEventHandler(TimelineInboxScroll_PointerWheelChanged),
+            handledEventsToo: true);
 
         Loaded += (_, _) =>
         {
@@ -122,6 +126,11 @@ public sealed partial class VodPlayerPage : Page
         // v2.16: don't auto-restore Default presenter on leave. Auto-fullscreen
         // is gone (see OnNavigatedTo). If the user opted into fullscreen via
         // the manual button, it's their choice — leave them in it.
+
+        if (_isFullscreen)
+        {
+            ExitVideoTheaterMode();
+        }
 
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         Cleanup();
@@ -521,6 +530,93 @@ public sealed partial class VodPlayerPage : Page
             new BookmarkTagUpdateRequest(bookmark, newObjectiveId, newPromptId));
     }
 
+    private async void OnEvidenceTagChosen(object sender, Controls.ObjectivePicker.TagChosenEventArgs e)
+    {
+        if (e.Payload is not EvidenceInboxItem evidence) return;
+
+        var newObjectiveId = e.Option.ObjectiveId;
+        if (newObjectiveId == evidence.ObjectiveId)
+        {
+            return;
+        }
+
+        await ViewModel.SetEvidenceObjectiveCommand.ExecuteAsync(
+            new EvidenceObjectiveUpdateRequest(evidence, newObjectiveId));
+    }
+
+    private async void OnEvidenceStatusClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button
+            || button.DataContext is not EvidenceInboxItem evidence
+            || button.Tag is not string status)
+        {
+            return;
+        }
+
+        await ViewModel.SetEvidenceStatusCommand.ExecuteAsync(
+            new EvidenceStatusUpdateRequest(evidence, status));
+    }
+
+    private async void OnEvidencePolarityClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button
+            || button.DataContext is not EvidenceInboxItem evidence
+            || button.Tag is not string polarity)
+        {
+            return;
+        }
+
+        await ViewModel.SetEvidencePolarityCommand.ExecuteAsync(
+            new EvidencePolarityUpdateRequest(evidence, polarity));
+    }
+
+    private async void OnEvidenceNoteLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox { DataContext: EvidenceInboxItem evidence })
+        {
+            await ViewModel.SaveEvidenceNoteCommand.ExecuteAsync(evidence);
+        }
+    }
+
+    private void TimelineInboxScroll_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is ScrollViewer scroller)
+        {
+            ScrollInnerViewer(scroller, e);
+        }
+    }
+
+    private static void ScrollInnerViewer(ScrollViewer scroller, PointerRoutedEventArgs e)
+    {
+        if (scroller.ScrollableHeight <= 0)
+        {
+            return;
+        }
+
+        var delta = e.GetCurrentPoint(scroller).Properties.MouseWheelDelta;
+        var canScroll = delta < 0
+            ? scroller.VerticalOffset < scroller.ScrollableHeight
+            : scroller.VerticalOffset > 0;
+
+        if (!canScroll)
+        {
+            return;
+        }
+
+        var nextOffset = Math.Clamp(scroller.VerticalOffset - delta, 0, scroller.ScrollableHeight);
+        scroller.ChangeView(null, nextOffset, null, disableAnimation: true);
+        e.Handled = true;
+    }
+
+    private void OnOpenEvidenceClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: EvidenceInboxItem evidence })
+        {
+            ViewModel.OpenEvidenceCommand.Execute(evidence);
+            FocusPlaybackSurface();
+        }
+    }
+
     // v2.15.7: both top-of-page pickers share VM.SelectedObjectiveId +
     // SelectedPromptId. When either flips, resolve a display title from the
     // matching TagOption row (preferring the Prompt row when a prompt is
@@ -663,11 +759,13 @@ public sealed partial class VodPlayerPage : Page
 
     private void OnFullscreenClick(object sender, RoutedEventArgs e)
     {
-        ToggleFullscreen();
+        ToggleVideoTheaterMode();
         FocusPlaybackSurface();
     }
 
     private bool _isFullscreen;
+    private static readonly Thickness DefaultVodPagePadding = new(28, 20, 28, 28);
+    private static readonly Thickness TheaterVodPagePadding = new(10, 10, 10, 10);
 
     /// <summary>
     /// v2.16: ensures the window is at least <c>MinVodWindowWidth</c> ×
@@ -684,6 +782,7 @@ public sealed partial class VodPlayerPage : Page
         {
             var appWindow = App.MainWindow?.AppWindow;
             if (appWindow is null) return;
+            if (_isFullscreen) return;
 
             // FullScreen / Maximized presenter already covers the screen — skip.
             if (appWindow.Presenter is Microsoft.UI.Windowing.FullScreenPresenter) return;
@@ -709,25 +808,69 @@ public sealed partial class VodPlayerPage : Page
         }
     }
 
-    private void ToggleFullscreen()
+    private void ToggleVideoTheaterMode()
     {
-        var window = App.MainWindow;
-        if (window == null) return;
-
-        var appWindow = window.AppWindow;
-        if (appWindow == null) return;
+        ExitAppWindowFullscreenIfNeeded();
 
         if (_isFullscreen)
         {
-            appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
-            _isFullscreen = false;
-            FullscreenIcon.Glyph = "\uE740"; // EnterFullScreen
+            ExitVideoTheaterMode();
         }
         else
         {
-            appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
-            _isFullscreen = true;
-            FullscreenIcon.Glyph = "\uE73F"; // ExitFullScreen
+            EnterVideoTheaterMode();
+        }
+    }
+
+    private void EnterVideoTheaterMode()
+    {
+        _isFullscreen = true;
+        VodHeader.Visibility = Visibility.Collapsed;
+        BookmarkSidebar.Visibility = Visibility.Collapsed;
+        TimelineBar.Visibility = Visibility.Collapsed;
+        VodMainLayout.ColumnSpacing = 0;
+        VideoColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
+        SidebarColumnDefinition.Width = new GridLength(0);
+        SidebarColumnDefinition.MinWidth = 0;
+        VodPageLayout.Padding = TheaterVodPagePadding;
+        VideoColumnScrollViewer.SetValue(Grid.ColumnSpanProperty, 2);
+        VideoColumnStack.Padding = new Thickness(0);
+        VideoBorder.Padding = new Thickness(0);
+        VideoContainer.MinHeight = Math.Max(520, RootGrid.ActualHeight - TransportBar.ActualHeight - 56);
+        FullscreenIcon.Glyph = "\uE73F"; // ExitFullScreen
+    }
+
+    private void ExitVideoTheaterMode()
+    {
+        _isFullscreen = false;
+        VodHeader.Visibility = Visibility.Visible;
+        BookmarkSidebar.Visibility = Visibility.Visible;
+        TimelineBar.Visibility = Visibility.Visible;
+        VodMainLayout.ColumnSpacing = 16;
+        VideoColumnDefinition.Width = new GridLength(2.4, GridUnitType.Star);
+        SidebarColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
+        SidebarColumnDefinition.MinWidth = 380;
+        VodPageLayout.Padding = DefaultVodPagePadding;
+        VideoColumnScrollViewer.SetValue(Grid.ColumnSpanProperty, 1);
+        VideoColumnStack.Padding = new Thickness(0, 0, 0, 40);
+        VideoBorder.Padding = new Thickness(6);
+        VideoContainer.MinHeight = 420;
+        FullscreenIcon.Glyph = "\uE740"; // EnterFullScreen
+    }
+
+    private static void ExitAppWindowFullscreenIfNeeded()
+    {
+        try
+        {
+            var appWindow = App.MainWindow?.AppWindow;
+            if (appWindow?.Presenter is Microsoft.UI.Windowing.FullScreenPresenter)
+            {
+                appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
+            }
+        }
+        catch
+        {
+            // Best-effort recovery for users already in the old window-level fullscreen mode.
         }
     }
 
@@ -847,15 +990,13 @@ public sealed partial class VodPlayerPage : Page
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.F:
-                ToggleFullscreen();
+                ToggleVideoTheaterMode();
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.Escape:
-                if (App.MainWindow?.AppWindow?.Presenter
-                    is Microsoft.UI.Windowing.FullScreenPresenter)
+                if (_isFullscreen)
                 {
-                    _isFullscreen = true; // resync so ToggleFullscreen takes the exit branch
-                    ToggleFullscreen();
+                    ExitVideoTheaterMode();
                     e.Handled = true;
                 }
                 break;

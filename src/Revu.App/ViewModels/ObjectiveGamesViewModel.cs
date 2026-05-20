@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Revu.App.Contracts;
+using Revu.App.Helpers;
 using Revu.App.Styling;
 using Revu.Core.Data.Repositories;
 using Microsoft.UI.Xaml.Media;
@@ -33,10 +34,39 @@ public sealed class ObjectiveGameRow
         : AppSemanticPalette.Brush(AppSemanticPalette.NeutralHex);
 }
 
+public sealed class ObjectiveEvidenceRow
+{
+    public long GameId { get; init; }
+    public string Title { get; init; } = "";
+    public string Note { get; init; } = "";
+    public string ChampionName { get; init; } = "";
+    public string DateText { get; init; } = "";
+    public string TimeText { get; init; } = "";
+    public string Polarity { get; init; } = EvidencePolarities.Neutral;
+    public string Status { get; init; } = EvidenceStatuses.NeedsReview;
+
+    public string MetaText => string.Join("  /  ", new[] { ChampionName, DateText, TimeText }.Where(static text => !string.IsNullOrWhiteSpace(text)));
+
+    public string PolarityLabel => EvidencePolarities.Normalize(Polarity) switch
+    {
+        EvidencePolarities.Good => "Good example",
+        EvidencePolarities.Bad => "Bad example",
+        _ => "Neutral",
+    };
+
+    public SolidColorBrush AccentBrush => AppSemanticPalette.Brush(EvidencePolarities.Normalize(Polarity) switch
+    {
+        EvidencePolarities.Good => AppSemanticPalette.PositiveHex,
+        EvidencePolarities.Bad => AppSemanticPalette.NegativeHex,
+        _ => AppSemanticPalette.NeutralHex,
+    });
+}
+
 /// <summary>ViewModel for the Objective Games page — shows all games linked to one objective.</summary>
 public partial class ObjectiveGamesViewModel : ObservableObject
 {
     private readonly IObjectivesRepository _objectivesRepo;
+    private readonly IEvidenceRepository _evidenceRepo;
     private readonly INavigationService _navigationService;
 
     [ObservableProperty]
@@ -49,7 +79,12 @@ public partial class ObjectiveGamesViewModel : ObservableObject
     private string _objectiveStatus = "";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasActivity))]
     private bool _hasGames;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasActivity))]
+    private bool _hasEvidence;
 
     [ObservableProperty]
     private int _practicedCount;
@@ -57,15 +92,24 @@ public partial class ObjectiveGamesViewModel : ObservableObject
     [ObservableProperty]
     private int _totalCount;
 
+    [ObservableProperty]
+    private string _evidenceSummary = "";
+
     private long _objectiveId;
 
     public ObservableCollection<ObjectiveGameRow> Games { get; } = new();
 
+    public ObservableCollection<ObjectiveEvidenceRow> Evidence { get; } = new();
+
+    public bool HasActivity => HasGames || HasEvidence;
+
     public ObjectiveGamesViewModel(
         IObjectivesRepository objectivesRepo,
+        IEvidenceRepository evidenceRepo,
         INavigationService navigationService)
     {
         _objectivesRepo = objectivesRepo;
+        _evidenceRepo = evidenceRepo;
         _navigationService = navigationService;
     }
 
@@ -74,6 +118,7 @@ public partial class ObjectiveGamesViewModel : ObservableObject
     {
         _objectiveId = objectiveId;
         IsLoading = true;
+        using var perf = PerformanceTrace.Time("ObjectiveGames.Load", $"objectiveId={objectiveId}");
         try
         {
             var objective = await _objectivesRepo.GetAsync(objectiveId);
@@ -112,6 +157,40 @@ public partial class ObjectiveGamesViewModel : ObservableObject
             TotalCount = Games.Count;
             PracticedCount = Games.Count(g => g.Practiced);
             HasGames = Games.Count > 0;
+
+            var evidenceRows = await _evidenceRepo.GetForObjectiveAsync(objectiveId);
+            Evidence.Clear();
+            foreach (var evidence in evidenceRows)
+            {
+                var date = evidence.GameTimestamp is long ts && ts > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(ts).LocalDateTime.ToString("MMM d, yyyy")
+                    : "";
+
+                Evidence.Add(new ObjectiveEvidenceRow
+                {
+                    GameId = evidence.GameId,
+                    Title = evidence.Title,
+                    Note = evidence.Note,
+                    ChampionName = evidence.ChampionName,
+                    DateText = date,
+                    TimeText = evidence.StartTimeSeconds is int start ? VodPlayerViewModel.FormatTime(start) : "",
+                    Polarity = evidence.Polarity,
+                    Status = evidence.Status,
+                });
+            }
+
+            HasEvidence = Evidence.Count > 0;
+            if (HasEvidence)
+            {
+                var good = Evidence.Count(e => EvidencePolarities.Normalize(e.Polarity) == EvidencePolarities.Good);
+                var bad = Evidence.Count(e => EvidencePolarities.Normalize(e.Polarity) == EvidencePolarities.Bad);
+                var neutral = Evidence.Count - good - bad;
+                EvidenceSummary = $"{Evidence.Count} evidence item(s)  /  {good} good  /  {bad} bad  /  {neutral} neutral";
+            }
+            else
+            {
+                EvidenceSummary = "No linked evidence yet.";
+            }
         }
         finally
         {

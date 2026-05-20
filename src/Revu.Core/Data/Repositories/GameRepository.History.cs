@@ -190,6 +190,7 @@ public sealed partial class GameRepository
                           AND (
                                 COALESCE(session_log.improvement_note, '') != ''
                              OR COALESCE(session_log.mental_handled, '') != ''
+                             OR COALESCE(session_log.is_skipped, 0) = 1
                           )
                     )
                  OR EXISTS (

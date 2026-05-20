@@ -147,7 +147,7 @@
                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                        Foreground="{StaticResource AccentPurpleBrush}"
                                        VerticalAlignment="Center"/>
-                            <Button Content="Ã—"
+                            <Button Content="x"
                                     Click="OnClearScopeClick"
                                     Background="Transparent"
                                     BorderThickness="0"

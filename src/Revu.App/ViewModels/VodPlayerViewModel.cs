@@ -21,11 +21,13 @@ namespace Revu.App.ViewModels;
 public partial class VodPlayerViewModel : ObservableObject
 {
     private static readonly TimeSpan BookmarkNoteSaveDebounce = TimeSpan.FromMilliseconds(650);
+    private const int EvidenceJumpPreRollSeconds = 5;
 
     private readonly IVodRepository _vodRepo;
     private readonly IGameRepository _gameRepo;
     private readonly IGameEventsRepository _eventsRepo;
     private readonly IDerivedEventsRepository _derivedEventsRepo;
+    private readonly IEvidenceRepository _evidenceRepo;
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IPromptsRepository _promptsRepo;
     private readonly IClipService _clipService;
@@ -66,6 +68,7 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private bool _hasGameEvents;
     [ObservableProperty] private bool _showNoEventsHint;
     [ObservableProperty] private string _gameEventsStatusText = "No live events.";
+    [ObservableProperty] private bool _hasEvidenceInboxItems;
 
     // â"€â"€ Clip extraction â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -94,6 +97,7 @@ public partial class VodPlayerViewModel : ObservableObject
     public ObservableCollection<BookmarkItem> Bookmarks { get; } = new();
     public ObservableCollection<TimelineEvent> GameEvents { get; } = new();
     public ObservableCollection<DerivedEventRegion> DerivedEvents { get; } = new();
+    public ObservableCollection<EvidenceInboxItem> EvidenceInbox { get; } = new();
     public ObservableCollection<ObjectiveOption> ObjectiveOptions { get; } = new();
     // v2.15.7: unified tag picker — flat list of objectives + their prompts
     // (indented). BookmarkItem.TagOptions shares this reference so per-clip
@@ -164,6 +168,7 @@ public partial class VodPlayerViewModel : ObservableObject
         IGameRepository gameRepo,
         IGameEventsRepository eventsRepo,
         IDerivedEventsRepository derivedEventsRepo,
+        IEvidenceRepository evidenceRepo,
         IObjectivesRepository objectivesRepo,
         IPromptsRepository promptsRepo,
         IClipService clipService,
@@ -178,6 +183,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _gameRepo = gameRepo;
         _eventsRepo = eventsRepo;
         _derivedEventsRepo = derivedEventsRepo;
+        _evidenceRepo = evidenceRepo;
         _objectivesRepo = objectivesRepo;
         _promptsRepo = promptsRepo;
         _clipService = clipService;
@@ -197,6 +203,7 @@ public partial class VodPlayerViewModel : ObservableObject
     {
         if (IsLoading) return;
         IsLoading = true;
+        using var perf = PerformanceTrace.Time("VodPlayer.Load", $"gameId={gameId}");
 
         try
         {
@@ -238,7 +245,7 @@ public partial class VodPlayerViewModel : ObservableObject
 
             HasVod = vod is not null;
             VodPath = vod?.FilePath ?? "";
-            HasPlayableVod = vod is not null && !string.IsNullOrWhiteSpace(vod.FilePath) && File.Exists(vod.FilePath);
+            HasPlayableVod = vod is not null && FileProbeCache.Exists(vod.FilePath);
             VodAvailabilityText = HasPlayableVod
                 ? "Recording ready."
                 : vod is null
@@ -275,6 +282,7 @@ public partial class VodPlayerViewModel : ObservableObject
 
             // Load derived events for timeline regions
             var derived = await _derivedEventsRepo.GetInstancesAsync(gameId);
+            var inferredRegions = TimelineInferenceService.Infer(events);
             DispatcherHelper.RunOnUIThread(() =>
             {
                 DerivedEvents.Clear();
@@ -288,6 +296,19 @@ public partial class VodPlayerViewModel : ObservableObject
                         Name = de.DefinitionName,
                     });
                 }
+
+                foreach (var inferred in inferredRegions)
+                {
+                    DerivedEvents.Add(new DerivedEventRegion
+                    {
+                        StartTimeS = inferred.StartTimeSeconds,
+                        EndTimeS = inferred.EndTimeSeconds,
+                        Color = inferred.Color,
+                        Name = inferred.Name,
+                        Tooltip = inferred.Tooltip,
+                        IsInferred = true,
+                    });
+                }
             });
 
             // Load bookmarks
@@ -295,6 +316,9 @@ public partial class VodPlayerViewModel : ObservableObject
 
             // Load active objectives for clip attachment
             await LoadObjectiveOptionsAsync();
+
+            await SyncEvidenceCandidatesAsync(inferredRegions);
+            await RefreshEvidenceInboxAsync();
 
             // Check ffmpeg availability
             var ffmpegPath = await _clipService.FindFfmpegAsync();
@@ -491,6 +515,22 @@ public partial class VodPlayerViewModel : ObservableObject
             await EnqueueBookmarkMutationAsync(
                 () => _vodRepo.SetBookmarkTagAsync(bookmark.Id, request.ObjectiveId, request.PromptId));
             await MarkObjectivePracticedFromBookmarkAsync(request.ObjectiveId);
+            if (bookmark.IsClip)
+            {
+                await _evidenceRepo.UpsertAsync(new EvidenceUpsert(
+                    GameId: GameId,
+                    SourceKind: EvidenceKinds.Clip,
+                    SourceId: bookmark.Id,
+                    SourceKey: $"clip:{bookmark.Id}",
+                    StartTimeSeconds: bookmark.ClipStartSeconds ?? bookmark.GameTimeS,
+                    EndTimeSeconds: bookmark.ClipStartSeconds ?? bookmark.GameTimeS,
+                    Title: string.IsNullOrWhiteSpace(bookmark.Note) ? "Saved clip" : bookmark.Note,
+                    Note: bookmark.Note,
+                    ObjectiveId: request.ObjectiveId,
+                    Polarity: string.IsNullOrWhiteSpace(bookmark.Quality) ? EvidencePolarities.Neutral : bookmark.Quality,
+                    Status: string.IsNullOrWhiteSpace(bookmark.Quality) ? EvidenceStatuses.NeedsReview : EvidenceStatuses.Evidence));
+                await RefreshEvidenceInboxAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -562,6 +602,19 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             await EnqueueBookmarkMutationAsync(
                 () => _vodRepo.UpdateBookmarkAsync(originalBookmark.Id, quality: normalizedQuality));
+            await _evidenceRepo.UpsertAsync(new EvidenceUpsert(
+                GameId: GameId,
+                SourceKind: EvidenceKinds.Clip,
+                SourceId: originalBookmark.Id,
+                SourceKey: $"clip:{originalBookmark.Id}",
+                StartTimeSeconds: originalBookmark.ClipStartSeconds ?? originalBookmark.GameTimeS,
+                EndTimeSeconds: originalBookmark.ClipStartSeconds ?? originalBookmark.GameTimeS,
+                Title: string.IsNullOrWhiteSpace(originalBookmark.Note) ? "Saved clip" : originalBookmark.Note,
+                Note: originalBookmark.Note,
+                ObjectiveId: originalBookmark.ObjectiveId,
+                Polarity: string.IsNullOrWhiteSpace(normalizedQuality) ? EvidencePolarities.Neutral : normalizedQuality,
+                Status: string.IsNullOrWhiteSpace(normalizedQuality) ? EvidenceStatuses.NeedsReview : EvidenceStatuses.Evidence));
+            await RefreshEvidenceInboxAsync();
         }
         catch (Exception ex)
         {
@@ -597,6 +650,127 @@ public partial class VodPlayerViewModel : ObservableObject
         }
 
         SeekRequested?.Invoke(timelineEvent.GameTimeS);
+    }
+
+    [RelayCommand]
+    private async Task SetEvidenceStatusAsync(EvidenceStatusUpdateRequest? request)
+    {
+        if (request?.Evidence is not EvidenceInboxItem evidence || evidence.Id <= 0)
+        {
+            return;
+        }
+
+        var normalized = EvidenceStatuses.Normalize(request.Status);
+        try
+        {
+            await _evidenceRepo.UpdateStatusAsync(evidence.Id, normalized);
+            if (normalized == EvidenceStatuses.Dismissed)
+            {
+                DispatcherHelper.RunOnUIThread(() =>
+                {
+                    EvidenceInbox.Remove(evidence);
+                    HasEvidenceInboxItems = EvidenceInbox.Count > 0;
+                });
+            }
+            else
+            {
+                evidence.Status = normalized;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update evidence status {EvidenceId}", evidence.Id);
+        }
+    }
+
+    [RelayCommand]
+    private async Task SetEvidencePolarityAsync(EvidencePolarityUpdateRequest? request)
+    {
+        if (request?.Evidence is not EvidenceInboxItem evidence || evidence.Id <= 0)
+        {
+            return;
+        }
+
+        var normalized = EvidencePolarities.Normalize(request.Polarity);
+        try
+        {
+            await _evidenceRepo.UpdatePolarityAsync(evidence.Id, normalized);
+            evidence.Polarity = normalized;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update evidence polarity {EvidenceId}", evidence.Id);
+        }
+    }
+
+    [RelayCommand]
+    private async Task SetEvidenceObjectiveAsync(EvidenceObjectiveUpdateRequest? request)
+    {
+        if (request?.Evidence is not EvidenceInboxItem evidence || evidence.Id <= 0)
+        {
+            return;
+        }
+
+        var previous = evidence.ObjectiveId;
+        evidence.ObjectiveId = request.ObjectiveId;
+        try
+        {
+            await _evidenceRepo.UpdateObjectiveAsync(evidence.Id, request.ObjectiveId);
+            if (request.ObjectiveId is long && evidence.Status == EvidenceStatuses.NeedsReview)
+            {
+                await _evidenceRepo.UpdateStatusAsync(evidence.Id, EvidenceStatuses.Evidence);
+                evidence.Status = EvidenceStatuses.Evidence;
+            }
+
+            await MarkObjectivePracticedFromBookmarkAsync(request.ObjectiveId);
+        }
+        catch (Exception ex)
+        {
+            evidence.ObjectiveId = previous;
+            _logger.LogError(ex, "Failed to set objective for evidence {EvidenceId}", evidence.Id);
+        }
+    }
+
+    [RelayCommand]
+    private async Task SaveEvidenceNoteAsync(EvidenceInboxItem? evidence)
+    {
+        if (evidence is null || evidence.Id <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _evidenceRepo.UpdateNoteAsync(evidence.Id, evidence.Note);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save evidence note {EvidenceId}", evidence.Id);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenEvidence(EvidenceInboxItem? evidence)
+    {
+        if (evidence is null)
+        {
+            return;
+        }
+
+        if (evidence.SourceKind == EvidenceKinds.Clip
+            && evidence.SourceId is long bookmarkId
+            && Bookmarks.FirstOrDefault(b => b.Id == bookmarkId) is BookmarkItem bookmark
+            && !HasPlayableVod
+            && bookmark.HasPlayableClip)
+        {
+            ClipPlaybackRequested?.Invoke(bookmark);
+            return;
+        }
+
+        if (evidence.StartTimeSeconds is int start)
+        {
+            SeekRequested?.Invoke(Math.Clamp(start - EvidenceJumpPreRollSeconds, 0, GameDurationS));
+        }
     }
 
     // â"€â"€ Clip commands â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -651,6 +825,7 @@ public partial class VodPlayerViewModel : ObservableObject
 
             if (!string.IsNullOrEmpty(clipPath))
             {
+                FileProbeCache.Invalidate(clipPath);
                 var bookmarkId = await EnqueueBookmarkMutationAsync(
                     () => _vodRepo.AddBookmarkAsync(
                         GameId,
@@ -673,7 +848,7 @@ public partial class VodPlayerViewModel : ObservableObject
                     ClipRangeText = $"{FormatTime(startS)} - {FormatTime(endS)}",
                     ClipStartSeconds = startS,
                     ClipPath = clipPath,
-                    HasPlayableClip = File.Exists(clipPath),
+                    HasPlayableClip = FileProbeCache.Exists(clipPath),
                     Quality = quality,
                     ObjectiveId = objectiveId,
                     PromptId = promptId,
@@ -681,6 +856,19 @@ public partial class VodPlayerViewModel : ObservableObject
                     TagOptions = TagOptions,
                 });
                 await MarkObjectivePracticedFromBookmarkAsync(objectiveId);
+                await _evidenceRepo.UpsertAsync(new EvidenceUpsert(
+                    GameId: GameId,
+                    SourceKind: EvidenceKinds.Clip,
+                    SourceId: bookmarkId,
+                    SourceKey: $"clip:{bookmarkId}",
+                    StartTimeSeconds: startS,
+                    EndTimeSeconds: endS,
+                    Title: note,
+                    Note: note,
+                    ObjectiveId: objectiveId,
+                    Polarity: string.IsNullOrWhiteSpace(quality) ? EvidencePolarities.Neutral : quality,
+                    Status: string.IsNullOrWhiteSpace(quality) ? EvidenceStatuses.NeedsReview : EvidenceStatuses.Evidence));
+                await RefreshEvidenceInboxAsync();
 
                 // Phase 4 hook: ask coach sidecar to generate frame descriptions.
                 BackgroundTaskRunner.Run(
@@ -758,6 +946,46 @@ public partial class VodPlayerViewModel : ObservableObject
             }
 
             RefreshClipAvailabilityText();
+        });
+    }
+
+    private async Task SyncEvidenceCandidatesAsync(IReadOnlyList<InferredTimelineRegion> inferredRegions)
+    {
+        using var perf = PerformanceTrace.Time("VodPlayer.SyncEvidenceCandidates", $"gameId={GameId} inferred={inferredRegions.Count}");
+        foreach (var inferred in inferredRegions)
+        {
+            await _evidenceRepo.UpsertAsync(new EvidenceUpsert(
+                GameId: GameId,
+                SourceKind: EvidenceKinds.TimelineRegion,
+                SourceId: null,
+                SourceKey: inferred.SourceKey,
+                StartTimeSeconds: inferred.StartTimeSeconds,
+                EndTimeSeconds: inferred.EndTimeSeconds,
+                Title: inferred.Name,
+                Note: inferred.Tooltip,
+                Polarity: InferPolarityFromTitle(inferred.Name),
+                Status: EvidenceStatuses.NeedsReview));
+        }
+
+        // Saved clips are already editable in the Saved panel. The VOD inbox is
+        // intentionally only for inferred timeline moments so the right rail
+        // does not show the same clip twice.
+    }
+
+    private async Task RefreshEvidenceInboxAsync()
+    {
+        var rows = (await _evidenceRepo.GetForGameAsync(GameId))
+            .Where(static row => row.SourceKind != EvidenceKinds.Clip)
+            .ToArray();
+        DispatcherHelper.RunOnUIThread(() =>
+        {
+            EvidenceInbox.Clear();
+            foreach (var row in rows)
+            {
+                EvidenceInbox.Add(ToEvidenceInboxItem(row));
+            }
+
+            HasEvidenceInboxItems = EvidenceInbox.Count > 0;
         });
     }
 
@@ -876,17 +1104,14 @@ public partial class VodPlayerViewModel : ObservableObject
             var existing = await _objectivesRepo.GetGameObjectivesAsync(GameId).ConfigureAwait(false);
             var existingRow = existing.FirstOrDefault(g => g.ObjectiveId == objectiveId.Value);
 
-            // Already practiced or has user content → leave alone.
-            if (existingRow is not null
-                && (existingRow.Practiced
-                    || !string.IsNullOrWhiteSpace(existingRow.ExecutionNote)))
+            // Already practiced -> leave alone. Otherwise, tagging a bookmark,
+            // clip, or evidence item is the user's signal that this objective
+            // was practiced; preserve any existing note while flipping it on.
+            if (existingRow?.Practiced == true)
             {
                 return;
             }
 
-            // No row, or row exists but is the auto-inserted default
-            // (practiced=false, empty note) — flip it on. Preserve any
-            // existing executionNote (will be empty here by definition).
             var note = existingRow?.ExecutionNote ?? "Auto: tagged via VOD bookmark";
 
             await _objectivesRepo.RecordGameAsync(
@@ -1011,7 +1236,7 @@ public partial class VodPlayerViewModel : ObservableObject
             IsClip = isClip,
             ClipStartSeconds = record.ClipStartSeconds,
             ClipPath = record.ClipPath,
-            HasPlayableClip = isClip && File.Exists(record.ClipPath),
+            HasPlayableClip = isClip && FileProbeCache.Exists(record.ClipPath),
             ClipRangeText = record.ClipStartSeconds != null && record.ClipEndSeconds != null
                 ? $"{FormatTime(record.ClipStartSeconds.Value)} - {FormatTime(record.ClipEndSeconds.Value)}"
                 : "",
@@ -1021,6 +1246,45 @@ public partial class VodPlayerViewModel : ObservableObject
             ObjectiveOptions = ObjectiveOptions,
             TagOptions = TagOptions,
         };
+    }
+
+    private EvidenceInboxItem ToEvidenceInboxItem(EvidenceItemRecord record)
+    {
+        return new EvidenceInboxItem
+        {
+            Id = record.Id,
+            GameId = record.GameId,
+            SourceKind = record.SourceKind,
+            SourceId = record.SourceId,
+            SourceKey = record.SourceKey,
+            StartTimeSeconds = record.StartTimeSeconds,
+            EndTimeSeconds = record.EndTimeSeconds,
+            Title = record.Title,
+            Note = record.Note,
+            ObjectiveId = record.ObjectiveId,
+            ObjectiveOptions = ObjectiveOptions,
+            TagOptions = TagOptions,
+            Polarity = record.Polarity,
+            Status = record.Status,
+        };
+    }
+
+    private static string InferPolarityFromTitle(string title)
+    {
+        var normalized = (title ?? "").Trim().ToLowerInvariant();
+        if (normalized.StartsWith("won ", StringComparison.Ordinal)
+            || normalized.Contains(" pick", StringComparison.Ordinal))
+        {
+            return EvidencePolarities.Good;
+        }
+
+        if (normalized.StartsWith("lost ", StringComparison.Ordinal)
+            || normalized.Contains("death", StringComparison.Ordinal))
+        {
+            return EvidencePolarities.Bad;
+        }
+
+        return EvidencePolarities.Neutral;
     }
 
     private void UpdateClipRange()
@@ -1258,6 +1522,102 @@ public partial class VodPlayerViewModel : ObservableObject
 
 // â"€â"€ Display models â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
+public partial class EvidenceInboxItem : ObservableObject
+{
+    public long Id { get; set; }
+    public long GameId { get; set; }
+    public string SourceKind { get; set; } = EvidenceKinds.TimelineRegion;
+    public long? SourceId { get; set; }
+    public string SourceKey { get; set; } = "";
+    public int? StartTimeSeconds { get; set; }
+    public int? EndTimeSeconds { get; set; }
+    public string Title { get; set; } = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNote))]
+    private string _note = "";
+
+    public bool HasNote => !string.IsNullOrWhiteSpace(Note);
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ObjectiveTitleDisplay))]
+    private long? _objectiveId;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PolarityLabel))]
+    [NotifyPropertyChangedFor(nameof(PolarityAccentBrush))]
+    private string _polarity = EvidencePolarities.Neutral;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusLabel))]
+    [NotifyPropertyChangedFor(nameof(StatusAccentBrush))]
+    private string _status = EvidenceStatuses.NeedsReview;
+
+    public ObservableCollection<ObjectiveOption>? ObjectiveOptions { get; set; }
+
+    public ObservableCollection<TagOption>? TagOptions { get; set; }
+
+    public string SourceLabel => SourceKind == EvidenceKinds.Clip ? "CLIP" : "REGION";
+
+    public string TimeRangeText
+    {
+        get
+        {
+            if (StartTimeSeconds is not int start)
+            {
+                return "";
+            }
+
+            if (EndTimeSeconds is int end && end > start)
+            {
+                return $"{VodPlayerViewModel.FormatTime(start)} - {VodPlayerViewModel.FormatTime(end)}";
+            }
+
+            return VodPlayerViewModel.FormatTime(start);
+        }
+    }
+
+    public string ObjectiveTitleDisplay
+    {
+        get
+        {
+            if (ObjectiveId is null) return "(no objective)";
+            var match = ObjectiveOptions?.FirstOrDefault(o => o.Id == ObjectiveId);
+            return match?.Title ?? "(no objective)";
+        }
+    }
+
+    public string StatusLabel => EvidenceStatuses.Normalize(Status) switch
+    {
+        EvidenceStatuses.Evidence => "Evidence",
+        EvidenceStatuses.Highlight => "Highlight",
+        EvidenceStatuses.Dismissed => "Dismissed",
+        _ => "Needs review",
+    };
+
+    public string PolarityLabel => EvidencePolarities.Normalize(Polarity) switch
+    {
+        EvidencePolarities.Good => "Good",
+        EvidencePolarities.Bad => "Bad",
+        _ => "Neutral",
+    };
+
+    public SolidColorBrush StatusAccentBrush => AppSemanticPalette.Brush(EvidenceStatuses.Normalize(Status) switch
+    {
+        EvidenceStatuses.Evidence => AppSemanticPalette.AccentTealHex,
+        EvidenceStatuses.Highlight => AppSemanticPalette.AccentGoldHex,
+        EvidenceStatuses.Dismissed => AppSemanticPalette.MutedTextHex,
+        _ => AppSemanticPalette.AccentBlueHex,
+    });
+
+    public SolidColorBrush PolarityAccentBrush => AppSemanticPalette.Brush(EvidencePolarities.Normalize(Polarity) switch
+    {
+        EvidencePolarities.Good => AppSemanticPalette.PositiveHex,
+        EvidencePolarities.Bad => AppSemanticPalette.NegativeHex,
+        _ => AppSemanticPalette.NeutralHex,
+    });
+}
+
 public partial class BookmarkItem : ObservableObject
 {
     public long Id { get; set; }
@@ -1389,6 +1749,12 @@ public sealed record BookmarkObjectiveUpdateRequest(BookmarkItem Bookmark, long?
 /// <summary>v2.15.7: unified tag update — covers objective and optional prompt.</summary>
 public sealed record BookmarkTagUpdateRequest(BookmarkItem Bookmark, long? ObjectiveId, long? PromptId);
 
+public sealed record EvidenceStatusUpdateRequest(EvidenceInboxItem Evidence, string Status);
+
+public sealed record EvidencePolarityUpdateRequest(EvidenceInboxItem Evidence, string Polarity);
+
+public sealed record EvidenceObjectiveUpdateRequest(EvidenceInboxItem Evidence, long? ObjectiveId);
+
 public sealed class QualityChipVisual
 {
     public SolidColorBrush BackgroundBrush { get; init; } = AppSemanticPalette.Brush(AppSemanticPalette.TagSurfaceHex);
@@ -1441,12 +1807,12 @@ public class TimelineEvent
     public string DisplayText => string.IsNullOrEmpty(Summary) ? Label : $"{Label}: {Summary}";
     public string TooltipText => $"{TimeText} {DisplayText}";
 
-    /// <summary>v2.16: 2-4 char tag rendered next to the marker on the timeline,
+    /// <summary>Compact three-letter tag rendered next to the marker on the timeline,
     /// so users see *what* the marker means without hovering.</summary>
     public string ShortLabel => EventType.ToUpperInvariant() switch
     {
-        "KILL"        => "KILL",
-        "DEATH"       => "DEAD",
+        "KILL"        => "KIL",
+        "DEATH"       => "DTH",
         "ASSIST"      => "AST",
         "DRAGON"      => "DRG",
         "BARON"       => "BAR",
@@ -1454,10 +1820,11 @@ public class TimelineEvent
         "TURRET"      => "TWR",
         "INHIBITOR"   => "INH",
         "FIRST_BLOOD" => "FB",
-        "MULTI_KILL"  => "MULTI",
+        "MULTI_KILL"  => "MLT",
         "LEVEL_UP"    => "LVL",
         _             => "EVT",
     };
+    public bool IsCombatEvent => EventType.ToUpperInvariant() is "KILL" or "DEATH" or "ASSIST" or "FIRST_BLOOD" or "MULTI_KILL";
     public SolidColorBrush AccentBrush => AppSemanticPalette.Brush(Color);
     public SolidColorBrush SurfaceBrush => AppSemanticPalette.Brush(SurfaceColor);
 
@@ -1617,6 +1984,35 @@ public class DerivedEventRegion
     public double EndTimeS { get; set; }
     public string Color { get; set; } = "#ff6b6b";
     public string Name { get; set; } = "";
+    public string Tooltip { get; set; } = "";
+    public bool IsInferred { get; set; }
+    public string ShortLabel
+    {
+        get
+        {
+            var text = Name;
+            foreach (var prefix in new[] { "Won ", "Lost " })
+            {
+                if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    text = text[prefix.Length..];
+                    break;
+                }
+            }
+
+            return text switch
+            {
+                var value when value.Contains("Dragon", StringComparison.OrdinalIgnoreCase) => "DRG FIGHT",
+                var value when value.Contains("Baron", StringComparison.OrdinalIgnoreCase) => "BAR FIGHT",
+                var value when value.Contains("Herald", StringComparison.OrdinalIgnoreCase) => "HRD FIGHT",
+                var value when value.Contains("Teamfight", StringComparison.OrdinalIgnoreCase) => "TEAMFIGHT",
+                var value when value.Contains("3v3", StringComparison.OrdinalIgnoreCase) => "3v3",
+                var value when value.Contains("2v2", StringComparison.OrdinalIgnoreCase) => "2v2",
+                var value when value.Contains("death", StringComparison.OrdinalIgnoreCase) => "DEATH",
+                _ => "PICK",
+            };
+        }
+    }
 }
 
 /// <summary>

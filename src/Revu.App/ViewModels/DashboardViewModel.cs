@@ -55,6 +55,7 @@ public partial class DashboardViewModel : ObservableObject
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IVodRepository _vodRepo;
+    private readonly IEvidenceRepository _evidenceRepo;
     private readonly INavigationService _navigationService;
     private readonly IConfigService _configService;
     private readonly IDialogService _dialogService;
@@ -112,6 +113,9 @@ public partial class DashboardViewModel : ObservableObject
 
     [ObservableProperty]
     private long _vodEvidencePendingGameId;
+
+    [ObservableProperty]
+    private bool _hasObjectivePatterns;
 
     // v2.15.0: LastFocus removed from the Dashboard. The underlying focus_next
     // field is no longer written to by the slimmed-down Review flow; relying
@@ -189,6 +193,7 @@ public partial class DashboardViewModel : ObservableObject
     public ObservableCollection<GameDisplayItem> TodaysGames { get; } = new();
     public ObservableCollection<GameDisplayItem> UnreviewedGames { get; } = new();
     public ObservableCollection<DashboardObjectiveItem> ActiveObjectives { get; } = new();
+    public ObservableCollection<ObjectivePatternItem> ObjectivePatterns { get; } = new();
 
     /// <summary>Winrate display string, e.g. "60%" — empty when there are no games yet.</summary>
     public string WinratePercent
@@ -222,6 +227,7 @@ public partial class DashboardViewModel : ObservableObject
         ISessionLogRepository sessionLogRepo,
         IObjectivesRepository objectivesRepo,
         IVodRepository vodRepo,
+        IEvidenceRepository evidenceRepo,
         INavigationService navigationService,
         IConfigService configService,
         IDialogService dialogService,
@@ -235,6 +241,7 @@ public partial class DashboardViewModel : ObservableObject
         _sessionLogRepo = sessionLogRepo;
         _objectivesRepo = objectivesRepo;
         _vodRepo = vodRepo;
+        _evidenceRepo = evidenceRepo;
         _navigationService = navigationService;
         _configService = configService;
         _dialogService = dialogService;
@@ -250,6 +257,7 @@ public partial class DashboardViewModel : ObservableObject
     {
         if (IsLoading) return;
         IsLoading = true;
+        using var perf = PerformanceTrace.Time("Dashboard.Load");
 
         try
         {
@@ -326,6 +334,7 @@ public partial class DashboardViewModel : ObservableObject
 
                     ActiveObjectives.Add(new DashboardObjectiveItem
                     {
+                        Id = obj.Id,
                         Title = obj.Title,
                         PhaseLabel = ObjectivePhases.ToDisplayLabel(obj.Phase),
                         LevelName = info.LevelName,
@@ -365,6 +374,7 @@ public partial class DashboardViewModel : ObservableObject
             });
 
             await RefreshVodEvidencePendingAsync();
+            await RefreshObjectivePatternCardsAsync();
 
             // Decide the onboarding/empty-state stage *after* everything else
             // loaded, using the queries we already have plus overall totals.
@@ -396,6 +406,23 @@ public partial class DashboardViewModel : ObservableObject
         if (VodEvidencePendingGameId > 0)
         {
             _navigationService.NavigateTo("vodplayer", VodEvidencePendingGameId);
+        }
+        else
+        {
+            _navigationService.NavigateTo("games");
+        }
+    }
+
+    [RelayCommand]
+    private void OpenObjectivePattern(ObjectivePatternItem? pattern)
+    {
+        if (pattern?.ObjectiveId is long objectiveId && objectiveId > 0)
+        {
+            _navigationService.NavigateTo("objectivegames", objectiveId);
+        }
+        else if (pattern?.GameId is long gameId && gameId > 0)
+        {
+            _navigationService.NavigateTo("vodplayer", gameId);
         }
         else
         {
@@ -767,23 +794,60 @@ public partial class DashboardViewModel : ObservableObject
 
     // ── Helpers ─────────────────────────────────────────────────────
 
+    private async Task RefreshObjectivePatternCardsAsync()
+    {
+        try
+        {
+            var patterns = await _evidenceRepo.GetPatternCardsAsync(limit: 4);
+            DispatcherHelper.RunOnUIThread(() =>
+            {
+                ObjectivePatterns.Clear();
+                foreach (var pattern in patterns)
+                {
+                    ObjectivePatterns.Add(new ObjectivePatternItem
+                    {
+                        Kind = pattern.Kind,
+                        Title = pattern.Title,
+                        Detail = pattern.Detail,
+                        GameId = pattern.GameId,
+                        ObjectiveId = pattern.ObjectiveId,
+                        Severity = pattern.Severity,
+                    });
+                }
+
+                HasObjectivePatterns = ObjectivePatterns.Count > 0;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Dashboard: objective pattern load failed");
+            HasObjectivePatterns = false;
+        }
+    }
+
     private async Task RefreshVodEvidencePendingAsync()
     {
+        using var perf = PerformanceTrace.Time("Dashboard.RefreshVodEvidencePending");
         try
         {
             var recent = await _gameHistory.GetRecentAsync(limit: 30, offset: 0);
             var reviewed = recent.Where(HasPersistedReview).ToList();
             var vodPaths = await _vodRepo.GetVodPathsAsync(reviewed.Select(g => g.GameId).ToArray());
+            var gamesWithAvailableVod = reviewed
+                .Where(game => vodPaths.TryGetValue(game.GameId, out var path) && FileProbeCache.Exists(path))
+                .ToList();
+            var candidateIds = gamesWithAvailableVod.Select(static game => game.GameId).ToArray();
+            var practicedIdsTask = _objectivesRepo.GetGamesWithPracticedObjectivesAsync(candidateIds);
+            var taggedBookmarkIdsTask = _vodRepo.GetGamesWithObjectiveTaggedBookmarksAsync(candidateIds);
+            await Task.WhenAll(practicedIdsTask, taggedBookmarkIdsTask);
 
-            foreach (var game in reviewed)
+            var practicedIds = practicedIdsTask.Result;
+            var taggedBookmarkIds = taggedBookmarkIdsTask.Result;
+
+            foreach (var game in gamesWithAvailableVod)
             {
-                if (!vodPaths.TryGetValue(game.GameId, out var path) || !File.Exists(path)) continue;
-
-                var objectiveRows = await _objectivesRepo.GetGameObjectivesAsync(game.GameId);
-                if (!objectiveRows.Any(o => o.Practiced)) continue;
-
-                var bookmarks = await _vodRepo.GetBookmarksAsync(game.GameId);
-                if (bookmarks.Any(b => b.ObjectiveId is not null)) continue;
+                if (!practicedIds.Contains(game.GameId)) continue;
+                if (taggedBookmarkIds.Contains(game.GameId)) continue;
 
                 ShowVodEvidencePending = true;
                 VodEvidencePendingGameId = game.GameId;
@@ -1025,6 +1089,7 @@ public class GameDisplayItem
 /// <summary>Flattened objective data for display binding on the dashboard.</summary>
 public class DashboardObjectiveItem
 {
+    public long Id { get; set; }
     public string Title { get; set; } = "";
     public string PhaseLabel { get; set; } = "";
     public string LevelName { get; set; } = "";
@@ -1054,4 +1119,19 @@ public class DashboardObjectiveItem
 
     public Microsoft.UI.Xaml.Media.SolidColorBrush PriorityBadgeForegroundBrush =>
         AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldHex);
+}
+
+public class ObjectivePatternItem
+{
+    public string Kind { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Detail { get; set; } = "";
+    public long? GameId { get; set; }
+    public long? ObjectiveId { get; set; }
+    public string Severity { get; set; } = "medium";
+
+    public Microsoft.UI.Xaml.Media.SolidColorBrush AccentBrush =>
+        AppSemanticPalette.Brush(Severity == "high"
+            ? AppSemanticPalette.NegativeHex
+            : AppSemanticPalette.AccentGoldHex);
 }

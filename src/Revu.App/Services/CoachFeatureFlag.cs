@@ -26,6 +26,8 @@ public static class CoachFeatureFlag
     private static bool? _cached;
     private static readonly object _gate = new();
 
+    public static event Action<bool>? EnabledChanged;
+
     /// <summary>True if the coach UI is allowed to render.</summary>
     public static bool IsEnabled()
     {
@@ -65,6 +67,7 @@ public static class CoachFeatureFlag
         }
 
         lock (_gate) { _cached = enabled; }
+        EnabledChanged?.Invoke(enabled);
     }
 
     /// <summary>Reset cache so the next IsEnabled() re-reads env + config.</summary>

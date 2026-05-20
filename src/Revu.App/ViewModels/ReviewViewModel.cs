@@ -9,6 +9,7 @@ using Revu.App.Contracts;
 using Revu.App.Helpers;
 using Revu.App.Styling;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Models;
 using Revu.Core.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml.Media;
@@ -19,11 +20,17 @@ namespace Revu.App.ViewModels;
 public partial class ReviewViewModel : ObservableObject,
     IRecipient<Revu.Core.Lcu.BookmarkChangedMessage>
 {
+    private const int MaxAutoTimelineEvidence = 8;
+    private const int MaxEvidenceInboxItems = 12;
+    private const int EvidenceJumpPreRollSeconds = 5;
+
     private readonly IReviewWorkflowService _reviewWorkflowService;
     private readonly INavigationService _navigationService;
     private readonly IPromptsRepository _promptsRepository;
     private readonly IObjectivesRepository _objectivesRepository;
     private readonly IVodRepository _vodRepository;
+    private readonly IGameEventsRepository _eventsRepository;
+    private readonly IEvidenceRepository _evidenceRepository;
     private readonly IReviewExportService _reviewExportService;
     private readonly IMessenger _messenger;
     private readonly ILogger<ReviewViewModel> _logger;
@@ -78,6 +85,8 @@ public partial class ReviewViewModel : ObservableObject,
     [ObservableProperty] private bool _hasPriorityObjective;
     [ObservableProperty] private bool _isExportingReview;
     [ObservableProperty] private string _exportStatusText = "";
+    [ObservableProperty] private bool _hasEvidenceItems;
+    [ObservableProperty] private bool _isEvidenceLoading;
     // v2.15.0: show the collapsible "legacy fields" card only when this game
     // was reviewed on an earlier version and has data in the cut columns.
     [ObservableProperty] private bool _showLegacyFields;
@@ -86,6 +95,12 @@ public partial class ReviewViewModel : ObservableObject,
     public ObservableCollection<long> SelectedTagIds { get; } = new();
     public ObservableCollection<ObjectiveAssessment> ObjectiveAssessments { get; } = new();
     public ObservableCollection<MatchupHistoryItem> MatchupHistory { get; } = new();
+    public ObservableCollection<EvidenceInboxItem> EvidenceItems { get; } = new();
+    public ObservableCollection<EvidenceInboxItem> UnassignedEvidenceItems { get; } = new();
+    public ObservableCollection<ObjectiveOption> EvidenceObjectiveOptions { get; } = new();
+    public ObservableCollection<TagOption> EvidenceTagOptions { get; } = new();
+
+    public bool HasUnassignedEvidenceItems => UnassignedEvidenceItems.Count > 0;
 
     public static IReadOnlyList<string> AttributionOptions { get; } =
     [
@@ -105,6 +120,8 @@ public partial class ReviewViewModel : ObservableObject,
         IPromptsRepository promptsRepository,
         IObjectivesRepository objectivesRepository,
         IVodRepository vodRepository,
+        IGameEventsRepository eventsRepository,
+        IEvidenceRepository evidenceRepository,
         IReviewExportService reviewExportService,
         IMessenger messenger,
         ILogger<ReviewViewModel> logger)
@@ -114,6 +131,8 @@ public partial class ReviewViewModel : ObservableObject,
         _promptsRepository = promptsRepository;
         _objectivesRepository = objectivesRepository;
         _vodRepository = vodRepository;
+        _eventsRepository = eventsRepository;
+        _evidenceRepository = evidenceRepository;
         _reviewExportService = reviewExportService;
         _messenger = messenger;
         _logger = logger;
@@ -173,6 +192,7 @@ public partial class ReviewViewModel : ObservableObject,
         }
 
         IsLoading = true;
+        using var perf = PerformanceTrace.Time("Review.Load", $"gameId={gameId}");
         _vodRetryCts?.Cancel();
         ClearValidation();
 
@@ -213,6 +233,21 @@ public partial class ReviewViewModel : ObservableObject,
             // each assessment's general-notes field from bookmarks/clips
             // assigned to that objective on this game.
             await AutoPopulateBookmarkNotesAsync(gameId);
+
+            EvidenceItems.Clear();
+            HasEvidenceItems = false;
+            IsEvidenceLoading = true;
+            BackgroundTaskRunner.Run(async () =>
+            {
+                try
+                {
+                    await LoadReviewEvidenceAsync(gameId);
+                }
+                finally
+                {
+                    DispatcherHelper.RunOnUIThread(() => IsEvidenceLoading = false);
+                }
+            }, _logger, $"load review evidence {gameId}");
 
             RequireReviewNotes = screenData.RequireReviewNotes;
             HasVod = screenData.HasVod;
@@ -399,6 +434,190 @@ public partial class ReviewViewModel : ObservableObject,
         }
     }
 
+    private async Task LoadReviewEvidenceAsync(long gameId)
+    {
+        using var perf = PerformanceTrace.Time("Review.LoadEvidence", $"gameId={gameId}");
+        try
+        {
+            var objectives = await _objectivesRepository.GetActiveAsync();
+            var tagRows = new List<TagOption>
+            {
+                new()
+                {
+                    Kind = TagOption.OptionKind.None,
+                    Title = "(no objective)",
+                    SearchText = "none no objective clear",
+                },
+            };
+
+            foreach (var objective in objectives)
+            {
+                tagRows.Add(new TagOption
+                {
+                    Kind = TagOption.OptionKind.Objective,
+                    ObjectiveId = objective.Id,
+                    Title = objective.Title,
+                    SearchText = objective.Title,
+                });
+
+            }
+
+            var objectiveOptions = objectives
+                .Select(static objective => new ObjectiveOption(objective.Id, objective.Title))
+                .Prepend(new ObjectiveOption(null, "(no objective)"))
+                .ToArray();
+
+            DispatcherHelper.RunOnUIThread(() =>
+            {
+                EvidenceObjectiveOptions.Clear();
+                foreach (var option in objectiveOptions)
+                {
+                    EvidenceObjectiveOptions.Add(option);
+                }
+
+                EvidenceTagOptions.Clear();
+                foreach (var row in tagRows)
+                {
+                    EvidenceTagOptions.Add(row);
+                }
+            });
+
+            var events = await _eventsRepository.GetEventsAsync(gameId);
+            foreach (var inferred in TimelineInferenceService.Infer(events)
+                         .Where(static region => region.Priority >= 50)
+                         .Take(MaxAutoTimelineEvidence))
+            {
+                await _evidenceRepository.UpsertAsync(new EvidenceUpsert(
+                    GameId: gameId,
+                    SourceKind: EvidenceKinds.TimelineRegion,
+                    SourceId: null,
+                    SourceKey: inferred.SourceKey,
+                    StartTimeSeconds: inferred.StartTimeSeconds,
+                    EndTimeSeconds: inferred.EndTimeSeconds,
+                    Title: inferred.Name,
+                    Note: inferred.Tooltip,
+                    Polarity: InferEvidencePolarity(inferred.Name)));
+            }
+
+            var bookmarks = await _vodRepository.GetBookmarksAsync(gameId);
+            foreach (var clip in bookmarks.Where(static b => b.ClipStartSeconds is not null || !string.IsNullOrWhiteSpace(b.ClipPath)))
+            {
+                var polarity = NormalizeEvidencePolarity(clip.Quality);
+                await _evidenceRepository.UpsertAsync(new EvidenceUpsert(
+                    GameId: gameId,
+                    SourceKind: EvidenceKinds.Clip,
+                    SourceId: clip.Id,
+                    SourceKey: $"clip:{clip.Id}",
+                    StartTimeSeconds: clip.ClipStartSeconds ?? clip.GameTimeSeconds,
+                    EndTimeSeconds: clip.ClipEndSeconds ?? clip.GameTimeSeconds,
+                    Title: string.IsNullOrWhiteSpace(clip.Note) ? "Saved clip" : clip.Note.Trim(),
+                    Note: clip.Note,
+                    ObjectiveId: clip.ObjectiveId,
+                    Polarity: polarity,
+                    Status: polarity == EvidencePolarities.Neutral ? EvidenceStatuses.NeedsReview : EvidenceStatuses.Evidence));
+            }
+
+            var rows = PrioritizeEvidenceRows(await _evidenceRepository.GetForGameAsync(gameId));
+            DispatcherHelper.RunOnUIThread(() =>
+            {
+                EvidenceItems.Clear();
+                foreach (var row in rows)
+                {
+                    EvidenceItems.Add(new EvidenceInboxItem
+                    {
+                        Id = row.Id,
+                        GameId = row.GameId,
+                        SourceKind = row.SourceKind,
+                        SourceId = row.SourceId,
+                        SourceKey = row.SourceKey,
+                        StartTimeSeconds = row.StartTimeSeconds,
+                        EndTimeSeconds = row.EndTimeSeconds,
+                        Title = row.Title,
+                        Note = row.Note,
+                        ObjectiveId = row.ObjectiveId,
+                        Polarity = row.Polarity,
+                        Status = row.Status,
+                        ObjectiveOptions = EvidenceObjectiveOptions,
+                        TagOptions = EvidenceTagOptions,
+                    });
+                }
+
+                HasEvidenceItems = EvidenceItems.Count > 0;
+                AttachEvidenceToObjectives();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load review evidence for game {GameId}", gameId);
+            HasEvidenceItems = false;
+        }
+    }
+
+    private static IReadOnlyList<EvidenceItemRecord> PrioritizeEvidenceRows(IReadOnlyList<EvidenceItemRecord> rows)
+    {
+        return rows
+            .Where(static row => row.SourceKind == EvidenceKinds.Clip
+                || row.ObjectiveId.HasValue
+                || row.Status is EvidenceStatuses.Evidence or EvidenceStatuses.Highlight)
+            .OrderByDescending(static row => row.ObjectiveId.HasValue)
+            .ThenByDescending(static row => row.SourceKind == EvidenceKinds.Clip)
+            .ThenBy(static row => row.Status == EvidenceStatuses.NeedsReview ? 0 : 1)
+            .ThenBy(static row => row.Polarity == EvidencePolarities.Bad ? 0
+                : row.Polarity == EvidencePolarities.Good ? 1
+                : 2)
+            .ThenBy(static row => row.StartTimeSeconds ?? int.MaxValue)
+            .Take(MaxEvidenceInboxItems)
+            .ToArray();
+    }
+
+    private void AttachEvidenceToObjectives()
+    {
+        var byObjective = EvidenceItems
+            .Where(static item => item.ObjectiveId.HasValue)
+            .GroupBy(static item => item.ObjectiveId!.Value)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .OrderBy(static item => item.StartTimeSeconds ?? int.MaxValue)
+                    .ThenBy(static item => item.Id)
+                    .ToArray());
+
+        foreach (var assessment in ObjectiveAssessments)
+        {
+            assessment.ReplaceEvidenceItems(
+                byObjective.TryGetValue(assessment.ObjectiveId, out var items)
+                    ? items
+                    : []);
+        }
+
+        UnassignedEvidenceItems.Clear();
+        foreach (var item in EvidenceItems
+                     .Where(static item => !item.ObjectiveId.HasValue)
+                     .OrderBy(static item => item.StartTimeSeconds ?? int.MaxValue)
+                     .ThenBy(static item => item.Id))
+        {
+            UnassignedEvidenceItems.Add(item);
+        }
+
+        OnPropertyChanged(nameof(HasUnassignedEvidenceItems));
+    }
+
+    private async Task MarkObjectivePracticedFromEvidenceAsync(long objectiveId)
+    {
+        var existing = await _objectivesRepository.GetGameObjectivesAsync(GameId);
+        var existingRow = existing.FirstOrDefault(row => row.ObjectiveId == objectiveId);
+        if (existingRow?.Practiced == true)
+        {
+            return;
+        }
+
+        await _objectivesRepository.RecordGameAsync(
+            GameId,
+            objectiveId,
+            practiced: true,
+            executionNote: existingRow?.ExecutionNote ?? "");
+    }
+
     /// <summary>
     /// v2.15.5: shared append logic for autopopulating bookmark lines into a
     /// free-text field. Uses substring detection to avoid re-appending on
@@ -446,6 +665,32 @@ public partial class ReviewViewModel : ObservableObject,
     {
         if (seconds < 0) seconds = 0;
         return $"{seconds / 60:D2}:{seconds % 60:D2}";
+    }
+
+    private static string NormalizeEvidencePolarity(string? value)
+    {
+        var normalized = (value ?? "").Trim().ToLowerInvariant();
+        return normalized is EvidencePolarities.Good or EvidencePolarities.Bad
+            ? normalized
+            : EvidencePolarities.Neutral;
+    }
+
+    private static string InferEvidencePolarity(string title)
+    {
+        var normalized = (title ?? "").Trim().ToLowerInvariant();
+        if (normalized.StartsWith("won ", StringComparison.Ordinal)
+            || normalized.Contains(" pick", StringComparison.Ordinal))
+        {
+            return EvidencePolarities.Good;
+        }
+
+        if (normalized.StartsWith("lost ", StringComparison.Ordinal)
+            || normalized.Contains("death", StringComparison.Ordinal))
+        {
+            return EvidencePolarities.Bad;
+        }
+
+        return EvidencePolarities.Neutral;
     }
 
     /// <summary>
@@ -528,6 +773,117 @@ public partial class ReviewViewModel : ObservableObject,
         }
 
         _navigationService.NavigateTo("vodplayer", GameId);
+    }
+
+    [RelayCommand]
+    private async Task OpenEvidenceInVodAsync(EvidenceInboxItem? evidence)
+    {
+        if (evidence is null || GameId <= 0)
+        {
+            return;
+        }
+
+        var saved = await _reviewWorkflowService.SaveDraftAsync(new ReviewDraftRequest(GameId, BuildSnapshot()));
+        if (!saved)
+        {
+            SetValidation("Couldn't preserve your review draft before opening the VOD.");
+            return;
+        }
+
+        _navigationService.NavigateTo("vodplayer", new VodPlayerNavigationRequest
+        {
+            GameId = GameId,
+            SeekTimeS = evidence.StartTimeSeconds is int start
+                ? Math.Max(0, start - EvidenceJumpPreRollSeconds)
+                : null,
+        });
+    }
+
+    [RelayCommand]
+    private async Task SetEvidenceStatusAsync(EvidenceStatusUpdateRequest? request)
+    {
+        if (request?.Evidence is not EvidenceInboxItem evidence || evidence.Id <= 0)
+        {
+            return;
+        }
+
+        var status = EvidenceStatuses.Normalize(request.Status);
+        try
+        {
+            await _evidenceRepository.UpdateStatusAsync(evidence.Id, status);
+            if (status == EvidenceStatuses.Dismissed)
+            {
+                EvidenceItems.Remove(evidence);
+                HasEvidenceItems = EvidenceItems.Count > 0;
+                AttachEvidenceToObjectives();
+            }
+            else
+            {
+                evidence.Status = status;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update evidence status {EvidenceId}", evidence.Id);
+        }
+    }
+
+    [RelayCommand]
+    private async Task SetEvidencePolarityAsync(EvidencePolarityUpdateRequest? request)
+    {
+        if (request?.Evidence is not EvidenceInboxItem evidence || evidence.Id <= 0)
+        {
+            return;
+        }
+
+        var polarity = EvidencePolarities.Normalize(request.Polarity);
+        try
+        {
+            await _evidenceRepository.UpdatePolarityAsync(evidence.Id, polarity);
+            evidence.Polarity = polarity;
+            if (evidence.Status == EvidenceStatuses.NeedsReview)
+            {
+                await _evidenceRepository.UpdateStatusAsync(evidence.Id, EvidenceStatuses.Evidence);
+                evidence.Status = EvidenceStatuses.Evidence;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update evidence polarity {EvidenceId}", evidence.Id);
+        }
+    }
+
+    [RelayCommand]
+    private async Task SetEvidenceObjectiveAsync(EvidenceObjectiveUpdateRequest? request)
+    {
+        if (request?.Evidence is not EvidenceInboxItem evidence || evidence.Id <= 0)
+        {
+            return;
+        }
+
+        var previous = evidence.ObjectiveId;
+        evidence.ObjectiveId = request.ObjectiveId;
+        try
+        {
+            await _evidenceRepository.UpdateObjectiveAsync(evidence.Id, request.ObjectiveId);
+            if (request.ObjectiveId is long objectiveId)
+            {
+                if (evidence.Status == EvidenceStatuses.NeedsReview)
+                {
+                    await _evidenceRepository.UpdateStatusAsync(evidence.Id, EvidenceStatuses.Evidence);
+                    evidence.Status = EvidenceStatuses.Evidence;
+                }
+                await MarkObjectivePracticedFromEvidenceAsync(objectiveId);
+                await SyncPracticedFlagsAsync(GameId);
+            }
+
+            AttachEvidenceToObjectives();
+        }
+        catch (Exception ex)
+        {
+            evidence.ObjectiveId = previous;
+            _logger.LogError(ex, "Failed to update evidence objective {EvidenceId}", evidence.Id);
+        }
     }
 
     [RelayCommand]

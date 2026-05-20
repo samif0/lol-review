@@ -92,6 +92,8 @@ public interface IObjectivesRepository
 
     Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId);
 
+    Task<IReadOnlySet<long>> GetGamesWithPracticedObjectivesAsync(IReadOnlyCollection<long> gameIds);
+
     Task<IReadOnlyList<ObjectiveGameEntry>> GetGamesForObjectiveAsync(long objectiveId);
 
     /// <summary>

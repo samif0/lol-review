@@ -42,6 +42,7 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IReviewDraftRepository, ReviewDraftRepository>();
         services.AddSingleton<IMissedGameDecisionRepository, MissedGameDecisionRepository>();
         services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
+        services.AddSingleton<IEvidenceRepository, EvidenceRepository>();
         services.AddSingleton<IMatchupNotesRepository, MatchupNotesRepository>();
         services.AddSingleton<INotesRepository, NotesRepository>();
         services.AddSingleton<IPromptsRepository, PromptsRepository>();

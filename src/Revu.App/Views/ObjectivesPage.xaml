@@ -522,6 +522,13 @@
                                                     Visibility="{x:Bind IsPriority, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"
                                                     Tag="{x:Bind Id}"
                                                     Click="SetPriority_Click"/>
+                                            <Button Content="Complete Early"
+                                                    Style="{StaticResource QuietActionButtonStyle}"
+                                                    Height="30" Padding="12,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                    ToolTipService.ToolTip="Move this objective to completed even though it has not reached Ready yet."
+                                                    Visibility="{x:Bind CanComplete, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"
+                                                    Tag="{x:Bind Id}"
+                                                    Click="MarkComplete_Click"/>
                                             <Button Content="Delete"
                                                     Style="{StaticResource DangerActionButtonStyle}"
                                                     Height="30" Padding="12,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"

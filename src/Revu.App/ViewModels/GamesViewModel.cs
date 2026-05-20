@@ -164,6 +164,7 @@ public partial class GamesViewModel : ObservableObject
     {
         if (IsLoading) return;
         IsLoading = true;
+        using var perf = PerformanceTrace.Time("Games.LoadSelectedView", $"{CurrentView} append={append}");
 
         try
         {
@@ -213,23 +214,32 @@ public partial class GamesViewModel : ObservableObject
         var vodPaths = await _vodRepo.GetVodPathsAsync(recent.Select(g => g.GameId).ToArray());
         HasMoreHistory = false;
         return recent
-            .Where(g => vodPaths.TryGetValue(g.GameId, out var path) && File.Exists(path))
+            .Where(g => vodPaths.TryGetValue(g.GameId, out var path) && FileProbeCache.Exists(path))
             .ToList();
     }
 
     private async Task EnrichRowsAsync(List<GameDisplayItem> items)
     {
-        var vodPaths = await _vodRepo.GetVodPathsAsync(items.Select(g => g.GameId).ToArray());
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var gameIds = items.Select(g => g.GameId).ToArray();
+        var vodTask = _vodRepo.GetVodPathsAsync(gameIds);
+        var practicedTask = _objectivesRepo.GetGamesWithPracticedObjectivesAsync(gameIds);
+        var taggedEvidenceTask = _vodRepo.GetGamesWithObjectiveTaggedBookmarksAsync(gameIds);
+        await Task.WhenAll(vodTask, practicedTask, taggedEvidenceTask);
+
+        var vodPaths = vodTask.Result;
+        var practicedGameIds = practicedTask.Result;
+        var objectiveEvidenceGameIds = taggedEvidenceTask.Result;
+
         foreach (var item in items)
         {
-            item.HasVod = vodPaths.TryGetValue(item.GameId, out var path) && File.Exists(path);
-
-            var objectives = await _objectivesRepo.GetGameObjectivesAsync(item.GameId);
-            var bookmarks = item.HasVod
-                ? await _vodRepo.GetBookmarksAsync(item.GameId)
-                : [];
-            var hasObjectiveEvidence = bookmarks.Any(b => b.ObjectiveId is not null);
-            var practiced = objectives.Any(o => o.Practiced);
+            item.HasVod = vodPaths.TryGetValue(item.GameId, out var path) && FileProbeCache.Exists(path);
+            var hasObjectiveEvidence = objectiveEvidenceGameIds.Contains(item.GameId);
+            var practiced = practicedGameIds.Contains(item.GameId);
 
             item.ObjectiveStateText = hasObjectiveEvidence
                 ? "Evidence tagged"

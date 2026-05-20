@@ -179,6 +179,47 @@ public static class Schema
         );
         """;
 
+    public const string CreateEvidenceItemsTable = """
+        CREATE TABLE IF NOT EXISTS evidence_items (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id         INTEGER NOT NULL,
+            source_kind     TEXT NOT NULL,
+            source_id       INTEGER,
+            source_key      TEXT DEFAULT '',
+            start_time_s    INTEGER,
+            end_time_s      INTEGER,
+            title           TEXT NOT NULL DEFAULT '',
+            note            TEXT NOT NULL DEFAULT '',
+            objective_id    INTEGER,
+            concept_tag_id  INTEGER,
+            matchup_note_id INTEGER,
+            polarity        TEXT NOT NULL DEFAULT 'neutral',
+            status          TEXT NOT NULL DEFAULT 'needs_review',
+            created_at      INTEGER,
+            updated_at      INTEGER,
+            FOREIGN KEY (game_id) REFERENCES games(game_id),
+            FOREIGN KEY (objective_id) REFERENCES objectives(id),
+            FOREIGN KEY (concept_tag_id) REFERENCES concept_tags(id),
+            FOREIGN KEY (matchup_note_id) REFERENCES matchup_notes(id)
+        );
+        """;
+
+    public const string CreateEvidenceItemsKeyIndex = """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_items_source_key
+        ON evidence_items (game_id, source_kind, source_key)
+        WHERE source_key IS NOT NULL AND source_key != '';
+        """;
+
+    public const string CreateEvidenceItemsGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_evidence_items_game_status
+        ON evidence_items (game_id, status, start_time_s);
+        """;
+
+    public const string CreateEvidenceItemsObjectiveIndex = """
+        CREATE INDEX IF NOT EXISTS idx_evidence_items_objective_status
+        ON evidence_items (objective_id, status, updated_at);
+        """;
+
     public const string CreateObjectivesTable = """
         CREATE TABLE IF NOT EXISTS objectives (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -751,6 +792,10 @@ public static class Schema
         CreatePersistentNotesTable,
         CreateVodFilesTable,
         CreateVodBookmarksTable,
+        CreateEvidenceItemsTable,
+        CreateEvidenceItemsKeyIndex,
+        CreateEvidenceItemsGameIndex,
+        CreateEvidenceItemsObjectiveIndex,
         CreateGameEventsTable,
         CreateGameEventsIndex,
         CreateObjectivesTable,

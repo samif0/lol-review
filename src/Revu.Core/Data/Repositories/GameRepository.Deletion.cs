@@ -37,8 +37,8 @@ public sealed partial class GameRepository
         // The tombstone is written explicitly below in the same transaction.
         string[] childTables =
         {
+            "evidence_items",
             "session_log",
-            "vod_bookmarks",
             "vod_files",
             "game_events",
             "derived_event_instances",
@@ -48,7 +48,10 @@ public sealed partial class GameRepository
             "matchup_notes",
             "tilt_checks",
             "review_drafts",
-            "coach_moments",
+            "cleared_rule_breaks",
+            "game_summary",
+            "review_concepts",
+            "feature_values",
         };
 
         using var conn = _factory.CreateConnection();
@@ -74,13 +77,16 @@ public sealed partial class GameRepository
                 }
             }
 
+            var gamePk = await GetGamePkAsync(conn, tx, gameId).ConfigureAwait(false);
+
+            await DeleteByCoachMomentGameAsync(conn, tx, "coach_labels", gameId, gamePk).ConfigureAwait(false);
+            await DeleteByCoachMomentGameAsync(conn, tx, "coach_inferences", gameId, gamePk).ConfigureAwait(false);
+            await DeleteByGameIdAsync(conn, tx, "coach_moments", gameId, gamePk).ConfigureAwait(false);
+            await DeleteByGameIdAsync(conn, tx, "vod_bookmarks", gameId, gamePk).ConfigureAwait(false);
+
             foreach (var table in childTables)
             {
-                using var cmd = conn.CreateCommand();
-                cmd.Transaction = tx;
-                cmd.CommandText = $"DELETE FROM {table} WHERE game_id = @gameId";
-                cmd.Parameters.AddWithValue("@gameId", gameId);
-                await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                await DeleteByGameIdAsync(conn, tx, table, gameId, gamePk).ConfigureAwait(false);
             }
 
             // Tombstone: mark the game_id as permanently dismissed in
@@ -138,6 +144,95 @@ public sealed partial class GameRepository
 
         var dbDir = Path.GetDirectoryName(_factory.DatabasePath) ?? "";
         return Path.Combine(dbDir, "backups");
+    }
+
+    private static async Task<long?> GetGamePkAsync(
+        Microsoft.Data.Sqlite.SqliteConnection conn,
+        Microsoft.Data.Sqlite.SqliteTransaction tx,
+        long gameId)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT id FROM games WHERE game_id = @gameId LIMIT 1";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        var result = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+        return result is null || result == DBNull.Value ? null : Convert.ToInt64(result);
+    }
+
+    private static async Task DeleteByGameIdAsync(
+        Microsoft.Data.Sqlite.SqliteConnection conn,
+        Microsoft.Data.Sqlite.SqliteTransaction tx,
+        string table,
+        long gameId,
+        long? gamePk)
+    {
+        if (!await TableExistsAsync(conn, tx, table).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = gamePk.HasValue
+            ? $"DELETE FROM {table} WHERE game_id = @gameId OR game_id = @gamePk"
+            : $"DELETE FROM {table} WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        if (gamePk.HasValue)
+        {
+            cmd.Parameters.AddWithValue("@gamePk", gamePk.Value);
+        }
+
+        await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
+    private static async Task DeleteByCoachMomentGameAsync(
+        Microsoft.Data.Sqlite.SqliteConnection conn,
+        Microsoft.Data.Sqlite.SqliteTransaction tx,
+        string table,
+        long gameId,
+        long? gamePk)
+    {
+        if (!await TableExistsAsync(conn, tx, table).ConfigureAwait(false)
+            || !await TableExistsAsync(conn, tx, "coach_moments").ConfigureAwait(false))
+        {
+            return;
+        }
+
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = gamePk.HasValue
+            ? $"""
+               DELETE FROM {table}
+               WHERE moment_id IN (
+                   SELECT id FROM coach_moments WHERE game_id = @gameId OR game_id = @gamePk
+               )
+               """
+            : $"""
+               DELETE FROM {table}
+               WHERE moment_id IN (
+                   SELECT id FROM coach_moments WHERE game_id = @gameId
+               )
+               """;
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        if (gamePk.HasValue)
+        {
+            cmd.Parameters.AddWithValue("@gamePk", gamePk.Value);
+        }
+
+        await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
+    private static async Task<bool> TableExistsAsync(
+        Microsoft.Data.Sqlite.SqliteConnection conn,
+        Microsoft.Data.Sqlite.SqliteTransaction tx,
+        string table)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = @table LIMIT 1";
+        cmd.Parameters.AddWithValue("@table", table);
+        var result = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+        return result is not null && result != DBNull.Value;
     }
 
     // â”€â”€ Single reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

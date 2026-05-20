@@ -264,6 +264,47 @@ public sealed class VodRepository : IVodRepository
         return await ReadBookmarksAsync(cmd);
     }
 
+    public async Task<IReadOnlySet<long>> GetGamesWithObjectiveTaggedBookmarksAsync(IReadOnlyCollection<long> gameIds)
+    {
+        if (gameIds.Count == 0)
+        {
+            return new HashSet<long>();
+        }
+
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+
+        var placeholders = new List<string>(gameIds.Count);
+        var index = 0;
+        foreach (var gameId in gameIds.Distinct())
+        {
+            var parameterName = $"@gameId{index++}";
+            placeholders.Add(parameterName);
+            cmd.Parameters.AddWithValue(parameterName, gameId);
+        }
+
+        if (placeholders.Count == 0)
+        {
+            return new HashSet<long>();
+        }
+
+        cmd.CommandText = $"""
+            SELECT DISTINCT game_id
+            FROM vod_bookmarks
+            WHERE objective_id IS NOT NULL
+              AND game_id IN ({string.Join(", ", placeholders)})
+            """;
+
+        var ids = new HashSet<long>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            ids.Add(reader.GetInt64(0));
+        }
+
+        return ids;
+    }
+
     public async Task<int> GetBookmarkCountAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();

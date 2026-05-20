@@ -253,26 +253,46 @@ public sealed partial class TimelineControl : UserControl
         {
             foreach (var de in DerivedEvents)
             {
-                var x1 = TimeToX(de.StartTimeS);
-                var x2 = TimeToX(de.EndTimeS);
+                var maxRegionX = Math.Max(TrackPadding, ActualWidth - TrackPadding);
+                var x1 = Math.Clamp(TimeToX(de.StartTimeS), TrackPadding, maxRegionX);
+                var x2 = Math.Clamp(TimeToX(Math.Max(de.StartTimeS, de.EndTimeS)), TrackPadding, maxRegionX);
+                var width = Math.Max(8, x2 - x1);
                 var rect = new Border
                 {
-                    Width = Math.Max(2, x2 - x1),
+                    Width = width,
                     Height = TrackHeight + 4,
-                    Background = new SolidColorBrush(ParseColor(NormalizeTimelineColor(de.Color), 64)),
+                    Background = new SolidColorBrush(ParseColor(NormalizeTimelineColor(de.Color), de.IsInferred ? (byte)90 : (byte)64)),
+                    BorderBrush = de.IsInferred
+                        ? new SolidColorBrush(ParseColor(NormalizeTimelineColor(de.Color), 190))
+                        : null,
+                    BorderThickness = de.IsInferred ? new Thickness(1) : new Thickness(0),
                     CornerRadius = new CornerRadius(2),
                 };
                 Canvas.SetLeft(rect, x1);
                 Canvas.SetTop(rect, TrackTop - 2);
                 MarkerCanvas.Children.Add(rect);
+
+                if (de.IsInferred && width >= 34)
+                {
+                    var label = CreateMarkerLabel(de.ShortLabel, de.Color);
+                    label.Opacity = 0.95;
+                    Canvas.SetLeft(label, Math.Clamp(x1 + 3, 0, Math.Max(0, ActualWidth - 72)));
+                    Canvas.SetTop(label, TrackTop + TrackHeight + 4);
+                    MarkerCanvas.Children.Add(label);
+                }
+
+                _markerHitAreas.Add(new MarkerHitInfo
+                {
+                    X = x1 + width / 2,
+                    Label = string.IsNullOrWhiteSpace(de.Tooltip)
+                        ? $"{VodPlayerViewModel.FormatTime((int)de.StartTimeS)}-{VodPlayerViewModel.FormatTime((int)de.EndTimeS)} {de.Name}"
+                        : de.Tooltip,
+                });
             }
         }
 
-        // v2.16: track the most recent X-position we placed a label at so we
-        // can skip overlapping ones in dense regions. Hover tooltip still
-        // surfaces the full event for any marker (including suppressed labels).
-        const double minLabelGap = 22;
-        double lastEventLabelX = double.NegativeInfinity;
+        const double minBookmarkLabelGap = 22;
+        var labelBuckets = new List<TimelineLabelBucket>();
         double lastBookmarkLabelX = double.NegativeInfinity;
 
         // Game event markers
@@ -287,14 +307,7 @@ public sealed partial class TimelineControl : UserControl
                 Canvas.SetTop(shape, EventMarkerTop);
                 MarkerCanvas.Children.Add(shape);
 
-                if (x - lastEventLabelX >= minLabelGap)
-                {
-                    var label = CreateMarkerLabel(evt.ShortLabel, evt.Color);
-                    Canvas.SetLeft(label, Math.Clamp(x - 12, 0, Math.Max(0, ActualWidth - 28)));
-                    Canvas.SetTop(label, EventMarkerTop - 13);
-                    MarkerCanvas.Children.Add(label);
-                    lastEventLabelX = x;
-                }
+                AddEventLabelBucket(labelBuckets, evt, x);
 
                 _markerHitAreas.Add(new MarkerHitInfo
                 {
@@ -303,6 +316,8 @@ public sealed partial class TimelineControl : UserControl
                 });
             }
         }
+
+        DrawEventLabelBuckets(labelBuckets);
 
         // Bookmark markers (purple diamonds)
         if (Bookmarks != null)
@@ -316,7 +331,7 @@ public sealed partial class TimelineControl : UserControl
                 Canvas.SetTop(shape, BookmarkMarkerTop);
                 MarkerCanvas.Children.Add(shape);
 
-                if (x - lastBookmarkLabelX >= minLabelGap)
+                if (x - lastBookmarkLabelX >= minBookmarkLabelGap)
                 {
                     var labelText = bm.IsClip ? "CLIP" : "BM";
                     var label = CreateMarkerLabel(labelText, bm.MarkerColorHex);
@@ -335,6 +350,60 @@ public sealed partial class TimelineControl : UserControl
             }
         }
     }
+
+    private static void AddEventLabelBucket(List<TimelineLabelBucket> buckets, TimelineEvent evt, double x)
+    {
+        const double bucketGap = 18;
+        var bucket = buckets.LastOrDefault(item => x - item.EndX <= bucketGap);
+        if (bucket is null)
+        {
+            bucket = new TimelineLabelBucket(x);
+            buckets.Add(bucket);
+        }
+
+        bucket.EndX = x;
+        bucket.Events.Add(evt);
+    }
+
+    private void DrawEventLabelBuckets(IReadOnlyList<TimelineLabelBucket> buckets)
+    {
+        foreach (var bucket in buckets)
+        {
+            var important = bucket.Events
+                .OrderByDescending(static evt => evt.IsCombatEvent)
+                .ThenBy(static evt => EventLabelPriority(evt.EventType))
+                .Take(2)
+                .Select(static evt => evt.ShortLabel)
+                .Distinct()
+                .ToArray();
+
+            var text = important.Length == 0
+                ? "EVT"
+                : string.Join("+", important);
+
+            if (bucket.Events.Count > important.Length)
+            {
+                text += $"+{bucket.Events.Count - important.Length}";
+            }
+
+            var color = bucket.Events.FirstOrDefault(static evt => evt.IsCombatEvent)?.Color
+                ?? bucket.Events[0].Color;
+            var label = CreateMarkerLabel(text, color);
+            Canvas.SetLeft(label, Math.Clamp(bucket.CenterX - 14, 0, Math.Max(0, ActualWidth - 44)));
+            Canvas.SetTop(label, EventMarkerTop - 16);
+            MarkerCanvas.Children.Add(label);
+        }
+    }
+
+    private static int EventLabelPriority(string eventType) => eventType.ToUpperInvariant() switch
+    {
+        "DEATH" => 0,
+        "KILL" => 1,
+        "ASSIST" => 2,
+        "DRAGON" or "BARON" or "HERALD" => 3,
+        "TURRET" or "INHIBITOR" => 4,
+        _ => 5,
+    };
 
     /// <summary>
     /// v2.16: small label rendered next to a timeline marker. Color-matched to
@@ -515,5 +584,19 @@ public sealed partial class TimelineControl : UserControl
     {
         public double X { get; set; }
         public string Label { get; set; } = "";
+    }
+
+    private sealed class TimelineLabelBucket
+    {
+        public TimelineLabelBucket(double startX)
+        {
+            StartX = startX;
+            EndX = startX;
+        }
+
+        public double StartX { get; }
+        public double EndX { get; set; }
+        public List<TimelineEvent> Events { get; } = [];
+        public double CenterX => (StartX + EndX) / 2;
     }
 }

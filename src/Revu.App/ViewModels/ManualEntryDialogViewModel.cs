@@ -1,6 +1,8 @@
 #nullable enable
 
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Revu.Core.Data.Repositories;
@@ -57,6 +59,32 @@ public partial class ObjectiveAssessment : ObservableObject
     /// </summary>
     public ObservableCollection<PromptAnswerField> Prompts { get; } = new();
     public bool HasPrompts => Prompts.Count > 0;
+
+    public ObservableCollection<EvidenceInboxItem> EvidenceItems { get; } = new();
+    public bool HasEvidenceItems => EvidenceItems.Count > 0;
+
+    public void ReplaceEvidenceItems(IEnumerable<EvidenceInboxItem> items)
+    {
+        EvidenceItems.Clear();
+        foreach (var item in items)
+        {
+            EvidenceItems.Add(item);
+        }
+
+        OnPropertyChanged(nameof(HasEvidenceItems));
+    }
+
+    public void AddOrUpdateEvidenceItem(EvidenceInboxItem item)
+    {
+        var existing = EvidenceItems.FirstOrDefault(e => e.Id == item.Id);
+        if (existing is not null)
+        {
+            EvidenceItems.Remove(existing);
+        }
+
+        EvidenceItems.Add(item);
+        OnPropertyChanged(nameof(HasEvidenceItems));
+    }
 }
 
 /// <summary>ViewModel for the manual game entry page.</summary>

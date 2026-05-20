@@ -205,6 +205,45 @@
                         </Grid>
                     </controls:CornerBracketedCard>
 
+                    <controls:CornerBracketedCard CardBorderBrush="{StaticResource LossRedBrush}"
+                                                  Visibility="{x:Bind ViewModel.HasObjectivePatterns, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="10" Padding="4">
+                            <controls:SectionTitle Text="PATTERNS TO REVIEW"/>
+                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.ObjectivePatterns, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Spacing="6"/>
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ObjectivePatternItem">
+                                        <Border Background="{StaticResource SurfaceInsetBrush}"
+                                                BorderBrush="{x:Bind AccentBrush}"
+                                                BorderThickness="1" CornerRadius="2" Padding="10">
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                <StackPanel Grid.Column="0" Spacing="3">
+                                                    <TextBlock Text="{x:Bind Title}"
+                                                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{x:Bind Detail}"
+                                                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1"
+                                                        Content="Open"
+                                                        DataContext="{x:Bind}"
+                                                        Click="ObjectivePatternOpen_Click"
+                                                        Style="{StaticResource ListActionButtonStyle}"
+                                                        VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                        </StackPanel>
+                    </controls:CornerBracketedCard>
+
                     <!-- ••• MAIN BODY: Unreviewed + Objectives ••• -->
                     <Grid ColumnSpacing="14"
                           Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">

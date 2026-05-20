@@ -38,6 +38,35 @@ public sealed partial class SettingsPage : Page
         CoachSettingsBody.Visibility = toggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void OnSettingsNavClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag }) return;
+
+        var target = tag switch
+        {
+            "recordings" => RecordingsSection,
+            "backups" => BackupsSection,
+            "behavior" => BehaviorSection,
+            "appearance" => AppearanceSection,
+            "updates" => UpdatesSection,
+            "coach" => CoachSection,
+            "account" => AccountSection,
+            _ => null
+        };
+
+        ScrollToSection(target);
+    }
+
+    private void ScrollToSection(FrameworkElement? target)
+    {
+        if (target is null) return;
+
+        var transform = target.TransformToVisual(SettingsScroll);
+        var point = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+        var offset = Math.Max(0, SettingsScroll.VerticalOffset + point.Y - 16);
+        SettingsScroll.ChangeView(null, offset, null, disableAnimation: false);
+    }
+
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);

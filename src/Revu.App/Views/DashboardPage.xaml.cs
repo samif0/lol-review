@@ -102,6 +102,14 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
         }
     }
 
+    private void ObjectivePatternOpen_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ObjectivePatternItem pattern })
+        {
+            ViewModel.OpenObjectivePatternCommand.Execute(pattern);
+        }
+    }
+
     private void ReviewInboxButton_Click(object sender, RoutedEventArgs e)
     {
         App.GetService<INavigationService>().NavigateTo("session");

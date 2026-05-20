@@ -162,7 +162,7 @@ public sealed class ObjectiveDisplayItem
         {
             if (CanComplete) return "";
             var needed = Math.Max(0, 50 - Score);
-            return $"{needed} more pts to unlock completion (reach Ready level)";
+            return $"{needed} more pts to Ready, or complete early if you're moving on";
         }
     }
 
