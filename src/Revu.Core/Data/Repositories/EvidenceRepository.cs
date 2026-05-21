@@ -329,7 +329,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT COUNT(*), MAX(game_id)
+            SELECT COUNT(*), MAX(e.game_id)
             FROM evidence_items e
             LEFT JOIN session_log sl ON sl.game_id = e.game_id
             WHERE e.status != 'dismissed'
