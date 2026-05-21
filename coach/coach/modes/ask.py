@@ -83,14 +83,9 @@ async def run_ask(
         "{{context}}", json.dumps(context, indent=2, default=str)[:60000]
     ).replace("{{question}}", question)
 
-    messages: list[LLMMessage] = [LLMMessage(role="user", content=system_prompt)]
+    messages = _build_llm_messages(history, system_prompt)
     # Add prior conversation turns (except the one we just persisted — it's
     # already embedded in {{question}} for the grounded template).
-    for m in history:
-        messages.append(
-            LLMMessage(role=m["role"], content=m["content"])
-        )
-
     response = await provider.complete(
         LLMRequest(
             messages=messages,
@@ -205,9 +200,7 @@ async def run_ask_stream(
             "{{context}}", json.dumps(context, indent=2, default=str)[:60000]
         ).replace("{{question}}", question)
 
-        messages: list[LLMMessage] = [LLMMessage(role="user", content=system_prompt)]
-        for m in history:
-            messages.append(LLMMessage(role=m["role"], content=m["content"]))
+        messages = _build_llm_messages(history, system_prompt)
 
         req = LLMRequest(
             messages=messages,
@@ -271,6 +264,27 @@ async def run_ask_stream(
 
 def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _build_llm_messages(history: list[dict[str, Any]], current_prompt: str) -> list[LLMMessage]:
+    """Build chronological chat input for the provider.
+
+    The current grounded prompt must be the final message. If history is
+    appended after it, chat models treat the newest assistant turn as the
+    thing to continue, which makes the coach answer spill across separate
+    boxes instead of answering the user's latest question.
+    """
+
+    messages: list[LLMMessage] = []
+    for m in history:
+        role = str(m.get("role") or "").strip().lower()
+        content = str(m.get("content") or "").strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        messages.append(LLMMessage(role=role, content=content))
+
+    messages.append(LLMMessage(role="user", content=current_prompt))
+    return messages
 
 
 # ──────────────────────────────────────────────────────────────────

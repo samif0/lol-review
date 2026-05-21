@@ -1,4 +1,5 @@
 using Revu.Core.Data.Repositories;
+using Revu.Core.Models;
 
 namespace Revu.Core.Tests;
 
@@ -130,5 +131,44 @@ public sealed class EvidenceRepositoryTests
         Assert.Contains(cards, card => card.Kind == "lost_objective_fights");
         Assert.Contains(cards, card => card.Kind == "deaths_before_objectives");
         Assert.Contains(cards, card => card.Kind == "bad_objective_evidence" && card.ObjectiveId == objectiveId);
+    }
+
+    [Fact]
+    public async Task GetPatternCardsAsync_ExcludesEvidenceFromReviewedGames()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var objectiveId = await scope.Objectives.CreateAsync("Stay in line with support", "laning");
+        var gameId = await scope.Games.SaveManualAsync("Kai'Sa", false);
+
+        for (var i = 0; i < 2; i++)
+        {
+            await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+                GameId: gameId,
+                SourceKind: EvidenceKinds.Clip,
+                SourceId: i + 1,
+                SourceKey: $"clip:{i + 1}",
+                StartTimeSeconds: 40 + i * 60,
+                EndTimeSeconds: 55 + i * 60,
+                Title: "Bad spacing with support",
+                ObjectiveId: objectiveId,
+                Polarity: EvidencePolarities.Bad,
+                Status: EvidenceStatuses.Evidence));
+        }
+
+        Assert.Contains(
+            await scope.Evidence.GetPatternCardsAsync(),
+            card => card.Kind == "bad_objective_evidence" && card.ObjectiveId == objectiveId);
+
+        await scope.Games.UpdateReviewAsync(gameId, new GameReview
+        {
+            Rating = 4,
+            Notes = "Reviewed the lane spacing clips."
+        });
+
+        Assert.DoesNotContain(
+            await scope.Evidence.GetPatternCardsAsync(),
+            card => card.Kind == "bad_objective_evidence" && card.ObjectiveId == objectiveId);
     }
 }

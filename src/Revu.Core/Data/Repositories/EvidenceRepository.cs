@@ -8,6 +8,22 @@ public sealed class EvidenceRepository : IEvidenceRepository
 {
     private readonly IDbConnectionFactory _factory;
 
+    private const string UnreviewedEvidenceGamePredicate = """
+        COALESCE(g.rating, 0) <= 0
+        AND COALESCE(g.review_notes, '') = ''
+        AND COALESCE(g.mistakes, '') = ''
+        AND COALESCE(g.went_well, '') = ''
+        AND COALESCE(g.focus_next, '') = ''
+        AND COALESCE(g.spotted_problems, '') = ''
+        AND COALESCE(g.outside_control, '') = ''
+        AND COALESCE(g.within_control, '') = ''
+        AND COALESCE(g.attribution, '') = ''
+        AND COALESCE(g.personal_contribution, '') = ''
+        AND COALESCE(sl.improvement_note, '') = ''
+        AND COALESCE(sl.mental_handled, '') = ''
+        AND COALESCE(sl.is_skipped, 0) = 0
+        """;
+
     public EvidenceRepository(IDbConnectionFactory factory) => _factory = factory;
 
     public async Task<long> UpsertAsync(EvidenceUpsert item)
@@ -241,7 +257,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
 
         using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = """
+            cmd.CommandText = $"""
                 SELECT e.objective_id,
                        COALESCE(o.title, '') AS objective_title,
                        SUM(CASE WHEN e.polarity = 'bad' THEN 1 ELSE 0 END) AS bad_count,
@@ -249,10 +265,11 @@ public sealed class EvidenceRepository : IEvidenceRepository
                        COUNT(*) AS total_count
                 FROM evidence_items e
                 LEFT JOIN objectives o ON o.id = e.objective_id
+                LEFT JOIN games g ON g.game_id = e.game_id
                 LEFT JOIN session_log sl ON sl.game_id = e.game_id
                 WHERE e.objective_id IS NOT NULL
                   AND e.status != 'dismissed'
-                  AND COALESCE(sl.is_skipped, 0) = 0
+                  AND {UnreviewedEvidenceGamePredicate}
                 GROUP BY e.objective_id
                 HAVING bad_count >= 2 AND bad_count > good_count
                 ORDER BY bad_count DESC, total_count DESC
@@ -276,14 +293,15 @@ public sealed class EvidenceRepository : IEvidenceRepository
 
         using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = """
+            cmd.CommandText = $"""
                 SELECT e.game_id, COUNT(*) AS bad_count
                 FROM evidence_items e
+                LEFT JOIN games g ON g.game_id = e.game_id
                 LEFT JOIN session_log sl ON sl.game_id = e.game_id
                 WHERE e.matchup_note_id IS NOT NULL
                   AND e.polarity = 'bad'
                   AND e.status != 'dismissed'
-                  AND COALESCE(sl.is_skipped, 0) = 0
+                  AND {UnreviewedEvidenceGamePredicate}
                 GROUP BY e.game_id
                 HAVING bad_count >= 2
                 ORDER BY bad_count DESC
@@ -328,13 +346,14 @@ public sealed class EvidenceRepository : IEvidenceRepository
     private static async Task<(int Count, long? LatestGameId)> CountTitleLikeAsync(SqliteConnection conn, string pattern)
     {
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT COUNT(*), MAX(e.game_id)
             FROM evidence_items e
+            LEFT JOIN games g ON g.game_id = e.game_id
             LEFT JOIN session_log sl ON sl.game_id = e.game_id
             WHERE e.status != 'dismissed'
               AND e.title LIKE @pattern
-              AND COALESCE(sl.is_skipped, 0) = 0
+              AND {UnreviewedEvidenceGamePredicate}
             """;
         cmd.Parameters.AddWithValue("@pattern", pattern);
         using var reader = await cmd.ExecuteReaderAsync();

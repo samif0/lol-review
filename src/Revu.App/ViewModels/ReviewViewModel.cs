@@ -411,8 +411,7 @@ public partial class ReviewViewModel : ObservableObject,
                     .OrderBy(b => b.GameTimeSeconds)
                     .ToList();
                 if (objLevel.Count == 0) continue;
-                AppendBookmarkLines(objLevel, _ => assessment.ExecutionNote ?? "",
-                                    t => assessment.ExecutionNote = t);
+                assessment.ExecutionNote = ScrubExactBookmarkLines(assessment.ExecutionNote ?? "", objLevel);
             }
 
             // v2.15.5: bookmarks without an objective (bulk of the user's
@@ -722,6 +721,60 @@ public partial class ReviewViewModel : ObservableObject,
         {
             kept.RemoveAt(kept.Count - 1);
         }
+        return string.Join("\n", kept).TrimEnd('\n');
+    }
+
+    private static string ScrubExactBookmarkLines(
+        string note,
+        IReadOnlyList<Revu.Core.Data.Repositories.VodBookmarkRecord> bookmarks)
+    {
+        if (string.IsNullOrWhiteSpace(note) || bookmarks.Count == 0)
+        {
+            return note;
+        }
+
+        var bookmarkNotesByTimestamp = bookmarks
+            .GroupBy(static bm => FormatGameTime(bm.GameTimeSeconds))
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static bm => (bm.Note ?? "").Trim())
+                    .Where(static value => !string.IsNullOrWhiteSpace(value))
+                    .ToArray());
+
+        var kept = new List<string>();
+        foreach (var raw in note.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            var shouldDrop = false;
+
+            foreach (var (timestamp, notes) in bookmarkNotesByTimestamp)
+            {
+                if (!line.StartsWith($"[{timestamp}]", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                shouldDrop = notes.Length == 0
+                    || notes.Any(noteText => line.Contains(noteText, StringComparison.Ordinal));
+                if (shouldDrop)
+                {
+                    break;
+                }
+            }
+
+            if (!shouldDrop)
+            {
+                kept.Add(raw);
+            }
+        }
+
+        while (kept.Count > 0
+               && kept[^1].TrimEnd().EndsWith("â€” Bookmarks/clips â€”", StringComparison.Ordinal))
+        {
+            kept.RemoveAt(kept.Count - 1);
+        }
+
         return string.Join("\n", kept).TrimEnd('\n');
     }
 
