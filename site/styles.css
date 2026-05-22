@@ -609,13 +609,13 @@ footer a:hover {
 
 .legal .community-actions .community-primary-btn,
 .legal .community-actions .community-primary-btn:visited {
-  color: var(--bg-shell);
-  text-decoration: none;
-  text-decoration-color: transparent;
+  color: #050409 !important;
+  text-decoration: none !important;
+  text-decoration-color: transparent !important;
 }
 
 .legal .community-actions .community-primary-btn:hover {
-  color: var(--bg-shell);
+  color: #050409 !important;
 }
 
 /* ─── Responsive ────────────────────────────────────────────────── */
