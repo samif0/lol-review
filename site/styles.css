@@ -243,6 +243,13 @@ main {
   margin: 0 0 44px;
 }
 
+.cta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
 .download-btn {
   display: inline-block;
   padding: 18px 36px;
@@ -270,6 +277,16 @@ main {
 .download-btn:focus-visible {
   outline: 2px solid var(--accent-violet);
   outline-offset: 4px;
+}
+
+.secondary-btn {
+  background: transparent;
+  color: var(--accent-violet);
+  border-color: rgba(167, 139, 250, 0.55);
+}
+.secondary-btn:hover {
+  background: rgba(167, 139, 250, 0.1);
+  box-shadow: 0 0 28px rgba(167, 139, 250, 0.22);
 }
 
 .download-meta {
@@ -582,6 +599,14 @@ footer a:hover {
   letter-spacing: 0.1em;
 }
 
+.community-page .legal-h1 {
+  margin-bottom: 12px;
+}
+
+.community-actions {
+  margin: 32px 0 8px;
+}
+
 /* ─── Responsive ────────────────────────────────────────────────── */
 
 @media (max-width: 640px) {
@@ -592,6 +617,7 @@ footer a:hover {
   .wordmark { font-size: 52px; letter-spacing: 0.14em; }
   .subhead { font-size: 11px; letter-spacing: 0.28em; }
   .pitch { font-size: 16px; }
+  .cta-actions { align-items: stretch; flex-direction: column; }
   .download-btn { padding: 16px 24px; font-size: 13px; letter-spacing: 0.18em; }
   .features { grid-template-columns: 1fr; }
   .legal { padding: 40px 24px; }
