@@ -607,6 +607,10 @@ footer a:hover {
   margin: 32px 0 8px;
 }
 
+.community-actions .download-btn {
+  color: var(--bg-shell);
+}
+
 /* ─── Responsive ────────────────────────────────────────────────── */
 
 @media (max-width: 640px) {
