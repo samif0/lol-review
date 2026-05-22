@@ -607,7 +607,14 @@ footer a:hover {
   margin: 32px 0 8px;
 }
 
-.community-actions .download-btn {
+.legal .community-actions .community-primary-btn,
+.legal .community-actions .community-primary-btn:visited {
+  color: var(--bg-shell);
+  text-decoration: none;
+  text-decoration-color: transparent;
+}
+
+.legal .community-actions .community-primary-btn:hover {
   color: var(--bg-shell);
 }
 
