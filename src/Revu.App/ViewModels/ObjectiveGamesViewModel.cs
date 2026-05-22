@@ -47,6 +47,25 @@ public sealed class ObjectiveEvidenceRow
 
     public string MetaText => string.Join("  /  ", new[] { ChampionName, DateText, TimeText }.Where(static text => !string.IsNullOrWhiteSpace(text)));
 
+    public string DisplayNote
+    {
+        get
+        {
+            var note = (Note ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(note))
+            {
+                return "";
+            }
+
+            var title = (Title ?? "").Trim();
+            return string.Equals(note, title, StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : note;
+        }
+    }
+
+    public bool HasDisplayNote => !string.IsNullOrWhiteSpace(DisplayNote);
+
     public string PolarityLabel => EvidencePolarities.Normalize(Polarity) switch
     {
         EvidencePolarities.Good => "Good example",

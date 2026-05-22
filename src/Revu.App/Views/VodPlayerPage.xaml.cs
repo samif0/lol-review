@@ -46,6 +46,7 @@ public sealed partial class VodPlayerPage : Page
         ViewModel.PlayPauseRequested += OnPlayPauseRequested;
         ViewModel.ClipPlaybackRequested += OnClipPlaybackRequested;
         Timeline.SeekRequested += OnTimelineSeek;
+        FullscreenTimeline.SeekRequested += OnTimelineSeek;
         VideoContainer.AddHandler(
             PointerPressedEvent,
             new PointerEventHandler(OnVideoPointerPressed),
@@ -828,6 +829,7 @@ public sealed partial class VodPlayerPage : Page
         VodHeader.Visibility = Visibility.Collapsed;
         BookmarkSidebar.Visibility = Visibility.Collapsed;
         TimelineBar.Visibility = Visibility.Collapsed;
+        FullscreenTimelineOverlay.Visibility = Visibility.Visible;
         VodMainLayout.ColumnSpacing = 0;
         VideoColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
         SidebarColumnDefinition.Width = new GridLength(0);
@@ -837,6 +839,7 @@ public sealed partial class VodPlayerPage : Page
         VideoColumnStack.Padding = new Thickness(0);
         VideoBorder.Padding = new Thickness(0);
         VideoContainer.MinHeight = Math.Max(520, RootGrid.ActualHeight - TransportBar.ActualHeight - 56);
+        VideoPlayPauseButton.Margin = new Thickness(0, 0, 0, 126);
         FullscreenIcon.Glyph = "\uE73F"; // ExitFullScreen
     }
 
@@ -846,6 +849,7 @@ public sealed partial class VodPlayerPage : Page
         VodHeader.Visibility = Visibility.Visible;
         BookmarkSidebar.Visibility = Visibility.Visible;
         TimelineBar.Visibility = Visibility.Visible;
+        FullscreenTimelineOverlay.Visibility = Visibility.Collapsed;
         VodMainLayout.ColumnSpacing = 16;
         VideoColumnDefinition.Width = new GridLength(2.4, GridUnitType.Star);
         SidebarColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
@@ -855,6 +859,7 @@ public sealed partial class VodPlayerPage : Page
         VideoColumnStack.Padding = new Thickness(0, 0, 0, 40);
         VideoBorder.Padding = new Thickness(6);
         VideoContainer.MinHeight = 420;
+        VideoPlayPauseButton.Margin = new Thickness(0, 0, 0, 24);
         FullscreenIcon.Glyph = "\uE740"; // EnterFullScreen
     }
 

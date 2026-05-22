@@ -124,10 +124,11 @@
                                                            FontFamily="{StaticResource MonoFont}"
                                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                            Foreground="{StaticResource MutedTextBrush}"/>
-                                                <TextBlock Text="{x:Bind Note}"
+                                                <TextBlock Text="{x:Bind DisplayNote}"
                                                            FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                            Foreground="{StaticResource SecondaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{x:Bind HasDisplayNote, Converter={StaticResource BoolToVis}}"/>
                                             </StackPanel>
                                             <Border Grid.Column="1"
                                                     Background="{StaticResource CardBackgroundBrush}"

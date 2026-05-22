@@ -49,20 +49,38 @@ public sealed class ReviewExportServiceTests
             objectiveId: objectiveId,
             quality: "bad",
             promptId: promptId);
+        await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.TimelineRegion,
+            SourceId: null,
+            SourceKey: "timeline:first-death",
+            StartTimeSeconds: 420,
+            EndTimeSeconds: 455,
+            Title: "First lane death",
+            Note: "Died before support could reset wave",
+            ObjectiveId: objectiveId,
+            Polarity: EvidencePolarities.Bad,
+            Status: EvidenceStatuses.Evidence));
 
         var service = CreateService(scope);
         var markdown = await service.ExportGameAsync(gameId);
 
         Assert.NotNull(markdown);
-        Assert.Contains("# Revu Game Review Export", markdown);
+        Assert.StartsWith("# Kai'Sa vs Smolder (Loss)", markdown);
+        Assert.DoesNotContain("Exported:", markdown);
+        Assert.DoesNotContain("Game ID", markdown);
+        Assert.DoesNotContain(@"C:\vods\kaisa-loss.mp4", markdown);
+        Assert.DoesNotContain(@"C:\clips\recall.mp4", markdown);
         Assert.Contains("Kai'Sa", markdown);
         Assert.Contains("Smolder", markdown);
         Assert.Contains("Got punished for mid-wave reset.", markdown);
         Assert.Contains("reset timing", markdown);
         Assert.Contains("Crash before recall", markdown);
         Assert.Contains("No, I recalled too early.", markdown);
-        Assert.Contains(@"C:\vods\kaisa-loss.mp4", markdown);
         Assert.Contains("Bad recall setup", markdown);
+        Assert.Contains("Died before support could reset wave", markdown);
+        Assert.True(markdown!.Length <= 2_000);
+        Assert.True(markdown.IndexOf("## Notes", StringComparison.Ordinal) < markdown.IndexOf("## Objectives", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -89,5 +107,6 @@ public sealed class ReviewExportServiceTests
             scope.ConceptTags,
             scope.Prompts,
             scope.Vod,
-            scope.MatchupNotes);
+            scope.MatchupNotes,
+            scope.Evidence);
 }

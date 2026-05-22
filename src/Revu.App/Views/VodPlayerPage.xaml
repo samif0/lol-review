@@ -183,6 +183,27 @@
                                     <FontIcon x:Name="VideoPlayPauseIcon" Glyph="&#xE768;" FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}"
                                               FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                                 </Button>
+
+                                <Border x:Name="FullscreenTimelineOverlay"
+                                        HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Bottom"
+                                        Margin="18"
+                                        Padding="10,8"
+                                        Background="#D006050C"
+                                        BorderBrush="{StaticResource BrightBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="2"
+                                        Visibility="Collapsed">
+                                    <controls:TimelineControl x:Name="FullscreenTimeline"
+                                                              Height="80"
+                                                              Bookmarks="{x:Bind ViewModel.Bookmarks, Mode=OneWay}"
+                                                              ClipEnd="{x:Bind ViewModel.ClipEndS, Mode=OneWay}"
+                                                              ClipStart="{x:Bind ViewModel.ClipStartS, Mode=OneWay}"
+                                                              DerivedEvents="{x:Bind ViewModel.DerivedEvents, Mode=OneWay}"
+                                                              Duration="{x:Bind ViewModel.GameDurationS, Mode=OneWay}"
+                                                              Events="{x:Bind ViewModel.GameEvents, Mode=OneWay}"
+                                                              Position="{x:Bind ViewModel.CurrentTimeS, Mode=OneWay}"/>
+                                </Border>
                             </Grid>
                         </Border>
 

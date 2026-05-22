@@ -10,6 +10,7 @@ namespace Revu.Core.Services;
 public sealed class ReviewExportService : IReviewExportService
 {
     private const int ExportLimit = 10_000;
+    private const int SingleGameExportCharacterLimit = 2_000;
 
     private readonly IGameHistoryQuery _gameHistory;
     private readonly IObjectivesRepository _objectives;
@@ -17,6 +18,7 @@ public sealed class ReviewExportService : IReviewExportService
     private readonly IPromptsRepository _prompts;
     private readonly IVodRepository _vod;
     private readonly IMatchupNotesRepository _matchupNotes;
+    private readonly IEvidenceRepository _evidence;
 
     public ReviewExportService(
         IGameHistoryQuery gameHistory,
@@ -24,7 +26,8 @@ public sealed class ReviewExportService : IReviewExportService
         IConceptTagRepository conceptTags,
         IPromptsRepository prompts,
         IVodRepository vod,
-        IMatchupNotesRepository matchupNotes)
+        IMatchupNotesRepository matchupNotes,
+        IEvidenceRepository evidence)
     {
         _gameHistory = gameHistory;
         _objectives = objectives;
@@ -32,6 +35,7 @@ public sealed class ReviewExportService : IReviewExportService
         _prompts = prompts;
         _vod = vod;
         _matchupNotes = matchupNotes;
+        _evidence = evidence;
     }
 
     public async Task<string> ExportAllAsync(CancellationToken cancellationToken = default)
@@ -65,13 +69,33 @@ public sealed class ReviewExportService : IReviewExportService
         cancellationToken.ThrowIfCancellationRequested();
 
         var sb = new StringBuilder();
-        sb.AppendLine("# Revu Game Review Export");
-        sb.AppendLine();
-        AppendField(sb, "Exported", DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture));
+        await AppendSingleGameReviewAsync(sb, game);
+        return TrimToCharacterLimit(sb.ToString(), SingleGameExportCharacterLimit);
+    }
+
+    private async Task AppendSingleGameReviewAsync(StringBuilder sb, GameStats game)
+    {
+        var objectives = await _objectives.GetGameObjectivesAsync(game.GameId);
+        var promptAnswers = await _prompts.GetAnswersForGameAsync(game.GameId);
+        var matchupNote = await _matchupNotes.GetForGameAsync(game.GameId);
+        var bookmarks = await _vod.GetBookmarksAsync(game.GameId);
+        var evidence = await _evidence.GetForGameAsync(game.GameId);
+        var tagIds = await _conceptTags.GetIdsForGameAsync(game.GameId);
+        var allTags = await _conceptTags.GetAllAsync();
+        var tagNames = allTags
+            .Where(tag => tagIds.Contains(tag.Id))
+            .Select(tag => tag.Name)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var result = game.Win ? "Win" : "Loss";
+        sb.AppendLine($"# {OneLine(game.ChampionName)} vs {OneLine(game.EnemyLaner)} ({result})");
         sb.AppendLine();
 
-        await AppendGameAsync(sb, game, headingLevel: 2);
-        return sb.ToString();
+        AppendCompactNotes(sb, game, matchupNote?.Note ?? "", tagNames);
+        AppendCompactObjectives(sb, objectives);
+        AppendCompactPromptAnswers(sb, promptAnswers);
+        AppendMoments(sb, bookmarks, evidence, objectives);
     }
 
     private async Task AppendGameAsync(StringBuilder sb, GameStats game, int headingLevel)
@@ -123,14 +147,76 @@ public sealed class ReviewExportService : IReviewExportService
         AppendField(sb, "Concept tags", tagNames.Length > 0 ? string.Join(", ", tagNames) : "");
         sb.AppendLine();
 
-        AppendObjectives(sb, objectives);
+        AppendObjectives(sb, objectives, includeMetadata: true);
         AppendPromptAnswers(sb, promptAnswers);
         AppendVod(sb, vod, bookmarks, objectives);
     }
 
-    private static void AppendObjectives(StringBuilder sb, IReadOnlyList<GameObjectiveRecord> objectives)
+    private static void AppendReviewNotes(
+        StringBuilder sb,
+        GameStats game,
+        string matchupNote,
+        IReadOnlyList<string> tagNames)
     {
-        sb.AppendLine("### Objectives");
+        sb.AppendLine("## Review");
+        AppendField(sb, "Mental rating", game.Rating > 0 ? $"{game.Rating}/10" : "");
+        AppendField(sb, "Attribution", game.Attribution);
+        AppendField(sb, "Review notes", game.ReviewNotes);
+        AppendField(sb, "Went well", game.WentWell);
+        AppendField(sb, "Mistakes", game.Mistakes);
+        AppendField(sb, "Focus next", game.FocusNext);
+        AppendField(sb, "Spotted problems", game.SpottedProblems);
+        AppendField(sb, "Outside control", game.OutsideControl);
+        AppendField(sb, "Within control", game.WithinControl);
+        AppendField(sb, "Personal contribution", game.PersonalContribution);
+        AppendField(sb, "Matchup note", matchupNote);
+        AppendField(sb, "Concept tags", tagNames.Count > 0 ? string.Join(", ", tagNames) : "");
+        sb.AppendLine();
+    }
+
+    private static void AppendCompactNotes(
+        StringBuilder sb,
+        GameStats game,
+        string matchupNote,
+        IReadOnlyList<string> tagNames)
+    {
+        sb.AppendLine("## Notes");
+        AppendCompactField(sb, "Review", game.ReviewNotes);
+        AppendCompactField(sb, "Mistakes", game.Mistakes);
+        AppendCompactField(sb, "Went well", game.WentWell);
+        AppendCompactField(sb, "Next", game.FocusNext);
+        AppendCompactField(sb, "Problems", game.SpottedProblems);
+        AppendCompactField(sb, "Matchup", matchupNote);
+        AppendCompactField(sb, "Control", game.WithinControl);
+        AppendCompactField(sb, "Outside", game.OutsideControl);
+        AppendCompactField(sb, "Contribution", game.PersonalContribution);
+        AppendCompactField(sb, "Tags", tagNames.Count > 0 ? string.Join(", ", tagNames) : "");
+        sb.AppendLine();
+    }
+
+    private static void AppendCompactObjectives(StringBuilder sb, IReadOnlyList<GameObjectiveRecord> objectives)
+    {
+        if (objectives.Count == 0)
+        {
+            return;
+        }
+
+        sb.AppendLine("## Objectives");
+        foreach (var objective in objectives)
+        {
+            var practiced = objective.Practiced ? "yes" : "no";
+            var note = string.IsNullOrWhiteSpace(objective.ExecutionNote)
+                ? ""
+                : $": {OneLine(objective.ExecutionNote)}";
+            sb.AppendLine($"- {OneLine(objective.Title)} ({practiced}){note}");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void AppendObjectives(StringBuilder sb, IReadOnlyList<GameObjectiveRecord> objectives, bool includeMetadata)
+    {
+        sb.AppendLine(includeMetadata ? "### Objectives" : "## Objectives");
         if (objectives.Count == 0)
         {
             sb.AppendLine("_No linked objectives._");
@@ -142,10 +228,87 @@ public sealed class ReviewExportService : IReviewExportService
         {
             sb.AppendLine($"- **{OneLine(objective.Title)}**");
             sb.AppendLine($"  - Practiced: {(objective.Practiced ? "yes" : "no")}");
-            AppendNestedField(sb, "Type", objective.Type);
-            AppendNestedField(sb, "Phase", objective.Phase);
-            AppendNestedField(sb, "Completion criteria", objective.CompletionCriteria);
+            if (includeMetadata)
+            {
+                AppendNestedField(sb, "Type", objective.Type);
+                AppendNestedField(sb, "Phase", objective.Phase);
+                AppendNestedField(sb, "Completion criteria", objective.CompletionCriteria);
+            }
             AppendNestedField(sb, "Execution note", objective.ExecutionNote);
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void AppendMoments(
+        StringBuilder sb,
+        IReadOnlyList<VodBookmarkRecord> bookmarks,
+        IReadOnlyList<EvidenceItemRecord> evidence,
+        IReadOnlyList<GameObjectiveRecord> objectives)
+    {
+        var moments = new List<ExportMoment>();
+        var objectiveNames = objectives.ToDictionary(o => o.ObjectiveId, o => o.Title);
+
+        foreach (var bookmark in bookmarks)
+        {
+            moments.Add(new ExportMoment(
+                StartSeconds: bookmark.ClipStartSeconds ?? bookmark.GameTimeSeconds,
+                EndSeconds: bookmark.ClipEndSeconds,
+                Text: string.IsNullOrWhiteSpace(bookmark.Note) ? "Saved moment" : bookmark.Note.Trim(),
+                Objective: bookmark.ObjectiveId is { } objectiveId && objectiveNames.TryGetValue(objectiveId, out var title) ? title : ""));
+        }
+
+        foreach (var item in evidence)
+        {
+            var note = string.Equals(item.Note?.Trim(), item.Title?.Trim(), StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : item.Note ?? "";
+            moments.Add(new ExportMoment(
+                StartSeconds: item.StartTimeSeconds ?? 0,
+                EndSeconds: item.EndTimeSeconds,
+                Text: string.IsNullOrWhiteSpace(note) ? item.Title ?? "Timeline moment" : note.Trim(),
+                Objective: item.ObjectiveTitle));
+        }
+
+        var deduped = moments
+            .GroupBy(static item => (
+                item.StartSeconds,
+                item.EndSeconds,
+                Text: OneLine(item.Text).ToLowerInvariant(),
+                Objective: OneLine(item.Objective).ToLowerInvariant()))
+            .Select(static group => group.First())
+            .OrderBy(static item => string.IsNullOrWhiteSpace(item.Objective) ? 1 : 0)
+            .ThenBy(static item => item.Objective, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static item => item.StartSeconds)
+            .ThenBy(static item => item.Text, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var grouped = deduped
+            .GroupBy(static item => string.IsNullOrWhiteSpace(item.Objective) ? "Unassigned" : OneLine(item.Objective))
+            .OrderBy(static group => group.Key == "Unassigned" ? 1 : 0)
+            .ThenBy(static group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        sb.AppendLine("## Moments");
+        if (grouped.Length == 0)
+        {
+            sb.AppendLine("_No clips, bookmarks, or timeline evidence._");
+            sb.AppendLine();
+            return;
+        }
+
+        foreach (var group in grouped)
+        {
+            sb.AppendLine($"### {group.Key}");
+            foreach (var moment in group
+            .OrderBy(static item => item.StartSeconds)
+            .ThenBy(static item => item.Text, StringComparer.OrdinalIgnoreCase))
+            {
+                var range = moment.EndSeconds is int end && end > moment.StartSeconds
+                    ? $"{FormatSeconds(moment.StartSeconds)} - {FormatSeconds(end)}"
+                    : FormatSeconds(moment.StartSeconds);
+                sb.AppendLine($"- {range}: {OneLine(moment.Text)}");
+            }
         }
 
         sb.AppendLine();
@@ -166,6 +329,23 @@ public sealed class ReviewExportService : IReviewExportService
         {
             sb.AppendLine($"- **{OneLine(answer.ObjectiveTitle)}** [{answer.Phase}] {OneLine(answer.Label)}");
             sb.AppendLine($"  - {Multiline(answer.AnswerText).Replace("\n", "\n  - ")}");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void AppendCompactPromptAnswers(StringBuilder sb, IReadOnlyList<PromptAnswer> answers)
+    {
+        var populated = answers.Where(answer => !string.IsNullOrWhiteSpace(answer.AnswerText)).ToArray();
+        if (populated.Length == 0)
+        {
+            return;
+        }
+
+        sb.AppendLine("## Prompts");
+        foreach (var answer in populated)
+        {
+            sb.AppendLine($"- {OneLine(answer.Label)}: {OneLine(answer.AnswerText)}");
         }
 
         sb.AppendLine();
@@ -241,6 +421,16 @@ public sealed class ReviewExportService : IReviewExportService
         sb.AppendLine($"- **{label}:** {Multiline(value)}");
     }
 
+    private static void AppendCompactField(StringBuilder sb, string label, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        sb.AppendLine($"- **{label}:** {OneLine(value)}");
+    }
+
     private static void AppendNestedField(StringBuilder sb, string label, string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -279,4 +469,45 @@ public sealed class ReviewExportService : IReviewExportService
     {
         return value.Trim().ReplaceLineEndings("\n");
     }
+
+    private static string TrimToCharacterLimit(string value, int limit)
+    {
+        if (value.Length <= limit)
+        {
+            return value;
+        }
+
+        const string suffix = "\n\n...";
+        var maxBody = Math.Max(0, limit - suffix.Length);
+        var lines = value.ReplaceLineEndings("\n").Split('\n');
+        var sb = new StringBuilder(maxBody);
+
+        foreach (var line in lines)
+        {
+            var nextLength = sb.Length == 0 ? line.Length : sb.Length + 1 + line.Length;
+            if (nextLength > maxBody)
+            {
+                break;
+            }
+
+            if (sb.Length > 0)
+            {
+                sb.Append('\n');
+            }
+            sb.Append(line);
+        }
+
+        if (sb.Length == 0)
+        {
+            return value[..maxBody] + suffix;
+        }
+
+        return sb.ToString().TrimEnd() + suffix;
+    }
+
+    private sealed record ExportMoment(
+        int StartSeconds,
+        int? EndSeconds,
+        string Text,
+        string Objective);
 }
