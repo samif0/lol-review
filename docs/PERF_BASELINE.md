@@ -187,11 +187,12 @@ disentangle.
 These are the perf-suspect call sites identified from the LAUNCH_READINESS
 risk-areas list, with what the read-through revealed:
 
-- **`SidebarEnergyDrainAnimator`** — `CompositionTarget.Rendering` driver
-  with 8 paths animated at ~30fps. Has an `Enabled` toggle (default true).
-  Properly removes the rendering handler in `Stop()`. **Concern:** runs
-  forever while sidebar is visible; CPU cost worth measuring under
-  criterion 2.
+- **`SidebarEnergyDrainAnimator`** — ~~`CompositionTarget.Rendering` driver
+  with 8 paths animated at ~30fps.~~ As of v2.17.4 the per-frame UI-thread
+  loop is gone: trails render as solid (non-dashed) strokes and pulse via
+  per-path Composition opacity key-frame animations on the GPU compositor
+  thread. Hover hit-testing on sidebar buttons no longer waits behind
+  dashed-stroke retesselation. Still has the `Enabled` toggle (default true).
 - **`HudProgressRing`** — `AttachPulseOpacity` is a Composition implicit
   animation (GPU-thread, not UI-thread). Cheap. Per-ring storyboards
   for the draw-in are one-shot. Likely fine.

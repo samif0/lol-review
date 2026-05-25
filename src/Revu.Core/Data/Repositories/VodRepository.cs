@@ -288,11 +288,25 @@ public sealed class VodRepository : IVodRepository
             return new HashSet<long>();
         }
 
+        // v2.17.5: was vod_bookmarks-only, which missed timeline-region evidence
+        // attached on the review page (writes to evidence_items, not bookmarks).
+        // A game counts as "has objective-tagged evidence" if *either* source
+        // has a row tagged with an objective. evidence_items rows also gate on
+        // status != 'dismissed' so a user-dismissed row stops counting.
+        var placeholderList = string.Join(", ", placeholders);
         cmd.CommandText = $"""
-            SELECT DISTINCT game_id
-            FROM vod_bookmarks
-            WHERE objective_id IS NOT NULL
-              AND game_id IN ({string.Join(", ", placeholders)})
+            SELECT DISTINCT game_id FROM (
+                SELECT game_id
+                FROM vod_bookmarks
+                WHERE objective_id IS NOT NULL
+                  AND game_id IN ({placeholderList})
+                UNION ALL
+                SELECT game_id
+                FROM evidence_items
+                WHERE objective_id IS NOT NULL
+                  AND status != 'dismissed'
+                  AND game_id IN ({placeholderList})
+            )
             """;
 
         var ids = new HashSet<long>();

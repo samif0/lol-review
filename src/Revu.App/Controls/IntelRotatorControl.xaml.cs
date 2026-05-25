@@ -6,9 +6,11 @@ using System.Collections.Specialized;
 using Revu.Core.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
+using Windows.System;
 
 namespace Revu.App.Controls;
 
@@ -25,6 +27,13 @@ public sealed partial class IntelRotatorControl : UserControl
     private int _currentIndex = -1;
     private bool _paused;
 
+    // v2.17.5: once the user steers with the arrow keys, auto-rotation goes
+    // away for the rest of this control's lifetime. The intent is "I want to
+    // dwell on this card" — re-engaging auto-rotation 7s later would just
+    // yank them off it again. Reset on Unload so the next time PreGamePage
+    // is shown we start fresh in auto mode.
+    private bool _userTookControl;
+
     public IntelRotatorControl()
     {
         InitializeComponent();
@@ -35,6 +44,46 @@ public sealed partial class IntelRotatorControl : UserControl
         Unloaded += OnUnloaded;
         PointerEntered += (_, _) => _paused = true;
         PointerExited += (_, _) => _paused = false;
+
+        // v2.17.5: enable focus + arrow-key driving. UserControl is not a
+        // focusable element by default; flipping IsTabStop lets the framework
+        // route key events to us once a click or Tab lands focus here.
+        IsTabStop = true;
+        UseSystemFocusVisuals = false;
+        KeyDown += OnKeyDown;
+        // Clicking anywhere on the card grabs focus so subsequent arrows work
+        // without the user having to Tab through the page first.
+        Tapped += (_, _) => Focus(FocusState.Programmatic);
+    }
+
+    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (ItemsSource is null || ItemsSource.Count <= 1) return;
+
+        if (e.Key == VirtualKey.Left)
+        {
+            StepBy(-1);
+            e.Handled = true;
+        }
+        else if (e.Key == VirtualKey.Right)
+        {
+            StepBy(+1);
+            e.Handled = true;
+        }
+    }
+
+    private void StepBy(int delta)
+    {
+        if (ItemsSource is null || ItemsSource.Count == 0) return;
+
+        _userTookControl = true;
+        _rotationTimer.Stop();
+
+        var count = ItemsSource.Count;
+        var next = (_currentIndex + delta) % count;
+        if (next < 0) next += count;
+        _currentIndex = next;
+        ApplyCurrentCard(animate: true);
     }
 
     public static readonly DependencyProperty ItemsSourceProperty =
@@ -75,6 +124,8 @@ public sealed partial class IntelRotatorControl : UserControl
     {
         if (ItemsSource is INotifyCollectionChanged notify)
             notify.CollectionChanged += OnCollectionChanged;
+        // Reset on re-load so the next visit to PreGamePage starts in auto mode.
+        _userTookControl = false;
         JumpToFirst();
         _rotationTimer.Start();
     }
@@ -82,6 +133,7 @@ public sealed partial class IntelRotatorControl : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _rotationTimer.Stop();
+        _userTookControl = false;
         if (ItemsSource is INotifyCollectionChanged notify)
             notify.CollectionChanged -= OnCollectionChanged;
     }
@@ -103,6 +155,7 @@ public sealed partial class IntelRotatorControl : UserControl
     private void Advance()
     {
         if (_paused) return;
+        if (_userTookControl) return; // belt-and-suspenders; timer is also Stop()ped
         if (ItemsSource is null || ItemsSource.Count <= 1) return;
         _currentIndex = (_currentIndex + 1) % ItemsSource.Count;
         ApplyCurrentCard(animate: true);

@@ -76,7 +76,28 @@
       "Bash(taskkill //F //IM LoLReview.App.exe)",
       "Bash(git -C /c/Users/samif0/Desktop/ClaudeCowork/lol-review tag --sort=-v:refname)",
       "Bash(git -C /c/Users/samif0/Desktop/ClaudeCowork/lol-review log --oneline -5)",
-      "Bash(git -C /c/Users/samif0/Desktop/ClaudeCowork/lol-review diff --stat HEAD)"
+      "Bash(git -C /c/Users/samif0/Desktop/ClaudeCowork/lol-review diff --stat HEAD)",
+      "Bash(git remote:*)",
+      "Bash(git pull *)",
+      "Bash(dotnet clean *)",
+      "Bash(\"C:\\\\Users\\\\samif0\\\\.nuget\\\\packages\\\\microsoft.windowsappsdk\\\\1.6.250205002\\\\tools\\\\net472\\\\XamlCompiler.exe\" \"src\\\\LoLReview.App\\\\obj\\\\Debug\\\\input.json\" \"src\\\\LoLReview.App\\\\obj\\\\Debug\\\\output_test.json\")",
+      "Bash(\"C:\\\\Users\\\\samif0\\\\.nuget\\\\packages\\\\microsoft.windowsappsdk\\\\1.6.250205002\\\\tools\\\\net472\\\\XamlCompiler.exe\" \"src\\\\LoLReview.App\\\\obj\\\\x64\\\\Debug\\\\input.json\" \"src\\\\LoLReview.App\\\\obj\\\\x64\\\\Debug\\\\output2.json\")",
+      "Bash(echo \"Exit: $?\")",
+      "Read(//tmp/**)",
+      "Bash(file /c/Users/samif0/Desktop/ClaudeCowork/lol-review/src/LoLReview.App/Assets/Fonts/*.ttf)",
+      "Bash(msbuild src/LoLReview.App/LoLReview.App.csproj -p:RuntimeIdentifier=win-x64 -restore -v:normal)",
+      "Bash(ls \"/c/Program Files \\(x86\\)/Microsoft Visual Studio/2022/\"*/MSBuild/Current/Bin/MSBuild.exe)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" src/LoLReview.App/LoLReview.App.csproj -p:RuntimeIdentifier=win-x64 -restore -v:normal)",
+      "Bash(git fetch *)",
+      "Bash(ls src/LoLReview.App/bin/x64/Debug/net8.0-windows*/LoLReview.App.exe)",
+      "Bash(src/LoLReview.App/bin/x64/Debug/LoLReview.App.exe)",
+      "Bash(taskkill //F //PID 6356)",
+      "Bash(taskkill //F //PID 30320)",
+      "Bash(msbuild src/LoLReview.App/LoLReview.App.csproj -p:Configuration=Debug -p:Platform=x64 -v:q)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" src/LoLReview.App/LoLReview.App.csproj -p:Configuration=Debug -p:Platform=x64 -v:q)",
+      "Bash(ls \"c:/Users/samif0/Desktop/ClaudeCowork/lol-review/src/LoLReview.App/bin/x64/Debug/\"*\"/LoLReview.App.exe\")",
+      "Bash(start LoLReview.App.exe)",
+      "Bash(ls -la /c/Users/samif0/Desktop/ClaudeCowork/lol-review/src/LoLReview.App/Views/*.xaml)"
     ]
   }
 }

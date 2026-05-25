@@ -20,6 +20,10 @@ AGGREGATE_RPS = "18"
 # static-token (Path A) operators use the same limit.
 PER_TOKEN_RPS = "2"
 
+# Comma-separated list of browser Origins allowed to call the proxy (for the web
+# review tool). Leave unset in prod if only the desktop app uses this Worker.
+ALLOWED_ORIGINS = "https://revu.lol,https://www.revu.lol,http://localhost:8788,http://127.0.0.1:8788"
+
 # Magic-link emails are sent from this address. Must be on a Resend-verified domain.
 MAGIC_LINK_FROM = "login@revu.lol"
 # Link the user clicks in the email. For v1, a minimal landing page served by the

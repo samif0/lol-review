@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <title>Privacy policy — Revu</title>
+  <title>Privacy policy: Revu</title>
   <meta name="description" content="What data Revu reads, where it stores it, and what leaves your machine." />
   <meta name="robots" content="index, follow" />
 
@@ -32,12 +32,12 @@
       </p>
       <ul>
         <li>
-          <code>%LOCALAPPDATA%\LoLReviewData\</code> — your data:
+          <code>%LOCALAPPDATA%\LoLReviewData\</code>: your data,
           SQLite database (<code>revu.db</code>), config, safety
           backups, captured clips. Persists across reinstalls.
         </li>
         <li>
-          <code>%LOCALAPPDATA%\LoLReview\</code> — app binaries +
+          <code>%LOCALAPPDATA%\LoLReview\</code>: app binaries +
           updater files. Replaced on each update; doesn't contain
           user data.
         </li>
@@ -46,8 +46,8 @@
         Crash logs and startup logs land in
         <code>%LOCALAPPDATA%\Revu\</code>. The Velopack updater log
         is at <code>%LOCALAPPDATA%\LoLReview\velopack.log</code>.
-        These contain stack traces, version info, and timing data —
-        no Riot account credentials, no other users' data.
+        These contain stack traces, version info, and timing data.
+        No Riot account credentials, no other users' data.
       </p>
 
       <h2>What leaves your machine</h2>
@@ -58,7 +58,7 @@
       <ul>
         <li>
           <strong>Cloudflare Worker proxy</strong>
-          (<code>revu-proxy.lol-review.workers.dev</code>) —
+          (<code>revu-proxy.lol-review.workers.dev</code>):
           forwards Riot Match-V5 requests using a server-side API
           key. Your Riot ID, region, and match IDs flow through;
           your local game data does not. The proxy logs request
@@ -67,24 +67,24 @@
         </li>
         <li>
           <strong>Riot Games' Match-V5 API</strong> (via the proxy
-          above) — read-only, returns the same public match data
+          above): read-only, returns the same public match data
           you can see on op.gg.
         </li>
         <li>
           <strong>GitHub Releases</strong>
-          (<code>api.github.com</code>, <code>github.com</code>) —
+          (<code>api.github.com</code>, <code>github.com</code>):
           for the auto-updater. The app checks for new versions on
           launch and downloads them when available. GitHub sees the
           download as a normal anonymous release fetch.
         </li>
         <li>
           <strong>CommunityDragon</strong>
-          (<code>raw.communitydragon.org</code>) — read-only static
+          (<code>raw.communitydragon.org</code>): read-only static
           champion data (icons, ability info). Cached on disk after
           the first fetch.
         </li>
         <li>
-          <strong>Local LCU connection</strong> — Revu talks to your
+          <strong>Local LCU connection</strong>. Revu talks to your
           League client over <code>127.0.0.1</code> using credentials
           the LCU exposes locally. This traffic never leaves your
           machine.
@@ -110,11 +110,18 @@
       <p>
         This site is hosted on Cloudflare Pages. Cloudflare logs
         request metadata (IP, User-Agent, timestamp) per their
-        standard infrastructure logging — see
+        standard infrastructure logging. See
         <a href="https://www.cloudflare.com/privacypolicy/">
           Cloudflare's privacy policy
         </a>.
         We do not run any analytics on this site.
+      </p>
+      <p>
+        The experimental web review lab at <code>/app</code> stores
+        review notes, objectives, file metadata, and timestamped evidence
+        in your browser's local storage. It does not upload ROFL files,
+        VODs, highlights, or other media. Clearing your browser data for
+        this site removes that local web review data.
       </p>
 
       <h2>Your rights</h2>
@@ -123,6 +130,8 @@
         data" means uninstalling Revu and removing the
         <code>%LOCALAPPDATA%\LoLReviewData\</code> folder. We have
         no remote copy to delete.
+        For the web review lab, delete this site's browser data to remove
+        the local web copy.
       </p>
 
       <h2>Changes to this policy</h2>
