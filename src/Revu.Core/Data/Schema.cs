@@ -8,7 +8,8 @@ namespace Revu.Core.Data;
 /// </summary>
 public static class Schema
 {
-    public const int CurrentAppSchemaVersion = 1;
+    // v2 (2026-05): mini-objective target game count column.
+    public const int CurrentAppSchemaVersion = 2;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -233,6 +234,7 @@ public static class Schema
             is_priority         INTEGER DEFAULT 0,
             score               INTEGER DEFAULT 0,
             game_count          INTEGER DEFAULT 0,
+            target_game_count   INTEGER NOT NULL DEFAULT 0,
             created_at          INTEGER,
             completed_at        INTEGER
         );
@@ -747,6 +749,18 @@ public static class Schema
         "ALTER TABLE objectives ADD COLUMN practice_postgame INTEGER NOT NULL DEFAULT 0",
     ];
 
+    /// <summary>
+    /// v2.17.7: "mini" learning objectives are short-horizon focus items the user
+    /// wants to work on for a small batch of games (e.g. "flash usage, next 3
+    /// games"). Reuses the existing Objective row with type='mini' and a
+    /// per-objective <c>target_game_count</c> instead of a new entity.
+    /// Objectives auto-archive once <c>game_count &gt;= target_game_count</c>.
+    /// </summary>
+    public static readonly string[] MigrateObjectivesMiniTarget =
+    [
+        "ALTER TABLE objectives ADD COLUMN target_game_count INTEGER NOT NULL DEFAULT 0",
+    ];
+
     public static readonly string[] MigrateBookmarksObjective =
     [
         "ALTER TABLE vod_bookmarks ADD COLUMN objective_id INTEGER",
@@ -860,7 +874,12 @@ public static class Schema
 
     public static readonly VersionedMigration[] VersionedMigrations =
     [
-        new(CurrentAppSchemaVersion, "legacy-additive-columns", AllMigrations),
+        new(1, "legacy-additive-columns", AllMigrations),
+        // v2.17.7 (schema v2): add target_game_count for mini objectives.
+        // Lives in its own versioned set so v1 DBs get the ALTER TABLE
+        // applied instead of falling through to the destructive
+        // normalize-rebuild path (which fails on FK dependents).
+        new(2, "objectives-mini-target", MigrateObjectivesMiniTarget),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

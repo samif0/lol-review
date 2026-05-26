@@ -97,4 +97,20 @@ public sealed partial class GamesPage : Page
             ViewModel.DeleteGameCommand.Execute(gameId);
         }
     }
+
+    // v2.17.8: row-body click → always the Review page. The inline action
+    // buttons keep their own routes; ActionsStack_Tapped marks the tap handled
+    // so a button click doesn't ALSO trigger this row-level navigate.
+    private void GameRow_RowActivated(object sender, RoutedEventArgs e)
+    {
+        if (sender is Controls.GameRowCard { Tag: long gameId })
+        {
+            ViewModel.OpenReviewCommand.Execute(gameId);
+        }
+    }
+
+    private void ActionsStack_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+    }
 }

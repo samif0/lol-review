@@ -137,6 +137,17 @@
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        TextWrapping="Wrap"/>
 
+                            <!-- v2.17.8: surface the Ascent download link inline so users
+                                 who don't have Ascent installed yet don't hit a dead end
+                                 on this prompt. -->
+                            <TextBlock FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap">
+                                <Run Text="Don't have Ascent yet? Download it at "/><Hyperlink NavigateUri="https://tryascent.gg"
+                                                                                                 Foreground="{StaticResource AccentBlueBrush}"><Run Text="tryascent.gg"/></Hyperlink><Run Text="."/>
+                            </TextBlock>
+
                             <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">
                                 <Button Content="CHOOSE FOLDER"
                                         Command="{x:Bind ViewModel.PickAscentFolderCommand}"

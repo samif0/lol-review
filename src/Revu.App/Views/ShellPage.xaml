@@ -42,12 +42,15 @@
              the very top, covering the 72px left of the title-bar area. -->
         <Grid Grid.Row="1" Grid.RowSpan="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="72"/>
+                <!-- v2.17.8: x:Name added so VodPlayerPage can collapse this
+                     column to 0 in theater mode and restore it on exit. -->
+                <ColumnDefinition x:Name="SidebarColumn" Width="72"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
             <!-- ••• SIDEBAR: Collapsed icon rail ••• -->
-            <Border Grid.Column="0"
+            <Border x:Name="SidebarBorder"
+                    Grid.Column="0"
                     Background="{StaticResource SidebarBackgroundBrush}"
                     BorderBrush="{StaticResource SubtleBorderBrush}"
                     BorderThickness="0,0,1,0">

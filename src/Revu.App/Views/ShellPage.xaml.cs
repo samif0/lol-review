@@ -25,6 +25,12 @@ public sealed partial class ShellPage : Page
     private Button? _activeNavButton;
     private bool _startupInitialized;
 
+    // v2.17.8: theater-mode sidebar suppression. VOD player calls
+    // SetSidebarVisible(false) on enter, true on exit, so the video extends
+    // all the way to the left window edge.
+    private static readonly GridLength SidebarColumnDefaultWidth = new(72);
+    private static readonly Thickness AppTitleBarDefaultMargin = new(72, 0, 150, 0);
+
     // Mockup: active = subtle 8% violet bg + violet glyph + thin right-edge accent (handled by ActiveBar)
     // No border box — keep it minimal.
     private static readonly SolidColorBrush ActiveBg = new(ColorHelper.FromArgb(20, 167, 139, 250));       // 8% violet
@@ -260,6 +266,22 @@ public sealed partial class ShellPage : Page
         {
             SetActiveNav(NavSettings);
         }
+    }
+
+    /// <summary>
+    /// v2.17.8: collapse or restore the global 72px navigation sidebar so a
+    /// fullscreening page (currently just VodPlayerPage's theater mode) can
+    /// extend its content all the way to the left window edge. Hidden state
+    /// also shrinks the title-bar drag region's left margin so there isn't
+    /// an awkward 72px empty strip across the top.
+    /// </summary>
+    public void SetSidebarVisible(bool visible)
+    {
+        SidebarColumn.Width = visible ? SidebarColumnDefaultWidth : new GridLength(0);
+        SidebarBorder.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        AppTitleBar.Margin = visible
+            ? AppTitleBarDefaultMargin
+            : new Thickness(0, 0, 150, 0);
     }
 
     private void OnConnectionChanged(object recipient, LcuConnectionChangedMessage message)

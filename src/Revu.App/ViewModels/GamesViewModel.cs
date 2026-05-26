@@ -102,13 +102,30 @@ public partial class GamesViewModel : ObservableObject
     [RelayCommand]
     private void PrimaryAction(long gameId)
     {
+        // v2.17.8: VOD wins over review status. If the game has a playable
+        // recording, the primary action opens the VOD player regardless of
+        // whether the user has written their review yet — they can watch
+        // first and review after. Row-body click still always goes to the
+        // Review page so the post-game write-up remains a one-click target.
         var item = Games.FirstOrDefault(g => g.GameId == gameId);
-        if (item?.HasReview == true && item.HasVod)
+        if (item?.HasVod == true)
         {
             _navigationService.NavigateTo("vodplayer", gameId);
             return;
         }
 
+        _navigationService.NavigateTo("review", gameId);
+    }
+
+    /// <summary>
+    /// v2.17.8: row-body click. Unlike <see cref="PrimaryActionCommand"/> this
+    /// always opens the Review page so the whole row consistently means
+    /// "go to the post-game review" — leaving the inline action button as the
+    /// fast path to VOD/Review depending on state.
+    /// </summary>
+    [RelayCommand]
+    private void OpenReview(long gameId)
+    {
         _navigationService.NavigateTo("review", gameId);
     }
 
@@ -250,11 +267,16 @@ public partial class GamesViewModel : ObservableObject
                         : "No objective tag";
             item.ReviewStateText = item.HasReview ? "Reviewed" : "Unreviewed";
             item.VodStateText = item.HasVod ? "VOD linked" : "No VOD";
-            item.PrimaryActionText = !item.HasReview
-                ? "Review"
-                : item.HasVod
-                    ? "Review VOD"
-                    : "Open";
+            // v2.17.8: VOD wins. If there's a recording, the button reads
+            // "Watch VOD" regardless of review status — clicking it opens the
+            // player so the user can review while watching. Falls back to
+            // "Review" (no VOD, unreviewed) or "Open" (no VOD, reviewed).
+            // The row-body click is the always-Review escape hatch.
+            item.PrimaryActionText = item.HasVod
+                ? "Watch VOD"
+                : item.HasReview
+                    ? "Open"
+                    : "Review";
             item.StatsLine = $"{item.ReviewStateText}  •  {item.VodStateText}  •  {item.ObjectiveStateText}";
         }
     }

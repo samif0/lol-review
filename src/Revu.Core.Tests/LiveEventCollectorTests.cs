@@ -104,6 +104,95 @@ public sealed class LiveEventCollectorTests
     }
 
     [Fact]
+    public async Task StopAsync_SynthesisesFlashCast_WhenSpell1CooldownGoesFromReadyToOnCooldown()
+    {
+        // Single growing event stream so the collector's clock has a non-zero reading.
+        var events = CreateEvents(
+            """
+            [
+              { "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 },
+              { "EventID": 0, "EventName": "MinionsSpawning", "EventTime": 65.0 }
+            ]
+            """);
+
+        // Sequence of active-player snapshots: first one establishes ready state,
+        // second one shows Flash on cooldown — i.e. it was just cast.
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreateActivePlayer(spell1Name: "Flash", spell1Cd: 0.0, spell2Name: "Ignite", spell2Cd: 0.0, gameTime: 120.0),
+            CreateActivePlayer(spell1Name: "Flash", spell1Cd: 290.0, spell2Name: "Ignite", spell2Cd: 0.0, gameTime: 130.0),
+        ]);
+
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek());
+
+        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
+
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(60);
+        await cts.CancelAsync();
+        await runTask;
+
+        var parsed = await collector.StopAsync();
+        var flashCast = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Flash);
+
+        Assert.NotNull(flashCast);
+        Assert.True(flashCast!.GameTimeS > 0, $"Expected non-zero game time, got {flashCast.GameTimeS}");
+        using var details = JsonDocument.Parse(flashCast.Details);
+        Assert.Equal("Flash", details.RootElement.GetProperty("spell").GetString());
+        Assert.Equal("spell1", details.RootElement.GetProperty("slot").GetString());
+    }
+
+    [Fact]
+    public async Task StopAsync_SynthesisesGenericSummonerSpell_WhenNonFlashCastsRecorded()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreateActivePlayer(spell1Name: "Flash", spell1Cd: 0.0, spell2Name: "Ignite", spell2Cd: 0.0, gameTime: 80.0),
+            CreateActivePlayer(spell1Name: "Flash", spell1Cd: 0.0, spell2Name: "Ignite", spell2Cd: 180.0, gameTime: 95.0),
+        ]);
+
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek());
+
+        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
+
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(60);
+        await cts.CancelAsync();
+        await runTask;
+
+        var parsed = await collector.StopAsync();
+        var igniteCast = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.SummonerSpell);
+
+        Assert.NotNull(igniteCast);
+        using var details = JsonDocument.Parse(igniteCast!.Details);
+        Assert.Equal("Ignite", details.RootElement.GetProperty("spell").GetString());
+        Assert.Equal("spell2", details.RootElement.GetProperty("slot").GetString());
+    }
+
+    private static JsonElement CreateActivePlayer(string spell1Name, double spell1Cd, string spell2Name, double spell2Cd, double gameTime)
+    {
+        var json = $$"""
+            {
+              "gameTime": {{gameTime}},
+              "summonerSpells": {
+                "summonerSpellOne": { "displayName": "{{spell1Name}}", "rawCooldown": {{spell1Cd}} },
+                "summonerSpellTwo": { "displayName": "{{spell2Name}}", "rawCooldown": {{spell2Cd}} }
+              }
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
+    [Fact]
     public async Task GetActivePlayerNameAsync_PrefersActivePlayerNameEndpoint()
     {
         var handler = new StubHttpMessageHandler(request =>
@@ -160,10 +249,14 @@ public sealed class LiveEventCollectorTests
     private sealed class FakeLiveEventApi : ILiveEventApi
     {
         private readonly Func<List<JsonElement>> _fetchEventsAsync;
+        private readonly Func<JsonElement?>? _fetchActivePlayerAsync;
 
-        public FakeLiveEventApi(Func<List<JsonElement>> fetchEventsAsync)
+        public FakeLiveEventApi(
+            Func<List<JsonElement>> fetchEventsAsync,
+            Func<JsonElement?>? fetchActivePlayerAsync = null)
         {
             _fetchEventsAsync = fetchEventsAsync;
+            _fetchActivePlayerAsync = fetchActivePlayerAsync;
         }
 
         public Task<string?> GetActivePlayerNameAsync(CancellationToken ct = default) =>
@@ -173,6 +266,9 @@ public sealed class LiveEventCollectorTests
 
         public Task<List<JsonElement>?> FetchEventsAsync(CancellationToken ct = default) =>
             Task.FromResult<List<JsonElement>?>(_fetchEventsAsync());
+
+        public Task<JsonElement?> FetchActivePlayerAsync(CancellationToken ct = default) =>
+            Task.FromResult(_fetchActivePlayerAsync?.Invoke());
     }
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler

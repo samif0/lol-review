@@ -107,13 +107,19 @@
                     </ItemsRepeater.Layout>
                     <ItemsRepeater.ItemTemplate>
                         <DataTemplate x:DataType="vm:GameDisplayItem">
+                            <!-- v2.17.8: Tag carries GameId so RowActivated can route to Review,
+                                 and the action StackPanel swallows its own Tapped so a click on
+                                 a button doesn't ALSO trigger the row navigate. -->
                             <controls:GameRowCard Champion="{x:Bind ChampionDisplay}"
                                                   Win="{x:Bind Win}"
                                                   Meta="{x:Bind MetaLine}"
                                                   Kda="{x:Bind KdaText}"
-                                                  Stats="{x:Bind StatsLine}">
+                                                  Stats="{x:Bind StatsLine}"
+                                                  Tag="{x:Bind GameId}"
+                                                  RowActivated="GameRow_RowActivated">
                                 <controls:GameRowCard.Actions>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <StackPanel Orientation="Horizontal" Spacing="6"
+                                                Tapped="ActionsStack_Tapped">
                                         <Button Content="{x:Bind PrimaryActionText}"
                                                 Style="{StaticResource ListActionButtonStyle}"
                                                 Tag="{x:Bind GameId}"

@@ -27,7 +27,14 @@ public sealed record ObjectiveSummary(
     // compatibility — it reflects the first set bool in pre→in→post order.
     bool PracticePre = false,
     bool PracticeIn = false,
-    bool PracticePost = false);
+    bool PracticePost = false,
+    // v2.17.7: mini-objective target game count. 0 = no target (primary).
+    int TargetGameCount = 0)
+{
+    public bool IsMini => string.Equals(Type, "mini", StringComparison.OrdinalIgnoreCase);
+    public int GamesRemaining => Math.Max(0, TargetGameCount - GameCount);
+    public bool IsMiniComplete => IsMini && TargetGameCount > 0 && GameCount >= TargetGameCount;
+}
 
 public sealed record GameObjectiveRecord(
     long GameId,

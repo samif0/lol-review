@@ -244,11 +244,19 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
+                            <!-- v2.17.8: default Button Padding (~11px each side) made
+                                 "SUPPORT" clip to "SUPPOR" at narrow widths because the
+                                 5 equal-width columns leave roughly 97px per button.
+                                 Tightening Padding to 6,0 and setting MinWidth=0 gives the
+                                 longest label room without breaking the uniform grid. -->
                             <Button Grid.Column="0"
                                     Content="TOP"
                                     Command="{x:Bind ViewModel.SelectRoleCommand}"
                                     CommandParameter="TOP"
                                     HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="6,0"
+                                    MinWidth="0"
                                     Height="48"
                                     FontFamily="{StaticResource MonoFont}"
                                     Background="{x:Bind RoleBrush(ViewModel.IsTopSelected), Mode=OneWay}"/>
@@ -257,6 +265,9 @@
                                     Command="{x:Bind ViewModel.SelectRoleCommand}"
                                     CommandParameter="JUNGLE"
                                     HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="6,0"
+                                    MinWidth="0"
                                     Height="48"
                                     FontFamily="{StaticResource MonoFont}"
                                     Background="{x:Bind RoleBrush(ViewModel.IsJungleSelected), Mode=OneWay}"/>
@@ -265,6 +276,9 @@
                                     Command="{x:Bind ViewModel.SelectRoleCommand}"
                                     CommandParameter="MIDDLE"
                                     HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="6,0"
+                                    MinWidth="0"
                                     Height="48"
                                     FontFamily="{StaticResource MonoFont}"
                                     Background="{x:Bind RoleBrush(ViewModel.IsMiddleSelected), Mode=OneWay}"/>
@@ -273,6 +287,9 @@
                                     Command="{x:Bind ViewModel.SelectRoleCommand}"
                                     CommandParameter="BOTTOM"
                                     HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="6,0"
+                                    MinWidth="0"
                                     Height="48"
                                     FontFamily="{StaticResource MonoFont}"
                                     Background="{x:Bind RoleBrush(ViewModel.IsBottomSelected), Mode=OneWay}"/>
@@ -281,6 +298,9 @@
                                     Command="{x:Bind ViewModel.SelectRoleCommand}"
                                     CommandParameter="UTILITY"
                                     HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="6,0"
+                                    MinWidth="0"
                                     Height="48"
                                     FontFamily="{StaticResource MonoFont}"
                                     Background="{x:Bind RoleBrush(ViewModel.IsUtilitySelected), Mode=OneWay}"/>

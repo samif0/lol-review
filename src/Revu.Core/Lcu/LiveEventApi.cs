@@ -109,6 +109,12 @@ public sealed class LiveEventApi : ILiveEventApi
         return null;
     }
 
+    /// <inheritdoc />
+    public async Task<JsonElement?> FetchActivePlayerAsync(CancellationToken ct = default)
+    {
+        return await GetAsync("/liveclientdata/activeplayer", ct).ConfigureAwait(false);
+    }
+
     // ── Internal helper ─────────────────────────────────────────────────
 
     private async Task<JsonElement?> GetAsync(string endpoint, CancellationToken ct)

@@ -66,6 +66,8 @@ public sealed class ConfigService : IConfigService
     public bool AscentReminderDismissed => GetCached().AscentReminderDismissed;
     public bool SidebarAnimationEnabled => GetCached().SidebarAnimationEnabled;
     public bool MinimizeDuringGame => GetCached().MinimizeDuringGame;
+    public bool AutoTimelineClippingEnabled => GetCached().AutoTimelineClippingEnabled;
+    public bool AutoTimelineClippingHintDismissed => GetCached().AutoTimelineClippingHintDismissed;
 
     public bool IsAscentEnabled => AscentFolder is not null;
 

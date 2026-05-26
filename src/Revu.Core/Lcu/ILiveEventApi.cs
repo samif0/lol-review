@@ -25,4 +25,14 @@ public interface ILiveEventApi
     /// Returns null if the API is not available.
     /// </summary>
     Task<List<JsonElement>?> FetchEventsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// v2.17.7: snapshot of the active player. Used to derive summoner-spell
+    /// cast events from cooldown deltas (Riot's <c>/eventdata</c> stream
+    /// doesn't expose summoner-spell casts directly). Returns null if the API
+    /// is unavailable. Default implementation returns null so legacy fakes
+    /// don't have to opt in.
+    /// </summary>
+    Task<JsonElement?> FetchActivePlayerAsync(CancellationToken ct = default) =>
+        Task.FromResult<JsonElement?>(null);
 }

@@ -104,6 +104,10 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _minimizeDuringGame = true;
 
+    // v2.17.8: auto-fill Timeline Inbox from inferred game events. Default true.
+    [ObservableProperty]
+    private bool _autoTimelineClippingEnabled = true;
+
     // v2.15.0: reset/revert state.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsResetConfirmTextValid))]
@@ -258,6 +262,7 @@ public partial class SettingsViewModel : ObservableObject
             RequireReviewNotes = config.RequireReviewNotes;
             SidebarAnimationEnabled = config.SidebarAnimationEnabled;
             MinimizeDuringGame = config.MinimizeDuringGame;
+            AutoTimelineClippingEnabled = config.AutoTimelineClippingEnabled;
             RiotId = config.RiotId;
             RiotRegion = config.RiotRegion;
             RestoreRiotAuthState(config);
@@ -350,6 +355,7 @@ public partial class SettingsViewModel : ObservableObject
             config.RequireReviewNotes = RequireReviewNotes;
             config.SidebarAnimationEnabled = SidebarAnimationEnabled;
             config.MinimizeDuringGame = MinimizeDuringGame;
+            config.AutoTimelineClippingEnabled = AutoTimelineClippingEnabled;
             // Propagate immediately so the user sees the effect without a restart.
             // SidebarEnergyDrainAnimator.UpdateTarget checks this flag every time
             // the nav selection changes; toggling off clears current trails on

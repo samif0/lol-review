@@ -27,6 +27,13 @@ public class GameEvent
         public const string FirstBlood = "FIRST_BLOOD";
         public const string MultiKill = "MULTI_KILL";
         public const string LevelUp = "LEVEL_UP";
+        // v2.17.7: summoner spell casts derived from /liveclientdata/activeplayer
+        // cooldown deltas. Flash gets its own type because it's the spell players
+        // most often want to track for review. The generic SummonerSpell type
+        // covers everything else (Ignite, Heal, Teleport, Smite, Exhaust, Cleanse,
+        // Barrier, Ghost — Details.spell carries the specific name).
+        public const string Flash = "FLASH";
+        public const string SummonerSpell = "SUMMONER_SPELL";
     }
 
     /// <summary>Visual styling for each event type (color, symbol, label).</summary>
@@ -46,6 +53,8 @@ public class GameEvent
                 { EventTypes.FirstBlood, ("#ef4444", "\u2605", "First Blood") },
                 { EventTypes.MultiKill,  ("#fbbf24", "\u2605", "Multi Kill") },
                 { EventTypes.LevelUp,    ("#6366f1", "\u2191", "Level Up") },
+                { EventTypes.Flash,         ("#06b6d4", "\u26a1", "Flash") },
+                { EventTypes.SummonerSpell, ("#0099ff", "\u26a1", "Summoner Spell") },
             };
     }
 }

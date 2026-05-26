@@ -40,6 +40,12 @@ public interface IConfigService
     bool SidebarAnimationEnabled { get; }
     bool MinimizeDuringGame { get; }
 
+    /// <summary>v2.17.8: auto-fill Timeline Inbox from derived game events.</summary>
+    bool AutoTimelineClippingEnabled { get; }
+
+    /// <summary>v2.17.8: user permanently hid the VOD-viewer hint about the toggle.</summary>
+    bool AutoTimelineClippingHintDismissed { get; }
+
     // ── Derived helpers ─────────────────────────────────────────────
 
     /// <summary>True if onboarding should NOT be shown at startup.</summary>

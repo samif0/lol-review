@@ -82,6 +82,8 @@ public sealed class ObjectiveDisplayItem
     public int PromptCount { get; init; }
     public int Score { get; init; }
     public int GameCount { get; init; }
+    /// <summary>v2.17.7: target game count for mini objectives. 0 = no target.</summary>
+    public int TargetGameCount { get; init; }
     public string Status { get; init; } = "active";
     public bool IsPriority { get; init; }
 
@@ -95,16 +97,35 @@ public sealed class ObjectiveDisplayItem
 
     /// <summary>Color brush for the current level, distinct per progression stage.</summary>
     public SolidColorBrush LevelColorBrush => AppSemanticPalette.ObjectiveLevelBrush(LevelIndex);
-    public SolidColorBrush TypeBadgeBackgroundBrush => AppSemanticPalette.TagSurfaceBrush(IsMental ? "neutral" : null, IsMental ? AppSemanticPalette.AccentTealHex : AppSemanticPalette.AccentBlueHex);
-    public SolidColorBrush TypeBadgeForegroundBrush => AppSemanticPalette.TagAccentBrush(IsMental ? "neutral" : null, IsMental ? AppSemanticPalette.AccentTealHex : AppSemanticPalette.AccentBlueHex);
+    public SolidColorBrush TypeBadgeBackgroundBrush => AppSemanticPalette.TagSurfaceBrush(
+        IsMini ? "neutral" : IsMental ? "neutral" : null,
+        IsMini ? AppSemanticPalette.AccentGoldHex
+              : IsMental ? AppSemanticPalette.AccentTealHex
+              : AppSemanticPalette.AccentBlueHex);
+    public SolidColorBrush TypeBadgeForegroundBrush => AppSemanticPalette.TagAccentBrush(
+        IsMini ? "neutral" : IsMental ? "neutral" : null,
+        IsMini ? AppSemanticPalette.AccentGoldHex
+              : IsMental ? AppSemanticPalette.AccentTealHex
+              : AppSemanticPalette.AccentBlueHex);
     public SolidColorBrush PriorityBadgeBackgroundBrush => AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldDimHex);
     public SolidColorBrush PriorityBadgeForegroundBrush => AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldHex);
 
     // Derived display properties
     public bool IsMental => Type == "mental";
-    public string TypeBadge => IsMental ? "MENTAL" : "GAMEPLAY";
+
+    /// <summary>v2.17.7: short-horizon focus item bounded by TargetGameCount.</summary>
+    public bool IsMini => string.Equals(Type, "mini", StringComparison.OrdinalIgnoreCase);
+
+    public string TypeBadge => IsMental ? "MENTAL" : IsMini ? "FOCUS" : "GAMEPLAY";
     public string PriorityBadge => IsPriority ? "PRIORITY" : "";
     public string ScoreText => $"{Score} pts  \u2022  {GameCount} games";
+
+    /// <summary>v2.17.7: "2 of 3 games" badge on mini objectives, blank for primary.</summary>
+    public string FocusProgressText => IsMini && TargetGameCount > 0
+        ? $"{Math.Min(GameCount, TargetGameCount)} of {TargetGameCount} games"
+        : "";
+    public bool HasFocusProgress => IsMini && TargetGameCount > 0;
+    public int GamesRemaining => Math.Max(0, TargetGameCount - GameCount);
     public string ProgressText
     {
         get
@@ -287,8 +308,21 @@ public partial class ObjectivesViewModel : ObservableObject
     [ObservableProperty]
     private string _newSkillArea = "";
 
+    /// <summary>0 = Gameplay (primary), 1 = Mental, 2 = Mini focus (v2.17.7).</summary>
     [ObservableProperty]
-    private int _newTypeIndex; // 0 = primary, 1 = mental
+    private int _newTypeIndex;
+
+    /// <summary>
+    /// v2.17.7: number of games this mini objective is scoped to. Only meaningful
+    /// when <see cref="NewTypeIndex"/> == 2 (Mini). Ignored otherwise.
+    /// </summary>
+    [ObservableProperty]
+    private int _newTargetGameCount = 3;
+
+    /// <summary>Whether the target-games stepper should be visible on the form.</summary>
+    public bool ShowTargetGameCount => NewTypeIndex == 2;
+
+    partial void OnNewTypeIndexChanged(int value) => OnPropertyChanged(nameof(ShowTargetGameCount));
 
     [ObservableProperty]
     private int _newPhaseIndex = 1; // Legacy 0/1/2 index. Kept so nothing breaks mid-XAML-swap; new XAML binds to the three bools below.
@@ -330,6 +364,15 @@ public partial class ObjectivesViewModel : ObservableObject
     public ObservableCollection<ObjectiveDisplayItem> ActiveObjectives { get; } = new();
     public ObservableCollection<CompletedObjectiveItem> CompletedObjectives { get; } = new();
     public ObservableCollection<SpottedProblemItem> SpottedProblems { get; } = new();
+
+    /// <summary>
+    /// v2.17.7: active mini objectives surfaced in the "Focus" section above the
+    /// main objectives list. Subset of <see cref="ActiveObjectives"/>.
+    /// </summary>
+    public ObservableCollection<ObjectiveDisplayItem> FocusObjectives { get; } = new();
+
+    [ObservableProperty]
+    private bool _hasFocusObjectives;
 
     // v2.15.0: custom prompt editor attached to the create/edit form. Each
     // row is a draft; existing rows carry their OriginalId so diff-save can
@@ -444,7 +487,16 @@ public partial class ObjectivesViewModel : ObservableObject
             return;
         }
 
-        var type = NewTypeIndex == 1 ? "mental" : "primary";
+        var type = NewTypeIndex switch
+        {
+            2 => "mini",
+            1 => "mental",
+            _ => "primary",
+        };
+
+        // Mini objectives must have a positive target; clamp UI value defensively.
+        var targetGameCount = type == "mini" ? Math.Max(1, NewTargetGameCount) : 0;
+
         long objectiveId;
         if (EditingObjectiveId.HasValue)
         {
@@ -457,16 +509,18 @@ public partial class ObjectivesViewModel : ObservableObject
                 NewCriteria.Trim(),
                 NewDescription.Trim(),
                 NewPracticePre, NewPracticeIn, NewPracticePost);
+            await _objectivesRepo.UpdateTargetGameCountAsync(objectiveId, targetGameCount);
         }
         else
         {
-            objectiveId = await _objectivesRepo.CreateWithPhasesAsync(
+            objectiveId = await _objectivesRepo.CreateWithPhasesAndTargetAsync(
                 NewTitle.Trim(),
                 NewSkillArea.Trim(),
                 type,
                 NewCriteria.Trim(),
                 NewDescription.Trim(),
-                NewPracticePre, NewPracticeIn, NewPracticePost);
+                NewPracticePre, NewPracticeIn, NewPracticePost,
+                targetGameCount);
         }
 
         await SavePromptsForObjectiveAsync(objectiveId);
@@ -642,7 +696,10 @@ public partial class ObjectivesViewModel : ObservableObject
         EditingObjectiveId = objective.Id;
         NewTitle = objective.Title;
         NewSkillArea = objective.SkillArea;
-        NewTypeIndex = string.Equals(objective.Type, "mental", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        NewTypeIndex = string.Equals(objective.Type, "mini", StringComparison.OrdinalIgnoreCase) ? 2
+                     : string.Equals(objective.Type, "mental", StringComparison.OrdinalIgnoreCase) ? 1
+                     : 0;
+        NewTargetGameCount = objective.TargetGameCount > 0 ? objective.TargetGameCount : 3;
         NewPhaseIndex = ObjectivePhases.ToIndex(objective.Phase);
         NewPracticePre  = objective.PracticePre;
         NewPracticeIn   = objective.PracticeIn;
@@ -704,6 +761,7 @@ public partial class ObjectivesViewModel : ObservableObject
         NewTitle = "";
         NewSkillArea = "";
         NewTypeIndex = 0;
+        NewTargetGameCount = 3;
         NewPhaseIndex = 1;
         NewPracticePre = false;
         NewPracticeIn = true;
@@ -725,6 +783,7 @@ public partial class ObjectivesViewModel : ObservableObject
 
         ActiveObjectives.Clear();
         CompletedObjectives.Clear();
+        FocusObjectives.Clear();
         SpottedProblems.Clear();
 
         foreach (var obj in allObjectives)
@@ -736,7 +795,7 @@ public partial class ObjectivesViewModel : ObservableObject
                 var prompts = await _promptsRepo.GetPromptsForObjectiveAsync(obj.Id);
                 var champions = await _objectivesRepo.GetChampionsForObjectiveAsync(obj.Id);
 
-                ActiveObjectives.Add(new ObjectiveDisplayItem
+                var item = new ObjectiveDisplayItem
                 {
                     Id = obj.Id,
                     Title = obj.Title,
@@ -752,6 +811,7 @@ public partial class ObjectivesViewModel : ObservableObject
                     Champions = champions,
                     Score = obj.Score,
                     GameCount = obj.GameCount,
+                    TargetGameCount = obj.TargetGameCount,
                     Status = obj.Status,
                     IsPriority = obj.IsPriority,
                     LevelName = levelInfo.LevelName,
@@ -761,7 +821,13 @@ public partial class ObjectivesViewModel : ObservableObject
                     CanComplete = levelInfo.CanComplete,
                     SuggestComplete = levelInfo.SuggestComplete,
                     ScoreHistory = scoreHistory,
-                });
+                };
+
+                ActiveObjectives.Add(item);
+                if (item.IsMini)
+                {
+                    FocusObjectives.Add(item);
+                }
             }
             else
             {
@@ -777,6 +843,7 @@ public partial class ObjectivesViewModel : ObservableObject
         }
 
         HasActiveObjectives = ActiveObjectives.Count > 0;
+        HasFocusObjectives = FocusObjectives.Count > 0;
         HasCompletedObjectives = CompletedObjectives.Count > 0;
         foreach (var problem in spottedProblems)
         {

@@ -287,6 +287,11 @@ public sealed class DatabaseInitializer
             !columns.Contains("practice_pregame") ||
             !columns.Contains("practice_ingame") ||
             !columns.Contains("practice_postgame");
+            // v2.17.7: target_game_count is added by the v2 versioned migration
+            // (MigrateObjectivesMiniTarget), NOT by this normalize rewrite. The
+            // rewrite path is destructive for FK dependents (game_objectives,
+            // objective_prompts, evidence_items, etc.) so we never want it
+            // triggered by a column that can be added cheaply with ALTER TABLE.
 
         if (!needsRewrite)
         {
@@ -311,6 +316,7 @@ public sealed class DatabaseInitializer
                     is_priority         INTEGER DEFAULT 0,
                     score               INTEGER DEFAULT 0,
                     game_count          INTEGER DEFAULT 0,
+                    target_game_count   INTEGER NOT NULL DEFAULT 0,
                     created_at          INTEGER,
                     completed_at        INTEGER,
                     practice_pregame    INTEGER NOT NULL DEFAULT 0,
@@ -327,7 +333,8 @@ public sealed class DatabaseInitializer
             copyCmd.CommandText = $"""
                 INSERT INTO objectives__migrated (
                     id, title, skill_area, type, phase, completion_criteria, description,
-                    status, is_priority, score, game_count, created_at, completed_at,
+                    status, is_priority, score, game_count, target_game_count,
+                    created_at, completed_at,
                     practice_pregame, practice_ingame, practice_postgame
                 )
                 SELECT
@@ -351,6 +358,7 @@ public sealed class DatabaseInitializer
                     {GetIntColumnExpr(columns, "is_priority")},
                     {GetIntColumnExpr(columns, "score")},
                     {GetIntColumnExpr(columns, "game_count")},
+                    {GetIntColumnExpr(columns, "target_game_count")},
                     {GetNullableColumnExpr(columns, "created_at")},
                     {GetNullableColumnExpr(columns, "completed_at")},
                     {GetIntColumnExpr(columns, "practice_pregame")},

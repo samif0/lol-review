@@ -73,6 +73,25 @@ public sealed partial class SettingsPage : Page
         ViewModel.LoadCommand.Execute(null);
         // v2.15.0: prime the restore-picker with available backups.
         await ViewModel.RefreshBackupsCommand.ExecuteAsync(null);
+
+        // v2.17.8: deep-link support. Callers pass an x:Name string as the nav
+        // parameter to scroll the matching card into view. Used by the VOD
+        // viewer's auto-clipping hint banner ("Open Settings" link).
+        if (e.Parameter is string anchorName && !string.IsNullOrWhiteSpace(anchorName))
+        {
+            // Defer until layout completes so BringIntoView has accurate metrics.
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (FindName(anchorName) is FrameworkElement target)
+                {
+                    target.StartBringIntoView(new BringIntoViewOptions
+                    {
+                        AnimationDesired = true,
+                        VerticalAlignmentRatio = 0.1,
+                    });
+                }
+            });
+        }
     }
 
     /// <summary>x:Bind helper — Visible when the given state string matches.</summary>

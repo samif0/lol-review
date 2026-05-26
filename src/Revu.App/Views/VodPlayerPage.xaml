@@ -184,6 +184,10 @@
                                               FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                                 </Button>
 
+                                <!-- v2.17.7: fullscreen timeline overlay shrinks to a slim
+                                     dot-marker strip while playing so it doesn't obscure the
+                                     video, and expands back to the full 80px event timeline
+                                     on pause. Driven from VM IsPlaying via code-behind. -->
                                 <Border x:Name="FullscreenTimelineOverlay"
                                         HorizontalAlignment="Stretch"
                                         VerticalAlignment="Bottom"
@@ -505,6 +509,54 @@
                                        Foreground="{StaticResource LossRedBrush}"/>
                         </StackPanel>
                     </controls:CornerBracketedCard>
+
+                    <!-- v2.17.8: dismissible hint that explains the auto-clipping toggle.
+                         Shown only when the inbox has items, auto-clipping is currently on,
+                         and the user hasn't permanently hidden it. -->
+                    <Border Background="{StaticResource SurfaceInsetBrush}"
+                            BorderBrush="{StaticResource AccentBlueBrush}"
+                            BorderThickness="1" CornerRadius="2" Padding="12,10"
+                            Visibility="{x:Bind ViewModel.ShowAutoClippingHint, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                        <Grid ColumnSpacing="10" ColumnDefinitions="Auto,*,Auto">
+                            <FontIcon Grid.Column="0"
+                                      Glyph="&#xE946;"
+                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                      FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                      VerticalAlignment="Top"
+                                      Margin="0,2,0,0"
+                                      Foreground="{StaticResource AccentBlueBrush}"/>
+
+                            <StackPanel Grid.Column="1" Spacing="6">
+                                <TextBlock Text="Revu auto-fills the Timeline Inbox from kills, deaths, and objectives. Don't want that? Turn it off in Settings."
+                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                           TextWrapping="Wrap"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Command="{x:Bind ViewModel.OpenAutoClippingSettingsCommand}"
+                                            Style="{StaticResource SecondaryActionButtonStyle}"
+                                            Height="28" Padding="10,0"
+                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                            Content="Open Settings"/>
+                                    <Button Command="{x:Bind ViewModel.DismissAutoClippingHintCommand}"
+                                            Style="{StaticResource QuietActionButtonStyle}"
+                                            Height="28" Padding="10,0"
+                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                            Content="Hide this hint"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Button Grid.Column="2"
+                                    Command="{x:Bind ViewModel.DismissAutoClippingHintCommand}"
+                                    Style="{StaticResource GhostIconButtonStyle}"
+                                    Width="28" Height="28" Padding="0"
+                                    VerticalAlignment="Top"
+                                    ToolTipService.ToolTip="Hide this hint">
+                                <FontIcon Glyph="&#xE711;"
+                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                          FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
+                            </Button>
+                        </Grid>
+                    </Border>
 
                     <controls:CornerBracketedCard
                         Visibility="{x:Bind ViewModel.HasEvidenceInboxItems, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">

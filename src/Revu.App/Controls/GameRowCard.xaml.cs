@@ -29,6 +29,15 @@ public sealed partial class GameRowCard : UserControl
         Loaded += OnLoaded;
     }
 
+    /// <summary>
+    /// v2.17.8: raised when the user taps anywhere on the row body that wasn't
+    /// already handled by a child (e.g. the action buttons). The hosting page
+    /// uses this to route the click to the Review page so the whole row reads
+    /// as the "open this game" affordance, with the inline buttons offering a
+    /// faster alternate path.
+    /// </summary>
+    public event Microsoft.UI.Xaml.RoutedEventHandler? RowActivated;
+
     public static readonly DependencyProperty ChampionProperty =
         DependencyProperty.Register(
             nameof(Champion),
@@ -111,6 +120,27 @@ public sealed partial class GameRowCard : UserControl
     {
         ApplyWinLoss(Win);
         ResetHoverState();
+
+        // v2.17.8: hand cursor over the whole row so users know it's clickable.
+        try
+        {
+            ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
+                Microsoft.UI.Input.InputSystemCursorShape.Hand);
+        }
+        catch
+        {
+            // Cursor APIs throw in design-time / non-XAML hosting contexts;
+            // failing silently is fine — visual hover state still cues the user.
+        }
+    }
+
+    private void OnHostTapped(object sender, TappedRoutedEventArgs e)
+    {
+        // Children that handle the tap (action buttons, ActionsStack_Tapped on
+        // the page) set e.Handled = true before this bubbles up, so we only
+        // raise RowActivated for taps on the row body itself.
+        if (e.Handled) return;
+        RowActivated?.Invoke(this, e);
     }
 
     private void ApplyWinLoss(bool win)

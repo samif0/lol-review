@@ -30,6 +30,18 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     public async Task<long> CreateWithPhasesAsync(string title, string skillArea, string type,
         string completionCriteria, string description,
         bool practicePre, bool practiceIn, bool practicePost)
+        => await CreateWithPhasesAndTargetAsync(
+            title, skillArea, type, completionCriteria, description,
+            practicePre, practiceIn, practicePost, targetGameCount: 0);
+
+    /// <summary>
+    /// v2.17.7: full create that also accepts a <paramref name="targetGameCount"/>
+    /// for mini objectives. Use 0 for primary (no target).
+    /// </summary>
+    public async Task<long> CreateWithPhasesAndTargetAsync(string title, string skillArea, string type,
+        string completionCriteria, string description,
+        bool practicePre, bool practiceIn, bool practicePost,
+        int targetGameCount)
     {
         using var conn = _factory.CreateConnection();
         var shouldBePriority = await ShouldNewObjectiveBecomePriorityAsync(conn);
@@ -44,10 +56,10 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         cmd.CommandText = """
             INSERT INTO objectives
                 (title, skill_area, type, phase, completion_criteria, description,
-                 status, is_priority, score, game_count, created_at,
+                 status, is_priority, score, game_count, target_game_count, created_at,
                  practice_pregame, practice_ingame, practice_postgame)
             VALUES (@title, @skillArea, @type, @phase, @completionCriteria, @description,
-                    'active', @isPriority, 0, 0, @createdAt,
+                    'active', @isPriority, 0, 0, @targetGameCount, @createdAt,
                     @practicePre, @practiceIn, @practicePost)
             """;
         cmd.Parameters.AddWithValue("@title", title);
@@ -57,6 +69,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         cmd.Parameters.AddWithValue("@completionCriteria", completionCriteria);
         cmd.Parameters.AddWithValue("@description", description);
         cmd.Parameters.AddWithValue("@isPriority", shouldBePriority ? 1 : 0);
+        cmd.Parameters.AddWithValue("@targetGameCount", Math.Max(0, targetGameCount));
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("@practicePre", practicePre ? 1 : 0);
         cmd.Parameters.AddWithValue("@practiceIn", practiceIn ? 1 : 0);
@@ -66,6 +79,76 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         using var idCmd = conn.CreateCommand();
         idCmd.CommandText = "SELECT last_insert_rowid()";
         return (long)(await idCmd.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>
+    /// v2.17.7: update the target game count for a mini objective. Pass 0 to
+    /// clear the target.
+    /// </summary>
+    public async Task UpdateTargetGameCountAsync(long objectiveId, int targetGameCount)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE objectives
+            SET target_game_count = @targetGameCount
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@targetGameCount", Math.Max(0, targetGameCount));
+        cmd.Parameters.AddWithValue("@id", objectiveId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// v2.17.7: archive any active mini objectives whose game_count has reached
+    /// their target. Called after each game is added to game_objectives so the
+    /// focus list stays current without manual cleanup.
+    /// </summary>
+    public async Task<IReadOnlyList<long>> ArchiveCompletedMiniObjectivesAsync()
+    {
+        using var conn = _factory.CreateConnection();
+
+        // Collect ids first so we can return them (the UI may want to celebrate).
+        var ids = new List<long>();
+        using (var selectCmd = conn.CreateCommand())
+        {
+            selectCmd.CommandText = """
+                SELECT id FROM objectives
+                WHERE status = 'active'
+                  AND LOWER(COALESCE(type, '')) = 'mini'
+                  AND COALESCE(target_game_count, 0) > 0
+                  AND COALESCE(game_count, 0) >= COALESCE(target_game_count, 0)
+                """;
+            using var reader = await selectCmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                ids.Add(reader.GetInt64(0));
+            }
+        }
+
+        if (ids.Count == 0)
+        {
+            return ids;
+        }
+
+        using (var archiveCmd = conn.CreateCommand())
+        {
+            archiveCmd.CommandText = """
+                UPDATE objectives
+                SET status = 'completed',
+                    is_priority = 0,
+                    completed_at = @completedAt
+                WHERE status = 'active'
+                  AND LOWER(COALESCE(type, '')) = 'mini'
+                  AND COALESCE(target_game_count, 0) > 0
+                  AND COALESCE(game_count, 0) >= COALESCE(target_game_count, 0)
+                """;
+            archiveCmd.Parameters.AddWithValue("@completedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            await archiveCmd.ExecuteNonQueryAsync();
+        }
+
+        await EnsurePriorityObjectiveAsync(conn);
+        return ids;
     }
 
     public async Task<IReadOnlyList<ObjectiveSummary>> GetAllAsync()
@@ -515,6 +598,28 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             await objectiveCmd.ExecuteNonQueryAsync();
         }
 
+        // v2.17.7: if this objective is a mini that just hit its target, archive
+        // it inside the same transaction so the user's focus list updates atomically.
+        if (gameCountDelta > 0)
+        {
+            using var archiveCmd = conn.CreateCommand();
+            archiveCmd.Transaction = tx;
+            archiveCmd.CommandText = """
+                UPDATE objectives
+                SET status = 'completed',
+                    is_priority = 0,
+                    completed_at = @completedAt
+                WHERE id = @objectiveId
+                  AND status = 'active'
+                  AND LOWER(COALESCE(type, '')) = 'mini'
+                  AND COALESCE(target_game_count, 0) > 0
+                  AND COALESCE(game_count, 0) >= COALESCE(target_game_count, 0)
+                """;
+            archiveCmd.Parameters.AddWithValue("@completedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            archiveCmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+            await archiveCmd.ExecuteNonQueryAsync();
+        }
+
         await tx.CommitAsync();
     }
 
@@ -764,6 +869,21 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             }
         }
 
+        // v2.17.7: target_game_count column is added by migration; tolerate its
+        // absence on un-migrated rows the same way OptBool does for practice phases.
+        static int OptInt(SqliteDataReader r, string col)
+        {
+            try
+            {
+                var idx = r.GetOrdinal(col);
+                return r.IsDBNull(idx) ? 0 : r.GetInt32(idx);
+            }
+            catch (IndexOutOfRangeException)
+            {
+                return 0;
+            }
+        }
+
         return new ObjectiveSummary(
             Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
             Title: reader.IsDBNull(reader.GetOrdinal("title")) ? "" : reader.GetString(reader.GetOrdinal("title")),
@@ -780,6 +900,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             CompletedAt: reader.IsDBNull(reader.GetOrdinal("completed_at")) ? null : reader.GetInt64(reader.GetOrdinal("completed_at")),
             PracticePre: OptBool(reader, "practice_pregame"),
             PracticeIn: OptBool(reader, "practice_ingame"),
-            PracticePost: OptBool(reader, "practice_postgame"));
+            PracticePost: OptBool(reader, "practice_postgame"),
+            TargetGameCount: OptInt(reader, "target_game_count"));
     }
 }

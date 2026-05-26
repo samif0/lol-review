@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Revu.Core.Data;
 
 namespace Revu.Core.Tests;
 
@@ -17,7 +18,7 @@ public sealed class DatabaseInitializerTests
             WHERE key = 'app_schema_version'
             """);
 
-        Assert.Equal("1", version);
+        Assert.Equal(Schema.CurrentAppSchemaVersion.ToString(), version);
     }
 
     [Fact]

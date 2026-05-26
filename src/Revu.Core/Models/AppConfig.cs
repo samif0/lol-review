@@ -79,6 +79,24 @@ public class AppConfig
     public bool MinimizeDuringGame { get; set; } = true;
 
     /// <summary>
+    /// v2.17.8: when true (default), VodPlayerViewModel auto-fills the
+    /// Timeline Inbox from inferred game events (kills, deaths, objective
+    /// fights, teamfight clusters) via <c>SyncEvidenceCandidatesAsync</c>.
+    /// Setting false stops the inbox auto-fill but leaves the colored
+    /// timeline regions visible on the scrubber — the user just doesn't
+    /// get a Needs-Review queue out of them.
+    /// Default true preserves existing behavior for everyone who relies
+    /// on the inbox today.
+    /// </summary>
+    public bool AutoTimelineClippingEnabled { get; set; } = true;
+
+    /// <summary>
+    /// v2.17.8: user permanently hid the VOD-viewer hint that explains the
+    /// auto-clipping toggle. Mirrors <see cref="AscentReminderDismissed"/>.
+    /// </summary>
+    public bool AutoTimelineClippingHintDismissed { get; set; }
+
+    /// <summary>
     /// Default keybind map — each action maps to a key-event string.
     /// Users can remap these in Settings.
     /// </summary>

@@ -199,9 +199,33 @@ public sealed partial class VodPlayerPage : Page
                 UpdatePlayPauseButtons(ViewModel.IsPlaying);
             });
 
+        if (e.PropertyName is nameof(ViewModel.IsPlaying))
+            DispatcherQueue.TryEnqueue(UpdateFullscreenTimelineCompactness);
+
         if (e.PropertyName is nameof(ViewModel.HasFfmpeg))
             DispatcherQueue.TryEnqueue(() =>
                 FfmpegWarning.Visibility = ViewModel.HasFfmpeg ? Visibility.Collapsed : Visibility.Visible);
+    }
+
+    /// <summary>
+    /// v2.17.7: while playing in fullscreen, collapse the timeline overlay to a
+    /// slim dot-marker strip so it doesn't obscure the video. On pause, restore
+    /// the full event timeline. Off-fullscreen this is a no-op — the docked
+    /// timeline below the transport bar always renders full.
+    /// </summary>
+    private void UpdateFullscreenTimelineCompactness()
+    {
+        if (!_isFullscreen) return;
+
+        var playing = ViewModel.IsPlaying;
+        FullscreenTimeline.IsCompact = playing;
+        // v2.17.8: compact target grown 18→28 so the scrub track is a real
+        // click target. The full 80px is still triggered on pause for the
+        // detailed marker view.
+        FullscreenTimeline.Height = playing ? 28 : 80;
+        FullscreenTimelineOverlay.Padding = playing
+            ? new Thickness(10, 6, 10, 6)
+            : new Thickness(10, 8, 10, 8);
     }
 
     private void TryLoadMedia()
@@ -826,6 +850,7 @@ public sealed partial class VodPlayerPage : Page
     private void EnterVideoTheaterMode()
     {
         _isFullscreen = true;
+        SetShellSidebarVisible(false);
         VodHeader.Visibility = Visibility.Collapsed;
         BookmarkSidebar.Visibility = Visibility.Collapsed;
         TimelineBar.Visibility = Visibility.Collapsed;
@@ -841,15 +866,22 @@ public sealed partial class VodPlayerPage : Page
         VideoContainer.MinHeight = Math.Max(520, RootGrid.ActualHeight - TransportBar.ActualHeight - 56);
         VideoPlayPauseButton.Margin = new Thickness(0, 0, 0, 126);
         FullscreenIcon.Glyph = "\uE73F"; // ExitFullScreen
+        UpdateFullscreenTimelineCompactness();
     }
 
     private void ExitVideoTheaterMode()
     {
         _isFullscreen = false;
+        SetShellSidebarVisible(true);
         VodHeader.Visibility = Visibility.Visible;
         BookmarkSidebar.Visibility = Visibility.Visible;
         TimelineBar.Visibility = Visibility.Visible;
         FullscreenTimelineOverlay.Visibility = Visibility.Collapsed;
+        // Reset overlay's child timeline so re-entering fullscreen on a paused
+        // video doesn't start in compact mode.
+        FullscreenTimeline.IsCompact = false;
+        FullscreenTimeline.Height = 80;
+        FullscreenTimelineOverlay.Padding = new Thickness(10, 8, 10, 8);
         VodMainLayout.ColumnSpacing = 16;
         VideoColumnDefinition.Width = new GridLength(2.4, GridUnitType.Star);
         SidebarColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
@@ -861,6 +893,28 @@ public sealed partial class VodPlayerPage : Page
         VideoContainer.MinHeight = 420;
         VideoPlayPauseButton.Margin = new Thickness(0, 0, 0, 24);
         FullscreenIcon.Glyph = "\uE740"; // EnterFullScreen
+    }
+
+    /// <summary>
+    /// v2.17.8: collapse / restore the global Revu sidebar via ShellPage so
+    /// theater mode actually extends the video to the left window edge.
+    /// Best-effort: if the ShellPage instance can't be reached (window is
+    /// closing, content swapped, etc.) the page still works, the user just
+    /// keeps seeing the sidebar.
+    /// </summary>
+    private static void SetShellSidebarVisible(bool visible)
+    {
+        try
+        {
+            if (App.MainWindow?.Content is ShellPage shell)
+            {
+                shell.SetSidebarVisible(visible);
+            }
+        }
+        catch
+        {
+            // Non-fatal — theater mode still works without the sidebar collapse.
+        }
     }
 
     private static void ExitAppWindowFullscreenIfNeeded()
@@ -899,7 +953,11 @@ public sealed partial class VodPlayerPage : Page
         var current = source;
         while (current != null)
         {
-            if (current is Button or TextBox)
+            // v2.17.8: TimelineControl gets the same "don't toggle play/pause"
+            // treatment as buttons. The fullscreen timeline overlay sits INSIDE
+            // VideoContainer, so its pointer events bubble up here; without this
+            // the scrub click would also pause the video.
+            if (current is Button or TextBox or Controls.TimelineControl)
             {
                 return true;
             }

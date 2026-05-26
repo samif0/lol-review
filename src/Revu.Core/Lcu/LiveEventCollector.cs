@@ -19,6 +19,21 @@ public sealed class LiveEventCollector
     private readonly List<JsonElement> _rawEvents = [];
     private string? _playerName;
 
+    // v2.17.7: summoner-spell cast detection. Riot's event stream doesn't emit
+    // SummonerSpellCast events, so we synthesise them by watching the active
+    // player's spell cooldowns: prev <= 0 + new > 0 means the spell was just
+    // cast. Each entry maps spell slot ("spell1"|"spell2") → (display name,
+    // last observed cooldown). _summonerSpellEvents holds the synthesised
+    // casts so StopAsync can return them alongside the raw event-stream events.
+    private readonly Dictionary<string, SummonerSpellState> _summonerSpellState = new();
+    private readonly List<GameEvent> _summonerSpellEvents = [];
+
+    private sealed class SummonerSpellState
+    {
+        public string DisplayName { get; set; } = "";
+        public double LastCooldown { get; set; }
+    }
+
     public LiveEventCollector(
         ILiveEventApi liveEventApi,
         ILogger logger,
@@ -44,6 +59,8 @@ public sealed class LiveEventCollector
     public async Task StartAsync(CancellationToken ct)
     {
         _rawEvents.Clear();
+        _summonerSpellState.Clear();
+        _summonerSpellEvents.Clear();
         _playerName = null;
         _logger.LogInformation("Live event collector started");
 
@@ -116,16 +133,27 @@ public sealed class LiveEventCollector
             // Ignored — best effort
         }
 
-        if (_rawEvents.Count == 0)
+        if (_rawEvents.Count == 0 && _summonerSpellEvents.Count == 0)
         {
             _logger.LogInformation("No live events collected");
             return [];
         }
 
         var events = ParseLiveEvents(_rawEvents, _playerName ?? "");
+
+        // v2.17.7: merge the synthesised summoner-spell casts in chronological
+        // order alongside the parsed event-stream events. Both lists are
+        // already sorted by time-of-arrival; a single in-place sort by
+        // GameTimeS preserves that and produces a clean timeline ordering.
+        if (_summonerSpellEvents.Count > 0)
+        {
+            events.AddRange(_summonerSpellEvents);
+            events.Sort(static (a, b) => a.GameTimeS.CompareTo(b.GameTimeS));
+        }
+
         _logger.LogInformation(
-            "Live event collector stopped -- {ParsedCount} events from {RawCount} raw events",
-            events.Count, _rawEvents.Count);
+            "Live event collector stopped -- {ParsedCount} events from {RawCount} raw events + {SpellCount} summoner-spell casts",
+            events.Count, _rawEvents.Count, _summonerSpellEvents.Count);
 
         return events;
     }
@@ -136,10 +164,121 @@ public sealed class LiveEventCollector
     private async Task PollAsync(CancellationToken ct)
     {
         var raw = await _liveEventApi.FetchEventsAsync(ct).ConfigureAwait(false);
-        if (raw is null)
-            return;
+        if (raw is not null)
+        {
+            AppendNewRawEvents(_rawEvents, raw);
+        }
 
-        AppendNewRawEvents(_rawEvents, raw);
+        // v2.17.7: poll the active-player snapshot in the same tick so spell-cast
+        // detection stays aligned with the in-game clock from the events stream.
+        // Failures here are non-fatal — kill/death/objective capture still works.
+        try
+        {
+            var active = await _liveEventApi.FetchActivePlayerAsync(ct).ConfigureAwait(false);
+            if (active is JsonElement el)
+            {
+                CheckSummonerSpellCasts(el, ResolveGameTimeS(el));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Active-player snapshot fetch failed");
+        }
+    }
+
+    /// <summary>
+    /// v2.17.7: pull a usable game-time-in-seconds from the active-player JSON.
+    /// The live API exposes "gameTime" on /liveclientdata/gamestats but
+    /// not consistently on /activeplayer. We fall back to the latest known
+    /// EventTime from the raw event stream when activeplayer doesn't carry it.
+    /// </summary>
+    private int ResolveGameTimeS(JsonElement activePlayer)
+    {
+        if (activePlayer.ValueKind == JsonValueKind.Object
+            && activePlayer.TryGetProperty("gameTime", out var gt)
+            && gt.TryGetDouble(out var seconds))
+        {
+            return (int)seconds;
+        }
+
+        // Fall back to the most recent EventTime we've seen.
+        for (var i = _rawEvents.Count - 1; i >= 0; i--)
+        {
+            if (_rawEvents[i].TryGetProperty("EventTime", out var et) && et.TryGetDouble(out var s))
+            {
+                return (int)s;
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// v2.17.7: diff the latest summoner-spell cooldowns against the previous
+    /// snapshot. A 0→positive transition means the spell was just cast.
+    /// </summary>
+    private void CheckSummonerSpellCasts(JsonElement activePlayer, int gameTimeS)
+    {
+        if (activePlayer.ValueKind != JsonValueKind.Object) return;
+        if (!activePlayer.TryGetProperty("summonerSpells", out var spells)) return;
+        if (spells.ValueKind != JsonValueKind.Object) return;
+
+        ReadOnlySpan<string> slots = ["summonerSpellOne", "summonerSpellTwo"];
+        ReadOnlySpan<string> slotKeys = ["spell1", "spell2"];
+
+        for (var i = 0; i < slots.Length; i++)
+        {
+            if (!spells.TryGetProperty(slots[i], out var slotEl)) continue;
+            if (slotEl.ValueKind != JsonValueKind.Object) continue;
+
+            var displayName = slotEl.TryGetProperty("displayName", out var dn) && dn.ValueKind == JsonValueKind.String
+                ? dn.GetString() ?? ""
+                : "";
+            var cooldown = slotEl.TryGetProperty("rawCooldown", out var rcd) && rcd.TryGetDouble(out var rcdVal)
+                ? rcdVal
+                : slotEl.TryGetProperty("cooldown", out var cd) && cd.TryGetDouble(out var cdVal)
+                    ? cdVal
+                    : 0.0;
+
+            var key = slotKeys[i].ToString();
+            if (!_summonerSpellState.TryGetValue(key, out var prev))
+            {
+                _summonerSpellState[key] = new SummonerSpellState
+                {
+                    DisplayName = displayName,
+                    LastCooldown = cooldown,
+                };
+                continue;
+            }
+
+            // Detect cast: previous cooldown was ~0 (ready) and current is >0.
+            // Use a small epsilon because the API sometimes reports tiny float noise.
+            const double readyThreshold = 0.5;
+            if (prev.LastCooldown <= readyThreshold && cooldown > readyThreshold)
+            {
+                var spellName = string.IsNullOrWhiteSpace(displayName) ? prev.DisplayName : displayName;
+                var isFlash = string.Equals(spellName, "Flash", StringComparison.OrdinalIgnoreCase);
+
+                _summonerSpellEvents.Add(new GameEvent
+                {
+                    EventType = isFlash ? GameEvent.EventTypes.Flash : GameEvent.EventTypes.SummonerSpell,
+                    GameTimeS = gameTimeS,
+                    Details = JsonSerializer.Serialize(new
+                    {
+                        spell = spellName,
+                        slot = key,
+                        cooldown_seconds = (int)cooldown,
+                    }),
+                });
+            }
+
+            prev.DisplayName = string.IsNullOrWhiteSpace(displayName) ? prev.DisplayName : displayName;
+            prev.LastCooldown = cooldown;
+        }
     }
 
     internal static void AppendNewRawEvents(List<JsonElement> destination, IReadOnlyList<JsonElement> snapshot)

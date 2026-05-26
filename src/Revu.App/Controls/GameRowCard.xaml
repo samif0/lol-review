@@ -15,7 +15,8 @@
             Padding="0"
             PointerEntered="OnPointerEntered"
             PointerMoved="OnPointerMoved"
-            PointerExited="OnPointerExited">
+            PointerExited="OnPointerExited"
+            Tapped="OnHostTapped">
         <Grid>
             <Border x:Name="GlowOverlay"
                     CornerRadius="2"

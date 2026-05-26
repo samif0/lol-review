@@ -115,7 +115,28 @@
                                       CornerRadius="2" MinWidth="200">
                                 <ComboBoxItem Content="Gameplay"/>
                                 <ComboBoxItem Content="Mental"/>
+                                <!-- v2.17.7: short-horizon focus for N games. Auto-archives. -->
+                                <ComboBoxItem Content="Mini focus (next N games)"/>
                             </ComboBox>
+                        </StackPanel>
+
+                        <!-- v2.17.7: target-games stepper, only meaningful for Mini focus. -->
+                        <StackPanel Spacing="4"
+                                    Visibility="{x:Bind ViewModel.ShowTargetGameCount, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Focus for this many games"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBlock Text="Mini focus auto-archives once you've recorded this many games against it. Use it for skills you want to drill briefly — e.g. flash usage for the next 3 games."
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <NumberBox Value="{x:Bind ViewModel.NewTargetGameCount, Mode=TwoWay}"
+                                       Minimum="1" Maximum="20"
+                                       SpinButtonPlacementMode="Inline"
+                                       Background="{StaticResource InputBackgroundBrush}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       BorderBrush="{StaticResource SubtleBorderBrush}"
+                                       MinWidth="160" HorizontalAlignment="Left"/>
                         </StackPanel>
 
                         <!-- v2.15.0: multi-phase practice. Objective can practice any subset. -->
@@ -354,6 +375,56 @@
                                Margin="20,30"/>
                 </Border>
 
+                <!-- v2.17.7: short-horizon focus items surface above the main list. -->
+                <controls:SectionTitle Text="FOCUS"
+                           Visibility="{x:Bind ViewModel.HasFocusObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                <TextBlock Text="Mini objectives auto-archive once you've recorded the target number of games."
+                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                           Foreground="{StaticResource MutedTextBrush}"
+                           TextWrapping="Wrap"
+                           Visibility="{x:Bind ViewModel.HasFocusObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                <ItemsRepeater ItemsSource="{x:Bind ViewModel.FocusObjectives, Mode=OneWay}"
+                               Visibility="{x:Bind ViewModel.HasFocusObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="8"/>
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ObjectiveDisplayItem">
+                            <Border Background="{StaticResource InputBackgroundBrush}"
+                                    BorderBrush="{StaticResource AccentGoldBrush}"
+                                    BorderThickness="1" CornerRadius="2" Padding="12,10">
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="4">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Border Background="{x:Bind TypeBadgeBackgroundBrush}"
+                                                    CornerRadius="2" Padding="6,2">
+                                                <TextBlock Text="{x:Bind TypeBadge}"
+                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                           FontWeight="Bold"
+                                                           Foreground="{x:Bind TypeBadgeForegroundBrush}"/>
+                                            </Border>
+                                            <TextBlock Text="{x:Bind Title}"
+                                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Text="{x:Bind FocusProgressText}"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource AccentGoldBrush}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+
                 <!-- Active Objectives Section Header -->
                 <controls:SectionTitle Text="ACTIVE"
                            Visibility="{x:Bind ViewModel.HasActiveObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
@@ -439,6 +510,17 @@
                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                    Foreground="{StaticResource MutedTextBrush}"
                                                    VerticalAlignment="Center"/>
+                                        <!-- v2.17.7: mini-focus countdown chip. Only mini objectives surface this. -->
+                                        <Border Background="{StaticResource TagBackgroundBrush}"
+                                                BorderBrush="{StaticResource AccentGoldBrush}"
+                                                BorderThickness="1" CornerRadius="2" Padding="6,2"
+                                                Visibility="{x:Bind HasFocusProgress, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="{x:Bind FocusProgressText}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource AccentGoldBrush}"/>
+                                        </Border>
                                     </StackPanel>
 
                                     <!-- Progress Bar + Sparkline -->

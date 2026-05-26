@@ -116,6 +116,8 @@ internal sealed class TestConfigService : IConfigService
     public bool AscentReminderDismissed => Current.AscentReminderDismissed;
     public bool SidebarAnimationEnabled => Current.SidebarAnimationEnabled;
     public bool MinimizeDuringGame => Current.MinimizeDuringGame;
+    public bool AutoTimelineClippingEnabled => Current.AutoTimelineClippingEnabled;
+    public bool AutoTimelineClippingHintDismissed => Current.AutoTimelineClippingHintDismissed;
 
     public bool IsAscentEnabled => !string.IsNullOrWhiteSpace(AscentFolder);
 

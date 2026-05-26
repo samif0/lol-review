@@ -29,6 +29,29 @@ public interface IObjectivesRepository
         string completionCriteria, string description,
         bool practicePre, bool practiceIn, bool practicePost);
 
+    /// <summary>
+    /// v2.17.7: create with an explicit <paramref name="targetGameCount"/> so
+    /// mini objectives can declare their game-batch horizon up front. Use 0
+    /// for primary (no target).
+    /// </summary>
+    Task<long> CreateWithPhasesAndTargetAsync(string title, string skillArea, string type,
+        string completionCriteria, string description,
+        bool practicePre, bool practiceIn, bool practicePost,
+        int targetGameCount);
+
+    /// <summary>
+    /// v2.17.7: update the target game count for an existing objective. Pass 0
+    /// to clear (e.g. converting a mini back to primary).
+    /// </summary>
+    Task UpdateTargetGameCountAsync(long objectiveId, int targetGameCount);
+
+    /// <summary>
+    /// v2.17.7: archive any active mini objectives whose <c>game_count</c> has
+    /// reached <c>target_game_count</c>. Returns the ids of objectives that
+    /// were archived so the caller can surface a "focus complete" toast.
+    /// </summary>
+    Task<IReadOnlyList<long>> ArchiveCompletedMiniObjectivesAsync();
+
     Task<IReadOnlyList<ObjectiveSummary>> GetAllAsync();
 
     Task<IReadOnlyList<ObjectiveSummary>> GetActiveAsync();

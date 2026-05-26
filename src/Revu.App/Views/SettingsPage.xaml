@@ -122,6 +122,14 @@
                                    Foreground="{StaticResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
 
+                        <!-- v2.17.8: download link for users who haven't installed Ascent yet. -->
+                        <TextBlock FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap">
+                            <Run Text="Don't have Ascent yet? Download it at "/><Hyperlink NavigateUri="https://tryascent.gg"
+                                                                                            Foreground="{StaticResource AccentBlueBrush}"><Run Text="tryascent.gg"/></Hyperlink><Run Text="."/>
+                        </TextBlock>
+
                         <!-- Folder path row -->
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -336,6 +344,24 @@
                                       Header="Require review notes before save"
                                       OnContent="Required"
                                       OffContent="Optional"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
+                <!-- v2.17.8: auto Timeline Inbox toggle. Anchor referenced from the
+                     VOD-viewer hint banner so "Open Settings" deep-links here. -->
+                <controls:CornerBracketedCard x:Name="AutoTimelineClippingCard">
+                    <StackPanel Spacing="8">
+                        <controls:SectionTitle Text="TIMELINE INBOX"/>
+
+                        <TextBlock Text="When on, the VOD viewer auto-fills the Timeline Inbox with Needs-Review items derived from kills, deaths, and objective fights. Turn it off if you'd rather only see the bookmarks and clips you create yourself. Items already in your inbox stay either way."
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.AutoTimelineClippingEnabled, Mode=TwoWay}"
+                                      Header="Auto-fill Timeline Inbox from game events"
+                                      OnContent="On"
+                                      OffContent="Off"/>
                     </StackPanel>
                 </controls:CornerBracketedCard>
 

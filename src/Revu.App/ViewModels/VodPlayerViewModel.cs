@@ -70,6 +70,35 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _gameEventsStatusText = "No live events.";
     [ObservableProperty] private bool _hasEvidenceInboxItems;
 
+    /// <summary>
+    /// v2.17.8: backs the dismissible hint that explains the auto-Timeline-Inbox
+    /// toggle. Flips to false when the user clicks "Hide this hint" — the VM
+    /// also persists <c>AutoTimelineClippingHintDismissed=true</c> so the hint
+    /// stays gone across sessions. Refresh-from-config happens in <c>LoadAsync</c>.
+    /// </summary>
+    [ObservableProperty] private bool _autoClippingHintDismissed;
+
+    /// <summary>
+    /// v2.17.8: cached config value so the hint visibility binding can react
+    /// when the user toggles auto-clipping off from Settings and comes back.
+    /// </summary>
+    [ObservableProperty] private bool _autoClippingEnabled = true;
+
+    /// <summary>
+    /// v2.17.8: composite visibility for the VOD-viewer hint. Show when the
+    /// inbox has items (so the hint has something to point at), auto-clipping
+    /// is currently on (no point telling the user to turn off something
+    /// already off), and the user hasn't permanently hidden the hint.
+    /// </summary>
+    public bool ShowAutoClippingHint =>
+        HasEvidenceInboxItems
+        && AutoClippingEnabled
+        && !AutoClippingHintDismissed;
+
+    partial void OnHasEvidenceInboxItemsChanged(bool value)   => OnPropertyChanged(nameof(ShowAutoClippingHint));
+    partial void OnAutoClippingEnabledChanged(bool value)     => OnPropertyChanged(nameof(ShowAutoClippingHint));
+    partial void OnAutoClippingHintDismissedChanged(bool value) => OnPropertyChanged(nameof(ShowAutoClippingHint));
+
     // â"€â"€ Clip extraction â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [ObservableProperty] private double _clipStartS = -1;
@@ -209,6 +238,12 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             GameId = gameId;
 
+            // v2.17.8: prime hint-banner state from config. Toggles in Settings
+            // take effect on the next Load — refreshing each VOD open keeps the
+            // VM in sync without needing a global config-change subscription.
+            AutoClippingEnabled = _configService.AutoTimelineClippingEnabled;
+            AutoClippingHintDismissed = _configService.AutoTimelineClippingHintDismissed;
+
             // Load game info
             var game = await _gameRepo.GetAsync(gameId);
             if (game == null) { _logger.LogWarning("Game {Id} not found", gameId); return; }
@@ -317,7 +352,16 @@ public partial class VodPlayerViewModel : ObservableObject
             // Load active objectives for clip attachment
             await LoadObjectiveOptionsAsync();
 
-            await SyncEvidenceCandidatesAsync(inferredRegions);
+            // v2.17.8: only auto-fill the Timeline Inbox when the user wants it.
+            // Default is true to preserve existing behavior; the toggle lives in
+            // Settings. When OFF we still render the colored timeline regions
+            // above (DerivedEvents is populated) — we just stop generating
+            // NeedsReview evidence rows. Pre-existing inbox items stay so the
+            // user's prior tagging work isn't lost.
+            if (_configService.AutoTimelineClippingEnabled)
+            {
+                await SyncEvidenceCandidatesAsync(inferredRegions);
+            }
             await RefreshEvidenceInboxAsync();
 
             // Check ffmpeg availability
@@ -915,6 +959,39 @@ public partial class VodPlayerViewModel : ObservableObject
     {
         if (GameId <= 0) return;
         _navigationService.NavigateTo("review", GameId);
+    }
+
+    /// <summary>
+    /// v2.17.8: open Settings scrolled to the auto-Timeline-Inbox toggle. The
+    /// parameter is the x:Name of the target card on SettingsPage; that page's
+    /// OnNavigatedTo deep-links to it via StartBringIntoView.
+    /// </summary>
+    [RelayCommand]
+    private void OpenAutoClippingSettings()
+    {
+        _navigationService.NavigateTo("settings", "AutoTimelineClippingCard");
+    }
+
+    /// <summary>
+    /// v2.17.8: permanently hide the auto-clipping hint banner. Writes
+    /// <c>AutoTimelineClippingHintDismissed=true</c> to config so the hint
+    /// stays gone across sessions. Failures are logged but don't surface
+    /// in UI — the user has dismissed something cosmetic.
+    /// </summary>
+    [RelayCommand]
+    private async Task DismissAutoClippingHintAsync()
+    {
+        AutoClippingHintDismissed = true;
+        try
+        {
+            var config = await _configService.LoadAsync();
+            config.AutoTimelineClippingHintDismissed = true;
+            await _configService.SaveAsync(config);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist AutoTimelineClippingHintDismissed");
+        }
     }
 
     // â"€â"€ Public methods for the view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -1811,18 +1888,20 @@ public class TimelineEvent
     /// so users see *what* the marker means without hovering.</summary>
     public string ShortLabel => EventType.ToUpperInvariant() switch
     {
-        "KILL"        => "KIL",
-        "DEATH"       => "DTH",
-        "ASSIST"      => "AST",
-        "DRAGON"      => "DRG",
-        "BARON"       => "BAR",
-        "HERALD"      => "HRD",
-        "TURRET"      => "TWR",
-        "INHIBITOR"   => "INH",
-        "FIRST_BLOOD" => "FB",
-        "MULTI_KILL"  => "MLT",
-        "LEVEL_UP"    => "LVL",
-        _             => "EVT",
+        "KILL"           => "KIL",
+        "DEATH"          => "DTH",
+        "ASSIST"         => "AST",
+        "DRAGON"         => "DRG",
+        "BARON"          => "BAR",
+        "HERALD"         => "HRD",
+        "TURRET"         => "TWR",
+        "INHIBITOR"      => "INH",
+        "FIRST_BLOOD"    => "FB",
+        "MULTI_KILL"     => "MLT",
+        "LEVEL_UP"       => "LVL",
+        "FLASH"          => "FLASH",
+        "SUMMONER_SPELL" => "SUM",
+        _                => "EVT",
     };
     public bool IsCombatEvent => EventType.ToUpperInvariant() is "KILL" or "DEATH" or "ASSIST" or "FIRST_BLOOD" or "MULTI_KILL";
     public SolidColorBrush AccentBrush => AppSemanticPalette.Brush(Color);
@@ -1842,6 +1921,11 @@ public class TimelineEvent
         "FIRST_BLOOD" => AppSemanticPalette.NegativeHex,
         "MULTI_KILL" => AppSemanticPalette.AccentGoldHex,
         "LEVEL_UP" => AppSemanticPalette.NeutralHex,
+        // v2.17.7: Flash and other summoner spells. Flash gets the brighter teal
+        // because it's the spell players hunt for in review; generic SUM uses
+        // the calmer blue so it doesn't visually drown out kills/deaths.
+        "FLASH" => AppSemanticPalette.AccentTealHex,
+        "SUMMONER_SPELL" => AppSemanticPalette.AccentBlueHex,
         _ => AppSemanticPalette.NeutralHex,
     };
 
@@ -1858,6 +1942,8 @@ public class TimelineEvent
         "FIRST_BLOOD" => AppSemanticPalette.NegativeDimHex,
         "MULTI_KILL" => AppSemanticPalette.AccentGoldDimHex,
         "LEVEL_UP" => AppSemanticPalette.TagSurfaceHex,
+        "FLASH" => AppSemanticPalette.AccentTealDimHex,
+        "SUMMONER_SPELL" => AppSemanticPalette.AccentBlueDimHex,
         _ => AppSemanticPalette.TagSurfaceHex,
     };
 
@@ -1870,6 +1956,9 @@ public class TimelineEvent
         "DRAGON" or "BARON" or "HERALD" => MarkerShape.Diamond,
         "TURRET" or "INHIBITOR" => MarkerShape.Square,
         "MULTI_KILL" => MarkerShape.Star,
+        // v2.17.7: render summoner-spell casts as squares so they don't get
+        // confused with the diamond shape used for assists/objectives.
+        "FLASH" or "SUMMONER_SPELL" => MarkerShape.Square,
         _ => MarkerShape.Square,
     };
 
@@ -1886,6 +1975,8 @@ public class TimelineEvent
         "FIRST_BLOOD" => "First Blood",
         "MULTI_KILL" => "Multi Kill",
         "LEVEL_UP" => "Level Up",
+        "FLASH" => "Flash",
+        "SUMMONER_SPELL" => "Summoner Spell",
         _ => EventType,
     };
 
@@ -1912,6 +2003,7 @@ public class TimelineEvent
                 "TURRET" => FormatObjectiveSummary(root, "killer"),
                 "INHIBITOR" => FormatObjectiveSummary(root, "killer"),
                 "MULTI_KILL" => ReadValue(root, "label"),
+                "FLASH" or "SUMMONER_SPELL" => ReadValue(root, "spell"),
                 _ => "",
             };
         }

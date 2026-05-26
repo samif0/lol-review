@@ -29,6 +29,18 @@ public sealed partial class TimelineControl : UserControl
     private const double EventMarkerTop = TrackTop - MarkerSize - 10;
     private const double BookmarkMarkerTop = TrackTop + TrackHeight + 10;
 
+    // v2.17.7: Compact mode shrinks the track to a slim bar so the fullscreen
+    // overlay doesn't obscure the video while playing. Markers stay (as dots)
+    // but labels and bucket tags are skipped so the bar reads as a thin HUD strip.
+    // v2.17.8: bumped from 6px to 10px track + 4→5 markers so the strip is a
+    // real click target instead of a sliver — users were mis-clicking and
+    // (before the IsInteractiveChildTap fix) accidentally pausing.
+    private const double CompactTrackTop = 8;
+    private const double CompactTrackHeight = 10;
+    private const double CompactMarkerSize = 5;
+    private const double CompactEventMarkerTop = CompactTrackTop - CompactMarkerSize - 1;
+    private const double CompactBookmarkMarkerTop = CompactTrackTop + CompactTrackHeight + 1;
+
     private bool _isDragging;
     private readonly List<MarkerHitInfo> _markerHitAreas = new();
 
@@ -111,6 +123,27 @@ public sealed partial class TimelineControl : UserControl
         set => SetValue(ClipEndProperty, value);
     }
 
+    /// <summary>
+    /// v2.17.7: when true, the timeline renders as a slim bar with dot-sized
+    /// markers and no labels — used by the fullscreen overlay while playing
+    /// so it doesn't obscure the video.
+    /// </summary>
+    public static readonly DependencyProperty IsCompactProperty =
+        DependencyProperty.Register(nameof(IsCompact), typeof(bool), typeof(TimelineControl),
+            new PropertyMetadata(false, OnCompactChanged));
+
+    public bool IsCompact
+    {
+        get => (bool)GetValue(IsCompactProperty);
+        set => SetValue(IsCompactProperty, value);
+    }
+
+    private double CurrentTrackTop => IsCompact ? CompactTrackTop : TrackTop;
+    private double CurrentTrackHeight => IsCompact ? CompactTrackHeight : TrackHeight;
+    private double CurrentMarkerSize => IsCompact ? CompactMarkerSize : MarkerSize;
+    private double CurrentEventMarkerTop => IsCompact ? CompactEventMarkerTop : EventMarkerTop;
+    private double CurrentBookmarkMarkerTop => IsCompact ? CompactBookmarkMarkerTop : BookmarkMarkerTop;
+
     // ── Events ──────────────────────────────────────────────────────
 
     public event Action<double>? SeekRequested;
@@ -127,6 +160,45 @@ public sealed partial class TimelineControl : UserControl
     {
         if (d is TimelineControl tc)
             tc.Redraw();
+    }
+
+    private static void OnCompactChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is TimelineControl tc)
+        {
+            tc.ApplyCompactChrome();
+            tc.Redraw();
+        }
+    }
+
+    private void ApplyCompactChrome()
+    {
+        if (IsCompact)
+        {
+            // Slim bar — hide chrome that only made sense at 80px high.
+            TimelineFrame.Visibility = Visibility.Collapsed;
+            TrackShell.Visibility = Visibility.Collapsed;
+            Tooltip.Visibility = Visibility.Collapsed;
+            MinHeight = 0;
+        }
+        else
+        {
+            TimelineFrame.Visibility = Visibility.Visible;
+            TrackShell.Visibility = Visibility.Visible;
+            MinHeight = 104;
+        }
+
+        // Re-pin the static track elements to the compact / normal top offset.
+        Canvas.SetTop(TrackBg, CurrentTrackTop);
+        TrackBg.Height = CurrentTrackHeight;
+        Canvas.SetTop(ProgressBar, CurrentTrackTop);
+        ProgressBar.Height = CurrentTrackHeight;
+        Canvas.SetTop(ClipOverlay, CurrentTrackTop - 3);
+        ClipOverlay.Height = CurrentTrackHeight + 6;
+        Canvas.SetTop(ClipInMarker, CurrentTrackTop - 4);
+        ClipInMarker.Height = CurrentTrackHeight + 12;
+        Canvas.SetTop(ClipOutMarker, CurrentTrackTop - 4);
+        ClipOutMarker.Height = CurrentTrackHeight + 12;
     }
 
     private static void OnEventsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -248,6 +320,13 @@ public sealed partial class TimelineControl : UserControl
         MarkerCanvas.Children.Clear();
         _markerHitAreas.Clear();
 
+        var compact = IsCompact;
+        var trackTop = CurrentTrackTop;
+        var trackHeight = CurrentTrackHeight;
+        var markerSize = CurrentMarkerSize;
+        var eventMarkerTop = CurrentEventMarkerTop;
+        var bookmarkMarkerTop = CurrentBookmarkMarkerTop;
+
         // Derived event regions (draw first, behind markers)
         if (DerivedEvents != null)
         {
@@ -260,7 +339,7 @@ public sealed partial class TimelineControl : UserControl
                 var rect = new Border
                 {
                     Width = width,
-                    Height = TrackHeight + 4,
+                    Height = trackHeight + 4,
                     Background = new SolidColorBrush(ParseColor(NormalizeTimelineColor(de.Color), de.IsInferred ? (byte)90 : (byte)64)),
                     BorderBrush = de.IsInferred
                         ? new SolidColorBrush(ParseColor(NormalizeTimelineColor(de.Color), 190))
@@ -269,15 +348,15 @@ public sealed partial class TimelineControl : UserControl
                     CornerRadius = new CornerRadius(2),
                 };
                 Canvas.SetLeft(rect, x1);
-                Canvas.SetTop(rect, TrackTop - 2);
+                Canvas.SetTop(rect, trackTop - 2);
                 MarkerCanvas.Children.Add(rect);
 
-                if (de.IsInferred && width >= 34)
+                if (!compact && de.IsInferred && width >= 34)
                 {
                     var label = CreateMarkerLabel(de.ShortLabel, de.Color);
                     label.Opacity = 0.95;
                     Canvas.SetLeft(label, Math.Clamp(x1 + 3, 0, Math.Max(0, ActualWidth - 72)));
-                    Canvas.SetTop(label, TrackTop + TrackHeight + 4);
+                    Canvas.SetTop(label, trackTop + trackHeight + 4);
                     MarkerCanvas.Children.Add(label);
                 }
 
@@ -302,12 +381,15 @@ public sealed partial class TimelineControl : UserControl
             {
                 var maxMarkerX = Math.Max(TrackPadding, ActualWidth - TrackPadding);
                 var x = Math.Clamp(TimeToX(evt.GameTimeS), TrackPadding, maxMarkerX);
-                var shape = CreateMarkerShape(evt.Shape, evt.Color);
-                Canvas.SetLeft(shape, Math.Clamp(x - MarkerSize / 2, 1, Math.Max(1, ActualWidth - MarkerSize - 1)));
-                Canvas.SetTop(shape, EventMarkerTop);
+                var shape = CreateMarkerShape(evt.Shape, evt.Color, compact);
+                Canvas.SetLeft(shape, Math.Clamp(x - markerSize / 2, 1, Math.Max(1, ActualWidth - markerSize - 1)));
+                Canvas.SetTop(shape, eventMarkerTop);
                 MarkerCanvas.Children.Add(shape);
 
-                AddEventLabelBucket(labelBuckets, evt, x);
+                if (!compact)
+                {
+                    AddEventLabelBucket(labelBuckets, evt, x);
+                }
 
                 _markerHitAreas.Add(new MarkerHitInfo
                 {
@@ -317,7 +399,10 @@ public sealed partial class TimelineControl : UserControl
             }
         }
 
-        DrawEventLabelBuckets(labelBuckets);
+        if (!compact)
+        {
+            DrawEventLabelBuckets(labelBuckets);
+        }
 
         // Bookmark markers (purple diamonds)
         if (Bookmarks != null)
@@ -326,17 +411,17 @@ public sealed partial class TimelineControl : UserControl
             {
                 var maxMarkerX = Math.Max(TrackPadding, ActualWidth - TrackPadding);
                 var x = Math.Clamp(TimeToX(bm.GameTimeS), TrackPadding, maxMarkerX);
-                var shape = CreateMarkerShape(MarkerShape.Diamond, bm.MarkerColorHex);
-                Canvas.SetLeft(shape, Math.Clamp(x - MarkerSize / 2, 1, Math.Max(1, ActualWidth - MarkerSize - 1)));
-                Canvas.SetTop(shape, BookmarkMarkerTop);
+                var shape = CreateMarkerShape(MarkerShape.Diamond, bm.MarkerColorHex, compact);
+                Canvas.SetLeft(shape, Math.Clamp(x - markerSize / 2, 1, Math.Max(1, ActualWidth - markerSize - 1)));
+                Canvas.SetTop(shape, bookmarkMarkerTop);
                 MarkerCanvas.Children.Add(shape);
 
-                if (x - lastBookmarkLabelX >= minBookmarkLabelGap)
+                if (!compact && x - lastBookmarkLabelX >= minBookmarkLabelGap)
                 {
                     var labelText = bm.IsClip ? "CLIP" : "BM";
                     var label = CreateMarkerLabel(labelText, bm.MarkerColorHex);
                     Canvas.SetLeft(label, Math.Clamp(x - 12, 0, Math.Max(0, ActualWidth - 28)));
-                    Canvas.SetTop(label, BookmarkMarkerTop + 14);
+                    Canvas.SetTop(label, bookmarkMarkerTop + 14);
                     MarkerCanvas.Children.Add(label);
                     lastBookmarkLabelX = x;
                 }
@@ -402,6 +487,9 @@ public sealed partial class TimelineControl : UserControl
         "ASSIST" => 2,
         "DRAGON" or "BARON" or "HERALD" => 3,
         "TURRET" or "INHIBITOR" => 4,
+        // v2.17.7: summoner spells rank below combat/objectives but above generic
+        // unknowns so the bucket label prefers "DTH+FLASH" over "DTH+EVT".
+        "FLASH" or "SUMMONER_SPELL" => 4,
         _ => 5,
     };
 
@@ -422,24 +510,38 @@ public sealed partial class TimelineControl : UserControl
         };
     }
 
-    private static FrameworkElement CreateMarkerShape(MarkerShape shape, string colorHex)
+    private static FrameworkElement CreateMarkerShape(MarkerShape shape, string colorHex, bool compact = false)
     {
         var color = ParseColor(colorHex);
         var brush = new SolidColorBrush(color);
 
-        // All markers are minimal vertical bars — clean, not childish
-        var height = shape switch
+        // All markers are minimal vertical bars — clean, not childish.
+        // In compact mode they shrink to tiny dots so they read as a thin HUD strip.
+        double height, width;
+        if (compact)
         {
-            ViewModels.MarkerShape.Star => 14.0,
-            ViewModels.MarkerShape.Diamond => 12.0,
-            _ => 10.0,
-        };
-
-        var width = shape switch
+            height = shape switch
+            {
+                ViewModels.MarkerShape.Star => 6.0,
+                ViewModels.MarkerShape.Diamond => 5.0,
+                _ => 4.0,
+            };
+            width = 2.0;
+        }
+        else
         {
-            ViewModels.MarkerShape.Square => 4.0,
-            _ => 2.0,
-        };
+            height = shape switch
+            {
+                ViewModels.MarkerShape.Star => 14.0,
+                ViewModels.MarkerShape.Diamond => 12.0,
+                _ => 10.0,
+            };
+            width = shape switch
+            {
+                ViewModels.MarkerShape.Square => 4.0,
+                _ => 2.0,
+            };
+        }
 
         return new Border
         {
@@ -447,7 +549,7 @@ public sealed partial class TimelineControl : UserControl
             Height = height,
             Background = brush,
             CornerRadius = new CornerRadius(1),
-            Opacity = 0.8,
+            Opacity = compact ? 0.95 : 0.8,
         };
 
     }
@@ -492,12 +594,25 @@ public sealed partial class TimelineControl : UserControl
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        Tooltip.Visibility = Visibility.Collapsed;
+        TooltipPopup.IsOpen = false;
     }
 
+    /// <summary>
+    /// v2.17.8 (3rd attempt): tooltip lives in a Popup positioned in WINDOW-
+    /// ABSOLUTE coordinates. The Popup's HorizontalOffset/VerticalOffset are
+    /// interpreted relative to its visual-tree parent (a top-level Grid above
+    /// any clipping Border), but to dodge reference-frame ambiguity we
+    /// compute the target point via TransformToVisual(null) which gives us
+    /// the position in the window's content root. Setting offsets to those
+    /// absolute values is deterministic everywhere the timeline is used.
+    /// </summary>
     private void UpdateTooltip(Point pos)
     {
         const double hitRadius = 10;
+        // Pixels above the cursor row where the tooltip's TOP edge should sit.
+        // Big enough to clear the markers' visual size in both modes (full
+        // marker height ~14, compact ~6) plus the tooltip's own height.
+        const double tooltipLiftFromCursor = 48;
 
         MarkerHitInfo? closest = null;
         double closestDist = double.MaxValue;
@@ -515,8 +630,7 @@ public sealed partial class TimelineControl : UserControl
         if (closest != null)
         {
             TooltipText.Text = closest.Label;
-            Canvas.SetLeft(Tooltip, Math.Clamp(closest.X - 44, 0, Math.Max(0, ActualWidth - 180)));
-            Tooltip.Visibility = Visibility.Visible;
+            ShowTooltipAt(closest.X, pos.Y, anchorOffsetX: 44, maxAnchorWidth: 220, lift: tooltipLiftFromCursor);
         }
         else
         {
@@ -525,13 +639,37 @@ public sealed partial class TimelineControl : UserControl
             if (time >= 0 && time <= Duration)
             {
                 TooltipText.Text = VodPlayerViewModel.FormatTime((int)time);
-                Canvas.SetLeft(Tooltip, Math.Clamp(pos.X - 28, 0, Math.Max(0, ActualWidth - 120)));
-                Tooltip.Visibility = Visibility.Visible;
+                ShowTooltipAt(pos.X, pos.Y, anchorOffsetX: 28, maxAnchorWidth: 120, lift: tooltipLiftFromCursor);
             }
             else
             {
-                Tooltip.Visibility = Visibility.Collapsed;
+                TooltipPopup.IsOpen = false;
             }
+        }
+    }
+
+    /// <summary>
+    /// Position the popup with offsets RELATIVE to the popup's own position in
+    /// its visual-tree parent (the ControlRoot Grid). This matches the working
+    /// pattern in ObjectivePicker.cs: Popup.Horizontal/VerticalOffset are
+    /// control-local, not window-absolute. The popup itself still renders in
+    /// the window's popup root layer, so ancestor CornerRadius clipping
+    /// doesn't crop the tooltip — the only requirement is that offsets are
+    /// values the framework understands as "from where the Popup tag sits in
+    /// XAML." Since the Popup is the first child of ControlRoot (a Grid that
+    /// fills the UserControl), offsets are effectively TimelineControl-local.
+    /// </summary>
+    private void ShowTooltipAt(double controlX, double controlY, double anchorOffsetX, double maxAnchorWidth, double lift)
+    {
+        var maxLeftLocal = Math.Max(0, ActualWidth - maxAnchorWidth);
+        var leftLocal = Math.Clamp(controlX - anchorOffsetX, 0, maxLeftLocal);
+        var topLocal = controlY - lift;
+
+        TooltipPopup.HorizontalOffset = leftLocal;
+        TooltipPopup.VerticalOffset = topLocal;
+        if (!TooltipPopup.IsOpen)
+        {
+            TooltipPopup.IsOpen = true;
         }
     }
 
