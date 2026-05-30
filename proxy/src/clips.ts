@@ -51,6 +51,15 @@ export const RESERVED_SLUGS = new Set([
   "robots",
   "sitemap",
   "index",
+  // Riot proxy endpoints (desktop, static-token path). These are bare,
+  // single-segment, and happen to be 7 base62 chars — so without reserving
+  // them the bare-slug router hijacks them and 302-redirects to clip.html,
+  // breaking account lookup + match loading (i.e. login). "match" is 5 chars
+  // and "/match/<id>" is multi-segment so it's already safe, but reserve it
+  // too as defense against a future bare "/match".
+  "account",
+  "matches",
+  "match",
 ]);
 
 /** True if `seg` should be handled as a clip watch request (not a real page). */
