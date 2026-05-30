@@ -339,10 +339,41 @@ describe("clip sharing", () => {
     expect(res.status).not.toBe(302);
   });
 
-  it("redirects a bare clip-shaped slug to the watch page", async () => {
+  it("redirects a bare clip-shaped slug to the watch page when the clip is unknown", async () => {
     const res = await worker.fetch(new Request("https://proxy.example/Xy12Z9q"), env());
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("https://revu.lol/clip.html?id=Xy12Z9q");
+  });
+
+  it("serves per-clip Open Graph video tags for an existing slug (Discord embed)", async () => {
+    const db = makeFakeDb([clip({ id: "Embed99", title: "baron steal", champion: "LeeSin", content_type: "video/mp4" })]);
+    const res = await worker.fetch(new Request("https://proxy.example/Embed99"), env({ DB: db }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const body = await res.text();
+    // The crucial bits Discord reads to render an inline player:
+    expect(body).toContain('property="og:type" content="video.other"');
+    expect(body).toContain('property="og:video" content="https://clips.revu.lol/clip-file/Embed99"');
+    expect(body).toContain('property="og:video:type" content="video/mp4"');
+    // Per-clip title (caption + champion), HTML-escaped, not a static placeholder.
+    expect(body).toContain("baron steal — LeeSin");
+    // Humans still get bounced to the watch page.
+    expect(body).toContain("https://revu.lol/clip.html?id=Embed99");
+  });
+
+  it("uses video/webm in og:video:type for a webm clip", async () => {
+    const db = makeFakeDb([clip({ id: "Webm123", r2_key: "clips/Webm123.webm", content_type: "video/webm" })]);
+    const res = await worker.fetch(new Request("https://proxy.example/Webm123"), env({ DB: db }));
+    const body = await res.text();
+    expect(body).toContain('property="og:video:type" content="video/webm"');
+  });
+
+  it("escapes HTML in a clip title to prevent injection in OG tags", async () => {
+    const db = makeFakeDb([clip({ id: "Xss1234", title: '"><script>alert(1)</script>', champion: null })]);
+    const res = await worker.fetch(new Request("https://proxy.example/Xss1234"), env({ DB: db }));
+    const body = await res.text();
+    expect(body).not.toContain("<script>alert(1)</script>");
+    expect(body).toContain("&lt;script&gt;");
   });
 
   it("does not redirect multi-segment paths", async () => {

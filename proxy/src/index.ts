@@ -23,6 +23,7 @@ import {
   handleUploadClip,
   isClipSlug,
   purgeExpiredClips,
+  renderClipOgPage,
 } from "./clips";
 
 // ── Region mapping ──────────────────────────────────────────────────────
@@ -487,6 +488,13 @@ export default {
       const seg = url.pathname.slice(1);
       if (seg.indexOf("/") === -1 && isClipSlug(seg)) {
         const watchBase = (env.WATCH_BASE || "https://revu.lol").replace(/\/+$/, "");
+        // Serve a server-rendered page with per-clip Open Graph **video** tags so
+        // Discord/Twitter/Slack embed an inline player (crawlers don't run JS, so
+        // the static watch page can't do this). Humans are redirected onward by
+        // the page's meta-refresh + JS. Missing/expired clip → plain redirect to
+        // the watch page's "not found" state.
+        const og = await renderClipOgPage(env, seg);
+        if (og) return og;
         return Response.redirect(`${watchBase}/clip.html?id=${seg}`, 302);
       }
     }

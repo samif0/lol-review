@@ -123,6 +123,101 @@ async function incrementViews(db: D1Database, id: string): Promise<void> {
   await db.prepare("UPDATE clips SET view_count = view_count + 1 WHERE id = ?1").bind(id).run();
 }
 
+/** Minimal HTML-attribute/text escaping for user-supplied title/champion. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Per-clip share page (server-rendered) so link unfurlers — Discord, Twitter,
+ * Slack, etc. — get real Open Graph **video** tags and embed an inline player.
+ * Crawlers don't run JS, so the static clip.html (which fills tags client-side)
+ * can't embed; this Worker-rendered head can.
+ *
+ * Humans are bounced to the nice watch page (WATCH_BASE/clip.html?id=) via a
+ * meta-refresh + JS redirect. We serve THIS to everyone hitting a bare slug so a
+ * crawler we failed to detect still gets tags rather than a bare redirect.
+ *
+ * Returns null when the clip is missing/expired so the caller can fall back
+ * (redirect to the watch page, which shows a clean "not found" state).
+ */
+export async function renderClipOgPage(env: Env, id: string): Promise<Response | null> {
+  const clip = await findClip(env.DB, id);
+  if (!clip) return null;
+
+  const publicBase = (env.PUBLIC_BASE || "https://clips.revu.lol").replace(/\/+$/, "");
+  const watchBase = (env.WATCH_BASE || "https://revu.lol").replace(/\/+$/, "");
+  const videoUrl = `${publicBase}/clip-file/${id}`;
+  const watchUrl = `${watchBase}/clip.html?id=${id}`;
+  const videoType = clip.content_type === "video/webm" ? "video/webm" : "video/mp4";
+
+  const rawTitle = (clip.title || "").trim() || "League clip";
+  const champ = (clip.champion || "").trim();
+  const title = escapeHtml(champ ? `${rawTitle} — ${champ}` : rawTitle);
+  const desc = escapeHtml(
+    champ ? `${champ} clip shared with Revu. Watch in your browser.` : "Watch this League of Legends clip, shared with Revu.",
+  );
+
+  // Default 16:9; only used as a hint for the embed aspect ratio.
+  const w = 1280;
+  const h = 720;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${title} - Revu</title>
+<meta name="description" content="${desc}" />
+
+<meta property="og:site_name" content="Revu" />
+<meta property="og:title" content="${title}" />
+<meta property="og:description" content="${desc}" />
+<meta property="og:type" content="video.other" />
+<meta property="og:url" content="${publicBase}/${id}" />
+<meta property="og:image" content="${watchBase}/og-image.jpg" />
+
+<meta property="og:video" content="${videoUrl}" />
+<meta property="og:video:secure_url" content="${videoUrl}" />
+<meta property="og:video:type" content="${videoType}" />
+<meta property="og:video:width" content="${w}" />
+<meta property="og:video:height" content="${h}" />
+
+<meta name="twitter:card" content="player" />
+<meta name="twitter:title" content="${title}" />
+<meta name="twitter:description" content="${desc}" />
+<meta name="twitter:image" content="${watchBase}/og-image.jpg" />
+<meta name="twitter:player" content="${watchUrl}" />
+<meta name="twitter:player:width" content="${w}" />
+<meta name="twitter:player:height" content="${h}" />
+<meta name="twitter:player:stream" content="${videoUrl}" />
+<meta name="twitter:player:stream:content_type" content="${videoType}" />
+
+<meta http-equiv="refresh" content="0; url=${watchUrl}" />
+<link rel="canonical" href="${watchUrl}" />
+</head>
+<body>
+<p>Loading clip… <a href="${watchUrl}">Watch it here</a>.</p>
+<script>location.replace(${JSON.stringify(watchUrl)});</script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      // Short cache: clip metadata (title/views) can change, and a deleted clip
+      // should stop unfurling reasonably soon.
+      "Cache-Control": "public, max-age=300",
+    },
+  });
+}
+
 /** Generate a slug not already taken. A few tries is overwhelmingly enough. */
 async function uniqueSlug(db: D1Database): Promise<string> {
   for (let attempt = 0; attempt < 6; attempt++) {
