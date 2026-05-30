@@ -342,32 +342,38 @@ public partial class VodPlayerViewModel : ObservableObject
                     : "No live events.";
             });
 
-            // Load derived events for timeline regions
-            var derived = await _derivedEventsRepo.GetInstancesAsync(gameId);
+            // Load derived events for the timeline regions. When the auto-fill
+            // setting is OFF, the user wants a clean timeline with no auto game
+            // events at all — so we skip populating these entirely (leaving only
+            // their own bookmarks/clips on the bar).
             var inferredRegions = TimelineInferenceService.Infer(events);
             var loadedDerivedEvents = new ObservableCollection<DerivedEventRegion>();
-            foreach (var de in derived)
+            if (_configService.AutoTimelineClippingEnabled)
             {
-                loadedDerivedEvents.Add(new DerivedEventRegion
+                var derived = await _derivedEventsRepo.GetInstancesAsync(gameId);
+                foreach (var de in derived)
                 {
-                    StartTimeS = de.StartTimeSeconds,
-                    EndTimeS = de.EndTimeSeconds,
-                    Color = de.Color,
-                    Name = de.DefinitionName,
-                });
-            }
+                    loadedDerivedEvents.Add(new DerivedEventRegion
+                    {
+                        StartTimeS = de.StartTimeSeconds,
+                        EndTimeS = de.EndTimeSeconds,
+                        Color = de.Color,
+                        Name = de.DefinitionName,
+                    });
+                }
 
-            foreach (var inferred in inferredRegions)
-            {
-                loadedDerivedEvents.Add(new DerivedEventRegion
+                foreach (var inferred in inferredRegions)
                 {
-                    StartTimeS = inferred.StartTimeSeconds,
-                    EndTimeS = inferred.EndTimeSeconds,
-                    Color = inferred.Color,
-                    Name = inferred.Name,
-                    Tooltip = inferred.Tooltip,
-                    IsInferred = true,
-                });
+                    loadedDerivedEvents.Add(new DerivedEventRegion
+                    {
+                        StartTimeS = inferred.StartTimeSeconds,
+                        EndTimeS = inferred.EndTimeSeconds,
+                        Color = inferred.Color,
+                        Name = inferred.Name,
+                        Tooltip = inferred.Tooltip,
+                        IsInferred = true,
+                    });
+                }
             }
 
             await DispatcherHelper.RunOnUIThreadAsync(() =>
@@ -381,12 +387,10 @@ public partial class VodPlayerViewModel : ObservableObject
             // Load active objectives for clip attachment
             await LoadObjectiveOptionsAsync();
 
-            // v2.17.8: only auto-fill the Timeline Inbox when the user wants it.
-            // Default is true to preserve existing behavior; the toggle lives in
-            // Settings. When OFF we still render the colored timeline regions
-            // above (DerivedEvents is populated) — we just stop generating
-            // NeedsReview evidence rows. Pre-existing inbox items stay so the
-            // user's prior tagging work isn't lost.
+            // v2.17.8: when the auto-fill setting is ON, generate NeedsReview
+            // evidence rows from the inferred regions. When OFF, we skip this AND
+            // skip the colored timeline regions above, so the timeline shows no
+            // auto game events at all — only the user's own bookmarks/clips.
             if (_configService.AutoTimelineClippingEnabled)
             {
                 await SyncEvidenceCandidatesAsync(inferredRegions);
@@ -1082,8 +1086,16 @@ public partial class VodPlayerViewModel : ObservableObject
 
     private async Task RefreshEvidenceInboxAsync()
     {
+        var autoFill = _configService.AutoTimelineClippingEnabled;
         var rows = (await _evidenceRepo.GetForGameAsync(GameId))
-            .Where(static row => row.SourceKind != EvidenceKinds.Clip)
+            .Where(row => row.SourceKind != EvidenceKinds.Clip)
+            // When auto-fill is OFF, hide the auto-derived (timeline_region)
+            // suggestions that are still untouched (NeedsReview) — that's the
+            // noise the user turned off. Keep any the user actively promoted
+            // (Evidence/Highlight) or wrote themselves so their work survives.
+            .Where(row => autoFill
+                || row.SourceKind != EvidenceKinds.TimelineRegion
+                || row.Status != EvidenceStatuses.NeedsReview)
             .ToArray();
         var loadedEvidence = new ObservableCollection<EvidenceInboxItem>();
         foreach (var row in rows)
