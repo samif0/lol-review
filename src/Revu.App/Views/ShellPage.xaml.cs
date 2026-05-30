@@ -48,13 +48,6 @@ public sealed partial class ShellPage : Page
         // Initialize the navigation service with the frame (no NavigationView needed)
         _navigationService.Initialize(ContentFrame);
 
-        // Coach is alpha — hidden by default, revealed via env var or settings toggle.
-        NavCoach.Visibility = CoachFeatureFlag.IsEnabled()
-            ? Microsoft.UI.Xaml.Visibility.Visible
-            : Microsoft.UI.Xaml.Visibility.Collapsed;
-        CoachFeatureFlag.EnabledChanged += OnCoachEnabledChanged;
-        Unloaded += (_, _) => CoachFeatureFlag.EnabledChanged -= OnCoachEnabledChanged;
-
         // Select dashboard by default
         SetActiveNav(NavDashboard);
         _navigationService.NavigateTo("dashboard");
@@ -156,19 +149,6 @@ public sealed partial class ShellPage : Page
     private void OnSidebarAnimationEnabledChanged()
     {
         _ = DispatcherHelper.RunOnUIThreadAsync(() => UpdateEnergyDrain());
-    }
-
-    private void OnCoachEnabledChanged(bool enabled)
-    {
-        _ = DispatcherHelper.RunOnUIThreadAsync(() =>
-        {
-            NavCoach.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-            if (!enabled && ReferenceEquals(_activeNavButton, NavCoach))
-            {
-                SetActiveNav(NavDashboard);
-                _navigationService.NavigateTo("dashboard");
-            }
-        });
     }
 
     private SidebarEnergyDrainAnimator? _energyDrain;

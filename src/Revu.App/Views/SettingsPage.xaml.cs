@@ -14,28 +14,15 @@ namespace Revu.App.Views;
 public sealed partial class SettingsPage : Page
 {
     public SettingsViewModel ViewModel { get; }
-    public CoachSettingsViewModel CoachViewModel { get; }
 
     public SettingsPage()
     {
         ViewModel = App.GetService<SettingsViewModel>();
-        CoachViewModel = App.GetService<CoachSettingsViewModel>();
         InitializeComponent();
         Loaded += (_, _) =>
         {
             AnimationHelper.AnimatePageEnter(RootGrid);
-            // Initialize the coach-enable toggle from persisted flag.
-            var enabled = CoachFeatureFlag.IsEnabled();
-            CoachEnableToggle.IsOn = enabled;
-            CoachSettingsBody.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         };
-    }
-
-    private void OnCoachEnableToggled(object sender, RoutedEventArgs e)
-    {
-        if (sender is not ToggleSwitch toggle) return;
-        CoachFeatureFlag.SetEnabled(toggle.IsOn);
-        CoachSettingsBody.Visibility = toggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnSettingsNavClick(object sender, RoutedEventArgs e)
@@ -49,7 +36,6 @@ public sealed partial class SettingsPage : Page
             "behavior" => BehaviorSection,
             "appearance" => AppearanceSection,
             "updates" => UpdatesSection,
-            "coach" => CoachSection,
             "account" => AccountSection,
             _ => null
         };
@@ -106,22 +92,6 @@ public sealed partial class SettingsPage : Page
 
     /// <summary>x:Bind helper — logical NOT.</summary>
     public bool Not(bool value) => !value;
-
-    private void OnGoogleAiApiKeyChanged(object sender, RoutedEventArgs e)
-    {
-        if (sender is PasswordBox box)
-        {
-            CoachViewModel.GoogleAiApiKey = box.Password;
-        }
-    }
-
-    private void OnOpenRouterApiKeyChanged(object sender, RoutedEventArgs e)
-    {
-        if (sender is PasswordBox box)
-        {
-            CoachViewModel.OpenRouterApiKey = box.Password;
-        }
-    }
 
     private async void OnScanVodsClick(object sender, RoutedEventArgs e)
     {
