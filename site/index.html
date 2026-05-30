@@ -35,7 +35,7 @@
 <body>
   <nav class="topbar" aria-label="Primary">
     <a class="topbar-wordmark" href="/">Revu</a>
-    <a class="download-chip" id="download-chip" href="/download">
+    <a class="download-chip" id="download-chip" href="/learn">
       <span class="chip-icon" aria-hidden="true">&#x2193;</span>
       <span class="chip-label-text">Get the Desktop App</span>
       <span class="chip-version" id="download-chip-version">Windows</span>
@@ -237,7 +237,7 @@
   <script src="/lightbox.js" defer></script>
   <script>
     // Keep the topbar chip's version label fresh, but leave its href pointing
-    // at /download (the dedicated desktop-app page).
+    // at /learn (the dedicated desktop-app info page).
     (async () => {
       const versionLabel = document.querySelector('#download-chip-version');
       if (!versionLabel) return;

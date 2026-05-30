@@ -380,7 +380,29 @@ main {
 .screenshot-hero img {
   display: block;
   width: 100%;
+  /* Default (portrait capture): crop to a banner anchored at the top so the
+     header + key content show. Full image available in the lightbox. */
+  height: 440px;
+  object-fit: cover;
+  object-position: top center;
+}
+
+/* Wide landscape captures (VOD, post-game) show nearly in full — keep their
+   natural ~16:9 shape instead of the portrait crop, just trimming the very
+   bottom edge so two stacked heroes stay a tidy banner height. */
+.screenshot-hero-wide {
+  margin-bottom: 24px;
+}
+.screenshot-hero-wide img {
   height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  object-position: center;
+}
+
+@media (max-width: 640px) {
+  .screenshot-hero img { height: 300px; }
+  .screenshot-hero-wide img { height: auto; }
 }
 .screenshot-hero figcaption,
 .screenshot-tile figcaption {
@@ -406,14 +428,25 @@ main {
   background: var(--bg-card);
   overflow: hidden;
 }
+/* These are tall full-window captures. Crop each tile to a uniform height
+   anchored at the top (the most informative part: header + first rows) so the
+   grid stays even; the lightbox shows the full untruncated image on click. */
 .screenshot-tile img {
   display: block;
   width: 100%;
-  height: auto;
+  height: 280px;
+  object-fit: cover;
+  object-position: top center;
+}
+/* With 5 tall tiles in a 2-col grid, the last one is alone on its row — let it
+   span the full width so the grid doesn't end on a lonely half-tile. */
+.screenshot-tile:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 640px) {
   .screenshot-grid { grid-template-columns: 1fr; }
+  .screenshot-tile img { height: 240px; }
 }
 
 /* ─── Lightbox ──────────────────────────────────────────────────── */
@@ -1727,6 +1760,17 @@ html {
     padding-left: 0;
     margin-left: 0;
     border-left: 0;
+  }
+
+  /* On the download page the chip is a "back to the web app" link reading
+     "← Review a game / in your browser". Hiding the label there leaves a
+     confusing "← in your browser". Instead keep the action label and drop the
+     qualifier, so it reads "← REVIEW A GAME". */
+  .download-page .download-chip .chip-label-text {
+    display: inline;
+  }
+  .download-page .download-chip .chip-version {
+    display: none;
   }
 
   .player-search {
