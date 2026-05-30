@@ -131,16 +131,25 @@ jobs:
           }
 
       # ───────────────────────── Code signing (Azure Artifact Signing) ─────────────────────────
+      # OIDC login FIRST: azure/login exchanges the GitHub id-token for an Azure
+      # token and exports AZURE_* env vars. The signing action uses
+      # DefaultAzureCredential, which then reads those env vars — so this step is
+      # REQUIRED (passing client/tenant ids to the action directly does NOT
+      # trigger OIDC). allow-no-subscriptions: the signing app only has the
+      # Certificate Profile Signer role, no subscription-level access.
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
       # Stage 1: sign the app's own binaries in publish/ BEFORE vpk packs them,
       # so the .nupkg ships signed code. Velopack later injects its own wrapper
       # exes (Setup.exe / Update.exe) which we sign in stage 2.
-      # Auth is OIDC via the federated credential on the revu-github-signing app
-      # (needs permissions: id-token: write above). No client secret stored.
       - name: Sign published binaries
         uses: azure/trusted-signing-action@v2.0.0
         with:
-          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
           endpoint: https://eus.codesigning.azure.net/
           signing-account-name: revu-signing
           certificate-profile-name: revu-public
@@ -179,8 +188,6 @@ jobs:
       - name: Sign Velopack wrapper exes
         uses: azure/trusted-signing-action@v2.0.0
         with:
-          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
           endpoint: https://eus.codesigning.azure.net/
           signing-account-name: revu-signing
           certificate-profile-name: revu-public
