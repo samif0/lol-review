@@ -45,9 +45,13 @@
       </p>
 
       <div class="pitch-actions">
+        <!-- Static fallback points DIRECTLY at the signed, cleanly-named
+             installer (not the releases *page*, where users grab the ugly
+             LoLReview-win-Setup.exe). download.js rewrites this to the exact
+             latest-release asset URL; this is the no-JS / pre-JS fallback. -->
         <a id="download-btn"
            class="download-btn"
-           href="https://github.com/samif0/lol-review/releases/latest"
+           href="https://github.com/samif0/lol-review/releases/latest/download/Revu-Setup.exe"
            rel="noopener">
           Download for Windows
         </a>
