@@ -411,6 +411,30 @@ public partial class VodPlayerViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// v2.17.14: losslessly remux a VOD that won't render in MediaPlayerElement
+    /// (e.g. an Ascent capture that didn't close cleanly → a duplicate-moov MP4
+    /// Media Foundation shows as a black screen). Returns the repaired file path
+    /// the player should load instead, or null if repair wasn't possible.
+    /// </summary>
+    public async Task<string?> RepairVodForPlaybackAsync(string sourcePath)
+    {
+        try
+        {
+            var fixedPath = await _clipService.RemuxForPlaybackAsync(sourcePath);
+            if (!string.IsNullOrEmpty(fixedPath))
+            {
+                _logger.LogInformation("Repaired VOD for playback: {Src} -> {Dst}", sourcePath, fixedPath);
+            }
+            return fixedPath;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "RepairVodForPlaybackAsync failed for {Path}", sourcePath);
+            return null;
+        }
+    }
+
     // â"€â"€ Playback commands â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [RelayCommand]

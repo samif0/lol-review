@@ -31,6 +31,13 @@ public sealed partial class VodPlayerPage : Page
     private UIElement? _windowRoot;
     private int? _pendingSeekTimeS;
 
+    // v2.17.14: one-shot guard so a VOD that won't render (e.g. an Ascent capture
+    // that didn't close cleanly → duplicate-moov MP4 that Media Foundation shows
+    // as a black screen) is auto-repaired via ffmpeg remux exactly once. Keyed by
+    // the source path so switching games re-arms it. Prevents an infinite
+    // fail→repair→fail loop if the repaired file still won't play.
+    private string? _repairAttemptedForPath;
+
     public VodPlayerViewModel ViewModel { get; }
 
     public VodPlayerPage()
@@ -164,6 +171,16 @@ public sealed partial class VodPlayerPage : Page
         {
             if (_mediaPlayer == null) return;
             var totalS = _mediaPlayer.PlaybackSession.NaturalDuration.TotalSeconds;
+
+            // v2.17.14: the file "opened" but has no decodable video track — the
+            // silent black-screen case (MediaFailed never fires). Detect it via a
+            // missing video dimension and route to the same repair path.
+            if (_mediaPlayer.PlaybackSession.NaturalVideoHeight == 0)
+            {
+                TryRepairAndReload("opened with no video track");
+                return;
+            }
+
             if (totalS > 0)
             {
                 ViewModel.UpdatePosition(0, totalS);
@@ -172,6 +189,11 @@ public sealed partial class VodPlayerPage : Page
         });
         _mediaPlayer.MediaFailed += (s, ev) => DispatcherQueue.TryEnqueue(() =>
         {
+            // v2.17.14: first failure on a given source → try a lossless ffmpeg
+            // remux and reload (fixes Ascent captures MF can't decode). Only if
+            // the repair also fails do we surface the error.
+            if (TryRepairAndReload($"{ev.Error} — {ev.ErrorMessage}")) return;
+
             NoVodText.Text = $"Media error: {ev.Error} — {ev.ErrorMessage}";
             NoVodBorder.Visibility = Visibility.Visible;
         });
@@ -250,6 +272,63 @@ public sealed partial class VodPlayerPage : Page
         }
 
         _ = LoadMediaAsync(ViewModel.VodPath);
+    }
+
+    /// <summary>
+    /// v2.17.14: attempt a one-shot lossless repair of the currently-loaded VOD
+    /// when it won't render (MediaFailed, or opened with no video track). Remuxes
+    /// via the bundled ffmpeg through ClipService, then reloads from the repaired
+    /// file. Returns true if a repair was kicked off (so the caller suppresses
+    /// the error UI); false if there's nothing to repair or we already tried.
+    /// </summary>
+    private bool TryRepairAndReload(string reason)
+    {
+        var sourcePath = ViewModel.VodPath;
+        if (string.IsNullOrEmpty(sourcePath)) return false;
+        // Already tried repairing THIS source — don't loop.
+        if (string.Equals(_repairAttemptedForPath, sourcePath, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        _repairAttemptedForPath = sourcePath;
+        System.Diagnostics.Debug.WriteLine($"VOD playback failed ({reason}); attempting remux repair of {sourcePath}");
+
+        NoVodText.Text = "This recording needs a quick repair — fixing now…";
+        NoVodBorder.Visibility = Visibility.Visible;
+        VideoPlayPauseButton.Visibility = Visibility.Collapsed;
+
+        _ = RepairAndReloadAsync(sourcePath);
+        return true;
+    }
+
+    private async Task RepairAndReloadAsync(string sourcePath)
+    {
+        try
+        {
+            var fixedPath = await ViewModel.RepairVodForPlaybackAsync(sourcePath);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_isDisposed || _mediaPlayer == null) return;
+                if (string.IsNullOrEmpty(fixedPath) || !System.IO.File.Exists(fixedPath))
+                {
+                    NoVodText.Text = "This recording couldn't be repaired for playback. "
+                        + "The clip exporter can still read it.";
+                    NoVodBorder.Visibility = Visibility.Visible;
+                    return;
+                }
+
+                NoVodBorder.Visibility = Visibility.Collapsed;
+                _ = LoadMediaAsync(fixedPath);
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"VOD repair/reload failed for {sourcePath}: {ex.Message}");
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                NoVodText.Text = "This recording couldn't be repaired for playback.";
+                NoVodBorder.Visibility = Visibility.Visible;
+            });
+        }
     }
 
     private async Task LoadMediaAsync(string filePath)

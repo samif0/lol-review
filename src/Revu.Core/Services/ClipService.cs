@@ -203,7 +203,132 @@ public sealed partial class ClipService : IClipService
         });
     }
 
+    /// <inheritdoc />
+    public async Task<string?> RemuxForPlaybackAsync(
+        string vodPath,
+        string? outputPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(vodPath) || !File.Exists(vodPath))
+        {
+            _logger.LogWarning("RemuxForPlayback: source not found: {Path}", vodPath);
+            return null;
+        }
+
+        var ffmpeg = await FindFfmpegAsync().ConfigureAwait(false);
+        if (ffmpeg is null)
+        {
+            _logger.LogError("RemuxForPlayback: ffmpeg not found -- cannot repair {Path}", vodPath);
+            return null;
+        }
+
+        // Default to a sibling "<name>.revufix.mp4". Container is forced to mp4
+        // regardless of the source extension so the output is always MF-friendly.
+        outputPath ??= Path.Combine(
+            Path.GetDirectoryName(vodPath)!,
+            Path.GetFileNameWithoutExtension(vodPath) + ".revufix.mp4");
+
+        // Reuse an existing good repair so we don't remux the same VOD twice.
+        if (File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+        {
+            _logger.LogInformation("RemuxForPlayback: reusing existing repair {Path}", outputPath);
+            return outputPath;
+        }
+
+        // -map 0 keeps every stream (video + both audio tracks Ascent records);
+        // -c copy is lossless + fast (no re-encode); +faststart moves the moov to
+        // the front and rewrites a single clean index, which is what fixes the
+        // black-screen-in-Media-Foundation case.
+        string[] args =
+        [
+            "-y",
+            "-err_detect", "ignore_err",
+            "-i", vodPath,
+            "-map", "0",
+            "-c", "copy",
+            "-movflags", "+faststart",
+            outputPath,
+        ];
+
+        // Generous timeout: a lossless remux of a ~2 GB / 45-min capture is I/O
+        // bound but can still take a couple minutes on a slow disk.
+        var ok = await RunFfmpegAsync(ffmpeg, args, timeoutS: 300, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (ok && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+        {
+            _logger.LogInformation("RemuxForPlayback: repaired {Src} -> {Dst}", vodPath, outputPath);
+            return outputPath;
+        }
+
+        _logger.LogError("RemuxForPlayback: ffmpeg remux failed for {Path}", vodPath);
+        TryDeleteFile(outputPath);
+        return null;
+    }
+
     // ── Private helpers ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Run ffmpeg with the given args at below-normal priority, draining stdio to
+    /// avoid pipe deadlock. Returns true on exit code 0 within the timeout.
+    /// </summary>
+    private async Task<bool> RunFfmpegAsync(
+        string ffmpeg,
+        string[] args,
+        int timeoutS,
+        CancellationToken cancellationToken)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+
+        _logger.LogInformation("ffmpeg cmd: {Exe} {Args}", ffmpeg, string.Join(" ", args));
+
+        try
+        {
+            using var process = new Process { StartInfo = psi };
+            process.Start();
+            try { process.PriorityClass = ProcessPriorityClass.BelowNormal; }
+            catch { /* ignore if we can't set priority */ }
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(timeoutS));
+            try
+            {
+                await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                _logger.LogError("ffmpeg timed out / cancelled after {Timeout}s", timeoutS);
+                return false;
+            }
+
+            var stderr = await stderrTask.ConfigureAwait(false);
+            if (process.ExitCode != 0)
+            {
+                var stderrTail = stderr.Length > 500 ? stderr[^500..] : stderr;
+                _logger.LogError("ffmpeg failed (rc={Code}): {Stderr}", process.ExitCode, stderrTail);
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "ffmpeg run failed");
+            return false;
+        }
+    }
 
     private async Task<string?> RunFfmpegClipAsync(
         string ffmpeg,

@@ -33,4 +33,23 @@ public interface IClipService
     /// Delete oldest clips until the folder is under the specified max size.
     /// </summary>
     Task EnforceFolderSizeLimitAsync(string folder, long maxSizeBytes);
+
+    /// <summary>
+    /// Losslessly remux a VOD into a clean, Media-Foundation-friendly MP4 so it
+    /// plays in MediaPlayerElement. Some recordings (e.g. an Ascent capture that
+    /// didn't close cleanly) finalize with a layout — duplicate moov atoms, no
+    /// faststart index — that ffmpeg reads fine but Windows Media Foundation
+    /// renders as a black screen. Stream-copies every track (<c>-c copy -map 0</c>)
+    /// with <c>+faststart</c>, so it's fast and quality-lossless.
+    /// </summary>
+    /// <param name="vodPath">Source video that failed to play.</param>
+    /// <param name="outputPath">
+    /// Destination for the repaired file. If null, a sibling
+    /// <c>&lt;name&gt;.revufix.mp4</c> next to the source is used.
+    /// </param>
+    /// <returns>The repaired file path, or null if repair failed.</returns>
+    Task<string?> RemuxForPlaybackAsync(
+        string vodPath,
+        string? outputPath = null,
+        CancellationToken cancellationToken = default);
 }
