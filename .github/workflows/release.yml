@@ -144,9 +144,11 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      # Stage 1: sign the app's own binaries in publish/ BEFORE vpk packs them,
-      # so the .nupkg ships signed code. Velopack later injects its own wrapper
-      # exes (Setup.exe / Update.exe) which we sign in stage 2.
+      # Stage 1: sign the app's OWN exe in publish/ BEFORE vpk packs it. We sign
+      # only .exe (not the ~200 bundled runtime/dependency DLLs) — that's what
+      # SmartScreen judges for the "unknown publisher" warning, and signing 200
+      # DLLs one-at-a-time over the network took minutes and blew the timeout.
+      # (If Vanguard ever quarantines auto-updates, revisit signing dll too.)
       - name: Sign published binaries
         uses: azure/trusted-signing-action@v2.0.0
         with:
@@ -154,13 +156,11 @@ jobs:
           signing-account-name: revu-signing
           certificate-profile-name: revu-public
           files-folder: ${{ github.workspace }}\publish
-          files-folder-filter: exe,dll
+          files-folder-filter: exe
           files-folder-recurse: true
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
-          # Self-contained .NET app = 100+ binaries at ~1.7s each, well over the
-          # 300s default. Allow 15 min so the whole publish/ folder gets signed.
           timeout: 900
 
       - name: Install vpk CLI
