@@ -4,7 +4,6 @@
 
 [![Download latest release](https://img.shields.io/github/v/release/samif0/lol-review?label=Download&style=for-the-badge)](https://github.com/samif0/lol-review/releases/latest)
 
-![Revu screenshot — VOD review with bookmarks and objective tags](site/screenshot-review.jpg)
 
 ## What it actually does
 
@@ -13,13 +12,13 @@ and *what to work on next*. It detects champ select, prompts you for a
 pre-game intention, captures post-game stats, and walks you through a
 structured review — mistakes, what went well, focus for next game.
 Objectives are journaled across the games where you practiced them.
-Optional VOD recording (via [Ascent](https://ascent.gg)) auto-links so
+Optional VOD recording (via [Ascent](https://tryascent.gg)) auto-links so
 review notes are timestamped.
 
 ## Why this isn't op.gg
 
 - **It's a coach, not a scoreboard.** The post-game flow forces a
-  2-minute reflection — tilt-check, attribution, what's within your
+  2-minute reflection: tilt-check, attribution, what's within your
   control. Not a stat dashboard.
 - **Your data is yours.** SQLite at `%LOCALAPPDATA%`, no cloud sync,
   no telemetry. Riot ID + region only go through our Cloudflare Worker
