@@ -113,7 +113,7 @@ public sealed class ConfigService : IConfigService
             var persistable = PersistSecretsAndCreateSanitizedConfig(config);
             Directory.CreateDirectory(_configDir);
             var json = JsonSerializer.Serialize(persistable, JsonOptions);
-            await File.WriteAllTextAsync(_configFile, json).ConfigureAwait(false);
+            await WriteFileAtomicAsync(_configFile, json).ConfigureAwait(false);
             _cached = HydrateSecrets(persistable);
         }
         finally
@@ -175,7 +175,7 @@ public sealed class ConfigService : IConfigService
                 {
                     Directory.CreateDirectory(_configDir);
                     var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
-                    await File.WriteAllTextAsync(_configFile, sanitizedJson).ConfigureAwait(false);
+                    await WriteFileAtomicAsync(_configFile, sanitizedJson).ConfigureAwait(false);
                 }
 
                 return HydrateSecrets(sanitized);
@@ -184,6 +184,7 @@ public sealed class ConfigService : IConfigService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not read config from {Path}", _configFile);
+            BackupCorruptConfig();
         }
         return HydrateSecrets(new AppConfig());
     }
@@ -206,7 +207,7 @@ public sealed class ConfigService : IConfigService
                 {
                     Directory.CreateDirectory(_configDir);
                     var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
-                    File.WriteAllText(_configFile, sanitizedJson);
+                    WriteFileAtomic(_configFile, sanitizedJson);
                 }
 
                 return HydrateSecrets(sanitized);
@@ -215,8 +216,75 @@ public sealed class ConfigService : IConfigService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not read config from {Path}", _configFile);
+            BackupCorruptConfig();
         }
         return HydrateSecrets(new AppConfig());
+    }
+
+    // ── Atomic write + corruption recovery ──────────────────────────
+    //
+    // config.json must never be left truncated/partial: a crash or full disk
+    // mid-write would otherwise zero the file, and the next load would silently
+    // reset every setting to defaults. Write to a sibling temp file, flush, then
+    // atomically replace the real file via File.Move(overwrite). Both files live
+    // in the same directory so the rename stays on one volume (atomic on NTFS).
+
+    private static async Task WriteFileAtomicAsync(string path, string contents)
+    {
+        var tmp = path + ".tmp";
+        try
+        {
+            await File.WriteAllTextAsync(tmp, contents).ConfigureAwait(false);
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteTemp(tmp);
+            throw;
+        }
+    }
+
+    private static void WriteFileAtomic(string path, string contents)
+    {
+        var tmp = path + ".tmp";
+        try
+        {
+            File.WriteAllText(tmp, contents);
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteTemp(tmp);
+            throw;
+        }
+    }
+
+    private static void TryDeleteTemp(string tmp)
+    {
+        try { if (File.Exists(tmp)) File.Delete(tmp); }
+        catch { /* best effort — a stray .tmp is harmless */ }
+    }
+
+    /// <summary>
+    /// Preserve an unreadable/corrupt config.json so a parse failure doesn't
+    /// silently discard the user's settings. Best-effort: a missing or
+    /// already-gone file is fine, and any IO error here must not block the
+    /// fall-back-to-defaults load path.
+    /// </summary>
+    private void BackupCorruptConfig()
+    {
+        try
+        {
+            if (!File.Exists(_configFile)) return;
+            var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var dest = $"{_configFile}.corrupt-{stamp}";
+            File.Copy(_configFile, dest, overwrite: true);
+            _logger.LogWarning("Backed up unreadable config to {Path}", dest);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not back up corrupt config from {Path}", _configFile);
+        }
     }
 
     private void TryCopyLegacyConfig()
