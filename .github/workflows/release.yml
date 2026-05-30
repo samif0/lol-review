@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write   # OIDC token for Azure Artifact Signing (azure/login)
 
 jobs:
   test:
@@ -129,6 +130,27 @@ jobs:
             exit 1
           }
 
+      # ───────────────────────── Code signing (Azure Artifact Signing) ─────────────────────────
+      # Stage 1: sign the app's own binaries in publish/ BEFORE vpk packs them,
+      # so the .nupkg ships signed code. Velopack later injects its own wrapper
+      # exes (Setup.exe / Update.exe) which we sign in stage 2.
+      # Auth is OIDC via the federated credential on the revu-github-signing app
+      # (needs permissions: id-token: write above). No client secret stored.
+      - name: Sign published binaries
+        uses: azure/trusted-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: revu-signing
+          certificate-profile-name: revu-public
+          files-folder: ${{ github.workspace }}\publish
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
       - name: Install vpk CLI
         run: dotnet tool install -g vpk
 
@@ -149,6 +171,24 @@ jobs:
             --packDir publish `
             --mainExe LoLReview.App.exe `
             --outputDir Releases
+
+      # Stage 2: sign the wrapper exes Velopack injected into Releases/
+      # (Setup.exe + Update.exe). These are NOT in publish/, so stage 1 missed
+      # them. Signing must happen BEFORE upload (and before the Revu-Setup.exe
+      # copy below, so that copy inherits the signature).
+      - name: Sign Velopack wrapper exes
+        uses: azure/trusted-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: revu-signing
+          certificate-profile-name: revu-public
+          files-folder: ${{ github.workspace }}\Releases
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Upload Velopack release to GitHub
         shell: pwsh
