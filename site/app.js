@@ -218,7 +218,7 @@
       matchCache = next;
     }
     try { localStorage.setItem(MATCH_CACHE_KEY, JSON.stringify(matchCache)); }
-    catch {} // Quota exceeded — silently keep in-memory
+    catch {} // Quota exceeded; silently keep in-memory
   }
 
   function loadRecent() {
@@ -250,7 +250,7 @@
       chip.className = 'chip';
       chip.dataset.recent = entry.riotId;
       chip.dataset.region = entry.region;
-      chip.textContent = `${entry.riotId} · ${entry.region.toUpperCase()}`;
+      chip.textContent = `${entry.riotId} / ${entry.region.toUpperCase()}`;
       el.recentChips.append(chip);
     }
   }
@@ -599,7 +599,7 @@
   }
 
   async function lookupAccount() {
-    setSearchStatus('Looking up Riot ID…', 'inflight');
+    setSearchStatus('Looking up Riot ID...', 'inflight');
     const submit = el.playerForm.querySelector('button[type=submit]');
     if (submit) submit.disabled = true;
     try {
@@ -642,7 +642,7 @@
     if (loadInflight) return;
     if (!state.puuid) return;
     loadInflight = true;
-    setMatchesProgress('Fetching match list…');
+    setMatchesProgress('Fetching match list...');
     try {
       const queueId = QUEUE_FILTERS[currentFilter];
       const res = await proxyFetch('/web/matches', {
@@ -667,7 +667,7 @@
 
       let done = loadedMatches.length;
       const total = ids.length;
-      setMatchesProgress(`Loading ${done} of ${total}…`);
+      setMatchesProgress(`Loading ${done} of ${total}...`);
 
       for (const id of ids) {
         if (matchCache[id]) continue;
@@ -681,7 +681,7 @@
           renderMatches();
         }
         done += 1;
-        setMatchesProgress(`Loading ${done} of ${total}…`);
+        setMatchesProgress(`Loading ${done} of ${total}...`);
       }
 
       setMatchesProgress(`${loadedMatches.length} games`);
@@ -1006,7 +1006,7 @@
 
   function updateSpeedLabel() {
     const rate = el.video.playbackRate;
-    el.vodSpeedLabel.innerHTML = `${rate.toFixed(rate % 1 === 0 ? 1 : 2)}×`;
+    el.vodSpeedLabel.textContent = `${rate.toFixed(rate % 1 === 0 ? 1 : 2)}x`;
   }
 
   function toggleMute() {
@@ -1024,15 +1024,17 @@
   function updateVodProgress() {
     if (!el.video.duration) return;
     const pct = (el.video.currentTime / el.video.duration) * 100;
-    el.vodFill.style.width = `${pct}%`;
-    el.vodThumb.style.left = `${pct}%`;
+    el.vodFill.style.width = `calc((100% - 20px) * ${pct / 100})`;
+    el.vodThumb.style.left = `calc(10px + (100% - 20px) * ${pct / 100})`;
     el.vodCurrent.textContent = formatTime(el.video.currentTime);
   }
 
   function onScrubClick(event) {
     if (!el.video.duration) return;
     const rect = el.vodTrack.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const railLeft = rect.left + 10;
+    const railWidth = Math.max(1, rect.width - 20);
+    const pct = Math.max(0, Math.min(1, (event.clientX - railLeft) / railWidth));
     el.video.currentTime = el.video.duration * pct;
   }
 

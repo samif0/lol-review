@@ -12,7 +12,12 @@ export interface Env {
   MAGIC_LINK_FROM: string;
   APP_NAME: string;
   ALLOWED_ORIGINS?: string;
+  // Base used to build returned clip links (e.g. https://clips.revu.lol).
+  PUBLIC_BASE?: string;
+  // Base of the static site that serves clip.html (e.g. https://revu.lol).
+  WATCH_BASE?: string;
 
   // Bindings
   DB: D1Database;
+  CLIPS: R2Bucket;
 }

@@ -13,6 +13,8 @@
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+        <converters:InverseBoolConverter x:Key="InverseBool"/>
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
 
         <Style x:Key="VodInputTextBoxStyle" TargetType="TextBox">
             <Setter Property="Background" Value="{StaticResource InputBackgroundBrush}"/>
@@ -507,6 +509,69 @@
                                        Text="ffmpeg not found — install ffmpeg for clip saves."
                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" TextWrapping="Wrap" Visibility="Collapsed"
                                        Foreground="{StaticResource LossRedBrush}"/>
+
+                            <!-- Inline login-to-share prompt. Appears when the user clicks
+                                 Share on a clip while logged out; reuses the magic-link
+                                 email->OTP flow, then uploads the pending clip. -->
+                            <StackPanel x:Name="ShareLoginPanel"
+                                        Spacing="6" Margin="0,4,0,0"
+                                        Visibility="{x:Bind ViewModel.ShareLoginVisible, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="LOG IN TO SHARE"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.ShareStatusText, Mode=OneWay}"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           TextWrapping="Wrap"/>
+
+                                <!-- Step 1: email -->
+                                <StackPanel Spacing="6"
+                                            Visibility="{x:Bind ViewModel.ShareAwaitingOtp, Mode=OneWay, Converter={StaticResource InverseBoolToVisibility}}">
+                                    <TextBox Style="{StaticResource VodInputTextBoxStyle}"
+                                             PlaceholderText="you@email.com"
+                                             Text="{x:Bind ViewModel.ShareEmail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Command="{x:Bind ViewModel.SendShareOtpCommand}"
+                                                IsEnabled="{x:Bind ViewModel.ShareBusy, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                                Style="{StaticResource GoldActionButtonStyle}"
+                                                Height="30" Padding="12,0"
+                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
+                                            <TextBlock Text="Send code"/>
+                                        </Button>
+                                        <Button Command="{x:Bind ViewModel.CancelShareLoginCommand}"
+                                                Style="{StaticResource QuietActionButtonStyle}"
+                                                Height="30" Padding="12,0"
+                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
+                                            <TextBlock Text="Cancel"/>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Step 2: OTP -->
+                                <StackPanel Spacing="6"
+                                            Visibility="{x:Bind ViewModel.ShareAwaitingOtp, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBox Style="{StaticResource VodInputTextBoxStyle}"
+                                             PlaceholderText="Paste code"
+                                             Text="{x:Bind ViewModel.ShareOtp, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Command="{x:Bind ViewModel.VerifyShareOtpCommand}"
+                                                IsEnabled="{x:Bind ViewModel.ShareBusy, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                                Style="{StaticResource GoldActionButtonStyle}"
+                                                Height="30" Padding="12,0"
+                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
+                                            <TextBlock Text="Verify &amp; share"/>
+                                        </Button>
+                                        <Button Command="{x:Bind ViewModel.CancelShareLoginCommand}"
+                                                Style="{StaticResource QuietActionButtonStyle}"
+                                                Height="30" Padding="12,0"
+                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
+                                            <TextBlock Text="Cancel"/>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
                         </StackPanel>
                     </controls:CornerBracketedCard>
 
@@ -856,6 +921,17 @@
                                                                 Width="56" Height="30" Padding="0"
                                                                 ToolTipService.ToolTip="Jump to this time or play the saved clip">
                                                             <TextBlock Text="{x:Bind JumpActionLabel}" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
+                                                        </Button>
+                                                        <!-- Share a clip publicly (revu.lol/<id>). Only for playable
+                                                             clips; label reflects share/uploading state. -->
+                                                        <Button Click="OnBookmarkShareClick"
+                                                                Tag="{x:Bind}"
+                                                                IsEnabled="{x:Bind IsSharing, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                                                Visibility="{x:Bind HasPlayableClip, Converter={StaticResource BoolToVisibility}}"
+                                                                Style="{StaticResource GhostIconButtonStyle}"
+                                                                Width="56" Height="30" Padding="0"
+                                                                ToolTipService.ToolTip="Upload this clip and copy a public link">
+                                                            <TextBlock Text="{x:Bind ShareActionLabel, Mode=OneWay}" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
                                                         </Button>
                                                         <Button CommandParameter="{x:Bind Id}"
                                                                 Click="OnDeleteBookmark"

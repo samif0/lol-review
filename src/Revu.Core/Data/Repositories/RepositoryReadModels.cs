@@ -79,7 +79,10 @@ public sealed record VodBookmarkRecord(
     // v2.15.7: optional prompt tag. When set, post-game routes this clip's
     // [MM:SS] note into the prompt's answer field instead of (or in addition
     // to) the parent objective's General Notes.
-    long? PromptId = null);
+    long? PromptId = null,
+    // Public share link (revu.lol/<id>) once the clip has been uploaded. Empty
+    // until shared. Late-added column; tolerated as missing on older DBs.
+    string ShareUrl = "");
 
 public sealed record RuleRecord(
     long Id,

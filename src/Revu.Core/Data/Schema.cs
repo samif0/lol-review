@@ -778,6 +778,12 @@ public static class Schema
         "ALTER TABLE vod_bookmarks ADD COLUMN prompt_id INTEGER",
     ];
 
+    /// <summary>Public-share link for a clip bookmark (revu.lol/&lt;id&gt;). Empty until shared.</summary>
+    public static readonly string[] MigrateBookmarksShareUrl =
+    [
+        "ALTER TABLE vod_bookmarks ADD COLUMN share_url TEXT DEFAULT ''",
+    ];
+
     /// <summary>
     /// v2.16: full 10-participant champion map per game, stored as JSON keyed
     /// by team-position so role-aware matchup display can show pairings like
@@ -865,6 +871,7 @@ public static class Schema
         .. MigrateGamesHidden,
         .. MigrateBookmarksObjective,
         .. MigrateBookmarksPromptId,
+        .. MigrateBookmarksShareUrl,
         .. MigrateTiltChecksGameAndPlan,
         .. MigrateGamesParticipantMap,
         .. MigrateSessionLogIsSkipped,
@@ -880,6 +887,7 @@ public static class Schema
         // applied instead of falling through to the destructive
         // normalize-rebuild path (which fails on FK dependents).
         new(2, "objectives-mini-target", MigrateObjectivesMiniTarget),
+        new(3, "bookmarks-share-url", MigrateBookmarksShareUrl),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

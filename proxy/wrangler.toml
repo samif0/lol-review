@@ -30,7 +30,26 @@ MAGIC_LINK_FROM = "login@revu.lol"
 # Worker itself at /auth/claim — shows the one-time code to paste in the desktop app.
 APP_NAME = "Revu"
 
+# Origin used to BUILD shareable clip links. Clips are served on a dedicated
+# subdomain so they never interfere with the main Pages site. No trailing slash.
+PUBLIC_BASE = "https://clips.revu.lol"
+# Origin of the static site that serves clip.html (the watch page). The Worker
+# redirects clips.revu.lol/<id> here. No trailing slash.
+WATCH_BASE = "https://revu.lol"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "revu-db"
 database_id = "cfdaaa55-8443-480f-96e5-04eb3eb8c6ff"
+
+# Object storage for shared clip video files. Requires R2 to be enabled on the
+# Cloudflare account (Dashboard → R2 → enable), then:
+#   wrangler r2 bucket create revu-clips
+# Local `wrangler dev` simulates this bucket on disk without R2 being enabled.
+[[r2_buckets]]
+binding = "CLIPS"
+bucket_name = "revu-clips"
+
+# Daily cleanup of expired clips (30-day retention). Purges R2 objects + D1 rows.
+[triggers]
+crons = ["0 4 * * *"]

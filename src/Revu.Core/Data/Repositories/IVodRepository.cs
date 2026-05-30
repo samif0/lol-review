@@ -45,6 +45,9 @@ public interface IVodRepository
     /// </summary>
     Task SetBookmarkTagAsync(long bookmarkId, long? objectiveId, long? promptId);
 
+    /// <summary>Persist the public share URL (revu.lol/&lt;id&gt;) for a clip bookmark.</summary>
+    Task SetBookmarkShareUrlAsync(long bookmarkId, string shareUrl);
+
     Task DeleteBookmarkAsync(long bookmarkId);
 
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId);

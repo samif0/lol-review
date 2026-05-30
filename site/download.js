@@ -13,13 +13,19 @@
     if (!res.ok) return;
 
     const data = await res.json();
-    const asset = (data.assets || []).find((a) => /setup\.exe$/i.test(a.name));
+    const assets = data.assets || [];
+    // Prefer the cleanly-named installer (Revu-Setup.exe). Fall back to the
+    // Velopack default (LoLReview-win-Setup.exe) for older releases that
+    // predate the renamed copy.
+    const asset =
+      assets.find((a) => /^revu.*setup\.exe$/i.test(a.name)) ||
+      assets.find((a) => /setup\.exe$/i.test(a.name));
 
     if (asset) {
       btn.href = asset.browser_download_url;
       if (sizeLabel && typeof asset.size === 'number') {
         const mb = Math.round(asset.size / (1024 * 1024));
-        sizeLabel.textContent = ` · ~${mb} MB`;
+        sizeLabel.textContent = ` / ~${mb} MB`;
       }
     }
     if (data.tag_name) {

@@ -489,6 +489,14 @@ public sealed partial class VodPlayerPage : Page
         FocusPlaybackSurface();
     }
 
+    private void OnBookmarkShareClick(object sender, RoutedEventArgs e)
+    {
+        if (ResolveBookmarkItem(sender) is { } bookmark)
+        {
+            ViewModel.ShareClipCommand.Execute(bookmark);
+        }
+    }
+
     private async void OnBookmarkQualityClick(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement element)

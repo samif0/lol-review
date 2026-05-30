@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <title>Revu: ranked League, reviewed</title>
-  <meta name="description" content="Review a League match in your browser. Riot ID, no install. Or download the desktop app for auto-capture and habit tracking." />
+  <meta name="description" content="Review a League match in your browser. Riot ID, no install. Or download the desktop app to auto-capture and review every ranked game — local-first, no telemetry." />
 
   <meta property="og:title" content="Revu: ranked League, reviewed" />
-  <meta property="og:description" content="Review a ranked League match in your browser, or get the desktop app for auto-capture and habit tracking." />
+  <meta property="og:description" content="Review a ranked League match in your browser, or get the desktop app to auto-capture and review every ranked game. Local-first, no telemetry." />
   <meta property="og:image" content="https://revu-lol.app/og-image.jpg" />
   <meta property="og:url" content="https://revu-lol.app/" />
   <meta property="og:type" content="website" />
@@ -35,9 +35,7 @@
 <body>
   <nav class="topbar" aria-label="Primary">
     <a class="topbar-wordmark" href="/">Revu</a>
-    <a class="download-chip" id="download-chip"
-       href="https://github.com/samif0/lol-review/releases/latest"
-       rel="noopener">
+    <a class="download-chip" id="download-chip" href="/download">
       <span class="chip-icon" aria-hidden="true">&#x2193;</span>
       <span class="chip-label-text">Get the Desktop App</span>
       <span class="chip-version" id="download-chip-version">Windows</span>
@@ -51,8 +49,8 @@
         <span class="bracket bracket-tr"></span>
         <span class="bracket bracket-bl"></span>
         <span class="bracket bracket-br"></span>
-        <h1>Run It Back.</h1>
-        <p class="sublead">Find a game</p>
+        <h1>Find a game</h1>
+        <p class="sublead">Review a ranked match</p>
 
         <form class="player-search" id="player-form">
           <label>
@@ -83,10 +81,6 @@
         <p class="status-line" id="search-status">Type a Riot ID to pull your recent ranked games.</p>
       </div>
 
-      <button class="scroll-hint" id="scroll-hint" type="button" aria-label="See the desktop app">
-        <span class="scroll-hint-label">The Desktop App</span>
-        <span class="scroll-hint-chevron" aria-hidden="true">&#x2304;</span>
-      </button>
     </section>
 
     <section class="match-screen" id="match-screen" aria-label="Select match" hidden>
@@ -153,7 +147,7 @@
             </div>
             <span class="vod-time" id="vod-duration">00:00</span>
             <button class="vod-btn vod-speed" id="vod-speed" type="button" aria-label="Playback speed ([/])">
-              <span id="vod-speed-label">1.0&times;</span>
+              <span id="vod-speed-label">1.0x</span>
             </button>
             <button class="vod-btn" id="vod-mute" type="button" aria-label="Mute (M)">
               <span class="vod-icon" id="vod-mute-icon">&#x1F50A;</span>
@@ -215,62 +209,6 @@
       </div>
     </section>
 
-    <section class="desktop-pitch" aria-label="About the desktop app">
-      <p class="eyebrow">Desktop App</p>
-      <h2 class="pitch-h">Every game, tracked.</h2>
-      <p class="pitch-lead">
-        The browser tool reviews one game. The desktop app reviews
-        every game. It auto-captures matches, keeps a session log,
-        and tracks the habits you're building across patches and
-        splits.
-      </p>
-
-      <div class="pitch-actions">
-        <a id="download-btn"
-           class="download-btn"
-           href="https://github.com/samif0/lol-review/releases/latest"
-           rel="noopener">
-          Download for Windows
-        </a>
-        <a class="download-btn secondary-btn"
-           href="/discord">
-          Join Discord
-        </a>
-      </div>
-      <span class="download-meta">
-        <span id="download-version">latest</span> · Windows 10/11<span id="download-size"></span>
-      </span>
-
-      <figure class="screenshot-hero">
-        <img src="/screenshot-vod.jpg"
-             alt="Revu VOD review view: a paused League of Legends match with side panels for bookmarks, clips, and saved notes"
-             width="1400" height="758" loading="lazy" />
-        <figcaption>VOD Review // Bookmark and clip moments as you rewatch</figcaption>
-      </figure>
-
-      <ul class="features">
-        <li>Auto-captures every ranked match. No manual entry</li>
-        <li>Auto-imports VODs from Ascent</li>
-        <li>Track objectives and rules across sessions and seasons</li>
-        <li>Local-first. Your games stay on your machine</li>
-      </ul>
-
-      <div class="screenshot-grid">
-        <figure class="screenshot-tile">
-          <img src="/screenshot-session.jpg"
-               alt="Revu Session Log showing seven reviewed games with win/loss markers and mental ratings"
-               width="1004" height="1069" loading="lazy" />
-          <figcaption>Session Log // Every game, reviewed</figcaption>
-        </figure>
-        <figure class="screenshot-tile">
-          <img src="/screenshot-review.jpg"
-               alt="Revu post-game review for Seraphine showing KDA, CS, gold stats and objective practice checklist"
-               width="1008" height="1071" loading="lazy" />
-          <figcaption>Post-Game // Stats + objective practice</figcaption>
-        </figure>
-      </div>
-    </section>
-
     <p class="riot-disclaimer">
       Revu isn't endorsed by Riot Games and doesn't reflect the views
       or opinions of anyone officially involved in producing or managing
@@ -290,30 +228,19 @@
   <div id="turnstile-container" aria-hidden="true"></div>
 
   <div id="lightbox" class="lightbox" aria-hidden="true" role="dialog" aria-label="Screenshot viewer">
-    <button class="lightbox-close" type="button" aria-label="Close screenshot">&times;</button>
+    <button class="lightbox-close" type="button" aria-label="Close screenshot">X</button>
     <img class="lightbox-img" alt="" />
     <span class="lightbox-caption"></span>
   </div>
 
   <script src="/app.js" defer></script>
-  <script src="/download.js" defer></script>
   <script src="/lightbox.js" defer></script>
   <script>
-    (() => {
-      const hint = document.querySelector('#scroll-hint');
-      const target = document.querySelector('.desktop-pitch');
-      if (!hint || !target) return;
-      hint.addEventListener('click', () => {
-        const top = target.getBoundingClientRect().top + window.scrollY - 24;
-        window.scrollTo({ top, behavior: 'smooth' });
-      });
-    })();
-  </script>
-  <script>
+    // Keep the topbar chip's version label fresh, but leave its href pointing
+    // at /download (the dedicated desktop-app page).
     (async () => {
-      const chip = document.querySelector('#download-chip');
       const versionLabel = document.querySelector('#download-chip-version');
-      if (!chip) return;
+      if (!versionLabel) return;
       try {
         const res = await fetch(
           'https://api.github.com/repos/samif0/lol-review/releases/latest',
@@ -321,11 +248,7 @@
         );
         if (!res.ok) return;
         const data = await res.json();
-        const asset = (data.assets || []).find((a) => /setup\.exe$/i.test(a.name));
-        if (asset) chip.href = asset.browser_download_url;
-        if (versionLabel && data.tag_name) {
-          versionLabel.textContent = `${data.tag_name} · Windows`;
-        }
+        if (data.tag_name) versionLabel.textContent = `${data.tag_name} / Windows`;
       } catch {}
     })();
   </script>

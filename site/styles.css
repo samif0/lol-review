@@ -1,12 +1,12 @@
 /*
- * revu.lol — landing site styles
+ * revu.lol - landing site styles
  *
  * Palette + fonts mirror the in-app HUD defined in
  * src/Revu.App/Themes/AppTheme.xaml so users see the same visual
  * language before they install.
  *
  * Webfonts (Orbitron, Rajdhani, Share Tech Mono, Exo 2) are self-hosted
- * under /fonts/ and all licensed SIL OFL — redistributable.
+ * under /fonts/ and all licensed SIL OFL - redistributable.
  */
 
 @font-face {
@@ -142,30 +142,16 @@ html, body {
 }
 
 body {
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(167, 139, 250, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 50% 100%, rgba(201, 149, 106, 0.05) 0%, transparent 50%),
-    var(--bg-canvas);
+  background: var(--bg-canvas);
   background-attachment: fixed;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-/* subtle scanline texture on the shell — same trick as the app */
+/* Subtle scanline texture on the shell. Disabled for a quieter app-like site. */
 body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 2px,
-    rgba(255, 255, 255, 0.012) 2px,
-    rgba(255, 255, 255, 0.012) 3px
-  );
-  z-index: 1;
+  display: none;
 }
 
 main {
@@ -194,7 +180,7 @@ main {
   backdrop-filter: blur(8px);
 }
 
-/* corner brackets — echoes CornerBracketedCard in WinUI */
+/* Corner brackets echo CornerBracketedCard in WinUI. */
 .hero::before,
 .hero::after,
 .hero-bl::before,
@@ -750,7 +736,10 @@ footer a:hover {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 24px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(12, 11, 18, 0.92);
+  backdrop-filter: blur(12px);
   pointer-events: none;
 }
 
@@ -772,27 +761,28 @@ footer a:hover {
   align-items: center;
   gap: 10px;
   padding: 8px 14px;
-  border: 1px solid rgba(167, 139, 250, 0.42);
-  background: rgba(167, 139, 250, 0.06);
-  color: var(--accent-violet);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--fg-secondary);
   text-decoration: none;
   font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   transition: border-color 150ms ease-out, background 150ms ease-out, box-shadow 150ms ease-out;
 }
 
 .download-chip:hover {
-  border-color: var(--accent-violet);
-  background: rgba(167, 139, 250, 0.14);
-  box-shadow: 0 0 14px rgba(167, 139, 250, 0.32);
+  border-color: var(--border-bright);
+  background: var(--bg-card);
+  color: var(--fg-primary);
+  box-shadow: none;
 }
 
 .download-chip .chip-icon {
   font-family: var(--font-mono);
   font-size: 14px;
-  color: var(--accent-violet);
+  color: var(--accent-gold);
   line-height: 1;
 }
 
@@ -809,15 +799,16 @@ footer a:hover {
 
 .hud-card {
   position: relative;
-  border: 1px solid rgba(167, 139, 250, 0.24);
-  background: linear-gradient(180deg, rgba(23, 21, 34, 0.96), rgba(12, 11, 18, 0.96));
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  background: var(--bg-card);
 }
 
 .bracket {
   position: absolute;
   width: 16px;
   height: 16px;
-  border-color: var(--accent-violet);
+  border-color: var(--border-bright);
   border-style: solid;
   border-width: 0;
   pointer-events: none;
@@ -863,53 +854,14 @@ footer a:hover {
 
 .search-screen {
   position: relative;
-  min-height: 82vh;
+  /* Fill exactly one viewport so the hero is a single screen and the scroll
+     hint sits at the true bottom edge — the last thing seen before scrolling.
+     100svh tracks the *small* viewport so mobile browser chrome can't crop it. */
+  min-height: 100vh;
+  min-height: 100svh;
   display: grid;
   place-items: center;
-  padding: 48px 24px 88px;
-}
-
-.scroll-hint {
-  position: absolute;
-  bottom: 28px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border: 0;
-  background: transparent;
-  color: var(--fg-secondary);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: color 150ms ease-out;
-}
-
-.scroll-hint:hover {
-  color: var(--accent-violet);
-}
-
-.scroll-hint:focus-visible {
-  outline: 1px solid var(--accent-violet);
-  outline-offset: 4px;
-}
-
-.scroll-hint-chevron {
-  font-size: 18px;
-  line-height: 0.6;
-  color: var(--accent-violet);
-  animation: scroll-hint-bounce 1.4s ease-in-out 3;
-  animation-delay: 1s;
-}
-
-@keyframes scroll-hint-bounce {
-  0%, 100% { transform: translateY(0); opacity: 0.75; }
-  50%      { transform: translateY(6px); opacity: 1; }
+  padding: 88px 24px 72px;
 }
 
 html {
@@ -917,20 +869,21 @@ html {
 }
 
 .search-card {
-  width: min(720px, 100%);
-  padding: 40px 36px 32px;
+  width: min(680px, 100%);
+  padding: 34px 32px 28px;
 }
 
 .search-card h1 {
-  font-size: clamp(32px, 6vw, 52px);
+  font-size: clamp(30px, 5vw, 42px);
   line-height: 1.02;
+  letter-spacing: 0;
 }
 
 .sublead {
   margin: 12px 0 0;
   font-family: var(--font-mono);
   font-size: 12px;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--fg-secondary);
 }
@@ -988,7 +941,7 @@ html {
   font-family: var(--font-display);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   transition: background 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out, transform 80ms ease-out;
   cursor: pointer;
@@ -1003,7 +956,7 @@ html {
 .primary-button:hover {
   background: #b89cff;
   border-color: #b89cff;
-  box-shadow: 0 0 16px rgba(167, 139, 250, 0.45);
+  box-shadow: none;
 }
 
 .primary-button:active {
@@ -1027,15 +980,16 @@ html {
   padding: 0 14px;
   border: 1px solid rgba(167, 139, 250, 0.28);
   border-radius: 2px;
-  background: rgba(167, 139, 250, 0.06);
-  color: var(--accent-violet);
+  background: var(--bg-input);
+  color: var(--fg-secondary);
   transition: border-color 150ms ease-out, background 150ms ease-out;
   cursor: pointer;
 }
 
 .text-button:hover {
-  border-color: var(--accent-violet);
-  background: rgba(167, 139, 250, 0.12);
+  border-color: var(--border-bright);
+  background: var(--bg-card);
+  color: var(--fg-primary);
 }
 
 .text-button.danger {
@@ -1161,7 +1115,7 @@ html {
   margin-bottom: 16px;
   padding: 10px 12px;
   border: 1px solid var(--border-subtle);
-  background: rgba(20, 18, 30, 0.6);
+  background: var(--bg-sidebar);
 }
 
 .filter-chip {
@@ -1171,7 +1125,7 @@ html {
   color: var(--fg-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   border-radius: 2px;
   transition: color 150ms ease-out, border-color 150ms ease-out, background 150ms ease-out;
@@ -1212,7 +1166,7 @@ html {
   padding: 14px 20px 14px 14px;
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--border-subtle);
-  background: linear-gradient(180deg, rgba(23, 21, 34, 0.96), rgba(12, 11, 18, 0.96));
+  background: var(--bg-card);
   color: var(--fg-primary);
   text-align: left;
   transition: border-color 150ms ease-out, background 150ms ease-out, transform 80ms ease-out;
@@ -1221,7 +1175,7 @@ html {
 
 .match-card:hover {
   border-color: var(--border-bright);
-  background: linear-gradient(180deg, rgba(28, 25, 42, 0.98), rgba(16, 14, 24, 0.98));
+  background: var(--bg-card-alt);
 }
 
 .match-card:hover .bracket {
@@ -1396,9 +1350,7 @@ html {
   gap: 14px;
   padding: 32px;
   text-align: center;
-  background:
-    linear-gradient(135deg, rgba(167, 139, 250, 0.08), rgba(201, 149, 106, 0.06)),
-    var(--bg-shell);
+  background: var(--bg-shell);
 }
 
 .drop-viewer input {
@@ -1489,8 +1441,8 @@ html {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  background: linear-gradient(180deg, rgba(7, 6, 11, 0) 0%, rgba(7, 6, 11, 0.95) 50%);
-  border-top: 1px solid var(--border-bright);
+  background: rgba(10, 9, 24, 0.96);
+  border-top: 1px solid var(--border-subtle);
   opacity: 1;
   transition: opacity 200ms ease-out;
   z-index: 3;
@@ -1513,11 +1465,12 @@ html {
   height: 30px;
   padding: 0 8px;
   border: 1px solid var(--border-subtle);
-  background: rgba(20, 18, 30, 0.8);
-  color: var(--accent-violet);
+  border-radius: 2px;
+  background: var(--bg-input);
+  color: var(--fg-primary);
   font-family: var(--font-mono);
   font-size: 12px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0;
   transition: border-color 120ms ease-out, background 120ms ease-out, color 120ms ease-out;
   cursor: pointer;
 }
@@ -1525,7 +1478,7 @@ html {
 .vod-btn:hover {
   border-color: var(--accent-violet);
   background: var(--accent-violet-dim);
-  color: #b89cff;
+  color: var(--accent-violet);
 }
 
 .vod-btn:active {
@@ -1556,7 +1509,7 @@ html {
 .vod-time {
   font-family: var(--font-mono);
   font-size: 12px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0;
   color: var(--fg-secondary);
   min-width: 48px;
   text-align: center;
@@ -1565,10 +1518,23 @@ html {
 .vod-track {
   position: relative;
   flex: 1;
-  height: 6px;
-  background: var(--accent-violet-dim);
+  height: 34px;
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
+  border-radius: 2px;
   cursor: pointer;
+}
+
+.vod-track::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 50%;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 2px;
+  background: var(--bg-canvas);
 }
 
 .vod-track:hover {
@@ -1577,10 +1543,13 @@ html {
 
 .vod-fill {
   position: absolute;
-  inset: 0 auto 0 0;
+  left: 10px;
+  top: 50%;
+  height: 10px;
+  margin-top: -5px;
   width: 0%;
+  border-radius: 2px;
   background: var(--accent-violet);
-  box-shadow: 0 0 8px rgba(167, 139, 250, 0.55);
   pointer-events: none;
 }
 
@@ -1588,12 +1557,12 @@ html {
   position: absolute;
   top: 50%;
   left: 0%;
-  width: 10px;
-  height: 14px;
-  margin-left: -5px;
-  margin-top: -7px;
-  background: var(--accent-violet);
-  box-shadow: 0 0 6px rgba(167, 139, 250, 0.7);
+  width: 3px;
+  height: 22px;
+  margin-left: -1px;
+  margin-top: -11px;
+  border-radius: 1px;
+  background: var(--accent-gold);
   pointer-events: none;
 }
 
@@ -1695,6 +1664,11 @@ html {
   line-height: 1.05;
   text-transform: uppercase;
   color: var(--fg-primary);
+}
+
+/* "Revu'd" picks up the same gold as the Download button. */
+.pitch-accent {
+  color: var(--accent-gold);
 }
 
 .pitch-lead {
@@ -1823,11 +1797,5 @@ html {
 
   .desktop-pitch {
     padding: 0 18px;
-  }
-
-  .scroll-hint {
-    bottom: 18px;
-    font-size: 9px;
-    letter-spacing: 0.24em;
   }
 }

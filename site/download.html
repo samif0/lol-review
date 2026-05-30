@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Get Revu: the desktop app</title>
+  <meta name="description" content="Revu desktop app for Windows: auto-captures every ranked match, keeps a session log, and shows the habits you're building across patches and splits. Local-first, no telemetry." />
+
+  <meta property="og:title" content="Get Revu: the desktop app" />
+  <meta property="og:description" content="Auto-capture every ranked match, keep a session log, and review your habits across patches and splits. Local-first, no telemetry." />
+  <meta property="og:image" content="https://revu.lol/og-image.jpg" />
+  <meta property="og:url" content="https://revu.lol/download" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+
+  <link rel="preload" href="/fonts/Orbitron.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/Rajdhani-Bold.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/ShareTechMono-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/Exo2.woff2" as="font" type="font/woff2" crossorigin />
+
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <nav class="topbar" aria-label="Primary">
+    <a class="topbar-wordmark" href="/">Revu</a>
+    <a class="download-chip" href="/" rel="noopener">
+      <span class="chip-icon" aria-hidden="true">&#x2190;</span>
+      <span class="chip-label-text">Review a game</span>
+      <span class="chip-version">in your browser</span>
+    </a>
+  </nav>
+
+  <main class="app">
+    <section class="desktop-pitch" aria-label="About the desktop app">
+      <p class="eyebrow">Desktop App</p>
+      <h2 class="pitch-h">Every game, <span class="pitch-accent">Revu'd</span>.</h2>
+      <p class="pitch-lead">
+        The browser tool reviews one game. The desktop app reviews
+        every game. It auto-captures your matches, keeps a session log,
+        and shows the habits you're building across patches and
+        splits.
+      </p>
+
+      <div class="pitch-actions">
+        <a id="download-btn"
+           class="download-btn"
+           href="https://github.com/samif0/lol-review/releases/latest"
+           rel="noopener">
+          Download for Windows
+        </a>
+        <a class="download-btn secondary-btn"
+           href="/discord">
+          Join Discord
+        </a>
+      </div>
+      <span class="download-meta">
+        <span id="download-version">latest</span> / Windows 10/11<span id="download-size"></span>
+      </span>
+
+      <figure class="screenshot-hero">
+        <img src="/screenshot-vod.jpg"
+             alt="Revu VOD review view: a paused League of Legends match with side panels for bookmarks, clips, and saved notes"
+             width="1400" height="758" loading="lazy" />
+        <figcaption>VOD Review // Bookmark and clip moments as you rewatch</figcaption>
+      </figure>
+
+      <ul class="features">
+        <li>Auto-captures every ranked match. No manual entry</li>
+        <li>Auto-imports VODs from Ascent</li>
+        <li>Review objectives and rules across sessions and seasons</li>
+        <li>Local-first. Your games stay on your machine</li>
+      </ul>
+
+      <div class="screenshot-grid">
+        <figure class="screenshot-tile">
+          <img src="/screenshot-session.jpg"
+               alt="Revu Session Log showing seven reviewed games with win/loss markers and mental ratings"
+               width="1004" height="1069" loading="lazy" />
+          <figcaption>Session Log // Every game, reviewed</figcaption>
+        </figure>
+        <figure class="screenshot-tile">
+          <img src="/screenshot-review.jpg"
+               alt="Revu post-game review for Seraphine showing KDA, CS, gold stats and objective practice checklist"
+               width="1008" height="1071" loading="lazy" />
+          <figcaption>Post-Game // Stats + objective practice</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <p class="riot-disclaimer">
+      Revu isn't endorsed by Riot Games and doesn't reflect the views
+      or opinions of anyone officially involved in producing or managing
+      League of Legends. League of Legends and Riot Games are trademarks
+      or registered trademarks of Riot Games, Inc.
+    </p>
+  </main>
+
+  <footer>
+    <a href="https://github.com/samif0/lol-review" rel="noopener">github.com/samif0/lol-review</a>
+    <a href="/discord">discord</a>
+    <a href="/privacy.html">privacy</a>
+    <a href="/terms.html">terms</a>
+    <span id="footer-version"></span>
+  </footer>
+
+  <div id="lightbox" class="lightbox" aria-hidden="true" role="dialog" aria-label="Screenshot viewer">
+    <button class="lightbox-close" type="button" aria-label="Close screenshot">X</button>
+    <img class="lightbox-img" alt="" />
+    <span class="lightbox-caption"></span>
+  </div>
+
+  <script src="/download.js" defer></script>
+  <script src="/lightbox.js" defer></script>
+</body>
+</html>

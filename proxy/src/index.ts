@@ -10,10 +10,20 @@
  */
 
 import { handleLogin, handleLogout, handleSignup, handleVerify } from "./auth";
-import { findSession } from "./db";
+import { findSession, deleteExpiredSessions } from "./db";
 import { Env } from "./types";
 import { sha256Hex, sha256Prefix } from "./crypto";
 import { badRequest, jsonResponse } from "./http";
+import {
+  handleClipFile,
+  handleClipMeta,
+  handleClipView,
+  handleDeleteClip,
+  handleListMyClips,
+  handleUploadClip,
+  isClipSlug,
+  purgeExpiredClips,
+} from "./clips";
 
 // ── Region mapping ──────────────────────────────────────────────────────
 
@@ -376,7 +386,7 @@ function corsHeadersFor(origin: string | null, env: Env): Record<string, string>
   return {
     "Access-Control-Allow-Origin": origin,
     "Vary": "Origin",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Access-Control-Max-Age": "86400",
   };
@@ -389,9 +399,72 @@ function withCors(response: Response, cors: Record<string, string>): Response {
   return new Response(response.body, { status: response.status, headers });
 }
 
+// ── Clip dispatch ─────────────────────────────────────────────────────────
+//
+// Returns a Response if the request targets a clip route, else null so the main
+// dispatcher continues to the Riot endpoints. Public routes (clip-meta,
+// clip-file, clip-view) need no auth; uploads/deletes/listing resolve the
+// caller's user id via authOrDeny and require a real account (session).
+
+async function dispatchClips(
+  request: Request,
+  url: URL,
+  env: Env,
+  cors: Record<string, string>,
+): Promise<Response | null> {
+  const path = url.pathname;
+
+  // Public reads — no auth.
+  if (request.method === "GET" && path.startsWith("/clip-meta/")) {
+    return withCors(await handleClipMeta(env, path.slice("/clip-meta/".length)), cors);
+  }
+  if ((request.method === "GET" || request.method === "HEAD") && path.startsWith("/clip-file/")) {
+    return withCors(await handleClipFile(request, env, path.slice("/clip-file/".length)), cors);
+  }
+  if (request.method === "POST" && path.startsWith("/clip-view/")) {
+    return withCors(await handleClipView(env, path.slice("/clip-view/".length)), cors);
+  }
+
+  // Authed routes — uploads, listing, deletes.
+  if (path === "/clips" && request.method === "POST") {
+    const auth = await authOrDeny(request, env);
+    if (auth instanceof Response) return withCors(auth, cors);
+    const limited = rateLimitOrDeny(auth.tokenHash, env);
+    if (limited) return withCors(limited, cors);
+    return withCors(await handleUploadClip(request, env, auth.userId), cors);
+  }
+  if (path === "/clips/mine" && request.method === "GET") {
+    const auth = await authOrDeny(request, env);
+    if (auth instanceof Response) return withCors(auth, cors);
+    return withCors(await handleListMyClips(env, auth.userId), cors);
+  }
+  if (path.startsWith("/clips/") && request.method === "DELETE") {
+    const auth = await authOrDeny(request, env);
+    if (auth instanceof Response) return withCors(auth, cors);
+    return withCors(await handleDeleteClip(env, path.slice("/clips/".length), auth.userId), cors);
+  }
+
+  return null;
+}
+
 // ── Dispatch ────────────────────────────────────────────────────────────
 
 export default {
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Daily housekeeping: purge expired clips (R2 + D1) and stale sessions.
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const purged = await purgeExpiredClips(env);
+          await deleteExpiredSessions(env.DB);
+          console.log(JSON.stringify({ scope: "cron.purge", clips: purged }));
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.purge", error: (err as Error).message }));
+        }
+      })(),
+    );
+  },
+
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
@@ -404,6 +477,26 @@ export default {
     if (url.pathname === "/health") {
       return withCors(jsonResponse({ ok: true, ts: Date.now() }, 200), cors);
     }
+
+    // ── Bare clip slug → watch page ──
+    // Served on clips.revu.lol/<id>. A single path segment that looks like a
+    // clip slug (7 base62 chars) and isn't a reserved word redirects to the
+    // static watch page on the Pages site (WATCH_BASE/clip.html). Reserved
+    // words fall through (harmless on the dedicated subdomain).
+    if (request.method === "GET" || request.method === "HEAD") {
+      const seg = url.pathname.slice(1);
+      if (seg.indexOf("/") === -1 && isClipSlug(seg)) {
+        const watchBase = (env.WATCH_BASE || "https://revu.lol").replace(/\/+$/, "");
+        return Response.redirect(`${watchBase}/clip.html?id=${seg}`, 302);
+      }
+    }
+
+    // ── Clip API (public reads, authed writes) ──
+    // Placed before the Riot-key check and the GET-only guard so clip uploads
+    // (POST) and deletes (DELETE) aren't blocked, and clip viewing works even
+    // if the Riot key is momentarily absent.
+    const clipResponse = await dispatchClips(request, url, env, cors);
+    if (clipResponse) return clipResponse;
 
     if (!env.RIOT_API_KEY) {
       return withCors(jsonResponse({ error: "server_misconfigured_no_riot_key" }, 500), cors);

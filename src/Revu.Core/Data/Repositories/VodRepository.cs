@@ -390,9 +390,23 @@ public sealed class VodRepository : IVodRepository
                 var idx = r.GetOrdinal("prompt_id");
                 return r.IsDBNull(idx) ? null : r.GetInt64(idx);
             }
-            catch (IndexOutOfRangeException)
+            catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentOutOfRangeException)
             {
                 return null;
+            }
+        }
+
+        // share_url is a late-added column; tolerate older rows/DBs without it.
+        static string ReadShareUrl(SqliteDataReader r)
+        {
+            try
+            {
+                var idx = r.GetOrdinal("share_url");
+                return r.IsDBNull(idx) ? "" : r.GetString(idx);
+            }
+            catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentOutOfRangeException)
+            {
+                return "";
             }
         }
 
@@ -408,6 +422,48 @@ public sealed class VodRepository : IVodRepository
             Quality: reader.IsDBNull(reader.GetOrdinal("quality")) ? "" : reader.GetString(reader.GetOrdinal("quality")),
             CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")),
             ObjectiveId: reader.IsDBNull(reader.GetOrdinal("objective_id")) ? null : reader.GetInt64(reader.GetOrdinal("objective_id")),
-            PromptId: ReadPromptId(reader));
+            PromptId: ReadPromptId(reader),
+            ShareUrl: ReadShareUrl(reader));
     }
+
+    public async Task SetBookmarkShareUrlAsync(long bookmarkId, string shareUrl)
+    {
+        using var conn = _factory.CreateConnection();
+        try
+        {
+            await SetBookmarkShareUrlAsync(conn, bookmarkId, shareUrl);
+        }
+        catch (SqliteException ex) when (IsMissingColumn(ex, "share_url"))
+        {
+            await EnsureBookmarkShareUrlColumnAsync(conn);
+            await SetBookmarkShareUrlAsync(conn, bookmarkId, shareUrl);
+        }
+    }
+
+    private static async Task SetBookmarkShareUrlAsync(SqliteConnection conn, long bookmarkId, string shareUrl)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE vod_bookmarks SET share_url = @shareUrl WHERE id = @id";
+        cmd.Parameters.AddWithValue("@shareUrl", shareUrl ?? "");
+        cmd.Parameters.AddWithValue("@id", bookmarkId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task EnsureBookmarkShareUrlColumnAsync(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "ALTER TABLE vod_bookmarks ADD COLUMN share_url TEXT DEFAULT ''";
+        try
+        {
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 1 && ex.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase))
+        {
+        }
+    }
+
+    private static bool IsMissingColumn(SqliteException ex, string columnName) =>
+        ex.SqliteErrorCode == 1 &&
+        ex.Message.Contains("no such column", StringComparison.OrdinalIgnoreCase) &&
+        ex.Message.Contains(columnName, StringComparison.OrdinalIgnoreCase);
 }

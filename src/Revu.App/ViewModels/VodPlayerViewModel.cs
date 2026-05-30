@@ -31,6 +31,8 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IPromptsRepository _promptsRepo;
     private readonly IClipService _clipService;
+    private readonly IClipUploadService _clipUploadService;
+    private readonly IRiotAuthClient _authClient;
     private readonly IConfigService _configService;
     private readonly INavigationService _navigationService;
     private readonly ICoachSidecarNotifier _coachNotifier;
@@ -121,12 +123,32 @@ public partial class VodPlayerViewModel : ObservableObject
     public IReadOnlyList<string> QualityOptions { get; } =
         ["", "good", "neutral", "bad"];
 
+    // ── Share / login-to-share ────────────────────────────────────
+    // Clips can be uploaded to revu.lol/<id> for public viewing. Sharing
+    // requires a logged-in session; if logged out, an inline email→OTP prompt
+    // (reusing the magic-link flow) appears, then the pending clip uploads.
+
+    /// <summary>Max shareable clip length. Revu can't downscale source
+    /// resolution, so duration is the size lever; the server also caps bytes.</summary>
+    public const int MaxShareDurationSeconds = 90;
+
+    [ObservableProperty] private bool _shareLoginVisible;
+    [ObservableProperty] private string _shareEmail = "";
+    [ObservableProperty] private string _shareOtp = "";
+    [ObservableProperty] private bool _shareAwaitingOtp;
+    [ObservableProperty] private bool _shareBusy;
+    [ObservableProperty] private string _shareStatusText = "";
+
+    // The clip the user clicked Share on while logged out — uploaded once login
+    // completes. Cleared when the prompt is dismissed.
+    private BookmarkItem? _pendingShareItem;
+
     // â"€â"€ Collections â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
-    public ObservableCollection<BookmarkItem> Bookmarks { get; } = new();
-    public ObservableCollection<TimelineEvent> GameEvents { get; } = new();
-    public ObservableCollection<DerivedEventRegion> DerivedEvents { get; } = new();
-    public ObservableCollection<EvidenceInboxItem> EvidenceInbox { get; } = new();
+    [ObservableProperty] private ObservableCollection<BookmarkItem> _bookmarks = new();
+    [ObservableProperty] private ObservableCollection<TimelineEvent> _gameEvents = new();
+    [ObservableProperty] private ObservableCollection<DerivedEventRegion> _derivedEvents = new();
+    [ObservableProperty] private ObservableCollection<EvidenceInboxItem> _evidenceInbox = new();
     public ObservableCollection<ObjectiveOption> ObjectiveOptions { get; } = new();
     // v2.15.7: unified tag picker — flat list of objectives + their prompts
     // (indented). BookmarkItem.TagOptions shares this reference so per-clip
@@ -201,6 +223,8 @@ public partial class VodPlayerViewModel : ObservableObject
         IObjectivesRepository objectivesRepo,
         IPromptsRepository promptsRepo,
         IClipService clipService,
+        IClipUploadService clipUploadService,
+        IRiotAuthClient authClient,
         IConfigService configService,
         INavigationService navigationService,
         ICoachSidecarNotifier coachNotifier,
@@ -216,6 +240,8 @@ public partial class VodPlayerViewModel : ObservableObject
         _objectivesRepo = objectivesRepo;
         _promptsRepo = promptsRepo;
         _clipService = clipService;
+        _clipUploadService = clipUploadService;
+        _authClient = authClient;
         _configService = configService;
         _navigationService = navigationService;
         _coachNotifier = coachNotifier;
@@ -295,55 +321,58 @@ public partial class VodPlayerViewModel : ObservableObject
 
             // Load game events for timeline
             var events = await _eventsRepo.GetEventsAsync(gameId);
-            DispatcherHelper.RunOnUIThread(() =>
+            var loadedGameEvents = new ObservableCollection<TimelineEvent>();
+            foreach (var e in events)
             {
-                GameEvents.Clear();
-                foreach (var e in events)
+                loadedGameEvents.Add(new TimelineEvent
                 {
-                    GameEvents.Add(new TimelineEvent
-                    {
-                        EventType = e.EventType,
-                        GameTimeS = e.GameTimeS,
-                        Details = e.Details,
-                    });
-                }
+                    EventType = e.EventType,
+                    GameTimeS = e.GameTimeS,
+                    Details = e.Details,
+                });
+            }
 
-                HasGameEvents = GameEvents.Count > 0;
+            await DispatcherHelper.RunOnUIThreadAsync(() =>
+            {
+                GameEvents = loadedGameEvents;
+                HasGameEvents = loadedGameEvents.Count > 0;
                 ShowNoEventsHint = !HasGameEvents;
                 GameEventsStatusText = HasGameEvents
-                    ? $"{GameEvents.Count} event(s). Click a marker to jump."
+                    ? $"{loadedGameEvents.Count} event(s). Click a marker to jump."
                     : "No live events.";
             });
 
             // Load derived events for timeline regions
             var derived = await _derivedEventsRepo.GetInstancesAsync(gameId);
             var inferredRegions = TimelineInferenceService.Infer(events);
-            DispatcherHelper.RunOnUIThread(() =>
+            var loadedDerivedEvents = new ObservableCollection<DerivedEventRegion>();
+            foreach (var de in derived)
             {
-                DerivedEvents.Clear();
-                foreach (var de in derived)
+                loadedDerivedEvents.Add(new DerivedEventRegion
                 {
-                    DerivedEvents.Add(new DerivedEventRegion
-                    {
-                        StartTimeS = de.StartTimeSeconds,
-                        EndTimeS = de.EndTimeSeconds,
-                        Color = de.Color,
-                        Name = de.DefinitionName,
-                    });
-                }
+                    StartTimeS = de.StartTimeSeconds,
+                    EndTimeS = de.EndTimeSeconds,
+                    Color = de.Color,
+                    Name = de.DefinitionName,
+                });
+            }
 
-                foreach (var inferred in inferredRegions)
+            foreach (var inferred in inferredRegions)
+            {
+                loadedDerivedEvents.Add(new DerivedEventRegion
                 {
-                    DerivedEvents.Add(new DerivedEventRegion
-                    {
-                        StartTimeS = inferred.StartTimeSeconds,
-                        EndTimeS = inferred.EndTimeSeconds,
-                        Color = inferred.Color,
-                        Name = inferred.Name,
-                        Tooltip = inferred.Tooltip,
-                        IsInferred = true,
-                    });
-                }
+                    StartTimeS = inferred.StartTimeSeconds,
+                    EndTimeS = inferred.EndTimeSeconds,
+                    Color = inferred.Color,
+                    Name = inferred.Name,
+                    Tooltip = inferred.Tooltip,
+                    IsInferred = true,
+                });
+            }
+
+            await DispatcherHelper.RunOnUIThreadAsync(() =>
+            {
+                DerivedEvents = loadedDerivedEvents;
             });
 
             // Load bookmarks
@@ -891,6 +920,7 @@ public partial class VodPlayerViewModel : ObservableObject
                     IsClip = true,
                     ClipRangeText = $"{FormatTime(startS)} - {FormatTime(endS)}",
                     ClipStartSeconds = startS,
+                    ClipEndSeconds = endS,
                     ClipPath = clipPath,
                     HasPlayableClip = FileProbeCache.Exists(clipPath),
                     Quality = quality,
@@ -1014,14 +1044,15 @@ public partial class VodPlayerViewModel : ObservableObject
     private async Task RefreshBookmarksAsync()
     {
         var bookmarks = await _vodRepo.GetBookmarksAsync(GameId);
-        DispatcherHelper.RunOnUIThread(() =>
+        var loadedBookmarks = new ObservableCollection<BookmarkItem>();
+        foreach (var b in bookmarks)
         {
-            Bookmarks.Clear();
-            foreach (var b in bookmarks)
-            {
-                Bookmarks.Add(ToBookmarkItem(b));
-            }
+            loadedBookmarks.Add(ToBookmarkItem(b));
+        }
 
+        await DispatcherHelper.RunOnUIThreadAsync(() =>
+        {
+            Bookmarks = loadedBookmarks;
             RefreshClipAvailabilityText();
         });
     }
@@ -1054,15 +1085,16 @@ public partial class VodPlayerViewModel : ObservableObject
         var rows = (await _evidenceRepo.GetForGameAsync(GameId))
             .Where(static row => row.SourceKind != EvidenceKinds.Clip)
             .ToArray();
-        DispatcherHelper.RunOnUIThread(() =>
+        var loadedEvidence = new ObservableCollection<EvidenceInboxItem>();
+        foreach (var row in rows)
         {
-            EvidenceInbox.Clear();
-            foreach (var row in rows)
-            {
-                EvidenceInbox.Add(ToEvidenceInboxItem(row));
-            }
+            loadedEvidence.Add(ToEvidenceInboxItem(row));
+        }
 
-            HasEvidenceInboxItems = EvidenceInbox.Count > 0;
+        await DispatcherHelper.RunOnUIThreadAsync(() =>
+        {
+            EvidenceInbox = loadedEvidence;
+            HasEvidenceInboxItems = loadedEvidence.Count > 0;
         });
     }
 
@@ -1312,6 +1344,7 @@ public partial class VodPlayerViewModel : ObservableObject
             Note = record.Note,
             IsClip = isClip,
             ClipStartSeconds = record.ClipStartSeconds,
+            ClipEndSeconds = record.ClipEndSeconds ?? 0,
             ClipPath = record.ClipPath,
             HasPlayableClip = isClip && FileProbeCache.Exists(record.ClipPath),
             ClipRangeText = record.ClipStartSeconds != null && record.ClipEndSeconds != null
@@ -1320,6 +1353,7 @@ public partial class VodPlayerViewModel : ObservableObject
             Quality = record.Quality,
             ObjectiveId = record.ObjectiveId,
             PromptId = record.PromptId,
+            ShareUrl = record.ShareUrl,
             ObjectiveOptions = ObjectiveOptions,
             TagOptions = TagOptions,
         };
@@ -1466,7 +1500,7 @@ public partial class VodPlayerViewModel : ObservableObject
                 }
             }
 
-            DispatcherHelper.RunOnUIThread(() =>
+            await DispatcherHelper.RunOnUIThreadAsync(() =>
             {
                 ObjectiveOptions.Clear();
                 ObjectiveOptions.Add(new ObjectiveOption(null, "(none)"));
@@ -1595,6 +1629,181 @@ public partial class VodPlayerViewModel : ObservableObject
             ? normalized
             : "";
     }
+
+    // ── Share commands ────────────────────────────────────────────
+
+    /// <summary>
+    /// Share a clip publicly. If already shared, copies the existing link.
+    /// Otherwise uploads it (prompting inline login first if logged out) and
+    /// copies the resulting revu.lol/&lt;id&gt; link.
+    /// </summary>
+    [RelayCommand]
+    private async Task ShareClipAsync(BookmarkItem? item)
+    {
+        if (item is null || !item.IsClip) return;
+
+        if (item.IsShared)
+        {
+            CopyToClipboard(item.ShareUrl);
+            ShareStatusText = "Link copied.";
+            return;
+        }
+
+        if (item.IsSharing) return;
+
+        if (string.IsNullOrEmpty(item.ClipPath) || !File.Exists(item.ClipPath))
+        {
+            ShareStatusText = "Clip file not found on disk.";
+            return;
+        }
+
+        // Enforce the 90s cap on the desktop (the server bounds bytes, not duration).
+        var duration = Math.Max(0, item.ClipEndSeconds - (item.ClipStartSeconds ?? 0));
+        if (duration > MaxShareDurationSeconds)
+        {
+            ShareStatusText = $"Clips can be up to {MaxShareDurationSeconds}s — trim and re-clip.";
+            return;
+        }
+
+        var config = await _configService.LoadAsync();
+        if (string.IsNullOrWhiteSpace(config.RiotSessionToken))
+        {
+            // Logged out → open the inline login prompt; upload after login.
+            _pendingShareItem = item;
+            ShareEmail = config.RiotSessionEmail ?? "";
+            ShareOtp = "";
+            ShareAwaitingOtp = false;
+            ShareStatusText = "Log in to share clips.";
+            ShareLoginVisible = true;
+            return;
+        }
+
+        await UploadClipAsync(item, config.RiotSessionToken, duration);
+    }
+
+    private async Task UploadClipAsync(BookmarkItem item, string sessionToken, int duration)
+    {
+        item.IsSharing = true;
+        ShareStatusText = "Uploading clip…";
+        try
+        {
+            var result = await _clipUploadService.UploadAsync(
+                item.ClipPath,
+                sessionToken,
+                title: string.IsNullOrWhiteSpace(item.Note) ? null : item.Note,
+                champion: string.IsNullOrWhiteSpace(ChampionName) ? null : ChampionName,
+                durationSeconds: duration > 0 ? duration : null);
+
+            item.ShareUrl = result.Url;
+            await _vodRepo.SetBookmarkShareUrlAsync(item.Id, result.Url);
+            CopyToClipboard(result.Url);
+            ShareStatusText = "Link copied — anyone can watch (expires in 30 days).";
+            _logger.LogInformation("Shared clip {Id} -> {Url}", item.Id, result.Url);
+        }
+        catch (ClipUploadException ex)
+        {
+            ShareStatusText = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Clip upload failed");
+            ShareStatusText = "Couldn't share the clip.";
+        }
+        finally
+        {
+            item.IsSharing = false;
+        }
+    }
+
+    /// <summary>Send the magic-link OTP to the entered email (login-to-share step 1).</summary>
+    [RelayCommand]
+    private async Task SendShareOtpAsync()
+    {
+        if (ShareBusy) return;
+        var email = (ShareEmail ?? "").Trim();
+        if (string.IsNullOrEmpty(email)) { ShareStatusText = "Enter your email."; return; }
+
+        ShareBusy = true;
+        try
+        {
+            await _authClient.LoginAsync(email);
+            ShareAwaitingOtp = true;
+            ShareStatusText = $"Check {email} for a code.";
+            ShareOtp = "";
+        }
+        catch (RiotAuthException ex) { ShareStatusText = ex.Message; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Share login: send code failed");
+            ShareStatusText = "Couldn't reach the server. Check your connection.";
+        }
+        finally { ShareBusy = false; }
+    }
+
+    /// <summary>Verify the OTP, store the session, then upload the pending clip
+    /// (login-to-share step 2).</summary>
+    [RelayCommand]
+    private async Task VerifyShareOtpAsync()
+    {
+        if (ShareBusy) return;
+        var code = (ShareOtp ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(code)) { ShareStatusText = "Paste the code from your email."; return; }
+
+        ShareBusy = true;
+        try
+        {
+            var result = await _authClient.VerifyAsync(code);
+            var config = await _configService.LoadAsync();
+            config.RiotSessionToken = result.SessionToken;
+            config.RiotSessionEmail = (ShareEmail ?? "").Trim();
+            config.RiotSessionExpiresAt = result.ExpiresAt;
+            await _configService.SaveAsync(config);
+
+            ShareLoginVisible = false;
+            ShareAwaitingOtp = false;
+
+            var item = _pendingShareItem;
+            _pendingShareItem = null;
+            if (item is not null)
+            {
+                var duration = Math.Max(0, item.ClipEndSeconds - (item.ClipStartSeconds ?? 0));
+                await UploadClipAsync(item, result.SessionToken, duration);
+            }
+        }
+        catch (RiotAuthException ex) { ShareStatusText = ex.Message; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Share login: verify failed");
+            ShareStatusText = "Couldn't verify the code.";
+        }
+        finally { ShareBusy = false; }
+    }
+
+    /// <summary>Dismiss the inline login prompt without sharing.</summary>
+    [RelayCommand]
+    private void CancelShareLogin()
+    {
+        ShareLoginVisible = false;
+        ShareAwaitingOtp = false;
+        ShareOtp = "";
+        _pendingShareItem = null;
+        ShareStatusText = "";
+    }
+
+    private static void CopyToClipboard(string text)
+    {
+        try
+        {
+            var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            pkg.SetText(text);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+        }
+        catch
+        {
+            // Clipboard can throw transiently if another app holds it; the link
+            // is still saved on the bookmark, so this is non-fatal.
+        }
+    }
 }
 
 // â"€â"€ Display models â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -1709,10 +1918,34 @@ public partial class BookmarkItem : ObservableObject
     /// Null for plain note bookmarks. Used by Jump to seek to the first frame
     /// of the clip rather than the marker time, which often sits in the middle.</summary>
     public int? ClipStartSeconds { get; set; }
+    /// <summary>Clip range end in seconds; with ClipStartSeconds gives the
+    /// shared clip's duration. 0 for plain note bookmarks.</summary>
+    public int ClipEndSeconds { get; set; }
     public string ClipPath { get; set; } = "";
     public bool HasPlayableClip { get; set; }
     public string ClipRangeText { get; set; } = "";
     public string Quality { get; set; } = "";
+
+    // ── Public sharing (revu.lol/<id>) ────────────────────────────
+    // ShareUrl is empty until the clip has been uploaded. While uploading,
+    // IsSharing flips the button to a busy state. These are observable so the
+    // per-row Share button updates without rebuilding the list.
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsShared))]
+    [NotifyPropertyChangedFor(nameof(ShareActionLabel))]
+    private string _shareUrl = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShareActionLabel))]
+    private bool _isSharing;
+
+    /// <summary>True once this clip has a public link.</summary>
+    public bool IsShared => !string.IsNullOrEmpty(ShareUrl);
+
+    /// <summary>Label for the per-row share/copy button.</summary>
+    public string ShareActionLabel =>
+        IsSharing ? "Sharing…" : IsShared ? "Copy link" : "Share";
 
     /// <summary>
     /// Objective attached to this bookmark, or null if unset. v2.15.7: changed
@@ -1807,12 +2040,14 @@ public partial class BookmarkItem : ObservableObject
             Note = Note,
             IsClip = IsClip,
             ClipStartSeconds = ClipStartSeconds,
+            ClipEndSeconds = ClipEndSeconds,
             ClipPath = ClipPath,
             HasPlayableClip = HasPlayableClip,
             ClipRangeText = ClipRangeText,
             Quality = quality,
             ObjectiveId = ObjectiveId,
             PromptId = PromptId,
+            ShareUrl = ShareUrl,
             ObjectiveOptions = ObjectiveOptions,
             TagOptions = TagOptions,
         };

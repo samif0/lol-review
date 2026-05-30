@@ -47,6 +47,7 @@ public sealed partial class TimelineControl : UserControl
     public TimelineControl()
     {
         InitializeComponent();
+        Loaded += (_, _) => DispatcherQueue.TryEnqueue(Redraw);
     }
 
     // ── Dependency Properties ───────────────────────────────────────

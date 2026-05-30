@@ -68,6 +68,10 @@ internal static class ServiceCollectionExtensions
         services.AddHttpClient<IRiotMatchClient, RiotMatchClient>();
         services.AddSingleton<EnemyLanerBackfillService>();
 
+        // Public clip sharing (revu.lol/<id>). Uploads a local clip via the
+        // logged-in session token; the clip is publicly viewable, owner-deletable.
+        services.AddHttpClient<IClipUploadService, ClipUploadService>();
+
         // v2.16.1: pre-game intel rotator data sources.
         services.AddHttpClient<IRiotChampionDataClient, RiotChampionDataClient>();
         services.AddSingleton<PreGameIntelService>();

@@ -160,6 +160,27 @@ jobs:
             --releaseName "Revu v${{ env.VERSION }}" `
             --tag "${{ env.TAG }}"
 
+      # Velopack names the installer after --packId (LoLReview-win-Setup.exe).
+      # We keep packId = LoLReview so auto-updates and delta generation stay
+      # intact, but users shouldn't download a file called "LoLReview". Ship a
+      # cleanly-named COPY (Revu-Setup.exe) as an extra release asset; the
+      # website's download button prefers it. The original setup + the RELEASES
+      # / .nupkg files Velopack needs are left untouched.
+      - name: Stage cleanly-named installer copy
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem Releases -Filter "*-win-Setup.exe" | Select-Object -First 1
+          if (-not $setup) { throw "No *-win-Setup.exe found in Releases" }
+          Copy-Item $setup.FullName -Destination "Releases/Revu-Setup.exe"
+          Write-Host "Staged Revu-Setup.exe from $($setup.Name)"
+
+      - name: Attach cleanly-named installer to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: Releases/Revu-Setup.exe
+          fail_on_unmatched_files: true
+
       # ───────────────────────────── Coach sidecar packs ─────────────────────────────
       #
       # The coach sidecar ships as two independent zips alongside the
