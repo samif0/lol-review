@@ -117,8 +117,14 @@ public partial class OnboardingViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void BackToWelcome()
+    private async Task BackToWelcomeAsync()
     {
+        // Backing all the way out abandons the login path. If VerifyAsync already
+        // stamped a session token but the user never finished linking their Riot
+        // ID, that half-saved session would leave the onboarding gate stuck
+        // (RiotProxyEnabled needs token AND RiotId). Drop it so the next launch
+        // starts clean.
+        await ClearPartialSessionAsync();
         State = "welcome";
         Email = "";
         OtpCode = "";
@@ -194,12 +200,45 @@ public partial class OnboardingViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void BackToEmailEntry()
+    private async Task BackToEmailEntryAsync()
     {
+        // Stepping back from the Riot-ID screen to re-enter email means starting
+        // the login over. Clear any session token VerifyAsync persisted so the
+        // user can't end up token-saved-but-unlinked (which jams the gate).
+        await ClearPartialSessionAsync();
         State = "emailEntry";
         OtpCode = "";
         Error = "";
         Info = "";
+    }
+
+    /// <summary>
+    /// Blank any session token stamped by <see cref="VerifyAsync"/> before the
+    /// account-link step completed. Without this, backing out of onboarding
+    /// leaves a token with no Riot ID, and <c>OnboardingComplete</c> (which needs
+    /// <c>RiotProxyEnabled</c> = token AND Riot ID) keeps re-showing the gate.
+    /// </summary>
+    private async Task ClearPartialSessionAsync()
+    {
+        try
+        {
+            var config = await _configService.LoadAsync();
+            if (string.IsNullOrEmpty(config.RiotSessionToken)
+                && string.IsNullOrEmpty(config.RiotSessionEmail)
+                && config.RiotSessionExpiresAt == 0)
+            {
+                return; // nothing partial to clear
+            }
+
+            config.RiotSessionToken = "";
+            config.RiotSessionEmail = "";
+            config.RiotSessionExpiresAt = 0;
+            await _configService.SaveAsync(config);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not clear partial onboarding session");
+        }
     }
 
     // ── Riot ID + region (logged-in only) ───────────────────────────
