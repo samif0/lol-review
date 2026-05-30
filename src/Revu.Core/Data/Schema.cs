@@ -9,7 +9,8 @@ namespace Revu.Core.Data;
 public static class Schema
 {
     // v2 (2026-05): mini-objective target game count column.
-    public const int CurrentAppSchemaVersion = 2;
+    // v3 (2026-05): vod_bookmarks.share_url for public clip sharing.
+    public const int CurrentAppSchemaVersion = 3;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
