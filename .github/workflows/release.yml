@@ -159,6 +159,9 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+          # Self-contained .NET app = 100+ binaries at ~1.7s each, well over the
+          # 300s default. Allow 15 min so the whole publish/ folder gets signed.
+          timeout: 900
 
       - name: Install vpk CLI
         run: dotnet tool install -g vpk
@@ -196,6 +199,7 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+          timeout: 900
 
       - name: Upload Velopack release to GitHub
         shell: pwsh
