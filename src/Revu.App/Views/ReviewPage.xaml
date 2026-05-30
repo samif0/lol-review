@@ -818,47 +818,6 @@
                                        Foreground="{StaticResource MutedTextBrush}"
                                        TextWrapping="Wrap"/>
 
-                            <!-- Ask coach about this game (deep-link to Coach page, hidden when flag off) -->
-                            <Border x:Name="AskCoachBanner"
-                                    Background="{StaticResource InputBackgroundBrush}"
-                                    BorderBrush="{StaticResource SubtleBorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="2"
-                                    Padding="10,8"
-                                    Visibility="Collapsed">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <FontIcon Grid.Column="0"
-                                                  Glyph="&#xE8BD;"
-                                                  FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                                  Foreground="{StaticResource AccentPurpleBrush}"
-                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                  Margin="0,0,8,0"
-                                                  VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1"
-                                                   Text="Write your review first, then ask the coach about this game. The coach sees your review, the compacted stats, and your history."
-                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"
-                                                   VerticalAlignment="Center"/>
-                                    </Grid>
-                                    <Button Grid.Column="1"
-                                            Content="Ask coach about this game"
-                                            Click="OnAskCoachAboutGameClick"
-                                            Style="{StaticResource QuietActionButtonStyle}"
-                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Height="28"
-                                            Padding="12,0" CornerRadius="2"/>
-                                </Grid>
-                            </Border>
-
                             <TextBlock Text="What went well?"
                                        FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" Foreground="{StaticResource PrimaryTextBrush}"/>
                             <TextBox Text="{x:Bind ViewModel.WentWell, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"

@@ -43,9 +43,6 @@ public sealed partial class ReviewPage : Page, INotifyPropertyChanged
         Loaded += (_, _) =>
         {
             AnimationHelper.AnimatePageEnter(RootGrid);
-            AskCoachBanner.Visibility = CoachFeatureFlag.IsEnabled()
-                ? Microsoft.UI.Xaml.Visibility.Visible
-                : Microsoft.UI.Xaml.Visibility.Collapsed;
         };
     }
 
@@ -57,22 +54,6 @@ public sealed partial class ReviewPage : Page, INotifyPropertyChanged
         {
             ViewModel.LoadCommand.Execute(gameId);
         }
-    }
-
-    private void OnAskCoachAboutGameClick(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel.GameId <= 0) return;
-
-        var label = string.IsNullOrWhiteSpace(ViewModel.ChampionName)
-            ? $"Game #{ViewModel.GameId}"
-            : $"{ViewModel.ChampionName} (#{ViewModel.GameId})";
-
-        var args = new CoachScopeArgs(
-            Scope: new CoachScope(GameId: ViewModel.GameId),
-            Label: label,
-            SeedQuestion: null);
-
-        App.GetService<INavigationService>().NavigateTo("coach", args);
     }
 
     // ── Attribution radio button helpers ─────────────────────────────

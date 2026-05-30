@@ -19,21 +19,14 @@ internal static class AppDiagnostics
 
     public static void WriteVerbose(string fileName, string message)
     {
-        // Coach-related diagnostics always append to coach-host.log so we
-        // never lose the credential injection / sidecar attach trail. Other
-        // verbose files still honor the legacy debugger/env-var gate.
-        var alwaysLog = fileName.Contains("coach", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("CoachSidecarService", StringComparison.OrdinalIgnoreCase);
-
-        if (!alwaysLog && !VerboseFileLoggingEnabled.Value)
+        if (!VerboseFileLoggingEnabled.Value)
         {
             return;
         }
 
         Directory.CreateDirectory(LogDirectory);
-        var target = alwaysLog ? "coach-host.log" : fileName;
         File.AppendAllText(
-            Path.Combine(LogDirectory, target),
+            Path.Combine(LogDirectory, fileName),
             $"[{DateTime.Now:O}] {message}{Environment.NewLine}");
     }
 

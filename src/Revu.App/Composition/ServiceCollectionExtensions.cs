@@ -47,7 +47,6 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<INotesRepository, NotesRepository>();
         services.AddSingleton<IPromptsRepository, PromptsRepository>();
         services.AddSingleton<ITiltCheckRepository, TiltCheckRepository>();
-        services.AddSingleton<ICoachRepository, CoachRepository>();
         return services;
     }
 
@@ -79,7 +78,8 @@ internal static class ServiceCollectionExtensions
         // v2.16.1: minimize window + suspend animations while a game is running.
         services.AddSingleton<Revu.App.Services.InGameBackgroundOrchestrator>();
 
-        // Register the null default here; AddCoachServices overrides it.
+        // Coach feature removed for v1. The seam consumers (ReviewWorkflowService,
+        // GameLifecycleWorkflowService, VodPlayerViewModel) resolve to this no-op.
         services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
         return services;
     }
@@ -130,29 +130,6 @@ internal static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>Register the coach rebuild services (phase 0+).</summary>
-    public static IServiceCollection AddCoachServices(this IServiceCollection services)
-    {
-        services.AddHttpClient("CoachInstaller");
-        services.AddHttpClient("CoachSidecar");
-        services.AddHttpClient("CoachApi");
-
-        services.AddSingleton<ICoachInstallerService, CoachInstallerService>();
-        services.AddSingleton<ICoachMlExtrasInstallerService, CoachMlExtrasInstallerService>();
-        services.AddSingleton<ICoachCredentialStore, CoachCredentialStore>();
-        services.AddSingleton<CoachSidecarService>();
-        services.AddHostedService(sp => sp.GetRequiredService<CoachSidecarService>());
-        services.AddSingleton<ICoachApiClient, CoachApiClient>();
-
-        // Replace the null notifier registered by AddCoreServices.
-        var existing = services.FirstOrDefault(d => d.ServiceType == typeof(ICoachSidecarNotifier));
-        if (existing is not null)
-            services.Remove(existing);
-        services.AddSingleton<ICoachSidecarNotifier, CoachSidecarNotifier>();
-
-        return services;
-    }
-
     public static IServiceCollection AddViewModels(this IServiceCollection services)
     {
         services.AddTransient<ShellViewModel>();
@@ -173,8 +150,6 @@ internal static class ServiceCollectionExtensions
         services.AddTransient<VodPlayerViewModel>();
         services.AddTransient<ObjectiveGamesViewModel>();
         services.AddTransient<ObjectiveNotesViewModel>();
-        services.AddTransient<CoachSettingsViewModel>();
-        services.AddSingleton<CoachChatViewModel>();
         return services;
     }
 

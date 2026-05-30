@@ -26,7 +26,6 @@ internal static class AppHostFactory
                     .AddMessaging()
                     .AddLcuServices(BypassSslValidation)
                     .AddUiServices()
-                    .AddCoachServices()
                     .AddViewModels()
                     .AddStartupPipeline();
             })
