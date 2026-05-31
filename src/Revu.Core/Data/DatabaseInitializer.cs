@@ -92,25 +92,15 @@ public sealed class DatabaseInitializer
         // 5. Seed default persistent_notes row if empty
         await SeedPersistentNotesAsync(connection, cancellationToken);
 
-        // 6. C3: Backfill objectives.game_count / score.
-        // These are full-table UPDATEs that are expensive on large DBs.
-        // Gate them behind a schema_metadata flag so they run ONCE and are
-        // skipped on every subsequent cold start. The flag is set only AFTER
-        // both backfills succeed, so a crash mid-run will re-run them cleanly
-        // on the next launch.
-        const string BackfillsDoneKey = "backfills_v1";
-        var backfillsDone = await GetMetadataFlagAsync(connection, BackfillsDoneKey, cancellationToken);
-        if (!backfillsDone)
-        {
-            await BackfillObjectiveGameCountAsync(connection, cancellationToken);
-            await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
-            await SetMetadataFlagAsync(connection, BackfillsDoneKey, cancellationToken);
-            _logger.LogInformation("One-time objective backfills completed and flagged as '{Flag}'", BackfillsDoneKey);
-        }
-        else
-        {
-            _logger.LogDebug("Skipping objective backfills (already completed, flag '{Flag}' set)", BackfillsDoneKey);
-        }
+        // 6. Backfill objectives.game_count / score from game_objectives.
+        // These run on every init by design: they are the reconciliation step
+        // that keeps objectives.score / game_count in sync with practiced
+        // game_objectives rows, not a one-time migration. (A previous attempt to
+        // gate these behind a "run once" flag broke that contract — scores went
+        // stale when new practiced games arrived — so they run every time. The
+        // WHERE guards make them no-ops when nothing changed.)
+        await BackfillObjectiveGameCountAsync(connection, cancellationToken);
+        await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
 
         _logger.LogInformation("Database initialized at {Path}", _connectionFactory.DatabasePath);
     }
@@ -173,42 +163,6 @@ public sealed class DatabaseInitializer
             """;
         cmd.Parameters.AddWithValue("$key", Schema.AppSchemaVersionKey);
         cmd.Parameters.AddWithValue("$value", version.ToString());
-        cmd.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-        await cmd.ExecuteNonQueryAsync(ct);
-    }
-    // ── schema_metadata flag helpers (C3 backfill gate) ────────────────
-
-    private static async Task<bool> GetMetadataFlagAsync(
-        SqliteConnection connection,
-        string key,
-        CancellationToken ct)
-    {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT value
-            FROM schema_metadata
-            WHERE key = $key
-            """;
-        cmd.Parameters.AddWithValue("$key", key);
-        var value = await cmd.ExecuteScalarAsync(ct);
-        return value is not null
-            && string.Equals(Convert.ToString(value), "done", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static async Task SetMetadataFlagAsync(
-        SqliteConnection connection,
-        string key,
-        CancellationToken ct)
-    {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO schema_metadata (key, value, updated_at)
-            VALUES ($key, 'done', $updatedAt)
-            ON CONFLICT(key) DO UPDATE SET
-                value = 'done',
-                updated_at = excluded.updated_at
-            """;
-        cmd.Parameters.AddWithValue("$key", key);
         cmd.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -871,6 +825,11 @@ public sealed class DatabaseInitializer
         [
             Schema.CreateObjectivePromptsIndex,
             Schema.CreatePromptAnswersIndex,
+            // Partial indexes on games WHERE is_hidden = 0 — is_hidden is added by
+            // an ALTER TABLE migration, so these must run here, after migrations,
+            // not in AllCreateStatements (which runs before the column exists).
+            Schema.CreateGamesTimestampIndex,
+            Schema.CreateGamesChampionIndex,
         ];
 
         foreach (var sql in indexes)

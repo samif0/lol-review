@@ -820,8 +820,10 @@ public static class Schema
     [
         CreateSchemaMetadataTable,
         CreateGamesTable,
-        CreateGamesTimestampIndex,
-        CreateGamesChampionIndex,
+        // NOTE: idx_games_timestamp / idx_games_champion are partial indexes on
+        // WHERE is_hidden = 0, but is_hidden is added by an ALTER TABLE migration
+        // (not a base column), so they must be created AFTER migrations run — see
+        // CreatePostMigrationIndexesAsync. They are intentionally NOT in this list.
         CreateSessionLogTable,
         CreateSessionLogGameIdIndex,
         CreateReviewDraftsTable,
