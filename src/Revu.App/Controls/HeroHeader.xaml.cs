@@ -1,7 +1,9 @@
 #nullable enable
 
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 
 namespace Revu.App.Controls;
 
@@ -11,8 +13,6 @@ namespace Revu.App.Controls;
 /// </summary>
 public sealed partial class HeroHeader : UserControl
 {
-    private DispatcherTimer? _cursorTimer;
-
     public HeroHeader()
     {
         InitializeComponent();
@@ -82,23 +82,34 @@ public sealed partial class HeroHeader : UserControl
     private void StartCursorBlink()
     {
         StopCursorBlink();
-        _cursorTimer = new DispatcherTimer
+
+        try
         {
-            Interval = TimeSpan.FromMilliseconds(500)
-        };
-        _cursorTimer.Tick += (_, _) =>
-        {
-            CursorTextBlock.Opacity = CursorTextBlock.Opacity > 0.5 ? 0.0 : 1.0;
-        };
-        _cursorTimer.Start();
+            // Use a Composition opacity animation instead of a DispatcherTimer so
+            // the blink runs on the compositor thread with zero UI-thread wakes.
+            // 0→1→0 over 1 s (each half = 500 ms) replicates the former 2 Hz toggle.
+            var visual = ElementCompositionPreview.GetElementVisual(CursorTextBlock);
+            var compositor = visual.Compositor;
+
+            var anim = compositor.CreateScalarKeyFrameAnimation();
+            anim.InsertKeyFrame(0.0f, 1.0f);
+            anim.InsertKeyFrame(0.5f, 0.0f);
+            anim.InsertKeyFrame(1.0f, 1.0f);
+            anim.Duration = TimeSpan.FromSeconds(1.0);
+            anim.IterationBehavior = AnimationIterationBehavior.Forever;
+
+            visual.StartAnimation(nameof(visual.Opacity), anim);
+        }
+        catch { }
     }
 
     private void StopCursorBlink()
     {
-        if (_cursorTimer is not null)
+        try
         {
-            _cursorTimer.Stop();
-            _cursorTimer = null;
+            var visual = ElementCompositionPreview.GetElementVisual(CursorTextBlock);
+            visual.StopAnimation(nameof(visual.Opacity));
         }
+        catch { }
     }
 }

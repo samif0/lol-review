@@ -66,11 +66,11 @@ public sealed partial class VodPlayerPage : Page
             PointerPressedEvent,
             new PointerEventHandler(OnVideoPointerPressed),
             handledEventsToo: true);
-        TimelineInboxScroll.AddHandler(
-            UIElement.PointerWheelChangedEvent,
-            new PointerEventHandler(TimelineInboxScroll_PointerWheelChanged),
-            handledEventsToo: true);
-
+        // v2.17.17: no manual PointerWheelChanged routing for the moments list.
+        // The right column is now a plain Grid (no outer ScrollViewer), so the
+        // ListView's own ScrollViewer is the only vertical scroller and the
+        // mouse wheel reaches it directly. The hand-rolled handler existed only
+        // to work around the parent-ScrollViewer stealing wheel events.
         Loaded += (_, _) =>
         {
             AnimationHelper.AnimatePageEnter(RootGrid);
@@ -222,7 +222,8 @@ public sealed partial class VodPlayerPage : Page
             or nameof(ViewModel.HasVod)
             or nameof(ViewModel.HasPlayableVod)
             or nameof(ViewModel.HasPlayableClips)
-            or nameof(ViewModel.VodAvailabilityText))
+            or nameof(ViewModel.VodAvailabilityText)
+            or nameof(ViewModel.IsLoading))
             DispatcherQueue.TryEnqueue(() =>
             {
                 TryLoadMedia();
@@ -263,6 +264,12 @@ public sealed partial class VodPlayerPage : Page
         if (_mediaPlayer == null) return;
         if (string.IsNullOrEmpty(ViewModel.VodPath) || !ViewModel.HasVod)
         {
+            if (!ViewModel.IsLoading)
+            {
+                _mediaPlayer.Source = null;
+                _loadedMediaPath = null;
+            }
+
             NoVodBorder.Visibility = ViewModel.IsLoading ? Visibility.Collapsed : Visibility.Visible;
             NoVodText.Text = ViewModel.VodAvailabilityText;
             VideoPlayPauseButton.Visibility = Visibility.Collapsed;
@@ -372,7 +379,8 @@ public sealed partial class VodPlayerPage : Page
             DispatcherQueue.TryEnqueue(() =>
             {
                 NoVodText.Text = $"Failed to load VOD: {ex.Message}";
-                NoVodText.Visibility = Visibility.Visible;
+                NoVodBorder.Visibility = Visibility.Visible;
+                VideoPlayPauseButton.Visibility = Visibility.Collapsed;
             });
         }
     }
@@ -712,42 +720,37 @@ public sealed partial class VodPlayerPage : Page
         }
     }
 
-    private void TimelineInboxScroll_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is ScrollViewer scroller)
-        {
-            ScrollInnerViewer(scroller, e);
-        }
-    }
-
-    private static void ScrollInnerViewer(ScrollViewer scroller, PointerRoutedEventArgs e)
-    {
-        if (scroller.ScrollableHeight <= 0)
-        {
-            return;
-        }
-
-        var delta = e.GetCurrentPoint(scroller).Properties.MouseWheelDelta;
-        var canScroll = delta < 0
-            ? scroller.VerticalOffset < scroller.ScrollableHeight
-            : scroller.VerticalOffset > 0;
-
-        if (!canScroll)
-        {
-            return;
-        }
-
-        var nextOffset = Math.Clamp(scroller.VerticalOffset - delta, 0, scroller.ScrollableHeight);
-        scroller.ChangeView(null, nextOffset, null, disableAnimation: true);
-        e.Handled = true;
-    }
-
     private void OnOpenEvidenceClick(object sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: EvidenceInboxItem evidence })
         {
             ViewModel.OpenEvidenceCommand.Execute(evidence);
             FocusPlaybackSurface();
+        }
+    }
+
+    private void OnShareEvidenceClipClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: EvidenceInboxItem evidence })
+        {
+            ViewModel.ShareEvidenceClipCommand.Execute(evidence);
+        }
+    }
+
+    private void OnDeleteEvidenceClipClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: EvidenceInboxItem evidence })
+        {
+            ViewModel.DeleteEvidenceClipCommand.Execute(evidence);
+            FocusPlaybackSurface();
+        }
+    }
+
+    private void OnEvidenceDetailsClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: EvidenceInboxItem evidence })
+        {
+            evidence.IsExpanded = !evidence.IsExpanded;
         }
     }
 

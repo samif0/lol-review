@@ -1000,17 +1000,30 @@ public class GameDisplayItem
         ? ChampionName
         : $"{ChampionName} vs {EnemyChampion}";
 
+    // Cached deserialization of ParticipantMapJson — null means "not yet parsed",
+    // an empty dict means "parsed but empty/invalid". Set once on first access.
+    private System.Collections.Generic.Dictionary<string, string>? _participantMapCache;
+    private bool _participantMapParsed;
+
+    private System.Collections.Generic.Dictionary<string, string>? GetParticipantMap()
+    {
+        if (_participantMapParsed) return _participantMapCache;
+        _participantMapParsed = true;
+        if (string.IsNullOrWhiteSpace(ParticipantMapJson)) return null;
+        try
+        {
+            _participantMapCache = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(ParticipantMapJson);
+        }
+        catch { _participantMapCache = null; }
+        return _participantMapCache;
+    }
+
     private string? RoleAwareDisplay()
     {
         if (string.IsNullOrWhiteSpace(GameRole) || string.IsNullOrWhiteSpace(ParticipantMapJson))
             return null;
 
-        System.Collections.Generic.Dictionary<string, string>? map = null;
-        try
-        {
-            map = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(ParticipantMapJson);
-        }
-        catch { return null; }
+        var map = GetParticipantMap();
         if (map is null || map.Count == 0) return null;
 
         // Pairing rules per docs/V2_16_BACKLOG.md. Returns null for top

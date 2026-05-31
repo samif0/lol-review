@@ -196,36 +196,58 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         if (plan.ReconcileMatchHistory)
         {
-            // Attempt to find and report the just-finished game from match history.
-            // If nothing is found (Riot's API hasn't processed it yet), keep retrying for up to 3 min.
-            var found = await TryPublishPostGameReconcileAsync(cancellationToken).ConfigureAwait(false);
-            if (found)
+            // Exponential-ish backoff: only attempt the reconcile HTTP call when
+            // the next-eligible time has passed. This covers the same ~3-min window
+            // as before but with far fewer LCU round-trips.
+            // Backoff sequence after a miss (seconds): 15, 30, 60, 60, 60 (5 retries)
+            var now = DateTime.UtcNow;
+            var attemptDue = now >= _state.PostGameReconcileNextAttemptUtc;
+
+            if (!attemptDue)
             {
-                _state.ReconcilePending = false;
-                _state.PostGameReconcileRetriesRemaining = 0;
+                // Not yet due — skip this tick but keep ReconcilePending so we return here next tick.
+                CoreDiagnostics.WriteVerbose(
+                    $"LCU: PostGameReconcile waiting for backoff, due in {(_state.PostGameReconcileNextAttemptUtc - now).TotalSeconds:F0}s");
             }
             else
             {
-                // Nothing in match history yet — schedule retries via the ReconcilePending flag
-                if (_state.PostGameReconcileRetriesRemaining <= 0)
+                // Attempt to find and report the just-finished game from match history.
+                // If nothing is found (Riot's API hasn't processed it yet), keep retrying.
+                var found = await TryPublishPostGameReconcileAsync(cancellationToken).ConfigureAwait(false);
+                if (found)
                 {
-                    // First miss: allow up to ~36 retries × 5s poll = ~3 minutes of waiting
-                    _state.PostGameReconcileRetriesRemaining = 36;
+                    _state.ReconcilePending = false;
+                    _state.PostGameReconcileRetriesRemaining = 0;
+                    _state.PostGameReconcileNextAttemptUtc = DateTime.MinValue;
                 }
                 else
                 {
-                    _state.PostGameReconcileRetriesRemaining--;
+                    // Nothing in match history yet — schedule next attempt with backoff.
+                    // Sequence: first miss→15s, 2nd→30s, 3rd+→60s. Max 5 retries total.
                     if (_state.PostGameReconcileRetriesRemaining <= 0)
                     {
-                        // Gave up — stop retrying
-                        _state.ReconcilePending = false;
-                        CoreDiagnostics.WriteVerbose("LCU: PostGameReconcile gave up after retries");
+                        // First miss — initialise the retry counter and set the first backoff delay.
+                        _state.PostGameReconcileRetriesRemaining = 5;
+                        _state.PostGameReconcileNextAttemptUtc = now.AddSeconds(15);
                     }
                     else
                     {
-                        // Keep ReconcilePending = true so the next idle tick retries
-                        CoreDiagnostics.WriteVerbose(
-                            $"LCU: PostGameReconcile not found yet, retries left={_state.PostGameReconcileRetriesRemaining}");
+                        _state.PostGameReconcileRetriesRemaining--;
+                        if (_state.PostGameReconcileRetriesRemaining <= 0)
+                        {
+                            // Gave up — stop retrying
+                            _state.ReconcilePending = false;
+                            _state.PostGameReconcileNextAttemptUtc = DateTime.MinValue;
+                            CoreDiagnostics.WriteVerbose("LCU: PostGameReconcile gave up after retries");
+                        }
+                        else
+                        {
+                            // Schedule next attempt: 30s for the second retry, 60s thereafter.
+                            var delaySecs = _state.PostGameReconcileRetriesRemaining >= 4 ? 30 : 60;
+                            _state.PostGameReconcileNextAttemptUtc = now.AddSeconds(delaySecs);
+                            CoreDiagnostics.WriteVerbose(
+                                $"LCU: PostGameReconcile not found yet, retries left={_state.PostGameReconcileRetriesRemaining} nextIn={delaySecs}s");
+                        }
                     }
                 }
             }

@@ -1,8 +1,8 @@
 #nullable enable
 
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
+using Revu.App.Styling;
 
 namespace Revu.App.Converters;
 
@@ -13,11 +13,13 @@ namespace Revu.App.Converters;
 /// </summary>
 public sealed class ChipBgConverter : IValueConverter
 {
+    private static readonly SolidColorBrush SelectedBrush = AppSemanticPalette.Brush(AppSemanticPalette.AccentBlueDimHex);
+    private static readonly SolidColorBrush UnselectedBrush = AppSemanticPalette.Brush(AppSemanticPalette.TagSurfaceHex);
+
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var selected = value is bool b && b;
-        var key = selected ? "AccentBlueDimBrush" : "InputBackgroundBrush";
-        return (Brush)Application.Current.Resources[key];
+        return selected ? SelectedBrush : UnselectedBrush;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language)
@@ -30,11 +32,13 @@ public sealed class ChipBgConverter : IValueConverter
 /// </summary>
 public sealed class ChipBorderConverter : IValueConverter
 {
+    private static readonly SolidColorBrush SelectedBrush = AppSemanticPalette.Brush(AppSemanticPalette.AccentBlueHex);
+    private static readonly SolidColorBrush UnselectedBrush = AppSemanticPalette.Brush(AppSemanticPalette.SubtleBorderHex);
+
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var selected = value is bool b && b;
-        var key = selected ? "AccentBlueBrush" : "SubtleBorderBrush";
-        return (Brush)Application.Current.Resources[key];
+        return selected ? SelectedBrush : UnselectedBrush;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language)

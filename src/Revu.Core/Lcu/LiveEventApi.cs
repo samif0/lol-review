@@ -125,7 +125,7 @@ public sealed class LiveEventApi : ILiveEventApi
             response.EnsureSuccessStatusCode();
 
             var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
             return doc.RootElement.Clone();
         }
         catch

@@ -20,22 +20,34 @@ internal sealed class AppBootstrapper : IAppBootstrapper
 
     public async Task BootstrapAsync(CancellationToken cancellationToken = default)
     {
-        foreach (var startupTask in _startupTasks)
-        {
-            _logger.LogInformation("Running startup task {TaskName}", startupTask.Name);
-            if (startupTask is IUiThreadStartupTask)
-            {
-                await DispatcherHelper.RunOnUIThreadAsync(
-                    () => startupTask.ExecuteAsync(cancellationToken));
-            }
-            else
-            {
-                await Task.Run(
-                    () => startupTask.ExecuteAsync(cancellationToken),
-                    cancellationToken);
-            }
+        // Partition tasks: UI-thread tasks (AppResources) are independent of the
+        // ordered DB chain (migration → safety → init) and can run concurrently.
+        var uiTasks = _startupTasks.Where(t => t is IUiThreadStartupTask).ToList();
+        var bgTasks  = _startupTasks.Where(t => t is not IUiThreadStartupTask).ToList();
 
-            _logger.LogInformation("Completed startup task {TaskName}", startupTask.Name);
+        // Run the sequential DB chain in the background.
+        async Task RunBgChain()
+        {
+            foreach (var task in bgTasks)
+            {
+                _logger.LogInformation("Running startup task {TaskName}", task.Name);
+                await Task.Run(() => task.ExecuteAsync(cancellationToken), cancellationToken);
+                _logger.LogInformation("Completed startup task {TaskName}", task.Name);
+            }
         }
+
+        // Run all UI-thread tasks on the dispatcher (order preserved, independent of DB).
+        async Task RunUiChain()
+        {
+            foreach (var task in uiTasks)
+            {
+                _logger.LogInformation("Running startup task {TaskName}", task.Name);
+                await DispatcherHelper.RunOnUIThreadAsync(() => task.ExecuteAsync(cancellationToken));
+                _logger.LogInformation("Completed startup task {TaskName}", task.Name);
+            }
+        }
+
+        // The two chains are independent — run them concurrently.
+        await Task.WhenAll(RunBgChain(), RunUiChain());
     }
 }

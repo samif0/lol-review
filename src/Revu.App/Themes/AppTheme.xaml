@@ -206,9 +206,9 @@
                          Center="0.5,0.5"
                          GradientOrigin="0.5,0.5"
                          RadiusX="0.95"
-                         RadiusY="1.1">
+                         RadiusY="0.95">
         <GradientStop Color="#18A78BFA" Offset="0"/>
-        <GradientStop Color="#0CA78BFA" Offset="0.6"/>
+        <GradientStop Color="#0CA78BFA" Offset="0.55"/>
         <GradientStop Color="#00A78BFA" Offset="1"/>
     </RadialGradientBrush>
 
@@ -222,10 +222,14 @@
 
     <ControlTemplate x:Key="PrimaryHudButtonTemplate" TargetType="Button">
         <Grid Background="Transparent">
+            <!-- Soft hover aura. No CornerRadius: the radial gradient already
+                 fades to transparent, so a rounded-rect clip only adds a hard
+                 edge that fights the fade. Horizontal overflow is wider than
+                 vertical so the glow reads as a side halo and its top doesn't
+                 spill far enough to be clipped by a tight parent above. -->
             <Border x:Name="GlowChrome"
-                    Margin="-4"
+                    Margin="-6,-2"
                     Background="{StaticResource ButtonHoverGlow}"
-                    CornerRadius="{TemplateBinding CornerRadius}"
                     Opacity="0"
                     IsHitTestVisible="False"/>
 

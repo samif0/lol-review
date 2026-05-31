@@ -47,8 +47,12 @@
                             Spacing="14">
 
                     <!-- v2.16: Start Block — manual pre-queue ritual.
-                         Auto-trigger from LCU home-state still TBD. -->
-                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">
+                         Auto-trigger from LCU home-state still TBD.
+                         Top margin gives the button's hover lift + glow room to
+                         render; the ScrollViewer above has 0 top padding so
+                         without this the aura clips against the viewport edge. -->
+                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left"
+                                Margin="0,8,0,0">
                         <Button Content="Start Block"
                                 Click="StartBlockButton_Click"
                                 Style="{StaticResource GoldActionButtonStyle}"

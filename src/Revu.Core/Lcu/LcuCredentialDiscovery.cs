@@ -50,6 +50,16 @@ public sealed class LcuCredentialDiscovery : ILcuCredentialDiscovery
     {
         try
         {
+            // Fast check: if no process with that name exists at all, skip the
+            // expensive WMI CommandLine query entirely (saves 200-500ms per poll
+            // when League isn't running).
+            var processes = System.Diagnostics.Process.GetProcessesByName("LeagueClientUx");
+            if (processes.Length == 0)
+            {
+                CoreDiagnostics.WriteVerbose("LCU: FindFromProcess no LeagueClientUx process - skipping WMI");
+                return null;
+            }
+
             CoreDiagnostics.WriteVerbose("LCU: FindFromProcess querying LeagueClientUx.exe");
             using var searcher = new ManagementObjectSearcher(
                 "SELECT CommandLine FROM Win32_Process WHERE Name = 'LeagueClientUx.exe'");

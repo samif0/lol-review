@@ -31,7 +31,7 @@ public sealed partial class HexPatternLayer : UserControl
     // so the cache wasn't earning its keep anyway.
 
     private bool _patternDirty = true;
-    private bool _ensurePending;
+    private Size _lastBuiltSize;
 
     public HexPatternLayer()
     {
@@ -39,7 +39,10 @@ public sealed partial class HexPatternLayer : UserControl
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         SizeChanged += OnSizeChanged;
-        LayoutUpdated += OnLayoutUpdated;
+        // LayoutUpdated was previously subscribed here but fires on every layout
+        // pass app-wide, causing unnecessary work. SizeChanged is sufficient to
+        // detect real size changes; EnsurePattern() handles the deferred-build
+        // path when size isn't available yet at construction time.
     }
 
     public static readonly DependencyProperty AccentBrushProperty =
@@ -146,24 +149,37 @@ public sealed partial class HexPatternLayer : UserControl
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         InvalidatePattern();
+        // Build now if we already have an arranged size. Covers the case where
+        // SizeChanged fired before Loaded (already-sized parent), since we no
+        // longer have the app-wide LayoutUpdated fallback to catch a late build.
+        EnsurePattern();
         ApplyOffset();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        _ensurePending = false;
         PatternPath.Data = null;
+        _lastBuiltSize = default;
         InvalidatePattern();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        InvalidatePattern();
-    }
+        // Skip rebuild when the size delta is negligible (sub-4px in both axes).
+        // This suppresses spurious calls during border animations, DPI rounding,
+        // and panel micro-adjustments that would never visibly change the pattern.
+        const double MinDeltaPx = 4.0;
+        var newSize = e.NewSize;
+        if (Math.Abs(newSize.Width - _lastBuiltSize.Width) < MinDeltaPx &&
+            Math.Abs(newSize.Height - _lastBuiltSize.Height) < MinDeltaPx)
+        {
+            return;
+        }
 
-    private void OnLayoutUpdated(object? sender, object e)
-    {
-        if (_ensurePending && LayoutRoot.ActualWidth > 0 && LayoutRoot.ActualHeight > 0)
+        InvalidatePattern();
+        // If we already have a valid size, rebuild immediately so callers don't
+        // need to call EnsurePattern() after every resize.
+        if (newSize.Width > 0 && newSize.Height > 0)
         {
             RebuildPattern();
         }
@@ -186,11 +202,9 @@ public sealed partial class HexPatternLayer : UserControl
     {
         if (LayoutRoot.ActualWidth <= 0 || LayoutRoot.ActualHeight <= 0)
         {
-            _ensurePending = true;
             return;
         }
 
-        _ensurePending = false;
         var hexRadius = Math.Max(7.0, HexSize);
         var hexWidth = hexRadius * 2.0;
         var hexHeight = Math.Sqrt(3.0) * hexRadius;
@@ -237,6 +251,7 @@ public sealed partial class HexPatternLayer : UserControl
         }
 
         _patternDirty = false;
+        _lastBuiltSize = new Size(LayoutRoot.ActualWidth, LayoutRoot.ActualHeight);
 
         ApplyOffset();
     }

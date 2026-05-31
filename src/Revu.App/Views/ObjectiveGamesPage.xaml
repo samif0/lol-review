@@ -79,75 +79,82 @@
                        Margin="0,30"/>
         </Border>
 
-        <!-- Games list -->
-        <ScrollViewer Grid.Row="1"
-                      VerticalScrollBarVisibility="Auto"
-                      Visibility="{x:Bind ViewModel.HasActivity, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-            <StackPanel Margin="24,0,24,24" Spacing="12">
-                <Border Background="{StaticResource CardBackgroundBrush}"
-                        CornerRadius="2"
-                        Padding="14,12"
-                        BorderThickness="1"
-                        BorderBrush="{StaticResource AccentGoldBrush}"
-                        Visibility="{x:Bind ViewModel.HasEvidence, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                    <StackPanel Spacing="10">
-                        <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Text="EVIDENCE LEDGER"
-                                       FontFamily="{StaticResource MonoFont}"
-                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                       CharacterSpacing="200"
-                                       Foreground="{StaticResource AccentGoldBrush}"/>
-                            <TextBlock Grid.Column="1"
-                                       Text="{x:Bind ViewModel.EvidenceSummary, Mode=OneWay}"
-                                       FontFamily="{StaticResource MonoFont}"
-                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                       Foreground="{StaticResource SecondaryTextBrush}"/>
-                        </Grid>
+        <!-- Games list area split into Evidence card (bounded, outside scroll) + scrollable games list -->
+        <Grid Grid.Row="1"
+              RowDefinitions="Auto,*"
+              Visibility="{x:Bind ViewModel.HasActivity, Mode=OneWay, Converter={StaticResource BoolToVis}}">
 
-                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.Evidence, Mode=OneWay}">
-                            <ItemsRepeater.Layout>
-                                <StackLayout Spacing="6"/>
-                            </ItemsRepeater.Layout>
-                            <ItemsRepeater.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ObjectiveEvidenceRow">
-                                    <Border Background="{StaticResource InputBackgroundBrush}"
-                                            BorderBrush="{x:Bind AccentBrush}"
-                                            BorderThickness="1" CornerRadius="2" Padding="10">
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                            <StackPanel Grid.Column="0" Spacing="4">
-                                                <TextBlock Text="{x:Bind Title}"
-                                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="{StaticResource PrimaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
-                                                <TextBlock Text="{x:Bind MetaText}"
-                                                           FontFamily="{StaticResource MonoFont}"
-                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                           Foreground="{StaticResource MutedTextBrush}"/>
-                                                <TextBlock Text="{x:Bind DisplayNote}"
-                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                                           TextWrapping="Wrap"
-                                                           Visibility="{x:Bind HasDisplayNote, Converter={StaticResource BoolToVis}}"/>
-                                            </StackPanel>
-                                            <Border Grid.Column="1"
-                                                    Background="{StaticResource CardBackgroundBrush}"
-                                                    BorderBrush="{x:Bind AccentBrush}"
-                                                    BorderThickness="1" CornerRadius="2" Padding="8,4"
-                                                    VerticalAlignment="Top">
-                                                <TextBlock Text="{x:Bind PolarityLabel}"
-                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                           Foreground="{x:Bind AccentBrush}"/>
-                                            </Border>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsRepeater.ItemTemplate>
-                        </ItemsRepeater>
-                    </StackPanel>
-                </Border>
+            <!-- Evidence Ledger card — bounded, sits above the scrollable list -->
+            <Border Grid.Row="0"
+                    Background="{StaticResource CardBackgroundBrush}"
+                    CornerRadius="2"
+                    Padding="14,12"
+                    Margin="24,0,24,12"
+                    BorderThickness="1"
+                    BorderBrush="{StaticResource AccentGoldBrush}"
+                    Visibility="{x:Bind ViewModel.HasEvidence, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="10">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="EVIDENCE LEDGER"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="200"
+                                   Foreground="{StaticResource AccentGoldBrush}"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{x:Bind ViewModel.EvidenceSummary, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                    </Grid>
 
+                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.Evidence, Mode=OneWay}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="6"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ObjectiveEvidenceRow">
+                                <Border Background="{StaticResource InputBackgroundBrush}"
+                                        BorderBrush="{x:Bind AccentBrush}"
+                                        BorderThickness="1" CornerRadius="2" Padding="10">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <StackPanel Grid.Column="0" Spacing="4">
+                                            <TextBlock Text="{x:Bind Title}"
+                                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock Text="{x:Bind MetaText}"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource MutedTextBrush}"/>
+                                            <TextBlock Text="{x:Bind DisplayNote}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="{x:Bind HasDisplayNote, Converter={StaticResource BoolToVis}}"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="1"
+                                                Background="{StaticResource CardBackgroundBrush}"
+                                                BorderBrush="{x:Bind AccentBrush}"
+                                                BorderThickness="1" CornerRadius="2" Padding="8,4"
+                                                VerticalAlignment="Top">
+                                            <TextBlock Text="{x:Bind PolarityLabel}"
+                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                       Foreground="{x:Bind AccentBrush}"/>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </StackPanel>
+            </Border>
+
+            <!-- ScrollViewer directly contains the Games ItemsRepeater for virtualization -->
+            <ScrollViewer Grid.Row="1"
+                          VerticalScrollBarVisibility="Auto">
                 <ItemsRepeater ItemsSource="{x:Bind ViewModel.Games, Mode=OneWay}"
+                               Margin="24,0,24,24"
                                Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <ItemsRepeater.Layout>
                         <StackLayout Spacing="8"/>
@@ -228,7 +235,7 @@
                         </DataTemplate>
                     </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>
-            </StackPanel>
-        </ScrollViewer>
+            </ScrollViewer>
+        </Grid>
     </Grid>
 </Page>

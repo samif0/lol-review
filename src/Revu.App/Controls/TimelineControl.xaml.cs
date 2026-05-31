@@ -676,16 +676,31 @@ public sealed partial class TimelineControl : UserControl
 
     // ── Helpers ──────────────────────────────────────────────────────
 
+    // Cache parsed RGB triples so repeated calls with the same hex string (which
+    // is the common case — every marker rebuild re-parses the same ~6 palette
+    // colors) don't re-allocate or redo the Convert.ToByte work.  The cache key
+    // is the normalised 6-char lowercase hex (no '#'); alpha is applied per-call
+    // so a single RGB entry covers all alpha variants.
+    private static readonly Dictionary<string, (byte R, byte G, byte B)> _colorCache
+        = new(StringComparer.OrdinalIgnoreCase);
+
     private static Windows.UI.Color ParseColor(string hex, byte alpha = 255)
     {
-        hex = hex.TrimStart('#');
-        if (hex.Length == 6)
+        var key = hex.TrimStart('#');
+        if (key.Length == 6)
         {
-            var r = Convert.ToByte(hex[..2], 16);
-            var g = Convert.ToByte(hex[2..4], 16);
-            var b = Convert.ToByte(hex[4..6], 16);
-            return Windows.UI.Color.FromArgb(alpha, r, g, b);
+            if (!_colorCache.TryGetValue(key, out var rgb))
+            {
+                rgb = (
+                    Convert.ToByte(key[..2], 16),
+                    Convert.ToByte(key[2..4], 16),
+                    Convert.ToByte(key[4..6], 16));
+                _colorCache[key] = rgb;
+            }
+
+            return Windows.UI.Color.FromArgb(alpha, rgb.R, rgb.G, rgb.B);
         }
+
         return Windows.UI.Color.FromArgb(alpha, 138, 128, 168); // #8A80A8 neutral fallback
     }
 

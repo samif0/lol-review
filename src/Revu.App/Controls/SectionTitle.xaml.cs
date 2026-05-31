@@ -19,6 +19,7 @@ public sealed partial class SectionTitle : UserControl
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     public static readonly DependencyProperty TextProperty =
@@ -36,9 +37,28 @@ public sealed partial class SectionTitle : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // Stop first to avoid stacking animations on re-navigation, then restart.
+        StopAllAnimations();
         AnimationHelper.AttachPulseOpacity(PulseDot, 0.4, 1.0, 2.0);
         AttachBreathingScale(PulseDot, 0.7f, 1.3f, 2.0);
         AttachSpin(PulseDot, 4.0);
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        StopAllAnimations();
+    }
+
+    private void StopAllAnimations()
+    {
+        try
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(PulseDot);
+            visual.StopAnimation(nameof(visual.Opacity));
+            visual.StopAnimation(nameof(visual.Scale));
+            visual.StopAnimation(nameof(visual.RotationAngleInDegrees));
+        }
+        catch { }
     }
 
     private static void AttachBreathingScale(UIElement element, float minScale, float maxScale, double durationSec)

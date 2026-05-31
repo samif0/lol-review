@@ -21,9 +21,15 @@ internal sealed class GameMonitorRuntimeState
     /// <summary>
     /// Number of post-game reconcile retries remaining.
     /// Set when a game is detected ended but match history doesn't have it yet.
-    /// The monitor retries every tick until this reaches 0.
     /// </summary>
     public int PostGameReconcileRetriesRemaining { get; set; }
+
+    /// <summary>
+    /// Earliest UTC time at which the next post-game reconcile attempt is allowed.
+    /// Used to implement exponential-ish backoff so the ~3-minute window is covered
+    /// with far fewer LCU calls than the previous fixed 5s cadence.
+    /// </summary>
+    public DateTime PostGameReconcileNextAttemptUtc { get; set; } = DateTime.MinValue;
 
     /// <summary>Last locally-picked champion reported during the current champ-select phase.</summary>
     public string LastChampSelectMy { get; set; } = "";

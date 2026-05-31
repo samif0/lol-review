@@ -11,6 +11,12 @@ namespace Revu.Core.Lcu;
 
 public sealed class GameEndCaptureService : IGameEndCaptureService
 {
+    private static readonly bool DiagnosticDumpEnabled =
+        string.Equals(
+            Environment.GetEnvironmentVariable("LOLREVIEW_DIAG_LOGS"),
+            "1",
+            StringComparison.Ordinal);
+
     private readonly ILcuClient _lcuClient;
     private readonly ILogger<GameEndCaptureService> _logger;
 
@@ -33,8 +39,10 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
             var eogData = await _lcuClient.GetEndOfGameStatsAsync(cancellationToken).ConfigureAwait(false);
             if (eogData is JsonElement eog)
             {
-                // Dump full EOG JSON on first successful fetch so we can debug team kill parsing
-                if (attempt == 0)
+                // Dump full EOG JSON only when verbose diagnostics are enabled
+                // (LOLREVIEW_DIAG_LOGS=1), mirroring the CoreDiagnostics gating
+                // pattern. Skipped in normal runs to avoid disk I/O on every game.
+                if (attempt == 0 && DiagnosticDumpEnabled)
                 {
                     try
                     {

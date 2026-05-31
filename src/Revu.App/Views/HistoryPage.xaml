@@ -67,19 +67,21 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Games list -->
-                    <ScrollViewer Grid.Row="1"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Spacing="4">
-                            <!-- No games message -->
-                            <TextBlock Visibility="{x:Bind ViewModel.HasNoGames, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                                       Text="No games recorded yet."
-                                       FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       HorizontalAlignment="Center"
-                                       Margin="0,40,0,0"/>
+                    <!-- Games list area: Grid splits the scrollable list from fixed chrome -->
+                    <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto">
+                        <!-- No games message sits outside the scroll area -->
+                        <TextBlock Grid.Row="0"
+                                   Visibility="{x:Bind ViewModel.HasNoGames, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                   Text="No games recorded yet."
+                                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,40,0,0"/>
 
+                        <!-- ScrollViewer directly contains the ItemsRepeater for virtualization -->
+                        <ScrollViewer Grid.Row="1"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
                             <!-- Game rows -->
                             <ItemsRepeater ItemsSource="{x:Bind ViewModel.Games, Mode=OneWay}">
                                 <ItemsRepeater.Layout>
@@ -118,18 +120,19 @@
                                     </DataTemplate>
                                 </ItemsRepeater.ItemTemplate>
                             </ItemsRepeater>
+                        </ScrollViewer>
 
-                            <!-- Load More button -->
-                            <Button Content="Load More"
-                                    Style="{StaticResource PrimaryActionButtonStyle}"
-                                    Visibility="{x:Bind ViewModel.HasMorePages, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                                    Command="{x:Bind ViewModel.LoadMoreCommand}"
-                                    HorizontalAlignment="Center"
-                                    Margin="0,12,0,24"
-                                    Height="32" Width="160"
-                                    FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
-                        </StackPanel>
-            </ScrollViewer>
+                        <!-- Load More button lives outside the ScrollViewer -->
+                        <Button Grid.Row="2"
+                                Content="Load More"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                Visibility="{x:Bind ViewModel.HasMorePages, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                Command="{x:Bind ViewModel.LoadMoreCommand}"
+                                HorizontalAlignment="Center"
+                                Margin="0,12,0,24"
+                                Height="32" Width="160"
+                                FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
+                    </Grid>
         </Grid>
     </Grid>
 </Page>

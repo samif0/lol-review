@@ -41,6 +41,48 @@ public sealed class LcuClient : ILcuClient
     {
         _baseUrl = credentials.BaseUrl;
         _authHeaderValue = credentials.AuthHeaderValue;
+
+        // Prewarm the champion-name cache as soon as we have credentials so that
+        // champ-select ticks find the dictionary already populated and don't need
+        // to issue ~10 sequential per-champion HTTP calls for the enemy team.
+        // Fire-and-forget: failures are logged but won't affect correctness.
+        if (_championNamesById is null)
+        {
+            _ = PrewarmChampionNamesAsync();
+        }
+    }
+
+    private async Task PrewarmChampionNamesAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            // Fetch champion-summary.json and populate the cache so champ-select
+            // ticks don't issue per-champion calls for the enemy team (~10 HTTP
+            // requests). Mirrors the bulk-fetch path inside GetChampionNameAsync.
+            var data = await GetAsync("/lol-game-data/assets/v1/champion-summary.json", cts.Token).ConfigureAwait(false);
+            if (data is not JsonElement dataEl || dataEl.ValueKind != JsonValueKind.Array)
+                return;
+
+            var championNames = new Dictionary<int, string>();
+            foreach (var champion in dataEl.EnumerateArray())
+            {
+                var id = champion.GetPropertyIntOrDefault("id", 0);
+                if (id <= 0) continue;
+                var name = champion.GetPropertyOrDefault("alias", "");
+                if (string.IsNullOrWhiteSpace(name))
+                    name = champion.GetPropertyOrDefault("name", "");
+                if (!string.IsNullOrWhiteSpace(name))
+                    championNames[id] = name;
+            }
+
+            _championNamesById = championNames;
+            _logger.LogDebug("Champion name cache prewarmed with {Count} entries", championNames.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Champion name prewarm failed (non-fatal)");
+        }
     }
 
     /// <inheritdoc />
@@ -463,7 +505,7 @@ public sealed class LcuClient : ILcuClient
         response.EnsureSuccessStatusCode();
 
         var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
         return doc.RootElement.Clone();
     }
 }

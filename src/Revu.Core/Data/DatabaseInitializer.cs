@@ -33,6 +33,16 @@ public sealed class DatabaseInitializer
 
         using var connection = _connectionFactory.CreateConnection();
 
+        // B4: WAL mode persists at the DB file level once set; set it once here
+        // during init rather than on every connection open in the factory.
+        // This is the first connection opened on a fresh DB, so WAL will be
+        // established before any DDL or data writes occur.
+        using (var walCmd = connection.CreateCommand())
+        {
+            walCmd.CommandText = "PRAGMA journal_mode=WAL;";
+            await walCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         // 1. Execute all CREATE TABLE / CREATE INDEX statements
         foreach (var statement in Schema.AllCreateStatements)
         {
@@ -82,9 +92,25 @@ public sealed class DatabaseInitializer
         // 5. Seed default persistent_notes row if empty
         await SeedPersistentNotesAsync(connection, cancellationToken);
 
-        // 6. Backfill objectives.game_count from game_objectives for existing data
-        await BackfillObjectiveGameCountAsync(connection, cancellationToken);
-        await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
+        // 6. C3: Backfill objectives.game_count / score.
+        // These are full-table UPDATEs that are expensive on large DBs.
+        // Gate them behind a schema_metadata flag so they run ONCE and are
+        // skipped on every subsequent cold start. The flag is set only AFTER
+        // both backfills succeed, so a crash mid-run will re-run them cleanly
+        // on the next launch.
+        const string BackfillsDoneKey = "backfills_v1";
+        var backfillsDone = await GetMetadataFlagAsync(connection, BackfillsDoneKey, cancellationToken);
+        if (!backfillsDone)
+        {
+            await BackfillObjectiveGameCountAsync(connection, cancellationToken);
+            await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
+            await SetMetadataFlagAsync(connection, BackfillsDoneKey, cancellationToken);
+            _logger.LogInformation("One-time objective backfills completed and flagged as '{Flag}'", BackfillsDoneKey);
+        }
+        else
+        {
+            _logger.LogDebug("Skipping objective backfills (already completed, flag '{Flag}' set)", BackfillsDoneKey);
+        }
 
         _logger.LogInformation("Database initialized at {Path}", _connectionFactory.DatabasePath);
     }
@@ -150,6 +176,43 @@ public sealed class DatabaseInitializer
         cmd.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await cmd.ExecuteNonQueryAsync(ct);
     }
+    // ── schema_metadata flag helpers (C3 backfill gate) ────────────────
+
+    private static async Task<bool> GetMetadataFlagAsync(
+        SqliteConnection connection,
+        string key,
+        CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT value
+            FROM schema_metadata
+            WHERE key = $key
+            """;
+        cmd.Parameters.AddWithValue("$key", key);
+        var value = await cmd.ExecuteScalarAsync(ct);
+        return value is not null
+            && string.Equals(Convert.ToString(value), "done", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task SetMetadataFlagAsync(
+        SqliteConnection connection,
+        string key,
+        CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO schema_metadata (key, value, updated_at)
+            VALUES ($key, 'done', $updatedAt)
+            ON CONFLICT(key) DO UPDATE SET
+                value = 'done',
+                updated_at = excluded.updated_at
+            """;
+        cmd.Parameters.AddWithValue("$key", key);
+        cmd.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private async Task NormalizeRulesTableAsync(SqliteConnection connection, CancellationToken ct)
     {
         var columns = await GetTableColumnsAsync(connection, "rules", ct);

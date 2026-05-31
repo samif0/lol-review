@@ -227,12 +227,21 @@ public partial class ShellViewModel : ObservableRecipient,
         OnPropertyChanged(nameof(ShowReviewQueueNav));
     }
 
+    // C6: sentinel file path for the 24-hour auto-backfill gate.
+    // Lives in %LOCALAPPDATA%\LoLReviewData so it survives app updates.
+    private static readonly string AutoBackfillSentinelPath =
+        Path.Combine(Revu.Core.Data.AppDataPaths.UserDataRoot, "auto_backfill_last_run.txt");
+
+    private static readonly TimeSpan AutoBackfillCooldown = TimeSpan.FromHours(24);
+
     /// <summary>
     /// v2.15.8: silent enemy-laner backfill on launch. Once-per-process,
     /// gated on a valid Riot session, capped at 50 games per launch so a
     /// brand-new user with a thousand-game backlog drains over multiple
     /// sessions instead of hammering the proxy in one go. Failures are
     /// swallowed — the Settings card stays available for manual retry.
+    /// C6: additionally gated by a 24-hour cooldown via a sentinel file so
+    /// we don't issue up to 50 Riot HTTP calls on every cold start.
     /// </summary>
     private async Task AutoBackfillEnemyLanersAsync()
     {
@@ -243,6 +252,31 @@ public partial class ShellViewModel : ObservableRecipient,
                 AppDiagnostics.WriteVerbose("startup.log", "AutoBackfill skipped: Riot proxy not enabled");
                 return;
             }
+
+            // C6: skip if we ran within the last 24 hours
+            if (File.Exists(AutoBackfillSentinelPath))
+            {
+                try
+                {
+                    var lastRunText = await File.ReadAllTextAsync(AutoBackfillSentinelPath).ConfigureAwait(false);
+                    if (long.TryParse(lastRunText.Trim(), out var unixSeconds))
+                    {
+                        var lastRun = DateTimeOffset.FromUnixTimeSeconds(unixSeconds).LocalDateTime;
+                        var age = DateTime.Now - lastRun;
+                        if (age < AutoBackfillCooldown)
+                        {
+                            AppDiagnostics.WriteVerbose("startup.log",
+                                $"AutoBackfill skipped: last run {age:g} ago (cooldown {AutoBackfillCooldown:g})");
+                            return;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "AutoBackfill: could not read sentinel file, will run anyway");
+                }
+            }
+
             // Defer briefly so the shell paints first; this is purely a
             // background nicety, not user-blocking.
             await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
@@ -250,6 +284,18 @@ public partial class ShellViewModel : ObservableRecipient,
             AppDiagnostics.WriteVerbose("startup.log",
                 $"AutoBackfill done: scanned={result.Scanned} updated={result.Updated} " +
                 $"skipped={result.Skipped} failed={result.Failed}");
+
+            // C6: write sentinel so we skip the HTTP calls for 24h
+            try
+            {
+                var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+                await File.WriteAllTextAsync(AutoBackfillSentinelPath, nowUnix).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "AutoBackfill: could not write sentinel file (non-fatal)");
+            }
+
             if (result.Updated > 0)
             {
                 WeakReferenceMessenger.Default.Send(new GameMatchupsBackfilledMessage(result.Updated));

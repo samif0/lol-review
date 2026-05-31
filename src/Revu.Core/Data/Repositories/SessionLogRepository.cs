@@ -820,4 +820,26 @@ public sealed class SessionLogRepository : ISessionLogRepository
             TotalSessionDays: totalDays
         );
     }
+
+    public async Task<IReadOnlyDictionary<long, int>> GetAllMentalRatingsAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT game_id, mental_rating
+            FROM session_log
+            WHERE game_id IS NOT NULL
+              AND COALESCE(is_skipped, 0) = 0";
+
+        var result = new Dictionary<long, int>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(0) && !reader.IsDBNull(1))
+                result[reader.GetInt64(0)] = reader.GetInt32(1);
+        }
+        return result;
+    }
 }

@@ -71,14 +71,13 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
         var connection = new SqliteConnection(connectionString);
         connection.Open();
 
-        // Enable WAL mode for better concurrent read performance
-        using (var cmd = connection.CreateCommand())
-        {
-            cmd.CommandText = "PRAGMA journal_mode=WAL;";
-            cmd.ExecuteNonQuery();
-        }
+        // WAL mode is persistent at the DB file level and is set once during
+        // DatabaseInitializer.InitializeAsync. Repeating PRAGMA journal_mode=WAL
+        // on every connection open is redundant after the first launch.
+        // B4: removed per-open WAL pragma; see DatabaseInitializer.InitializeAsync.
 
-        // Set busy timeout to 5 seconds to avoid immediate SQLITE_BUSY errors
+        // busy_timeout is a per-connection setting (not stored in the file),
+        // so it must be set on every new connection.
         using (var cmd = connection.CreateCommand())
         {
             cmd.CommandText = "PRAGMA busy_timeout=5000;";

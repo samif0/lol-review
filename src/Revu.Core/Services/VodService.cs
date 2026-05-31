@@ -138,14 +138,14 @@ public sealed partial class VodService : IVodService
             return true;
         }
 
-        var recordings = await FindRecordingsAsync(folder).ConfigureAwait(false);
+        // Exclude files already linked to other games
+        var allVods = await _vods.GetAllVodsAsync().ConfigureAwait(false);
+        var recordings = await FindRecordingsForLinkAsync(folder, allVods, game.GameId).ConfigureAwait(false);
         if (recordings.Count == 0)
         {
             return false;
         }
 
-        // Exclude files already linked to other games
-        var allVods = await _vods.GetAllVodsAsync().ConfigureAwait(false);
         var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var v in allVods)
         {
@@ -171,6 +171,124 @@ public sealed partial class VodService : IVodService
             _logger.LogWarning(ex, "Refused to link VOD to game {GameId}", game.GameId);
             return false;
         }
+    }
+
+    private async Task<List<VodRecordingInfo>> FindRecordingsForLinkAsync(
+        string? requestedFolder,
+        IReadOnlyList<VodSummary> existingVods,
+        long gameId)
+    {
+        var folders = GetCandidateRecordingFolders(requestedFolder, existingVods, gameId).ToList();
+        if (folders.Count == 0)
+        {
+            return [];
+        }
+
+        if (folders.Count == 1)
+        {
+            return await FindRecordingsAsync(folders[0]).ConfigureAwait(false);
+        }
+
+        var recordings = new List<VodRecordingInfo>();
+        foreach (var folder in folders)
+        {
+            var found = await FindRecordingsAsync(folder).ConfigureAwait(false);
+            recordings.AddRange(found);
+        }
+
+        recordings.Sort((a, b) =>
+        {
+            var aKey = a.StartTs ?? a.Mtime;
+            var bKey = b.StartTs ?? b.Mtime;
+            return bKey.CompareTo(aKey);
+        });
+
+        return recordings;
+    }
+
+    private IEnumerable<string> GetCandidateRecordingFolders(
+        string? requestedFolder,
+        IReadOnlyList<VodSummary> existingVods,
+        long gameId)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (TryAddFolder(requestedFolder, seen, out var explicitFolder))
+        {
+            yield return explicitFolder;
+            yield break;
+        }
+
+        if (TryAddFolder(_config.AscentFolder, seen, out var configuredFolder))
+        {
+            yield return configuredFolder;
+            yield break;
+        }
+
+        // If config was cleared or lost, reuse folders we have already linked
+        // from. This covers a common failure mode where the VOD is present in
+        // the user's Ascent directory but the app no longer has the setting.
+        var yieldedKnownFolder = false;
+        foreach (var vod in existingVods)
+        {
+            if (vod.GameId == gameId || string.IsNullOrWhiteSpace(vod.FilePath))
+            {
+                continue;
+            }
+
+            var folder = Path.GetDirectoryName(vod.FilePath);
+            if (TryAddFolder(folder, seen, out var knownFolder))
+            {
+                _logger.LogInformation("Using known VOD folder {Folder} while linking game {GameId}", knownFolder, gameId);
+                yieldedKnownFolder = true;
+                yield return knownFolder;
+            }
+        }
+
+        if (!yieldedKnownFolder && TryAddFolder(GetDefaultAscentFolder(), seen, out var defaultFolder))
+        {
+            _logger.LogInformation("Using default Ascent folder {Folder} while linking game {GameId}", defaultFolder, gameId);
+            yield return defaultFolder;
+        }
+    }
+
+    private static bool TryAddFolder(string? folder, HashSet<string> seen, out string fullPath)
+    {
+        fullPath = "";
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return false;
+        }
+
+        try
+        {
+            var candidate = Path.GetFullPath(folder);
+            if (!Directory.Exists(candidate) || !seen.Add(candidate))
+            {
+                return false;
+            }
+
+            fullPath = candidate;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string GetDefaultAscentFolder()
+    {
+        var videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+        if (!string.IsNullOrWhiteSpace(videos))
+        {
+            return Path.Combine(videos, "Ascent");
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Videos",
+            "Ascent");
     }
 
     /// <inheritdoc />

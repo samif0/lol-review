@@ -90,18 +90,24 @@
                       Height="48"
                       Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
-        <ScrollViewer Grid.Row="2"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="6" Padding="0,0,0,36">
-                <TextBlock Text="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
-                           FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
-                           Foreground="{StaticResource SecondaryTextBrush}"
-                           HorizontalAlignment="Center"
-                           Margin="0,40,0,0"
-                           Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
+        <!-- Empty state sits outside the scroll area so it doesn't force infinite height -->
+        <TextBlock Grid.Row="2"
+                   Text="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
+                   FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                   Foreground="{StaticResource SecondaryTextBrush}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Top"
+                   Margin="0,40,0,0"
+                   Visibility="{x:Bind ViewModel.HasGames, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}"/>
 
-                <ItemsRepeater ItemsSource="{x:Bind ViewModel.Games, Mode=OneWay}">
+        <!-- ScrollViewer directly contains the ItemsRepeater so virtualization can work.
+             Load More lives in a Grid row below the scroll area. -->
+        <Grid Grid.Row="2" RowDefinitions="*,Auto">
+            <ScrollViewer Grid.Row="0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <ItemsRepeater ItemsSource="{x:Bind ViewModel.Games, Mode=OneWay}"
+                               Margin="0,0,0,6">
                     <ItemsRepeater.Layout>
                         <StackLayout Spacing="6"/>
                     </ItemsRepeater.Layout>
@@ -145,16 +151,17 @@
                         </DataTemplate>
                     </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>
+            </ScrollViewer>
 
-                <Button Content="Load More"
-                        Style="{StaticResource PrimaryActionButtonStyle}"
-                        Visibility="{x:Bind ViewModel.HasMoreHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                        Command="{x:Bind ViewModel.LoadMoreHistoryCommand}"
-                        HorizontalAlignment="Center"
-                        Margin="0,12,0,0"
-                        Height="32"
-                        Width="160"/>
-            </StackPanel>
-        </ScrollViewer>
+            <Button Grid.Row="1"
+                    Content="Load More"
+                    Style="{StaticResource PrimaryActionButtonStyle}"
+                    Visibility="{x:Bind ViewModel.HasMoreHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                    Command="{x:Bind ViewModel.LoadMoreHistoryCommand}"
+                    HorizontalAlignment="Center"
+                    Margin="0,12,0,36"
+                    Height="32"
+                    Width="160"/>
+        </Grid>
     </Grid>
 </Page>

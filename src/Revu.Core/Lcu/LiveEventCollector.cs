@@ -19,6 +19,13 @@ public sealed class LiveEventCollector
     private readonly List<JsonElement> _rawEvents = [];
     private string? _playerName;
 
+    // Decoupled active-player poll cadence: check summoner-spell cooldowns every
+    // Nth tick (N=3 ≈ 30s at 10s poll interval). Spell cooldowns are 60-300s so
+    // this resolution is more than sufficient to detect casts without the extra
+    // per-tick HTTP round-trip when League is running.
+    private const int ActivePlayerPollEveryNTicks = 3;
+    private int _activePlayerTickCounter;
+
     // v2.17.7: summoner-spell cast detection. Riot's event stream doesn't emit
     // SummonerSpellCast events, so we synthesise them by watching the active
     // player's spell cooldowns: prev <= 0 + new > 0 means the spell was just
@@ -62,6 +69,7 @@ public sealed class LiveEventCollector
         _summonerSpellState.Clear();
         _summonerSpellEvents.Clear();
         _playerName = null;
+        _activePlayerTickCounter = 0;
         _logger.LogInformation("Live event collector started");
 
         // Wait for the live API to become available (game loading screen)
@@ -169,24 +177,29 @@ public sealed class LiveEventCollector
             AppendNewRawEvents(_rawEvents, raw);
         }
 
-        // v2.17.7: poll the active-player snapshot in the same tick so spell-cast
-        // detection stays aligned with the in-game clock from the events stream.
-        // Failures here are non-fatal — kill/death/objective capture still works.
-        try
+        // v2.17.7: poll the active-player snapshot for summoner-spell cast detection.
+        // Spell cooldowns are 60-300s, so checking every Nth tick (≈30s) is sufficient
+        // to catch every cast. This avoids an extra HTTP round-trip on most ticks.
+        _activePlayerTickCounter++;
+        if (_activePlayerTickCounter >= ActivePlayerPollEveryNTicks)
         {
-            var active = await _liveEventApi.FetchActivePlayerAsync(ct).ConfigureAwait(false);
-            if (active is JsonElement el)
+            _activePlayerTickCounter = 0;
+            try
             {
-                CheckSummonerSpellCasts(el, ResolveGameTimeS(el));
+                var active = await _liveEventApi.FetchActivePlayerAsync(ct).ConfigureAwait(false);
+                if (active is JsonElement el)
+                {
+                    CheckSummonerSpellCasts(el, ResolveGameTimeS(el));
+                }
             }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Active-player snapshot fetch failed");
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Active-player snapshot fetch failed");
+            }
         }
     }
 

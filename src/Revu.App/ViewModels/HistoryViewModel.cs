@@ -274,7 +274,7 @@ public partial class HistoryViewModel : ObservableObject
         var vodPaths = await _vodRepo.GetVodPathsAsync(displayItems.Select(g => g.GameId).ToArray());
         foreach (var item in displayItems)
         {
-            if (vodPaths.TryGetValue(item.GameId, out var path) && File.Exists(path))
+            if (vodPaths.TryGetValue(item.GameId, out var path) && FileProbeCache.Exists(path))
             {
                 item.HasVod = true;
             }

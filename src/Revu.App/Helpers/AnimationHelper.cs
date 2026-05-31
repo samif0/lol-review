@@ -22,6 +22,7 @@ public static class AnimationHelper
     /// <summary>
     /// Attach a slow, forever-pulsing opacity animation to a UI element.
     /// Used for status dots and selected pills.
+    /// Self-managing: stops on Unloaded, restarts (without stacking) on Loaded.
     /// </summary>
     public static void AttachPulseOpacity(
         UIElement element,
@@ -30,31 +31,73 @@ public static class AnimationHelper
         double durationSec = 2.0)
     {
         if (element is null) return;
+        if (element is not FrameworkElement fe) return;
 
-        try
+        void Start()
         {
-            var visual = ElementCompositionPreview.GetElementVisual(element);
-            var compositor = visual.Compositor;
+            try
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(fe);
+                var compositor = visual.Compositor;
 
-            var anim = compositor.CreateScalarKeyFrameAnimation();
-            anim.InsertKeyFrame(0.0f, (float)maxOpacity);
-            anim.InsertKeyFrame(0.5f, (float)minOpacity);
-            anim.InsertKeyFrame(1.0f, (float)maxOpacity);
-            anim.Duration = TimeSpan.FromSeconds(durationSec);
-            anim.IterationBehavior = AnimationIterationBehavior.Forever;
+                // Stop any existing animation first to avoid stacking on re-navigation.
+                visual.StopAnimation(nameof(visual.Opacity));
 
-            visual.StartAnimation(nameof(visual.Opacity), anim);
+                var anim = compositor.CreateScalarKeyFrameAnimation();
+                anim.InsertKeyFrame(0.0f, (float)maxOpacity);
+                anim.InsertKeyFrame(0.5f, (float)minOpacity);
+                anim.InsertKeyFrame(1.0f, (float)maxOpacity);
+                anim.Duration = TimeSpan.FromSeconds(durationSec);
+                anim.IterationBehavior = AnimationIterationBehavior.Forever;
+
+                visual.StartAnimation(nameof(visual.Opacity), anim);
+            }
+            catch
+            {
+                // Composition can throw if element isn't in tree yet — silently skip.
+            }
         }
-        catch
+
+        void Stop()
         {
-            // Composition can throw if element isn't in tree yet — silently skip.
+            try
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(fe);
+                visual.StopAnimation(nameof(visual.Opacity));
+            }
+            catch { }
         }
+
+        // Wire Loaded/Unloaded for lifecycle management.
+        // Use named local handlers so we can unsubscribe after the first Unloaded
+        // to avoid double-registering if AttachPulseOpacity is called more than once.
+        RoutedEventHandler? loadedHandler = null;
+        RoutedEventHandler? unloadedHandler = null;
+
+        unloadedHandler = (_, _) =>
+        {
+            Stop();
+            fe.Loaded -= loadedHandler;
+            fe.Unloaded -= unloadedHandler;
+            // Re-register for the next time the element enters the tree.
+            fe.Loaded += loadedHandler;
+            fe.Unloaded += unloadedHandler;
+        };
+
+        loadedHandler = (_, _) => Start();
+
+        fe.Loaded += loadedHandler;
+        fe.Unloaded += unloadedHandler;
+
+        // Start immediately if the element is already in the tree.
+        Start();
     }
 
     /// <summary>
     /// Attach a breathing drop-shadow to an element. Animates blur radius
     /// from minBlur up to maxBlur and back over durationSec, forever.
     /// Element must be a Border, Shape, or Image (DropShadow targets).
+    /// Self-managing: stops on Unloaded, restarts (without stacking) on Loaded.
     /// </summary>
     public static void AttachBreathingGlow(
         UIElement element,
@@ -64,26 +107,61 @@ public static class AnimationHelper
         double durationSec = 3.0)
     {
         if (element is null) return;
+        if (element is not FrameworkElement fe) return;
 
-        try
+        void Start()
         {
-            var visual = ElementCompositionPreview.GetElementVisual(element);
-            var compositor = visual.Compositor;
+            try
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(fe);
+                var compositor = visual.Compositor;
 
-            // Composition drop shadow attaches via SpriteVisual sized to host.
-            // For arbitrary UIElements we settle for an opacity-based "breath"
-            // on the element itself if it isn't shadow-able.
-            var anim = compositor.CreateScalarKeyFrameAnimation();
-            anim.InsertKeyFrame(0.0f, 0.85f);
-            anim.InsertKeyFrame(0.5f, 1.0f);
-            anim.InsertKeyFrame(1.0f, 0.85f);
-            anim.Duration = TimeSpan.FromSeconds(durationSec);
-            anim.IterationBehavior = AnimationIterationBehavior.Forever;
-            visual.StartAnimation(nameof(visual.Opacity), anim);
+                // Stop any existing animation first to avoid stacking on re-navigation.
+                visual.StopAnimation(nameof(visual.Opacity));
+
+                // Composition drop shadow attaches via SpriteVisual sized to host.
+                // For arbitrary UIElements we settle for an opacity-based "breath"
+                // on the element itself if it isn't shadow-able.
+                var anim = compositor.CreateScalarKeyFrameAnimation();
+                anim.InsertKeyFrame(0.0f, 0.85f);
+                anim.InsertKeyFrame(0.5f, 1.0f);
+                anim.InsertKeyFrame(1.0f, 0.85f);
+                anim.Duration = TimeSpan.FromSeconds(durationSec);
+                anim.IterationBehavior = AnimationIterationBehavior.Forever;
+                visual.StartAnimation(nameof(visual.Opacity), anim);
+            }
+            catch { }
         }
-        catch
+
+        void Stop()
         {
+            try
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(fe);
+                visual.StopAnimation(nameof(visual.Opacity));
+            }
+            catch { }
         }
+
+        RoutedEventHandler? loadedHandler = null;
+        RoutedEventHandler? unloadedHandler = null;
+
+        unloadedHandler = (_, _) =>
+        {
+            Stop();
+            fe.Loaded -= loadedHandler;
+            fe.Unloaded -= unloadedHandler;
+            fe.Loaded += loadedHandler;
+            fe.Unloaded += unloadedHandler;
+        };
+
+        loadedHandler = (_, _) => Start();
+
+        fe.Loaded += loadedHandler;
+        fe.Unloaded += unloadedHandler;
+
+        // Start immediately if the element is already in the tree.
+        Start();
     }
 
     /// <summary>

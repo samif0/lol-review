@@ -206,6 +206,18 @@ public static class Schema
         );
         """;
 
+    public const string CreateGamesTimestampIndex = """
+        CREATE INDEX IF NOT EXISTS idx_games_timestamp ON games(timestamp DESC) WHERE is_hidden = 0;
+        """;
+
+    public const string CreateGamesChampionIndex = """
+        CREATE INDEX IF NOT EXISTS idx_games_champion ON games(champion_name, timestamp DESC) WHERE is_hidden = 0;
+        """;
+
+    public const string CreateSessionLogGameIdIndex = """
+        CREATE INDEX IF NOT EXISTS idx_session_log_game_id ON session_log(game_id);
+        """;
+
     public const string CreateEvidenceItemsKeyIndex = """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_items_source_key
         ON evidence_items (game_id, source_kind, source_key)
@@ -808,7 +820,10 @@ public static class Schema
     [
         CreateSchemaMetadataTable,
         CreateGamesTable,
+        CreateGamesTimestampIndex,
+        CreateGamesChampionIndex,
         CreateSessionLogTable,
+        CreateSessionLogGameIdIndex,
         CreateReviewDraftsTable,
         CreatePersistentNotesTable,
         CreateVodFilesTable,

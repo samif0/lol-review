@@ -23,6 +23,13 @@ public sealed partial class GameRowCard : UserControl
     private const double HoverScale = 1.0;
     private bool _isHoverActive;
 
+    // Throttle glow updates: only write to the RadialGradientBrush when the
+    // pointer has moved at least this many px (in element-local coords).
+    // PointerMoved fires at mouse-poll rate (~125–1000 Hz) which is far more
+    // frequent than the compositor needs for a smooth glow follow.
+    private const double GlowThrottlePx = 3.0;
+    private Point _lastGlowPosition = new Point(-1000, -1000);
+
     public GameRowCard()
     {
         InitializeComponent();
@@ -175,6 +182,9 @@ public sealed partial class GameRowCard : UserControl
     private void ActivateHover(Point position)
     {
         _isHoverActive = true;
+        // Reset throttle sentinel so the glow snaps to the cursor immediately
+        // on re-entry rather than waiting for a 3px move from the old position.
+        _lastGlowPosition = new Point(-1000, -1000);
         HostBorder.Background = (Brush)Application.Current.Resources["CardHoverBackgroundBrush"];
         HostBorder.BorderBrush = (Brush)Application.Current.Resources["BrightBorderBrush"];
         AnimationHelper.AnimateOpacity(SweepRect, 1.0, 180);
@@ -211,6 +221,15 @@ public sealed partial class GameRowCard : UserControl
 
     private void UpdateGlow(Point position)
     {
+        // Skip the brush write when the pointer hasn't moved far enough.
+        var dx = position.X - _lastGlowPosition.X;
+        var dy = position.Y - _lastGlowPosition.Y;
+        if (dx * dx + dy * dy < GlowThrottlePx * GlowThrottlePx)
+        {
+            return;
+        }
+
+        _lastGlowPosition = position;
         var normalized = NormalizePoint(position, HostBorder.ActualWidth, HostBorder.ActualHeight);
         GlowBrush.Center = normalized;
         GlowBrush.GradientOrigin = normalized;

@@ -110,6 +110,16 @@ public sealed partial class IntelRotatorControl : UserControl
 
         c.RebuildDots();
         c.JumpToFirst();
+
+        // Start or stop the timer based on whether there is more than one card.
+        // Guard with IsLoaded so we don't start the timer before OnLoaded fires.
+        if (c.IsLoaded && !c._userTookControl)
+        {
+            if (c.ItemsSource is not null && c.ItemsSource.Count > 1)
+                c._rotationTimer.Start();
+            else
+                c._rotationTimer.Stop();
+        }
     }
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -118,6 +128,14 @@ public sealed partial class IntelRotatorControl : UserControl
         // If the deck repopulated and we don't have a valid index, restart.
         if (ItemsSource is not null && (_currentIndex < 0 || _currentIndex >= ItemsSource.Count))
             JumpToFirst();
+        // Keep timer in sync with item count.
+        if (!_userTookControl)
+        {
+            if (ItemsSource is not null && ItemsSource.Count > 1)
+                _rotationTimer.Start();
+            else
+                _rotationTimer.Stop();
+        }
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -127,7 +145,9 @@ public sealed partial class IntelRotatorControl : UserControl
         // Reset on re-load so the next visit to PreGamePage starts in auto mode.
         _userTookControl = false;
         JumpToFirst();
-        _rotationTimer.Start();
+        // Only start rotation when there is more than one card to rotate through.
+        if (ItemsSource is not null && ItemsSource.Count > 1)
+            _rotationTimer.Start();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)

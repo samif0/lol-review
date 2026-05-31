@@ -97,6 +97,13 @@ public sealed class BackupService : IBackupService
             .ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// How recently a routine user backup must have been created before we skip
+    /// running another one on startup. 12 hours is generous for a once-per-launch
+    /// call that copies the entire DB file.
+    /// </summary>
+    private static readonly TimeSpan RoutineBackupCooldown = TimeSpan.FromHours(12);
+
     /// <inheritdoc />
     public async Task RunBackupAsync()
     {
@@ -111,6 +118,30 @@ public sealed class BackupService : IBackupService
         {
             _logger.LogDebug("Backup enabled but no folder configured");
             return;
+        }
+
+        // C1: skip the full DB file-copy when a recent backup already exists
+        // in the user's configured backup folder. We look at the newest file
+        // whose name starts with UserPrefix (yyyyMMdd_HHmmss embedded) so we
+        // use the timestamp encoded in the filename rather than OS mtime, which
+        // can be affected by file-system operations. If no UserPrefix files are
+        // found we fall through and run normally (first backup ever).
+        if (Directory.Exists(folder))
+        {
+            var newestTimestamp = new DirectoryInfo(folder)
+                .EnumerateFiles($"{UserPrefix}*.db")
+                .Select(f => TryParseBackupTimestamp(f.Name) ?? f.LastWriteTime)
+                .DefaultIfEmpty(DateTime.MinValue)
+                .Max();
+
+            if (newestTimestamp != DateTime.MinValue
+                && DateTime.Now - newestTimestamp < RoutineBackupCooldown)
+            {
+                _logger.LogDebug(
+                    "Skipping routine backup: most recent backup is {Age:g} old (cooldown {Cooldown:g})",
+                    DateTime.Now - newestTimestamp, RoutineBackupCooldown);
+                return;
+            }
         }
 
         var dbPath = _connectionFactory.DatabasePath;

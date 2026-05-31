@@ -340,13 +340,20 @@ public sealed class AnalysisService : IAnalysisService
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Filtered profile: objective snapshot failed"); }
 
+        // Bulk-fetch all mental ratings in one query to avoid N+1 round-trips.
+        IReadOnlyDictionary<long, int> allMentalRatings = new Dictionary<long, int>();
+        try
+        {
+            allMentalRatings = await _sessionLog.GetAllMentalRatingsAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Filtered profile: bulk mental fetch failed"); }
+
         // Walk the game list, apply the matcher, keep the passing rows.
-        // Mental rating lives directly on the games row.
         var filtered = new List<GameStats>(allGames.Count);
         var filteredMental = new Dictionary<long, int>();
         foreach (var g in allGames)
         {
-            int? rating = await ResolveMentalRatingAsync(g.GameId).ConfigureAwait(false);
+            int? rating = allMentalRatings.TryGetValue(g.GameId, out var r0) ? r0 : (int?)null;
             var practiced = practicedByGame.TryGetValue(g.GameId, out var set) ? set : (IReadOnlySet<long>)new HashSet<long>();
             if (AnalyticsFilterMatcher.Match(g, filter, rating, practiced, activeObjectiveIds))
             {

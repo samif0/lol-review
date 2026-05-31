@@ -25,6 +25,11 @@ public sealed partial class CornerBracketedCard : UserControl
     private bool _isHoverActive;
     private readonly HoverTiltController _hoverTilt;
 
+    // Throttle glow updates: only write to the RadialGradientBrush when the
+    // pointer has moved at least this many px (in element-local coords).
+    private const double GlowThrottlePx = 3.0;
+    private Point _lastGlowPosition = new Point(-1000, -1000);
+
     public CornerBracketedCard()
     {
         InitializeComponent();
@@ -139,6 +144,9 @@ public sealed partial class CornerBracketedCard : UserControl
     private void ActivateHover(Point position)
     {
         _isHoverActive = true;
+        // Reset throttle sentinel so the glow snaps to the cursor immediately
+        // on re-entry rather than waiting for a 3px move from the old position.
+        _lastGlowPosition = new Point(-1000, -1000);
         MainBorder.BorderBrush = CardBorderBrush ?? (Brush)Application.Current.Resources["BrightBorderBrush"];
         Canvas.SetZIndex(this, 1);
         AnimationHelper.AnimateOpacity(GlowOverlay, 0.7, 220);
@@ -175,6 +183,15 @@ public sealed partial class CornerBracketedCard : UserControl
             return;
         }
 
+        // Skip the brush write when the pointer hasn't moved far enough.
+        var dx = position.X - _lastGlowPosition.X;
+        var dy = position.Y - _lastGlowPosition.Y;
+        if (dx * dx + dy * dy < GlowThrottlePx * GlowThrottlePx)
+        {
+            return;
+        }
+
+        _lastGlowPosition = position;
         var normalized = NormalizePoint(position, HoverSurface.ActualWidth, HoverSurface.ActualHeight);
         GlowBrush.Center = normalized;
         GlowBrush.GradientOrigin = normalized;
