@@ -22,6 +22,14 @@ public sealed partial class VodPlayerPage : Page
     private DispatcherTimer? _positionTimer;
     private bool _isDisposed;
 
+    // v2.17.16: the path currently set as the media source. Saving a clip flips
+    // VM VOD-state props (HasPlayableClips, etc.), which re-fires the property
+    // handler → TryLoadMedia. Without this guard that re-set _mediaPlayer.Source
+    // to the SAME file, which resets playback position to 0. Skip reloading when
+    // the requested file is already loaded; clip playback uses a different path
+    // so it still switches correctly.
+    private string? _loadedMediaPath;
+
     // Stored as fields so AddHandler/RemoveHandler use the exact same delegate instances.
     private readonly KeyEventHandler _keyDownHandler;
     private readonly KeyEventHandler _keyUpHandler;
@@ -342,11 +350,22 @@ public sealed partial class VodPlayerPage : Page
             // index hasn't landed yet. Wait until the file size is stable for
             // a beat — that's the cheapest stability signal and avoids the
             // "click out and back in" workaround.
+            // Don't reload the file that's already playing — re-setting Source
+            // resets the playback position to 0. (Clip-save re-fires the VM state
+            // handler with the same VodPath; switching to a clip passes a
+            // different path and still loads.)
+            if (string.Equals(_loadedMediaPath, filePath, StringComparison.OrdinalIgnoreCase)
+                && _mediaPlayer.Source is not null)
+            {
+                return;
+            }
+
             await WaitForStableFileAsync(filePath);
 
             var file = await StorageFile.GetFileFromPathAsync(filePath);
             var source = MediaSource.CreateFromStorageFile(file);
             _mediaPlayer.Source = source;
+            _loadedMediaPath = filePath;
         }
         catch (Exception ex)
         {
@@ -429,6 +448,9 @@ public sealed partial class VodPlayerPage : Page
             _mediaPlayer.Dispose();
             _mediaPlayer = null;
         }
+
+        // Reset so re-opening the same game in a later navigation reloads the file.
+        _loadedMediaPath = null;
     }
 
     // ── ViewModel event handlers ────────────────────────────────────
