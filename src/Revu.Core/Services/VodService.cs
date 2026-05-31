@@ -259,32 +259,89 @@ public sealed partial class VodService : IVodService
     // ── Private helpers ─────────────────────────────────────────────
 
     /// <summary>
-    /// Compute the match delta between a game and a recording, or null if outside the window.
-    /// Uses asymmetric bounds for filename branch: Ascent starts recording before gameCreation
-    /// (queue/champ select), so negative deltas up to VodMatchWindowS are normal, but positive
-    /// deltas (recording after game creation) are capped at VodFilenamePositiveSlackS.
+    /// Score how well a recording matches a game; lower is better, null = no match.
+    ///
+    /// Robust by construction: a recording's true span is [StartTs (filename) ..
+    /// Mtime (last write = encode end)]. The real recording for a game must
+    /// CONTAIN the game's play window. We never assume which reference the game's
+    /// stored Timestamp uses — historically the live-capture path stored game END
+    /// while the match-history path stored game START — so we test the game window
+    /// under BOTH interpretations and accept a recording that contains either.
+    ///
+    /// This is what makes wrong matches (e.g. a short Valorant clip, or a
+    /// neighbouring game's file) impossible: a recording that doesn't span the
+    /// game's full duration can't win, regardless of how close its start is.
+    /// Falls back to the legacy filename/mtime proximity test only when the
+    /// recording's span can't be established.
     /// </summary>
     private static double? TryComputeMatchDelta(GameStats game, VodRecordingInfo rec)
     {
         if (game.Timestamp == 0) return null;
 
-        if (rec.StartTs is not null)
+        var gameDur = Math.Max(game.GameDuration, 0);
+
+        // Establish the recording's true span. StartTs is the filename time
+        // (recording start); Mtime is the file's last-write time (recording end).
+        // When the filename couldn't be parsed, fall back to legacy proximity.
+        if (rec.StartTs is null)
         {
-            // signed = rec.start − game.start
-            // negative → recording started before game (expected for Ascent queue/champ select)
-            // positive → recording started after game creation (rare jitter only)
-            var signed = rec.StartTs.Value - game.Timestamp;
-            if (signed < -GameConstants.VodMatchWindowS) return null;
-            if (signed > GameConstants.VodFilenamePositiveSlackS) return null;
-            return Math.Abs(signed);
+            return LegacyProximityDelta(game, rec, gameDur);
         }
 
-        // mtime fallback: compare file mtime vs game end
-        var gameEnd = game.Timestamp + game.GameDuration;
-        var signedDelta = rec.Mtime - gameEnd;
-        if (signedDelta < -GameConstants.VodMtimeGraceS) return null;
-        if (Math.Abs(signedDelta) >= GameConstants.VodMatchWindowS) return null;
-        return Math.Abs(signedDelta);
+        var recStart = rec.StartTs.Value;
+        var recEnd = rec.Mtime > recStart ? rec.Mtime : recStart; // guard bad mtime
+        var recSpan = recEnd - recStart;
+
+        // The game's stored Timestamp is either its start or its end. Compute the
+        // candidate START under each interpretation and try to contain the window.
+        // slack absorbs encode-finalisation lag and champ-select/loading lead-in.
+        const double edgeSlack = 300;          // 5 min tolerance on each edge
+        double? best = null;
+        foreach (var candidateStart in new[] { game.Timestamp, game.Timestamp - gameDur })
+        {
+            var candidateEnd = candidateStart + gameDur;
+
+            // Recording must cover the game window (within slack) AND be at least
+            // roughly as long as the game (it records champ-select → game end, so
+            // it's normally longer; allow a little under for rounding).
+            var coversStart = recStart <= candidateStart + edgeSlack;
+            var coversEnd = recEnd >= candidateEnd - edgeSlack;
+            var longEnough = recSpan >= gameDur - edgeSlack;
+            if (!coversStart || !coversEnd || !longEnough) continue;
+
+            // Score: tightest container wins — how much longer the recording is
+            // than the game, plus how far its start leads the game start. Both
+            // small = the recording that actually wraps this game.
+            var slackBefore = Math.Max(0, candidateStart - recStart);
+            var slackAfter = Math.Max(0, recEnd - candidateEnd);
+            var score = slackBefore + slackAfter;
+            if (best is null || score < best) best = score;
+        }
+
+        if (best is not null) return best;
+
+        // No containment under either interpretation → not this game's recording.
+        return null;
+    }
+
+    /// <summary>
+    /// Legacy proximity fallback for recordings whose filename timestamp couldn't
+    /// be parsed (so we only have file mtime ≈ recording end). Compares mtime to
+    /// the game end under both timestamp interpretations.
+    /// </summary>
+    private static double? LegacyProximityDelta(GameStats game, VodRecordingInfo rec, double gameDur)
+    {
+        double? best = null;
+        // game.Timestamp as START → end = ts + dur; as END → end = ts.
+        foreach (var gameEnd in new[] { game.Timestamp + gameDur, (double)game.Timestamp })
+        {
+            var signedDelta = rec.Mtime - gameEnd;
+            if (signedDelta < -GameConstants.VodMtimeGraceS) continue;
+            if (Math.Abs(signedDelta) >= GameConstants.VodMatchWindowS) continue;
+            var d = Math.Abs(signedDelta);
+            if (best is null || d < best) best = d;
+        }
+        return best;
     }
 
     /// <summary>
