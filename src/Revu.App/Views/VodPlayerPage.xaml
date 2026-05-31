@@ -338,247 +338,715 @@
                             </Grid>
                         </Border>
 
+                        <Grid x:Name="TimelineActionGrid"
+                              ColumnDefinitions="1*,1.25*"
+                              ColumnSpacing="12">
+                            <!-- Quick Bookmark -->
+                            <controls:CornerBracketedCard Grid.Column="0"
+                                                          CardBackground="{StaticResource FocusPanelBrush}">
+                                <StackPanel Spacing="10">
+                                    <controls:SectionTitle Text="QUICK BOOKMARK"/>
+
+                                    <TextBox x:Name="BookmarkNoteBox"
+                                             KeyDown="OnQuickBookmarkKeyDown"
+                                             PlaceholderText="Note..."
+                                             Style="{StaticResource VodInputTextBoxStyle}"
+                                             FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                             Text="{x:Bind ViewModel.BookmarkNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <!-- v2.15.7: ObjectivePicker (custom TextBox+Popup+ListView). Replaces
+                                             AutoSuggestBox because its flyout had a two-click-to-select + hover
+                                             confusion bug. Single-click commits immediately. -->
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                        <controls:ObjectivePicker x:Name="NewBookmarkObjectivePicker"
+                                                                  Grid.Column="0"
+                                                                  Source="{x:Bind ViewModel.TagOptions, Mode=OneWay}"
+                                                                  PlaceholderText="Tag an objective or prompt..."
+                                                                  TagChosen="OnNewBookmarkTagChosen"
+                                                                  HorizontalAlignment="Stretch"/>
+
+                                        <Button Grid.Column="1"
+                                                Command="{x:Bind ViewModel.AddBookmarkCommand}"
+                                                Click="OnClipButtonClick"
+                                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                                Height="34" Padding="14,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                IsTabStop="False" AllowFocusOnInteraction="False"
+                                                Content="Add"/>
+                                    </Grid>
+                                </StackPanel>
+                            </controls:CornerBracketedCard>
+
+                            <!-- Clip Extraction -->
+                            <controls:CornerBracketedCard Grid.Column="1">
+                                <StackPanel Spacing="10">
+                                    <controls:SectionTitle Text="CLIP"/>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <!-- v2.15.10: surface the I / O keyboard shortcuts as
+                                             keycap chips next to the buttons. Users were
+                                             bouncing between bookmark + clip because the
+                                             in/out trigger wasn't discoverable. -->
+                                        <Button Command="{x:Bind ViewModel.SetClipInCommand}"
+                                                Click="OnClipButtonClick"
+                                                Style="{StaticResource SecondaryActionButtonStyle}"
+                                                Height="30" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                IsTabStop="False" AllowFocusOnInteraction="False">
+                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="Start" VerticalAlignment="Center"/>
+                                                <Border Background="{StaticResource AccentGoldBrush}"
+                                                        CornerRadius="2" Padding="6,1"
+                                                        VerticalAlignment="Center">
+                                                    <!-- v2.15.10: serif/mono I and O are nearly indistinguishable
+                                                         (Orbitron's I has no serifs, looks like a vertical line that
+                                                         reads as | or 1). Switch to Segoe UI sans-serif so the cap
+                                                         letterforms are unambiguous keycaps. -->
+                                                    <TextBlock Text="I"
+                                                               FontFamily="Segoe UI"
+                                                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                               FontWeight="Bold"
+                                                               Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </Button>
+                                        <TextBlock FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource AccentGoldBrush}">
+                                            <Run Text="{x:Bind ViewModel.ClipRangeText, Mode=OneWay}"/>
+                                        </TextBlock>
+                                        <Button Command="{x:Bind ViewModel.SetClipOutCommand}"
+                                                Click="OnClipButtonClick"
+                                                Style="{StaticResource SecondaryActionButtonStyle}"
+                                                Height="30" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                IsTabStop="False" AllowFocusOnInteraction="False">
+                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="End" VerticalAlignment="Center"/>
+                                                <Border Background="{StaticResource AccentGoldBrush}"
+                                                        CornerRadius="2" Padding="6,1"
+                                                        VerticalAlignment="Center">
+                                                    <TextBlock Text="O"
+                                                               FontFamily="Segoe UI"
+                                                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                               FontWeight="Bold"
+                                                               Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <TextBox x:Name="ClipNoteBox"
+                                             KeyDown="OnQuickClipKeyDown"
+                                             PlaceholderText="What's happening?"
+                                             Style="{StaticResource VodInputTextBoxStyle}"
+                                             FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                             Text="{x:Bind ViewModel.ClipNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Button Command="{x:Bind ViewModel.SetClipQualityCommand}"
+                                                CommandParameter="good"
+                                                IsTabStop="False" AllowFocusOnInteraction="False"
+                                                Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0">
+                                            <Border CornerRadius="2" Padding="8,4"
+                                                    Background="{x:Bind ViewModel.GoodClipBackgroundBrush, Mode=OneWay}"
+                                                    BorderBrush="{x:Bind ViewModel.GoodClipBorderBrush, Mode=OneWay}"
+                                                    BorderThickness="{x:Bind ViewModel.GoodClipBorderThickness, Mode=OneWay}">
+                                                <TextBlock Text="Good" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.GoodClipForegroundBrush, Mode=OneWay}"/>
+                                            </Border>
+                                        </Button>
+                                        <Button Command="{x:Bind ViewModel.SetClipQualityCommand}"
+                                                CommandParameter="neutral"
+                                                IsTabStop="False" AllowFocusOnInteraction="False"
+                                                Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0">
+                                            <Border CornerRadius="2" Padding="8,4"
+                                                    Background="{x:Bind ViewModel.NeutralClipBackgroundBrush, Mode=OneWay}"
+                                                    BorderBrush="{x:Bind ViewModel.NeutralClipBorderBrush, Mode=OneWay}"
+                                                    BorderThickness="{x:Bind ViewModel.NeutralClipBorderThickness, Mode=OneWay}">
+                                                <TextBlock Text="Neutral" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.NeutralClipForegroundBrush, Mode=OneWay}"/>
+                                            </Border>
+                                        </Button>
+                                        <Button Command="{x:Bind ViewModel.SetClipQualityCommand}"
+                                                CommandParameter="bad"
+                                                IsTabStop="False" AllowFocusOnInteraction="False"
+                                                Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0">
+                                            <Border CornerRadius="2" Padding="8,4"
+                                                    Background="{x:Bind ViewModel.BadClipBackgroundBrush, Mode=OneWay}"
+                                                    BorderBrush="{x:Bind ViewModel.BadClipBorderBrush, Mode=OneWay}"
+                                                    BorderThickness="{x:Bind ViewModel.BadClipBorderThickness, Mode=OneWay}">
+                                                <TextBlock Text="Bad" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.BadClipForegroundBrush, Mode=OneWay}"/>
+                                            </Border>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <controls:ObjectivePicker x:Name="NewClipObjectivePicker"
+                                                              Source="{x:Bind ViewModel.TagOptions, Mode=OneWay}"
+                                                              PlaceholderText="Tag an objective or prompt..."
+                                                              TagChosen="OnNewBookmarkTagChosen"
+                                                              HorizontalAlignment="Stretch"/>
+
+                                    <Button Command="{x:Bind ViewModel.ExtractClipCommand}"
+                                            Click="OnClipButtonClick"
+                                            IsEnabled="{x:Bind ViewModel.HasClipRange, Mode=OneWay}"
+                                            Style="{StaticResource GoldActionButtonStyle}"
+                                            Height="32" Padding="12,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                            HorizontalAlignment="Stretch"
+                                            IsTabStop="False" AllowFocusOnInteraction="False">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                            <FontIcon Glyph="&#xE7C3;" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                            <TextBlock Text="Save Clip"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <TextBlock x:Name="FfmpegWarning"
+                                               Text="ffmpeg not found — install ffmpeg for clip saves."
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}" TextWrapping="Wrap" Visibility="Collapsed"
+                                               Foreground="{StaticResource LossRedBrush}"/>
+
+                                    <!-- Inline login-to-share prompt. Appears when the user clicks
+                                         Share on a clip while logged out; reuses the magic-link
+                                         email->OTP flow, then uploads the pending clip. -->
+                                    <StackPanel x:Name="ShareLoginPanel"
+                                                Spacing="6" Margin="0,4,0,0"
+                                                Visibility="{x:Bind ViewModel.ShareLoginVisible, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="LOG IN TO SHARE"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                        <TextBlock Text="{x:Bind ViewModel.ShareStatusText, Mode=OneWay}"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource MutedTextBrush}"
+                                                   TextWrapping="Wrap"/>
+
+                                        <!-- Step 1: email -->
+                                        <StackPanel Spacing="6"
+                                                    Visibility="{x:Bind ViewModel.ShareAwaitingOtp, Mode=OneWay, Converter={StaticResource InverseBoolToVisibility}}">
+                                            <TextBox Style="{StaticResource VodInputTextBoxStyle}"
+                                                     PlaceholderText="you@email.com"
+                                                     Text="{x:Bind ViewModel.ShareEmail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Button Command="{x:Bind ViewModel.SendShareOtpCommand}"
+                                                        IsEnabled="{x:Bind ViewModel.ShareBusy, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                                        Style="{StaticResource GoldActionButtonStyle}"
+                                                        Height="30" Padding="12,0"
+                                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
+                                                    <TextBlock Text="Send code"/>
+                                                </Button>
+                                                <Button Command="{x:Bind ViewModel.CancelShareLoginCommand}"
+                                                        Style="{StaticResource QuietActionButtonStyle}"
+                                                        Height="30" Padding="12,0"
+                                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
+                                                    <TextBlock Text="Cancel"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </StackPanel>
+
+                                        <!-- Step 2: OTP -->
+                                        <StackPanel Spacing="6"
+                                                    Visibility="{x:Bind ViewModel.ShareAwaitingOtp, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBox Style="{StaticResource VodInputTextBoxStyle}"
+                                                     PlaceholderText="Paste code"
+                                                     Text="{x:Bind ViewModel.ShareOtp, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Button Command="{x:Bind ViewModel.VerifyShareOtpCommand}"
+                                                        IsEnabled="{x:Bind ViewModel.ShareBusy, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                                        Style="{StaticResource GoldActionButtonStyle}"
+                                                        Height="30" Padding="12,0"
+                                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
+                                                    <TextBlock Text="Verify &amp; share"/>
+                                                </Button>
+                                                <Button Command="{x:Bind ViewModel.CancelShareLoginCommand}"
+                                                        Style="{StaticResource QuietActionButtonStyle}"
+                                                        Height="30" Padding="12,0"
+                                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
+                                                    <TextBlock Text="Cancel"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </controls:CornerBracketedCard>
+                        </Grid>
+
                     </StackPanel>
                 </ScrollViewer>
 
                 <!-- â”€â”€ RIGHT: Bookmark Sidebar â”€â”€ -->
-                <ScrollViewer x:Name="BookmarkSidebar"
-                              Grid.Column="1"
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Spacing="12" Padding="0,0,0,40">
+                <!-- v2.17.17: the right column is a fixed Grid, NOT an outer
+                     ScrollViewer. The Moments-to-Review ListView is the only
+                     vertical scroller on this side, so the mouse wheel reaches
+                     it directly (no parent ScrollViewer to fight) and ListView
+                     virtualization gets a bounded height from the * row. The
+                     MOMENTS card takes the * row and flexes; the hint and SAVED
+                     LIBRARY claim their natural Auto heights below it. -->
+                <Grid x:Name="BookmarkSidebar"
+                      Grid.Column="1"
+                      RowSpacing="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                    <!-- Quick Bookmark -->
-                    <controls:CornerBracketedCard CardBackground="{StaticResource FocusPanelBrush}">
-                        <StackPanel Spacing="10">
-                            <controls:SectionTitle Text="QUICK BOOKMARK"/>
-
-                            <TextBox x:Name="BookmarkNoteBox"
-                                     KeyDown="OnQuickBookmarkKeyDown"
-                                     PlaceholderText="Note..."
-                                     Style="{StaticResource VodInputTextBoxStyle}"
-                                     FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                     Text="{x:Bind ViewModel.BookmarkNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-
-                            <!-- v2.15.7: ObjectivePicker (custom TextBox+Popup+ListView). Replaces
-                                     AutoSuggestBox because its flyout had a two-click-to-select + hover
-                                     confusion bug. Single-click commits immediately. -->
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                <controls:ObjectivePicker x:Name="NewBookmarkObjectivePicker"
-                                                          Grid.Column="0"
-                                                          Source="{x:Bind ViewModel.TagOptions, Mode=OneWay}"
-                                                          PlaceholderText="Tag an objective or prompt..."
-                                                          TagChosen="OnNewBookmarkTagChosen"
-                                                          HorizontalAlignment="Stretch"/>
-
-                                <Button Grid.Column="1"
-                                        Command="{x:Bind ViewModel.AddBookmarkCommand}"
-                                        Click="OnClipButtonClick"
-                                        Style="{StaticResource PrimaryActionButtonStyle}"
-                                        Height="34" Padding="14,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                        IsTabStop="False" AllowFocusOnInteraction="False"
-                                        Content="Add"/>
+                    <controls:CornerBracketedCard Grid.Row="0"
+                        CardBackground="{StaticResource QueuePanelBrush}">
+                        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="2">
+                                    <controls:SectionTitle Text="MOMENTS TO REVIEW"/>
+                                    <TextBlock Text="Auto-picked moments, saved clips, and bookmarks."
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Border Grid.Column="1"
+                                        Background="{StaticResource SurfaceInsetBrush}"
+                                        BorderBrush="{StaticResource BrightBorderBrush}"
+                                        BorderThickness="1" CornerRadius="2" Padding="8,4"
+                                        VerticalAlignment="Top">
+                                    <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                               Foreground="{StaticResource PrimaryTextBrush}">
+                                        <Run Text="{x:Bind ViewModel.EvidenceInbox.Count, Mode=OneWay}"/>
+                                        <Run Text=" open"/>
+                                    </TextBlock>
+                                </Border>
                             </Grid>
-                        </StackPanel>
-                    </controls:CornerBracketedCard>
 
-                    <!-- Clip Extraction -->
-                    <controls:CornerBracketedCard>
-                        <StackPanel Spacing="10">
-                            <controls:SectionTitle Text="CLIP"/>
-
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <!-- v2.15.10: surface the I / O keyboard shortcuts as
-                                     keycap chips next to the buttons. Users were
-                                     bouncing between bookmark + clip because the
-                                     in/out trigger wasn't discoverable. -->
-                                <Button Command="{x:Bind ViewModel.SetClipInCommand}"
-                                        Click="OnClipButtonClick"
-                                        Style="{StaticResource SecondaryActionButtonStyle}"
-                                        Height="30" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                        IsTabStop="False" AllowFocusOnInteraction="False">
-                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <TextBlock Text="Start" VerticalAlignment="Center"/>
-                                        <Border Background="{StaticResource AccentGoldBrush}"
-                                                CornerRadius="2" Padding="6,1"
-                                                VerticalAlignment="Center">
-                                            <!-- v2.15.10: serif/mono I and O are nearly indistinguishable
-                                                 (Orbitron's I has no serifs, looks like a vertical line that
-                                                 reads as | or 1). Switch to Segoe UI sans-serif so the cap
-                                                 letterforms are unambiguous keycaps. -->
-                                            <TextBlock Text="I"
-                                                       FontFamily="Segoe UI"
+                            <!-- 3-way filter: Auto · Clips · Bookmarks — underline tab style -->
+                            <Grid Grid.Row="1" ColumnDefinitions="*,*,*">
+                                <!-- Auto tab -->
+                                <Button Grid.Column="0"
+                                        Command="{x:Bind ViewModel.SetReviewMomentFilterCommand}"
+                                        CommandParameter="auto"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        MinWidth="0"
+                                        HorizontalAlignment="Stretch"
+                                        IsTabStop="False"
+                                        AllowFocusOnInteraction="False">
+                                    <StackPanel Spacing="0" HorizontalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="4"
+                                                    Padding="4,8,4,6" HorizontalAlignment="Center">
+                                            <TextBlock FontFamily="{StaticResource HeadingFont}"
                                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                       FontWeight="Bold"
-                                                       Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
-                                        </Border>
-                                    </StackPanel>
-                                </Button>
-                                <TextBlock FontFamily="{StaticResource MonoFont}"
-                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"
-                                           Foreground="{StaticResource AccentGoldBrush}">
-                                    <Run Text="{x:Bind ViewModel.ClipRangeText, Mode=OneWay}"/>
-                                </TextBlock>
-                                <Button Command="{x:Bind ViewModel.SetClipOutCommand}"
-                                        Click="OnClipButtonClick"
-                                        Style="{StaticResource SecondaryActionButtonStyle}"
-                                        Height="30" Padding="10,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                        IsTabStop="False" AllowFocusOnInteraction="False">
-                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <TextBlock Text="End" VerticalAlignment="Center"/>
-                                        <Border Background="{StaticResource AccentGoldBrush}"
-                                                CornerRadius="2" Padding="6,1"
-                                                VerticalAlignment="Center">
-                                            <TextBlock Text="O"
-                                                       FontFamily="Segoe UI"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{x:Bind ViewModel.AutoTabForegroundBrush, Mode=OneWay}">
+                                                <Run Text="Auto"/>
+                                            </TextBlock>
+                                            <TextBlock FontFamily="{StaticResource MonoFont}"
                                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                       FontWeight="Bold"
-                                                       Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
+                                                       Foreground="{x:Bind ViewModel.AutoTabForegroundBrush, Mode=OneWay}"
+                                                       Opacity="0.65">
+                                                <Run Text="("/>
+                                                <Run Text="{x:Bind ViewModel.AutoReviewMomentCount, Mode=OneWay}"/>
+                                                <Run Text=")"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Border Height="2" HorizontalAlignment="Stretch" CornerRadius="1"
+                                                Background="{StaticResource AccentBlueBrush}"
+                                                Visibility="{x:Bind ViewModel.IsAutoReviewMomentFilterSelected, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Clips tab -->
+                                <Button Grid.Column="1"
+                                        Command="{x:Bind ViewModel.SetReviewMomentFilterCommand}"
+                                        CommandParameter="saved"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        MinWidth="0"
+                                        HorizontalAlignment="Stretch"
+                                        IsTabStop="False"
+                                        AllowFocusOnInteraction="False">
+                                    <StackPanel Spacing="0" HorizontalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="4"
+                                                    Padding="4,8,4,6" HorizontalAlignment="Center">
+                                            <TextBlock FontFamily="{StaticResource HeadingFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{x:Bind ViewModel.SavedTabForegroundBrush, Mode=OneWay}">
+                                                <Run Text="Clips"/>
+                                            </TextBlock>
+                                            <TextBlock FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{x:Bind ViewModel.SavedTabForegroundBrush, Mode=OneWay}"
+                                                       Opacity="0.65">
+                                                <Run Text="("/>
+                                                <Run Text="{x:Bind ViewModel.SavedClipReviewMomentCount, Mode=OneWay}"/>
+                                                <Run Text=")"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Border Height="2" HorizontalAlignment="Stretch" CornerRadius="1"
+                                                Background="{StaticResource AccentGoldBrush}"
+                                                Visibility="{x:Bind ViewModel.IsSavedReviewMomentFilterSelected, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Bookmarks tab -->
+                                <Button Grid.Column="2"
+                                        Command="{x:Bind ViewModel.SetReviewMomentFilterCommand}"
+                                        CommandParameter="bookmarks"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        MinWidth="0"
+                                        HorizontalAlignment="Stretch"
+                                        IsTabStop="False"
+                                        AllowFocusOnInteraction="False">
+                                    <StackPanel Spacing="0" HorizontalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="4"
+                                                    Padding="4,8,4,6" HorizontalAlignment="Center">
+                                            <TextBlock FontFamily="{StaticResource HeadingFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{x:Bind ViewModel.BookmarkTabForegroundBrush, Mode=OneWay}">
+                                                <Run Text="Bookmarks"/>
+                                            </TextBlock>
+                                            <TextBlock FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{x:Bind ViewModel.BookmarkTabForegroundBrush, Mode=OneWay}"
+                                                       Opacity="0.65">
+                                                <Run Text="("/>
+                                                <Run Text="{x:Bind ViewModel.BookmarkReviewMomentCount, Mode=OneWay}"/>
+                                                <Run Text=")"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Border Height="2" HorizontalAlignment="Stretch" CornerRadius="1"
+                                                Background="{StaticResource AccentTealBrush}"
+                                                Visibility="{x:Bind ViewModel.IsBookmarkReviewMomentFilterSelected, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"/>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <!-- Empty-state / fallback banner (rows 2–3 share this slot) -->
+                            <StackPanel Grid.Row="2" Spacing="6">
+                                <!-- No-VOD fallback: shown on Clips tab when VOD is unavailable -->
+                                <Border Background="{StaticResource SurfaceInsetBrush}"
+                                        BorderBrush="{StaticResource AccentGoldBrush}"
+                                        BorderThickness="1" CornerRadius="2" Padding="9,7"
+                                        Visibility="{x:Bind ViewModel.ShowClipFallbackHint, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="Full VOD unavailable. Play saved clips from this list."
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource AccentGoldBrush}"
+                                               TextWrapping="Wrap"/>
+                                </Border>
+
+                                <!-- Empty state for Auto/Clips tabs -->
+                                <Border Background="{StaticResource SurfaceInsetBrush}"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="2"
+                                        Padding="14,12"
+                                        Visibility="{x:Bind ViewModel.ShowEmptyReviewMomentsState, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="{x:Bind ViewModel.EmptyReviewMomentsText, Mode=OneWay}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               TextWrapping="Wrap"/>
+                                </Border>
+
+                                <!-- Empty state for Bookmarks tab -->
+                                <Border Background="{StaticResource SurfaceInsetBrush}"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="2"
+                                        Padding="14,12"
+                                        Visibility="{x:Bind ViewModel.IsBookmarkReviewMomentFilterSelected, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="No plain bookmarks saved yet."
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               TextWrapping="Wrap"
+                                               Visibility="{x:Bind ViewModel.HasVisibleBookmarkItems, Mode=OneWay, Converter={StaticResource InverseBoolToVisibility}}"/>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- v2.17.17: no MaxHeight — the * grid row bounds this
+                                 list, so the built-in ItemsStackPanel virtualizes
+                                 against a real viewport and the wheel scrolls it
+                                 directly. A MaxHeight here (with the old outer
+                                 ScrollViewer) is what defeated virtualization and
+                                 forced the manual wheel handler. -->
+                            <ListView x:Name="TimelineInboxList"
+                                      Grid.Row="3"
+                                      ItemsSource="{x:Bind ViewModel.VisibleReviewMoments, Mode=OneWay}"
+                                      SelectionMode="None"
+                                      IsItemClickEnabled="False"
+                                      Background="Transparent"
+                                      BorderThickness="0"
+                                      Padding="0,0,8,0"
+                                      Visibility="{x:Bind ViewModel.ShowReviewMomentsList, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                      ScrollViewer.IsHorizontalScrollChainingEnabled="False">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="Padding" Value="0,0,0,7"/>
+                                        <Setter Property="Margin" Value="0"/>
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:EvidenceInboxItem">
+                                            <Border Background="{StaticResource SurfaceInsetBrush}"
+                                                    BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
+                                                    BorderThickness="1" CornerRadius="2" Padding="10,9">
+                                                <StackPanel Spacing="7">
+                                                    <!-- Header row: badges + title + action buttons -->
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                        <StackPanel Grid.Column="0" Spacing="4">
+                                                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                                                <Border Background="{x:Bind SourceSurfaceBrush, Mode=OneWay}"
+                                                                        BorderBrush="{x:Bind SourceAccentBrush, Mode=OneWay}"
+                                                                        BorderThickness="1" CornerRadius="2" Padding="6,2">
+                                                                    <TextBlock Text="{x:Bind SourceLabel}"
+                                                                               FontFamily="{StaticResource MonoFont}"
+                                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                               Foreground="{x:Bind SourceAccentBrush, Mode=OneWay}"/>
+                                                                </Border>
+                                                                <Border Background="{StaticResource CardBackgroundBrush}"
+                                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                                        BorderThickness="1" CornerRadius="2" Padding="6,2">
+                                                                    <TextBlock Text="{x:Bind TimeRangeText}"
+                                                                               FontFamily="{StaticResource MonoFont}"
+                                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                                </Border>
+                                                                <!-- Status badge: hidden for clips (redundant), shown for auto moments -->
+                                                                <Border BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
+                                                                        Background="{StaticResource CardBackgroundBrush}"
+                                                                        BorderThickness="1" CornerRadius="2" Padding="6,2"
+                                                                        Visibility="{x:Bind IsSavedClip, Converter={StaticResource InverseBoolToVisibility}}">
+                                                                    <TextBlock Text="{x:Bind StatusLabel, Mode=OneWay}"
+                                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                               Foreground="{x:Bind StatusAccentBrush, Mode=OneWay}"/>
+                                                                </Border>
+                                                                <!-- Polarity badge: auto moments only -->
+                                                                <Border BorderBrush="{x:Bind PolarityAccentBrush, Mode=OneWay}"
+                                                                        Background="{StaticResource CardBackgroundBrush}"
+                                                                        BorderThickness="1" CornerRadius="2" Padding="6,2"
+                                                                        Visibility="{x:Bind IsSavedClip, Converter={StaticResource InverseBoolToVisibility}}">
+                                                                    <TextBlock Text="{x:Bind PolarityLabel, Mode=OneWay}"
+                                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                               Foreground="{x:Bind PolarityAccentBrush, Mode=OneWay}"/>
+                                                                </Border>
+                                                            </StackPanel>
+
+                                                            <TextBlock Text="{x:Bind Title}"
+                                                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                                       TextWrapping="Wrap"/>
+                                                        </StackPanel>
+
+                                                        <!-- Right-side action buttons -->
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
+                                                            <!-- Share: clips only -->
+                                                            <Button DataContext="{x:Bind}"
+                                                                    Click="OnShareEvidenceClipClick"
+                                                                    Style="{StaticResource GhostIconButtonStyle}"
+                                                                    Width="30" Height="30" Padding="0"
+                                                                    Visibility="{x:Bind IsSavedClip, Converter={StaticResource BoolToVisibility}}"
+                                                                    ToolTipService.ToolTip="Share clip — copy public link">
+                                                                <FontIcon Glyph="&#xE72D;"
+                                                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                                          FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
+                                                            </Button>
+                                                            <!-- Delete: clips only — hard red to signal destructive -->
+                                                            <Button DataContext="{x:Bind}"
+                                                                    Click="OnDeleteEvidenceClipClick"
+                                                                    Style="{StaticResource GhostIconButtonStyle}"
+                                                                    Width="30" Height="30" Padding="0"
+                                                                    BorderBrush="{StaticResource LossRedBrush}"
+                                                                    Visibility="{x:Bind IsSavedClip, Converter={StaticResource BoolToVisibility}}"
+                                                                    ToolTipService.ToolTip="Delete clip permanently">
+                                                                <FontIcon Glyph="&#xE74D;"
+                                                                          FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                                          FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                                          Foreground="{StaticResource LossRedBrush}"/>
+                                                            </Button>
+                                                            <!-- Open / Play -->
+                                                            <Button Style="{StaticResource GhostIconButtonStyle}"
+                                                                    DataContext="{x:Bind}"
+                                                                    Click="OnOpenEvidenceClick"
+                                                                    Width="62" Height="30" Padding="0"
+                                                                    ToolTipService.ToolTip="Open moment">
+                                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                    <FontIcon Glyph="&#xE768;"
+                                                                              FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                                              FontSize="{Binding Meta, Source={StaticResource FontSizes}}"/>
+                                                                    <TextBlock Text="{x:Bind ReviewActionLabel}"
+                                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                               FontWeight="SemiBold"/>
+                                                                </StackPanel>
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Grid>
+
+                                                    <!-- Objective tag picker — always visible (virtualization bounds cost to visible rows) -->
+                                                    <controls:ObjectivePicker Source="{x:Bind TagOptions, Mode=OneWay}"
+                                                                              Payload="{x:Bind}"
+                                                                              SelectedTitle="{x:Bind ObjectiveTitleDisplay, Mode=OneWay}"
+                                                                              PlaceholderText="Tag objective..."
+                                                                              TagChosen="OnEvidenceTagChosen"
+                                                                              HorizontalAlignment="Stretch"/>
+
+                                                    <!-- Review note — always visible -->
+                                                    <TextBox Text="{x:Bind Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             DataContext="{x:Bind}"
+                                                             Background="{StaticResource InputBackgroundBrush}"
+                                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                             BorderThickness="1" CornerRadius="2"
+                                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                                             FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                             Padding="8,5"
+                                                             PlaceholderText="Review note"
+                                                             TextWrapping="Wrap"
+                                                             AcceptsReturn="True"
+                                                             LostFocus="OnEvidenceNoteLostFocus"/>
+
+                                                    <!-- Bottom action row -->
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                        <!-- Auto-moment review actions: Good/Bad/Evidence/Highlight — shown for non-clip rows only -->
+                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4"
+                                                                    Visibility="{x:Bind IsSavedClip, Converter={StaticResource InverseBoolToVisibility}}">
+                                                            <Button Content="Good" Tag="good" DataContext="{x:Bind}"
+                                                                    Click="OnEvidencePolarityClick"
+                                                                    Style="{StaticResource ListActionButtonStyle}"
+                                                                    Height="28" Padding="8,0"/>
+                                                            <Button Content="Bad" Tag="bad" DataContext="{x:Bind}"
+                                                                    Click="OnEvidencePolarityClick"
+                                                                    Style="{StaticResource ListActionButtonStyle}"
+                                                                    Height="28" Padding="8,0"/>
+                                                            <Button Content="Evidence" Tag="evidence" DataContext="{x:Bind}"
+                                                                    Click="OnEvidenceStatusClick"
+                                                                    Style="{StaticResource ListActionButtonStyle}"
+                                                                    Height="28" Padding="8,0"/>
+                                                            <Button Content="Highlight" Tag="highlight" DataContext="{x:Bind}"
+                                                                    Click="OnEvidenceStatusClick"
+                                                                    Style="{StaticResource ListActionButtonStyle}"
+                                                                    Height="28" Padding="8,0"/>
+                                                        </StackPanel>
+
+                                                        <!-- Dismiss: quiet ghost button for both clips and auto moments -->
+                                                        <Button Grid.Column="1"
+                                                                Content="Dismiss" Tag="dismissed" DataContext="{x:Bind}"
+                                                                Click="OnEvidenceStatusClick"
+                                                                Style="{StaticResource QuietActionButtonStyle}"
+                                                                Height="28" Padding="8,0"
+                                                                HorizontalAlignment="Right"
+                                                                ToolTipService.ToolTip="Hide from review (keeps the clip)"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+
+                            <!-- Bookmarks tab: plain jump-only bookmarks (non-clip BookmarkItems) -->
+                            <ListView x:Name="BookmarksTabList"
+                                      Grid.Row="3"
+                                      ItemsSource="{x:Bind ViewModel.VisibleBookmarkItems, Mode=OneWay}"
+                                      SelectionMode="None"
+                                      IsItemClickEnabled="False"
+                                      Background="Transparent"
+                                      BorderThickness="0"
+                                      Padding="0,0,8,0"
+                                      Visibility="{x:Bind ViewModel.IsBookmarkReviewMomentFilterSelected, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                      ScrollViewer.IsHorizontalScrollChainingEnabled="False">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="Padding" Value="0,0,0,5"/>
+                                        <Setter Property="Margin" Value="0"/>
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:BookmarkItem">
+                                        <Border Background="{StaticResource SurfaceInsetBrush}"
+                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                BorderThickness="1" CornerRadius="2" Padding="8,7">
+                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                <Border Grid.Column="0"
+                                                        Width="50"
+                                                        Background="{x:Bind SurfaceBrush}"
+                                                        BorderBrush="{x:Bind AccentBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="2"
+                                                        Padding="5,4"
+                                                        VerticalAlignment="Stretch">
+                                                    <StackPanel Spacing="3" HorizontalAlignment="Center">
+                                                        <TextBlock Text="{x:Bind TimeText}"
+                                                                   FontFamily="{StaticResource MonoFont}"
+                                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{x:Bind AccentBrush}"/>
+                                                        <TextBlock Text="{x:Bind KindLabel}"
+                                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource MutedTextBrush}"/>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <StackPanel Grid.Column="1" Spacing="3">
+                                                    <TextBlock Text="{x:Bind LibraryTitle, Mode=OneWay}"
+                                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{x:Bind LibraryDetailText}"
+                                                               FontFamily="{StaticResource MonoFont}"
+                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                </StackPanel>
+
+                                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                    <Button Click="OnBookmarkJumpClick"
+                                                            Tag="{x:Bind}"
+                                                            Style="{StaticResource GhostIconButtonStyle}"
+                                                            Width="32" Height="30" Padding="0"
+                                                            ToolTipService.ToolTip="Jump to this bookmark">
+                                                        <FontIcon Glyph="&#xE768;"
+                                                                  FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                                                    </Button>
+                                                    <Button CommandParameter="{x:Bind Id}"
+                                                            Click="OnDeleteBookmark"
+                                                            Style="{StaticResource GhostIconButtonStyle}"
+                                                            Width="32" Height="30" Padding="0"
+                                                            BorderBrush="{StaticResource LossRedBrush}"
+                                                            ToolTipService.ToolTip="Delete bookmark permanently">
+                                                        <FontIcon Glyph="&#xE74D;"
+                                                                  FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                                  Foreground="{StaticResource LossRedBrush}"/>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
                                         </Border>
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
 
-                            <TextBox x:Name="ClipNoteBox"
-                                     KeyDown="OnQuickClipKeyDown"
-                                     PlaceholderText="What's happening?"
-                                     Style="{StaticResource VodInputTextBoxStyle}"
-                                     FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                     Text="{x:Bind ViewModel.ClipNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Button Command="{x:Bind ViewModel.SetClipQualityCommand}"
-                                        CommandParameter="good"
-                                        IsTabStop="False" AllowFocusOnInteraction="False"
-                                        Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0">
-                                    <Border CornerRadius="2" Padding="8,4"
-                                            Background="{x:Bind ViewModel.GoodClipBackgroundBrush, Mode=OneWay}"
-                                            BorderBrush="{x:Bind ViewModel.GoodClipBorderBrush, Mode=OneWay}"
-                                            BorderThickness="{x:Bind ViewModel.GoodClipBorderThickness, Mode=OneWay}">
-                                        <TextBlock Text="Good" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                   Foreground="{x:Bind ViewModel.GoodClipForegroundBrush, Mode=OneWay}"/>
-                                    </Border>
-                                </Button>
-                                <Button Command="{x:Bind ViewModel.SetClipQualityCommand}"
-                                        CommandParameter="neutral"
-                                        IsTabStop="False" AllowFocusOnInteraction="False"
-                                        Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0">
-                                    <Border CornerRadius="2" Padding="8,4"
-                                            Background="{x:Bind ViewModel.NeutralClipBackgroundBrush, Mode=OneWay}"
-                                            BorderBrush="{x:Bind ViewModel.NeutralClipBorderBrush, Mode=OneWay}"
-                                            BorderThickness="{x:Bind ViewModel.NeutralClipBorderThickness, Mode=OneWay}">
-                                        <TextBlock Text="Neutral" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                   Foreground="{x:Bind ViewModel.NeutralClipForegroundBrush, Mode=OneWay}"/>
-                                    </Border>
-                                </Button>
-                                <Button Command="{x:Bind ViewModel.SetClipQualityCommand}"
-                                        CommandParameter="bad"
-                                        IsTabStop="False" AllowFocusOnInteraction="False"
-                                        Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0">
-                                    <Border CornerRadius="2" Padding="8,4"
-                                            Background="{x:Bind ViewModel.BadClipBackgroundBrush, Mode=OneWay}"
-                                            BorderBrush="{x:Bind ViewModel.BadClipBorderBrush, Mode=OneWay}"
-                                            BorderThickness="{x:Bind ViewModel.BadClipBorderThickness, Mode=OneWay}">
-                                        <TextBlock Text="Bad" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                   Foreground="{x:Bind ViewModel.BadClipForegroundBrush, Mode=OneWay}"/>
-                                    </Border>
-                                </Button>
-                            </StackPanel>
-
-                            <controls:ObjectivePicker x:Name="NewClipObjectivePicker"
-                                                      Source="{x:Bind ViewModel.TagOptions, Mode=OneWay}"
-                                                      PlaceholderText="Tag an objective or prompt..."
-                                                      TagChosen="OnNewBookmarkTagChosen"
-                                                      HorizontalAlignment="Stretch"/>
-
-                            <Button Command="{x:Bind ViewModel.ExtractClipCommand}"
-                                    Click="OnClipButtonClick"
-                                    IsEnabled="{x:Bind ViewModel.HasClipRange, Mode=OneWay}"
-                                    Style="{StaticResource GoldActionButtonStyle}"
-                                    Height="32" Padding="12,0" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                    HorizontalAlignment="Stretch"
-                                    IsTabStop="False" AllowFocusOnInteraction="False">
-                                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                                    <FontIcon Glyph="&#xE7C3;" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                              FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
-                                    <TextBlock Text="Save Clip"/>
-                                </StackPanel>
-                            </Button>
-
-                            <TextBlock x:Name="FfmpegWarning"
-                                       Text="ffmpeg not found — install ffmpeg for clip saves."
-                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}" TextWrapping="Wrap" Visibility="Collapsed"
-                                       Foreground="{StaticResource LossRedBrush}"/>
-
-                            <!-- Inline login-to-share prompt. Appears when the user clicks
-                                 Share on a clip while logged out; reuses the magic-link
-                                 email->OTP flow, then uploads the pending clip. -->
-                            <StackPanel x:Name="ShareLoginPanel"
-                                        Spacing="6" Margin="0,4,0,0"
-                                        Visibility="{x:Bind ViewModel.ShareLoginVisible, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                                <TextBlock Text="LOG IN TO SHARE"
-                                           FontFamily="{StaticResource MonoFont}"
-                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                                <TextBlock Text="{x:Bind ViewModel.ShareStatusText, Mode=OneWay}"
-                                           FontFamily="{StaticResource MonoFont}"
-                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           TextWrapping="Wrap"/>
-
-                                <!-- Step 1: email -->
-                                <StackPanel Spacing="6"
-                                            Visibility="{x:Bind ViewModel.ShareAwaitingOtp, Mode=OneWay, Converter={StaticResource InverseBoolToVisibility}}">
-                                    <TextBox Style="{StaticResource VodInputTextBoxStyle}"
-                                             PlaceholderText="you@email.com"
-                                             Text="{x:Bind ViewModel.ShareEmail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Button Command="{x:Bind ViewModel.SendShareOtpCommand}"
-                                                IsEnabled="{x:Bind ViewModel.ShareBusy, Mode=OneWay, Converter={StaticResource InverseBool}}"
-                                                Style="{StaticResource GoldActionButtonStyle}"
-                                                Height="30" Padding="12,0"
-                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
-                                            <TextBlock Text="Send code"/>
-                                        </Button>
-                                        <Button Command="{x:Bind ViewModel.CancelShareLoginCommand}"
-                                                Style="{StaticResource QuietActionButtonStyle}"
-                                                Height="30" Padding="12,0"
-                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
-                                            <TextBlock Text="Cancel"/>
-                                        </Button>
-                                    </StackPanel>
-                                </StackPanel>
-
-                                <!-- Step 2: OTP -->
-                                <StackPanel Spacing="6"
-                                            Visibility="{x:Bind ViewModel.ShareAwaitingOtp, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                                    <TextBox Style="{StaticResource VodInputTextBoxStyle}"
-                                             PlaceholderText="Paste code"
-                                             Text="{x:Bind ViewModel.ShareOtp, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Button Command="{x:Bind ViewModel.VerifyShareOtpCommand}"
-                                                IsEnabled="{x:Bind ViewModel.ShareBusy, Mode=OneWay, Converter={StaticResource InverseBool}}"
-                                                Style="{StaticResource GoldActionButtonStyle}"
-                                                Height="30" Padding="12,0"
-                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
-                                            <TextBlock Text="Verify &amp; share"/>
-                                        </Button>
-                                        <Button Command="{x:Bind ViewModel.CancelShareLoginCommand}"
-                                                Style="{StaticResource QuietActionButtonStyle}"
-                                                Height="30" Padding="12,0"
-                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}">
-                                            <TextBlock Text="Cancel"/>
-                                        </Button>
-                                    </StackPanel>
-                                </StackPanel>
-                            </StackPanel>
-                        </StackPanel>
+                        </Grid>
                     </controls:CornerBracketedCard>
 
                     <!-- v2.17.8: dismissible hint that explains the auto-clipping toggle.
                          Shown only when the inbox has items, auto-clipping is currently on,
                          and the user hasn't permanently hidden it. -->
-                    <Border Background="{StaticResource SurfaceInsetBrush}"
+                    <Border Grid.Row="1"
+                            Background="{StaticResource SurfaceInsetBrush}"
                             BorderBrush="{StaticResource AccentBlueBrush}"
                             BorderThickness="1" CornerRadius="2" Padding="12,10"
                             Visibility="{x:Bind ViewModel.ShowAutoClippingHint, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
@@ -623,335 +1091,7 @@
                         </Grid>
                     </Border>
 
-                    <controls:CornerBracketedCard
-                        Visibility="{x:Bind ViewModel.HasEvidenceInboxItems, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                        <Grid RowDefinitions="Auto,*" RowSpacing="10">
-                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-                                <controls:SectionTitle Text="TIMELINE INBOX"/>
-                                <Border Grid.Column="1"
-                                        Background="{StaticResource SurfaceInsetBrush}"
-                                        BorderBrush="{StaticResource SubtleBorderBrush}"
-                                        BorderThickness="1" CornerRadius="2" Padding="8,4">
-                                    <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                               Foreground="{StaticResource PrimaryTextBrush}">
-                                        <Run Text="{x:Bind ViewModel.EvidenceInbox.Count, Mode=OneWay}"/>
-                                        <Run Text=" open"/>
-                                    </TextBlock>
-                                </Border>
-                            </Grid>
-
-                            <ScrollViewer x:Name="TimelineInboxScroll"
-                                          Grid.Row="1"
-                                          MaxHeight="360"
-                                          VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
-                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.EvidenceInbox, Mode=OneWay}">
-                                    <ItemsRepeater.Layout>
-                                        <StackLayout Spacing="6"/>
-                                    </ItemsRepeater.Layout>
-                                    <ItemsRepeater.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:EvidenceInboxItem">
-                                            <Border Background="{StaticResource SurfaceInsetBrush}"
-                                                    BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
-                                                    BorderThickness="1" CornerRadius="2" Padding="10,9">
-                                                <StackPanel Spacing="7">
-                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                                        <StackPanel Grid.Column="0" Spacing="3">
-                                                            <TextBlock Text="{x:Bind Title}"
-                                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{StaticResource PrimaryTextBrush}"
-                                                                       TextWrapping="Wrap"/>
-                                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                <Border Background="{StaticResource CardBackgroundBrush}"
-                                                                        BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                                        BorderThickness="1" CornerRadius="2" Padding="5,2">
-                                                                    <TextBlock Text="{x:Bind SourceLabel}"
-                                                                               FontFamily="{StaticResource MonoFont}"
-                                                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                                                                               Foreground="{StaticResource MutedTextBrush}"/>
-                                                                </Border>
-                                                                <TextBlock Text="{x:Bind TimeRangeText}"
-                                                                           FontFamily="{StaticResource MonoFont}"
-                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
-                                                            </StackPanel>
-                                                        </StackPanel>
-                                                        <Button Grid.Column="1"
-                                                                Style="{StaticResource GhostIconButtonStyle}"
-                                                                DataContext="{x:Bind}"
-                                                                Click="OnOpenEvidenceClick"
-                                                                ToolTipService.ToolTip="Open moment">
-                                                            <FontIcon Glyph="&#xE768;"
-                                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                                      FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
-                                                        </Button>
-                                                    </Grid>
-
-                                                    <controls:ObjectivePicker Source="{x:Bind TagOptions, Mode=OneWay}"
-                                                                              Payload="{x:Bind}"
-                                                                              SelectedTitle="{x:Bind ObjectiveTitleDisplay, Mode=OneWay}"
-                                                                              PlaceholderText="Tag objective..."
-                                                                              TagChosen="OnEvidenceTagChosen"
-                                                                              HorizontalAlignment="Stretch"/>
-
-                                                    <TextBox Text="{x:Bind Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                             DataContext="{x:Bind}"
-                                                             Background="{StaticResource InputBackgroundBrush}"
-                                                             BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                             BorderThickness="1" CornerRadius="2"
-                                                             Foreground="{StaticResource PrimaryTextBrush}"
-                                                             FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                             Padding="8,5"
-                                                             PlaceholderText="Evidence note"
-                                                             TextWrapping="Wrap"
-                                                             AcceptsReturn="True"
-                                                             LostFocus="OnEvidenceNoteLostFocus"/>
-
-                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                                                            <Border BorderBrush="{x:Bind PolarityAccentBrush, Mode=OneWay}"
-                                                                    Background="{StaticResource CardBackgroundBrush}"
-                                                                    BorderThickness="1" CornerRadius="2" Padding="6,3">
-                                                                <TextBlock Text="{x:Bind PolarityLabel, Mode=OneWay}"
-                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                           Foreground="{x:Bind PolarityAccentBrush, Mode=OneWay}"/>
-                                                            </Border>
-                                                            <Border BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
-                                                                    Background="{StaticResource CardBackgroundBrush}"
-                                                                    BorderThickness="1" CornerRadius="2" Padding="6,3">
-                                                                <TextBlock Text="{x:Bind StatusLabel, Mode=OneWay}"
-                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                           Foreground="{x:Bind StatusAccentBrush, Mode=OneWay}"/>
-                                                            </Border>
-                                                        </StackPanel>
-
-                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                                                            <Button Content="Good" Tag="good" DataContext="{x:Bind}"
-                                                                    Click="OnEvidencePolarityClick"
-                                                                    Style="{StaticResource ListActionButtonStyle}"
-                                                                    Height="28" Padding="8,0"/>
-                                                            <Button Content="Bad" Tag="bad" DataContext="{x:Bind}"
-                                                                    Click="OnEvidencePolarityClick"
-                                                                    Style="{StaticResource ListActionButtonStyle}"
-                                                                    Height="28" Padding="8,0"/>
-                                                        </StackPanel>
-                                                    </Grid>
-
-                                                    <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
-                                                        <Button Content="Evidence" Tag="evidence" DataContext="{x:Bind}"
-                                                                Click="OnEvidenceStatusClick"
-                                                                Style="{StaticResource ListActionButtonStyle}"
-                                                                Height="28" Padding="8,0"/>
-                                                        <Button Content="Highlight" Tag="highlight" DataContext="{x:Bind}"
-                                                                Click="OnEvidenceStatusClick"
-                                                                Style="{StaticResource ListActionButtonStyle}"
-                                                                Height="28" Padding="8,0"/>
-                                                        <Button Content="Dismiss" Tag="dismissed" DataContext="{x:Bind}"
-                                                                Click="OnEvidenceStatusClick"
-                                                                Style="{StaticResource ListActionButtonStyle}"
-                                                                Height="28" Padding="8,0"/>
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsRepeater.ItemTemplate>
-                                </ItemsRepeater>
-                            </ScrollViewer>
-                        </Grid>
-                    </controls:CornerBracketedCard>
-
-                    <!-- Saved bookmarks + clips -->
-                    <controls:CornerBracketedCard>
-                        <Grid RowDefinitions="Auto,*" RowSpacing="10">
-                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-                                <controls:SectionTitle Text="SAVED"/>
-                                <Border Grid.Column="1"
-                                        Background="{StaticResource SurfaceInsetBrush}"
-                                        BorderBrush="{StaticResource SubtleBorderBrush}"
-                                        BorderThickness="1" CornerRadius="2" Padding="8,4">
-                                    <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                               Foreground="{StaticResource PrimaryTextBrush}">
-                                        <Run Text="{x:Bind ViewModel.Bookmarks.Count, Mode=OneWay}"/>
-                                        <Run Text=" saved"/>
-                                    </TextBlock>
-                                </Border>
-                            </Grid>
-
-                            <ScrollViewer Grid.Row="1"
-                                          VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel Spacing="8">
-                                    <Border Background="{StaticResource SurfaceInsetBrush}"
-                                            BorderBrush="{StaticResource AccentGoldBrush}"
-                                            BorderThickness="1" CornerRadius="2" Padding="10,8"
-                                            Visibility="{x:Bind ViewModel.ShowClipFallbackHint, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                                        <TextBlock Text="Full VOD unavailable. Play saved clips from this list."
-                                                   FontFamily="{StaticResource MonoFont}"
-                                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                   Foreground="{StaticResource AccentGoldBrush}"
-                                                   TextWrapping="Wrap"/>
-                                    </Border>
-
-                                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.Bookmarks, Mode=OneWay}">
-                                        <ItemsRepeater.Layout>
-                                            <StackLayout Spacing="6"/>
-                                        </ItemsRepeater.Layout>
-                                        <ItemsRepeater.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:BookmarkItem">
-                                            <Border Background="{x:Bind SurfaceBrush}"
-                                                    BorderBrush="{x:Bind AccentBrush}"
-                                                    BorderThickness="1" CornerRadius="2" Padding="12,10">
-                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                                    <StackPanel Spacing="6" VerticalAlignment="Top">
-                                                        <Border Background="{x:Bind AccentBrush}"
-                                                                CornerRadius="2" Padding="8,4">
-                                                            <TextBlock Text="{x:Bind TimeText}"
-                                                                       FontFamily="{StaticResource MonoFont}"
-                                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                                                       Foreground="{StaticResource ActionPrimaryForegroundBrush}"/>
-                                                        </Border>
-                                                        <Border Background="{x:Bind SurfaceBrush}"
-                                                                BorderBrush="{x:Bind AccentBrush}"
-                                                                BorderThickness="1" CornerRadius="2" Padding="6,3">
-                                                            <TextBlock Text="{x:Bind KindLabel}" FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{x:Bind AccentBrush}"/>
-                                                        </Border>
-                                                    </StackPanel>
-
-                                                    <StackPanel Grid.Column="1" Spacing="6">
-                                                        <TextBox Text="{x:Bind Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                                 Tag="{x:Bind}"
-                                                                 Background="{StaticResource InputBackgroundBrush}"
-                                                                 BorderBrush="{StaticResource SubtleBorderBrush}"
-                                                                 BorderThickness="1" CornerRadius="2"
-                                                                 Foreground="{StaticResource PrimaryTextBrush}"
-                                                                 FontSize="{Binding Meta, Source={StaticResource FontSizes}}" Padding="8,6"
-                                                                 PlaceholderText="Note"
-                                                                 TextWrapping="Wrap"
-                                                                 AcceptsReturn="True"
-                                                                 HorizontalAlignment="Stretch"
-                                                                 KeyDown="OnBookmarkNoteKeyDown"
-                                                                 LostFocus="OnBookmarkNoteLostFocus"
-                                                                 TextChanged="OnBookmarkNoteTextChanged"/>
-
-                                                        <!-- v2.15.7: per-clip objective picker. The picker's TextBox
-                                                             doubles as the current-state display, so we bind
-                                                             SelectedTitle and skip the separate label above. -->
-                                                        <controls:ObjectivePicker Source="{x:Bind TagOptions, Mode=OneWay}"
-                                                                                  Payload="{x:Bind}"
-                                                                                  SelectedTitle="{x:Bind ObjectiveTitleDisplay, Mode=OneWay}"
-                                                                                  PlaceholderText="No tag. Click to tag..."
-                                                                                  TagChosen="OnClipTagChosen"
-                                                                                  HorizontalAlignment="Stretch"/>
-
-                                                        <StackPanel Orientation="Horizontal" Spacing="6"
-                                                                    Visibility="{x:Bind IsClip, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                                                            <Border Background="{x:Bind SurfaceBrush}"
-                                                                    BorderBrush="{x:Bind AccentBrush}"
-                                                                    BorderThickness="1" CornerRadius="2" Padding="6,3"
-                                                                    HorizontalAlignment="Left">
-                                                                <TextBlock Text="{x:Bind ClipRangeText}"
-                                                                           FontFamily="{StaticResource MonoFont}"
-                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                                                           Foreground="{x:Bind AccentBrush}"
-                                                                           TextWrapping="NoWrap"/>
-                                                            </Border>
-                                                            <Border Background="{x:Bind QualitySurfaceBrush}"
-                                                                    BorderBrush="{x:Bind QualityAccentBrush}"
-                                                                    BorderThickness="1" CornerRadius="2" Padding="6,3"
-                                                                    Visibility="{x:Bind HasQuality, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                                                                <TextBlock Text="{x:Bind QualityLabel}"
-                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                                                           Foreground="{x:Bind QualityAccentBrush}"/>
-                                                            </Border>
-                                                        </StackPanel>
-
-                                                        <!-- Inline quality chips for clips -->
-                                                        <StackPanel Orientation="Horizontal" Spacing="4"
-                                                                    Visibility="{x:Bind IsClip, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                                                            <Button Tag="good" Click="OnBookmarkQualityClick"
-                                                                    DataContext="{x:Bind}"
-                                                                    Background="Transparent" BorderThickness="0"
-                                                                    Padding="0" MinWidth="0">
-                                                                <Border CornerRadius="2" Padding="8,4"
-                                                                        Background="{x:Bind GoodQualityVisual.BackgroundBrush, Mode=OneWay}"
-                                                                        BorderBrush="{x:Bind GoodQualityVisual.BorderBrush, Mode=OneWay}"
-                                                                        BorderThickness="{x:Bind GoodQualityVisual.BorderThickness, Mode=OneWay}">
-                                                                    <TextBlock Text="Good" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                               Foreground="{x:Bind GoodQualityVisual.ForegroundBrush, Mode=OneWay}"/>
-                                                                </Border>
-                                                            </Button>
-                                                            <Button Tag="neutral" Click="OnBookmarkQualityClick"
-                                                                    DataContext="{x:Bind}"
-                                                                    Background="Transparent" BorderThickness="0"
-                                                                    Padding="0" MinWidth="0">
-                                                                <Border CornerRadius="2" Padding="8,4"
-                                                                        Background="{x:Bind NeutralQualityVisual.BackgroundBrush, Mode=OneWay}"
-                                                                        BorderBrush="{x:Bind NeutralQualityVisual.BorderBrush, Mode=OneWay}"
-                                                                        BorderThickness="{x:Bind NeutralQualityVisual.BorderThickness, Mode=OneWay}">
-                                                                    <TextBlock Text="Neutral" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                               Foreground="{x:Bind NeutralQualityVisual.ForegroundBrush, Mode=OneWay}"/>
-                                                                </Border>
-                                                            </Button>
-                                                            <Button Tag="bad" Click="OnBookmarkQualityClick"
-                                                                    DataContext="{x:Bind}"
-                                                                    Background="Transparent" BorderThickness="0"
-                                                                    Padding="0" MinWidth="0">
-                                                                <Border CornerRadius="2" Padding="8,4"
-                                                                        Background="{x:Bind BadQualityVisual.BackgroundBrush, Mode=OneWay}"
-                                                                        BorderBrush="{x:Bind BadQualityVisual.BorderBrush, Mode=OneWay}"
-                                                                        BorderThickness="{x:Bind BadQualityVisual.BorderThickness, Mode=OneWay}">
-                                                                    <TextBlock Text="Bad" FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                               Foreground="{x:Bind BadQualityVisual.ForegroundBrush, Mode=OneWay}"/>
-                                                                </Border>
-                                                            </Button>
-                                                        </StackPanel>
-                                                    </StackPanel>
-
-                                                    <StackPanel Grid.Column="2" Spacing="6" VerticalAlignment="Top">
-                                                        <!-- v2.15.10: explicit Tag binding so ResolveBookmarkItem
-                                                             always finds the row's BookmarkItem. DataContext
-                                                             inheritance through the item-template was unreliable
-                                                             for ghost-styled buttons inside a ScrollViewer. -->
-                                                        <Button Click="OnBookmarkJumpClick"
-                                                                Tag="{x:Bind}"
-                                                                Style="{StaticResource GhostIconButtonStyle}"
-                                                                Width="56" Height="30" Padding="0"
-                                                                ToolTipService.ToolTip="Jump to this time or play the saved clip">
-                                                            <TextBlock Text="{x:Bind JumpActionLabel}" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
-                                                        </Button>
-                                                        <!-- Share a clip publicly (revu.lol/<id>). Only for playable
-                                                             clips; label reflects share/uploading state. -->
-                                                        <Button Click="OnBookmarkShareClick"
-                                                                Tag="{x:Bind}"
-                                                                IsEnabled="{x:Bind IsSharing, Mode=OneWay, Converter={StaticResource InverseBool}}"
-                                                                Visibility="{x:Bind HasPlayableClip, Converter={StaticResource BoolToVisibility}}"
-                                                                Style="{StaticResource GhostIconButtonStyle}"
-                                                                Width="56" Height="30" Padding="0"
-                                                                ToolTipService.ToolTip="Upload this clip and copy a public link">
-                                                            <TextBlock Text="{x:Bind ShareActionLabel, Mode=OneWay}" FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"/>
-                                                        </Button>
-                                                        <Button CommandParameter="{x:Bind Id}"
-                                                                Click="OnDeleteBookmark"
-                                                                Style="{StaticResource GhostIconButtonStyle}"
-                                                                Width="56" Height="30" Padding="0">
-                                                            <FontIcon Glyph="&#xE74D;" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
-                                                        </Button>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Border>
-                                            </DataTemplate>
-                                        </ItemsRepeater.ItemTemplate>
-                                    </ItemsRepeater>
-                                </StackPanel>
-                            </ScrollViewer>
-                        </Grid>
-                    </controls:CornerBracketedCard>
-                </StackPanel>
-                </ScrollViewer>
+                </Grid>
             </Grid>
         </Grid>
 

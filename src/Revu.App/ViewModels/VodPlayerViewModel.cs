@@ -22,6 +22,9 @@ public partial class VodPlayerViewModel : ObservableObject
 {
     private static readonly TimeSpan BookmarkNoteSaveDebounce = TimeSpan.FromMilliseconds(650);
     private const int EvidenceJumpPreRollSeconds = 5;
+    private const string ReviewMomentFilterAuto = "auto";
+    private const string ReviewMomentFilterSaved = "saved";
+    private const string ReviewMomentFilterBookmarks = "bookmarks";
 
     private readonly IVodRepository _vodRepo;
     private readonly IGameRepository _gameRepo;
@@ -42,6 +45,7 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly SerializedTaskQueue _bookmarkMutationQueue;
     private readonly object _bookmarkNoteSaveGate = new();
     private readonly Dictionary<long, CancellationTokenSource> _bookmarkNoteSaveDelays = [];
+    private int _lastFormattedSecond = -1;
 
     // â"€â"€ Game info â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -146,9 +150,14 @@ public partial class VodPlayerViewModel : ObservableObject
     // â"€â"€ Collections â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     [ObservableProperty] private ObservableCollection<BookmarkItem> _bookmarks = new();
+    [ObservableProperty] private ObservableCollection<BookmarkItem> _visibleBookmarkItems = new();
     [ObservableProperty] private ObservableCollection<TimelineEvent> _gameEvents = new();
     [ObservableProperty] private ObservableCollection<DerivedEventRegion> _derivedEvents = new();
     [ObservableProperty] private ObservableCollection<EvidenceInboxItem> _evidenceInbox = new();
+    [ObservableProperty] private ObservableCollection<EvidenceInboxItem> _autoReviewMoments = new();
+    [ObservableProperty] private ObservableCollection<EvidenceInboxItem> _savedClipReviewMoments = new();
+    [ObservableProperty] private ObservableCollection<EvidenceInboxItem> _visibleReviewMoments = new();
+    [ObservableProperty] private string _reviewMomentFilter = ReviewMomentFilterAuto;
     public ObservableCollection<ObjectiveOption> ObjectiveOptions { get; } = new();
     // v2.15.7: unified tag picker — flat list of objectives + their prompts
     // (indented). BookmarkItem.TagOptions shares this reference so per-clip
@@ -199,6 +208,52 @@ public partial class VodPlayerViewModel : ObservableObject
                 : "No recording";
     public bool ShowClipFallbackHint => !HasPlayableVod && HasPlayableClips;
     public string PlaybackStateLabel => IsPlaying ? "Playing" : "Paused";
+    public bool IsAutoReviewMomentFilterSelected =>
+        string.Equals(ReviewMomentFilter, ReviewMomentFilterAuto, StringComparison.Ordinal);
+    public bool IsSavedReviewMomentFilterSelected =>
+        string.Equals(ReviewMomentFilter, ReviewMomentFilterSaved, StringComparison.Ordinal);
+    public bool IsBookmarkReviewMomentFilterSelected =>
+        string.Equals(ReviewMomentFilter, ReviewMomentFilterBookmarks, StringComparison.Ordinal);
+    public int AutoReviewMomentCount => AutoReviewMoments.Count;
+    public int SavedClipReviewMomentCount => SavedClipReviewMoments.Count;
+    public int BookmarkReviewMomentCount => VisibleBookmarkItems.Count;
+    public bool HasVisibleReviewMoments => VisibleReviewMoments.Count > 0;
+    public bool HasVisibleBookmarkItems => VisibleBookmarkItems.Count > 0;
+    /// <summary>Shows the Auto/Clips empty-state banner: moments list is empty and we are NOT on the Bookmarks tab.</summary>
+    public bool ShowEmptyReviewMomentsState => !HasVisibleReviewMoments && !IsBookmarkReviewMomentFilterSelected;
+    /// <summary>Shows the EvidenceInboxItem list: has items AND we are NOT on the Bookmarks tab.</summary>
+    public bool ShowReviewMomentsList => HasVisibleReviewMoments && !IsBookmarkReviewMomentFilterSelected;
+    public string EmptyReviewMomentsText => IsSavedReviewMomentFilterSelected
+        ? "No saved clips are queued yet."
+        : IsBookmarkReviewMomentFilterSelected
+            ? "No plain bookmarks saved yet."
+            : "No auto picks are queued right now.";
+    public SolidColorBrush AutoReviewFilterBackgroundBrush => AppSemanticPalette.Brush(
+        IsAutoReviewMomentFilterSelected ? AppSemanticPalette.AccentBlueHex : AppSemanticPalette.TagSurfaceHex);
+    public SolidColorBrush AutoReviewFilterBorderBrush => AppSemanticPalette.Brush(
+        IsAutoReviewMomentFilterSelected ? AppSemanticPalette.AccentBlueHex : AppSemanticPalette.SubtleBorderHex);
+    public SolidColorBrush AutoReviewFilterForegroundBrush => AppSemanticPalette.Brush(
+        IsAutoReviewMomentFilterSelected ? AppSemanticPalette.TagSurfaceHex : AppSemanticPalette.SecondaryTextHex);
+    public SolidColorBrush SavedReviewFilterBackgroundBrush => AppSemanticPalette.Brush(
+        IsSavedReviewMomentFilterSelected ? AppSemanticPalette.AccentGoldHex : AppSemanticPalette.TagSurfaceHex);
+    public SolidColorBrush SavedReviewFilterBorderBrush => AppSemanticPalette.Brush(
+        IsSavedReviewMomentFilterSelected ? AppSemanticPalette.AccentGoldHex : AppSemanticPalette.SubtleBorderHex);
+    public SolidColorBrush SavedReviewFilterForegroundBrush => AppSemanticPalette.Brush(
+        IsSavedReviewMomentFilterSelected ? AppSemanticPalette.TagSurfaceHex : AppSemanticPalette.SecondaryTextHex);
+    public SolidColorBrush BookmarkReviewFilterBackgroundBrush => AppSemanticPalette.Brush(
+        IsBookmarkReviewMomentFilterSelected ? AppSemanticPalette.AccentTealHex : AppSemanticPalette.TagSurfaceHex);
+    public SolidColorBrush BookmarkReviewFilterBorderBrush => AppSemanticPalette.Brush(
+        IsBookmarkReviewMomentFilterSelected ? AppSemanticPalette.AccentTealHex : AppSemanticPalette.SubtleBorderHex);
+    public SolidColorBrush BookmarkReviewFilterForegroundBrush => AppSemanticPalette.Brush(
+        IsBookmarkReviewMomentFilterSelected ? AppSemanticPalette.TagSurfaceHex : AppSemanticPalette.SecondaryTextHex);
+
+    // Underline-tab style: active = accent color, inactive = muted text
+    public SolidColorBrush AutoTabForegroundBrush => AppSemanticPalette.Brush(
+        IsAutoReviewMomentFilterSelected ? AppSemanticPalette.AccentBlueHex : AppSemanticPalette.SecondaryTextHex);
+    public SolidColorBrush SavedTabForegroundBrush => AppSemanticPalette.Brush(
+        IsSavedReviewMomentFilterSelected ? AppSemanticPalette.AccentGoldHex : AppSemanticPalette.SecondaryTextHex);
+    public SolidColorBrush BookmarkTabForegroundBrush => AppSemanticPalette.Brush(
+        IsBookmarkReviewMomentFilterSelected ? AppSemanticPalette.AccentTealHex : AppSemanticPalette.SecondaryTextHex);
 
     /// <summary>Raised when the view should seek the media player.</summary>
     public event Action<double>? SeekRequested;
@@ -287,7 +342,7 @@ public partial class VodPlayerViewModel : ObservableObject
             // Covers the case where ProcessGameEndAsync's 90s retry fired before
             // Ascent finished encoding — the user opens the VOD viewer minutes
             // later and the file is now ready. Mirrors ReviewWorkflowService.
-            if (vod == null && _configService.IsAscentEnabled)
+            if (vod == null)
             {
                 try
                 {
@@ -533,6 +588,7 @@ public partial class VodPlayerViewModel : ObservableObject
             {
                 Bookmarks.Remove(bookmark);
                 RefreshClipAvailabilityText();
+                RefreshVisibleBookmarkItemsOnCurrentThread();
             }
         });
 
@@ -769,8 +825,7 @@ public partial class VodPlayerViewModel : ObservableObject
             {
                 DispatcherHelper.RunOnUIThread(() =>
                 {
-                    EvidenceInbox.Remove(evidence);
-                    HasEvidenceInboxItems = EvidenceInbox.Count > 0;
+                    RemoveReviewMomentOnCurrentThread(evidence);
                 });
             }
             else
@@ -782,6 +837,43 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             _logger.LogError(ex, "Failed to update evidence status {EvidenceId}", evidence.Id);
         }
+    }
+
+    [RelayCommand]
+    private void SetReviewMomentFilter(string? filter)
+    {
+        ReviewMomentFilter = filter?.ToLowerInvariant() switch
+        {
+            ReviewMomentFilterSaved => ReviewMomentFilterSaved,
+            ReviewMomentFilterBookmarks => ReviewMomentFilterBookmarks,
+            _ => ReviewMomentFilterAuto,
+        };
+    }
+
+    /// <summary>
+    /// Share a clip directly from the Clips tab (EvidenceInboxItem row). Resolves the
+    /// underlying BookmarkItem via SourceId and delegates to ShareClipAsync.
+    /// </summary>
+    [RelayCommand]
+    private async Task ShareEvidenceClipAsync(EvidenceInboxItem? evidence)
+    {
+        if (evidence is null || !evidence.IsSavedClip || evidence.SourceId is not long bookmarkId)
+            return;
+        var bookmark = Bookmarks.FirstOrDefault(b => b.Id == bookmarkId);
+        if (bookmark is null) return;
+        await ShareClipAsync(bookmark);
+    }
+
+    /// <summary>
+    /// Delete a saved clip directly from the Clips tab (EvidenceInboxItem row). Resolves
+    /// the underlying BookmarkItem via SourceId and delegates to DeleteBookmarkAsync.
+    /// </summary>
+    [RelayCommand]
+    private Task DeleteEvidenceClipAsync(EvidenceInboxItem? evidence)
+    {
+        if (evidence is null || !evidence.IsSavedClip || evidence.SourceId is not long bookmarkId)
+            return Task.CompletedTask;
+        return DeleteBookmarkAsync(bookmarkId);
     }
 
     [RelayCommand]
@@ -1058,7 +1150,12 @@ public partial class VodPlayerViewModel : ObservableObject
     public void UpdatePosition(double seconds, double totalSeconds)
     {
         CurrentTimeS = seconds;
-        CurrentTimeText = FormatTime((int)seconds);
+        var intSec = (int)seconds;
+        if (intSec != _lastFormattedSecond)
+        {
+            _lastFormattedSecond = intSec;
+            CurrentTimeText = FormatTime(intSec);
+        }
 
         if (totalSeconds > 0 && GameDurationS == 0)
         {
@@ -1082,6 +1179,7 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             Bookmarks = loadedBookmarks;
             RefreshClipAvailabilityText();
+            RefreshVisibleBookmarkItemsOnCurrentThread();
         });
     }
 
@@ -1103,16 +1201,15 @@ public partial class VodPlayerViewModel : ObservableObject
                 Status: EvidenceStatuses.NeedsReview));
         }
 
-        // Saved clips are already editable in the Saved panel. The VOD inbox is
-        // intentionally only for inferred timeline moments so the right rail
-        // does not show the same clip twice.
+        // Saved clips and inferred regions are both review moments. The UI
+        // distinguishes the source, but keeps them in one queue so manual clips
+        // and auto-picked regions do not feel like different workflows.
     }
 
     private async Task RefreshEvidenceInboxAsync()
     {
         var autoFill = _configService.AutoTimelineClippingEnabled;
         var rows = (await _evidenceRepo.GetForGameAsync(GameId))
-            .Where(row => row.SourceKind != EvidenceKinds.Clip)
             // When auto-fill is OFF, hide the auto-derived (timeline_region)
             // suggestions that are still untouched (NeedsReview) — that's the
             // noise the user turned off. Keep any the user actively promoted
@@ -1121,17 +1218,99 @@ public partial class VodPlayerViewModel : ObservableObject
                 || row.SourceKind != EvidenceKinds.TimelineRegion
                 || row.Status != EvidenceStatuses.NeedsReview)
             .ToArray();
-        var loadedEvidence = new ObservableCollection<EvidenceInboxItem>();
+
+        // Build new item lists off the UI thread to keep dispatcher work minimal.
+        var newEvidence = new List<EvidenceInboxItem>(rows.Length);
+        var newAutoMoments = new List<EvidenceInboxItem>(rows.Length);
+        var newSavedClipMoments = new List<EvidenceInboxItem>(rows.Length);
         foreach (var row in rows)
         {
-            loadedEvidence.Add(ToEvidenceInboxItem(row));
+            var item = ToEvidenceInboxItem(row);
+            newEvidence.Add(item);
+            if (item.IsSavedClip)
+                newSavedClipMoments.Add(item);
+            else
+                newAutoMoments.Add(item);
         }
 
         await DispatcherHelper.RunOnUIThreadAsync(() =>
         {
-            EvidenceInbox = loadedEvidence;
-            HasEvidenceInboxItems = loadedEvidence.Count > 0;
+            // Update collections in-place to avoid discarding all item containers.
+            EvidenceInbox.Clear();
+            foreach (var item in newEvidence) EvidenceInbox.Add(item);
+
+            AutoReviewMoments.Clear();
+            foreach (var item in newAutoMoments) AutoReviewMoments.Add(item);
+
+            SavedClipReviewMoments.Clear();
+            foreach (var item in newSavedClipMoments) SavedClipReviewMoments.Add(item);
+
+            if (IsAutoReviewMomentFilterSelected && AutoReviewMoments.Count == 0 && SavedClipReviewMoments.Count > 0)
+            {
+                ReviewMomentFilter = ReviewMomentFilterSaved;
+            }
+            else if (IsSavedReviewMomentFilterSelected && SavedClipReviewMoments.Count == 0 && AutoReviewMoments.Count > 0)
+            {
+                ReviewMomentFilter = ReviewMomentFilterAuto;
+            }
+            else
+            {
+                RefreshVisibleReviewMomentsOnCurrentThread();
+            }
+            // Bookmarks tab has no auto-fallback — it's driven by plain bookmarks
+            // that are always available regardless of evidence inbox content.
         });
+    }
+
+    private void RemoveReviewMomentOnCurrentThread(EvidenceInboxItem evidence)
+    {
+        EvidenceInbox.Remove(evidence);
+        AutoReviewMoments.Remove(evidence);
+        SavedClipReviewMoments.Remove(evidence);
+        VisibleReviewMoments.Remove(evidence);
+        RefreshReviewMomentSummaryOnCurrentThread();
+    }
+
+    private void RefreshVisibleReviewMomentsOnCurrentThread()
+    {
+        // Update in-place: avoid allocating a new collection and discarding
+        // all item containers on every bookmark mutation.
+        var source = IsSavedReviewMomentFilterSelected ? SavedClipReviewMoments : AutoReviewMoments;
+        VisibleReviewMoments.Clear();
+        foreach (var item in source) VisibleReviewMoments.Add(item);
+
+        // Keep the plain-bookmark list in sync with whatever is in Bookmarks now.
+        RefreshVisibleBookmarkItemsOnCurrentThread();
+
+        RefreshReviewMomentSummaryOnCurrentThread();
+    }
+
+    private void RefreshReviewMomentSummaryOnCurrentThread()
+    {
+        HasEvidenceInboxItems = EvidenceInbox.Count > 0;
+        OnPropertyChanged(nameof(AutoReviewMomentCount));
+        OnPropertyChanged(nameof(SavedClipReviewMomentCount));
+        OnPropertyChanged(nameof(BookmarkReviewMomentCount));
+        OnPropertyChanged(nameof(HasVisibleReviewMoments));
+        OnPropertyChanged(nameof(HasVisibleBookmarkItems));
+        OnPropertyChanged(nameof(ShowEmptyReviewMomentsState));
+        OnPropertyChanged(nameof(ShowReviewMomentsList));
+        OnPropertyChanged(nameof(EmptyReviewMomentsText));
+    }
+
+    /// <summary>
+    /// Syncs <see cref="VisibleBookmarkItems"/> (plain bookmarks, no clips) from the
+    /// current <see cref="Bookmarks"/> collection. Must be called on the UI thread.
+    /// </summary>
+    private void RefreshVisibleBookmarkItemsOnCurrentThread()
+    {
+        VisibleBookmarkItems.Clear();
+        foreach (var bm in Bookmarks)
+        {
+            if (!bm.IsClip) VisibleBookmarkItems.Add(bm);
+        }
+        OnPropertyChanged(nameof(BookmarkReviewMomentCount));
+        OnPropertyChanged(nameof(HasVisibleBookmarkItems));
     }
 
     private void QueueBookmarkNoteSave(BookmarkItem? bookmark, bool immediate)
@@ -1307,6 +1486,7 @@ public partial class VodPlayerViewModel : ObservableObject
             if (index >= 0)
             {
                 Bookmarks[index] = bookmark;
+                RefreshVisibleBookmarkItemsOnCurrentThread();
             }
             else
             {
@@ -1350,6 +1530,7 @@ public partial class VodPlayerViewModel : ObservableObject
 
         Bookmarks.Insert(index, bookmark);
         RefreshClipAvailabilityText();
+        RefreshVisibleBookmarkItemsOnCurrentThread();
     }
 
     private void RefreshClipAvailabilityText()
@@ -1617,6 +1798,28 @@ public partial class VodPlayerViewModel : ObservableObject
 
     partial void OnIsPlayingChanged(bool value) => OnPropertyChanged(nameof(PlaybackStateLabel));
 
+    partial void OnReviewMomentFilterChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsAutoReviewMomentFilterSelected));
+        OnPropertyChanged(nameof(IsSavedReviewMomentFilterSelected));
+        OnPropertyChanged(nameof(IsBookmarkReviewMomentFilterSelected));
+        OnPropertyChanged(nameof(AutoReviewFilterBackgroundBrush));
+        OnPropertyChanged(nameof(AutoReviewFilterBorderBrush));
+        OnPropertyChanged(nameof(AutoReviewFilterForegroundBrush));
+        OnPropertyChanged(nameof(SavedReviewFilterBackgroundBrush));
+        OnPropertyChanged(nameof(SavedReviewFilterBorderBrush));
+        OnPropertyChanged(nameof(SavedReviewFilterForegroundBrush));
+        OnPropertyChanged(nameof(BookmarkReviewFilterBackgroundBrush));
+        OnPropertyChanged(nameof(BookmarkReviewFilterBorderBrush));
+        OnPropertyChanged(nameof(BookmarkReviewFilterForegroundBrush));
+        OnPropertyChanged(nameof(AutoTabForegroundBrush));
+        OnPropertyChanged(nameof(SavedTabForegroundBrush));
+        OnPropertyChanged(nameof(BookmarkTabForegroundBrush));
+        OnPropertyChanged(nameof(ShowEmptyReviewMomentsState));
+        OnPropertyChanged(nameof(ShowReviewMomentsList));
+        RefreshVisibleReviewMomentsOnCurrentThread();
+    }
+
     private void AdjustSeekStep(int direction)
     {
         var currentIndex = -1;
@@ -1862,6 +2065,15 @@ public partial class EvidenceInboxItem : ObservableObject
     public bool HasNote => !string.IsNullOrWhiteSpace(Note);
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DetailsToggleLabel))]
+    [NotifyPropertyChangedFor(nameof(ExpandedDetails))]
+    private bool _isExpanded;
+
+    public string DetailsToggleLabel => IsExpanded ? "Hide details" : "Details";
+
+    public EvidenceInboxItem? ExpandedDetails => IsExpanded ? this : null;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ObjectiveTitleDisplay))]
     private long? _objectiveId;
 
@@ -1879,7 +2091,23 @@ public partial class EvidenceInboxItem : ObservableObject
 
     public ObservableCollection<TagOption>? TagOptions { get; set; }
 
-    public string SourceLabel => SourceKind == EvidenceKinds.Clip ? "CLIP" : "REGION";
+    public bool IsSavedClip => EvidenceKinds.Normalize(SourceKind) == EvidenceKinds.Clip;
+
+    public string SourceLabel => IsSavedClip ? "Saved clip" : "Auto pick";
+
+    public string SourceShortLabel => IsSavedClip ? "CLIP" : "AUTO";
+
+    public string SourceGlyph => IsSavedClip ? "\uE7C3" : "\uE8B7";
+
+    public string ReviewActionLabel => IsSavedClip ? "Play clip" : "Open";
+
+    public SolidColorBrush SourceAccentBrush => AppSemanticPalette.Brush(IsSavedClip
+        ? AppSemanticPalette.AccentGoldHex
+        : AppSemanticPalette.AccentBlueHex);
+
+    public SolidColorBrush SourceSurfaceBrush => AppSemanticPalette.Brush(IsSavedClip
+        ? AppSemanticPalette.AccentGoldDimHex
+        : AppSemanticPalette.AccentBlueDimHex);
 
     public string TimeRangeText
     {
@@ -1947,6 +2175,7 @@ public partial class BookmarkItem : ObservableObject
     public string TimeText { get; set; } = "";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LibraryTitle))]
     private string _note = "";
 
     public bool IsClip { get; set; }
@@ -2030,6 +2259,12 @@ public partial class BookmarkItem : ObservableObject
         }
     }
     public string KindLabel => IsClip ? "CLIP" : "NOTE";
+    public string LibraryTitle => string.IsNullOrWhiteSpace(Note)
+        ? IsClip ? "Saved clip" : "Bookmark"
+        : Note;
+    public string LibraryDetailText => IsClip && !string.IsNullOrWhiteSpace(ClipRangeText)
+        ? ClipRangeText
+        : $"At {TimeText}";
     public string JumpActionLabel => IsClip && HasPlayableClip ? "Play" : "Jump";
     public bool HasQuality => !string.IsNullOrWhiteSpace(Quality);
     public string QualityLabel => string.IsNullOrWhiteSpace(Quality)

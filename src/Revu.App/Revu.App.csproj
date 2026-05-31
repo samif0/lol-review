@@ -17,7 +17,7 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <ApplicationIcon>Assets\revu.ico</ApplicationIcon>
-    <Version>2.17.16</Version>
+    <Version>2.17.17</Version>
     <AssemblyName>LoLReview.App</AssemblyName>
     <AssemblyTitle>Revu</AssemblyTitle>
     <Product>Revu</Product>
