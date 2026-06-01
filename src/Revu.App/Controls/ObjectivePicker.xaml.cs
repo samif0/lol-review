@@ -44,25 +44,37 @@ public sealed partial class ObjectivePicker : UserControl
         Unloaded += OnUnloaded;
     }
 
+    // v2.17.19: store the exact delegate + the root we hooked it on, so
+    // OnUnloaded removes the SAME instance. The previous code created a fresh
+    // PointerEventHandler in OnUnloaded, which never matched the one added in
+    // OnLoaded — so every picker leaked a tree-walking PointerPressed handler
+    // onto the window root. With the list rendering all rows at once, those
+    // leaked handlers piled up and every pointer event during a scroll drag
+    // fanned out across all of them. Root cause of the scroll lag.
+    private PointerEventHandler? _rootPointerHandler;
+    private UIElement? _hookedRoot;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_rootPointerHandler is not null) return; // already hooked
+
         var root = XamlRoot?.Content as UIElement;
         if (root is not null)
         {
-            root.AddHandler(PointerPressedEvent,
-                new PointerEventHandler(OnRootPointerPressed),
-                handledEventsToo: true);
+            _rootPointerHandler = new PointerEventHandler(OnRootPointerPressed);
+            _hookedRoot = root;
+            root.AddHandler(PointerPressedEvent, _rootPointerHandler, handledEventsToo: true);
         }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        var root = XamlRoot?.Content as UIElement;
-        if (root is not null)
+        if (_rootPointerHandler is not null && _hookedRoot is not null)
         {
-            root.RemoveHandler(PointerPressedEvent,
-                new PointerEventHandler(OnRootPointerPressed));
+            _hookedRoot.RemoveHandler(PointerPressedEvent, _rootPointerHandler);
         }
+        _rootPointerHandler = null;
+        _hookedRoot = null;
     }
 
     private void OnRootPointerPressed(object sender, PointerRoutedEventArgs e)

@@ -23,7 +23,13 @@ public sealed partial class CornerBracketedCard : UserControl
     private const double MaxTiltDegrees = 0.4;
     private bool _cornerHoverAttached;
     private bool _isHoverActive;
-    private readonly HoverTiltController _hoverTilt;
+
+    // v2.17.19: built lazily in OnLoaded and ONLY when EnableHoverEffects is
+    // true. The controller assigns a PlaneProjection to the whole content
+    // subtree; when the card wraps a tall scrolling list, re-compositing that
+    // 3D layer every frame is a severe scroll-perf hit (see the Moments panel).
+    // Cards that wrap big scrollers should set EnableHoverEffects="False".
+    private HoverTiltController? _hoverTilt;
 
     // Throttle glow updates: only write to the RadialGradientBrush when the
     // pointer has moved at least this many px (in element-local coords).
@@ -33,9 +39,24 @@ public sealed partial class CornerBracketedCard : UserControl
     public CornerBracketedCard()
     {
         InitializeComponent();
-        _hoverTilt = new HoverTiltController(HoverSurface, HoverSurface, MaxTiltDegrees, HoverLiftY, HoverDepthZ, 0.2);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+    }
+
+    // v2.17.19: when false, skips the PlaneProjection + radial-glow + hover-tilt
+    // entirely (no per-frame 3D recompositing). Defaults true so existing usages
+    // are unchanged. Set false on cards that wrap long scrolling lists.
+    public static readonly DependencyProperty EnableHoverEffectsProperty =
+        DependencyProperty.Register(
+            nameof(EnableHoverEffects),
+            typeof(bool),
+            typeof(CornerBracketedCard),
+            new PropertyMetadata(true));
+
+    public bool EnableHoverEffects
+    {
+        get => (bool)GetValue(EnableHoverEffectsProperty);
+        set => SetValue(EnableHoverEffectsProperty, value);
     }
 
     public new static readonly DependencyProperty ContentProperty =
@@ -104,6 +125,16 @@ public sealed partial class CornerBracketedCard : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // v2.17.19: opt-out path — no PlaneProjection, no glow, no hover wiring.
+        // Leaves a plain bordered surface, which is what big-list cards want.
+        if (!EnableHoverEffects)
+        {
+            MainBorder.BorderBrush = CardBorderBrush ?? (Brush)Application.Current.Resources["SubtleBorderBrush"];
+            return;
+        }
+
+        _hoverTilt ??= new HoverTiltController(HoverSurface, HoverSurface, MaxTiltDegrees, HoverLiftY, HoverDepthZ, 0.2);
+
         if (!_cornerHoverAttached)
         {
             AnimationHelper.AttachCornerBracketsHover(HoverSurface, TopLeft, TopRight, BottomLeft, BottomRight);
@@ -120,11 +151,13 @@ public sealed partial class CornerBracketedCard : UserControl
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
+        if (!EnableHoverEffects) return;
         ActivateHover(e.GetCurrentPoint(HoverSurface).Position);
     }
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (!EnableHoverEffects) return;
         var position = e.GetCurrentPoint(HoverSurface).Position;
         if (!_isHoverActive)
         {
@@ -132,12 +165,13 @@ public sealed partial class CornerBracketedCard : UserControl
             return;
         }
 
-        _hoverTilt.UpdatePointer(position);
+        _hoverTilt?.UpdatePointer(position);
         UpdateGlow(position);
     }
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
     {
+        if (!EnableHoverEffects) return;
         DeactivateHover();
     }
 
@@ -150,7 +184,7 @@ public sealed partial class CornerBracketedCard : UserControl
         MainBorder.BorderBrush = CardBorderBrush ?? (Brush)Application.Current.Resources["BrightBorderBrush"];
         Canvas.SetZIndex(this, 1);
         AnimationHelper.AnimateOpacity(GlowOverlay, 0.7, 220);
-        _hoverTilt.UpdatePointer(position);
+        _hoverTilt?.UpdatePointer(position);
         UpdateGlow(position);
     }
 
@@ -160,7 +194,7 @@ public sealed partial class CornerBracketedCard : UserControl
         MainBorder.BorderBrush = CardBorderBrush ?? (Brush)Application.Current.Resources["SubtleBorderBrush"];
         Canvas.SetZIndex(this, 0);
         AnimationHelper.AnimateOpacity(GlowOverlay, 0.0, 120);
-        _hoverTilt.Relax();
+        _hoverTilt?.Relax();
     }
 
     private void ResetHoverState()
@@ -173,7 +207,7 @@ public sealed partial class CornerBracketedCard : UserControl
         AnimationHelper.SetOpacity(TopRight, 0.0);
         AnimationHelper.SetOpacity(BottomLeft, 0.0);
         AnimationHelper.SetOpacity(BottomRight, 0.0);
-        _hoverTilt.Reset();
+        _hoverTilt?.Reset();
     }
 
     private void UpdateGlow(Point position)

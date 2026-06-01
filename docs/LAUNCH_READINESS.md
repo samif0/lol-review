@@ -16,7 +16,7 @@ The four buckets the user asked for, in execution order:
 1. **Performance double-check** — does it run okay on someone else's machine
 2. **Code cleanup** — does the codebase not embarrass us when someone reads it
 3. **Repo cleanup** — is the GitHub project legible to a curious outsider
-4. **Site cleanup** — does revu-lol.app sell + onboard, or just exist
+4. **Site cleanup** — does revu.lol sell + onboard, or just exist
 
 Each section ends with **"Done means"** — a checklist that has to be all-true
 before it's signed off.

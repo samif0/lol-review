@@ -21,7 +21,11 @@ namespace Revu.App.ViewModels;
 public partial class VodPlayerViewModel : ObservableObject
 {
     private static readonly TimeSpan BookmarkNoteSaveDebounce = TimeSpan.FromMilliseconds(650);
-    private const int EvidenceJumpPreRollSeconds = 5;
+    // v2.17.19: lead-in applied when jumping to a clip/evidence moment so the
+    // playhead lands BEFORE the action (clip markers sit mid-fight), giving the
+    // user buildup/context without rewinding. Applied to both the moments "Open"
+    // path (OpenEvidence) and the bookmark/clip "Play"/jump path (SeekToBookmark).
+    private const int EvidenceJumpPreRollSeconds = 15;
     private const string ReviewMomentFilterAuto = "auto";
     private const string ReviewMomentFilterSaved = "saved";
     private const string ReviewMomentFilterBookmarks = "bookmarks";
@@ -792,10 +796,12 @@ public partial class VodPlayerViewModel : ObservableObject
         // v2.15.10: clip rows jump to the clip's in-point (start of the
         // range), not the marker time — the marker is usually mid-action so
         // jumping to it dropped users into the middle of the clip.
+        // v2.17.19: back the playhead off by EvidenceJumpPreRollSeconds so it
+        // lands before the action with some buildup, matching OpenEvidence.
         var target = bookmark.IsClip && bookmark.ClipStartSeconds is int start
             ? start
             : bookmark.GameTimeS;
-        SeekRequested?.Invoke(target);
+        SeekRequested?.Invoke(Math.Clamp(target - EvidenceJumpPreRollSeconds, 0, GameDurationS));
     }
 
     [RelayCommand]
@@ -950,6 +956,10 @@ public partial class VodPlayerViewModel : ObservableObject
             return;
         }
 
+        // v2.17.19: flag this moment as the one loaded in the player so its card
+        // stays visually identifiable after Play (the list can be long).
+        SetActiveEvidence(evidence);
+
         if (evidence.SourceKind == EvidenceKinds.Clip
             && evidence.SourceId is long bookmarkId
             && Bookmarks.FirstOrDefault(b => b.Id == bookmarkId) is BookmarkItem bookmark
@@ -964,6 +974,28 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             SeekRequested?.Invoke(Math.Clamp(start - EvidenceJumpPreRollSeconds, 0, GameDurationS));
         }
+    }
+
+    // v2.17.19: at most one moment is "active" (loaded in the player). Clear the
+    // old one and flag the new. Keyed by reference within the current list; the
+    // SourceKey fallback re-resolves the flag if the list was rebuilt (e.g. a
+    // refresh produced new item instances for the same underlying moments).
+    private EvidenceInboxItem? _activeEvidence;
+
+    private void SetActiveEvidence(EvidenceInboxItem evidence)
+    {
+        if (ReferenceEquals(_activeEvidence, evidence))
+        {
+            return;
+        }
+
+        if (_activeEvidence is not null)
+        {
+            _activeEvidence.IsActive = false;
+        }
+
+        _activeEvidence = evidence;
+        evidence.IsActive = true;
     }
 
     // â"€â"€ Clip commands â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -2063,6 +2095,27 @@ public partial class EvidenceInboxItem : ObservableObject
     private string _note = "";
 
     public bool HasNote => !string.IsNullOrWhiteSpace(Note);
+
+    // v2.17.19: true for the moment currently loaded in the player, so the row
+    // is visually flagged and the user doesn't lose their place after hitting
+    // Play. Drives the row Border's accent + thickness via the computed props.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RowBorderBrush))]
+    [NotifyPropertyChangedFor(nameof(RowBorderThickness))]
+    [NotifyPropertyChangedFor(nameof(RowBackgroundBrush))]
+    private bool _isActive;
+
+    // When active, use the bright accent + a thicker border and a slightly
+    // raised surface; otherwise fall back to the normal status accent / inset.
+    public Brush RowBorderBrush => IsActive
+        ? AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldHex)
+        : StatusAccentBrush;
+
+    public Thickness RowBorderThickness => IsActive ? new Thickness(2) : new Thickness(1);
+
+    public Brush RowBackgroundBrush => IsActive
+        ? AppSemanticPalette.Brush(AppSemanticPalette.AccentGoldDimHex)
+        : (Brush)Application.Current.Resources["SurfaceInsetBrush"];
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DetailsToggleLabel))]

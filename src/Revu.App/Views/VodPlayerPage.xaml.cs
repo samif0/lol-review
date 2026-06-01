@@ -33,6 +33,7 @@ public sealed partial class VodPlayerPage : Page
     // Stored as fields so AddHandler/RemoveHandler use the exact same delegate instances.
     private readonly KeyEventHandler _keyDownHandler;
     private readonly KeyEventHandler _keyUpHandler;
+    private readonly PointerEventHandler _momentsWheelHandler;
 
     // The ShellPage (window root content) — we hook KeyDown/KeyUp here so we sit above
     // the Frame in the visual tree and intercept before any button can act on Space.
@@ -55,6 +56,7 @@ public sealed partial class VodPlayerPage : Page
 
         _keyDownHandler = new KeyEventHandler(OnGlobalKeyDown);
         _keyUpHandler = new KeyEventHandler(OnGlobalKeyUp);
+        _momentsWheelHandler = new PointerEventHandler(OnMomentsPointerWheelChanged);
 
         ViewModel.SeekRequested += OnSeekRequested;
         ViewModel.SpeedChangeRequested += OnSpeedChangeRequested;
@@ -66,11 +68,17 @@ public sealed partial class VodPlayerPage : Page
             PointerPressedEvent,
             new PointerEventHandler(OnVideoPointerPressed),
             handledEventsToo: true);
-        // v2.17.17: no manual PointerWheelChanged routing for the moments list.
-        // The right column is now a plain Grid (no outer ScrollViewer), so the
-        // ListView's own ScrollViewer is the only vertical scroller and the
-        // mouse wheel reaches it directly. The hand-rolled handler existed only
-        // to work around the parent-ScrollViewer stealing wheel events.
+        // v2.17.19: forward the mouse wheel to the Moments list's inner
+        // ScrollViewer. v2.17.17 dropped the outer wrapping ScrollViewer and
+        // assumed the ListView would then receive the wheel directly — but the
+        // list lives inside CornerBracketedCard, whose ContentPresenter host
+        // still swallows the wheel route. Result: the scrollbar shows (the list
+        // knows it overflows) but hovering + scrolling does nothing. Forward the
+        // delta manually, the same proven fix ReviewPage uses for EvidenceList.
+        TimelineInboxList.AddHandler(
+            PointerWheelChangedEvent,
+            _momentsWheelHandler,
+            handledEventsToo: true);
         Loaded += (_, _) =>
         {
             AnimationHelper.AnimatePageEnter(RootGrid);
@@ -137,6 +145,7 @@ public sealed partial class VodPlayerPage : Page
         // Unregister both handlers.
         _windowRoot?.RemoveHandler(KeyDownEvent, _keyDownHandler);
         _windowRoot?.RemoveHandler(KeyUpEvent, _keyUpHandler);
+        TimelineInboxList.RemoveHandler(PointerWheelChangedEvent, _momentsWheelHandler);
         _windowRoot = null;
 
         // v2.16: don't auto-restore Default presenter on leave. Auto-fullscreen
@@ -549,6 +558,97 @@ public sealed partial class VodPlayerPage : Page
         {
             Focus(FocusState.Programmatic);
         }
+    }
+
+    // v2.17.19: forward mouse-wheel deltas to the Moments list's own inner
+    // ScrollViewer. The ListView is hosted inside CornerBracketedCard via a
+    // ContentPresenter, which leaves a visible scrollbar but swallows the wheel
+    // route — without this the list won't scroll on hover. Same pattern
+    // ReviewPage uses for EvidenceList. The ScrollViewer is cached on first use
+    // (the template is realized by the time the wheel fires).
+    private ScrollViewer? _momentsScrollViewer;
+
+    private void OnMomentsPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        _momentsScrollViewer ??= FindDescendant<ScrollViewer>(TimelineInboxList);
+        if (_momentsScrollViewer is null)
+        {
+            return;
+        }
+
+        // Only consume the wheel when the list can actually move in that
+        // direction; otherwise leave it unhandled so the page can scroll past.
+        if (_momentsScrollViewer.ScrollableHeight <= 0)
+        {
+            return;
+        }
+
+        var delta = e.GetCurrentPoint(_momentsScrollViewer).Properties.MouseWheelDelta;
+        var canScroll = delta < 0
+            ? _momentsScrollViewer.VerticalOffset < _momentsScrollViewer.ScrollableHeight
+            : _momentsScrollViewer.VerticalOffset > 0;
+
+        if (!canScroll)
+        {
+            return;
+        }
+
+        var nextOffset = System.Math.Clamp(
+            _momentsScrollViewer.VerticalOffset - delta, 0, _momentsScrollViewer.ScrollableHeight);
+        _momentsScrollViewer.ChangeView(null, nextOffset, null, disableAnimation: true);
+        e.Handled = true;
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < childCount; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            var nested = FindDescendant<T>(child);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
+
+    // v2.17.19: give the Moments/Bookmarks lists a DEFINITE Height equal to the
+    // inner card's "*" row. Diagnostics proved the subtle bug: with only
+    // MaxHeight set, ItemsStackPanel was measured with an infinite height during
+    // the star-row measure pass (CornerBracketedCard's nested Grid host doesn't
+    // pass a finite measure constraint down), so it decided NOT to virtualize and
+    // realized all rows — then arrange clamped the result to the viewport, so the
+    // ScrollViewer reported a healthy bounded viewport (vp=659) over a large
+    // extent (ext=2727) while every heavy row stayed realized. Setting an explicit
+    // Height forces the measure pass to see 659, which is what makes the panel
+    // virtualize. Rows 0–2 are Auto, row 3 is "*", so RowDefinitions[3]
+    // .ActualHeight is the height left for the lists; reassign on every resize so
+    // they still flex with the window.
+    private void OnMomentsCardGridSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (MomentsCardGrid.RowDefinitions.Count < 4)
+        {
+            return;
+        }
+
+        var rowHeight = MomentsCardGrid.RowDefinitions[3].ActualHeight;
+
+        // Ignore transient zero/NaN heights during early layout passes.
+        if (double.IsNaN(rowHeight) || rowHeight <= 1)
+        {
+            return;
+        }
+
+        TimelineInboxList.Height = rowHeight;
+        BookmarksTabList.Height = rowHeight;
     }
 
     private void OnClipButtonClick(object sender, RoutedEventArgs e)
@@ -995,9 +1095,11 @@ public sealed partial class VodPlayerPage : Page
         FullscreenTimeline.Height = 80;
         FullscreenTimelineOverlay.Padding = new Thickness(10, 8, 10, 8);
         VodMainLayout.ColumnSpacing = 16;
-        VideoColumnDefinition.Width = new GridLength(2.4, GridUnitType.Star);
+        // v2.17.19: keep in sync with the XAML defaults (1.9* video : 1* sidebar,
+        // MinWidth 440) so exiting theater mode restores the same wider split.
+        VideoColumnDefinition.Width = new GridLength(1.9, GridUnitType.Star);
         SidebarColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
-        SidebarColumnDefinition.MinWidth = 380;
+        SidebarColumnDefinition.MinWidth = 440;
         VodPageLayout.Padding = DefaultVodPagePadding;
         VideoColumnScrollViewer.SetValue(Grid.ColumnSpanProperty, 1);
         VideoColumnStack.Padding = new Thickness(0, 0, 0, 40);

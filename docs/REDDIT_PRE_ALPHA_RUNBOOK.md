@@ -51,7 +51,7 @@ What I need feedback on:
 
 This is pre-alpha, Windows only, unsigned, and League-focused. The AI coach is included but alpha; expect rough edges and please call them out separately from the core review flow. If you're uncomfortable running unsigned hobby software, wait for a later build. Source is public here: https://github.com/samif0/lol-review
 
-Download: https://revu-lol.app
+Download: https://revu.lol
 Bug reports: https://github.com/samif0/lol-review/issues
 ```
 

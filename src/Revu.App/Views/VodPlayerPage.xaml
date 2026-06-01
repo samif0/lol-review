@@ -98,9 +98,12 @@
             <!-- v2.16: bookmark/clip sidebar gets a hard MinWidth so the tag
                  picker + quality chips never clip at smaller window widths. -->
             <Grid x:Name="VodMainLayout" Grid.Row="1" ColumnSpacing="16">
+                <!-- v2.17.19: widened the sidebar share (2.4* → 1.9*) and bumped
+                     MinWidth 380 → 440 so the Moments card's 5-button action row
+                     (Good/Bad/Evidence/Highlight/Dismiss) stops clipping. -->
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition x:Name="VideoColumnDefinition" Width="2.4*"/>
-                    <ColumnDefinition x:Name="SidebarColumnDefinition" Width="*" MinWidth="380"/>
+                    <ColumnDefinition x:Name="VideoColumnDefinition" Width="1.9*"/>
+                    <ColumnDefinition x:Name="SidebarColumnDefinition" Width="*" MinWidth="440"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- â”€â”€ LEFT: Video + Controls + Clip â”€â”€ -->
@@ -589,9 +592,17 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
+                    <!-- v2.17.19: EnableHoverEffects=False is REQUIRED here. This card
+                         wraps the tall Moments scroll-list; the hover-tilt PlaneProjection
+                         (applied to the whole content subtree) would otherwise re-composite
+                         all ~15 rows every scroll frame → severe lag. Diagnosed by swapping
+                         to a plain Border (smooth) — the projection, not virtualization, was
+                         the cost. Keep effects off on any card wrapping a long scroller. -->
                     <controls:CornerBracketedCard Grid.Row="0"
+                        EnableHoverEffects="False"
                         CardBackground="{StaticResource QueuePanelBrush}">
-                        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+                        <Grid x:Name="MomentsCardGrid" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10"
+                              SizeChanged="OnMomentsCardGridSizeChanged">
                             <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
                                 <StackPanel Spacing="2">
                                     <controls:SectionTitle Text="MOMENTS TO REVIEW"/>
@@ -766,12 +777,16 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- v2.17.17: no MaxHeight — the * grid row bounds this
-                                 list, so the built-in ItemsStackPanel virtualizes
-                                 against a real viewport and the wheel scrolls it
-                                 directly. A MaxHeight here (with the old outer
-                                 ScrollViewer) is what defeated virtualization and
-                                 forced the manual wheel handler. -->
+                            <!-- v2.17.19: MaxHeight is set in code-behind from the
+                                 * row's measured height (OnMomentsCardGridSizeChanged).
+                                 Without a finite height the ListView measures with
+                                 infinity, ItemsStackPanel stops virtualizing, and
+                                 EVERY heavy row (ObjectivePicker + note TextBox) is
+                                 realized — which is what made scrolling lag. Binding
+                                 MaxHeight to the row keeps it flexing with the window
+                                 while handing the panel a real viewport to virtualize
+                                 against. (The nested CornerBracketedCard host doesn't
+                                 reliably pass the * constraint down on its own.) -->
                             <ListView x:Name="TimelineInboxList"
                                       Grid.Row="3"
                                       ItemsSource="{x:Bind ViewModel.VisibleReviewMoments, Mode=OneWay}"
@@ -795,9 +810,13 @@
                                 </ListView.ItemContainerStyle>
                                 <ListView.ItemTemplate>
                                         <DataTemplate x:DataType="vm:EvidenceInboxItem">
-                                            <Border Background="{StaticResource SurfaceInsetBrush}"
-                                                    BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
-                                                    BorderThickness="1" CornerRadius="2" Padding="10,9">
+                                            <!-- v2.17.19: Border brush/thickness/background bind to IsActive
+                                                 so the moment currently loaded in the player is highlighted
+                                                 (gold accent + thicker border) and easy to find after Play. -->
+                                            <Border Background="{x:Bind RowBackgroundBrush, Mode=OneWay}"
+                                                    BorderBrush="{x:Bind RowBorderBrush, Mode=OneWay}"
+                                                    BorderThickness="{x:Bind RowBorderThickness, Mode=OneWay}"
+                                                    CornerRadius="2" Padding="10,9">
                                                 <StackPanel Spacing="7">
                                                     <!-- Header row: badges + title + action buttons -->
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
