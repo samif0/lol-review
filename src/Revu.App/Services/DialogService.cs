@@ -88,6 +88,15 @@ public sealed class DialogService : IDialogService
         await dialog.ShowAsync();
     }
 
+    public async Task<bool> ShowLoginDialogAsync()
+    {
+        var dialog = new LoginDialog();
+        await PrepareDialogAsync(dialog);
+        dialog.RequestedTheme = ElementTheme.Dark;
+        await dialog.ShowAsync();
+        return dialog.Completed;
+    }
+
     public async Task<bool> ShowConfirmAsync(string title, string message)
     {
         var dialog = CreateDialog(title, message);
@@ -182,12 +191,47 @@ public sealed class DialogService : IDialogService
     {
         return new ContentDialog
         {
-            Title = title,
-            Content = content,
+            Title = BuildDialogTitle(title),
+            Content = BuildDialogBody(content),
             DefaultButton = ContentDialogButton.Primary,
             RequestedTheme = ElementTheme.Dark,
         };
     }
+
+    /// <summary>
+    /// Title rendered in the HUD heading font (Rajdhani), all-caps, with the
+    /// violet accent — so dialog titles read like the rest of the app's panels
+    /// rather than the default ContentDialog system font.
+    /// </summary>
+    private static TextBlock BuildDialogTitle(string title) => new()
+    {
+        Text = title.ToUpperInvariant(),
+        FontFamily = Res<FontFamily>("HeadingFont"),
+        FontSize = 20,
+        FontWeight = FontWeights.SemiBold,
+        CharacterSpacing = 80,
+        Foreground = Res<Brush>("AccentBlueBrush"),
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    /// <summary>
+    /// Body rendered in the mono font so URLs and codes line up and match the
+    /// app's terminal-HUD voice. Plain strings only; richer dialogs build their
+    /// own content.
+    /// </summary>
+    private static TextBlock BuildDialogBody(string content) => new()
+    {
+        Text = content,
+        FontFamily = Res<FontFamily>("MonoFont"),
+        FontSize = 14,
+        Foreground = Res<Brush>("PrimaryTextBrush"),
+        TextWrapping = TextWrapping.Wrap,
+        LineHeight = 20,
+    };
+
+    /// <summary>Look up an app-level theme resource by key, or null if absent.</summary>
+    private static T? Res<T>(string key) where T : class
+        => Application.Current.Resources.TryGetValue(key, out var value) ? value as T : null;
 
     private async Task PrepareDialogAsync(ContentDialog dialog)
     {

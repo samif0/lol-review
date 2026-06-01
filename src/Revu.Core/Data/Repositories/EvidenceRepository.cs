@@ -185,6 +185,15 @@ public sealed class EvidenceRepository : IEvidenceRepository
     public Task UpdatePolarityAsync(long evidenceId, string polarity) =>
         UpdateScalarAsync(evidenceId, "polarity", EvidencePolarities.Normalize(polarity));
 
+    public async Task DeleteAsync(long evidenceId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM evidence_items WHERE id = @id";
+        cmd.Parameters.AddWithValue("@id", evidenceId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task UpdateObjectiveAsync(long evidenceId, long? objectiveId)
     {
         using var conn = _factory.CreateConnection();

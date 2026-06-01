@@ -16,6 +16,9 @@ public interface IEvidenceRepository
 
     Task UpdateStatusAsync(long evidenceId, string status);
 
+    /// <summary>Permanently remove an evidence row by id (hard delete).</summary>
+    Task DeleteAsync(long evidenceId);
+
     Task UpdatePolarityAsync(long evidenceId, string polarity);
 
     Task UpdateObjectiveAsync(long evidenceId, long? objectiveId);

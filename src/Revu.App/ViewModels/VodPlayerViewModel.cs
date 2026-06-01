@@ -43,6 +43,7 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly IConfigService _configService;
     private readonly INavigationService _navigationService;
     private readonly ICoachSidecarNotifier _coachNotifier;
+    private readonly IDialogService _dialogService;
     private readonly IVodService _vodService;
     private readonly IMessenger _messenger;
     private readonly ILogger<VodPlayerViewModel> _logger;
@@ -287,6 +288,7 @@ public partial class VodPlayerViewModel : ObservableObject
         IConfigService configService,
         INavigationService navigationService,
         ICoachSidecarNotifier coachNotifier,
+        IDialogService dialogService,
         IVodService vodService,
         IMessenger messenger,
         ILogger<VodPlayerViewModel> logger)
@@ -304,6 +306,7 @@ public partial class VodPlayerViewModel : ObservableObject
         _configService = configService;
         _navigationService = navigationService;
         _coachNotifier = coachNotifier;
+        _dialogService = dialogService;
         _vodService = vodService;
         _messenger = messenger;
         _logger = logger;
@@ -871,15 +874,61 @@ public partial class VodPlayerViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Delete a saved clip directly from the Clips tab (EvidenceInboxItem row). Resolves
-    /// the underlying BookmarkItem via SourceId and delegates to DeleteBookmarkAsync.
+    /// Delete a saved clip directly from the Clips tab (EvidenceInboxItem row).
+    ///
+    /// The clicked card lives in the review-moment collections (EvidenceInbox /
+    /// SavedClipReviewMoments / …), NOT in Bookmarks — so deleting the bookmark
+    /// alone left the card on screen and orphaned the evidence row (it would
+    /// reappear on the next refresh). Here we remove the card from the UI,
+    /// delete the evidence row, and delete the underlying bookmark.
     /// </summary>
     [RelayCommand]
     private Task DeleteEvidenceClipAsync(EvidenceInboxItem? evidence)
     {
-        if (evidence is null || !evidence.IsSavedClip || evidence.SourceId is not long bookmarkId)
+        if (evidence is null || !evidence.IsSavedClip)
             return Task.CompletedTask;
-        return DeleteBookmarkAsync(bookmarkId);
+
+        var evidenceId = evidence.Id;
+        var bookmarkId = evidence.SourceId as long?;
+
+        // Remove the card immediately so the click feels responsive. Also drop
+        // the matching BookmarkItem so the timeline and clip-count stay in sync.
+        DispatcherHelper.RunOnUIThread(() =>
+        {
+            RemoveReviewMomentOnCurrentThread(evidence);
+            if (bookmarkId is long bid)
+            {
+                var bookmark = Bookmarks.FirstOrDefault(b => b.Id == bid);
+                if (bookmark is not null)
+                {
+                    Bookmarks.Remove(bookmark);
+                    RefreshClipAvailabilityText();
+                    RefreshVisibleBookmarkItemsOnCurrentThread();
+                }
+            }
+            RefreshReviewMomentSummaryOnCurrentThread();
+        });
+
+        BackgroundTaskRunner.Run(
+            async () =>
+            {
+                if (evidenceId > 0)
+                {
+                    await _evidenceRepo.DeleteAsync(evidenceId);
+                }
+                if (bookmarkId is long id)
+                {
+                    await EnqueueBookmarkMutationAsync(() => _vodRepo.DeleteBookmarkAsync(id));
+                }
+                _logger.LogInformation(
+                    "Deleted saved clip (evidence {EvidenceId}, bookmark {BookmarkId})",
+                    evidenceId,
+                    bookmarkId);
+            },
+            _logger,
+            $"delete saved clip evidence {evidenceId}");
+
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -1917,6 +1966,9 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             CopyToClipboard(item.ShareUrl);
             ShareStatusText = "Link copied.";
+            await _dialogService.ShowMessageAsync(
+                "Clip link copied",
+                $"This clip is already shared. The link is on your clipboard:\n\n{item.ShareUrl}");
             return;
         }
 
@@ -1925,6 +1977,9 @@ public partial class VodPlayerViewModel : ObservableObject
         if (string.IsNullOrEmpty(item.ClipPath) || !File.Exists(item.ClipPath))
         {
             ShareStatusText = "Clip file not found on disk.";
+            await _dialogService.ShowMessageAsync(
+                "Couldn't share clip",
+                "The clip file couldn't be found on disk, so there's nothing to upload.");
             return;
         }
 
@@ -1933,6 +1988,9 @@ public partial class VodPlayerViewModel : ObservableObject
         if (duration > MaxShareDurationSeconds)
         {
             ShareStatusText = $"Clips can be up to {MaxShareDurationSeconds}s — trim and re-clip.";
+            await _dialogService.ShowMessageAsync(
+                "Clip too long to share",
+                $"Shared clips can be up to {MaxShareDurationSeconds} seconds. Trim this clip and save it again before sharing.");
             return;
         }
 
@@ -1940,12 +1998,21 @@ public partial class VodPlayerViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(config.RiotSessionToken))
         {
             // Logged out → open the inline login prompt; upload after login.
+            // The inline panel lives in the left clip-creation card, which is
+            // often scrolled out of view when Share is clicked from the right
+            // sidebar — so the click looks like a no-op. Show an explicit modal
+            // first so the user always learns *why* sharing didn't happen, then
+            // reveal the login panel they'll use to sign in.
             _pendingShareItem = item;
             ShareEmail = config.RiotSessionEmail ?? "";
             ShareOtp = "";
             ShareAwaitingOtp = false;
             ShareStatusText = "Log in to share clips.";
             ShareLoginVisible = true;
+            await _dialogService.ShowMessageAsync(
+                "Sign in to share",
+                "You're not signed in, so this clip can't be uploaded yet. "
+                + "Log in with your email below to share clips and get a public link.");
             return;
         }
 
@@ -1970,15 +2037,38 @@ public partial class VodPlayerViewModel : ObservableObject
             CopyToClipboard(result.Url);
             ShareStatusText = "Link copied — anyone can watch (expires in 30 days).";
             _logger.LogInformation("Shared clip {Id} -> {Url}", item.Id, result.Url);
+            // The status text above lives in the left clip-creation card, which
+            // is usually off-screen when Share is clicked from the sidebar — so
+            // confirm the result with a modal the user can't miss.
+            await _dialogService.ShowMessageAsync(
+                "Clip link copied",
+                $"Your clip is uploaded and the link is on your clipboard:\n\n{result.Url}\n\n"
+                + "Anyone with the link can watch it. It expires in 30 days.");
         }
         catch (ClipUploadException ex)
         {
             ShareStatusText = ex.Message;
+            await _dialogService.ShowMessageAsync("Couldn't share clip", ex.Message);
+            if (ex.Unauthorized)
+            {
+                // Session was rejected (expired/invalid). Drop the stale token and
+                // reopen the inline login prompt so the user can sign back in and
+                // retry — same recovery path as starting from logged out.
+                await ClearStoredSessionAsync();
+                _pendingShareItem = item;
+                ShareEmail = (await _configService.LoadAsync()).RiotSessionEmail ?? "";
+                ShareOtp = "";
+                ShareAwaitingOtp = false;
+                ShareLoginVisible = true;
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Clip upload failed");
             ShareStatusText = "Couldn't share the clip.";
+            await _dialogService.ShowMessageAsync(
+                "Couldn't share clip",
+                "Something went wrong uploading the clip. Check your connection and try again.");
         }
         finally
         {
@@ -2073,6 +2163,25 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             // Clipboard can throw transiently if another app holds it; the link
             // is still saved on the bookmark, so this is non-fatal.
+        }
+    }
+
+    /// <summary>
+    /// Clear a rejected session token so the next share attempt re-authenticates.
+    /// Keeps <c>RiotSessionEmail</c> so the inline login form pre-fills it.
+    /// </summary>
+    private async Task ClearStoredSessionAsync()
+    {
+        try
+        {
+            var config = await _configService.LoadAsync();
+            config.RiotSessionToken = "";
+            config.RiotSessionExpiresAt = 0;
+            await _configService.SaveAsync(config);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear stale session token after upload auth failure");
         }
     }
 }

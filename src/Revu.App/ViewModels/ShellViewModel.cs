@@ -109,6 +109,13 @@ public partial class ShellViewModel : ObservableRecipient,
     [ObservableProperty]
     private bool _canLogout;
 
+    /// <summary>
+    /// True when there's no valid session — drives the sidebar "Log in" button's
+    /// visibility (shown only when logged out).
+    /// </summary>
+    [ObservableProperty]
+    private bool _isLoggedOut = true;
+
     /// <summary>Short version string for the sidebar footer (e.g. "2.12").</summary>
     public string AppVersion
     {
@@ -578,6 +585,7 @@ public partial class ShellViewModel : ObservableRecipient,
         Helpers.DispatcherHelper.RunOnUIThread(() =>
         {
             var loggedIn = _configService.HasValidRiotSession;
+            IsLoggedOut = !loggedIn;
             var riotId = _configService.RiotId;
             var email = _configService.RiotSessionEmail;
             var hashPos = riotId.IndexOf('#');
@@ -615,6 +623,27 @@ public partial class ShellViewModel : ObservableRecipient,
 
     private static string Shorten(string s, int max)
         => s.Length <= max ? s : s.Substring(0, max);
+
+    /// <summary>
+    /// Open the sidebar login modal (email → OTP → Riot ID + region) and refresh
+    /// the account indicator afterward so the "Log in" button hides on success.
+    /// </summary>
+    [RelayCommand]
+    private async Task ShowLoginAsync()
+    {
+        try
+        {
+            await _dialogService.ShowLoginDialogAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Login dialog failed");
+        }
+        finally
+        {
+            RefreshAccountIndicator();
+        }
+    }
 
     /// <summary>
     /// Clears the local session, fires a best-effort /auth/logout, refreshes the

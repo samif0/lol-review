@@ -43,6 +43,21 @@ public interface IClipUploadService
 /// <summary>Failure from the clip upload flow, with a user-displayable message.</summary>
 public sealed class ClipUploadException : Exception
 {
-    public ClipUploadException(string message) : base(message) { }
-    public ClipUploadException(string message, Exception inner) : base(message, inner) { }
+    /// <summary>
+    /// True when the failure was an auth rejection (HTTP 401/403) — the stored
+    /// session is missing, expired, or not allowed. The caller can use this to
+    /// clear the stale token and re-prompt for login rather than just showing
+    /// the message.
+    /// </summary>
+    public bool Unauthorized { get; }
+
+    public ClipUploadException(string message, bool unauthorized = false) : base(message)
+    {
+        Unauthorized = unauthorized;
+    }
+
+    public ClipUploadException(string message, Exception inner, bool unauthorized = false) : base(message, inner)
+    {
+        Unauthorized = unauthorized;
+    }
 }

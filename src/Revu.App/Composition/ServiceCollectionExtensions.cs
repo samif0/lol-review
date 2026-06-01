@@ -145,6 +145,7 @@ internal static class ServiceCollectionExtensions
         services.AddTransient<ReviewViewModel>();
         services.AddTransient<PreGameDialogViewModel>();
         services.AddTransient<OnboardingViewModel>();
+        services.AddTransient<LoginDialogViewModel>();
         services.AddTransient<ManualEntryDialogViewModel>();
         services.AddTransient<GameReviewDialogViewModel>();
         services.AddTransient<VodPlayerViewModel>();

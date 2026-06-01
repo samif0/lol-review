@@ -34,6 +34,12 @@ public interface IDialogService
     /// <summary>Show a simple informational message.</summary>
     Task ShowMessageAsync(string title, string message);
 
+    /// <summary>
+    /// Show the sidebar login modal (email → OTP → Riot ID + region).
+    /// Returns true if the user completed the full flow (session + Riot account).
+    /// </summary>
+    Task<bool> ShowLoginDialogAsync();
+
     /// <summary>Show a yes/no confirmation dialog. Returns true if user confirmed.</summary>
     Task<bool> ShowConfirmAsync(string title, string message);
 

@@ -904,4 +904,31 @@
     <CornerRadius x:Key="AutoSuggestListCornerRadius">2</CornerRadius>
     <CornerRadius x:Key="OverlayCornerRadius">2</CornerRadius>
 
+    <!-- ••• ContentDialog — HUD theme •••
+         The default ContentDialog template renders a plain rounded light card
+         that clashes with the violet/bronze HUD. Override the framework theme
+         brushes (inner chrome) + an implicit Style (outer shell) so every
+         dialog — message popups, the share "link copied", the login modal —
+         picks up the dark surface, sharp 2px corners, mono/display fonts, and
+         a violet-accented separator. No re-templating: just resource + setter
+         overrides, which is the low-risk way to restyle ContentDialog. -->
+    <SolidColorBrush x:Key="ContentDialogBackground" Color="#14121E"/>
+    <SolidColorBrush x:Key="ContentDialogBorderBrush" Color="#3D3660"/>
+    <SolidColorBrush x:Key="ContentDialogForeground" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ContentDialogTopOverlay" Color="#0A0918"/>
+    <SolidColorBrush x:Key="ContentDialogSeparatorBorderBrush" Color="#24203A"/>
+    <Thickness x:Key="ContentDialogBorderWidth">1</Thickness>
+    <CornerRadius x:Key="ContentDialogCornerRadius">2</CornerRadius>
+
+    <Style TargetType="ContentDialog">
+        <Setter Property="Background" Value="{StaticResource ContentDialogBackground}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource ContentDialogBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+        <Setter Property="CornerRadius" Value="2"/>
+        <Setter Property="FontFamily" Value="{StaticResource BodyFont}"/>
+        <Setter Property="PrimaryButtonStyle" Value="{StaticResource GoldActionButtonStyle}"/>
+        <Setter Property="SecondaryButtonStyle" Value="{StaticResource SecondaryActionButtonStyle}"/>
+    </Style>
+
 </ResourceDictionary>

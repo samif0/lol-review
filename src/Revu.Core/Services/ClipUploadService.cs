@@ -164,6 +164,7 @@ public sealed class ClipUploadService : IClipUploadService
             // body wasn't JSON
         }
 
+        var unauthorized = res.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
         var friendly = res.StatusCode switch
         {
             HttpStatusCode.Unauthorized => "Your login expired. Log in again to share.",
@@ -173,7 +174,7 @@ public sealed class ClipUploadService : IClipUploadService
             HttpStatusCode.TooManyRequests => "Too many uploads — wait a moment and try again.",
             _ => code is not null ? $"Upload failed ({code})." : $"Upload failed ({(int)res.StatusCode}).",
         };
-        throw new ClipUploadException(friendly);
+        throw new ClipUploadException(friendly, unauthorized);
     }
 
     private sealed class UploadResponseDto
