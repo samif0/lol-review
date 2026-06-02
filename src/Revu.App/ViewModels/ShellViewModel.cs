@@ -23,6 +23,7 @@ public partial class ShellViewModel : ObservableRecipient,
     IRecipient<ChampSelectStartedMessage>,
     IRecipient<ChampSelectCancelledMessage>,
     IRecipient<GameStartedMessage>,
+    IRecipient<GameInProgressMessage>,
     IRecipient<GameEndedMessage>,
     IRecipient<MissedReviewsDetectedMessage>,
     IRecipient<GameReviewedMessage>,
@@ -376,7 +377,16 @@ public partial class ShellViewModel : ObservableRecipient,
 
     public void Receive(GameStartedMessage message)
     {
-        // Game loading — leave pre-game page, go to session
+        // v2.17.22: the game is loading (or the loading screen was skipped by the
+        // 5s poll). Intentionally do NOT leave the pre-game page here — keeping it
+        // up lets the user keep reading matchup intel + objectives over League's
+        // loading screen, since champ select alone is often too short. Teardown
+        // happens on GameInProgressMessage once the player is confirmed in-game.
+    }
+
+    public void Receive(GameInProgressMessage message)
+    {
+        // Player is in the game now — leave the pre-game page for the session page.
         Helpers.DispatcherHelper.RunOnUIThread(() =>
         {
             if (_navigationService.CurrentPageKey == "pregame")

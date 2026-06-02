@@ -31,8 +31,22 @@ public sealed record ChampSelectUpdatedMessage(
     string MyPosition,
     string ParticipantMapJson = "");
 
-/// <summary>Sent when the game transitions to loading/in-progress.</summary>
+/// <summary>
+/// Sent on the first transition into loading-or-in-game (GameStart or InProgress).
+/// Kicks off the live-event collector. Does NOT mean the player is fully in the
+/// game yet — at the 5s poll cadence the loading screen (GameStart) is often
+/// skipped, so this can fire while the client is still on the loading screen.
+/// Pre-game teardown is driven by <see cref="GameInProgressMessage"/> instead.
+/// </summary>
 public sealed record GameStartedMessage;
+
+/// <summary>
+/// v2.17.22: sent once the player is confirmed in the game — one poll tick after
+/// <see cref="GamePhase.InProgress"/> is first observed. This is the signal to
+/// leave the pre-game page and minimize the window, so the matchup/objectives
+/// stay readable over League's loading screen until the game actually begins.
+/// </summary>
+public sealed record GameInProgressMessage;
 
 /// <summary>Sent when champ select is cancelled (dodge, queue pop expired, etc.).</summary>
 public sealed record ChampSelectCancelledMessage;

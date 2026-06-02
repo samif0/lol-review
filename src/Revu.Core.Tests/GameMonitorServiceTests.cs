@@ -263,12 +263,16 @@ public sealed class GameMonitorServiceTests
         Assert.Equal(420, collector.ChampSelectStarted[0].QueueId);
         Assert.Empty(collector.GameEnded);
 
-        // Tick 3 — InProgress entered → game started
+        // Tick 3 — InProgress entered → GameStarted fires (collector starts),
+        // but NOT yet confirmed in-game (needs the one-tick dwell).
         await service.TickOnceAsync();
+        Assert.Single(collector.GameStarted);
+        Assert.Empty(collector.GameInProgress);
         Assert.Empty(collector.GameEnded);
 
-        // Tick 4 — still InProgress → nothing new
+        // Tick 4 — still InProgress → confirmed in-game fires exactly once.
         await service.TickOnceAsync();
+        Assert.Single(collector.GameInProgress);
         Assert.Empty(collector.GameEnded);
 
         // Tick 5 — EndOfGame entered → post-game fires exactly once
@@ -277,9 +281,86 @@ public sealed class GameMonitorServiceTests
         Assert.Equal(5001, ended.Stats.GameId);
         Assert.Equal("Jinx", ended.Stats.ChampionName);
 
-        // Tick 6 — back to Lobby → no second GameEnded
+        // Tick 6 — back to Lobby → no second GameEnded, in-game stayed single
         await service.TickOnceAsync();
         Assert.Single(collector.GameEnded);
+        Assert.Single(collector.GameInProgress);
+    }
+
+    [Fact]
+    public async Task TickOnceAsync_GameInProgress_FiresOnceAfterDwell_NotEveryTick()
+    {
+        // Pre-game teardown must fire exactly once, one tick after InProgress is
+        // first seen, and not re-fire on subsequent InProgress polls.
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            QueueId = 420,
+            Phases = new Queue<GamePhase>([
+                GamePhase.ChampSelect,
+                GamePhase.GameStart,   // loading screen — page should stay up
+                GamePhase.InProgress,  // first in-game tick — still no teardown
+                GamePhase.InProgress,  // dwell satisfied — teardown fires here
+                GamePhase.InProgress,  // must NOT fire again
+            ]),
+        };
+
+        var service = CreateService(credentialDiscovery, lcuClient, messenger,
+            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService());
+
+        await service.TickOnceAsync(); // ChampSelect
+        Assert.Empty(collector.GameInProgress);
+
+        await service.TickOnceAsync(); // GameStart (loading)
+        Assert.Single(collector.GameStarted);     // GameStarted fires at GameStart
+        Assert.Empty(collector.GameInProgress);   // but not confirmed in-game
+
+        await service.TickOnceAsync(); // InProgress #1 — dwell not yet satisfied
+        Assert.Empty(collector.GameInProgress);
+
+        await service.TickOnceAsync(); // InProgress #2 — confirmed in-game
+        Assert.Single(collector.GameInProgress);
+
+        await service.TickOnceAsync(); // InProgress #3 — no re-fire
+        Assert.Single(collector.GameInProgress);
+
+        // GameStarted should have fired exactly once (at the GameStart transition).
+        Assert.Single(collector.GameStarted);
+    }
+
+    [Fact]
+    public async Task TickOnceAsync_GameInProgress_FiresEvenWhenLoadingScreenSkipped()
+    {
+        // At the 5s poll cadence the GameStart (loading) phase is frequently
+        // skipped: ChampSelect → InProgress directly. The dwell must still give
+        // one full poll interval before teardown.
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            QueueId = 420,
+            Phases = new Queue<GamePhase>([
+                GamePhase.ChampSelect,
+                GamePhase.InProgress,  // loading skipped — first in-game tick
+                GamePhase.InProgress,  // dwell satisfied — teardown fires here
+            ]),
+        };
+
+        var service = CreateService(credentialDiscovery, lcuClient, messenger,
+            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService());
+
+        await service.TickOnceAsync(); // ChampSelect
+        await service.TickOnceAsync(); // InProgress #1
+        Assert.Single(collector.GameStarted);     // GameStarted fires immediately
+        Assert.Empty(collector.GameInProgress);   // teardown waits for the dwell
+
+        await service.TickOnceAsync(); // InProgress #2
+        Assert.Single(collector.GameInProgress);
     }
 
     [Fact]
@@ -339,6 +420,8 @@ public sealed class GameMonitorServiceTests
             messenger.Register<LcuConnectionChangedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).ConnectionChanges.Add(message));
             messenger.Register<ChampSelectStartedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).ChampSelectStarted.Add(message));
             messenger.Register<ChampSelectCancelledMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).ChampSelectCancelled.Add(message));
+            messenger.Register<GameStartedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).GameStarted.Add(message));
+            messenger.Register<GameInProgressMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).GameInProgress.Add(message));
             messenger.Register<GameEndedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).GameEnded.Add(message));
             messenger.Register<MissedReviewsDetectedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).MissedGamesDetected.Add(message));
         }
@@ -348,6 +431,10 @@ public sealed class GameMonitorServiceTests
         public List<ChampSelectStartedMessage> ChampSelectStarted { get; } = [];
 
         public List<ChampSelectCancelledMessage> ChampSelectCancelled { get; } = [];
+
+        public List<GameStartedMessage> GameStarted { get; } = [];
+
+        public List<GameInProgressMessage> GameInProgress { get; } = [];
 
         public List<GameEndedMessage> GameEnded { get; } = [];
 

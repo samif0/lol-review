@@ -341,7 +341,7 @@
                  paths don't blow up; they'll just stay blank on new games. -->
 
             <!-- Auto-close note -->
-            <TextBlock Text="This page closes automatically when your game loads."
+            <TextBlock Text="Stays open through the loading screen — closes when your game begins."
                        FontFamily="{StaticResource MonoFont}"
                        FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                        Foreground="{StaticResource MutedTextBrush}"

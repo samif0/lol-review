@@ -72,6 +72,21 @@ public sealed partial class IntelRotatorControl : UserControl
         }
     }
 
+    // v2.17.22: clicking the ‹ › arrows is equivalent to pressing the arrow
+    // keys — both route through StepBy, which takes manual control and halts
+    // auto-rotation. Focus the control so subsequent key presses keep working.
+    private void OnPrevClick(object sender, RoutedEventArgs e)
+    {
+        Focus(FocusState.Programmatic);
+        StepBy(-1);
+    }
+
+    private void OnNextClick(object sender, RoutedEventArgs e)
+    {
+        Focus(FocusState.Programmatic);
+        StepBy(+1);
+    }
+
     private void StepBy(int delta)
     {
         if (ItemsSource is null || ItemsSource.Count == 0) return;
@@ -239,8 +254,12 @@ public sealed partial class IntelRotatorControl : UserControl
     private void RebuildDots()
     {
         DotsRow.Children.Clear();
-        if (ItemsSource is null || ItemsSource.Count <= 1) return;
-        for (int i = 0; i < ItemsSource.Count; i++)
+        // Arrows + dots only make sense with more than one card to move between.
+        var multi = ItemsSource is not null && ItemsSource.Count > 1;
+        PrevButton.Visibility = multi ? Visibility.Visible : Visibility.Collapsed;
+        NextButton.Visibility = multi ? Visibility.Visible : Visibility.Collapsed;
+        if (!multi) return;
+        for (int i = 0; i < ItemsSource!.Count; i++)
         {
             DotsRow.Children.Add(new Ellipse
             {

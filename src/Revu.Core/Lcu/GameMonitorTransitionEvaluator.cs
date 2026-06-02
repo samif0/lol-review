@@ -7,6 +7,7 @@ internal sealed record GameMonitorTransitionPlan(
     bool NotifyChampSelectStarted,
     bool NotifyChampSelectCancelled,
     bool NotifyGameStarted,
+    bool NotifyGameInProgress,
     bool HandleGameEnded,
     bool ReconcileMatchHistory,
     bool ResetCurrentGameCasual);
@@ -35,6 +36,18 @@ internal sealed class GameMonitorTransitionEvaluator
             phase is GamePhase.InProgress or GamePhase.GameStart
             && state.LastPhase is not GamePhase.InProgress and not GamePhase.GameStart;
 
+        // v2.17.22: "confirmed in-game" fires one poll tick after InProgress is
+        // first observed (this tick and the last were both InProgress) and only
+        // once per game. The one-tick dwell keeps the pre-game page + window up
+        // through the loading screen — at the 5s cadence GameStart is frequently
+        // skipped, so we cannot key off it directly; instead we lean on InProgress
+        // persisting, which guarantees at least one full poll interval of read
+        // time after champ select before teardown.
+        var notifyGameInProgress =
+            phase == GamePhase.InProgress
+            && state.LastPhase == GamePhase.InProgress
+            && !state.GameInProgressNotified;
+
         var handleGameEnded =
             IsPostGamePhase(phase)
             && !IsPostGamePhase(state.LastPhase);
@@ -55,6 +68,7 @@ internal sealed class GameMonitorTransitionEvaluator
             NotifyChampSelectStarted: notifyChampSelectStarted,
             NotifyChampSelectCancelled: notifyChampSelectCancelled,
             NotifyGameStarted: notifyGameStarted,
+            NotifyGameInProgress: notifyGameInProgress,
             HandleGameEnded: handleGameEnded,
             ReconcileMatchHistory: reconcileMatchHistory,
             ResetCurrentGameCasual: handleGameEnded);

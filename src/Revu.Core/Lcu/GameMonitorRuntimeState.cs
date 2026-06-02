@@ -10,6 +10,14 @@ internal sealed class GameMonitorRuntimeState
 
     public bool CurrentGameIsCasual { get; set; }
 
+    /// <summary>
+    /// v2.17.22: set once <see cref="GameInProgressMessage"/> has been sent for the
+    /// current game, so the "confirmed in-game" signal fires exactly once (not on
+    /// every InProgress poll tick). Reset when the game ends so the next game can
+    /// fire it again.
+    /// </summary>
+    public bool GameInProgressNotified { get; set; }
+
     public bool ReconcilePending { get; set; }
 
     public bool StartupReconcilePending { get; set; } = true;

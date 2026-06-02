@@ -166,13 +166,20 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         if (plan.NotifyGameStarted)
         {
-            _logger.LogInformation("Game loading - closing pre-game window");
+            _logger.LogInformation("Game loading - starting live-event collector");
             _messenger.Send(new GameStartedMessage());
 
             if (!_state.CurrentGameIsCasual)
             {
                 StartEventCollector();
             }
+        }
+
+        if (plan.NotifyGameInProgress)
+        {
+            _logger.LogInformation("Confirmed in-game - closing pre-game page");
+            _state.GameInProgressNotified = true;
+            _messenger.Send(new GameInProgressMessage());
         }
 
         if (plan.HandleGameEnded)
@@ -192,6 +199,9 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             {
                 _state.CurrentGameIsCasual = false;
             }
+
+            // Re-arm the "confirmed in-game" one-shot for the next game.
+            _state.GameInProgressNotified = false;
         }
 
         if (plan.ReconcileMatchHistory)
@@ -299,6 +309,10 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     {
         var queueId = await _lcuClient.GetLobbyQueueIdAsync(cancellationToken).ConfigureAwait(false);
         _state.CurrentGameIsCasual = IsCasualQueue(queueId);
+        // Defensive re-arm: a fresh champ select always starts a new game cycle,
+        // so the "confirmed in-game" one-shot should be ready even if the prior
+        // game's end was never observed (client restart, odd phase jumps).
+        _state.GameInProgressNotified = false;
 
         var modeLabel = _state.CurrentGameIsCasual ? "casual" : "ranked/normal";
         _logger.LogInformation("Champ select started (queue {QueueId} - {Mode})", queueId, modeLabel);

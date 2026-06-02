@@ -15,10 +15,14 @@ namespace Revu.App.Services;
 /// League game to cut steady-state GPU/CPU overhang while the user is in
 /// match. Restores both on game end.
 ///
-/// Subscribes to <see cref="GameStartedMessage"/> and
+/// Subscribes to <see cref="GameInProgressMessage"/> and
 /// <see cref="GameEndedMessage"/>. Gated by
 /// <see cref="IConfigService.MinimizeDuringGame"/> so users can opt out from
 /// Settings → App Behavior.
+///
+/// v2.17.22: minimizes on <see cref="GameInProgressMessage"/> (confirmed in-game),
+/// not <see cref="GameStartedMessage"/> (loading), so the pre-game matchup/objectives
+/// stay visible over League's loading screen until the game actually begins.
 ///
 /// Animation suspension is a single static-bool flip on
 /// <see cref="SidebarEnergyDrainAnimator"/>; we capture the user's prior
@@ -39,7 +43,7 @@ public sealed class InGameBackgroundOrchestrator
         _config = config;
         _logger = logger;
 
-        WeakReferenceMessenger.Default.Register<InGameBackgroundOrchestrator, GameStartedMessage>(
+        WeakReferenceMessenger.Default.Register<InGameBackgroundOrchestrator, GameInProgressMessage>(
             this, (recipient, _) => recipient.HandleGameStarted());
 
         WeakReferenceMessenger.Default.Register<InGameBackgroundOrchestrator, GameEndedMessage>(
