@@ -160,7 +160,6 @@ public static class StatsExtractor
                         continue;
                     }
 
-                    int slotIdx = 0;
                     foreach (var p in players.EnumerateArray())
                     {
                         var champ = p.GetPropertyOrDefault("championName", "");
@@ -175,10 +174,12 @@ public static class StatsExtractor
 
                         if (!string.IsNullOrEmpty(champ))
                         {
-                            var roleKey = ResolveParticipantRoleKey(isMyTeam ? "own" : "enemy", pos, slotIdx);
+                            // selectedPosition is authoritative when present, so
+                            // BOTTOM here means the ADC. When it's blank we omit
+                            // the key rather than guess from slot order.
+                            var roleKey = ResolveRoleKeyFromAssignedPosition(isMyTeam ? "own" : "enemy", pos);
                             if (roleKey is not null) participantMap[roleKey] = champ;
                         }
-                        slotIdx++;
                     }
                 }
             }
@@ -517,20 +518,31 @@ public static class StatsExtractor
                     && allParts2.ValueKind == JsonValueKind.Array)
                 {
                     var map = new Dictionary<string, string>(StringComparer.Ordinal);
-                    var ownSlot = 0;
-                    var enemySlot = 0;
                     foreach (var part in allParts2.EnumerateArray())
                     {
                         var partTeamId = part.GetPropertyIntOrDefault("teamId", 0);
                         var partChamp = part.GetPropertyOrDefault("championName", "");
                         if (string.IsNullOrEmpty(partChamp)) continue;
 
-                        var partTimeline = part.GetPropertyObjectOrDefault("timeline");
-                        var partLane = partTimeline?.GetPropertyOrDefault("lane", "") ?? "";
-
+                        // Prefer an authoritative per-player position when present;
+                        // fall back to the timeline lane otherwise. The lane-safe
+                        // resolver omits BOTTOM (can't tell ADC from support), so a
+                        // lane-only payload simply won't emit bot/supp keys and the
+                        // matchup pill falls back to lane-only rather than guessing.
+                        var teamPos = part.GetPropertyOrDefault("teamPosition", "");
                         var isMine = partTeamId == teamId;
-                        var slotIdx = isMine ? ownSlot++ : enemySlot++;
-                        var roleKey = ResolveParticipantRoleKey(isMine ? "own" : "enemy", partLane, slotIdx);
+                        var prefix = isMine ? "own" : "enemy";
+                        string? roleKey;
+                        if (!string.IsNullOrEmpty(teamPos))
+                        {
+                            roleKey = ResolveRoleKeyFromAssignedPosition(prefix, teamPos);
+                        }
+                        else
+                        {
+                            var partTimeline = part.GetPropertyObjectOrDefault("timeline");
+                            var partLane = partTimeline?.GetPropertyOrDefault("lane", "") ?? "";
+                            roleKey = ResolveParticipantRoleKey(prefix, partLane);
+                        }
                         if (roleKey is not null) map[roleKey] = partChamp;
                     }
                     if (map.Count > 0) gs.ParticipantMap = JsonSerializer.Serialize(map);
@@ -561,9 +573,46 @@ public static class StatsExtractor
     /// usually fills selectedPosition by game-end (unlike champ-select where
     /// theirTeam doesn't expose it). Returns null if neither path produces a
     /// valid 5-role mapping.</summary>
-    private static string? ResolveParticipantRoleKey(string prefix, string selectedPosition, int slotIndex)
+    /// <summary>
+    /// v2.17.25: build a role→champion map key ("ownBot"/"enemySupp"/…) from an
+    /// EXPLICIT position string only. The old slot-index fallback was unsafe: the
+    /// end-of-game <c>players[]</c> array is not guaranteed to be role-ordered, so
+    /// when <c>selectedPosition</c> was blank a bot-laner could land under the
+    /// "Supp" key and the support under "Bot" — surfacing as the wrong 2v2 pairing
+    /// (e.g. "Sivir vs Varus", the two ADCs, instead of the support duo). We now
+    /// return null for an unknown/blank position so the key is simply omitted and
+    /// every consumer falls back to the correct lane-only "Champ vs Enemy" display
+    /// rather than a confidently-wrong pairing. Note: a timeline "lane" of BOTTOM
+    /// is intentionally NOT mapped — lane alone cannot tell ADC from support.
+    /// </summary>
+    private static string? ResolveParticipantRoleKey(string prefix, string position)
     {
-        var roleSuffix = (selectedPosition ?? "").ToUpperInvariant() switch
+        var roleSuffix = (position ?? "").ToUpperInvariant() switch
+        {
+            "TOP"     => "Top",
+            "JUNGLE"  => "Jg",
+            "MIDDLE"  => "Mid",
+            "UTILITY" => "Supp",
+            "SUPPORT" => "Supp",
+            // BOTTOM is deliberately excluded here: in payloads that only carry a
+            // timeline "lane", both the ADC and the support report BOTTOM, so it
+            // can't disambiguate them. Callers that DO have a real per-player
+            // position (selectedPosition/teamPosition) map BOTTOM via the explicit
+            // map below instead of this lane-safe path.
+            _ => null,
+        };
+        return roleSuffix is null ? null : $"{prefix}{roleSuffix}";
+    }
+
+    /// <summary>
+    /// v2.17.25: like <see cref="ResolveParticipantRoleKey"/> but for callers that
+    /// have an authoritative per-player position (selectedPosition / teamPosition),
+    /// where BOTTOM unambiguously means the ADC. Still position-only — no slot
+    /// guessing.
+    /// </summary>
+    private static string? ResolveRoleKeyFromAssignedPosition(string prefix, string position)
+    {
+        var roleSuffix = (position ?? "").ToUpperInvariant() switch
         {
             "TOP"     => "Top",
             "JUNGLE"  => "Jg",
@@ -573,18 +622,6 @@ public static class StatsExtractor
             "SUPPORT" => "Supp",
             _ => null,
         };
-        if (roleSuffix is null)
-        {
-            roleSuffix = slotIndex switch
-            {
-                0 => "Top",
-                1 => "Jg",
-                2 => "Mid",
-                3 => "Bot",
-                4 => "Supp",
-                _ => null,
-            };
-        }
         return roleSuffix is null ? null : $"{prefix}{roleSuffix}";
     }
 

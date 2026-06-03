@@ -24,12 +24,13 @@ public sealed partial class PromptAnswerField : ObservableObject
     [ObservableProperty]
     private string _answerText = "";
 
-    /// <summary>v2.16.2: post-game review surfaces pre-game answers as a
-    /// read-only reminder of what the user committed to before queueing.
-    /// Editing them after the fact defeats the point.</summary>
+    /// <summary>True for pre-game prompts. Drives a "YOUR PRE-GAME ANSWER"
+    /// eyebrow so the user can tell carried-over answers from the in-game /
+    /// post-game prompts. v2.17.26: pre-game answers are now editable in
+    /// post-game review (champ select is too short to always finish them), so
+    /// this no longer gates read-only — it's display-only.</summary>
     public bool IsPreGame =>
         string.Equals(Phase, ObjectivePhases.PreGame, System.StringComparison.OrdinalIgnoreCase);
-    public bool IsEditable => !IsPreGame;
 }
 
 /// <summary>Display model for an objective assessment in the review flow.</summary>

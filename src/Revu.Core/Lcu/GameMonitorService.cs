@@ -175,11 +175,28 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             }
         }
 
-        if (plan.NotifyGameInProgress)
+        if (plan.GameInProgressCandidate)
         {
-            _logger.LogInformation("Confirmed in-game - closing pre-game page");
-            _state.GameInProgressNotified = true;
-            _messenger.Send(new GameInProgressMessage());
+            // v2.17.25: only declare "in-game" — which closes the pre-game page and
+            // minimizes the window — once the Live Client Data API actually responds.
+            // The LCU reports InProgress throughout the loading screen, but the live
+            // API doesn't serve until the player is past loading and in the game.
+            // This keeps the pre-game page (matchup intel + objective prompt fields)
+            // up for the WHOLE loading screen so there's time to type. Casual games
+            // skip the live collector, so don't gate them on the live API — fall
+            // back to closing as soon as InProgress is seen.
+            var inGameForReal = _state.CurrentGameIsCasual
+                || await IsLiveGameDataAvailableAsync(cancellationToken).ConfigureAwait(false);
+            if (inGameForReal)
+            {
+                _logger.LogInformation("Confirmed in-game (live data ready) - closing pre-game page");
+                _state.GameInProgressNotified = true;
+                _messenger.Send(new GameInProgressMessage());
+            }
+            else
+            {
+                CoreDiagnostics.WriteVerbose("LCU: InProgress but live data not ready yet - keeping pre-game page up (loading screen)");
+            }
         }
 
         if (plan.HandleGameEnded)
@@ -508,4 +525,23 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     }
 
     private static bool IsCasualQueue(int queueId) => CasualQueueIds.Contains(queueId);
+
+    /// <summary>
+    /// v2.17.25: true once the in-game Live Client Data API responds — i.e. the
+    /// player is past the loading screen and actually in the game. During the
+    /// loading screen the endpoint isn't up yet (connection refused / timeout),
+    /// which surfaces as an exception we treat as "not ready".
+    /// </summary>
+    private async Task<bool> IsLiveGameDataAvailableAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _liveEventApi.IsAvailableAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CoreDiagnostics.WriteVerbose($"LCU: live data availability check failed (loading?) {ex.GetType().Name}");
+            return false;
+        }
+    }
 }

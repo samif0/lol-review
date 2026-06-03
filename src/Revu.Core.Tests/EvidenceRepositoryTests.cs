@@ -40,6 +40,66 @@ public sealed class EvidenceRepositoryTests
     }
 
     [Fact]
+    public async Task AttachingClipsToObjective_AddsTwoPointsEach_AndDoesNotDoubleCount()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var gameId = await scope.Games.SaveManualAsync("Ahri", true);
+        var objectiveId = await scope.Objectives.CreateAsync("Roam after pushing", "macro");
+
+        async Task<int> ScoreAsync()
+        {
+            var o = await scope.Objectives.GetAsync(objectiveId);
+            return o!.Score;
+        }
+
+        Assert.Equal(0, await ScoreAsync());
+
+        // Tag an existing evidence item onto the objective → +2.
+        var firstId = await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.TimelineRegion,
+            SourceId: null,
+            SourceKey: "moment-1",
+            StartTimeSeconds: 100,
+            EndTimeSeconds: 120,
+            Title: "Missed roam"));
+        await scope.Evidence.UpdateObjectiveAsync(firstId, objectiveId);
+        Assert.Equal(2, await ScoreAsync());
+
+        // Re-tagging the SAME objective on the same item must not stack points.
+        await scope.Evidence.UpdateObjectiveAsync(firstId, objectiveId);
+        Assert.Equal(2, await ScoreAsync());
+
+        // A second clip created already attached to the objective → +2 more.
+        await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.Clip,
+            SourceId: 7,
+            SourceKey: "clip:7",
+            StartTimeSeconds: 200,
+            EndTimeSeconds: 220,
+            Title: "Good roam",
+            ObjectiveId: objectiveId,
+            Status: EvidenceStatuses.Evidence));
+        Assert.Equal(4, await ScoreAsync());
+
+        // Re-upserting that same clip (same source key) must not award again.
+        await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.Clip,
+            SourceId: 7,
+            SourceKey: "clip:7",
+            StartTimeSeconds: 201,
+            EndTimeSeconds: 221,
+            Title: "Good roam (renamed)",
+            ObjectiveId: objectiveId,
+            Status: EvidenceStatuses.Evidence));
+        Assert.Equal(4, await ScoreAsync());
+    }
+
+    [Fact]
     public async Task UpsertAsync_WithSameSourceKey_ReusesCandidateWithoutClobberingUserStatus()
     {
         using var scope = new TestDatabaseScope();

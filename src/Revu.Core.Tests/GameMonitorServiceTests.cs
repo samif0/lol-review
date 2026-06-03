@@ -263,14 +263,16 @@ public sealed class GameMonitorServiceTests
         Assert.Equal(420, collector.ChampSelectStarted[0].QueueId);
         Assert.Empty(collector.GameEnded);
 
-        // Tick 3 — InProgress entered → GameStarted fires (collector starts),
-        // but NOT yet confirmed in-game (needs the one-tick dwell).
+        // Tick 3 — InProgress entered → GameStarted fires (collector starts), and
+        // since the (fake) live client data API is available, "confirmed in-game"
+        // fires the same tick. In a real game the live API stays down through the
+        // loading screen, deferring this — see the dedicated loading-screen test.
         await service.TickOnceAsync();
         Assert.Single(collector.GameStarted);
-        Assert.Empty(collector.GameInProgress);
+        Assert.Single(collector.GameInProgress);
         Assert.Empty(collector.GameEnded);
 
-        // Tick 4 — still InProgress → confirmed in-game fires exactly once.
+        // Tick 4 — still InProgress → no re-fire.
         await service.TickOnceAsync();
         Assert.Single(collector.GameInProgress);
         Assert.Empty(collector.GameEnded);
@@ -288,78 +290,79 @@ public sealed class GameMonitorServiceTests
     }
 
     [Fact]
-    public async Task TickOnceAsync_GameInProgress_FiresOnceAfterDwell_NotEveryTick()
+    public async Task TickOnceAsync_KeepsPreGameUp_ThroughLoadingScreen_UntilLiveDataReady()
     {
-        // Pre-game teardown must fire exactly once, one tick after InProgress is
-        // first seen, and not re-fire on subsequent InProgress polls.
+        // The LCU reports InProgress all through the loading screen. The pre-game
+        // page (matchup intel + objective prompt fields) must stay up until the
+        // live client data API actually responds — i.e. the player is past loading.
         var messenger = new StrongReferenceMessenger();
         var collector = new MonitorMessageCollector(messenger);
         var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var liveApi = new FakeLiveEventApi { Available = false }; // still loading
         var lcuClient = new FakeLcuClient
         {
             IsConnected = true,
-            QueueId = 420,
+            QueueId = 420, // ranked → gated on live data
             Phases = new Queue<GamePhase>([
                 GamePhase.ChampSelect,
-                GamePhase.GameStart,   // loading screen — page should stay up
-                GamePhase.InProgress,  // first in-game tick — still no teardown
-                GamePhase.InProgress,  // dwell satisfied — teardown fires here
-                GamePhase.InProgress,  // must NOT fire again
+                GamePhase.InProgress,  // loading screen begins (live API down)
+                GamePhase.InProgress,  // still loading
+                GamePhase.InProgress,  // now in game (live API comes up below)
+                GamePhase.InProgress,  // must NOT re-fire
             ]),
         };
 
         var service = CreateService(credentialDiscovery, lcuClient, messenger,
-            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService());
+            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService(), liveApi);
 
         await service.TickOnceAsync(); // ChampSelect
         Assert.Empty(collector.GameInProgress);
 
-        await service.TickOnceAsync(); // GameStart (loading)
-        Assert.Single(collector.GameStarted);     // GameStarted fires at GameStart
-        Assert.Empty(collector.GameInProgress);   // but not confirmed in-game
+        await service.TickOnceAsync(); // InProgress, loading
+        Assert.Single(collector.GameStarted);   // collector starts immediately
+        Assert.Empty(collector.GameInProgress);  // but page stays up — still loading
 
-        await service.TickOnceAsync(); // InProgress #1 — dwell not yet satisfied
+        await service.TickOnceAsync(); // InProgress, still loading
         Assert.Empty(collector.GameInProgress);
 
-        await service.TickOnceAsync(); // InProgress #2 — confirmed in-game
+        // Player finishes loading → live client data API comes up.
+        liveApi.Available = true;
+        await service.TickOnceAsync(); // InProgress, now in game → teardown fires
         Assert.Single(collector.GameInProgress);
 
-        await service.TickOnceAsync(); // InProgress #3 — no re-fire
+        await service.TickOnceAsync(); // InProgress → no re-fire
         Assert.Single(collector.GameInProgress);
-
-        // GameStarted should have fired exactly once (at the GameStart transition).
         Assert.Single(collector.GameStarted);
     }
 
     [Fact]
-    public async Task TickOnceAsync_GameInProgress_FiresEvenWhenLoadingScreenSkipped()
+    public async Task TickOnceAsync_CasualGame_ClosesPreGameOnInProgress_WithoutWaitingForLiveData()
     {
-        // At the 5s poll cadence the GameStart (loading) phase is frequently
-        // skipped: ChampSelect → InProgress directly. The dwell must still give
-        // one full poll interval before teardown.
+        // Casual games skip the live-event collector, so they aren't gated on the
+        // live API — the pre-game page closes as soon as InProgress is observed.
         var messenger = new StrongReferenceMessenger();
         var collector = new MonitorMessageCollector(messenger);
         var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var liveApi = new FakeLiveEventApi { Available = false }; // never comes up in this test
         var lcuClient = new FakeLcuClient
         {
             IsConnected = true,
-            QueueId = 420,
+            QueueId = 430, // Normal Blind → casual
             Phases = new Queue<GamePhase>([
                 GamePhase.ChampSelect,
-                GamePhase.InProgress,  // loading skipped — first in-game tick
-                GamePhase.InProgress,  // dwell satisfied — teardown fires here
+                GamePhase.InProgress,
+                GamePhase.InProgress,
             ]),
         };
 
         var service = CreateService(credentialDiscovery, lcuClient, messenger,
-            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService());
+            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService(), liveApi);
 
-        await service.TickOnceAsync(); // ChampSelect
-        await service.TickOnceAsync(); // InProgress #1
-        Assert.Single(collector.GameStarted);     // GameStarted fires immediately
-        Assert.Empty(collector.GameInProgress);   // teardown waits for the dwell
+        await service.TickOnceAsync(); // ChampSelect (sets casual flag)
+        await service.TickOnceAsync(); // InProgress → fires immediately (casual)
+        Assert.Single(collector.GameInProgress);
 
-        await service.TickOnceAsync(); // InProgress #2
+        await service.TickOnceAsync(); // InProgress → no re-fire
         Assert.Single(collector.GameInProgress);
     }
 
@@ -401,12 +404,13 @@ public sealed class GameMonitorServiceTests
         FakeLcuClient lcuClient,
         IMessenger messenger,
         FakeGameEndCaptureService gameEndCaptureService,
-        FakeMatchHistoryReconciliationService reconciliationService)
+        FakeMatchHistoryReconciliationService reconciliationService,
+        FakeLiveEventApi? liveEventApi = null)
     {
         return new GameMonitorService(
             credentialDiscovery,
             lcuClient,
-            new FakeLiveEventApi(),
+            liveEventApi ?? new FakeLiveEventApi { Available = true },
             gameEndCaptureService,
             reconciliationService,
             messenger,
@@ -520,9 +524,13 @@ public sealed class GameMonitorServiceTests
 
     private sealed class FakeLiveEventApi : ILiveEventApi
     {
+        /// <summary>Drives IsAvailableAsync — simulates the live client data API
+        /// being up (player past the loading screen) or not (still loading).</summary>
+        public bool Available { get; set; }
+
         public Task<string?> GetActivePlayerNameAsync(CancellationToken ct = default) => Task.FromResult<string?>("Tester");
 
-        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(Available);
 
         public Task<List<System.Text.Json.JsonElement>?> FetchEventsAsync(CancellationToken ct = default) =>
             Task.FromResult<List<System.Text.Json.JsonElement>?>([]);

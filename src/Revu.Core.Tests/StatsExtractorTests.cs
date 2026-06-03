@@ -66,6 +66,115 @@ public sealed class StatsExtractorTests
         Assert.Equal("Ranked Solo/Duo", stats.DisplayGameMode);
     }
 
+    /// <summary>
+    /// v2.17.25: when selectedPosition is present, BOTTOM→Bot and UTILITY→Supp,
+    /// so the bot lane is keyed correctly (support under ownSupp, ADC under
+    /// ownBot) — the data behind the "Champ+Supp vs Champ+Supp" pairing pill.
+    /// </summary>
+    [Fact]
+    public void ExtractFromEog_MapsBotLaneByPosition_NotSlotOrder()
+    {
+        // Deliberately list the SUPPORT before the ADC in the players array so a
+        // slot-index fallback (old bug) would mis-key them. With positions present
+        // the map must still be correct.
+        var eog = ParseJson(
+            """
+            {
+              "gameId": 5531387000,
+              "gameLength": 1600,
+              "gameMode": "CLASSIC",
+              "queueType": "RANKED_SOLO_5x5",
+              "gameType": "MATCHED_GAME",
+              "localPlayer": {
+                "teamId": 100, "championName": "Nautilus", "championId": 111,
+                "selectedPosition": "UTILITY",
+                "stats": { "CHAMPIONS_KILLED": "1", "NUM_DEATHS": "5", "ASSISTS": "20", "WIN": "1" }
+              },
+              "teams": [
+                {
+                  "teamId": 100, "stats": { "CHAMPIONS_KILLED": 30 },
+                  "players": [
+                    { "championName": "Nautilus", "selectedPosition": "UTILITY", "stats": { "CHAMPIONS_KILLED": 1 } },
+                    { "championName": "Sivir",    "selectedPosition": "BOTTOM",  "stats": { "CHAMPIONS_KILLED": 12 } }
+                  ]
+                },
+                {
+                  "teamId": 200, "stats": { "CHAMPIONS_KILLED": 20 },
+                  "players": [
+                    { "championName": "Renata Glasc", "selectedPosition": "UTILITY", "stats": { "CHAMPIONS_KILLED": 0 } },
+                    { "championName": "Varus",        "selectedPosition": "BOTTOM",  "stats": { "CHAMPIONS_KILLED": 9 } }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var stats = StatsExtractor.ExtractFromEog(eog, NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats!.ParticipantMap);
+        Assert.NotNull(map);
+        Assert.Equal("Nautilus", map!["ownSupp"]);
+        Assert.Equal("Sivir", map["ownBot"]);
+        Assert.Equal("Renata Glasc", map["enemySupp"]);
+        Assert.Equal("Varus", map["enemyBot"]);
+    }
+
+    /// <summary>
+    /// v2.17.25: when selectedPosition is blank we must NOT guess bot/supp from
+    /// slot order. The bot/supp keys are omitted so the matchup pill falls back to
+    /// lane-only instead of a confidently-wrong "ADC vs ADC" pairing.
+    /// </summary>
+    [Fact]
+    public void ExtractFromEog_OmitsBotSuppKeys_WhenPositionsMissing()
+    {
+        var eog = ParseJson(
+            """
+            {
+              "gameId": 5531387001,
+              "gameLength": 1600,
+              "gameMode": "CLASSIC",
+              "queueType": "RANKED_SOLO_5x5",
+              "gameType": "MATCHED_GAME",
+              "localPlayer": {
+                "teamId": 100, "championName": "Sivir", "championId": 15,
+                "selectedPosition": "",
+                "stats": { "CHAMPIONS_KILLED": "10", "NUM_DEATHS": "4", "ASSISTS": "8", "WIN": "1" }
+              },
+              "teams": [
+                {
+                  "teamId": 100, "stats": { "CHAMPIONS_KILLED": 30 },
+                  "players": [
+                    { "championName": "Sivir",    "selectedPosition": "", "stats": { "CHAMPIONS_KILLED": 10 } },
+                    { "championName": "Nautilus", "selectedPosition": "", "stats": { "CHAMPIONS_KILLED": 1 } }
+                  ]
+                },
+                {
+                  "teamId": 200, "stats": { "CHAMPIONS_KILLED": 20 },
+                  "players": [
+                    { "championName": "Varus",        "selectedPosition": "", "stats": { "CHAMPIONS_KILLED": 9 } },
+                    { "championName": "Renata Glasc", "selectedPosition": "", "stats": { "CHAMPIONS_KILLED": 0 } }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var stats = StatsExtractor.ExtractFromEog(eog, NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        // No positions → no role keys we can trust → empty map (lane-only fallback).
+        if (!string.IsNullOrEmpty(stats!.ParticipantMap))
+        {
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap);
+            Assert.NotNull(map);
+            Assert.False(map!.ContainsKey("ownBot"), "ownBot must not be guessed from slot order");
+            Assert.False(map.ContainsKey("ownSupp"), "ownSupp must not be guessed from slot order");
+            Assert.False(map.ContainsKey("enemyBot"), "enemyBot must not be guessed from slot order");
+            Assert.False(map.ContainsKey("enemySupp"), "enemySupp must not be guessed from slot order");
+        }
+    }
+
     [Fact]
     public void ExtractFromMatchHistory_PrefersQueueLabelForRankedSoloDuo()
     {

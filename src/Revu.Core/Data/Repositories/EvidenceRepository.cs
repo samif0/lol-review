@@ -36,12 +36,13 @@ public sealed class EvidenceRepository : IEvidenceRepository
 
         using var conn = _factory.CreateConnection();
         long? existingId = null;
+        long? existingObjectiveId = null;
 
         if (!string.IsNullOrWhiteSpace(sourceKey))
         {
             using var findCmd = conn.CreateCommand();
             findCmd.CommandText = """
-                SELECT id
+                SELECT id, objective_id
                 FROM evidence_items
                 WHERE game_id = @gameId
                   AND source_kind = @sourceKind
@@ -51,10 +52,11 @@ public sealed class EvidenceRepository : IEvidenceRepository
             findCmd.Parameters.AddWithValue("@gameId", item.GameId);
             findCmd.Parameters.AddWithValue("@sourceKind", sourceKind);
             findCmd.Parameters.AddWithValue("@sourceKey", sourceKey);
-            var found = await findCmd.ExecuteScalarAsync();
-            if (found is not null and not DBNull)
+            using var findReader = await findCmd.ExecuteReaderAsync();
+            if (await findReader.ReadAsync())
             {
-                existingId = Convert.ToInt64(found);
+                existingId = findReader.GetInt64(0);
+                existingObjectiveId = findReader.IsDBNull(1) ? null : findReader.GetInt64(1);
             }
         }
 
@@ -97,6 +99,14 @@ public sealed class EvidenceRepository : IEvidenceRepository
             BindUpsert(updateCmd, item, sourceKind, sourceKey, polarity, status, now);
             updateCmd.Parameters.AddWithValue("@id", id);
             await updateCmd.ExecuteNonQueryAsync();
+
+            // Award the clip bonus only when this upsert newly attaches the item to
+            // an objective (the UPDATE only sets objective_id when @objectiveId is
+            // non-null). Re-upserting an already-tagged item must not stack points.
+            if (item.ObjectiveId.HasValue && item.ObjectiveId != existingObjectiveId)
+            {
+                await AwardClipScoreAsync(conn, item.ObjectiveId.Value);
+            }
             return id;
         }
 
@@ -114,6 +124,13 @@ public sealed class EvidenceRepository : IEvidenceRepository
         BindUpsert(insertCmd, item, sourceKind, sourceKey, polarity, status, now);
         insertCmd.Parameters.AddWithValue("@createdAt", now);
         await insertCmd.ExecuteNonQueryAsync();
+
+        // New evidence item created already attached to an objective → award the
+        // clip bonus once.
+        if (item.ObjectiveId.HasValue)
+        {
+            await AwardClipScoreAsync(conn, item.ObjectiveId.Value);
+        }
 
         using var idCmd = conn.CreateCommand();
         idCmd.CommandText = "SELECT last_insert_rowid()";
@@ -197,16 +214,54 @@ public sealed class EvidenceRepository : IEvidenceRepository
     public async Task UpdateObjectiveAsync(long evidenceId, long? objectiveId)
     {
         using var conn = _factory.CreateConnection();
+
+        // v2.17.25: read the prior objective so we only award the clip bonus when
+        // this item is newly tagged onto a (different) objective — re-saving the
+        // same tag must not keep stacking points.
+        long? priorObjectiveId = null;
+        using (var readCmd = conn.CreateCommand())
+        {
+            readCmd.CommandText = "SELECT objective_id FROM evidence_items WHERE id = @id";
+            readCmd.Parameters.AddWithValue("@id", evidenceId);
+            var prior = await readCmd.ExecuteScalarAsync();
+            if (prior is not null and not DBNull) priorObjectiveId = Convert.ToInt64(prior);
+        }
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                UPDATE evidence_items
+                SET objective_id = @objectiveId,
+                    updated_at = @updatedAt
+                WHERE id = @id
+                """;
+            cmd.Parameters.AddWithValue("@objectiveId", objectiveId.HasValue ? objectiveId.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            cmd.Parameters.AddWithValue("@id", evidenceId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        if (objectiveId.HasValue && objectiveId != priorObjectiveId)
+        {
+            await AwardClipScoreAsync(conn, objectiveId.Value);
+        }
+    }
+
+    /// <summary>
+    /// v2.17.25: attaching a clip / bookmark / moment to an objective adds points
+    /// to that objective's score — reviewing footage on a focus counts toward
+    /// learning it, not just playing games. Forward-only and additive: we never
+    /// dock points when a clip is detached, and existing clips/games are left
+    /// untouched (no retroactive backfill).
+    /// </summary>
+    private const int ClipScorePoints = 2;
+
+    private static async Task AwardClipScoreAsync(SqliteConnection conn, long objectiveId)
+    {
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE evidence_items
-            SET objective_id = @objectiveId,
-                updated_at = @updatedAt
-            WHERE id = @id
-            """;
-        cmd.Parameters.AddWithValue("@objectiveId", objectiveId.HasValue ? objectiveId.Value : DBNull.Value);
-        cmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-        cmd.Parameters.AddWithValue("@id", evidenceId);
+        cmd.CommandText = "UPDATE objectives SET score = MAX(0, score + @pts) WHERE id = @objectiveId";
+        cmd.Parameters.AddWithValue("@pts", ClipScorePoints);
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
         await cmd.ExecuteNonQueryAsync();
     }
 

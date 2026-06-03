@@ -565,8 +565,9 @@
                                                             <DataTemplate x:DataType="vm:PromptAnswerField">
                                                                 <StackPanel Spacing="6">
                                                                     <!-- v2.16.2: pre-game answers carry a small caps eyebrow
-                                                                         so the user can tell read-only carryover from the
-                                                                         editable in-game/post-game prompts below. -->
+                                                                         so the user can tell carried-over answers from the
+                                                                         in-game/post-game prompts below. v2.17.26: these are
+                                                                         now editable here so they can be finished post-game. -->
                                                                     <TextBlock Text="YOUR PRE-GAME ANSWER"
                                                                                FontFamily="{StaticResource MonoFont}"
                                                                                FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
@@ -584,7 +585,6 @@
                                                                              PlaceholderText="Write your answer..."
                                                                              TextWrapping="Wrap" AcceptsReturn="True"
                                                                              MinHeight="44"
-                                                                             IsReadOnly="{x:Bind IsPreGame}"
                                                                              FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                                              Background="{StaticResource CardBackgroundBrush}"
                                                                              BorderBrush="{StaticResource SubtleBorderBrush}"

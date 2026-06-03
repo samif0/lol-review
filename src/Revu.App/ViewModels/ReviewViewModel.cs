@@ -297,10 +297,11 @@ public partial class ReviewViewModel : ObservableObject,
                 var prompts = await _promptsRepository.GetPromptsForObjectiveAsync(assessment.ObjectiveId);
                 assessment.Prompts.Clear();
                 bool hasAnyAnswerForThisGame = false;
-                // v2.16.2: include PreGame answers as read-only reminders so
-                // the user can see what they committed to before queueing.
-                // Sort pre-game first so it reads top-down: "here's what I
-                // said pre-game → here's how I'll answer post-game."
+                // v2.16.2 / v2.17.26: include PreGame prompts so the user can see
+                // what they committed to before queueing AND finish/revise them
+                // after the game (champ select is short — see PreGamePage timing).
+                // Sort pre-game first so it reads top-down: "here's what I said
+                // pre-game → here's how I'll answer post-game."
                 var ordered = prompts
                     .Where(p => p.Phase == ObjectivePhases.PreGame
                              || p.Phase == ObjectivePhases.InGame
@@ -312,12 +313,6 @@ public partial class ReviewViewModel : ObservableObject,
                 foreach (var p in ordered)
                 {
                     var text = answersByPromptId.TryGetValue(p.Id, out var t) ? t : "";
-
-                    // Pre-game prompts that the user never filled out (e.g.
-                    // they never opened champ-select) shouldn't surface as
-                    // empty read-only fields — skip them.
-                    if (p.Phase == ObjectivePhases.PreGame && string.IsNullOrWhiteSpace(text))
-                        continue;
 
                     if (!string.IsNullOrWhiteSpace(text)) hasAnyAnswerForThisGame = true;
 

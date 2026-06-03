@@ -7,7 +7,7 @@ internal sealed record GameMonitorTransitionPlan(
     bool NotifyChampSelectStarted,
     bool NotifyChampSelectCancelled,
     bool NotifyGameStarted,
-    bool NotifyGameInProgress,
+    bool GameInProgressCandidate,
     bool HandleGameEnded,
     bool ReconcileMatchHistory,
     bool ResetCurrentGameCasual);
@@ -36,16 +36,16 @@ internal sealed class GameMonitorTransitionEvaluator
             phase is GamePhase.InProgress or GamePhase.GameStart
             && state.LastPhase is not GamePhase.InProgress and not GamePhase.GameStart;
 
-        // v2.17.22: "confirmed in-game" fires one poll tick after InProgress is
-        // first observed (this tick and the last were both InProgress) and only
-        // once per game. The one-tick dwell keeps the pre-game page + window up
-        // through the loading screen — at the 5s cadence GameStart is frequently
-        // skipped, so we cannot key off it directly; instead we lean on InProgress
-        // persisting, which guarantees at least one full poll interval of read
-        // time after champ select before teardown.
-        var notifyGameInProgress =
+        // v2.17.25: CANDIDATE for "confirmed in-game". The LCU flips to InProgress
+        // the instant the game process launches — but the loading screen runs
+        // DURING InProgress and can last 15-40s, so a short poll-count dwell tore
+        // the pre-game page down mid-loading. The real "past the loading screen"
+        // signal is the in-game Live Client Data API responding; that check is
+        // async, so the evaluator only flags the candidate (we're in InProgress and
+        // haven't fired yet) and GameMonitorService gates the actual notification on
+        // ILiveEventApi.IsAvailableAsync().
+        var gameInProgressCandidate =
             phase == GamePhase.InProgress
-            && state.LastPhase == GamePhase.InProgress
             && !state.GameInProgressNotified;
 
         var handleGameEnded =
@@ -68,7 +68,7 @@ internal sealed class GameMonitorTransitionEvaluator
             NotifyChampSelectStarted: notifyChampSelectStarted,
             NotifyChampSelectCancelled: notifyChampSelectCancelled,
             NotifyGameStarted: notifyGameStarted,
-            NotifyGameInProgress: notifyGameInProgress,
+            GameInProgressCandidate: gameInProgressCandidate,
             HandleGameEnded: handleGameEnded,
             ReconcileMatchHistory: reconcileMatchHistory,
             ResetCurrentGameCasual: handleGameEnded);
