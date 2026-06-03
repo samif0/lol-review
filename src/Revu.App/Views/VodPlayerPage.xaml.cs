@@ -42,6 +42,10 @@ public sealed partial class VodPlayerPage : Page
     private readonly KeyEventHandler _keyDownHandler;
     private readonly KeyEventHandler _keyUpHandler;
     private readonly PointerEventHandler _momentsWheelHandler;
+    // v2.17.24: swallows the arrow keys on the video column so the left
+    // ScrollViewer doesn't scroll when Up/Down change the seek step (or
+    // Left/Right scrub). See OnVideoColumnKeyDown.
+    private readonly KeyEventHandler _videoColumnKeyHandler;
 
     // The ShellPage (window root content) — we hook KeyDown/KeyUp here so we sit above
     // the Frame in the visual tree and intercept before any button can act on Space.
@@ -65,6 +69,7 @@ public sealed partial class VodPlayerPage : Page
         _keyDownHandler = new KeyEventHandler(OnGlobalKeyDown);
         _keyUpHandler = new KeyEventHandler(OnGlobalKeyUp);
         _momentsWheelHandler = new PointerEventHandler(OnMomentsPointerWheelChanged);
+        _videoColumnKeyHandler = new KeyEventHandler(OnVideoColumnKeyDown);
 
         ViewModel.SeekRequested += OnSeekRequested;
         ViewModel.SpeedChangeRequested += OnSpeedChangeRequested;
@@ -126,6 +131,14 @@ public sealed partial class VodPlayerPage : Page
         _windowRoot?.AddHandler(KeyDownEvent, _keyDownHandler, handledEventsToo: true);
         _windowRoot?.AddHandler(KeyUpEvent, _keyUpHandler, handledEventsToo: true);
 
+        // v2.17.24: intercept the arrow keys on the video column's content,
+        // BELOW the left ScrollViewer in the visual tree. Bubbling reaches this
+        // child before the ScrollViewer's built-in arrow-scroll, so marking the
+        // arrows handled here stops the page from scrolling when Up/Down change
+        // the seek step (or Left/Right scrub). The window-root handler runs with
+        // handledEventsToo:true, so the actual step/seek still executes there.
+        VideoColumnStack.AddHandler(KeyDownEvent, _videoColumnKeyHandler, handledEventsToo: true);
+
         if (_playerElement == null)
             CreatePlayer();
 
@@ -164,6 +177,7 @@ public sealed partial class VodPlayerPage : Page
         _windowRoot?.RemoveHandler(KeyDownEvent, _keyDownHandler);
         _windowRoot?.RemoveHandler(KeyUpEvent, _keyUpHandler);
         TimelineInboxList.RemoveHandler(PointerWheelChangedEvent, _momentsWheelHandler);
+        VideoColumnStack.RemoveHandler(KeyDownEvent, _videoColumnKeyHandler);
         _windowRoot = null;
 
         // v2.16: don't auto-restore Default presenter on leave. Auto-fullscreen
@@ -1373,6 +1387,27 @@ public sealed partial class VodPlayerPage : Page
         if (XamlRoot != null && FocusManager.GetFocusedElement(XamlRoot) is TextBox) return;
         if (e.Key == Windows.System.VirtualKey.Space)
             e.Handled = true;
+    }
+
+    // v2.17.24: runs on the video column (a child of the left ScrollViewer) and
+    // marks the arrow keys handled so the ScrollViewer never scrolls in response
+    // to them. The actual seek/step lives in OnGlobalKeyDown, which is hooked on
+    // the window root with handledEventsToo:true and still fires. We deliberately
+    // do NOT execute commands here — that would double-apply them.
+    private void OnVideoColumnKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        // Let text boxes keep arrow-key caret movement (e.g. the note fields).
+        if (XamlRoot != null && FocusManager.GetFocusedElement(XamlRoot) is TextBox) return;
+
+        switch (e.Key)
+        {
+            case Windows.System.VirtualKey.Up:
+            case Windows.System.VirtualKey.Down:
+            case Windows.System.VirtualKey.Left:
+            case Windows.System.VirtualKey.Right:
+                e.Handled = true;
+                break;
+        }
     }
 
     private void OnGlobalKeyDown(object sender, KeyRoutedEventArgs e)
