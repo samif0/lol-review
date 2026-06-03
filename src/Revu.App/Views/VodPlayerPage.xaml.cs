@@ -22,6 +22,14 @@ public sealed partial class VodPlayerPage : Page
     private DispatcherTimer? _positionTimer;
     private bool _isDisposed;
 
+    // v2.17.23: in theater mode the floating event-timeline overlay fades away
+    // after the cursor sits idle for a couple seconds, and fades back in on the
+    // next pointer movement over the video — so it doesn't sit over the footage
+    // while you're just watching.
+    private DispatcherTimer? _theaterIdleTimer;
+    private static readonly TimeSpan TheaterIdleTimeout = TimeSpan.FromSeconds(1.0);
+    private bool _theaterOverlayHidden;
+
     // v2.17.16: the path currently set as the media source. Saving a clip flips
     // VM VOD-state props (HasPlayableClips, etc.), which re-fires the property
     // handler → TryLoadMedia. Without this guard that re-set _mediaPlayer.Source
@@ -64,9 +72,19 @@ public sealed partial class VodPlayerPage : Page
         ViewModel.ClipPlaybackRequested += OnClipPlaybackRequested;
         Timeline.SeekRequested += OnTimelineSeek;
         FullscreenTimeline.SeekRequested += OnTimelineSeek;
+        // v2.17.23: keep the theater-mode video sized to the viewport on window
+        // resize / DPI change. No-op when not in theater mode.
+        VideoColumnScrollViewer.SizeChanged += OnVideoColumnSizeChanged;
         VideoContainer.AddHandler(
             PointerPressedEvent,
             new PointerEventHandler(OnVideoPointerPressed),
+            handledEventsToo: true);
+        // v2.17.23: pointer movement over the video reveals the theater overlay
+        // and restarts the idle countdown. handledEventsToo so it still fires
+        // when the pointer is over the overlay/timeline children.
+        VideoContainer.AddHandler(
+            PointerMovedEvent,
+            new PointerEventHandler(OnVideoPointerMoved),
             handledEventsToo: true);
         // v2.17.19: forward the mouse wheel to the Moments list's inner
         // ScrollViewer. v2.17.17 dropped the outer wrapping ScrollViewer and
@@ -266,6 +284,18 @@ public sealed partial class VodPlayerPage : Page
         FullscreenTimelineOverlay.Padding = playing
             ? new Thickness(10, 6, 10, 6)
             : new Thickness(10, 8, 10, 8);
+
+        // v2.17.23: pausing always brings the overlay back (you're about to
+        // scrub/study); playing re-arms the idle countdown so it can fade again.
+        if (playing)
+        {
+            StartTheaterIdleTimer();
+        }
+        else
+        {
+            StopTheaterIdleTimer();
+            ShowTheaterOverlay();
+        }
     }
 
     private void TryLoadMedia()
@@ -450,6 +480,7 @@ public sealed partial class VodPlayerPage : Page
     {
         _isDisposed = true;
         _positionTimer?.Stop();
+        _theaterIdleTimer?.Stop();
 
         if (_playerElement != null)
         {
@@ -1066,6 +1097,15 @@ public sealed partial class VodPlayerPage : Page
         VodHeader.Visibility = Visibility.Collapsed;
         BookmarkSidebar.Visibility = Visibility.Collapsed;
         TimelineBar.Visibility = Visibility.Collapsed;
+        // v2.17.23: in theater mode the left column is video-only. The docked
+        // transport bar + clip/bookmark cards used to stay in the scrolling
+        // StackPanel below the video; combined with the video being force-sized
+        // to ~full height, total content overflowed the viewport and the bottom
+        // of the video got cut off (only visible by scrolling). Hide them here \u2014
+        // playback is driven by the floating timeline overlay, the center
+        // play/pause button, tap-to-pause, and keyboard shortcuts.
+        TransportBar.Visibility = Visibility.Collapsed;
+        TimelineActionGrid.Visibility = Visibility.Collapsed;
         FullscreenTimelineOverlay.Visibility = Visibility.Visible;
         VodMainLayout.ColumnSpacing = 0;
         VideoColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
@@ -1073,21 +1113,37 @@ public sealed partial class VodPlayerPage : Page
         SidebarColumnDefinition.MinWidth = 0;
         VodPageLayout.Padding = TheaterVodPagePadding;
         VideoColumnScrollViewer.SetValue(Grid.ColumnSpanProperty, 2);
+        // Nothing should scroll in theater mode \u2014 the video fits exactly. Turn
+        // the scrollbar off so a stray sub-pixel overflow can't reintroduce a
+        // scroll-to-clip.
+        VideoColumnScrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
         VideoColumnStack.Padding = new Thickness(0);
         VideoBorder.Padding = new Thickness(0);
-        VideoContainer.MinHeight = Math.Max(520, RootGrid.ActualHeight - TransportBar.ActualHeight - 56);
         VideoPlayPauseButton.Margin = new Thickness(0, 0, 0, 126);
         FullscreenIcon.Glyph = "\uE73F"; // ExitFullScreen
+        ApplyTheaterVideoHeight();
         UpdateFullscreenTimelineCompactness();
+        // Start visible, then begin the idle countdown so the overlay fades if
+        // the cursor doesn't move for a couple seconds.
+        _theaterOverlayHidden = false;
+        FullscreenTimelineOverlay.Opacity = 1.0;
+        StartTheaterIdleTimer();
     }
 
     private void ExitVideoTheaterMode()
     {
         _isFullscreen = false;
         SetShellSidebarVisible(true);
+        // Stop the idle countdown and clear any in-progress fade so the docked
+        // timeline (which shares this overlay element) isn't left transparent.
+        StopTheaterIdleTimer();
+        _theaterOverlayHidden = false;
+        FullscreenTimelineOverlay.Opacity = 1.0;
         VodHeader.Visibility = Visibility.Visible;
         BookmarkSidebar.Visibility = Visibility.Visible;
         TimelineBar.Visibility = Visibility.Visible;
+        TransportBar.Visibility = Visibility.Visible;
+        TimelineActionGrid.Visibility = Visibility.Visible;
         FullscreenTimelineOverlay.Visibility = Visibility.Collapsed;
         // Reset overlay's child timeline so re-entering fullscreen on a paused
         // video doesn't start in compact mode.
@@ -1102,11 +1158,111 @@ public sealed partial class VodPlayerPage : Page
         SidebarColumnDefinition.MinWidth = 440;
         VodPageLayout.Padding = DefaultVodPagePadding;
         VideoColumnScrollViewer.SetValue(Grid.ColumnSpanProperty, 1);
+        VideoColumnScrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         VideoColumnStack.Padding = new Thickness(0, 0, 0, 40);
         VideoBorder.Padding = new Thickness(6);
+        // Clear the theater height override so the docked layout's MinHeight
+        // (420) and natural sizing take over again.
+        VideoContainer.Height = double.NaN;
         VideoContainer.MinHeight = 420;
         VideoPlayPauseButton.Margin = new Thickness(0, 0, 0, 24);
         FullscreenIcon.Glyph = "\uE740"; // EnterFullScreen
+    }
+
+    /// <summary>
+    /// v2.17.23: size the theater-mode video to exactly fill the column's
+    /// viewport so it never overflows (bottom-cutoff bug) and never leaves an
+    /// empty band. Uses the ScrollViewer's measured height \u2014 that already
+    /// accounts for the collapsed header + page padding \u2014 rather than deriving
+    /// from RootGrid minus chrome that may or may not still be present. Recomputed
+    /// on size changes (window resize, DPI) via OnVideoColumnSizeChanged.
+    /// </summary>
+    private void ApplyTheaterVideoHeight()
+    {
+        if (!_isFullscreen) return;
+        var available = VideoColumnScrollViewer.ActualHeight;
+        if (available <= 0) return; // layout not settled yet; SizeChanged will re-run
+        // v2.17.23: hold the video off the very bottom edge. Sizing to the full
+        // viewport left the bottom of the frame butted against (and on some
+        // DPIs slightly under) the window edge — a thin margin keeps the whole
+        // frame clear. Guard against tiny viewports so we never go negative.
+        var target = Math.Max(240, available - TheaterBottomInset);
+        VideoContainer.MinHeight = 0;
+        VideoContainer.Height = target;
+    }
+
+    private const double TheaterBottomInset = 24;
+
+    private void OnVideoColumnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_isFullscreen) ApplyTheaterVideoHeight();
+    }
+
+    // ── Theater overlay auto-hide ───────────────────────────────────
+
+    private void StartTheaterIdleTimer()
+    {
+        _theaterIdleTimer ??= CreateTheaterIdleTimer();
+        _theaterIdleTimer.Stop();
+        _theaterIdleTimer.Start();
+    }
+
+    private DispatcherTimer CreateTheaterIdleTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TheaterIdleTimeout };
+        timer.Tick += (_, _) =>
+        {
+            _theaterIdleTimer?.Stop();
+            // Only auto-hide while playing. On pause the overlay expands to the
+            // full event timeline for study — keep it up regardless of idle.
+            if (_isFullscreen && ViewModel.IsPlaying) HideTheaterOverlay();
+        };
+        return timer;
+    }
+
+    private void StopTheaterIdleTimer() => _theaterIdleTimer?.Stop();
+
+    private void OnVideoPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isFullscreen) return;
+        ShowTheaterOverlay();
+        StartTheaterIdleTimer();
+    }
+
+    /// <summary>Fade the floating timeline overlay back in (on pointer move).</summary>
+    private void ShowTheaterOverlay()
+    {
+        if (!_theaterOverlayHidden) return;
+        _theaterOverlayHidden = false;
+        FadeOverlay(1.0, 160);
+    }
+
+    /// <summary>Fade the floating timeline overlay out (cursor went idle).</summary>
+    private void HideTheaterOverlay()
+    {
+        if (_theaterOverlayHidden) return;
+        _theaterOverlayHidden = true;
+        FadeOverlay(0.0, 320);
+    }
+
+    private void FadeOverlay(double to, double durationMs)
+    {
+        var anim = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        {
+            To = to,
+            Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase
+            {
+                EasingMode = to > 0
+                    ? Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut
+                    : Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseIn,
+            },
+        };
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(anim, FullscreenTimelineOverlay);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(anim, "Opacity");
+        var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        sb.Children.Add(anim);
+        sb.Begin();
     }
 
     /// <summary>
