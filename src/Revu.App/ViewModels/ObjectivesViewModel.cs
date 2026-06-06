@@ -67,8 +67,33 @@ public sealed partial class PromptDraftItem : ObservableObject
 }
 
 /// <summary>Display model for an objective card.</summary>
-public sealed class ObjectiveDisplayItem
+public sealed class ObjectiveDisplayItem : System.ComponentModel.INotifyPropertyChanged
 {
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// v2.18 (F4): true when this card is the one being edited inline. The page
+    /// flips it on edit-begin / cancel-or-save so the card swaps between its
+    /// normal display and the inline edit form, without rebuilding the whole list
+    /// (which would lose scroll position). The only mutable, observable property
+    /// on this otherwise-immutable item.
+    /// </summary>
+    private bool _isBeingEdited;
+    public bool IsBeingEdited
+    {
+        get => _isBeingEdited;
+        set
+        {
+            if (_isBeingEdited == value) return;
+            _isBeingEdited = value;
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsBeingEdited)));
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsNotBeingEdited)));
+        }
+    }
+
+    /// <summary>Inverse of <see cref="IsBeingEdited"/> for collapsing the normal card content.</summary>
+    public bool IsNotBeingEdited => !_isBeingEdited;
+
     public long Id { get; init; }
     public string Title { get; init; } = "";
     public string SkillArea { get; init; } = "";
@@ -273,6 +298,18 @@ public partial class ObjectivesViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCreating;
 
+    partial void OnIsCreatingChanged(bool value) => OnPropertyChanged(nameof(IsCreatingNew));
+
+    /// <summary>
+    /// v2.18 (F4): true when the open edit form targets a COMPLETED objective.
+    /// Completed objectives are minimal collapsed rows with no inline form, so
+    /// those edits still use the top-of-page form. Active objectives edit inline.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isEditingCompletedObjective;
+
+    partial void OnIsEditingCompletedObjectiveChanged(bool value) => OnPropertyChanged(nameof(IsCreatingNew));
+
     [ObservableProperty]
     private long? _editingObjectiveId;
 
@@ -311,6 +348,14 @@ public partial class ObjectivesViewModel : ObservableObject
     /// <summary>0 = Gameplay (primary), 1 = Mental, 2 = Mini focus (v2.17.7).</summary>
     [ObservableProperty]
     private int _newTypeIndex;
+
+    /// <summary>
+    /// v2.18 (F2): game-phase focus for auto-clip matching.
+    /// 0 = Auto (infer from title), 1 = Laning/early, 2 = Mid/late, 3 = Teamfighting, 4 = Any.
+    /// Maps to <see cref="Revu.Core.Data.Repositories.ObjectiveFocusPhases"/> on save.
+    /// </summary>
+    [ObservableProperty]
+    private int _newFocusPhaseIndex;
 
     /// <summary>
     /// v2.17.7: number of games this mini objective is scoped to. Only meaningful
@@ -421,7 +466,28 @@ public partial class ObjectivesViewModel : ObservableObject
         OnPropertyChanged(nameof(IsEditingObjective));
         OnPropertyChanged(nameof(ObjectiveFormTitle));
         OnPropertyChanged(nameof(SaveObjectiveButtonText));
+        OnPropertyChanged(nameof(IsCreatingNew));
+
+        // v2.18 (F4): flip the inline-edit flag on the matching card so it swaps
+        // to the inline form, and clear it on every other card. This is what
+        // makes "edit in place of the clicked objective" work instead of the
+        // top-of-page form.
+        foreach (var item in ActiveObjectives)
+        {
+            item.IsBeingEdited = value.HasValue && item.Id == value.Value;
+        }
+        foreach (var item in FocusObjectives)
+        {
+            item.IsBeingEdited = value.HasValue && item.Id == value.Value;
+        }
     }
+
+    /// <summary>
+    /// v2.18 (F4): show the top-of-page form only for a NEW objective, or when
+    /// editing a COMPLETED objective (those have no inline form). Editing an
+    /// ACTIVE objective happens inline in its card, so the top form stays hidden.
+    /// </summary>
+    public bool IsCreatingNew => IsCreating && (!IsEditingObjective || IsEditingCompletedObjective);
 
     [RelayCommand]
     private async Task LoadAsync()
@@ -527,6 +593,11 @@ public partial class ObjectivesViewModel : ObservableObject
 
         // v2.15.0 champion gating: persist picked champions (empty = all champs).
         await _objectivesRepo.SetChampionsForObjectiveAsync(objectiveId, NewChampions.ToList());
+
+        // v2.18 (F2): persist the game-phase focus for auto-clip matching.
+        await _objectivesRepo.UpdateFocusPhaseAsync(
+            objectiveId,
+            Revu.Core.Data.Repositories.ObjectiveFocusPhases.FromIndex(NewFocusPhaseIndex));
 
         ClearForm();
         IsCreating = false;
@@ -693,6 +764,10 @@ public partial class ObjectivesViewModel : ObservableObject
             return;
         }
 
+        // v2.18 (F4): completed objectives edit via the top form (no inline form
+        // on their collapsed rows); active objectives edit inline in their card.
+        IsEditingCompletedObjective = !string.Equals(objective.Status, "active", StringComparison.OrdinalIgnoreCase);
+
         EditingObjectiveId = objective.Id;
         NewTitle = objective.Title;
         NewSkillArea = objective.SkillArea;
@@ -700,6 +775,7 @@ public partial class ObjectivesViewModel : ObservableObject
                      : string.Equals(objective.Type, "mental", StringComparison.OrdinalIgnoreCase) ? 1
                      : 0;
         NewTargetGameCount = objective.TargetGameCount > 0 ? objective.TargetGameCount : 3;
+        NewFocusPhaseIndex = ObjectiveFocusPhases.ToIndex(objective.FocusPhase);
         NewPhaseIndex = ObjectivePhases.ToIndex(objective.Phase);
         NewPracticePre  = objective.PracticePre;
         NewPracticeIn   = objective.PracticeIn;
@@ -753,6 +829,7 @@ public partial class ObjectivesViewModel : ObservableObject
     private void ClearForm()
     {
         EditingObjectiveId = null;
+        IsEditingCompletedObjective = false;
         ResetFormFields();
     }
 
@@ -761,6 +838,7 @@ public partial class ObjectivesViewModel : ObservableObject
         NewTitle = "";
         NewSkillArea = "";
         NewTypeIndex = 0;
+        NewFocusPhaseIndex = 0;
         NewTargetGameCount = 3;
         NewPhaseIndex = 1;
         NewPracticePre = false;

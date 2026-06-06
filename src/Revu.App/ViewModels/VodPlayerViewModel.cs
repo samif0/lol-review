@@ -29,6 +29,7 @@ public partial class VodPlayerViewModel : ObservableObject
     private const string ReviewMomentFilterAuto = "auto";
     private const string ReviewMomentFilterSaved = "saved";
     private const string ReviewMomentFilterBookmarks = "bookmarks";
+    private const int MaxObjectiveFilteredAutoMoments = 8;
 
     private readonly IVodRepository _vodRepo;
     private readonly IGameRepository _gameRepo;
@@ -51,6 +52,9 @@ public partial class VodPlayerViewModel : ObservableObject
     private readonly object _bookmarkNoteSaveGate = new();
     private readonly Dictionary<long, CancellationTokenSource> _bookmarkNoteSaveDelays = [];
     private int _lastFormattedSecond = -1;
+    private IReadOnlyList<AutoClipObjectiveFocus> _autoClipObjectiveFocuses = [];
+    private string _autoMomentPatternKind = "";
+    private bool _suppressAutoClipFilterRefresh;
 
     // â"€â"€ Game info â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -60,6 +64,41 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private string _headerText = "VOD Review";
     [ObservableProperty] private string _vodPath = "";
     [ObservableProperty] private int _gameDurationS;
+
+    // v2.18 (F1): when the VOD is opened "focused" on a single objective (from a
+    // pattern card or an objective's games list), the tag picker is scoped to
+    // just that objective + its prompts. Null = show every active objective.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFocusObjective))]
+    [NotifyPropertyChangedFor(nameof(ShowFocusObjectiveBanner))]
+    [NotifyPropertyChangedFor(nameof(FocusObjectiveBannerVisibility))]
+    private long? _focusObjectiveId;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowFocusObjectiveBanner))]
+    [NotifyPropertyChangedFor(nameof(FocusObjectiveBannerVisibility))]
+    private string _focusObjectiveTitle = "";
+
+    public bool HasFocusObjective => FocusObjectiveId is > 0;
+
+    /// <summary>
+    /// Drives the "Focused:" banner in Quick Bookmark. FocusObjectiveId is set
+    /// synchronously on navigation, but the title only resolves later in
+    /// LoadObjectivesAndTagsAsync — so gating the banner on the id alone flashes
+    /// (or, if resolution fails, permanently shows) an empty "Focused:" line.
+    /// Require a resolved title so the banner only appears once it has content.
+    /// </summary>
+    public bool ShowFocusObjectiveBanner =>
+        HasFocusObjective && !string.IsNullOrWhiteSpace(FocusObjectiveTitle);
+
+    public Visibility FocusObjectiveBannerVisibility =>
+        ShowFocusObjectiveBanner ? Visibility.Visible : Visibility.Collapsed;
+
+    // v2.18 (F2): effective game-phase of the focused objective (laning/midlate/
+    // teamfight/any), resolved from its focus_phase tag + title. Used to rank
+    // auto-clip candidates so a laning objective surfaces early-game clips and a
+    // teamfight objective surfaces skirmishes. Empty when not focused.
+    private string _focusObjectivePhase = "";
 
     // â"€â"€ Playback state â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -163,7 +202,9 @@ public partial class VodPlayerViewModel : ObservableObject
     [ObservableProperty] private ObservableCollection<EvidenceInboxItem> _savedClipReviewMoments = new();
     [ObservableProperty] private ObservableCollection<EvidenceInboxItem> _visibleReviewMoments = new();
     [ObservableProperty] private string _reviewMomentFilter = ReviewMomentFilterAuto;
+    [ObservableProperty] private AutoClipObjectiveFilterItem? _selectedAutoClipObjectiveFilter;
     public ObservableCollection<ObjectiveOption> ObjectiveOptions { get; } = new();
+    public ObservableCollection<AutoClipObjectiveFilterItem> AutoClipObjectiveFilters { get; } = new();
     // v2.15.7: unified tag picker — flat list of objectives + their prompts
     // (indented). BookmarkItem.TagOptions shares this reference so per-clip
     // pickers see the same options without a round-trip.
@@ -204,6 +245,18 @@ public partial class VodPlayerViewModel : ObservableObject
     // â"€â"€ Events for the view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     public string OutcomeLabel => Win ? "Victory" : "Defeat";
+    public bool HasOutcomeLabel => !string.IsNullOrWhiteSpace(OutcomeLabel);
+
+    /// <summary>
+    /// Header note-count chip text, e.g. "3 notes". A plain string property the
+    /// header TextBlock binds to directly — binding a TextBlock's Text is reliable,
+    /// whereas an x:Bind on a child &lt;Run&gt;'s Text silently renders empty in
+    /// WinUI 3. Re-raised whenever the Bookmarks collection is replaced or mutated
+    /// (see RefreshVisibleBookmarkItemsOnCurrentThread / OnBookmarksChanged).
+    /// </summary>
+    public string NotesCountText => $"{Bookmarks.Count} notes";
+    public bool HasNotesCountText => !string.IsNullOrWhiteSpace(NotesCountText);
+
     public string VodStatusLabel => HasPlayableVod
         ? "VOD linked"
         : HasPlayableClips
@@ -222,6 +275,7 @@ public partial class VodPlayerViewModel : ObservableObject
     public int AutoReviewMomentCount => AutoReviewMoments.Count;
     public int SavedClipReviewMomentCount => SavedClipReviewMoments.Count;
     public int BookmarkReviewMomentCount => VisibleBookmarkItems.Count;
+    public bool HasAutoClipObjectiveFilters => AutoClipObjectiveFilters.Count > 1;
     public bool HasVisibleReviewMoments => VisibleReviewMoments.Count > 0;
     public bool HasVisibleBookmarkItems => VisibleBookmarkItems.Count > 0;
     /// <summary>Shows the Auto/Clips empty-state banner: moments list is empty and we are NOT on the Bookmarks tab.</summary>
@@ -473,29 +527,6 @@ public partial class VodPlayerViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// v2.17.14: losslessly remux a VOD that won't render in MediaPlayerElement
-    /// (e.g. an Ascent capture that didn't close cleanly → a duplicate-moov MP4
-    /// Media Foundation shows as a black screen). Returns the repaired file path
-    /// the player should load instead, or null if repair wasn't possible.
-    /// </summary>
-    public async Task<string?> RepairVodForPlaybackAsync(string sourcePath)
-    {
-        try
-        {
-            var fixedPath = await _clipService.RemuxForPlaybackAsync(sourcePath);
-            if (!string.IsNullOrEmpty(fixedPath))
-            {
-                _logger.LogInformation("Repaired VOD for playback: {Src} -> {Dst}", sourcePath, fixedPath);
-            }
-            return fixedPath;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "RepairVodForPlaybackAsync failed for {Path}", sourcePath);
-            return null;
-        }
-    }
 
     // â"€â"€ Playback commands â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -1238,10 +1269,76 @@ public partial class VodPlayerViewModel : ObservableObject
             CurrentTimeText = FormatTime(intSec);
         }
 
-        if (totalSeconds > 0 && GameDurationS == 0)
+        ApplyMediaDuration(totalSeconds);
+    }
+
+    public void SetFocusObjective(long? objectiveId)
+    {
+        var normalizedId = objectiveId is > 0 ? objectiveId : null;
+        FocusObjectiveTitle = "";
+        _focusObjectivePhase = "";
+        FocusObjectiveId = normalizedId;
+    }
+
+    public void SetAutoMomentPattern(string? patternKind)
+    {
+        _autoMomentPatternKind = (patternKind ?? "").Trim();
+    }
+
+    /// <summary>
+    /// v2.18: exit "reviewing a pattern" mode. When the VOD is opened focused on a
+    /// single objective (from a pattern card / objective games list), the auto-clip
+    /// list is scoped to that one objective, so most clips disappear from view. Users
+    /// read that as "my clips are gone" — the banner above the Moments list explains
+    /// it's a filter, and this command (its "Show all clips" button) clears the focus
+    /// and rebuilds the objective scope + evidence inbox so every clip returns.
+    /// </summary>
+    [RelayCommand]
+    private async Task ClearFocusObjectiveAsync()
+    {
+        if (!HasFocusObjective)
         {
-            GameDurationS = (int)totalSeconds;
-            TotalTimeText = FormatTime((int)totalSeconds);
+            return;
+        }
+
+        SetFocusObjective(null);
+
+        // Also drop the auto-clip objective dropdown back to "All" so the two
+        // filters don't fight (the dropdown is the in-page equivalent of focus).
+        _suppressAutoClipFilterRefresh = true;
+        SelectedAutoClipObjectiveFilter = AutoClipObjectiveFilters.FirstOrDefault();
+        _suppressAutoClipFilterRefresh = false;
+
+        try
+        {
+            // Rebuild the picker/auto-clip scope (now unfocused) then the moment
+            // list, mirroring the load pipeline (LoadObjectiveOptionsAsync →
+            // RefreshEvidenceInboxAsync) so every clip comes back in one click.
+            await LoadObjectiveOptionsAsync();
+            await RefreshEvidenceInboxAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to clear focus objective and restore all clips");
+        }
+    }
+
+    public void ApplyMediaDuration(double totalSeconds)
+    {
+        if (double.IsNaN(totalSeconds) || double.IsInfinity(totalSeconds) || totalSeconds <= 0)
+        {
+            return;
+        }
+
+        // The original VOD file's real length is the source of truth for the
+        // timeline span. Stored game/VOD metadata can be missing or stale, so
+        // replace it when the media pipeline reports a materially different
+        // duration.
+        var total = Math.Max(1, (int)Math.Ceiling(totalSeconds));
+        if (GameDurationS <= 0 || Math.Abs(total - GameDurationS) > 1)
+        {
+            GameDurationS = total;
+            TotalTimeText = FormatTime(total);
         }
     }
 
@@ -1301,18 +1398,21 @@ public partial class VodPlayerViewModel : ObservableObject
             .ToArray();
 
         // Build new item lists off the UI thread to keep dispatcher work minimal.
-        var newEvidence = new List<EvidenceInboxItem>(rows.Length);
-        var newAutoMoments = new List<EvidenceInboxItem>(rows.Length);
+        var allAutoMoments = new List<EvidenceInboxItem>(rows.Length);
         var newSavedClipMoments = new List<EvidenceInboxItem>(rows.Length);
         foreach (var row in rows)
         {
             var item = ToEvidenceInboxItem(row);
-            newEvidence.Add(item);
             if (item.IsSavedClip)
                 newSavedClipMoments.Add(item);
             else
-                newAutoMoments.Add(item);
+                allAutoMoments.Add(item);
         }
+
+        var newAutoMoments = FilterAutoMomentsForLearningObjectives(allAutoMoments);
+        var newEvidence = new List<EvidenceInboxItem>(newAutoMoments.Count + newSavedClipMoments.Count);
+        newEvidence.AddRange(newAutoMoments);
+        newEvidence.AddRange(newSavedClipMoments);
 
         await DispatcherHelper.RunOnUIThreadAsync(() =>
         {
@@ -1326,7 +1426,11 @@ public partial class VodPlayerViewModel : ObservableObject
             SavedClipReviewMoments.Clear();
             foreach (var item in newSavedClipMoments) SavedClipReviewMoments.Add(item);
 
-            if (IsAutoReviewMomentFilterSelected && AutoReviewMoments.Count == 0 && SavedClipReviewMoments.Count > 0)
+            var keepAutoFilterSelected = HasSpecificAutoClipObjectiveFilter || !string.IsNullOrWhiteSpace(_autoMomentPatternKind);
+            if (!keepAutoFilterSelected
+                && IsAutoReviewMomentFilterSelected
+                && AutoReviewMoments.Count == 0
+                && SavedClipReviewMoments.Count > 0)
             {
                 ReviewMomentFilter = ReviewMomentFilterSaved;
             }
@@ -1341,6 +1445,229 @@ public partial class VodPlayerViewModel : ObservableObject
             // Bookmarks tab has no auto-fallback — it's driven by plain bookmarks
             // that are always available regardless of evidence inbox content.
         });
+    }
+
+    private List<EvidenceInboxItem> FilterAutoMomentsForLearningObjectives(IReadOnlyList<EvidenceInboxItem> allAutoMoments)
+    {
+        if (!string.IsNullOrWhiteSpace(_autoMomentPatternKind))
+        {
+            var patternMatches = allAutoMoments
+                .Where(MatchesAutoMomentPattern)
+                .ToList();
+            if (patternMatches.Count > 0)
+            {
+                return patternMatches;
+            }
+        }
+
+        var activeFocuses = GetActiveAutoClipObjectiveFocuses();
+        if (allAutoMoments.Count == 0)
+        {
+            return allAutoMoments.ToList();
+        }
+
+        if (activeFocuses.Count == 0)
+        {
+            return HasSpecificAutoClipObjectiveFilter ? [] : allAutoMoments.ToList();
+        }
+
+        var scored = allAutoMoments
+            .Select((item, index) => new
+            {
+                Item = item,
+                Index = index,
+                Score = ScoreAutoMomentForLearningObjectives(item, activeFocuses, HasSpecificAutoClipObjectiveFilter)
+            })
+            .Where(static item => item.Score > 0)
+            .OrderByDescending(static item => item.Score)
+            .ThenBy(static item => item.Index)
+            .ToList();
+
+        // Always keep evidence the user already touched. The cap is for raw
+        // untouched auto picks, which are the noisy "25 open clips" case.
+        var touched = scored
+            .Where(static item => item.Score >= 800)
+            .ToList();
+        var untouchedLimit = Math.Max(0, MaxObjectiveFilteredAutoMoments - touched.Count);
+        var untouched = scored
+            .Where(static item => item.Score < 800)
+            .Take(untouchedLimit)
+            .ToList();
+
+        return touched
+            .Concat(untouched)
+            .OrderBy(static item => item.Index)
+            .Select(static item => item.Item)
+            .ToList();
+    }
+
+    private bool HasSpecificAutoClipObjectiveFilter =>
+        SelectedAutoClipObjectiveFilter?.ObjectiveId is > 0;
+
+    private IReadOnlyList<AutoClipObjectiveFocus> GetActiveAutoClipObjectiveFocuses()
+    {
+        if (SelectedAutoClipObjectiveFilter?.ObjectiveId is not long selectedObjectiveId || selectedObjectiveId <= 0)
+        {
+            return _autoClipObjectiveFocuses;
+        }
+
+        return _autoClipObjectiveFocuses
+            .Where(focus => focus.ObjectiveId == selectedObjectiveId)
+            .ToArray();
+    }
+
+    private bool MatchesAutoMomentPattern(EvidenceInboxItem item)
+    {
+        var title = item.Title ?? "";
+        return _autoMomentPatternKind switch
+        {
+            "isolated_deaths" => IsPlainDeathAutoMoment(title),
+            "deaths_before_objectives" => ContainsAny(title, "death before"),
+            "lost_objective_fights" => title.StartsWith("Lost ", StringComparison.OrdinalIgnoreCase)
+                && ContainsAny(title, "dragon", "baron", "herald", "objective", "fight"),
+            "negative_matchup_clips" => string.Equals(
+                EvidencePolarities.Normalize(item.Polarity),
+                EvidencePolarities.Bad,
+                StringComparison.Ordinal),
+            _ => true,
+        };
+    }
+
+    private static bool IsPlainDeathAutoMoment(string title)
+    {
+        var normalized = (title ?? "").Trim();
+        return string.Equals(normalized, "Death", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "Isolated death", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "First death", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private int ScoreAutoMomentForLearningObjectives(
+        EvidenceInboxItem item,
+        IReadOnlyList<AutoClipObjectiveFocus> objectiveFocuses,
+        bool restrictToSelectedObjective)
+    {
+        var normalizedStatus = EvidenceStatuses.Normalize(item.Status);
+
+        if (item.ObjectiveId is long objectiveId)
+        {
+            if (objectiveFocuses.Any(focus => focus.ObjectiveId == objectiveId))
+            {
+                return 1000;
+            }
+
+            if (restrictToSelectedObjective)
+            {
+                return 0;
+            }
+
+            return string.Equals(normalizedStatus, EvidenceStatuses.NeedsReview, StringComparison.Ordinal) ? 850 : 900;
+        }
+
+        if (!string.Equals(normalizedStatus, EvidenceStatuses.NeedsReview, StringComparison.Ordinal)
+            && !restrictToSelectedObjective)
+        {
+            return 900;
+        }
+
+        var best = 0;
+        foreach (var focus in objectiveFocuses)
+        {
+            best = Math.Max(best, ScoreAutoMomentForObjectiveFocus(item, focus));
+        }
+
+        return best;
+    }
+
+    private int ScoreAutoMomentForObjectiveFocus(EvidenceInboxItem item, AutoClipObjectiveFocus focus)
+    {
+        if (item.StartTimeSeconds is not int start)
+        {
+            return 0;
+        }
+
+        var phase = ObjectiveFocusPhases.Normalize(focus.EffectivePhase);
+        if (!ObjectiveFocusPhases.MatchesClipTime(phase, start, Math.Max(GameDurationS, 1)))
+        {
+            return 0;
+        }
+
+        var title = item.Title ?? "";
+        var score = phase switch
+        {
+            ObjectiveFocusPhases.Laning => IsLaningAutoMoment(title, start) ? 70 : 10,
+            ObjectiveFocusPhases.Teamfight => IsFightAutoMoment(title) ? 90 : IsObjectiveMacroAutoMoment(title) ? 45 : 0,
+            ObjectiveFocusPhases.MidLate => IsObjectiveMacroAutoMoment(title) ? 85 : IsFightAutoMoment(title) ? 55 : 10,
+            ObjectiveFocusPhases.Any => 20,
+            _ => 0,
+        };
+
+        if (score <= 0)
+        {
+            return 0;
+        }
+
+        score += ObjectiveKeywordOverlapScore(title, focus);
+        if (focus.IsPriority)
+        {
+            score += 5;
+        }
+
+        return score;
+    }
+
+    private static bool IsLaningAutoMoment(string title, int startTimeSeconds)
+    {
+        if (startTimeSeconds >= ObjectiveFocusPhases.LanePhaseSeconds)
+        {
+            return false;
+        }
+
+        return ContainsAny(title, "first", "pick", "death", "skirmish", "2v2", "1v1", "kill");
+    }
+
+    private static bool IsFightAutoMoment(string title) =>
+        ContainsAny(title, "teamfight", "team fight", "skirmish", "fight", "pick");
+
+    private static bool IsObjectiveMacroAutoMoment(string title) =>
+        ContainsAny(title, "dragon", "baron", "herald", "objective", "death before");
+
+    private static bool ContainsAny(string text, params string[] needles)
+    {
+        foreach (var needle in needles)
+        {
+            if (text.Contains(needle, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int ObjectiveKeywordOverlapScore(string momentTitle, AutoClipObjectiveFocus focus)
+    {
+        var objectiveText = $"{focus.Title} {focus.SkillArea}";
+        var score = 0;
+        foreach (var token in TokenizeObjectiveText(objectiveText))
+        {
+            if (momentTitle.Contains(token, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 4;
+            }
+        }
+
+        return Math.Min(score, 20);
+    }
+
+    private static IEnumerable<string> TokenizeObjectiveText(string text)
+    {
+        var tokens = text
+            .Split([' ', '/', '\\', '-', '_', ':', ';', ',', '.', '(', ')', '[', ']'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(static token => token.Trim().ToLowerInvariant())
+            .Where(static token => token.Length >= 4)
+            .Where(static token => token is not ("track" or "watch" or "keep" or "keeping" or "details" or "assessment"));
+
+        return tokens.Distinct(StringComparer.Ordinal);
     }
 
     private void RemoveReviewMomentOnCurrentThread(EvidenceInboxItem evidence)
@@ -1392,6 +1719,8 @@ public partial class VodPlayerViewModel : ObservableObject
         }
         OnPropertyChanged(nameof(BookmarkReviewMomentCount));
         OnPropertyChanged(nameof(HasVisibleBookmarkItems));
+        OnPropertyChanged(nameof(NotesCountText));
+        OnPropertyChanged(nameof(HasNotesCountText));
     }
 
     private void QueueBookmarkNoteSave(BookmarkItem? bookmark, bool immediate)
@@ -1681,8 +2010,12 @@ public partial class VodPlayerViewModel : ObservableObject
     private static string InferPolarityFromTitle(string title)
     {
         var normalized = (title ?? "").Trim().ToLowerInvariant();
+        // "pick" can be the whole title (a lone kill) or a suffix ("won pick"),
+        // so match it as a word rather than requiring a leading space — the old
+        // " pick" check missed the standalone "Pick" label and left it Neutral.
         if (normalized.StartsWith("won ", StringComparison.Ordinal)
-            || normalized.Contains(" pick", StringComparison.Ordinal))
+            || normalized == "pick"
+            || normalized.Contains("pick", StringComparison.Ordinal))
         {
             return EvidencePolarities.Good;
         }
@@ -1740,7 +2073,72 @@ public partial class VodPlayerViewModel : ObservableObject
         try
         {
             var objectives = await _objectivesRepo.GetActiveAsync();
-            // v2.15.5: default the bookmark-tagger to the priority objective.
+            var allActiveObjectives = objectives.ToArray();
+
+            // v2.18 (F1): focused mode — when opened from a pattern / objective
+            // games list, scope the picker to ONLY that objective (and, below,
+            // its prompts). Falls back to the full list if the focused objective
+            // isn't active anymore. The focused objective becomes the default tag.
+            _focusObjectivePhase = "";
+            IReadOnlyList<ObjectiveSummary> autoClipFocusObjectives = allActiveObjectives;
+            if (FocusObjectiveId is > 0 and long focusId)
+            {
+                var focused = allActiveObjectives.FirstOrDefault(o => o.Id == focusId);
+                if (focused is not null)
+                {
+                    objectives = new[] { focused };
+                    autoClipFocusObjectives = new[] { focused };
+                    // Resolve the phase now (tag if set, else infer from title) so
+                    // the evidence inbox can rank phase-matching clips first.
+                    _focusObjectivePhase = ObjectiveFocusPhases.Resolve(
+                        focused.FocusPhase, focused.Title, focused.SkillArea);
+                    await DispatcherHelper.RunOnUIThreadAsync(() => FocusObjectiveTitle = focused.Title);
+                }
+                else
+                {
+                    // Objective was completed/deleted since the pattern was shown;
+                    // drop focus rather than show an empty picker.
+                    await DispatcherHelper.RunOnUIThreadAsync(() =>
+                    {
+                        SetFocusObjective(null);
+                    });
+                }
+            }
+            else
+            {
+                var gameObjectiveIds = (await _objectivesRepo.GetGameObjectivesAsync(GameId))
+                    .Select(static objective => objective.ObjectiveId)
+                    .ToHashSet();
+                if (gameObjectiveIds.Count > 0)
+                {
+                    autoClipFocusObjectives = allActiveObjectives
+                        .Where(objective => gameObjectiveIds.Contains(objective.Id))
+                        .ToArray();
+                }
+                else
+                {
+                    var vodRelevantObjectives = allActiveObjectives
+                        .Where(static objective => objective.PracticeIn || objective.PracticePost)
+                        .ToArray();
+                    if (vodRelevantObjectives.Length > 0)
+                    {
+                        autoClipFocusObjectives = vodRelevantObjectives;
+                    }
+                }
+            }
+
+            _autoClipObjectiveFocuses = autoClipFocusObjectives
+                .Select(static objective => new AutoClipObjectiveFocus(
+                    objective.Id,
+                    objective.Title,
+                    objective.SkillArea,
+                    ObjectiveFocusPhases.Resolve(objective.FocusPhase, objective.Title, objective.SkillArea),
+                    objective.IsPriority))
+                .ToArray();
+            var autoClipFilterRows = BuildAutoClipObjectiveFilterRows(_autoClipObjectiveFocuses);
+
+            // v2.15.5: default the bookmark-tagger to the priority objective
+            // (or, in focused mode, the single focused objective).
             var priority = objectives.FirstOrDefault(o => o.IsPriority) ?? objectives.FirstOrDefault();
 
             // v2.15.7: build the unified TagOptions tree. For each active
@@ -1810,6 +2208,8 @@ public partial class VodPlayerViewModel : ObservableObject
                 TagOptions.Clear();
                 foreach (var r in tagRows) TagOptions.Add(r);
 
+                ReplaceAutoClipObjectiveFiltersOnCurrentThread(autoClipFilterRows);
+
                 if (SelectedObjectiveId is null && priority is not null)
                 {
                     SelectedObjectiveId = priority.Id;
@@ -1820,6 +2220,64 @@ public partial class VodPlayerViewModel : ObservableObject
         {
             _logger.LogDebug(ex, "Failed to load objectives for VOD player");
         }
+    }
+
+    private static IReadOnlyList<AutoClipObjectiveFilterItem> BuildAutoClipObjectiveFilterRows(
+        IReadOnlyList<AutoClipObjectiveFocus> focuses)
+    {
+        if (focuses.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = new List<AutoClipObjectiveFilterItem>
+        {
+            new(null, "All learning objectives"),
+        };
+
+        foreach (var focus in focuses
+                     .OrderByDescending(static focus => focus.IsPriority)
+                     .ThenBy(static focus => focus.Title, StringComparer.OrdinalIgnoreCase))
+        {
+            rows.Add(new AutoClipObjectiveFilterItem(focus.ObjectiveId, focus.Title));
+        }
+
+        return rows;
+    }
+
+    private void ReplaceAutoClipObjectiveFiltersOnCurrentThread(IReadOnlyList<AutoClipObjectiveFilterItem> rows)
+    {
+        var hadPreviousSelection = SelectedAutoClipObjectiveFilter is not null;
+        var previousObjectiveId = SelectedAutoClipObjectiveFilter?.ObjectiveId;
+
+        _suppressAutoClipFilterRefresh = true;
+        try
+        {
+            AutoClipObjectiveFilters.Clear();
+            foreach (var row in rows)
+            {
+                AutoClipObjectiveFilters.Add(row);
+            }
+
+            AutoClipObjectiveFilterItem? nextSelection = null;
+            if (hadPreviousSelection)
+            {
+                nextSelection = AutoClipObjectiveFilters.FirstOrDefault(row => row.ObjectiveId == previousObjectiveId);
+            }
+
+            if (nextSelection is null && FocusObjectiveId is > 0 and long focusObjectiveId)
+            {
+                nextSelection = AutoClipObjectiveFilters.FirstOrDefault(row => row.ObjectiveId == focusObjectiveId);
+            }
+
+            SelectedAutoClipObjectiveFilter = nextSelection ?? AutoClipObjectiveFilters.FirstOrDefault();
+        }
+        finally
+        {
+            _suppressAutoClipFilterRefresh = false;
+        }
+
+        OnPropertyChanged(nameof(HasAutoClipObjectiveFilters));
     }
 
     partial void OnSeekStepSecondsChanged(int value)
@@ -1861,7 +2319,19 @@ public partial class VodPlayerViewModel : ObservableObject
         OnPropertyChanged(nameof(BadClipBorderThickness));
     }
 
-    partial void OnWinChanged(bool value) => OnPropertyChanged(nameof(OutcomeLabel));
+    partial void OnWinChanged(bool value)
+    {
+        OnPropertyChanged(nameof(OutcomeLabel));
+        OnPropertyChanged(nameof(HasOutcomeLabel));
+    }
+
+    // Keep the header "N notes" chip in sync when the whole collection is swapped
+    // (e.g. on load). In-place add/remove is covered by RefreshVisibleBookmarkItems.
+    partial void OnBookmarksChanged(ObservableCollection<BookmarkItem> value)
+    {
+        OnPropertyChanged(nameof(NotesCountText));
+        OnPropertyChanged(nameof(HasNotesCountText));
+    }
 
     partial void OnHasVodChanged(bool value) => OnPropertyChanged(nameof(VodStatusLabel));
 
@@ -1899,6 +2369,29 @@ public partial class VodPlayerViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowEmptyReviewMomentsState));
         OnPropertyChanged(nameof(ShowReviewMomentsList));
         RefreshVisibleReviewMomentsOnCurrentThread();
+    }
+
+    partial void OnSelectedAutoClipObjectiveFilterChanged(AutoClipObjectiveFilterItem? value)
+    {
+        if (_suppressAutoClipFilterRefresh || IsLoading || GameId <= 0)
+        {
+            return;
+        }
+
+        ReviewMomentFilter = ReviewMomentFilterAuto;
+        _ = RefreshEvidenceInboxAfterAutoClipFilterChangeAsync();
+    }
+
+    private async Task RefreshEvidenceInboxAfterAutoClipFilterChangeAsync()
+    {
+        try
+        {
+            await RefreshEvidenceInboxAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to refresh auto review moments after objective filter change");
+        }
     }
 
     private void AdjustSeekStep(int direction)
@@ -2184,9 +2677,32 @@ public partial class VodPlayerViewModel : ObservableObject
             _logger.LogError(ex, "Failed to clear stale session token after upload auth failure");
         }
     }
+
+    private sealed record AutoClipObjectiveFocus(
+        long ObjectiveId,
+        string Title,
+        string SkillArea,
+        string EffectivePhase,
+        bool IsPriority);
 }
 
 // â"€â"€ Display models â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+
+public sealed class AutoClipObjectiveFilterItem
+{
+    public long? ObjectiveId { get; set; }
+    public string Label { get; set; } = "";
+
+    public AutoClipObjectiveFilterItem() { }
+
+    public AutoClipObjectiveFilterItem(long? objectiveId, string label)
+    {
+        ObjectiveId = objectiveId;
+        Label = label;
+    }
+
+    public override string ToString() => Label;
+}
 
 public partial class EvidenceInboxItem : ObservableObject
 {

@@ -31,6 +31,13 @@ public class Objective
     /// </summary>
     public int TargetGameCount { get; set; }
 
+    /// <summary>
+    /// v2.18 (F2): game-phase focus for auto-clip matching. '' = auto-infer from
+    /// title; otherwise 'laning' | 'midlate' | 'teamfight' | 'any'. See
+    /// <see cref="Revu.Core.Data.Repositories.ObjectiveFocusPhases"/>.
+    /// </summary>
+    public string FocusPhase { get; set; } = "";
+
     public long? CreatedAt { get; set; }
     public long? CompletedAt { get; set; }
 

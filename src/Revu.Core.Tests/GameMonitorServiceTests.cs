@@ -62,6 +62,45 @@ public sealed class GameMonitorServiceTests
     }
 
     [Fact]
+    public async Task TickOnceAsync_ReFiresChampSelect_WhenFirstSnapshotFailed()
+    {
+        // F5: if the snapshot fetch throws the instant champ select opens (LCU not
+        // ready yet), the started message never sends — but the recovery path must
+        // re-fire on the next tick WHILE STILL in champ select, so the pre-game
+        // page isn't lost for the whole game.
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            QueueId = 420,
+            // Two champ-select ticks in a row (no transition between them).
+            Phases = new Queue<GamePhase>([GamePhase.ChampSelect, GamePhase.ChampSelect]),
+            ThrowOnNextSnapshot = true, // first tick's HandleChampSelectStarted throws
+        };
+
+        var service = CreateService(
+            credentialDiscovery,
+            lcuClient,
+            messenger,
+            new FakeGameEndCaptureService(),
+            new FakeMatchHistoryReconciliationService());
+
+        // Tick 1 — ChampSelect, but snapshot throws. In production the ExecuteAsync
+        // loop swallows this; here we catch it directly. The key effect: no message
+        // sent AND ChampSelectNotified stays false.
+        try { await service.TickOnceAsync(); } catch (HttpRequestException) { }
+        Assert.Empty(collector.ChampSelectStarted);
+
+        // Tick 2 — still ChampSelect, snapshot now succeeds → recovery re-fires
+        // (driven by !ChampSelectNotified even without a fresh phase transition).
+        await service.TickOnceAsync();
+        Assert.Single(collector.ChampSelectStarted);
+        Assert.Equal(420, collector.ChampSelectStarted[0].QueueId);
+    }
+
+    [Fact]
     public async Task TickOnceAsync_PublishesGameEndedMessageFromCapturedStats()
     {
         var messenger = new StrongReferenceMessenger();
@@ -399,6 +438,116 @@ public sealed class GameMonitorServiceTests
         Assert.Single(collector.GameEnded);
     }
 
+    [Fact]
+    public async Task TickOnceAsync_MidGameDisconnect_SetsReconcilePendingSoPostGameFiresOnReconnect()
+    {
+        // FIX 2: if the LCU drops while a ranked game is in progress, ReconcilePending
+        // must be set so the post-game review fires when the client reconnects.
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var liveApi = new FakeLiveEventApi { Available = true };
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            QueueId = 420, // ranked
+            Phases = new Queue<GamePhase>([GamePhase.InProgress]),
+        };
+        var candidate = new MissedGameCandidate(8001, 1_710_000_000, TestGameStatsFactory.Create(8001));
+        var reconciliationService = new FakeMatchHistoryReconciliationService { Result = [candidate] };
+
+        var service = CreateService(credentialDiscovery, lcuClient, messenger,
+            new FakeGameEndCaptureService(), reconciliationService, liveApi);
+
+        // Tick 1 — InProgress, confirmed in-game.
+        await service.TickOnceAsync();
+        Assert.Single(collector.GameInProgress);
+
+        // LCU drops mid-game.
+        lcuClient.ThrowOnNextPhase = true;
+        await service.TickOnceAsync();
+        Assert.Contains(collector.ConnectionChanges, m => !m.IsConnected);
+
+        // Reconnect → idle Lobby ticks; reconcile must fire because ReconcilePending was set.
+        lcuClient.ThrowOnNextPhase = false;
+        lcuClient.IsConnected = true;
+        lcuClient.Phases = new Queue<GamePhase>([GamePhase.Lobby, GamePhase.Lobby]);
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+
+        // Reconcile fires on the idle ticks because ReconcilePending was set by the
+        // mid-game disconnect; the missed game (8001) must surface for review.
+        Assert.NotEmpty(collector.MissedGamesDetected);
+        Assert.Contains(collector.MissedGamesDetected, m => m.Games.Any(g => g.GameId == 8001));
+    }
+
+    [Fact]
+    public async Task TickOnceAsync_ReconnectPhase_DoesNotFireSecondGameStarted()
+    {
+        // FIX 3: InProgress → Reconnect → InProgress must NOT re-fire GameStarted
+        // (which would restart the event collector and trip the restart race).
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            QueueId = 420,
+            Phases = new Queue<GamePhase>([
+                GamePhase.InProgress,
+                GamePhase.Reconnect,
+                GamePhase.InProgress,
+                GamePhase.InProgress,
+            ]),
+        };
+
+        var service = CreateService(credentialDiscovery, lcuClient, messenger,
+            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService());
+
+        await service.TickOnceAsync(); // InProgress → GameStarted fires once
+        Assert.Single(collector.GameStarted);
+        await service.TickOnceAsync(); // Reconnect — nothing fires
+        Assert.Single(collector.GameStarted);
+        Assert.Empty(collector.ChampSelectCancelled);
+        await service.TickOnceAsync(); // back to InProgress — NO second GameStarted
+        Assert.Single(collector.GameStarted);
+        await service.TickOnceAsync(); // still InProgress
+        Assert.Single(collector.GameStarted);
+    }
+
+    [Fact]
+    public async Task TickOnceAsync_ReconnectAfterChampSelect_DoesNotFireChampSelectCancelled()
+    {
+        // FIX 3: ChampSelect → Reconnect must NOT fire ChampSelectCancelled
+        // (Reconnect means the player is in-game, not that select was cancelled).
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            QueueId = 420,
+            Phases = new Queue<GamePhase>([
+                GamePhase.Lobby,        // connected, idle
+                GamePhase.ChampSelect,
+                GamePhase.Reconnect,
+                GamePhase.InProgress,
+            ]),
+        };
+
+        var service = CreateService(credentialDiscovery, lcuClient, messenger,
+            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService());
+
+        await service.TickOnceAsync(); // Lobby — establishes connection
+        await service.TickOnceAsync(); // ChampSelect
+        Assert.Single(collector.ChampSelectStarted);
+        await service.TickOnceAsync(); // Reconnect — must NOT cancel champ select
+        Assert.Empty(collector.ChampSelectCancelled);
+        await service.TickOnceAsync(); // InProgress — game in progress, no spurious cancel
+        Assert.Empty(collector.ChampSelectCancelled);
+        Assert.Single(collector.GameStarted);
+    }
+
     private static GameMonitorService CreateService(
         FakeCredentialDiscovery credentialDiscovery,
         FakeLcuClient lcuClient,
@@ -518,8 +667,20 @@ public sealed class GameMonitorServiceTests
         public Task<(string MyChampion, string EnemyLaner, string MyPosition)> GetChampSelectInfoAsync(CancellationToken ct = default) =>
             Task.FromResult(("", "", ""));
 
-        public Task<ChampSelectSnapshot> GetChampSelectSnapshotAsync(CancellationToken ct = default) =>
-            Task.FromResult(new ChampSelectSnapshot("", "", "", new Dictionary<string, string>()));
+        /// <summary>v2.18 (F5): when true, the NEXT snapshot call throws (then
+        /// auto-clears), simulating the LCU not being ready the instant champ
+        /// select opens. Lets tests exercise the champ-select re-fire recovery.</summary>
+        public bool ThrowOnNextSnapshot { get; set; }
+
+        public Task<ChampSelectSnapshot> GetChampSelectSnapshotAsync(CancellationToken ct = default)
+        {
+            if (ThrowOnNextSnapshot)
+            {
+                ThrowOnNextSnapshot = false;
+                throw new HttpRequestException("Simulated LCU not-ready at champ-select open");
+            }
+            return Task.FromResult(new ChampSelectSnapshot("", "", "", new Dictionary<string, string>()));
+        }
     }
 
     private sealed class FakeLiveEventApi : ILiveEventApi

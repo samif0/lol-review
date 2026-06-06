@@ -334,6 +334,7 @@ public sealed class DatabaseInitializer
                     score               INTEGER DEFAULT 0,
                     game_count          INTEGER DEFAULT 0,
                     target_game_count   INTEGER NOT NULL DEFAULT 0,
+                    focus_phase         TEXT NOT NULL DEFAULT '',
                     created_at          INTEGER,
                     completed_at        INTEGER,
                     practice_pregame    INTEGER NOT NULL DEFAULT 0,
@@ -350,7 +351,7 @@ public sealed class DatabaseInitializer
             copyCmd.CommandText = $"""
                 INSERT INTO objectives__migrated (
                     id, title, skill_area, type, phase, completion_criteria, description,
-                    status, is_priority, score, game_count, target_game_count,
+                    status, is_priority, score, game_count, target_game_count, focus_phase,
                     created_at, completed_at,
                     practice_pregame, practice_ingame, practice_postgame
                 )
@@ -376,6 +377,7 @@ public sealed class DatabaseInitializer
                     {GetIntColumnExpr(columns, "score")},
                     {GetIntColumnExpr(columns, "game_count")},
                     {GetIntColumnExpr(columns, "target_game_count")},
+                    {GetTextColumnExpr(columns, "focus_phase")},
                     {GetNullableColumnExpr(columns, "created_at")},
                     {GetNullableColumnExpr(columns, "completed_at")},
                     {GetIntColumnExpr(columns, "practice_pregame")},
@@ -487,7 +489,7 @@ public sealed class DatabaseInitializer
         {
             copyCmd.Transaction = tx;
             copyCmd.CommandText = $"""
-                INSERT OR REPLACE INTO game_objectives__migrated (
+                INSERT OR IGNORE INTO game_objectives__migrated (
                     id, game_id, objective_id, practiced, execution_note
                 )
                 SELECT
@@ -627,7 +629,9 @@ public sealed class DatabaseInitializer
         cmd.CommandText = """
             UPDATE objectives SET game_count = COALESCE((
                 SELECT COUNT(*) FROM game_objectives
+                JOIN games g ON g.game_id = game_objectives.game_id
                 WHERE game_objectives.objective_id = objectives.id
+                  AND COALESCE(g.is_hidden, 0) = 0
             ), 0)
             """;
         await cmd.ExecuteNonQueryAsync(ct);
@@ -643,7 +647,9 @@ public sealed class DatabaseInitializer
                 COALESCE((
                     SELECT SUM(CASE WHEN COALESCE(game_objectives.practiced, 0) != 0 THEN 2 ELSE 0 END)
                     FROM game_objectives
+                    JOIN games g ON g.game_id = game_objectives.game_id
                     WHERE game_objectives.objective_id = objectives.id
+                      AND COALESCE(g.is_hidden, 0) = 0
                 ), 0)
             )
             """;

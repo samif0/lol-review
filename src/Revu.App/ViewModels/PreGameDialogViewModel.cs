@@ -320,6 +320,22 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
             {
                 _logger.LogError(ex, "Failed to reload matchup history on champ-select update");
             }
+
+            // v2.18 (F5): rebuild the intel/cooldown deck independently of the
+            // matchup-history load above. The enemy champion often isn't locked
+            // when champ select first opens, so the initial deck has no cooldowns;
+            // this is the path that fills them in once the enemy locks. Kept
+            // separate so a matchup-history failure can't also blank the deck.
+            try
+            {
+                MyChampionName = message.MyChampion ?? MyChampionName;
+                EnemyChampionName = message.EnemyLaner ?? EnemyChampionName;
+                await RefreshIntelDeckAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to refresh intel deck on champ-select update");
+            }
         }), _logger, "champ-select matchup refresh");
     }
 

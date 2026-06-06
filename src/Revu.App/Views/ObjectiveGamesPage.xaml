@@ -218,18 +218,30 @@
                                                    Visibility="{x:Bind HasExecutionNote, Converter={StaticResource BoolToVis}}"/>
                                     </StackPanel>
 
-                                    <!-- Review button -->
-                                    <Button Grid.Column="2"
-                                            Content="Review"
-                                            Background="{StaticResource TagBackgroundBrush}"
-                                            Foreground="{StaticResource AccentGoldBrush}"
-                                            BorderBrush="{StaticResource AccentGoldBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="2" Height="30"
-                                            FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                            VerticalAlignment="Center"
-                                            Tag="{x:Bind GameId}"
-                                            Click="ReviewGame_Click"/>
+                                    <!-- Action buttons -->
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                                VerticalAlignment="Center">
+                                        <!-- v2.18 (F1): open the VOD focused on this objective. -->
+                                        <Button Content="Watch VOD"
+                                                Background="{StaticResource TagBackgroundBrush}"
+                                                Foreground="{StaticResource AccentBlueBrush}"
+                                                BorderBrush="{StaticResource AccentBlueBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="2" Height="30"
+                                                FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                ToolTipService.ToolTip="Open the VOD focused on just this objective"
+                                                Tag="{x:Bind GameId}"
+                                                Click="WatchVod_Click"/>
+                                        <Button Content="Review"
+                                                Background="{StaticResource TagBackgroundBrush}"
+                                                Foreground="{StaticResource AccentGoldBrush}"
+                                                BorderBrush="{StaticResource AccentGoldBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="2" Height="30"
+                                                FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                Tag="{x:Bind GameId}"
+                                                Click="ReviewGame_Click"/>
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </DataTemplate>

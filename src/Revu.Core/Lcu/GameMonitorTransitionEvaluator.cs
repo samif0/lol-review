@@ -22,18 +22,35 @@ internal sealed class GameMonitorTransitionEvaluator
             && state.ConnectedTicks >= 2
             && IsIdlePhase(phase);
 
+        // Fire on the transition INTO champ select, OR as a recovery if we're in
+        // champ select but never successfully notified this cycle (reconnect
+        // mid-select, transient snapshot error, page not yet listening). The
+        // ChampSelectNotified flag is set by GameMonitorService only after the
+        // message is actually sent, so this re-fires until it lands.
         var notifyChampSelectStarted =
             phase == GamePhase.ChampSelect
-            && state.LastPhase != GamePhase.ChampSelect;
+            && (state.LastPhase != GamePhase.ChampSelect || !state.ChampSelectNotified);
 
+        // Reconnect means the player dropped from the game SERVER but can rejoin —
+        // it is still an in-game phase, so it must not look like a champ-select cancel.
         var notifyChampSelectCancelled =
             state.LastPhase == GamePhase.ChampSelect
             && phase is not GamePhase.ChampSelect
                 and not GamePhase.InProgress
-                and not GamePhase.GameStart;
+                and not GamePhase.GameStart
+                and not GamePhase.Reconnect;
 
+        // Fire GameStarted on entry into the in-game phases, but exactly ONCE per
+        // game (GameStartedNotified one-shot). This is what makes InProgress →
+        // Reconnect → InProgress safe: the return-from-Reconnect tick won't re-fire
+        // GameStarted (and won't restart the event collector, tripping the restart
+        // race) because the flag is already set. A genuine first start that arrives
+        // via Reconnect (ChampSelect → Reconnect → InProgress) still fires, because
+        // the flag is not yet set. The phase-edge guard remains so a same-phase
+        // re-poll (InProgress → InProgress) is a no-op even before the flag is set.
         var notifyGameStarted =
             phase is GamePhase.InProgress or GamePhase.GameStart
+            && !state.GameStartedNotified
             && state.LastPhase is not GamePhase.InProgress and not GamePhase.GameStart;
 
         // v2.17.25: CANDIDATE for "confirmed in-game". The LCU flips to InProgress
@@ -59,6 +76,7 @@ internal sealed class GameMonitorTransitionEvaluator
                 // Transition from a game-related phase → idle (first time after game ends)
                 state.LastPhase is GamePhase.EndOfGame or GamePhase.PreEndOfGame
                     or GamePhase.InProgress or GamePhase.GameStart or GamePhase.WaitingForStats
+                    or GamePhase.Reconnect
                 // OR match history not yet available — keep retrying until monitor clears the flag
                 || state.ReconcilePending
             );

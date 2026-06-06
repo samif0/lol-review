@@ -233,18 +233,25 @@ public static class TimelineInferenceService
             else
             {
                 var single = cluster[0];
-                var label = single.EventType.Equals(GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase)
-                    ? "Isolated death"
-                    : "Pick";
+                // A lone death is titled just "Death" — NOT "Isolated death". We
+                // can't prove isolation: the Live Client Data API gives only a
+                // kill-feed ({killer, time}) with no champion positions, so
+                // whether the player was actually alone/outnumbered is unknowable.
+                // The old "Isolated death" label was guessed from event spacing
+                // and produced false positives. A lone kill is still a "Pick"
+                // (a kill with no surrounding teamfight cluster — which the events
+                // do support).
+                var isDeath = single.EventType.Equals(GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase);
+                var label = isDeath ? "Death" : "Pick";
                 yield return new InferredTimelineRegion(
                     Name: label,
                     SourceKey: BuildSourceKey("combat", label, Math.Max(0, single.GameTimeS - 3), single.GameTimeS + 5),
                     StartTimeSeconds: Math.Max(0, single.GameTimeS - 3),
                     EndTimeSeconds: single.GameTimeS + 5,
-                    Color: single.EventType.Equals(GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase)
-                        ? "#ea5455"
-                        : "#28c76f",
-                    Tooltip: $"{label}: no nearby player-involved combat cluster",
+                    Color: isDeath ? "#ea5455" : "#28c76f",
+                    Tooltip: isDeath
+                        ? "Death: no teammate kills or assists clustered around it"
+                        : "Pick: a kill with no surrounding teamfight",
                     Priority: 20);
                 index++;
             }

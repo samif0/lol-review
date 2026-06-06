@@ -97,7 +97,19 @@
       "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" src/LoLReview.App/LoLReview.App.csproj -p:Configuration=Debug -p:Platform=x64 -v:q)",
       "Bash(ls \"c:/Users/samif0/Desktop/ClaudeCowork/lol-review/src/LoLReview.App/bin/x64/Debug/\"*\"/LoLReview.App.exe\")",
       "Bash(start LoLReview.App.exe)",
-      "Bash(ls -la /c/Users/samif0/Desktop/ClaudeCowork/lol-review/src/LoLReview.App/Views/*.xaml)"
+      "Bash(ls -la /c/Users/samif0/Desktop/ClaudeCowork/lol-review/src/LoLReview.App/Views/*.xaml)",
+      "mcp__claude-flow__swarm_init",
+      "mcp__claude-flow__agent_spawn",
+      "mcp__claude-flow__swarm_status",
+      "mcp__claude-flow__agent_health",
+      "mcp__claude-flow__memory_store",
+      "mcp__claude-flow__swarm_shutdown",
+      "Read(//c/Users/samif0/.claude/**)",
+      "Read(//c/Users/samif0/.claude/plugins/**)",
+      "Bash(claude plugin *)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "claude-flow"
+  ]
 }

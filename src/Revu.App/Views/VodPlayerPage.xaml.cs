@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Media.Core;
+using Windows.Media.Editing;
 using Windows.Media.Playback;
 using Windows.Storage;
 using MediaPlaybackState = Windows.Media.Playback.MediaPlaybackState;
@@ -37,6 +38,7 @@ public sealed partial class VodPlayerPage : Page
     // the requested file is already loaded; clip playback uses a different path
     // so it still switches correctly.
     private string? _loadedMediaPath;
+    private bool _loadedMediaUpdatesTimelineDuration;
 
     // Stored as fields so AddHandler/RemoveHandler use the exact same delegate instances.
     private readonly KeyEventHandler _keyDownHandler;
@@ -52,19 +54,13 @@ public sealed partial class VodPlayerPage : Page
     private UIElement? _windowRoot;
     private int? _pendingSeekTimeS;
 
-    // v2.17.14: one-shot guard so a VOD that won't render (e.g. an Ascent capture
-    // that didn't close cleanly → duplicate-moov MP4 that Media Foundation shows
-    // as a black screen) is auto-repaired via ffmpeg remux exactly once. Keyed by
-    // the source path so switching games re-arms it. Prevents an infinite
-    // fail→repair→fail loop if the repaired file still won't play.
-    private string? _repairAttemptedForPath;
-
     public VodPlayerViewModel ViewModel { get; }
 
     public VodPlayerPage()
     {
         ViewModel = App.GetService<VodPlayerViewModel>();
         InitializeComponent();
+        DataContext = ViewModel;
 
         _keyDownHandler = new KeyEventHandler(OnGlobalKeyDown);
         _keyUpHandler = new KeyEventHandler(OnGlobalKeyUp);
@@ -148,10 +144,18 @@ public sealed partial class VodPlayerPage : Page
         {
             case long gameId:
                 _pendingSeekTimeS = null;
+                // Bare-long navigation (history, "Watch VOD") is never focused —
+                // clear any stale focus from a previous focused open.
+                ViewModel.SetFocusObjective(null);
+                ViewModel.SetAutoMomentPattern(null);
                 ViewModel.LoadCommand.Execute(gameId);
                 break;
             case VodPlayerNavigationRequest request:
                 _pendingSeekTimeS = request.SeekTimeS;
+                // v2.18 (F1): set the focused objective BEFORE loading so the
+                // objective/tag picker is built scoped to it.
+                ViewModel.SetFocusObjective(request.FocusObjectiveId);
+                ViewModel.SetAutoMomentPattern(request.AutoMomentPatternKind);
                 ViewModel.LoadCommand.Execute(request.GameId);
                 break;
         }
@@ -221,30 +225,29 @@ public sealed partial class VodPlayerPage : Page
             if (_mediaPlayer == null) return;
             var totalS = _mediaPlayer.PlaybackSession.NaturalDuration.TotalSeconds;
 
-            // v2.17.14: the file "opened" but has no decodable video track — the
-            // silent black-screen case (MediaFailed never fires). Detect it via a
-            // missing video dimension and route to the same repair path.
+            // The file "opened" but has no decodable video track — the silent
+            // black-screen case (MediaFailed never fires). Detect it via a
+            // missing video dimension and surface a bad-recording message.
             if (_mediaPlayer.PlaybackSession.NaturalVideoHeight == 0)
             {
-                TryRepairAndReload("opened with no video track");
+                ShowBadVodMessage();
                 return;
             }
 
             if (totalS > 0)
             {
-                ViewModel.UpdatePosition(0, totalS);
-                ApplyPendingSeek();
+                ViewModel.UpdatePosition(0, _loadedMediaUpdatesTimelineDuration ? totalS : 0);
+                if (_loadedMediaUpdatesTimelineDuration)
+                {
+                    ApplyPendingSeek();
+                }
             }
         });
         _mediaPlayer.MediaFailed += (s, ev) => DispatcherQueue.TryEnqueue(() =>
         {
-            // v2.17.14: first failure on a given source → try a lossless ffmpeg
-            // remux and reload (fixes Ascent captures MF can't decode). Only if
-            // the repair also fails do we surface the error.
-            if (TryRepairAndReload($"{ev.Error} — {ev.ErrorMessage}")) return;
-
-            NoVodText.Text = $"Media error: {ev.Error} — {ev.ErrorMessage}";
-            NoVodBorder.Visibility = Visibility.Visible;
+            System.Diagnostics.Debug.WriteLine(
+                $"VOD playback failed: {ev.Error} — {ev.ErrorMessage} ({ViewModel.VodPath})");
+            ShowBadVodMessage();
         });
         _mediaPlayer.PlaybackSession.PlaybackStateChanged += (s, _) => DispatcherQueue.TryEnqueue(() =>
         {
@@ -321,6 +324,7 @@ public sealed partial class VodPlayerPage : Page
             {
                 _mediaPlayer.Source = null;
                 _loadedMediaPath = null;
+                _loadedMediaUpdatesTimelineDuration = false;
             }
 
             NoVodBorder.Visibility = ViewModel.IsLoading ? Visibility.Collapsed : Visibility.Visible;
@@ -339,67 +343,26 @@ public sealed partial class VodPlayerPage : Page
             return;
         }
 
-        _ = LoadMediaAsync(ViewModel.VodPath);
+        _ = LoadMediaAsync(ViewModel.VodPath, updateTimelineDuration: true);
     }
 
     /// <summary>
-    /// v2.17.14: attempt a one-shot lossless repair of the currently-loaded VOD
-    /// when it won't render (MediaFailed, or opened with no video track). Remuxes
-    /// via the bundled ffmpeg through ClipService, then reloads from the repaired
-    /// file. Returns true if a repair was kicked off (so the caller suppresses
-    /// the error UI); false if there's nothing to repair or we already tried.
+    /// The currently-loaded VOD won't render (MediaFailed, or opened with no
+    /// video track — e.g. a capture that didn't close cleanly into a valid MP4).
+    /// We don't attempt to rewrite the file; just surface a clear message so the
+    /// user knows the recording itself is the problem. The clip exporter's
+    /// error-tolerant ffmpeg pass can still read frames out of it.
     /// </summary>
-    private bool TryRepairAndReload(string reason)
+    private void ShowBadVodMessage()
     {
-        var sourcePath = ViewModel.VodPath;
-        if (string.IsNullOrEmpty(sourcePath)) return false;
-        // Already tried repairing THIS source — don't loop.
-        if (string.Equals(_repairAttemptedForPath, sourcePath, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        _repairAttemptedForPath = sourcePath;
-        System.Diagnostics.Debug.WriteLine($"VOD playback failed ({reason}); attempting remux repair of {sourcePath}");
-
-        NoVodText.Text = "This recording needs a quick repair — fixing now…";
+        if (_isDisposed) return;
+        NoVodText.Text = "Something's wrong with this recording — it can't be played back. "
+            + "The video file may be corrupted or didn't finish saving.";
         NoVodBorder.Visibility = Visibility.Visible;
         VideoPlayPauseButton.Visibility = Visibility.Collapsed;
-
-        _ = RepairAndReloadAsync(sourcePath);
-        return true;
     }
 
-    private async Task RepairAndReloadAsync(string sourcePath)
-    {
-        try
-        {
-            var fixedPath = await ViewModel.RepairVodForPlaybackAsync(sourcePath);
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (_isDisposed || _mediaPlayer == null) return;
-                if (string.IsNullOrEmpty(fixedPath) || !System.IO.File.Exists(fixedPath))
-                {
-                    NoVodText.Text = "This recording couldn't be repaired for playback. "
-                        + "The clip exporter can still read it.";
-                    NoVodBorder.Visibility = Visibility.Visible;
-                    return;
-                }
-
-                NoVodBorder.Visibility = Visibility.Collapsed;
-                _ = LoadMediaAsync(fixedPath);
-            });
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"VOD repair/reload failed for {sourcePath}: {ex.Message}");
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                NoVodText.Text = "This recording couldn't be repaired for playback.";
-                NoVodBorder.Visibility = Visibility.Visible;
-            });
-        }
-    }
-
-    private async Task LoadMediaAsync(string filePath)
+    private async Task LoadMediaAsync(string filePath, bool updateTimelineDuration)
     {
         if (_mediaPlayer == null) return;
         try
@@ -423,7 +386,18 @@ public sealed partial class VodPlayerPage : Page
             await WaitForStableFileAsync(filePath);
 
             var file = await StorageFile.GetFileFromPathAsync(filePath);
+            if (updateTimelineDuration)
+            {
+                var probedDurationS = await ProbeMediaDurationSecondsAsync(file);
+                if (probedDurationS > 0)
+                {
+                    await DispatcherHelper.RunOnUIThreadAsync(() =>
+                        ViewModel.ApplyMediaDuration(probedDurationS));
+                }
+            }
+
             var source = MediaSource.CreateFromStorageFile(file);
+            _loadedMediaUpdatesTimelineDuration = updateTimelineDuration;
             _mediaPlayer.Source = source;
             _loadedMediaPath = filePath;
         }
@@ -438,6 +412,33 @@ public sealed partial class VodPlayerPage : Page
         }
     }
 
+    private static async Task<double> ProbeMediaDurationSecondsAsync(StorageFile file)
+    {
+        try
+        {
+            var properties = await file.Properties.GetVideoPropertiesAsync();
+            if (properties.Duration.TotalSeconds > 0)
+            {
+                return properties.Duration.TotalSeconds;
+            }
+        }
+        catch
+        {
+            // Fall through to MediaClip; some recordings don't expose duration
+            // through shell file properties even though the media pipeline can.
+        }
+
+        try
+        {
+            var clip = await MediaClip.CreateFromFileAsync(file);
+            return clip.OriginalDuration.TotalSeconds;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     private async void OnClipPlaybackRequested(BookmarkItem bookmark)
     {
         if (string.IsNullOrWhiteSpace(bookmark.ClipPath) || !System.IO.File.Exists(bookmark.ClipPath))
@@ -448,7 +449,16 @@ public sealed partial class VodPlayerPage : Page
         }
 
         NoVodBorder.Visibility = Visibility.Collapsed;
-        await LoadMediaAsync(bookmark.ClipPath);
+        try
+        {
+            await LoadMediaAsync(bookmark.ClipPath, updateTimelineDuration: false);
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteCrash($"[VodPlayerPage] OnClipPlaybackRequested failed: {ex}");
+            NoVodText.Text = "Could not play clip";
+            NoVodBorder.Visibility = Visibility.Visible;
+        }
         FocusPlaybackSurface();
     }
 
@@ -484,8 +494,7 @@ public sealed partial class VodPlayerPage : Page
             var session = _mediaPlayer.PlaybackSession;
             var currentS = session.Position.TotalSeconds;
             var totalS = session.NaturalDuration.TotalSeconds;
-            if (totalS > 0)
-                ViewModel.UpdatePosition(currentS, totalS);
+            ViewModel.UpdatePosition(currentS, _loadedMediaUpdatesTimelineDuration && totalS > 0 ? totalS : 0);
         }
         catch { }
     }
@@ -707,6 +716,12 @@ public sealed partial class VodPlayerPage : Page
         FocusPlaybackSurface();
     }
 
+    private void OnTransportPlayPauseClick(object sender, RoutedEventArgs e)
+    {
+        OnPlayPauseRequested();
+        FocusPlaybackSurface();
+    }
+
     private void OnSpeedChanged(object sender, SelectionChangedEventArgs e)
     {
         if (sender is ComboBox combo && combo.SelectedItem is ComboBoxItem item &&
@@ -774,7 +789,14 @@ public sealed partial class VodPlayerPage : Page
         if (bookmark is null)
             return;
 
-        await ViewModel.SetBookmarkQualityCommand.ExecuteAsync(new BookmarkQualityUpdateRequest(bookmark, quality));
+        try
+        {
+            await ViewModel.SetBookmarkQualityCommand.ExecuteAsync(new BookmarkQualityUpdateRequest(bookmark, quality));
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteCrash($"[VodPlayerPage] OnBookmarkQualityClick failed: {ex}");
+        }
         FocusPlaybackSurface();
     }
 
@@ -813,8 +835,15 @@ public sealed partial class VodPlayerPage : Page
             return;
         }
 
-        await ViewModel.SetBookmarkTagCommand.ExecuteAsync(
-            new BookmarkTagUpdateRequest(bookmark, newObjectiveId, newPromptId));
+        try
+        {
+            await ViewModel.SetBookmarkTagCommand.ExecuteAsync(
+                new BookmarkTagUpdateRequest(bookmark, newObjectiveId, newPromptId));
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteCrash($"[VodPlayerPage] OnClipTagChosen failed: {ex}");
+        }
     }
 
     private async void OnEvidenceTagChosen(object sender, Controls.ObjectivePicker.TagChosenEventArgs e)
@@ -827,8 +856,15 @@ public sealed partial class VodPlayerPage : Page
             return;
         }
 
-        await ViewModel.SetEvidenceObjectiveCommand.ExecuteAsync(
-            new EvidenceObjectiveUpdateRequest(evidence, newObjectiveId));
+        try
+        {
+            await ViewModel.SetEvidenceObjectiveCommand.ExecuteAsync(
+                new EvidenceObjectiveUpdateRequest(evidence, newObjectiveId));
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteCrash($"[VodPlayerPage] OnEvidenceTagChosen failed: {ex}");
+        }
     }
 
     private async void OnEvidenceStatusClick(object sender, RoutedEventArgs e)
@@ -840,8 +876,15 @@ public sealed partial class VodPlayerPage : Page
             return;
         }
 
-        await ViewModel.SetEvidenceStatusCommand.ExecuteAsync(
-            new EvidenceStatusUpdateRequest(evidence, status));
+        try
+        {
+            await ViewModel.SetEvidenceStatusCommand.ExecuteAsync(
+                new EvidenceStatusUpdateRequest(evidence, status));
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteCrash($"[VodPlayerPage] OnEvidenceStatusClick failed: {ex}");
+        }
     }
 
     private async void OnEvidencePolarityClick(object sender, RoutedEventArgs e)
@@ -853,15 +896,29 @@ public sealed partial class VodPlayerPage : Page
             return;
         }
 
-        await ViewModel.SetEvidencePolarityCommand.ExecuteAsync(
-            new EvidencePolarityUpdateRequest(evidence, polarity));
+        try
+        {
+            await ViewModel.SetEvidencePolarityCommand.ExecuteAsync(
+                new EvidencePolarityUpdateRequest(evidence, polarity));
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteCrash($"[VodPlayerPage] OnEvidencePolarityClick failed: {ex}");
+        }
     }
 
     private async void OnEvidenceNoteLostFocus(object sender, RoutedEventArgs e)
     {
         if (sender is TextBox { DataContext: EvidenceInboxItem evidence })
         {
-            await ViewModel.SaveEvidenceNoteCommand.ExecuteAsync(evidence);
+            try
+            {
+                await ViewModel.SaveEvidenceNoteCommand.ExecuteAsync(evidence);
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.WriteCrash($"[VodPlayerPage] OnEvidenceNoteLostFocus failed: {ex}");
+            }
         }
     }
 
@@ -965,7 +1022,14 @@ public sealed partial class VodPlayerPage : Page
                 bookmark.Note = textBox.Text;
             }
 
-            await ViewModel.SaveBookmarkNoteCommand.ExecuteAsync(bookmark);
+            try
+            {
+                await ViewModel.SaveBookmarkNoteCommand.ExecuteAsync(bookmark);
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.WriteCrash($"[VodPlayerPage] OnBookmarkNoteLostFocus failed: {ex}");
+            }
         }
     }
 
@@ -1025,7 +1089,14 @@ public sealed partial class VodPlayerPage : Page
                 bookmark.Note = textBox.Text;
             }
 
-            await ViewModel.SaveBookmarkNoteCommand.ExecuteAsync(bookmark);
+            try
+            {
+                await ViewModel.SaveBookmarkNoteCommand.ExecuteAsync(bookmark);
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.WriteCrash($"[VodPlayerPage] OnBookmarkNoteKeyDown failed: {ex}");
+            }
             FocusPlaybackSurface();
             e.Handled = true;
         }

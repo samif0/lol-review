@@ -1,0 +1,190 @@
+<Page
+    x:Name="RootPage"
+    x:Class="Revu.App.Views.InGamePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Revu.App.ViewModels"
+    xmlns:converters="using:Revu.App.Converters"
+    xmlns:controls="using:Revu.App.Controls"
+    mc:Ignorable="d"
+    Background="Transparent">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </Page.Resources>
+
+    <ScrollViewer x:Name="RootScroll"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="10" Padding="40,20,40,40"
+                    MaxWidth="620" HorizontalAlignment="Center">
+            <controls:HeroHeader EyebrowText="LIVE"
+                                 Title="In Game"
+                                 Subtitle="COOLDOWNS · MATCHUP · YOUR NOTES"/>
+
+            <controls:CornerBracketedCard
+                CardBorderBrush="{StaticResource SubtleBorderBrush}"
+                Visibility="{x:Bind ViewModel.HasMatchupDetected, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+                <StackPanel Spacing="8" HorizontalAlignment="Center" Padding="0,8">
+                    <TextBlock Text="NO ACTIVE GAME"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                               Foreground="{StaticResource AccentBlueBrush}"
+                               CharacterSpacing="250"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="When you're in champ select or a game, your cooldowns, matchup, and pre-game notes show here."
+                               FontFamily="{StaticResource BodyFont}"
+                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </controls:CornerBracketedCard>
+
+            <!-- ── COOLDOWNS / INTEL ───────────────────────────────────── -->
+            <TextBlock Text="— COOLDOWNS &amp; INTEL —"
+                       FontFamily="{StaticResource MonoFont}"
+                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                       CharacterSpacing="300"
+                       Foreground="{StaticResource SecondaryTextBrush}"
+                       Margin="0,16,0,4"
+                       Visibility="{x:Bind ViewModel.HasIntelDeck, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+            <controls:IntelRotatorControl
+                ItemsSource="{x:Bind ViewModel.IntelDeck, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.HasIntelDeck, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+            <controls:CornerBracketedCard
+                CardBorderBrush="{StaticResource AccentBlueBrush}"
+                Visibility="{x:Bind ViewModel.HasMatchupDetected, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="8">
+                    <controls:SectionTitle Text="MATCHUP"/>
+                    <TextBlock Text="{x:Bind ViewModel.PairingHeadline, Mode=OneWay}"
+                               FontFamily="{StaticResource HeadingFont}"
+                               FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentGoldBrush}"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               HorizontalAlignment="Center"
+                               Visibility="{x:Bind ViewModel.HasPairingHeadline, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                        <TextBlock Text="{x:Bind ViewModel.MyChampionName, Mode=OneWay}"
+                                   FontFamily="{StaticResource DisplayFont}"
+                                   FontSize="{Binding Title, Source={StaticResource FontSizes}}"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource AccentBlueBrush}"/>
+                        <TextBlock Text="vs"
+                                   FontFamily="{StaticResource HeadingFont}"
+                                   FontSize="{Binding Title, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="{x:Bind EnemyOrPlaceholder(ViewModel.EnemyChampionName), Mode=OneWay}"
+                                   FontFamily="{StaticResource DisplayFont}"
+                                   FontSize="{Binding Title, Source={StaticResource FontSizes}}"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource LossRedBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+            </controls:CornerBracketedCard>
+
+            <controls:CornerBracketedCard
+                CardBorderBrush="{StaticResource AccentBlueBrush}"
+                Visibility="{x:Bind ViewModel.HasMatchupHistory, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="8">
+                    <controls:SectionTitle Text="{x:Bind ViewModel.MatchupHeaderText, Mode=OneWay}"/>
+                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.MatchupHistory, Mode=OneWay}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="6"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PreGameMatchupItem">
+                                <Border Background="{StaticResource SurfaceInsetBrush}"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}"
+                                        BorderThickness="1" Padding="10,8">
+                                    <StackPanel Spacing="3">
+                                        <TextBlock Text="{x:Bind Note}"
+                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock Text="{x:Bind DateText}"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                   Foreground="{StaticResource MutedTextBrush}"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </StackPanel>
+            </controls:CornerBracketedCard>
+
+            <!-- ── YOUR NOTES / PRE-GAME ANSWER BOXES ──────────────────── -->
+            <TextBlock Text="— YOUR NOTES —"
+                       FontFamily="{StaticResource MonoFont}"
+                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                       CharacterSpacing="300"
+                       Foreground="{StaticResource SecondaryTextBrush}"
+                       Margin="0,16,0,4"
+                       Visibility="{x:Bind ViewModel.HasPreGamePromptBlocks, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
+            <controls:CornerBracketedCard
+                CardBorderBrush="{StaticResource AccentPurpleBrush}"
+                Visibility="{x:Bind ViewModel.HasPreGamePromptBlocks, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <ItemsRepeater ItemsSource="{x:Bind ViewModel.PreGamePromptBlocks, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="10"/>
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PreGameObjectivePromptBlock">
+                            <Border Background="{StaticResource CardAltBackgroundBrush}"
+                                    BorderBrush="{x:Bind AccentBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="2"
+                                    Padding="12,10">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="{x:Bind ObjectiveTitle}"
+                                               FontFamily="{StaticResource HeadingFont}"
+                                               FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                               TextWrapping="Wrap"/>
+                                    <ItemsRepeater ItemsSource="{x:Bind Prompts, Mode=OneWay}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="8"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:PreGamePromptAnswer">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="{x:Bind Label}"
+                                                               FontFamily="{StaticResource BodyFont}"
+                                                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                    <TextBox Text="{x:Bind AnswerText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="Write your answer..."
+                                                             TextWrapping="Wrap"
+                                                             AcceptsReturn="True"
+                                                             MinHeight="48"
+                                                             Background="{StaticResource InputBackgroundBrush}"
+                                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                                             FontFamily="{StaticResource BodyFont}"
+                                                             FontSize="{Binding Body, Source={StaticResource FontSizes}}"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+            </controls:CornerBracketedCard>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

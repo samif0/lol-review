@@ -13,6 +13,11 @@
 *.suo
 /packages/
 
+# Ruflo / claude-flow runtime state (vector DB, locks) — never commit
+agentdb.rvf
+agentdb.rvf.lock
+/artifacts/
+
 # Local data (database, logs)
 /data/
 /FEATURE_NOTES.local.md

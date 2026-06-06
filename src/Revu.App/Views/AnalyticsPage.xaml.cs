@@ -28,7 +28,8 @@ public sealed partial class AnalyticsPage : Page
         DataContext = ViewModel;
 
         WeakReferenceMessenger.Default.Register<AnalyticsPage, GameDeletedMessage>(
-            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+            this, (r, _) => SafeHandler.Run(
+                () => r.ViewModel.LoadCommand.ExecuteAsync(null), "AnalyticsPage.GameDeleted reload"));
         Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
 

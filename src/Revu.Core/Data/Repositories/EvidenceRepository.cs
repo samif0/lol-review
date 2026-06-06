@@ -286,7 +286,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
         var cards = new List<ObjectivePatternCard>();
         using var conn = _factory.CreateConnection();
 
-        var isolatedDeathPattern = await CountTitleLikeAsync(conn, "%Isolated death%");
+        var isolatedDeathPattern = await CountPlainDeathMomentsAsync(conn);
         if (isolatedDeathPattern.Count >= 3)
         {
             cards.Add(new ObjectivePatternCard(
@@ -384,6 +384,28 @@ public sealed class EvidenceRepository : IEvidenceRepository
         }
 
         return cards.Take(Math.Max(1, limit)).ToArray();
+    }
+
+    private static async Task<(int Count, long? LatestGameId)> CountPlainDeathMomentsAsync(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT COUNT(*), MAX(e.game_id)
+            FROM evidence_items e
+            LEFT JOIN games g ON g.game_id = e.game_id
+            LEFT JOIN session_log sl ON sl.game_id = e.game_id
+            WHERE e.status != 'dismissed'
+              AND e.title IN ('Death', 'Isolated death', 'First death')
+              AND {UnreviewedEvidenceGamePredicate}
+            """;
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            var latestGameId = reader.IsDBNull(1) ? (long?)null : reader.GetInt64(1);
+            return (reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetInt64(0)), latestGameId);
+        }
+
+        return (0, null);
     }
 
     private async Task UpdateScalarAsync(long evidenceId, string columnName, string value)

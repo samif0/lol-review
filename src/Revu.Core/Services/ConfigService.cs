@@ -144,8 +144,12 @@ public sealed class ConfigService : IConfigService
     {
         if (_cached is not null) return _cached;
 
-        // Synchronous fast-path: load from disk on first access
-        _lock.Wait();
+        // Synchronous fast-path: load from disk on first access.
+        // Bounded wait so a stuck background writer can never freeze the UI thread.
+        if (!_lock.Wait(TimeSpan.FromSeconds(2)))
+        {
+            return _cached ?? new AppConfig();
+        }
         try
         {
             _cached ??= LoadFromDiskSync();

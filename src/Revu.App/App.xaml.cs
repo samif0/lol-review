@@ -111,7 +111,9 @@ public partial class App : Application
         _mainWindow.Content = loadingGrid;
         _mainWindow.Activate();
 
-        _mainWindow.DispatcherQueue.TryEnqueue(async () => await LaunchAsync(loadingText));
+        // Fire-and-forget without async-void: LaunchAsync has its own top-level try/catch,
+        // so any failure is handled there rather than crashing the dispatcher.
+        _mainWindow.DispatcherQueue.TryEnqueue(() => { _ = LaunchAsync(loadingText); });
     }
 
     private static async Task LaunchAsync(Microsoft.UI.Xaml.Controls.TextBlock loadingText)

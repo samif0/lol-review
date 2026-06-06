@@ -100,6 +100,24 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     }
 
     /// <summary>
+    /// v2.18 (F2): set the game-phase focus used to match auto-clips to this
+    /// objective. '' = auto-infer from title. See <see cref="ObjectiveFocusPhases"/>.
+    /// </summary>
+    public async Task UpdateFocusPhaseAsync(long objectiveId, string focusPhase)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE objectives
+            SET focus_phase = @focusPhase
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@focusPhase", ObjectiveFocusPhases.Normalize(focusPhase));
+        cmd.Parameters.AddWithValue("@id", objectiveId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
     /// v2.17.7: archive any active mini objectives whose game_count has reached
     /// their target. Called after each game is added to game_objectives so the
     /// focus list stays current without manual cleanup.
@@ -636,6 +654,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             FROM game_objectives go
             JOIN games g ON g.game_id = go.game_id
             WHERE go.objective_id = @objectiveId
+              AND COALESCE(g.is_hidden, 0) = 0
             ORDER BY g.timestamp DESC
             """;
         cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
@@ -675,6 +694,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             FROM game_objectives go
             JOIN games g ON g.game_id = go.game_id
             WHERE go.objective_id = @objectiveId
+              AND COALESCE(g.is_hidden, 0) = 0
             ORDER BY g.timestamp DESC
             LIMIT @limit
             """;
@@ -884,6 +904,20 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             }
         }
 
+        // v2.18 (F2): focus_phase column is added by migration; tolerate absence.
+        static string OptText(SqliteDataReader r, string col)
+        {
+            try
+            {
+                var idx = r.GetOrdinal(col);
+                return r.IsDBNull(idx) ? "" : r.GetString(idx);
+            }
+            catch (IndexOutOfRangeException)
+            {
+                return "";
+            }
+        }
+
         return new ObjectiveSummary(
             Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
             Title: reader.IsDBNull(reader.GetOrdinal("title")) ? "" : reader.GetString(reader.GetOrdinal("title")),
@@ -901,6 +935,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             PracticePre: OptBool(reader, "practice_pregame"),
             PracticeIn: OptBool(reader, "practice_ingame"),
             PracticePost: OptBool(reader, "practice_postgame"),
-            TargetGameCount: OptInt(reader, "target_game_count"));
+            TargetGameCount: OptInt(reader, "target_game_count"),
+            FocusPhase: OptText(reader, "focus_phase"));
     }
 }

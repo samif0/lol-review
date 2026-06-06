@@ -38,7 +38,8 @@ public sealed partial class ObjectivesPage : Page
         // Practice counts / objective levels are derived from games — a
         // delete elsewhere invalidates them, so reload on notification.
         WeakReferenceMessenger.Default.Register<ObjectivesPage, GameDeletedMessage>(
-            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+            this, (r, _) => SafeHandler.Run(
+                () => r.ViewModel.LoadCommand.ExecuteAsync(null), "ObjectivesPage.GameDeleted reload"));
         Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
 
@@ -95,10 +96,17 @@ public sealed partial class ObjectivesPage : Page
                 XamlRoot = XamlRoot
             };
 
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
+            try
             {
-                await ViewModel.DeleteObjectiveCommand.ExecuteAsync(objectiveId);
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    await ViewModel.DeleteObjectiveCommand.ExecuteAsync(objectiveId);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.WriteCrash($"[ObjectivesPage] DeleteObjective_Click failed: {ex}");
             }
         }
     }
@@ -151,7 +159,14 @@ public sealed partial class ObjectivesPage : Page
             return;
         }
 
-        await ViewModel.UpdateObjectivePhaseCommand.ExecuteAsync(new ObjectivePhaseUpdateRequest(item.Id, phase));
+        try
+        {
+            await ViewModel.UpdateObjectivePhaseCommand.ExecuteAsync(new ObjectivePhaseUpdateRequest(item.Id, phase));
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.WriteCrash($"[ObjectivesPage] ObjectivePhase_SelectionChanged failed: {ex}");
+        }
     }
 
     private async void ToggleRule_Click(object sender, RoutedEventArgs e)
@@ -261,10 +276,17 @@ public sealed partial class ObjectivesPage : Page
                 XamlRoot = XamlRoot
             };
 
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
+            try
             {
-                await RulesVM.DeleteRuleCommand.ExecuteAsync(ruleId);
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    await RulesVM.DeleteRuleCommand.ExecuteAsync(ruleId);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.WriteCrash($"[ObjectivesPage] DeleteRule_Click failed: {ex}");
             }
         }
     }

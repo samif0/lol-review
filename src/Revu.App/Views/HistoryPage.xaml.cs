@@ -31,7 +31,8 @@ public sealed partial class HistoryPage : Page
         // Reload after a delete triggered anywhere else so stats + the list
         // reflect the new reality (champion-breakdown totals, win rate, etc.)
         WeakReferenceMessenger.Default.Register<HistoryPage, GameDeletedMessage>(
-            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+            this, (r, _) => SafeHandler.Run(
+                () => r.ViewModel.LoadCommand.ExecuteAsync(null), "HistoryPage.GameDeleted reload"));
         WeakReferenceMessenger.Default.Register<HistoryPage, GameMatchupsBackfilledMessage>(
             this, (r, message) =>
             {

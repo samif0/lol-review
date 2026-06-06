@@ -161,12 +161,17 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             _state.LastChampSelectEnemy = "";
             _state.LastChampSelectMyPosition = "";
             _state.LastChampSelectMapJson = "";
+            _state.ChampSelectNotified = false; // re-arm for the next champ select
             _messenger.Send(new ChampSelectCancelledMessage());
         }
 
         if (plan.NotifyGameStarted)
         {
             _logger.LogInformation("Game loading - starting live-event collector");
+            // v2.18 (F5): champ select is over — re-arm the notify flag so the
+            // NEXT game's champ select fires the pre-game page fresh.
+            _state.ChampSelectNotified = false;
+            _state.GameStartedNotified = true;
             _messenger.Send(new GameStartedMessage());
 
             if (!_state.CurrentGameIsCasual)
@@ -217,8 +222,9 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
                 _state.CurrentGameIsCasual = false;
             }
 
-            // Re-arm the "confirmed in-game" one-shot for the next game.
+            // Re-arm the "confirmed in-game" and "game started" one-shots for the next game.
             _state.GameInProgressNotified = false;
+            _state.GameStartedNotified = false;
         }
 
         if (plan.ReconcileMatchHistory)
@@ -327,9 +333,11 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         var queueId = await _lcuClient.GetLobbyQueueIdAsync(cancellationToken).ConfigureAwait(false);
         _state.CurrentGameIsCasual = IsCasualQueue(queueId);
         // Defensive re-arm: a fresh champ select always starts a new game cycle,
-        // so the "confirmed in-game" one-shot should be ready even if the prior
-        // game's end was never observed (client restart, odd phase jumps).
+        // so the "confirmed in-game" and "game started" one-shots should be ready
+        // even if the prior game's end was never observed (client restart, odd
+        // phase jumps).
         _state.GameInProgressNotified = false;
+        _state.GameStartedNotified = false;
 
         var modeLabel = _state.CurrentGameIsCasual ? "casual" : "ranked/normal";
         _logger.LogInformation("Champ select started (queue {QueueId} - {Mode})", queueId, modeLabel);
@@ -351,6 +359,10 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _state.LastChampSelectMyPosition = myPosition ?? "";
         _state.LastChampSelectMapJson = mapJson;
         _messenger.Send(new ChampSelectStartedMessage(queueId, myChampion ?? "", enemyLaner ?? "", myPosition ?? "", mapJson));
+        // v2.18 (F5): mark the cycle notified so the evaluator stops re-firing the
+        // recovery path. Only set AFTER a successful send — if any LCU call above
+        // threw, we never reach here and the next tick retries.
+        _state.ChampSelectNotified = true;
     }
 
     private static string SerializeParticipantMap(IReadOnlyDictionary<string, string> map)
@@ -401,19 +413,61 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
     private void StartEventCollector()
     {
-        BackgroundTaskRunner.Run(
-            async () => { await StopEventCollectorAsync().ConfigureAwait(false); },
-            _logger,
-            "stop previous live event collector");
+        // Snapshot the OLD collector fields into locals BEFORE reassigning them.
+        // The fire-and-forget teardown must close over the old instances; if it
+        // read the fields instead, it would cancel/dispose the NEW CancellationTokenSource
+        // (assigned below) the moment a second StartEventCollector races it,
+        // producing an ObjectDisposedException.
+        var oldCts = _collectorCts;
+        var oldCollector = _eventCollector;
+        var oldTask = _collectorTask;
 
         _collectorCts = new CancellationTokenSource();
         _eventCollector = new LiveEventCollector(
             _liveEventApi,
             _logger,
             TimeSpan.FromSeconds(GameConstants.LiveEventPollIntervalS));
-
         _collectorTask = _eventCollector.StartAsync(_collectorCts.Token);
+
+        // Tear down the OLD collector using the snapshotted locals (never the fields,
+        // which now point at the new collector). Logger overload so failures surface.
+        BackgroundTaskRunner.Run(
+            async () => { await StopCollectorInstanceAsync(oldCts, oldCollector, oldTask).ConfigureAwait(false); },
+            _logger,
+            "stop previous live event collector");
+
         _logger.LogInformation("Live event collector task started");
+    }
+
+    /// <summary>
+    /// Stops a specific collector instance via snapshotted local references, so the
+    /// teardown of a previous collector can never touch the fields that now point at
+    /// the current one.
+    /// </summary>
+    private static async Task StopCollectorInstanceAsync(
+        CancellationTokenSource? cts,
+        LiveEventCollector? collector,
+        Task? task)
+    {
+        if (collector is null)
+            return;
+
+        if (cts is not null)
+            await cts.CancelAsync().ConfigureAwait(false);
+
+        if (task is not null)
+        {
+            try
+            {
+                await task.WaitAsync(
+                    TimeSpan.FromSeconds(GameConstants.MonitorStopTimeoutS)).ConfigureAwait(false);
+            }
+            catch (TimeoutException) { }
+            catch (OperationCanceledException) { }
+        }
+
+        await collector.StopAsync().ConfigureAwait(false);
+        cts?.Dispose();
     }
 
     private async Task<List<GameEvent>> StopEventCollectorAsync()
@@ -514,9 +568,23 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private async Task HandleDisconnectedAsync()
     {
         var wasConnected = _state.IsConnected;
+        // Capture in-game state BEFORE clearing it. If the LCU dropped while a
+        // ranked/normal game was in progress, the post-game review would otherwise
+        // never fire — so mark the game for reconcile when the client reconnects.
+        var wasInGame = _state.GameInProgressNotified;
+
         _state.IsConnected = false;
         _state.ConnectedTicks = 0;
+
+        // (Previously the collected events here were discarded silently.)
         await StopEventCollectorAsync().ConfigureAwait(false);
+
+        if (wasInGame && !_state.CurrentGameIsCasual)
+        {
+            _logger.LogInformation(
+                "LCU disconnected mid-game — marking reconcile pending so post-game review fires on reconnect");
+            _state.ReconcilePending = true;
+        }
 
         if (wasConnected)
         {

@@ -75,20 +75,19 @@
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <Border Background="{StaticResource SurfaceInsetBrush}"
                                 BorderBrush="{StaticResource SubtleBorderBrush}"
-                                BorderThickness="1" CornerRadius="2" Padding="8,4">
-                            <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                       Foreground="{StaticResource AccentGoldBrush}">
-                                <Run Text="{x:Bind ViewModel.OutcomeLabel, Mode=OneWay}"/>
-                            </TextBlock>
+                                BorderThickness="1" CornerRadius="2" Padding="8,4"
+                                Visibility="{Binding HasOutcomeLabel, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="{Binding OutcomeLabel, Mode=OneWay}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                       Foreground="{StaticResource AccentGoldBrush}"/>
                         </Border>
                         <Border Background="{StaticResource SurfaceInsetBrush}"
                                 BorderBrush="{StaticResource SubtleBorderBrush}"
-                                BorderThickness="1" CornerRadius="2" Padding="8,4">
-                            <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                       Foreground="{StaticResource PrimaryTextBrush}">
-                                <Run Text="{x:Bind ViewModel.Bookmarks.Count, Mode=OneWay}"/>
-                                <Run Text=" notes"/>
-                            </TextBlock>
+                                BorderThickness="1" CornerRadius="2" Padding="8,4"
+                                Visibility="{Binding HasNotesCountText, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="{Binding NotesCountText, Mode=OneWay}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                       Foreground="{StaticResource PrimaryTextBrush}"/>
                         </Border>
                     </StackPanel>
                 </Grid>
@@ -233,8 +232,7 @@
                                 </Button>
 
                                 <Button Grid.Column="1"
-                                        Command="{x:Bind ViewModel.PlayPauseCommand}"
-                                        Click="OnClipButtonClick"
+                                        Click="OnTransportPlayPauseClick"
                                         Style="{StaticResource PrimaryActionButtonStyle}"
                                         Width="56" Padding="0" IsTabStop="False" AllowFocusOnInteraction="False">
                                     <FontIcon x:Name="PlayPauseIcon" Glyph="&#xE768;" FontSize="{Binding TitleLarge, Source={StaticResource FontSizes}}"
@@ -250,23 +248,33 @@
                                               FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                                 </Button>
 
-                                <TextBlock Grid.Column="3"
-                                           FontFamily="{StaticResource MonoFont}"
-                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"
-                                           Foreground="{StaticResource SecondaryTextBrush}">
-                                    <Run Text="{x:Bind ViewModel.CurrentTimeText, Mode=OneWay}"/>
-                                    <Run Text=" / "/>
-                                    <Run Text="{x:Bind ViewModel.TotalTimeText, Mode=OneWay}"/>
-                                    <Run Text="    "/>
+                                <StackPanel Grid.Column="3"
+                                            Orientation="Horizontal"
+                                            VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding CurrentTimeText, Mode=OneWay}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <TextBlock Text=" / "
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <TextBlock Text="{Binding TotalTimeText, Mode=OneWay}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"/>
                                     <!-- v2.15.8: persistent seek-step indicator. Up/Down arrows
-                                         change the step; Left/Right scrubs by it. Showing it
-                                         inline beats a transient toast that's easy to miss. -->
-                                    <Run Text="step "
-                                         Foreground="{StaticResource MutedTextBrush}"/>
-                                    <Run Text="{x:Bind ViewModel.SeekStepText, Mode=OneWay}"
-                                         Foreground="{StaticResource AccentPurpleBrush}"
-                                         FontWeight="SemiBold"/>
-                                </TextBlock>
+                                         change the step; Left/Right scrubs by it. -->
+                                    <TextBlock Text="    step "
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource MutedTextBrush}"/>
+                                    <TextBlock Text="{Binding SeekStepText, Mode=OneWay}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource AccentPurpleBrush}"
+                                               FontWeight="SemiBold"/>
+                                </StackPanel>
 
                                 <!-- Spacer -->
                                 <Border Grid.Column="4"/>
@@ -350,6 +358,32 @@
                                 <StackPanel Spacing="10">
                                     <controls:SectionTitle Text="QUICK BOOKMARK"/>
 
+                                    <!-- v2.18 (F1): focused-objective banner. Shown when the VOD was
+                                         opened from a pattern / objective games list, to explain why
+                                         the tag picker below is scoped to a single objective. -->
+                                    <Border Background="{StaticResource TagBackgroundBrush}"
+                                            BorderBrush="{StaticResource AccentBlueBrush}"
+                                            BorderThickness="1" CornerRadius="2" Padding="8,5"
+                                            Visibility="{Binding FocusObjectiveBannerVisibility, Mode=OneWay}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE71C;"
+                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                      FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                      Foreground="{StaticResource AccentBlueBrush}"/>
+                                            <TextBlock Text="Focused:"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                       CharacterSpacing="150"
+                                                       Foreground="{StaticResource AccentBlueBrush}"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding FocusObjectiveTitle, Mode=OneWay}"
+                                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+
                                     <TextBox x:Name="BookmarkNoteBox"
                                              KeyDown="OnQuickBookmarkKeyDown"
                                              PlaceholderText="Note..."
@@ -411,11 +445,10 @@
                                                 </Border>
                                             </StackPanel>
                                         </Button>
-                                        <TextBlock FontFamily="{StaticResource MonoFont}"
+                                        <TextBlock Text="{Binding ClipRangeText, Mode=OneWay}"
+                                                   FontFamily="{StaticResource MonoFont}"
                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}" VerticalAlignment="Center"
-                                                   Foreground="{StaticResource AccentGoldBrush}">
-                                            <Run Text="{x:Bind ViewModel.ClipRangeText, Mode=OneWay}"/>
-                                        </TextBlock>
+                                                   Foreground="{StaticResource AccentGoldBrush}"/>
                                         <Button Command="{x:Bind ViewModel.SetClipOutCommand}"
                                                 Click="OnClipButtonClick"
                                                 Style="{StaticResource SecondaryActionButtonStyle}"
@@ -603,7 +636,7 @@
                         CardBackground="{StaticResource QueuePanelBrush}">
                         <Grid x:Name="MomentsCardGrid" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10"
                               SizeChanged="OnMomentsCardGridSizeChanged">
-                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
                                 <StackPanel Spacing="2">
                                     <controls:SectionTitle Text="MOMENTS TO REVIEW"/>
                                     <TextBlock Text="Auto-picked moments, saved clips, and bookmarks."
@@ -617,12 +650,32 @@
                                         BorderBrush="{StaticResource BrightBorderBrush}"
                                         BorderThickness="1" CornerRadius="2" Padding="8,4"
                                         VerticalAlignment="Top">
-                                    <TextBlock FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                               Foreground="{StaticResource PrimaryTextBrush}">
-                                        <Run Text="{x:Bind ViewModel.EvidenceInbox.Count, Mode=OneWay}"/>
-                                        <Run Text=" open"/>
-                                    </TextBlock>
+                                    <StackPanel Orientation="Horizontal" Spacing="3">
+                                        <TextBlock Text="{Binding EvidenceInbox.Count, Mode=OneWay}"
+                                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"/>
+                                        <TextBlock Text="open"
+                                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource PrimaryTextBrush}"/>
+                                    </StackPanel>
                                 </Border>
+                                <ComboBox Grid.Row="1"
+                                          Grid.ColumnSpan="2"
+                                          ItemsSource="{x:Bind ViewModel.AutoClipObjectiveFilters, Mode=OneWay}"
+                                          SelectedItem="{x:Bind ViewModel.SelectedAutoClipObjectiveFilter, Mode=TwoWay}"
+                                          DisplayMemberPath="Label"
+                                          Visibility="{x:Bind ViewModel.HasAutoClipObjectiveFilters, Mode=OneWay, Converter={StaticResource BoolToVisibility}}"
+                                          HorizontalAlignment="Stretch"
+                                          MinHeight="32"
+                                          Margin="0,8,0,0"
+                                          Padding="10,4"
+                                          FontFamily="{StaticResource MonoFont}"
+                                          FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                          Background="{StaticResource SurfaceInsetBrush}"
+                                          BorderBrush="{StaticResource BrightBorderBrush}"
+                                          BorderThickness="1"
+                                          Foreground="{StaticResource PrimaryTextBrush}"
+                                          ToolTipService.ToolTip="Filter auto clips by objective"/>
                             </Grid>
 
                             <!-- 3-way filter: Auto · Clips · Bookmarks — underline tab style -->
@@ -641,20 +694,25 @@
                                     <StackPanel Spacing="0" HorizontalAlignment="Center">
                                         <StackPanel Orientation="Horizontal" Spacing="4"
                                                     Padding="4,8,4,6" HorizontalAlignment="Center">
-                                            <TextBlock FontFamily="{StaticResource HeadingFont}"
+                                            <TextBlock Text="Auto"
+                                                       FontFamily="{StaticResource HeadingFont}"
                                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                        FontWeight="SemiBold"
-                                                       Foreground="{x:Bind ViewModel.AutoTabForegroundBrush, Mode=OneWay}">
-                                                <Run Text="Auto"/>
-                                            </TextBlock>
-                                            <TextBlock FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                       Foreground="{x:Bind ViewModel.AutoTabForegroundBrush, Mode=OneWay}"
-                                                       Opacity="0.65">
-                                                <Run Text="("/>
-                                                <Run Text="{x:Bind ViewModel.AutoReviewMomentCount, Mode=OneWay}"/>
-                                                <Run Text=")"/>
-                                            </TextBlock>
+                                                       Foreground="{x:Bind ViewModel.AutoTabForegroundBrush, Mode=OneWay}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="0" Opacity="0.65">
+                                                <TextBlock Text="("
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.AutoTabForegroundBrush, Mode=OneWay}"/>
+                                                <TextBlock Text="{Binding AutoReviewMomentCount, Mode=OneWay}"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.AutoTabForegroundBrush, Mode=OneWay}"/>
+                                                <TextBlock Text=")"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.AutoTabForegroundBrush, Mode=OneWay}"/>
+                                            </StackPanel>
                                         </StackPanel>
                                         <Border Height="2" HorizontalAlignment="Stretch" CornerRadius="1"
                                                 Background="{StaticResource AccentBlueBrush}"
@@ -676,20 +734,25 @@
                                     <StackPanel Spacing="0" HorizontalAlignment="Center">
                                         <StackPanel Orientation="Horizontal" Spacing="4"
                                                     Padding="4,8,4,6" HorizontalAlignment="Center">
-                                            <TextBlock FontFamily="{StaticResource HeadingFont}"
+                                            <TextBlock Text="Clips"
+                                                       FontFamily="{StaticResource HeadingFont}"
                                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                        FontWeight="SemiBold"
-                                                       Foreground="{x:Bind ViewModel.SavedTabForegroundBrush, Mode=OneWay}">
-                                                <Run Text="Clips"/>
-                                            </TextBlock>
-                                            <TextBlock FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                       Foreground="{x:Bind ViewModel.SavedTabForegroundBrush, Mode=OneWay}"
-                                                       Opacity="0.65">
-                                                <Run Text="("/>
-                                                <Run Text="{x:Bind ViewModel.SavedClipReviewMomentCount, Mode=OneWay}"/>
-                                                <Run Text=")"/>
-                                            </TextBlock>
+                                                       Foreground="{x:Bind ViewModel.SavedTabForegroundBrush, Mode=OneWay}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="0" Opacity="0.65">
+                                                <TextBlock Text="("
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.SavedTabForegroundBrush, Mode=OneWay}"/>
+                                                <TextBlock Text="{Binding SavedClipReviewMomentCount, Mode=OneWay}"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.SavedTabForegroundBrush, Mode=OneWay}"/>
+                                                <TextBlock Text=")"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.SavedTabForegroundBrush, Mode=OneWay}"/>
+                                            </StackPanel>
                                         </StackPanel>
                                         <Border Height="2" HorizontalAlignment="Stretch" CornerRadius="1"
                                                 Background="{StaticResource AccentGoldBrush}"
@@ -711,20 +774,25 @@
                                     <StackPanel Spacing="0" HorizontalAlignment="Center">
                                         <StackPanel Orientation="Horizontal" Spacing="4"
                                                     Padding="4,8,4,6" HorizontalAlignment="Center">
-                                            <TextBlock FontFamily="{StaticResource HeadingFont}"
+                                            <TextBlock Text="Bookmarks"
+                                                       FontFamily="{StaticResource HeadingFont}"
                                                        FontSize="{Binding Body, Source={StaticResource FontSizes}}"
                                                        FontWeight="SemiBold"
-                                                       Foreground="{x:Bind ViewModel.BookmarkTabForegroundBrush, Mode=OneWay}">
-                                                <Run Text="Bookmarks"/>
-                                            </TextBlock>
-                                            <TextBlock FontFamily="{StaticResource MonoFont}"
-                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                       Foreground="{x:Bind ViewModel.BookmarkTabForegroundBrush, Mode=OneWay}"
-                                                       Opacity="0.65">
-                                                <Run Text="("/>
-                                                <Run Text="{x:Bind ViewModel.BookmarkReviewMomentCount, Mode=OneWay}"/>
-                                                <Run Text=")"/>
-                                            </TextBlock>
+                                                       Foreground="{x:Bind ViewModel.BookmarkTabForegroundBrush, Mode=OneWay}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="0" Opacity="0.65">
+                                                <TextBlock Text="("
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.BookmarkTabForegroundBrush, Mode=OneWay}"/>
+                                                <TextBlock Text="{Binding BookmarkReviewMomentCount, Mode=OneWay}"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.BookmarkTabForegroundBrush, Mode=OneWay}"/>
+                                                <TextBlock Text=")"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                           Foreground="{x:Bind ViewModel.BookmarkTabForegroundBrush, Mode=OneWay}"/>
+                                            </StackPanel>
                                         </StackPanel>
                                         <Border Height="2" HorizontalAlignment="Stretch" CornerRadius="1"
                                                 Background="{StaticResource AccentTealBrush}"
@@ -735,6 +803,59 @@
 
                             <!-- Empty-state / fallback banner (rows 2–3 share this slot) -->
                             <StackPanel Grid.Row="2" Spacing="6">
+                                <!-- v2.18 (F1): "reviewing a pattern" banner. When the VOD is
+                                     opened focused on one objective (from a pattern card / an
+                                     objective's games list), the auto-clip list below is scoped
+                                     to that objective, so most clips drop out of view. Without
+                                     this banner users read that as "my clips got deleted." It
+                                     names the pattern, says the clips are filtered (not gone),
+                                     and gives a one-click "Show all clips" to clear the focus. -->
+                                <Border Background="{StaticResource AccentGoldDimBrush}"
+                                        BorderBrush="{StaticResource AccentGoldBrush}"
+                                        BorderThickness="1" CornerRadius="2" Padding="10,8"
+                                        Visibility="{Binding FocusObjectiveBannerVisibility, Mode=OneWay}">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                        <FontIcon Grid.Column="0"
+                                                  Glyph="&#xE71C;"
+                                                  FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                  FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                                  Foreground="{StaticResource AccentGoldBrush}"
+                                                  VerticalAlignment="Top"
+                                                  Margin="0,1,0,0"/>
+                                        <StackPanel Grid.Column="1" Spacing="3">
+                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="REVIEWING A PATTERN"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                           CharacterSpacing="200"
+                                                           Foreground="{StaticResource AccentGoldBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Text="{x:Bind ViewModel.FocusObjectiveTitle, Mode=OneWay}"
+                                                           FontFamily="{StaticResource HeadingFont}"
+                                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Clips are filtered to this pattern — the rest are still saved, just hidden."
+                                                       FontFamily="{StaticResource BodyFont}"
+                                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="2"
+                                                Command="{x:Bind ViewModel.ClearFocusObjectiveCommand}"
+                                                Style="{StaticResource SecondaryActionButtonStyle}"
+                                                Height="30" Padding="12,0"
+                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                VerticalAlignment="Center"
+                                                IsTabStop="False" AllowFocusOnInteraction="False"
+                                                ToolTipService.ToolTip="Clear the pattern filter and show every clip and moment for this game"
+                                                Content="Show all clips"/>
+                                    </Grid>
+                                </Border>
+
                                 <!-- No-VOD fallback: shown on Clips tab when VOD is unavailable -->
                                 <Border Background="{StaticResource SurfaceInsetBrush}"
                                         BorderBrush="{StaticResource AccentGoldBrush}"

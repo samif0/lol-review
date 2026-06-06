@@ -46,6 +46,12 @@ public interface IObjectivesRepository
     Task UpdateTargetGameCountAsync(long objectiveId, int targetGameCount);
 
     /// <summary>
+    /// v2.18 (F2): set the game-phase focus used to match auto-clips to this
+    /// objective. '' = auto-infer from title.
+    /// </summary>
+    Task UpdateFocusPhaseAsync(long objectiveId, string focusPhase);
+
+    /// <summary>
     /// v2.17.7: archive any active mini objectives whose <c>game_count</c> has
     /// reached <c>target_game_count</c>. Returns the ids of objectives that
     /// were archived so the caller can surface a "focus complete" toast.

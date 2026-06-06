@@ -1,6 +1,7 @@
 #nullable enable
 
 using Revu.App.Contracts;
+using Revu.App.Helpers;
 using Revu.App.Views;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Animation;
@@ -33,6 +34,7 @@ public sealed class NavigationService : INavigationService
         ["review"] = typeof(ReviewPage),
         ["vodplayer"] = typeof(VodPlayerPage),
         ["pregame"] = typeof(PreGamePage),
+        ["ingame"] = typeof(InGamePage),
         ["manualentry"] = typeof(ManualEntryPage),
         ["objectivegames"] = typeof(ObjectiveGamesPage),
         ["objectivenotes"] = typeof(ObjectiveNotesPage),
@@ -60,9 +62,20 @@ public sealed class NavigationService : INavigationService
             return false;
         }
 
-        // Don't navigate to the same page (skip for parameterized detail pages)
-        if (_currentPageKey == pageKey && parameter is null && _frame.Content is not null)
+        // Don't re-navigate when we're ALREADY showing this page. The guard keys
+        // off the frame's actual content type, NOT just _currentPageKey: the two
+        // can desync (e.g. a prior Frame.Navigate returned false, or back-stack
+        // navigation moved the frame without our key following). If we trusted
+        // _currentPageKey alone, a stale key equal to pageKey would suppress a
+        // navigation that genuinely needs to happen — which presented as the
+        // sidebar highlight changing while the page stayed put. Parameterized
+        // detail pages (parameter != null) always re-navigate so the new
+        // parameter is delivered.
+        var alreadyOnPage = _frame.Content is not null && _frame.Content.GetType() == pageType;
+        if (alreadyOnPage && parameter is null)
         {
+            // Keep the tracked key honest even on the no-op path.
+            _currentPageKey = pageKey;
             return false;
         }
 
@@ -77,6 +90,15 @@ public sealed class NavigationService : INavigationService
         {
             _currentPageKey = pageKey;
             SyncNavigationViewSelection(pageKey);
+        }
+        else
+        {
+            // Navigation was requested but the frame refused it while NOT already
+            // on the target page — surface it so this isn't a silent dead-end.
+            AppDiagnostics.WriteVerbose(
+                "startup.log",
+                $"NavigationService: Frame.Navigate to '{pageKey}' ({pageType.Name}) returned false " +
+                $"(content={_frame.Content?.GetType().Name ?? "null"}, param={(parameter is null ? "null" : "set")}).");
         }
 
         return navigated;

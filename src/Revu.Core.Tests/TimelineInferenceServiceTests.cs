@@ -110,4 +110,40 @@ public sealed class TimelineInferenceServiceTests
         var region = Assert.Single(regions);
         Assert.Equal("First Blood", region.Name);
     }
+
+    [Fact]
+    public void Infer_LabelsLoneDeathAsDeathNotIsolatedDeath()
+    {
+        // F3: a lone death must be titled just "Death" — never "Isolated death".
+        // We can't prove isolation from the kill-feed (no positions), so the old
+        // "Isolated death" guess is gone. The first death promotes to "First
+        // death"; a LATER isolated death is the single-cluster case under test.
+        var events = new List<GameEvent>
+        {
+            new() { EventType = GameEvent.EventTypes.Death, GameTimeS = 300 },  // → "First death"
+            new() { EventType = GameEvent.EventTypes.Death, GameTimeS = 1500 }, // → "Death" (isolated)
+        };
+
+        var regions = TimelineInferenceService.Infer(events);
+
+        Assert.DoesNotContain(regions, r => r.Name == "Isolated death");
+        Assert.Contains(regions, r => r.Name == "Death" && r.StartTimeSeconds <= 1500 && r.EndTimeSeconds >= 1500);
+    }
+
+    [Fact]
+    public void Infer_LabelsLoneKillAsPick()
+    {
+        // A lone kill (no surrounding teamfight) is still a "Pick" — the events
+        // DO support that. First kill promotes to "First kill"; a later isolated
+        // kill is the single-cluster "Pick".
+        var events = new List<GameEvent>
+        {
+            new() { EventType = GameEvent.EventTypes.Kill, GameTimeS = 300 },  // → "First kill"
+            new() { EventType = GameEvent.EventTypes.Kill, GameTimeS = 1500 }, // → "Pick" (isolated)
+        };
+
+        var regions = TimelineInferenceService.Infer(events);
+
+        Assert.Contains(regions, r => r.Name == "Pick" && r.StartTimeSeconds <= 1500 && r.EndTimeSeconds >= 1500);
+    }
 }

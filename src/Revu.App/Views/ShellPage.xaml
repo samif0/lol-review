@@ -145,6 +145,12 @@
                                           FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
                             </Button>
 
+                            <!-- v2.18 (F6): the In-Game page (cooldowns + matchup + your
+                                 pre-game notes) is auto-opened when a game is actually in
+                                 progress (GameInProgressMessage). It is intentionally NOT
+                                 a sidebar item — there's nothing to show outside a live
+                                 game, so it surfaces only mid-game and via alt-tab. -->
+
                             <!-- INSIGHTS section -->
                             <Border Height="1"
                                     Background="{StaticResource SubtleBorderBrush}"

@@ -931,4 +931,86 @@
         <Setter Property="SecondaryButtonStyle" Value="{StaticResource SecondaryActionButtonStyle}"/>
     </Style>
 
+    <!-- ••• ComboBox — HUD theme •••
+         The stock ComboBox template renders the closed box, its dropdown chevron,
+         and the popup with the default light-grey Fluent system brushes — which is
+         why the auto-clip "objective filter" dropdown (and the speed / form combos)
+         read as grey and off against the violet HUD. As with ContentDialog above we
+         override the framework theme brushes (closed box + popup chrome + item
+         hover/selection) and add an implicit Style for surface, sharp 2px corners,
+         and text colour. No re-templating — resource + setter overrides only, which
+         is the low-risk way to restyle ComboBox. This applies app-wide so every
+         ComboBox matches; per-control Background/BorderBrush overrides still win. -->
+
+    <!-- Closed box -->
+    <SolidColorBrush x:Key="ComboBoxBackground" Color="#110F1A"/>
+    <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#161428"/>
+    <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#0A0918"/>
+    <SolidColorBrush x:Key="ComboBoxBackgroundFocused" Color="#161428"/>
+    <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused" Color="#110F1A"/>
+    <SolidColorBrush x:Key="ComboBoxBackgroundDisabled" Color="#0A0918"/>
+
+    <SolidColorBrush x:Key="ComboBoxForeground" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxForegroundPointerOver" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxForegroundPressed" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxForegroundFocused" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxForegroundFocusedPressed" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxForegroundDisabled" Color="#4A3E60"/>
+
+    <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#24203A"/>
+    <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#3D3660"/>
+    <SolidColorBrush x:Key="ComboBoxBorderBrushPressed" Color="#3D3660"/>
+    <SolidColorBrush x:Key="ComboBoxBorderBrushFocused" Color="#A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxBorderBrushDisabled" Color="#24203A"/>
+
+    <!-- Placeholder / header -->
+    <SolidColorBrush x:Key="ComboBoxPlaceHolderForeground" Color="#7A6E96"/>
+    <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundFocusedPressed" Color="#7A6E96"/>
+    <SolidColorBrush x:Key="ComboBoxHeaderForeground" Color="#7A6E96"/>
+    <SolidColorBrush x:Key="ComboBoxHeaderForegroundDisabled" Color="#4A3E60"/>
+
+    <!-- Dropdown chevron -->
+    <SolidColorBrush x:Key="ComboBoxDropDownGlyphForeground" Color="#7A6E96"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundPointerOver" Color="#A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundPressed" Color="#A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundFocused" Color="#A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundFocusedPressed" Color="#A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxEditableDropDownGlyphForeground" Color="#7A6E96"/>
+
+    <!-- Popup surface -->
+    <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#14121E"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownBackgroundPointerOver" Color="#14121E"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownBackgroundPointerPressed" Color="#14121E"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownForeground" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#3D3660"/>
+
+    <!-- Popup items -->
+    <SolidColorBrush x:Key="ComboBoxItemBackground" Color="Transparent"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver" Color="#2218162A"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed" Color="#33A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="#33A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedUnfocused" Color="#33A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="#44A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed" Color="#44A78BFA"/>
+    <SolidColorBrush x:Key="ComboBoxItemForeground" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxItemForegroundPointerOver" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxItemForegroundPressed" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedUnfocused" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPressed" Color="#F0EEF8"/>
+    <SolidColorBrush x:Key="ComboBoxItemForegroundDisabled" Color="#4A3E60"/>
+    <SolidColorBrush x:Key="ComboBoxItemPillFillBrush" Color="#A78BFA"/>
+
+    <Style TargetType="ComboBox">
+        <Setter Property="Background" Value="{StaticResource InputBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+        <Setter Property="CornerRadius" Value="2"/>
+        <Setter Property="MinHeight" Value="32"/>
+        <Setter Property="FontFamily" Value="{StaticResource BodyFont}"/>
+        <Setter Property="FontSize" Value="12"/>
+    </Style>
+
 </ResourceDictionary>

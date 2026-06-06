@@ -10,7 +10,7 @@ public static class Schema
 {
     // v2 (2026-05): mini-objective target game count column.
     // v3 (2026-05): vod_bookmarks.share_url for public clip sharing.
-    public const int CurrentAppSchemaVersion = 3;
+    public const int CurrentAppSchemaVersion = 4;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -248,6 +248,7 @@ public static class Schema
             score               INTEGER DEFAULT 0,
             game_count          INTEGER DEFAULT 0,
             target_game_count   INTEGER NOT NULL DEFAULT 0,
+            focus_phase         TEXT NOT NULL DEFAULT '',
             created_at          INTEGER,
             completed_at        INTEGER
         );
@@ -774,6 +775,18 @@ public static class Schema
         "ALTER TABLE objectives ADD COLUMN target_game_count INTEGER NOT NULL DEFAULT 0",
     ];
 
+    /// <summary>
+    /// v2.18 (F2): game-phase focus used to match auto-picked clips to an
+    /// objective. '' = auto-infer from the title/skill-area keywords; otherwise
+    /// 'laning' | 'midlate' | 'teamfight' | 'any'. Laning objectives surface
+    /// early-game clips; teamfight/mid-late objectives surface skirmishes and
+    /// objective fights. See <see cref="Revu.Core.Data.Repositories.ObjectiveFocusPhases"/>.
+    /// </summary>
+    public static readonly string[] MigrateObjectivesFocusPhase =
+    [
+        "ALTER TABLE objectives ADD COLUMN focus_phase TEXT NOT NULL DEFAULT ''",
+    ];
+
     public static readonly string[] MigrateBookmarksObjective =
     [
         "ALTER TABLE vod_bookmarks ADD COLUMN objective_id INTEGER",
@@ -889,7 +902,6 @@ public static class Schema
         .. MigrateGamesHidden,
         .. MigrateBookmarksObjective,
         .. MigrateBookmarksPromptId,
-        .. MigrateBookmarksShareUrl,
         .. MigrateTiltChecksGameAndPlan,
         .. MigrateGamesParticipantMap,
         .. MigrateSessionLogIsSkipped,
@@ -906,6 +918,8 @@ public static class Schema
         // normalize-rebuild path (which fails on FK dependents).
         new(2, "objectives-mini-target", MigrateObjectivesMiniTarget),
         new(3, "bookmarks-share-url", MigrateBookmarksShareUrl),
+        // v2.18 (schema v4, F2): objectives.focus_phase for auto-clip matching.
+        new(4, "objectives-focus-phase", MigrateObjectivesFocusPhase),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

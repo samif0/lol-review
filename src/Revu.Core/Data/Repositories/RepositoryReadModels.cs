@@ -29,7 +29,9 @@ public sealed record ObjectiveSummary(
     bool PracticeIn = false,
     bool PracticePost = false,
     // v2.17.7: mini-objective target game count. 0 = no target (primary).
-    int TargetGameCount = 0)
+    int TargetGameCount = 0,
+    // v2.18 (F2): game-phase focus for auto-clip matching. '' = auto-infer from title.
+    string FocusPhase = "")
 {
     public bool IsMini => string.Equals(Type, "mini", StringComparison.OrdinalIgnoreCase);
     public int GamesRemaining => Math.Max(0, TargetGameCount - GameCount);

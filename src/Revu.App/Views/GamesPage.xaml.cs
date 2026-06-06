@@ -23,9 +23,11 @@ public sealed partial class GamesPage : Page
 
         Loaded += OnLoaded;
         WeakReferenceMessenger.Default.Register<GamesPage, GameDeletedMessage>(
-            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+            this, (r, _) => SafeHandler.Run(
+                () => r.ViewModel.LoadCommand.ExecuteAsync(null), "GamesPage.GameDeleted reload"));
         WeakReferenceMessenger.Default.Register<GamesPage, GameReviewedMessage>(
-            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+            this, (r, _) => SafeHandler.Run(
+                () => r.ViewModel.LoadCommand.ExecuteAsync(null), "GamesPage.GameReviewed reload"));
         WeakReferenceMessenger.Default.Register<GamesPage, GameMatchupsBackfilledMessage>(
             this, (r, _) =>
             {

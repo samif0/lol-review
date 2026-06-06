@@ -422,7 +422,11 @@ public partial class DashboardViewModel : ObservableObject
         }
         else if (pattern?.GameId is long gameId && gameId > 0)
         {
-            _navigationService.NavigateTo("vodplayer", gameId);
+            _navigationService.NavigateTo("vodplayer", new VodPlayerNavigationRequest
+            {
+                GameId = gameId,
+                AutoMomentPatternKind = pattern.Kind,
+            });
         }
         else
         {

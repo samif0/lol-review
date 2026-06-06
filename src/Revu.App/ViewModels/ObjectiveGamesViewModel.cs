@@ -223,6 +223,21 @@ public partial class ObjectiveGamesViewModel : ObservableObject
         _navigationService.NavigateTo("review", gameId);
     }
 
+    /// <summary>
+    /// v2.18 (F1): open the VOD viewer FOCUSED on this objective — its tag picker
+    /// shows only this objective + prompts, so reviewing the pattern stays scoped
+    /// to the one thing the user came here to study.
+    /// </summary>
+    [RelayCommand]
+    private void OpenVod(long gameId)
+    {
+        _navigationService.NavigateTo("vodplayer", new Revu.Core.Models.VodPlayerNavigationRequest
+        {
+            GameId = gameId,
+            FocusObjectiveId = _objectiveId,
+        });
+    }
+
     [RelayCommand]
     private void GoBack()
     {

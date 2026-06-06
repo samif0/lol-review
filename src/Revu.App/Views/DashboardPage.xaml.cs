@@ -51,9 +51,11 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
         // anywhere in the app so win-rate / adherence / unreviewed counts
         // stay accurate.
         WeakReferenceMessenger.Default.Register<DashboardPage, GameDeletedMessage>(
-            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+            this, (r, _) => SafeHandler.Run(
+                () => r.ViewModel.LoadCommand.ExecuteAsync(null), "DashboardPage.GameDeleted reload"));
         WeakReferenceMessenger.Default.Register<DashboardPage, GameReviewedMessage>(
-            this, async (r, _) => await r.ViewModel.LoadCommand.ExecuteAsync(null));
+            this, (r, _) => SafeHandler.Run(
+                () => r.ViewModel.LoadCommand.ExecuteAsync(null), "DashboardPage.GameReviewed reload"));
         WeakReferenceMessenger.Default.Register<DashboardPage, GameMatchupsBackfilledMessage>(
             this, (r, message) =>
             {

@@ -51,4 +51,12 @@ public sealed partial class ObjectiveGamesPage : Page
             ViewModel.OpenReviewCommand.Execute(gameId);
         }
     }
+
+    private void WatchVod_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is long gameId)
+        {
+            ViewModel.OpenVodCommand.Execute(gameId);
+        }
+    }
 }

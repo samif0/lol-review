@@ -70,6 +70,14 @@ public partial class ShellViewModel : ObservableRecipient,
     [ObservableProperty]
     private bool _hasUnreviewedGames;
 
+    /// <summary>
+    /// v2.18 (F6): true while a game is confirmed in progress, used to light the
+    /// "live" dot on the sidebar In-Game nav item. Set on GameInProgressMessage,
+    /// cleared on GameEndedMessage.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isGameInProgress;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNewUserMode))]
     [NotifyPropertyChangedFor(nameof(IsVeteranMode))]
@@ -386,18 +394,26 @@ public partial class ShellViewModel : ObservableRecipient,
 
     public void Receive(GameInProgressMessage message)
     {
-        // Player is in the game now — leave the pre-game page for the session page.
+        // v2.18 (F6): player is in the game now — move from the pre-game page to
+        // the live in-game page (cooldowns + matchup + the notes/boxes they wrote
+        // in champ select), so alt-tabbing back surfaces all of it. Only auto-nav
+        // off the pre-game page so we don't yank the user off a page they
+        // deliberately opened mid-game.
         Helpers.DispatcherHelper.RunOnUIThread(() =>
         {
+            IsGameInProgress = true;
             if (_navigationService.CurrentPageKey == "pregame")
             {
-                _navigationService.NavigateTo("session");
+                _navigationService.NavigateTo("ingame");
             }
         });
     }
 
     public void Receive(GameEndedMessage message)
     {
+        // v2.18 (F6): game's over — clear the sidebar "live" dot.
+        Helpers.DispatcherHelper.RunOnUIThread(() => IsGameInProgress = false);
+
         BackgroundTaskRunner.Run(() => Helpers.DispatcherHelper.RunOnUIThreadAsync(async () =>
         {
             try
