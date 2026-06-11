@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using Revu.App.Helpers;
 using Revu.App.ViewModels;
@@ -1175,6 +1175,50 @@ public sealed partial class VodPlayerPage : Page
         }
     }
 
+    // ── Sidebar collapse (docked layout) ─────────────────────────────────
+    //
+    // Lighter than theater mode: hides only the bookmark/notes column so the
+    // video gets near-full width while the transport bar + timeline stay
+    // docked. Theater mode owns the columns while active; exiting it calls
+    // ApplySidebarLayout so the user's chosen split comes back.
+
+    private bool _isSidebarCollapsed;
+
+    private void OnToggleSidebarClick(object sender, RoutedEventArgs e)
+    {
+        _isSidebarCollapsed = !_isSidebarCollapsed;
+        ApplySidebarLayout();
+    }
+
+    private void ApplySidebarLayout()
+    {
+        SidebarToggleIcon.Glyph = _isSidebarCollapsed ? "\uE8A0" : "\uE89F"; // OpenPane : ClosePane
+        ToolTipService.SetToolTip(SidebarToggleButton, _isSidebarCollapsed
+            ? "Show the side panel (bookmarks, clips, notes)"
+            : "Hide the side panel — give the video full width");
+
+        if (_isFullscreen) return;
+
+        if (_isSidebarCollapsed)
+        {
+            BookmarkSidebar.Visibility = Visibility.Collapsed;
+            VodMainLayout.ColumnSpacing = 0;
+            VideoColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
+            SidebarColumnDefinition.Width = new GridLength(0);
+            SidebarColumnDefinition.MinWidth = 0;
+        }
+        else
+        {
+            BookmarkSidebar.Visibility = Visibility.Visible;
+            VodMainLayout.ColumnSpacing = 16;
+            // Keep in sync with the XAML defaults (1.9* video : 1* sidebar,
+            // MinWidth 440).
+            VideoColumnDefinition.Width = new GridLength(1.9, GridUnitType.Star);
+            SidebarColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
+            SidebarColumnDefinition.MinWidth = 440;
+        }
+    }
+
     private void EnterVideoTheaterMode()
     {
         _isFullscreen = true;
@@ -1235,12 +1279,9 @@ public sealed partial class VodPlayerPage : Page
         FullscreenTimeline.IsCompact = false;
         FullscreenTimeline.Height = 80;
         FullscreenTimelineOverlay.Padding = new Thickness(10, 8, 10, 8);
-        VodMainLayout.ColumnSpacing = 16;
-        // v2.17.19: keep in sync with the XAML defaults (1.9* video : 1* sidebar,
-        // MinWidth 440) so exiting theater mode restores the same wider split.
-        VideoColumnDefinition.Width = new GridLength(1.9, GridUnitType.Star);
-        SidebarColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
-        SidebarColumnDefinition.MinWidth = 440;
+        // v2.17.19 / v2.17.28: restore the docked split via ApplySidebarLayout
+        // so a user-collapsed sidebar stays collapsed after theater mode.
+        ApplySidebarLayout();
         VodPageLayout.Padding = DefaultVodPagePadding;
         VideoColumnScrollViewer.SetValue(Grid.ColumnSpanProperty, 1);
         VideoColumnScrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;

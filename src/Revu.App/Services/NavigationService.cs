@@ -28,7 +28,6 @@ public sealed class NavigationService : INavigationService
         ["objectives"] = typeof(ObjectivesPage),
         ["rules"] = typeof(RulesPage),
         ["tiltcheck"] = typeof(TiltCheckPage),
-        ["history"] = typeof(HistoryPage),
         ["analytics"] = typeof(AnalyticsPage),
         ["settings"] = typeof(SettingsPage),
         ["review"] = typeof(ReviewPage),
@@ -38,6 +37,7 @@ public sealed class NavigationService : INavigationService
         ["manualentry"] = typeof(ManualEntryPage),
         ["objectivegames"] = typeof(ObjectiveGamesPage),
         ["objectivenotes"] = typeof(ObjectiveNotesPage),
+        ["patternreview"] = typeof(PatternReviewPage),
     };
 
     public string? CurrentPageKey => _currentPageKey;

@@ -36,10 +36,6 @@ public sealed partial class ReviewPage : Page, INotifyPropertyChanged
             }
         };
         InitializeComponent();
-        EvidenceList.AddHandler(
-            UIElement.PointerWheelChangedEvent,
-            new PointerEventHandler(EvidenceList_PointerWheelChanged),
-            handledEventsToo: true);
         Loaded += (_, _) =>
         {
             AnimationHelper.AnimatePageEnter(RootGrid);
@@ -117,60 +113,6 @@ public sealed partial class ReviewPage : Page, INotifyPropertyChanged
         {
             await ViewModel.OpenEvidenceInVodCommand.ExecuteAsync(evidence);
         }
-    }
-
-    private void EvidenceList_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
-    {
-        var scroller = FindDescendant<ScrollViewer>(EvidenceList);
-        if (scroller is null)
-        {
-            return;
-        }
-
-        ScrollInnerViewer(scroller, e);
-    }
-
-    private static void ScrollInnerViewer(ScrollViewer scroller, PointerRoutedEventArgs e)
-    {
-        if (scroller.ScrollableHeight <= 0)
-        {
-            return;
-        }
-
-        var delta = e.GetCurrentPoint(scroller).Properties.MouseWheelDelta;
-        var canScroll = delta < 0
-            ? scroller.VerticalOffset < scroller.ScrollableHeight
-            : scroller.VerticalOffset > 0;
-
-        if (!canScroll)
-        {
-            return;
-        }
-
-        var nextOffset = Math.Clamp(scroller.VerticalOffset - delta, 0, scroller.ScrollableHeight);
-        scroller.ChangeView(null, nextOffset, null, disableAnimation: true);
-        e.Handled = true;
-    }
-
-    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
-    {
-        var childCount = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < childCount; i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is T match)
-            {
-                return match;
-            }
-
-            var nested = FindDescendant<T>(child);
-            if (nested is not null)
-            {
-                return nested;
-            }
-        }
-
-        return null;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

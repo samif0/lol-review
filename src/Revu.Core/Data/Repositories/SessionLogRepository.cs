@@ -18,6 +18,16 @@ public sealed class SessionLogRepository : ISessionLogRepository
         _factory = factory;
     }
 
+    // games.is_hidden = 1 rows are soft-removed (user-hidden or cross-account
+    // imports cleaned up after the fact). Their session_log rows must not feed
+    // stats, streaks, or day lists. LEFT JOIN keeps session rows that have no
+    // games row at all (manual logs, game_id NULL).
+    private const string VisibleGamesJoin =
+        "LEFT JOIN games vg ON vg.game_id = sl.game_id";
+
+    private const string VisibleGamesFilter =
+        "COALESCE(vg.is_hidden, 0) = 0";
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private static SessionLogEntry MapSessionLogEntry(SqliteDataReader reader)
@@ -388,10 +398,12 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            SELECT * FROM session_log
-            WHERE date = @date
-            ORDER BY timestamp ASC";
+        cmd.CommandText = $@"
+            SELECT sl.* FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE sl.date = @date
+              AND {VisibleGamesFilter}
+            ORDER BY sl.timestamp ASC";
         cmd.Parameters.AddWithValue("@date", dateStr);
 
         return await ReadAllEntriesAsync(cmd);
@@ -408,7 +420,11 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT DISTINCT date FROM session_log ORDER BY date DESC";
+        cmd.CommandText = $@"
+            SELECT DISTINCT sl.date FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE {VisibleGamesFilter}
+            ORDER BY sl.date DESC";
 
         var list = new List<string>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -428,10 +444,12 @@ public sealed class SessionLogRepository : ISessionLogRepository
         var cutoffStr = cutoff.ToString("yyyy-MM-dd");
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            SELECT * FROM session_log
-            WHERE date >= @cutoff
-            ORDER BY date DESC, timestamp ASC";
+        cmd.CommandText = $@"
+            SELECT sl.* FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE sl.date >= @cutoff
+              AND {VisibleGamesFilter}
+            ORDER BY sl.date DESC, sl.timestamp ASC";
         cmd.Parameters.AddWithValue("@cutoff", cutoffStr);
 
         return await ReadAllEntriesAsync(cmd);
@@ -474,15 +492,17 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
+        cmd.CommandText = $@"
             SELECT
                 COUNT(*) as games,
-                SUM(win) as wins,
-                COUNT(*) - SUM(win) as losses,
-                ROUND(AVG(CASE WHEN COALESCE(is_skipped, 0) = 0 THEN mental_rating END), 1) as avg_mental,
-                SUM(rule_broken) as rule_breaks
-            FROM session_log
-            WHERE date = @date";
+                SUM(sl.win) as wins,
+                COUNT(*) - SUM(sl.win) as losses,
+                ROUND(AVG(CASE WHEN COALESCE(sl.is_skipped, 0) = 0 THEN sl.mental_rating END), 1) as avg_mental,
+                SUM(sl.rule_broken) as rule_breaks
+            FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE sl.date = @date
+              AND {VisibleGamesFilter}";
         cmd.Parameters.AddWithValue("@date", dateStr);
 
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -513,19 +533,21 @@ public sealed class SessionLogRepository : ISessionLogRepository
         var cutoffStr = cutoff.ToString("yyyy-MM-dd");
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
+        cmd.CommandText = $@"
             SELECT
-                date,
+                sl.date,
                 COUNT(*) as games,
-                SUM(win) as wins,
-                COUNT(*) - SUM(win) as losses,
-                ROUND(AVG(CASE WHEN COALESCE(is_skipped, 0) = 0 THEN mental_rating END), 1) as avg_mental,
-                SUM(rule_broken) as rule_breaks,
-                GROUP_CONCAT(DISTINCT champion_name) as champions_played
-            FROM session_log
-            WHERE date >= @cutoff
-            GROUP BY date
-            ORDER BY date DESC";
+                SUM(sl.win) as wins,
+                COUNT(*) - SUM(sl.win) as losses,
+                ROUND(AVG(CASE WHEN COALESCE(sl.is_skipped, 0) = 0 THEN sl.mental_rating END), 1) as avg_mental,
+                SUM(sl.rule_broken) as rule_breaks,
+                GROUP_CONCAT(DISTINCT sl.champion_name) as champions_played
+            FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE sl.date >= @cutoff
+              AND {VisibleGamesFilter}
+            GROUP BY sl.date
+            ORDER BY sl.date DESC";
         cmd.Parameters.AddWithValue("@cutoff", cutoffStr);
 
         var list = new List<DailySummary>();
@@ -569,13 +591,15 @@ public sealed class SessionLogRepository : ISessionLogRepository
             // engaging with the game, so its rule_broken flag (whether
             // set by the rules engine at ingest or by the legacy
             // heuristic) shouldn't terminate the streak.
-            cmd.CommandText = @"
-                SELECT date,
-                    SUM(CASE WHEN COALESCE(is_skipped, 0) = 0 THEN rule_broken ELSE 0 END) as breaks
-                FROM session_log
-                WHERE date >= @since
-                GROUP BY date
-                ORDER BY date DESC";
+            cmd.CommandText = $@"
+                SELECT sl.date,
+                    SUM(CASE WHEN COALESCE(sl.is_skipped, 0) = 0 THEN sl.rule_broken ELSE 0 END) as breaks
+                FROM session_log sl
+                {VisibleGamesJoin}
+                WHERE sl.date >= @since
+                  AND {VisibleGamesFilter}
+                GROUP BY sl.date
+                ORDER BY sl.date DESC";
             cmd.Parameters.AddWithValue("@since", rulesExistSince);
         }
         else
@@ -603,18 +627,20 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
+        cmd.CommandText = $@"
             SELECT
                 CASE
-                    WHEN mental_rating <= 3 THEN '1-3 (Low)'
-                    WHEN mental_rating <= 6 THEN '4-6 (Mid)'
+                    WHEN sl.mental_rating <= 3 THEN '1-3 (Low)'
+                    WHEN sl.mental_rating <= 6 THEN '4-6 (Mid)'
                     ELSE '7-10 (High)'
                 END as bracket,
                 COUNT(*) as games,
-                SUM(win) as wins,
-                ROUND(AVG(win) * 100, 1) as winrate
-            FROM session_log
-            WHERE COALESCE(is_skipped, 0) = 0
+                SUM(sl.win) as wins,
+                ROUND(AVG(sl.win) * 100, 1) as winrate
+            FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE COALESCE(sl.is_skipped, 0) = 0
+              AND {VisibleGamesFilter}
             GROUP BY bracket
             ORDER BY bracket";
 
@@ -638,11 +664,13 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            SELECT timestamp, mental_rating, win, champion_name
-            FROM session_log
-            WHERE COALESCE(is_skipped, 0) = 0
-            ORDER BY timestamp DESC
+        cmd.CommandText = $@"
+            SELECT sl.timestamp, sl.mental_rating, sl.win, sl.champion_name
+            FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE COALESCE(sl.is_skipped, 0) = 0
+              AND {VisibleGamesFilter}
+            ORDER BY sl.timestamp DESC
             LIMIT @limit";
         cmd.Parameters.AddWithValue("@limit", limit);
 
@@ -669,15 +697,17 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            SELECT pre_game_mood as mood,
+        cmd.CommandText = $@"
+            SELECT sl.pre_game_mood as mood,
                 COUNT(*) as games,
-                SUM(win) as wins,
-                ROUND(AVG(win) * 100, 1) as winrate
-            FROM session_log
-            WHERE pre_game_mood > 0
-            GROUP BY pre_game_mood
-            ORDER BY pre_game_mood";
+                SUM(sl.win) as wins,
+                ROUND(AVG(sl.win) * 100, 1) as winrate
+            FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE sl.pre_game_mood > 0
+              AND {VisibleGamesFilter}
+            GROUP BY sl.pre_game_mood
+            ORDER BY sl.pre_game_mood";
 
         var list = new List<MoodCorrelationPoint>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -699,12 +729,14 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            SELECT mental_rating, champion_name, game_id
-            FROM session_log
-            WHERE date = @date
-              AND COALESCE(is_skipped, 0) = 0
-            ORDER BY timestamp ASC";
+        cmd.CommandText = $@"
+            SELECT sl.mental_rating, sl.champion_name, sl.game_id
+            FROM session_log sl
+            {VisibleGamesJoin}
+            WHERE sl.date = @date
+              AND COALESCE(sl.is_skipped, 0) = 0
+              AND {VisibleGamesFilter}
+            ORDER BY sl.timestamp ASC";
         cmd.Parameters.AddWithValue("@date", dateStr);
 
         var entries = new List<(int MentalRating, string ChampionName, long? GameId)>();
@@ -748,10 +780,13 @@ public sealed class SessionLogRepository : ISessionLogRepository
         double avgGames;
         using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = @"
+            cmd.CommandText = $@"
                 SELECT ROUND(AVG(day_count), 1) as avg_games_per_session
-                FROM (SELECT date, COUNT(*) as day_count
-                      FROM session_log GROUP BY date)";
+                FROM (SELECT sl.date, COUNT(*) as day_count
+                      FROM session_log sl
+                      {VisibleGamesJoin}
+                      WHERE {VisibleGamesFilter}
+                      GROUP BY sl.date)";
 
             await using var reader = await cmd.ExecuteReaderAsync();
             avgGames = await reader.ReadAsync() && !reader.IsDBNull(0) ? reader.GetDouble(0) : 0;
@@ -761,14 +796,16 @@ public sealed class SessionLogRepository : ISessionLogRepository
         double avgMentalDelta;
         using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = @"
-                SELECT date,
-                        FIRST_VALUE(mental_rating) OVER (PARTITION BY date ORDER BY timestamp) as first_mental,
-                        FIRST_VALUE(mental_rating) OVER (PARTITION BY date ORDER BY timestamp DESC) as last_mental
-                FROM session_log
-                WHERE mental_rating IS NOT NULL
-                  AND COALESCE(is_skipped, 0) = 0
-                GROUP BY date";
+            cmd.CommandText = $@"
+                SELECT sl.date,
+                        FIRST_VALUE(sl.mental_rating) OVER (PARTITION BY sl.date ORDER BY sl.timestamp) as first_mental,
+                        FIRST_VALUE(sl.mental_rating) OVER (PARTITION BY sl.date ORDER BY sl.timestamp DESC) as last_mental
+                FROM session_log sl
+                {VisibleGamesJoin}
+                WHERE sl.mental_rating IS NOT NULL
+                  AND COALESCE(sl.is_skipped, 0) = 0
+                  AND {VisibleGamesFilter}
+                GROUP BY sl.date";
 
             var deltas = new List<double>();
             await using var reader = await cmd.ExecuteReaderAsync();
@@ -792,11 +829,13 @@ public sealed class SessionLogRepository : ISessionLogRepository
         int tiltDays;
         using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = @"
+            cmd.CommandText = $@"
                 SELECT
-                        COUNT(DISTINCT date) as total_days,
-                        COUNT(DISTINCT CASE WHEN rule_broken = 1 THEN date END) as tilt_days
-                FROM session_log";
+                        COUNT(DISTINCT sl.date) as total_days,
+                        COUNT(DISTINCT CASE WHEN sl.rule_broken = 1 THEN sl.date END) as tilt_days
+                FROM session_log sl
+                {VisibleGamesJoin}
+                WHERE {VisibleGamesFilter}";
 
             await using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())

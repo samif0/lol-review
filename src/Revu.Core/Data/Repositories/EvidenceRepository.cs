@@ -281,6 +281,35 @@ public sealed class EvidenceRepository : IEvidenceRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task AttachClipToEvidenceAsync(long evidenceId, long bookmarkId, int clipStartS, int clipEndS)
+    {
+        // Convert an existing evidence row (e.g. an auto-detected pattern moment)
+        // into the saved-clip backed by the given bookmark — same shape the VOD
+        // player produces — so the moment surfaces as a real clip in the review
+        // instead of duplicating it with a second evidence row. Promotes a still-
+        // pending row to 'evidence' so it leaves the needs-review queue.
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            UPDATE evidence_items
+            SET source_kind = '{EvidenceKinds.Clip}',
+                source_id = @bookmarkId,
+                source_key = @sourceKey,
+                start_time_s = @startS,
+                end_time_s = @endS,
+                status = CASE WHEN status = '{EvidenceStatuses.NeedsReview}' THEN '{EvidenceStatuses.Evidence}' ELSE status END,
+                updated_at = @updatedAt
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@bookmarkId", bookmarkId);
+        cmd.Parameters.AddWithValue("@sourceKey", $"clip:{bookmarkId}");
+        cmd.Parameters.AddWithValue("@startS", clipStartS);
+        cmd.Parameters.AddWithValue("@endS", clipEndS);
+        cmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("@id", evidenceId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<IReadOnlyList<ObjectivePatternCard>> GetPatternCardsAsync(int limit = 6)
     {
         var cards = new List<ObjectivePatternCard>();
@@ -384,6 +413,160 @@ public sealed class EvidenceRepository : IEvidenceRepository
         }
 
         return cards.Take(Math.Max(1, limit)).ToArray();
+    }
+
+    // ── Pattern Review viewer ───────────────────────────────────────────────
+
+    // Column projection shared by every pattern-moment query. Mirrors the joins
+    // GetPatternCardsAsync uses, plus vod_files for the recording path. Ordered
+    // oldest-first (by game time then in-game time) so the viewer walks the
+    // pattern chronologically across games.
+    private const string SelectPatternMomentSql = """
+        SELECT e.id,
+               e.game_id,
+               COALESCE(g.champion_name, ''),
+               COALESCE(g.win, 0),
+               COALESCE(g.timestamp, 0),
+               e.start_time_s,
+               e.end_time_s,
+               COALESCE(e.title, ''),
+               COALESCE(e.note, ''),
+               COALESCE(e.polarity, 'neutral'),
+               COALESCE(e.source_kind, ''),
+               COALESCE(v.file_path, '')
+        FROM evidence_items e
+        LEFT JOIN games g ON g.game_id = e.game_id
+        LEFT JOIN session_log sl ON sl.game_id = e.game_id
+        LEFT JOIN vod_files v ON v.game_id = e.game_id
+        """;
+
+    public async Task<IReadOnlyList<PatternMoment>> GetPatternMomentsAsync(ObjectivePatternCard pattern)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+
+        // Each kind reuses the exact predicate from GetPatternCardsAsync so the
+        // moment list is precisely the rows the card counted.
+        switch (pattern.Kind)
+        {
+            case "isolated_deaths":
+                cmd.CommandText = $"""
+                    {SelectPatternMomentSql}
+                    WHERE e.status != 'dismissed'
+                      AND e.title IN ('Death', 'Isolated death', 'First death')
+                      AND {UnreviewedEvidenceGamePredicate}
+                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                    """;
+                break;
+
+            case "lost_objective_fights":
+                cmd.CommandText = $"""
+                    {SelectPatternMomentSql}
+                    WHERE e.status != 'dismissed'
+                      AND e.title LIKE 'Lost % fight%'
+                      AND {UnreviewedEvidenceGamePredicate}
+                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                    """;
+                break;
+
+            case "deaths_before_objectives":
+                cmd.CommandText = $"""
+                    {SelectPatternMomentSql}
+                    WHERE e.status != 'dismissed'
+                      AND e.title LIKE 'Death before %'
+                      AND {UnreviewedEvidenceGamePredicate}
+                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                    """;
+                break;
+
+            case "bad_objective_evidence":
+                if (pattern.ObjectiveId is not long objId) return Array.Empty<PatternMoment>();
+                cmd.CommandText = $"""
+                    {SelectPatternMomentSql}
+                    WHERE e.objective_id = @objectiveId
+                      AND e.status != 'dismissed'
+                      AND {UnreviewedEvidenceGamePredicate}
+                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                    """;
+                cmd.Parameters.AddWithValue("@objectiveId", objId);
+                break;
+
+            case "negative_matchup_clips":
+                cmd.CommandText = $"""
+                    {SelectPatternMomentSql}
+                    WHERE e.matchup_note_id IS NOT NULL
+                      AND e.polarity = 'bad'
+                      AND e.status != 'dismissed'
+                      AND {UnreviewedEvidenceGamePredicate}
+                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                    """;
+                break;
+
+            default:
+                return Array.Empty<PatternMoment>();
+        }
+
+        var moments = new List<PatternMoment>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            moments.Add(new PatternMoment(
+                EvidenceId: reader.GetInt64(0),
+                GameId: reader.GetInt64(1),
+                ChampionName: reader.GetString(2),
+                Win: reader.GetInt64(3) != 0,
+                GameTimestamp: reader.GetInt64(4),
+                StartTimeSeconds: reader.IsDBNull(5) ? null : Convert.ToInt32(reader.GetInt64(5)),
+                EndTimeSeconds: reader.IsDBNull(6) ? null : Convert.ToInt32(reader.GetInt64(6)),
+                Title: reader.GetString(7),
+                Note: reader.GetString(8),
+                Polarity: reader.GetString(9),
+                SourceKind: reader.GetString(10),
+                VodPath: reader.GetString(11)));
+        }
+        return moments;
+    }
+
+    public async Task MarkPatternReviewedAsync(string patternKey, string kind, int momentCount)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO pattern_reviews (pattern_key, kind, moment_count, reviewed_at)
+            VALUES (@key, @kind, @count, @now)
+            ON CONFLICT(pattern_key) DO UPDATE SET
+                kind = excluded.kind,
+                moment_count = excluded.moment_count,
+                reviewed_at = excluded.reviewed_at
+            """;
+        cmd.Parameters.AddWithValue("@key", patternKey);
+        cmd.Parameters.AddWithValue("@kind", kind ?? "");
+        cmd.Parameters.AddWithValue("@count", momentCount);
+        cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<int> CountReviewedPatternsAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM pattern_reviews";
+        var result = await cmd.ExecuteScalarAsync();
+        return result is null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+    }
+
+    public async Task<IReadOnlySet<string>> GetReviewedPatternKeysAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT pattern_key FROM pattern_reviews";
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(0)) keys.Add(reader.GetString(0));
+        }
+        return keys;
     }
 
     private static async Task<(int Count, long? LatestGameId)> CountPlainDeathMomentsAsync(SqliteConnection conn)

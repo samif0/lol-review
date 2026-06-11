@@ -62,6 +62,10 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
                 var ignored = DispatcherHelper.RunOnUIThreadAsync(
                     () => r.ViewModel.LoadCommand.ExecuteAsync(null));
             });
+        // A pattern marked reviewed should drop from the nag + bump the stat.
+        WeakReferenceMessenger.Default.Register<DashboardPage, PatternReviewedMessage>(
+            this, (r, _) => SafeHandler.Run(
+                () => r.ViewModel.LoadCommand.ExecuteAsync(null), "DashboardPage.PatternReviewed reload"));
         Unloaded += (_, _) => WeakReferenceMessenger.Default.UnregisterAll(this);
     }
 
@@ -72,6 +76,14 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
         if (ViewModel.LoadCommand.CanExecute(null))
         {
             await ViewModel.LoadCommand.ExecuteAsync(null);
+        }
+
+        // Tilt Check (and anything else) can land the user straight into the
+        // intent ritual: NavigateTo("dashboard", "startblock").
+        if (e.Parameter is string param
+            && string.Equals(param, "startblock", StringComparison.OrdinalIgnoreCase))
+        {
+            StartBlockButton_Click(this, new RoutedEventArgs());
         }
     }
 
@@ -124,10 +136,25 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
 
     private async void StartBlockButton_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new StartBlockDialog
+        try
         {
-            XamlRoot = XamlRoot,
-        };
-        await dialog.ShowAsync();
+            var dialog = new StartBlockDialog
+            {
+                XamlRoot = XamlRoot,
+            };
+            await dialog.ShowAsync();
+
+            // The dialog may have locked in a session goal — reload so the
+            // intent hero collapses to the locked chip immediately.
+            if (ViewModel.LoadCommand.CanExecute(null))
+            {
+                await ViewModel.LoadCommand.ExecuteAsync(null);
+            }
+        }
+        catch
+        {
+            // Dialog failure (e.g. one already open) is non-fatal; the
+            // dashboard simply doesn't refresh.
+        }
     }
 }

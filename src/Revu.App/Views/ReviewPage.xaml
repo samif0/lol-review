@@ -149,150 +149,25 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Background="{StaticResource InputBackgroundBrush}"
-                            BorderBrush="{StaticResource SubtleBorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="2"
-                            Padding="12,8"
-                            Visibility="Collapsed">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <ProgressRing IsActive="True" Width="18" Height="18"/>
-                            <TextBlock Text="Building evidence inbox..."
-                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <controls:CornerBracketedCard
-                            Visibility="Collapsed">
-                        <StackPanel Spacing="10">
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                <StackPanel Grid.Column="0" Spacing="4">
-                                    <controls:SectionTitle Text="EVIDENCE FROM THIS GAME"/>
-                                    <TextBlock Text="Review key VOD moments, clips, and objective examples from this match."
-                                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                               Foreground="{StaticResource SecondaryTextBrush}"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <Button Grid.Column="1"
-                                        Command="{x:Bind ViewModel.WatchVodCommand}"
-                                        Style="{StaticResource GoldListActionButtonStyle}"
-                                        VerticalAlignment="Center">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon Glyph="&#xE714;" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
-                                        <TextBlock Text="Review VOD"/>
-                                    </StackPanel>
-                                </Button>
-                            </Grid>
-
-                            <ListView x:Name="EvidenceList"
-                                      ItemsSource="{x:Bind ViewModel.EvidenceItems, Mode=OneWay}"
-                                      MaxHeight="390"
-                                      SelectionMode="None"
-                                      Background="Transparent"
-                                      BorderThickness="0"
-                                      Padding="0,0,8,0"
-                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                <ListView.ItemContainerStyle>
-                                    <Style TargetType="ListViewItem">
-                                        <Setter Property="Padding" Value="0,0,0,8"/>
-                                        <Setter Property="Margin" Value="0"/>
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                        <Setter Property="Background" Value="Transparent"/>
-                                        <Setter Property="BorderThickness" Value="0"/>
-                                    </Style>
-                                </ListView.ItemContainerStyle>
-                                <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:EvidenceInboxItem">
-                                            <Border Background="{StaticResource InputBackgroundBrush}"
-                                                    BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
-                                                    BorderThickness="1" CornerRadius="2" Padding="12">
-                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                                    <StackPanel Grid.Column="0" Spacing="7">
-                                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                            <TextBlock Text="{x:Bind TimeRangeText}"
-                                                                       FontFamily="{StaticResource MonoFont}"
-                                                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                       Foreground="{StaticResource AccentGoldBrush}"
-                                                                       VerticalAlignment="Center"/>
-                                                            <TextBlock Text="{x:Bind Title}"
-                                                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{StaticResource PrimaryTextBrush}"
-                                                                       TextWrapping="Wrap"/>
-                                                        </StackPanel>
-
-                                                        <controls:ObjectivePicker Source="{x:Bind TagOptions, Mode=OneWay}"
-                                                                                  Payload="{x:Bind}"
-                                                                                  SelectedTitle="{x:Bind ObjectiveTitleDisplay, Mode=OneWay}"
-                                                                                  PlaceholderText="Tag objective..."
-                                                                                  TagChosen="OnEvidenceTagChosen"
-                                                                                  HorizontalAlignment="Stretch"/>
-
-                                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                                            <Border Background="{StaticResource CardBackgroundBrush}"
-                                                                    BorderBrush="{x:Bind PolarityAccentBrush, Mode=OneWay}"
-                                                                    BorderThickness="1" CornerRadius="2" Padding="7,3">
-                                                                <TextBlock Text="{x:Bind PolarityLabel, Mode=OneWay}"
-                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                           Foreground="{x:Bind PolarityAccentBrush, Mode=OneWay}"/>
-                                                            </Border>
-                                                            <Border Background="{StaticResource CardBackgroundBrush}"
-                                                                    BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
-                                                                    BorderThickness="1" CornerRadius="2" Padding="7,3">
-                                                                <TextBlock Text="{x:Bind StatusLabel, Mode=OneWay}"
-                                                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                                                           Foreground="{x:Bind StatusAccentBrush, Mode=OneWay}"/>
-                                                            </Border>
-                                                        </StackPanel>
-                                                    </StackPanel>
-
-                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                        <Button Content="Good" Tag="good" DataContext="{x:Bind}"
-                                                                Click="OnEvidencePolarityClick"
-                                                                Style="{StaticResource ListActionButtonStyle}"
-                                                                Height="30" Padding="10,0"/>
-                                                        <Button Content="Bad" Tag="bad" DataContext="{x:Bind}"
-                                                                Click="OnEvidencePolarityClick"
-                                                                Style="{StaticResource ListActionButtonStyle}"
-                                                                Height="30" Padding="10,0"/>
-                                                        <Button Content="Evidence" Tag="evidence" DataContext="{x:Bind}"
-                                                                Click="OnEvidenceStatusClick"
-                                                                Style="{StaticResource ListActionButtonStyle}"
-                                                                Height="30" Padding="10,0"/>
-                                                        <Button Style="{StaticResource GhostIconButtonStyle}"
-                                                                DataContext="{x:Bind}"
-                                                                Click="OnOpenEvidenceClick"
-                                                                ToolTipService.ToolTip="Open in VOD">
-                                                            <FontIcon Glyph="&#xE768;"
-                                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                                      FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"/>
-                                                        </Button>
-                                                        <Button Style="{StaticResource GhostIconButtonStyle}"
-                                                                Tag="dismissed"
-                                                                DataContext="{x:Bind}"
-                                                                Click="OnEvidenceStatusClick"
-                                                                ToolTipService.ToolTip="Dismiss">
-                                                            <FontIcon Glyph="&#xE74D;"
-                                                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
-                                                                      FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                                                      Foreground="{StaticResource LossRedBrush}"/>
-                                                        </Button>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </StackPanel>
-                    </controls:CornerBracketedCard>
-
                     <!-- •••••••••••••••••••••••••••••••••••••••••••
                          GAME STATS
                          ••••••••••••••••••••••••••••••••••••••••••• -->
-                    <controls:SectionTitle Text="GAME STATS" Margin="0,4,0,0"/>
+                    <!-- Zone divider marks the stats as read-only reference so
+                         the eye separates them from the input sections below. -->
+                    <Grid ColumnSpacing="10" Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="GAME STATS // AUTO-CAPTURED"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="300"
+                                   Foreground="{StaticResource MutedTextBrush}"/>
+                        <Rectangle Grid.Column="1" Height="1"
+                                   Fill="{StaticResource SubtleBorderBrush}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
 
                     <Grid ColumnSpacing="8" RowSpacing="8">
                         <Grid.ColumnDefinitions>
@@ -328,6 +203,23 @@
                     <!-- •••••••••••••••••••••••••••••••••••••••••••
                          OBJECTIVE PRACTICE (moved up, after stats)
                          ••••••••••••••••••••••••••••••••••••••••••• -->
+                    <!-- "YOUR REVIEW" divider is the page's visual entry point —
+                         everything below it asks for input. -->
+                    <Grid ColumnSpacing="10" Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="YOUR REVIEW // START HERE"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="300"
+                                   Foreground="{StaticResource AccentGoldBrush}"/>
+                        <Rectangle Grid.Column="1" Height="1"
+                                   Fill="{StaticResource SubtleBorderBrush}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
                     <controls:CornerBracketedCard
                             Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <StackPanel Spacing="10">
@@ -378,9 +270,11 @@
                                     </ItemsRepeater.Layout>
                                     <ItemsRepeater.ItemTemplate>
                                         <DataTemplate x:DataType="vm:EvidenceInboxItem">
+                                            <!-- 3px left edge in polarity color (green/red/neutral)
+                                                 so the good/bad call is readable at a glance. -->
                                             <Border Background="{StaticResource InputBackgroundBrush}"
-                                                    BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
-                                                    BorderThickness="1"
+                                                    BorderBrush="{x:Bind PolarityAccentBrush, Mode=OneWay}"
+                                                    BorderThickness="3,1,1,1"
                                                     CornerRadius="2"
                                                     Padding="10,8">
                                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
@@ -509,9 +403,11 @@
                                                         </ItemsRepeater.Layout>
                                                         <ItemsRepeater.ItemTemplate>
                                                             <DataTemplate x:DataType="vm:EvidenceInboxItem">
+                                                                <!-- Polarity edge: good/bad of each attached
+                                                                     clip readable without opening it. -->
                                                                 <Border Background="{StaticResource CardBackgroundBrush}"
-                                                                        BorderBrush="{x:Bind StatusAccentBrush, Mode=OneWay}"
-                                                                        BorderThickness="1"
+                                                                        BorderBrush="{x:Bind PolarityAccentBrush, Mode=OneWay}"
+                                                                        BorderThickness="3,1,1,1"
                                                                         CornerRadius="2"
                                                                         Padding="9,7">
                                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
@@ -670,6 +566,21 @@
                     <!-- •••••••••••••••••••••••••••••••••••••••••••
                          MATCHUP NOTES
                          ••••••••••••••••••••••••••••••••••••••••••• -->
+                    <Grid ColumnSpacing="10" Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="OPTIONAL CONTEXT"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="300"
+                                   Foreground="{StaticResource MutedTextBrush}"/>
+                        <Rectangle Grid.Column="1" Height="1"
+                                   Fill="{StaticResource SubtleBorderBrush}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
                     <controls:CornerBracketedCard>
                         <StackPanel Spacing="10">
                             <controls:SectionTitle Text="MATCHUP NOTES"/>

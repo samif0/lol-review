@@ -48,25 +48,90 @@
 
                     <!-- v2.16: Start Block — manual pre-queue ritual.
                          Auto-trigger from LCU home-state still TBD.
-                         Top margin gives the button's hover lift + glow room to
-                         render; the ScrollViewer above has 0 top padding so
-                         without this the aura clips against the viewport edge. -->
-                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left"
-                                Margin="0,8,0,0">
-                        <Button Content="Start Block"
-                                Click="StartBlockButton_Click"
-                                Style="{StaticResource GoldActionButtonStyle}"
-                                FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                                FontWeight="SemiBold"
-                                Height="36"
-                                Padding="20,0"
-                                CornerRadius="2"/>
-                        <TextBlock Text="Set your intent before you queue up."
-                                   FontFamily="{StaticResource MonoFont}"
-                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
+                         Intent-first dashboard: until a goal is locked for
+                         today, Start Block leads as the hero CTA; once locked
+                         it collapses to a compact chip echoing the goal.
+                         Top margin keeps hover lift/glow from clipping against
+                         the 0-top-padding ScrollViewer edge. -->
+                    <controls:CornerBracketedCard
+                        CardBorderBrush="{StaticResource AccentGoldBrush}"
+                        Margin="0,8,0,0"
+                        Visibility="{x:Bind ViewModel.ShowIntentHero, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <Rectangle Width="18" Height="1"
+                                               Fill="{StaticResource AccentGoldBrush}"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Text="START BLOCK"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="300"
+                                               Foreground="{StaticResource AccentGoldBrush}"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="Set your intent before you queue."
+                                           FontFamily="{StaticResource HeadingFont}"
+                                           FontSize="{Binding Title, Source={StaticResource FontSizes}}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Text="A 30-second ritual: name one focus for this block of games, check your priority objective, lock in. Deliberate practice starts before the queue pops."
+                                           FontFamily="{StaticResource BodyFont}"
+                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="START BLOCK"
+                                    Click="StartBlockButton_Click"
+                                    Style="{StaticResource GoldActionButtonStyle}"
+                                    FontWeight="SemiBold"
+                                    VerticalAlignment="Center"
+                                    Height="44"
+                                    Padding="24,0"
+                                    CornerRadius="2"/>
+                        </Grid>
+                    </controls:CornerBracketedCard>
+
+                    <Border Background="{StaticResource SurfaceInsetBrush}"
+                            BorderBrush="{StaticResource AccentGoldBrush}"
+                            BorderThickness="1"
+                            CornerRadius="2"
+                            Padding="14,10"
+                            Margin="0,8,0,0"
+                            Visibility="{x:Bind ViewModel.HasSessionIntention, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="INTENT LOCKED //"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="200"
+                                       Foreground="{StaticResource AccentGoldBrush}"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind ViewModel.SessionIntention, Mode=OneWay}"
+                                       FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="2"
+                                    Content="New Block"
+                                    Click="StartBlockButton_Click"
+                                    Style="{StaticResource ListActionButtonStyle}"
+                                    VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
 
                     <!-- ••• NEXT STEP (empty-state prompt — hides at Normal stage) ••• -->
                     <controls:CornerBracketedCard
@@ -188,18 +253,32 @@
 
                     <!-- ••• STAT STRIP ••• -->
                     <controls:StatStrip Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <!-- Today's session framed against the user's own
+                             30-day baseline so a one-game day doesn't read as
+                             an alarm. Win-rate color stays neutral below
+                             3 games — sample too small to celebrate or panic. -->
                         <controls:StatCell Label="Games"
-                                           Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"/>
+                                           Value="{x:Bind ViewModel.TotalGames, Mode=OneWay}"
+                                           Sub="TODAY"/>
                         <controls:StatCell Label="Win Rate"
                                            Value="{x:Bind ViewModel.WinratePercent, Mode=OneWay}"
-                                           ValueBrush="{StaticResource WinGreenBrush}"
-                                           Sub="{x:Bind ViewModel.RecordLine, Mode=OneWay}"/>
+                                           ValueBrush="{x:Bind ViewModel.WinrateBrush, Mode=OneWay}"
+                                           Sub="{x:Bind ViewModel.WinRateSub, Mode=OneWay}"
+                                           ToolTipService.ToolTip="Today's session record. 30-DAY = your win rate across the last 30 days."/>
                         <controls:StatCell Label="Avg Mental"
-                                           Value="{x:Bind ViewModel.AvgMental, Mode=OneWay}"/>
+                                           Value="{x:Bind ViewModel.AvgMental, Mode=OneWay}"
+                                           Sub="{x:Bind ViewModel.AvgMentalSub, Mode=OneWay}"
+                                           ToolTipService.ToolTip="Average post-game mental rating (1–10) across today's reviews. 30-DAY AVG = your own 30-day baseline."/>
                         <controls:StatCell Label="Adherence"
                                            Value="{x:Bind ViewModel.AdherenceStreak, Mode=OneWay}"
                                            ValueBrush="{StaticResource AccentGoldBrush}"
-                                           Sub="STREAK ACTIVE"/>
+                                           Sub="{x:Bind ViewModel.AdherenceSub, Mode=OneWay}"
+                                           ToolTipService.ToolTip="Consecutive play-days with zero rule breaks. Skipped games are neutral and don't end the streak. Define your rules on the Rules page."/>
+                        <controls:StatCell Label="Patterns"
+                                           Value="{x:Bind ViewModel.ReviewedPatternCount, Mode=OneWay}"
+                                           ValueBrush="{StaticResource AccentBlueBrush}"
+                                           Sub="{x:Bind ViewModel.PatternsReviewedSub, Mode=OneWay}"
+                                           ToolTipService.ToolTip="Cross-game patterns you've worked through in Pattern Review. Open one from 'Patterns To Review' below, walk its moments across games, then mark it reviewed."/>
                     </controls:StatStrip>
 
                     <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}"
@@ -339,7 +418,8 @@
                                         </ItemsRepeater.Layout>
                                         <ItemsRepeater.ItemTemplate>
                                             <DataTemplate x:DataType="vm:DashboardObjectiveItem">
-                                                <Grid ColumnSpacing="14">
+                                                <Grid ColumnSpacing="14"
+                                                      ToolTipService.ToolTip="Objective score: +2 per win and −1 per loss in games where you practice it, +2 each time you attach clip evidence. Ladder: Exploring → Drilling (15 pts) → Ingraining (30) → Ready (50). The ring fills toward Ready.">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto"/>
                                                         <ColumnDefinition Width="*"/>

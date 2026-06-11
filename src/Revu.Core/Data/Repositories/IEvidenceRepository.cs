@@ -25,5 +25,29 @@ public interface IEvidenceRepository
 
     Task UpdateNoteAsync(long evidenceId, string note);
 
+    /// <summary>
+    /// Promote an existing evidence row to the saved clip backed by a bookmark
+    /// (sets source_kind=clip + source_id, and unhides it from needs-review).
+    /// Used by the Pattern Review auto-clip so the moment becomes a real clip
+    /// without creating a duplicate evidence row.
+    /// </summary>
+    Task AttachClipToEvidenceAsync(long evidenceId, long bookmarkId, int clipStartS, int clipEndS);
+
     Task<IReadOnlyList<ObjectivePatternCard>> GetPatternCardsAsync(int limit = 6);
+
+    /// <summary>
+    /// Resolve the ordered (oldest-first) moments that compose a pattern, joined
+    /// to each game's champion/result and matched VOD path. Drives the Pattern
+    /// Review viewer's cross-game moment playlist.
+    /// </summary>
+    Task<IReadOnlyList<PatternMoment>> GetPatternMomentsAsync(ObjectivePatternCard pattern);
+
+    /// <summary>Mark a pattern reviewed (upsert by pattern key); ticks the dashboard stat.</summary>
+    Task MarkPatternReviewedAsync(string patternKey, string kind, int momentCount);
+
+    /// <summary>Count of distinct patterns the user has marked reviewed.</summary>
+    Task<int> CountReviewedPatternsAsync();
+
+    /// <summary>The pattern keys already reviewed, so the dashboard nag can hide them.</summary>
+    Task<IReadOnlySet<string>> GetReviewedPatternKeysAsync();
 }

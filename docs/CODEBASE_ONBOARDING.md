@@ -351,8 +351,9 @@ This has been necessary multiple times in live support work.
 
 The prior "Coach Lab" system (Gemma-only clip-first coaching, hidden page
 behind `LOLREVIEW_ENABLE_COACH_LAB`, persistent Python worker, training
-pipeline) was removed in coach phase -1. A new coaching architecture is
-being built per `COACH_PLAN.md`.
+pipeline) was removed in coach phase -1. The rebuilt Python sidecar
+(`coach/`) was later cut from v1 too; its source lives on the
+`coach-preservation` branch and in git history if the feature is revived.
 
 **Cleaned up:**
 - All `Coach*` and `ICoach*` services in `src/Revu.Core/Services/`

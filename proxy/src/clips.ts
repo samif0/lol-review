@@ -19,11 +19,37 @@ export const CLIP_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 // Absolute server-side ceiling on an uploaded file. The desktop app enforces a
 // 90-second duration limit (Revu can't downscale source resolution), but a
-// public endpoint must bound size regardless of client. A 90s high-bitrate
-// 1080p/1440p clip tops out around ~150 MB, so 200 MB leaves headroom.
-export const MAX_CLIP_BYTES = 200 * 1024 * 1024;
+// public endpoint must bound size regardless of client.
+//
+// Capped at 100 MB — deliberately UNDER the Cloudflare Workers isolate memory
+// limit (~128 MB). The upload handler buffers the body with arrayBuffer()
+// before it can measure it, so a ceiling at/above the isolate limit would let a
+// large body OOM-crash the isolate before the size check runs (memory-DoS). A
+// 90s high-bitrate 1080p clip lands well under this; clients that need more
+// must transcode down first.
+export const MAX_CLIP_BYTES = 100 * 1024 * 1024;
 
 const ALLOWED_CONTENT_TYPES = new Set(["video/mp4", "video/webm"]);
+
+// Per-user ceilings on *active* (unexpired) clips. Uploads are authed, but
+// without a quota a single account could park unbounded R2 storage (200 MB
+// per request) on our bill.
+export const MAX_ACTIVE_CLIPS_PER_USER = 50;
+export const MAX_ACTIVE_CLIP_BYTES_PER_USER = 2 * 1024 * 1024 * 1024; // 2 GB
+
+/**
+ * Cheap container sniff so the stored object is at least shaped like the
+ * declared type — Content-Type alone is caller-asserted. mp4 (ISO BMFF)
+ * leads with a size-prefixed "ftyp" box; webm leads with the EBML magic.
+ */
+function hasVideoMagicBytes(bytes: Uint8Array, contentType: string): boolean {
+  if (contentType === "video/webm") {
+    return bytes.length >= 4
+      && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
+  }
+  return bytes.length >= 12
+    && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70; // "ftyp"
+}
 
 // Slug shape: 7 chars of base62. ~62^7 ≈ 3.5e12 — plenty for a 30-day window.
 const SLUG_LENGTH = 7;
@@ -220,6 +246,7 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
       // Short cache: clip metadata (title/views) can change, and a deleted clip
       // should stop unfurling reasonably soon.
       "Cache-Control": "public, max-age=300",
@@ -259,19 +286,52 @@ export async function handleUploadClip(
     return jsonResponse({ error: "unsupported_media_type", message: "clip must be video/mp4 or video/webm" }, 415);
   }
 
+  const tooLargeMessage = `clip exceeds ${Math.floor(MAX_CLIP_BYTES / (1024 * 1024))} MB`;
+
+  // Fast-reject on a declared length before reading a single byte. Honest
+  // clients (the desktop app always sets Content-Length) never reach the
+  // streaming guard below.
   const lenHeader = request.headers.get("Content-Length");
   const declaredLen = lenHeader ? parseInt(lenHeader, 10) : NaN;
   if (Number.isFinite(declaredLen) && declaredLen > MAX_CLIP_BYTES) {
-    return jsonResponse({ error: "payload_too_large", message: "clip exceeds 200 MB" }, 413);
+    return jsonResponse({ error: "payload_too_large", message: tooLargeMessage }, 413);
   }
 
-  const body = await request.arrayBuffer();
+  // Read the body through a byte-counting guard that ABORTS once the cap is
+  // exceeded, so a missing/lying Content-Length can't stream an oversized body
+  // fully into the isolate (memory-DoS). We never buffer more than
+  // MAX_CLIP_BYTES + one chunk.
+  let body: ArrayBuffer;
+  try {
+    body = await readBodyCapped(request, MAX_CLIP_BYTES);
+  } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      return jsonResponse({ error: "payload_too_large", message: tooLargeMessage }, 413);
+    }
+    throw err;
+  }
   if (body.byteLength === 0) {
     return badRequest("empty body");
   }
-  // Guard the real size too — Content-Length can lie or be absent.
-  if (body.byteLength > MAX_CLIP_BYTES) {
-    return jsonResponse({ error: "payload_too_large", message: "clip exceeds 200 MB" }, 413);
+  if (!hasVideoMagicBytes(new Uint8Array(body, 0, Math.min(body.byteLength, 16)), contentType)) {
+    return jsonResponse(
+      { error: "unsupported_media_type", message: "file content does not match the declared video type" },
+      415,
+    );
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // Quota check (active clips only — expired ones purge daily and stop counting).
+  const usage = await env.DB
+    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND expires_at > ?2")
+    .bind(userId, now)
+    .first<{ n: number; total: number }>();
+  if (usage && (usage.n >= MAX_ACTIVE_CLIPS_PER_USER || usage.total + body.byteLength > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
+    return jsonResponse(
+      { error: "quota_exceeded", message: "active clip quota reached — delete old clips or let them expire" },
+      403,
+    );
   }
 
   const url = new URL(request.url);
@@ -289,7 +349,6 @@ export async function handleUploadClip(
     httpMetadata: { contentType },
   });
 
-  const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + CLIP_TTL_SECONDS;
   try {
     await insertClip(env.DB, {
@@ -310,6 +369,25 @@ export async function handleUploadClip(
     // Roll back the orphaned object if the row insert fails.
     try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
     throw err;
+  }
+
+  // Re-check quota AFTER the row is committed. D1 has no cross-statement
+  // transaction we can hold across the R2 put, so the pre-insert check above is
+  // racy under concurrent uploads. This post-insert recount sees every
+  // committed sibling row, so a parallel flood that slipped past the first
+  // check is caught here and rolled back — the cap can be momentarily reached
+  // but not exceeded.
+  const postUsage = await env.DB
+    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND expires_at > ?2")
+    .bind(userId, now)
+    .first<{ n: number; total: number }>();
+  if (postUsage && (postUsage.n > MAX_ACTIVE_CLIPS_PER_USER || postUsage.total > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
+    try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
+    try { await env.DB.prepare("DELETE FROM clips WHERE id = ?1").bind(id).run(); } catch { /* best effort */ }
+    return jsonResponse(
+      { error: "quota_exceeded", message: "active clip quota reached — delete old clips or let them expire" },
+      403,
+    );
   }
 
   const base = (env.PUBLIC_BASE || "https://clips.revu.lol").replace(/\/+$/, "");
@@ -356,6 +434,14 @@ export async function handleClipFile(request: Request, env: Env, id: string): Pr
   headers.set("Accept-Ranges", "bytes");
   // Clips are immutable for their lifetime — cache hard.
   headers.set("Cache-Control", "public, max-age=86400, immutable");
+  // The bytes are user-uploaded: never let a browser second-guess the type,
+  // and sandbox any context that somehow renders the response as a document.
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Content-Security-Policy", "sandbox");
+  headers.set(
+    "Content-Disposition",
+    `inline; filename="revu-clip-${clip.id}.${clip.content_type === "video/webm" ? "webm" : "mp4"}"`,
+  );
   const etag = obj.httpEtag;
   if (etag) headers.set("ETag", etag);
 
@@ -441,6 +527,52 @@ export async function purgeExpiredClips(env: Env): Promise<number> {
 }
 
 // ── small utils ────────────────────────────────────────────────────────────
+
+/** Thrown by readBodyCapped when the streamed body exceeds the byte cap. */
+class PayloadTooLargeError extends Error {}
+
+/**
+ * Read a request body into an ArrayBuffer, aborting as soon as the running
+ * total exceeds `maxBytes`. Unlike `request.arrayBuffer()`, this never holds
+ * more than the cap (plus one in-flight chunk) in memory, so an oversized or
+ * Content-Length-spoofing upload can't OOM the Worker isolate. Falls back to a
+ * bounded `arrayBuffer()` read if the body isn't a readable stream.
+ */
+async function readBodyCapped(request: Request, maxBytes: number): Promise<ArrayBuffer> {
+  const stream = request.body;
+  if (!stream) {
+    const buf = await request.arrayBuffer();
+    if (buf.byteLength > maxBytes) throw new PayloadTooLargeError();
+    return buf;
+  }
+
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch { /* best effort */ }
+        throw new PayloadTooLargeError();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+}
 
 function clampText(value: string | null, max: number): string | null {
   if (value === null) return null;

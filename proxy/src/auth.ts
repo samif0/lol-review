@@ -13,6 +13,7 @@
  */
 
 import {
+  countRecentLoginRequests,
   createLoginRequest,
   createSession,
   createUser,
@@ -27,6 +28,11 @@ import { jsonResponse, badRequest } from "./http";
 
 const OTP_LIFETIME_SECONDS = 10 * 60;
 const SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
+
+// Per-email send throttle. The per-IP limit in index.ts slows one attacker;
+// this bounds what a *distributed* attacker can do to a single inbox.
+const EMAIL_SEND_WINDOW_SECONDS = 15 * 60;
+const EMAIL_SEND_MAX_PER_WINDOW = 3;
 
 function isValidEmail(email: string): boolean {
   // Conservative check — Resend will reject actual bad addresses anyway.
@@ -60,8 +66,14 @@ export async function handleSignup(request: Request, env: Env): Promise<Response
 }
 
 async function sendLoginCode(env: Env, email: string): Promise<Response> {
+  const recentSends = await countRecentLoginRequests(env.DB, email, EMAIL_SEND_WINDOW_SECONDS);
+  if (recentSends >= EMAIL_SEND_MAX_PER_WINDOW) {
+    return jsonResponse({ error: "rate_limit_email" }, 429, { "Retry-After": String(EMAIL_SEND_WINDOW_SECONDS) });
+  }
+
   const otp = randomOtpCode(8);
-  await createLoginRequest(env.DB, otp, email, "login", OTP_LIFETIME_SECONDS);
+  // Only the hash is stored; the raw code exists in the outbound email alone.
+  await createLoginRequest(env.DB, await sha256Hex(otp), email, "login", OTP_LIFETIME_SECONDS);
 
   try {
     await sendMagicLinkEmail(
@@ -97,7 +109,7 @@ export async function handleVerify(request: Request, env: Env): Promise<Response
   const code = (body.code ?? "").trim().toUpperCase();
   if (!code) return badRequest("code_required");
 
-  const req = await tryConsumeLoginRequest(env.DB, code);
+  const req = await tryConsumeLoginRequest(env.DB, await sha256Hex(code));
   if (!req) {
     return jsonResponse({ error: "invalid_or_expired_code" }, 400);
   }

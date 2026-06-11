@@ -134,6 +134,16 @@ public sealed partial class GameRepository
         {
             try
             {
+                // Defense-in-depth: only delete a path that carries a clip
+                // video extension. clip_path is normally written only by
+                // ClipService, but treating a raw DB value as a delete target
+                // would let anyone who can edit the local SQLite file make the
+                // app delete an arbitrary file (e.g. point clip_path at a
+                // document). We can't bound to the clips folder because it's
+                // user-configurable and may sit anywhere, so we gate on the
+                // extension: a clip is always a video container. Non-video
+                // paths are skipped, not deleted.
+                if (!IsDeletableClipPath(clipPath)) continue;
                 if (File.Exists(clipPath)) File.Delete(clipPath);
             }
             catch
@@ -144,6 +154,29 @@ public sealed partial class GameRepository
 
         var dbDir = Path.GetDirectoryName(_factory.DatabasePath) ?? "";
         return Path.Combine(dbDir, "backups");
+    }
+
+    private static readonly string[] ClipExtensions = { ".mp4", ".webm", ".mkv", ".mov" };
+
+    /// <summary>
+    /// True only when <paramref name="clipPath"/> is a well-formed path ending
+    /// in a known clip video extension. Guards the cascade-delete file cleanup
+    /// against a tampered <c>clip_path</c> pointing at a non-clip file.
+    /// </summary>
+    private static bool IsDeletableClipPath(string clipPath)
+    {
+        if (string.IsNullOrWhiteSpace(clipPath)) return false;
+        string full;
+        try
+        {
+            full = Path.GetFullPath(clipPath);
+        }
+        catch
+        {
+            return false; // malformed path
+        }
+        var ext = Path.GetExtension(full);
+        return Array.FindIndex(ClipExtensions, e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase)) >= 0;
     }
 
     private static async Task<long?> GetGamePkAsync(
@@ -159,6 +192,25 @@ public sealed partial class GameRepository
         return result is null || result == DBNull.Value ? null : Convert.ToInt64(result);
     }
 
+    // SQL identifiers can't be parameterized, so the two delete helpers below
+    // interpolate the table name. Every current caller passes a compile-time
+    // constant; this allowlist makes that assumption load-bearing — a
+    // non-constant (or typo'd) table name throws instead of reaching SQLite.
+    private static readonly HashSet<string> DeletableTables = new(StringComparer.Ordinal)
+    {
+        "evidence_items", "session_log", "vod_files", "game_events",
+        "derived_event_instances", "game_objectives", "game_concept_tags",
+        "prompt_answers", "matchup_notes", "tilt_checks", "review_drafts",
+        "cleared_rule_breaks", "game_summary", "review_concepts",
+        "feature_values", "coach_moments", "vod_bookmarks",
+        "coach_labels", "coach_inferences",
+    };
+
+    private static string RequireDeletableTable(string table) =>
+        DeletableTables.Contains(table)
+            ? table
+            : throw new ArgumentException($"Table '{table}' is not on the deletion allowlist.", nameof(table));
+
     private static async Task DeleteByGameIdAsync(
         Microsoft.Data.Sqlite.SqliteConnection conn,
         Microsoft.Data.Sqlite.SqliteTransaction tx,
@@ -166,6 +218,7 @@ public sealed partial class GameRepository
         long gameId,
         long? gamePk)
     {
+        table = RequireDeletableTable(table);
         if (!await TableExistsAsync(conn, tx, table).ConfigureAwait(false))
         {
             return;
@@ -192,6 +245,7 @@ public sealed partial class GameRepository
         long gameId,
         long? gamePk)
     {
+        table = RequireDeletableTable(table);
         if (!await TableExistsAsync(conn, tx, table).ConfigureAwait(false)
             || !await TableExistsAsync(conn, tx, "coach_moments").ConfigureAwait(false))
         {

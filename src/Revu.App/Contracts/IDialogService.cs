@@ -25,12 +25,6 @@ public interface IDialogService
     /// <summary>Show the post-game review dialog after a match ends.</summary>
     Task<ContentDialogResult> ShowGameReviewDialogAsync(long gameId);
 
-    /// <summary>Show the manual game entry dialog.</summary>
-    Task<ContentDialogResult> ShowManualEntryDialogAsync();
-
-    /// <summary>Show the end-of-session debrief dialog.</summary>
-    Task<ContentDialogResult> ShowSessionDebriefDialogAsync(string date);
-
     /// <summary>Show a simple informational message.</summary>
     Task ShowMessageAsync(string title, string message);
 

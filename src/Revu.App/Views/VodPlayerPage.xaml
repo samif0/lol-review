@@ -89,6 +89,20 @@
                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
                                        Foreground="{StaticResource PrimaryTextBrush}"/>
                         </Border>
+
+                        <!-- Collapse/expand the bookmark sidebar without going
+                             full theater — video gets near-full width while the
+                             transport + timeline stay docked. -->
+                        <Button x:Name="SidebarToggleButton"
+                                Click="OnToggleSidebarClick"
+                                Style="{StaticResource GhostIconButtonStyle}"
+                                Width="38" Height="34"
+                                IsTabStop="False" AllowFocusOnInteraction="False"
+                                ToolTipService.ToolTip="Hide the side panel — give the video full width">
+                            <FontIcon x:Name="SidebarToggleIcon" Glyph="&#xE89F;"
+                                      FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
+                                      FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"/>
+                        </Button>
                     </StackPanel>
                 </Grid>
             </Grid>

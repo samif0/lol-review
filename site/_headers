@@ -1,0 +1,19 @@
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://ddragon.leagueoflegends.com; media-src 'self' blob:; connect-src 'self' https://revu-proxy.lol-review.workers.dev https://clips.revu.lol https://api.github.com https://ddragon.leagueoflegends.com http://localhost:8787; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# The clip watch page must stay frameable by the Twitter/X player card and
+# reachable from localhost during wrangler dev. Pages serves it at the clean
+# URL /clip (and redirects /clip.html there) — cover both. Detach the global
+# CSP first: matched rules otherwise comma-join, and browsers enforce the
+# intersection of joined policies (frame-ancestors 'none' would win).
+/clip
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:* http://127.0.0.1:*; connect-src https://clips.revu.lol http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://twitter.com https://x.com https://*.twitter.com https://*.x.com
+
+/clip.html
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:* http://127.0.0.1:*; connect-src https://clips.revu.lol http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://twitter.com https://x.com https://*.twitter.com https://*.x.com

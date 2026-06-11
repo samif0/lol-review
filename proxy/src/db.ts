@@ -108,10 +108,14 @@ export async function deleteExpiredSessions(db: D1Database): Promise<void> {
 }
 
 // ── Login requests (one-time codes) ─────────────────────────────────────
+//
+// The `code` column stores sha256(otp) hex, never the raw code — same
+// hash-at-rest treatment as session tokens, so a D1 leak can't hand out
+// live login codes.
 
 export async function createLoginRequest(
   db: D1Database,
-  code: string,
+  codeHash: string,
   email: string,
   purpose: "signup" | "login",
   lifetimeSeconds: number,
@@ -121,24 +125,42 @@ export async function createLoginRequest(
     .prepare(
       "INSERT INTO login_requests (code, email, purpose, created_at, expires_at, consumed) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
     )
-    .bind(code, email, purpose, now, now + lifetimeSeconds)
+    .bind(codeHash, email, purpose, now, now + lifetimeSeconds)
     .run();
 }
 
 /**
- * Atomic: look up a login request by code, mark it consumed if it's still
- * valid (unexpired, unconsumed). Returns the pre-consume row or null.
+ * Count codes issued to an email inside the trailing window. Backs the
+ * per-email send throttle — per-IP limits alone don't stop a distributed
+ * attacker from bombing one inbox / burning email-send quota.
+ */
+export async function countRecentLoginRequests(
+  db: D1Database,
+  email: string,
+  windowSeconds: number,
+): Promise<number> {
+  const cutoff = Math.floor(Date.now() / 1000) - windowSeconds;
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM login_requests WHERE email = ?1 AND created_at > ?2")
+    .bind(email, cutoff)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * Atomic: look up a login request by code hash, mark it consumed if it's
+ * still valid (unexpired, unconsumed). Returns the pre-consume row or null.
  */
 export async function tryConsumeLoginRequest(
   db: D1Database,
-  code: string,
+  codeHash: string,
 ): Promise<LoginRequestRow | null> {
   const now = Math.floor(Date.now() / 1000);
   const row = await db
     .prepare(
       "SELECT code, email, purpose, created_at, expires_at, consumed FROM login_requests WHERE code = ?1 LIMIT 1",
     )
-    .bind(code)
+    .bind(codeHash)
     .first<LoginRequestRow>();
   if (!row) return null;
   if (row.consumed !== 0) return null;
@@ -146,7 +168,7 @@ export async function tryConsumeLoginRequest(
 
   const upd = await db
     .prepare("UPDATE login_requests SET consumed = 1 WHERE code = ?1 AND consumed = 0")
-    .bind(code)
+    .bind(codeHash)
     .run();
   if ((upd.meta.changes ?? 0) === 0) return null; // race: another request consumed it
   return row;

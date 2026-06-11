@@ -1,5 +1,6 @@
 #nullable enable
 
+using Revu.App.Contracts;
 using Revu.App.Helpers;
 using Revu.App.ViewModels;
 using Microsoft.UI.Xaml;
@@ -63,5 +64,22 @@ public sealed partial class TiltCheckPage : Page
     {
         if (sender is Button { Tag: string text })
             ViewModel.SelectResponseCommand.Execute(text);
+    }
+
+    /// <summary>
+    /// Save the reset, then land in the dashboard's Start Block ritual —
+    /// after a reset the natural next move is re-setting intent.
+    /// </summary>
+    private async void OnSaveAndSetIntentClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await ViewModel.SaveAndCloseCommand.ExecuteAsync(null);
+            App.GetService<INavigationService>().NavigateTo("dashboard", "startblock");
+        }
+        catch
+        {
+            // Navigation failure leaves the user on the completed check — benign.
+        }
     }
 }

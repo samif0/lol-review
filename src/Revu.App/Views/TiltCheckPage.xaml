@@ -481,7 +481,18 @@
                                        Foreground="{x:Bind ViewModel.ResultColor, Mode=OneWay}"
                                        TextWrapping="Wrap"/>
 
-                            <!-- Actions -->
+                            <!-- Why this works — credit the mechanism so the ritual
+                                 earns trust. Mirrors the research notes on
+                                 TiltCheckViewModel (cyclic sighing, affect labeling). -->
+                            <TextBlock FontFamily="{StaticResource BodyFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="Why this works: long-exhale sighing is the fastest breathing pattern shown to lower physiological arousal, and naming an emotion measurably reduces its intensity. You just did both."/>
+
+                            <!-- Actions. The gold path closes the loop: after a
+                                 reset, the natural next move is re-setting intent,
+                                 so it lands in Start Block on the dashboard. -->
                             <StackPanel Orientation="Horizontal"
                                         HorizontalAlignment="Right"
                                         Spacing="8"
@@ -490,8 +501,16 @@
                                         Style="{StaticResource SecondaryActionButtonStyle}"
                                         Command="{x:Bind ViewModel.StartOverCommand}"/>
                                 <Button Content="SAVE &amp; CLOSE"
-                                        Style="{StaticResource PrimaryActionButtonStyle}"
+                                        Style="{StaticResource SecondaryActionButtonStyle}"
                                         Command="{x:Bind ViewModel.SaveAndCloseCommand}"/>
+                                <Button Content="SAVE → SET INTENT"
+                                        Style="{StaticResource GoldActionButtonStyle}"
+                                        FontWeight="SemiBold"
+                                        Height="40"
+                                        Padding="18,0"
+                                        CornerRadius="2"
+                                        ToolTipService.ToolTip="Save this reset, then lock in a fresh intent before you queue again."
+                                        Click="OnSaveAndSetIntentClick"/>
                             </StackPanel>
                         </StackPanel>
                     </controls:CornerBracketedCard>

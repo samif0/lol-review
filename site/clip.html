@@ -610,7 +610,15 @@
   <script>
     (function () {
       var params = new URLSearchParams(location.search);
-      var PROXY_BASE = (params.get("proxy") || "https://clips.revu.lol").replace(/\/+$/, "");
+      // The proxy override exists for local dev (wrangler dev) ONLY. Never
+      // honor an arbitrary origin from the URL — a crafted share link could
+      // otherwise make this trusted page fetch and play attacker-controlled
+      // content under revu.lol.
+      var PROXY_BASE = "https://clips.revu.lol";
+      var proxyOverride = (params.get("proxy") || "").replace(/\/+$/, "");
+      if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(proxyOverride)) {
+        PROXY_BASE = proxyOverride;
+      }
 
       function resolveId() {
         var id = params.get("id");

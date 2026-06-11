@@ -49,6 +49,10 @@ public partial class DashboardViewModel : ObservableObject
     // if there are no active objectives, nudge toward setting one.
     private const int NeedsObjectiveThreshold = 3;
 
+    // Minimum games inside the 30-day window before the "30-DAY" baseline subs
+    // render — below this the reference line is noisier than no reference.
+    private const int BaselineMinGames = 5;
+
     private readonly IGameHistoryQuery _gameHistory;
     private readonly IGameAnalyticsQuery _gameAnalytics;
     private readonly IGameDeletionService _gameDeletion;
@@ -74,11 +78,13 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(WinratePercent))]
     [NotifyPropertyChangedFor(nameof(RecordLine))]
+    [NotifyPropertyChangedFor(nameof(WinrateBrush))]
     private int _wins;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(WinratePercent))]
     [NotifyPropertyChangedFor(nameof(RecordLine))]
+    [NotifyPropertyChangedFor(nameof(WinrateBrush))]
     private int _losses;
 
     [ObservableProperty]
@@ -86,6 +92,31 @@ public partial class DashboardViewModel : ObservableObject
 
     [ObservableProperty]
     private int _adherenceStreak;
+
+    // ── Stat-strip framing — today's numbers against the user's own baseline ──
+
+    [ObservableProperty]
+    private string _winRateSub = "";
+
+    [ObservableProperty]
+    private string _avgMentalSub = "";
+
+    [ObservableProperty]
+    private string _adherenceSub = "DAYS W/O RULE BREAKS";
+
+    /// <summary>
+    /// Today's session goal locked in via Start Block. Empty until the user
+    /// runs the ritual — drives the intent hero CTA vs. the locked chip.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSessionIntention))]
+    [NotifyPropertyChangedFor(nameof(ShowIntentHero))]
+    private string _sessionIntention = "";
+
+    public bool HasSessionIntention => !string.IsNullOrWhiteSpace(SessionIntention);
+
+    /// <summary>Intent-first hero shows until a goal is locked for today.</summary>
+    public bool ShowIntentHero => !HasSessionIntention;
 
     [ObservableProperty]
     private int _winStreak;
@@ -116,6 +147,14 @@ public partial class DashboardViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _hasObjectivePatterns;
+
+    // Cross-game patterns the user has worked through in the Pattern Review
+    // viewer. Surfaced as a dashboard stat — the reward for closing a pattern.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PatternsReviewedSub))]
+    private int _reviewedPatternCount;
+
+    public string PatternsReviewedSub => ReviewedPatternCount == 0 ? "NONE YET" : "CROSS-GAME";
 
     // v2.15.0: LastFocus removed from the Dashboard. The underlying focus_next
     // field is no longer written to by the slimmed-down Review flow; relying
@@ -209,6 +248,26 @@ public partial class DashboardViewModel : ObservableObject
     /// <summary>"3W // 2L" compact win/loss line. Empty when there are no games yet.</summary>
     public string RecordLine => (Wins + Losses) == 0 ? "" : $"{Wins}W // {Losses}L";
 
+    /// <summary>
+    /// Direction color for today's record. Below 3 games the sample is noise,
+    /// so the value stays neutral instead of painting one rough (or lucky)
+    /// game red or green in the hero strip.
+    /// </summary>
+    public Microsoft.UI.Xaml.Media.SolidColorBrush WinrateBrush
+    {
+        get
+        {
+            var games = Wins + Losses;
+            if (games < 3 || Wins == Losses)
+            {
+                return AppSemanticPalette.Brush(AppSemanticPalette.PrimaryTextHex);
+            }
+
+            return AppSemanticPalette.Brush(
+                Wins > Losses ? AppSemanticPalette.PositiveHex : AppSemanticPalette.NegativeHex);
+        }
+    }
+
     // Cached suggestion produced during LoadAsync, so the "SET OBJECTIVE"
     // button can pre-fill the create form without re-running the full
     // profile generation when clicked.
@@ -289,9 +348,44 @@ public partial class DashboardViewModel : ObservableObject
             // Adherence streak
             AdherenceStreak = await _sessionLogRepo.GetAdherenceStreakAsync();
             AdherenceColorHex = AdherenceStreak >= 3 ? "#7EC9A0" : "#F0EEF8";
+            AdherenceSub = AdherenceStreak > 0 ? "DAYS W/O RULE BREAKS" : "NO ACTIVE STREAK";
 
             // Win streak
             WinStreak = await _gameAnalytics.GetWinStreakAsync();
+
+            // Start Block intent for today — drives the hero CTA vs. locked chip.
+            var sessionInfo = await _sessionLogRepo.GetSessionAsync(today);
+            SessionIntention = sessionInfo?.Intention?.Trim() ?? "";
+
+            // 30-day baseline under the today-only cells, so a one-game day
+            // reads against the user's own normal instead of in a vacuum.
+            try
+            {
+                var last30 = await _sessionLogRepo.GetDailySummariesAsync(days: 30);
+                var baselineGames = last30.Sum(s => s.Games);
+                var baselineWins = last30.Sum(s => s.Wins);
+
+                var winRateBaseline = baselineGames >= BaselineMinGames
+                    ? $"30-DAY {(int)Math.Round(100.0 * baselineWins / baselineGames)}%"
+                    : "";
+                WinRateSub = string.IsNullOrEmpty(winRateBaseline)
+                    ? RecordLine
+                    : string.IsNullOrEmpty(RecordLine)
+                        ? winRateBaseline
+                        : $"{RecordLine}  •  {winRateBaseline}";
+
+                var ratedDays = last30.Where(s => s.AvgMental > 0).ToList();
+                var ratedGames = ratedDays.Sum(s => s.Games);
+                AvgMentalSub = ratedGames >= BaselineMinGames
+                    ? $"30-DAY AVG {ratedDays.Sum(s => s.AvgMental * s.Games) / ratedGames:F1}"
+                    : "";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Dashboard: 30-day baseline computation failed");
+                WinRateSub = RecordLine;
+                AvgMentalSub = "";
+            }
 
             // Session banner
             if (TotalGames > 0)
@@ -416,22 +510,23 @@ public partial class DashboardViewModel : ObservableObject
     [RelayCommand]
     private void OpenObjectivePattern(ObjectivePatternItem? pattern)
     {
-        if (pattern?.ObjectiveId is long objectiveId && objectiveId > 0)
-        {
-            _navigationService.NavigateTo("objectivegames", objectiveId);
-        }
-        else if (pattern?.GameId is long gameId && gameId > 0)
-        {
-            _navigationService.NavigateTo("vodplayer", new VodPlayerNavigationRequest
-            {
-                GameId = gameId,
-                AutoMomentPatternKind = pattern.Kind,
-            });
-        }
-        else
+        if (pattern is null)
         {
             _navigationService.NavigateTo("games");
+            return;
         }
+
+        // A pattern is a cross-game thread — open the dedicated Pattern Review
+        // viewer, which walks every moment composing it as one playlist
+        // (transparently switching VODs). The card carries the kind/objective
+        // that GetPatternMomentsAsync needs to resolve those moments.
+        _navigationService.NavigateTo("patternreview", new ObjectivePatternCard(
+            Kind: pattern.Kind,
+            Title: pattern.Title,
+            Detail: pattern.Detail,
+            GameId: pattern.GameId,
+            ObjectiveId: pattern.ObjectiveId,
+            Severity: pattern.Severity));
     }
 
     private string BuildGreeting(string tod)
@@ -802,11 +897,23 @@ public partial class DashboardViewModel : ObservableObject
     {
         try
         {
-            var patterns = await _evidenceRepo.GetPatternCardsAsync(limit: 4);
+            // Pull a couple extra so the nag stays populated even after some
+            // are filtered out as already-reviewed.
+            var patterns = await _evidenceRepo.GetPatternCardsAsync(limit: 6);
+            var reviewedKeys = await _evidenceRepo.GetReviewedPatternKeysAsync();
+            ReviewedPatternCount = await _evidenceRepo.CountReviewedPatternsAsync();
+
+            // A reviewed pattern leaves the nag (the reward: it's gone) — but
+            // keep showing at most 4 still-pending ones.
+            var pending = patterns
+                .Where(p => !reviewedKeys.Contains(p.PatternKey))
+                .Take(4)
+                .ToList();
+
             DispatcherHelper.RunOnUIThread(() =>
             {
                 ObjectivePatterns.Clear();
-                foreach (var pattern in patterns)
+                foreach (var pattern in pending)
                 {
                     ObjectivePatterns.Add(new ObjectivePatternItem
                     {

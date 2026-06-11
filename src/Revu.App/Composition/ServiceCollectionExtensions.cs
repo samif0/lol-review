@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using System.Security.Cryptography.X509Certificates;
 using CommunityToolkit.Mvvm.Messaging;
 using Revu.App.Contracts;
@@ -62,17 +63,20 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IReviewExportService, ReviewExportService>();
         services.AddSingleton<IGameLifecycleWorkflowService, GameLifecycleWorkflowService>();
 
-        // Riot proxy / auth (Path B).
-        services.AddHttpClient<IRiotAuthClient, RiotAuthClient>();
-        services.AddHttpClient<IRiotMatchClient, RiotMatchClient>();
+        // Riot proxy / auth (Path B). Explicit timeouts so a stalled upstream
+        // can't hang a request for the default 100s (the loopback LCU/Live
+        // clients already set their own short timeouts).
+        services.AddHttpClient<IRiotAuthClient, RiotAuthClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
+        services.AddHttpClient<IRiotMatchClient, RiotMatchClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton<EnemyLanerBackfillService>();
 
         // Public clip sharing (revu.lol/<id>). Uploads a local clip via the
         // logged-in session token; the clip is publicly viewable, owner-deletable.
-        services.AddHttpClient<IClipUploadService, ClipUploadService>();
+        // Larger timeout — a clip body can be up to ~100 MB.
+        services.AddHttpClient<IClipUploadService, ClipUploadService>(c => c.Timeout = TimeSpan.FromMinutes(5));
 
         // v2.16.1: pre-game intel rotator data sources.
-        services.AddHttpClient<IRiotChampionDataClient, RiotChampionDataClient>();
+        services.AddHttpClient<IRiotChampionDataClient, RiotChampionDataClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton<PreGameIntelService>();
 
         // v2.16.1: minimize window + suspend animations while a game is running.
@@ -139,7 +143,7 @@ internal static class ServiceCollectionExtensions
         services.AddTransient<ObjectivesViewModel>();
         services.AddTransient<RulesViewModel>();
         services.AddTransient<TiltCheckViewModel>();
-        services.AddTransient<HistoryViewModel>();
+        services.AddTransient<PatternReviewViewModel>();
         services.AddTransient<AnalyticsViewModel>();
         services.AddTransient<SettingsViewModel>();
         services.AddTransient<ReviewViewModel>();

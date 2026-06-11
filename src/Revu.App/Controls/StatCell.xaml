@@ -42,6 +42,7 @@
                            FontFamily="{StaticResource MonoFont}"
                            FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
                            Foreground="{StaticResource MutedTextBrush}"
+                           TextWrapping="Wrap"
                            Visibility="Collapsed"/>
             </StackPanel>
 

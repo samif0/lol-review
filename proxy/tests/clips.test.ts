@@ -42,6 +42,13 @@ function makeFakeDb(seedClips: FakeClip[] = [], sessions: Record<string, number>
           if (userId === undefined) return null;
           return { token_hash: tokenHash, user_id: userId, created_at: 0, expires_at: 9e9 } as T;
         }
+        // per-user quota usage (upload path)
+        if (sql.includes("COALESCE(SUM(size_bytes)")) {
+          const userId = args[0] as number;
+          const now = args[1] as number;
+          const mine = [...clips.values()].filter((c) => c.user_id === userId && c.expires_at > now);
+          return { n: mine.length, total: mine.reduce((s, c) => s + c.size_bytes, 0) } as T;
+        }
         // unique-slug existence probe
         if (sql.startsWith("SELECT id FROM clips WHERE id")) {
           const id = args[0] as string;
@@ -157,6 +164,12 @@ async function json(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
+/** Minimal bytes that pass the mp4 (ISO BMFF "ftyp") magic-byte sniff. */
+function mp4Bytes(extra = 0): Uint8Array {
+  const head = [0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 0, 1];
+  return new Uint8Array([...head, ...new Array(extra).fill(0)]);
+}
+
 function clip(over: Partial<FakeClip> = {}): FakeClip {
   const now = Math.floor(Date.now() / 1000);
   return {
@@ -229,7 +242,7 @@ describe("clip sharing", () => {
       new Request("https://proxy.example/clips?title=Great%20gank&champion=LeeSin&duration=12", {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
-        body: new Uint8Array([1, 2, 3, 4, 5]),
+        body: mp4Bytes(),
       }),
       env({ DB: db, CLIPS: bucket }),
     );
@@ -276,6 +289,137 @@ describe("clip sharing", () => {
       env({ DB: db }),
     );
     expect(res.status).toBe(415);
+  });
+
+  it("rejects an upload whose bytes are not actually video (magic-byte sniff)", async () => {
+    const sessionToken = "session-fakevid";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 1 });
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clips", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
+        body: new TextEncoder().encode("<html><script>alert(1)</script></html>"),
+      }),
+      env({ DB: db }),
+    );
+    expect(res.status).toBe(415);
+    expect((await json(res)).error).toBe("unsupported_media_type");
+  });
+
+  it("rejects an upload once the per-user active-clip quota is reached", async () => {
+    const sessionToken = "session-quota";
+    const tokenHash = await sha256Hex(sessionToken);
+    const seeded = Array.from({ length: 50 }, (_, i) =>
+      clip({ id: `seed${String(i).padStart(3, "0")}`, user_id: 9 }),
+    );
+    const db = makeFakeDb(seeded, { [tokenHash]: 9 });
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clips", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
+        body: mp4Bytes(),
+      }),
+      env({ DB: db }),
+    );
+    expect(res.status).toBe(403);
+    expect((await json(res)).error).toBe("quota_exceeded");
+  });
+
+  it("rejects an oversized body even when Content-Length is absent/lying (streaming guard)", async () => {
+    // The memory-DoS fix: arrayBuffer() would buffer the whole body before the
+    // size check. We stream through a byte-counting guard that aborts at the
+    // cap, so a spoofed-small / missing Content-Length can't OOM the isolate.
+    const sessionToken = "session-stream";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 1 });
+
+    // 101 MB of body (just over the 100 MB cap) with NO Content-Length header.
+    const oversized = new Uint8Array(101 * 1024 * 1024);
+    oversized.set(mp4Bytes(), 0); // valid magic bytes up front so only size rejects
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clips", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
+        body: oversized,
+      }),
+      env({ DB: db }),
+    );
+    expect(res.status).toBe(413);
+    expect((await json(res)).error).toBe("payload_too_large");
+  });
+
+  it("post-insert recount rolls back a row that tipped the user over quota", async () => {
+    // Simulate the concurrency race: the pre-insert COUNT under-reports (as if a
+    // sibling upload hadn't committed yet), so the upload passes the first gate
+    // and inserts — but the post-insert recount sees the user over the cap and
+    // must delete the just-written row + R2 object and 403. We model the race
+    // with a DB whose FIRST quota read returns "under" and whose SECOND returns
+    // "over".
+    const sessionToken = "session-recount";
+    const tokenHash = await sha256Hex(sessionToken);
+    const base = makeFakeDb([], { [tokenHash]: 7 });
+    const r2 = makeFakeR2();
+
+    let quotaReads = 0;
+    const insertedIds: string[] = [];
+    const deletedIds: string[] = [];
+    const racingDb = {
+      prepare(sql: string) {
+        const inner = base.prepare(sql);
+        let boundArgs: unknown[] = [];
+        return {
+          bind(...a: unknown[]) { boundArgs = a; inner.bind(...a); return this; },
+          async first<T>(): Promise<T | null> {
+            if (sql.includes("COALESCE(SUM(size_bytes)")) {
+              quotaReads += 1;
+              // 1st read (pre-insert): under cap. 2nd read (post-insert): over
+              // the 50-clip cap (51), forcing the rollback path.
+              return (quotaReads === 1
+                ? { n: 10, total: 0 }
+                : { n: 51, total: 0 }) as unknown as T;
+            }
+            return inner.first<T>();
+          },
+          async run() {
+            if (sql.startsWith("INSERT INTO clips")) insertedIds.push(boundArgs[0] as string);
+            if (sql.startsWith("DELETE FROM clips WHERE id")) deletedIds.push(boundArgs[0] as string);
+            return inner.run();
+          },
+          all: inner.all,
+        };
+      },
+    } as unknown as D1Database;
+
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clips", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
+        body: mp4Bytes(32),
+      }),
+      env({ DB: racingDb, CLIPS: r2.bucket }),
+    );
+
+    expect(res.status).toBe(403);
+    expect((await json(res)).error).toBe("quota_exceeded");
+    // The row was inserted then rolled back, and the R2 object cleaned up.
+    expect(insertedIds.length).toBe(1);
+    expect(deletedIds).toContain(insertedIds[0]);
+    expect(r2.store.size).toBe(0);
+  });
+
+  it("serves clip files with anti-sniffing headers", async () => {
+    const c = clip({ id: "Hdr1234", r2_key: "clips/Hdr1234.mp4", size_bytes: 5 });
+    const { bucket, store } = makeFakeR2();
+    store.set("clips/Hdr1234.mp4", new Uint8Array([10, 20, 30, 40, 50]));
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clip-file/Hdr1234"),
+      env({ DB: makeFakeDb([c]), CLIPS: bucket }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Content-Security-Policy")).toBe("sandbox");
+    expect(res.headers.get("Content-Disposition")).toContain("inline");
   });
 
   it("serves clip metadata publicly", async () => {

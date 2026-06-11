@@ -217,4 +217,32 @@ public sealed record ObjectivePatternCard(
     string Detail,
     long? GameId = null,
     long? ObjectiveId = null,
-    string Severity = "medium");
+    string Severity = "medium")
+{
+    /// <summary>
+    /// Stable identity of this pattern for review-tracking. Kind alone for
+    /// game/global patterns; kind + objective id for objective-scoped ones so
+    /// two objectives with the same kind don't collide.
+    /// </summary>
+    public string PatternKey =>
+        ObjectiveId is long oid ? $"{Kind}:obj{oid}" : Kind;
+}
+
+/// <summary>
+/// One moment composing a cross-game pattern — an evidence item, joined to its
+/// game's champion/result and (when available) its matched VOD path. Ordered
+/// oldest-first so the Pattern Review viewer walks them chronologically.
+/// </summary>
+public sealed record PatternMoment(
+    long EvidenceId,
+    long GameId,
+    string ChampionName,
+    bool Win,
+    long GameTimestamp,
+    int? StartTimeSeconds,
+    int? EndTimeSeconds,
+    string Title,
+    string Note,
+    string Polarity,
+    string SourceKind,
+    string VodPath);

@@ -58,6 +58,21 @@ type Bucket = { count: number; windowStartMs: number };
 const perTokenBuckets = new Map<string, Bucket>();
 const aggregateBucket: Bucket = { count: 0, windowStartMs: 0 };
 
+// Bucket maps live for the isolate's lifetime and are keyed by
+// attacker-influenced values (token hashes, IPs). Cap them so a key-churn
+// flood can't grow memory unboundedly: once over the cap, drop entries whose
+// window has lapsed; if everything is somehow in-window, reset outright
+// (briefly forgiving counters is better than dying).
+const MAX_TRACKED_BUCKETS = 10_000;
+
+function pruneBuckets(map: Map<string, Bucket>, nowMs: number, windowMs: number): void {
+  if (map.size < MAX_TRACKED_BUCKETS) return;
+  for (const [key, bucket] of map) {
+    if (nowMs - bucket.windowStartMs >= windowMs) map.delete(key);
+  }
+  if (map.size >= MAX_TRACKED_BUCKETS) map.clear();
+}
+
 function bump(bucket: Bucket, limit: number, nowMs: number): boolean {
   if (nowMs - bucket.windowStartMs >= 1000) {
     bucket.windowStartMs = nowMs;
@@ -73,6 +88,7 @@ function rateLimitOrDeny(tokenHash: string, env: Env): Response | null {
   const aggRps = parseInt(env.AGGREGATE_RPS || "18", 10);
   const perRps = parseInt(env.PER_TOKEN_RPS || "2", 10);
 
+  pruneBuckets(perTokenBuckets, now, 1000);
   let b = perTokenBuckets.get(tokenHash);
   if (!b) {
     b = { count: 0, windowStartMs: now };
@@ -154,13 +170,14 @@ async function handleAccount(url: URL, env: Env): Promise<Response> {
 async function handleMatches(url: URL, env: Env): Promise<Response> {
   const puuid = url.searchParams.get("puuid");
   const platform = url.searchParams.get("region");
-  const count = url.searchParams.get("count") ?? "20";
+  const countRaw = parseInt(url.searchParams.get("count") ?? "20", 10);
+  const count = Number.isFinite(countRaw) ? Math.min(Math.max(countRaw, 1), 100) : 20;
   const queue = url.searchParams.get("queue");
   if (!puuid || !platform) return badRequest("puuid and region required");
   const regional = regionalFor(platform);
   if (!regional) return badRequest(`unknown region '${platform}'`);
   const params = new URLSearchParams();
-  params.set("count", count);
+  params.set("count", String(count));
   if (queue) params.set("queue", queue);
   const u = `https://${regional}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?${params.toString()}`;
   return riotGet(u, env);
@@ -183,11 +200,12 @@ async function handleMatch(matchId: string, url: URL, env: Env): Promise<Respons
 // Signup/login/verify are public and unauthenticated. Throttle by CF-Connecting-IP
 // to slow brute force. 5 req/min is plenty for humans.
 
-const authIpBuckets = new Map<string, { count: number; windowStartMs: number }>();
+const authIpBuckets = new Map<string, Bucket>();
 
 function authRateLimit(request: Request): Response | null {
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
   const now = Date.now();
+  pruneBuckets(authIpBuckets, now, 60_000);
   let b = authIpBuckets.get(ip);
   if (!b) {
     b = { count: 0, windowStartMs: now };
@@ -214,11 +232,12 @@ function authRateLimit(request: Request): Response | null {
 //   3. Browser uses the JWT in Authorization headers for /web/* Riot calls.
 // Per-IP rate limits guard /web/session against token grinding.
 
-const webIpBuckets = new Map<string, { count: number; windowStartMs: number }>();
+const webIpBuckets = new Map<string, Bucket>();
 
 function webSessionRateLimit(request: Request): Response | null {
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
   const now = Date.now();
+  pruneBuckets(webIpBuckets, now, 60_000);
   let b = webIpBuckets.get(ip);
   if (!b) {
     b = { count: 0, windowStartMs: now };

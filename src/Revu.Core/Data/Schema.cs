@@ -218,6 +218,22 @@ public static class Schema
         CREATE INDEX IF NOT EXISTS idx_session_log_game_id ON session_log(game_id);
         """;
 
+    // Records that a dashboard cross-game pattern (e.g. "isolated_deaths") has
+    // been worked through in the Pattern Review viewer. pattern_key is the
+    // stable identity of the pattern: its kind, optionally suffixed with the
+    // objective id for objective-scoped patterns. Reviewing a pattern drops it
+    // from the "Patterns To Review" nag and ticks the dashboard "Patterns
+    // Reviewed" stat. UNIQUE so re-reviewing updates the timestamp in place.
+    public const string CreatePatternReviewsTable = """
+        CREATE TABLE IF NOT EXISTS pattern_reviews (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern_key  TEXT NOT NULL UNIQUE,
+            kind         TEXT NOT NULL DEFAULT '',
+            moment_count INTEGER NOT NULL DEFAULT 0,
+            reviewed_at  INTEGER NOT NULL DEFAULT 0
+        );
+        """;
+
     public const string CreateEvidenceItemsKeyIndex = """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_items_source_key
         ON evidence_items (game_id, source_kind, source_key)
@@ -839,6 +855,7 @@ public static class Schema
         // CreatePostMigrationIndexesAsync. They are intentionally NOT in this list.
         CreateSessionLogTable,
         CreateSessionLogGameIdIndex,
+        CreatePatternReviewsTable,
         CreateReviewDraftsTable,
         CreatePersistentNotesTable,
         CreateVodFilesTable,

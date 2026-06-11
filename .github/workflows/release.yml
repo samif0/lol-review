@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 8.0.x
 
@@ -32,15 +32,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 8.0.x
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
 
       - name: Extract version from tag
         shell: bash
@@ -61,27 +61,47 @@ jobs:
           Set-Content $csproj $content
           Write-Host "Stamped version: $version"
 
-      - name: Download ffmpeg
+      # ffmpeg ships INSIDE the signed release, so it must be supply-chain
+      # pinned: a fixed (dated) BtbN build + SHA-256 verification, never the
+      # rolling "latest" artifact (which is rebuilt and replaced in place).
+      # Download failure is soft (clip extraction is optional); a CHECKSUM
+      # MISMATCH is a tamper signal and hard-fails the build. To bump ffmpeg:
+      # pick a newer autobuild tag and take the asset's sha256 digest from
+      # the GitHub release API.
+      - name: Download ffmpeg (pinned + checksum-verified)
         shell: pwsh
         run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-09-15-17/ffmpeg-n8.1.1-11-ge4c7fbf6c0-win64-gpl-8.1.zip"
+          $expectedSha256 = "55ECBF2C5DB210A72D525746013F6C1AF87A8CB3D0740D42280222831FD7F157"
+          $downloaded = $false
           try {
-            Write-Host "Downloading ffmpeg..."
-            $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-            Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip -TimeoutSec 180
-            Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
-            $exe = Get-ChildItem -Recurse -Filter "ffmpeg.exe" ffmpeg_tmp `
-                   | Where-Object { $_.DirectoryName -like "*bin*" } `
-                   | Select-Object -First 1
-            if ($exe) {
-              New-Item -ItemType Directory -Force -Path deps
-              Copy-Item $exe.FullName -Destination deps\ffmpeg.exe
-              $mb = [math]::Round((Get-Item deps\ffmpeg.exe).Length / 1MB, 1)
-              Write-Host "ffmpeg ready ($mb MB)"
-            } else {
-              Write-Warning "ffmpeg.exe not found in archive — building without it"
-            }
+            Write-Host "Downloading pinned ffmpeg build..."
+            Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip -TimeoutSec 300
+            $downloaded = $true
           } catch {
             Write-Warning "ffmpeg download failed: $_ — building without it"
+          }
+          try {
+            if ($downloaded) {
+              $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash
+              if ($actual -ne $expectedSha256) {
+                Write-Error "ffmpeg checksum mismatch — expected $expectedSha256, got $actual. Refusing to ship an unverified binary."
+                exit 1
+              }
+              Write-Host "ffmpeg checksum OK"
+              Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
+              $exe = Get-ChildItem -Recurse -Filter "ffmpeg.exe" ffmpeg_tmp `
+                     | Where-Object { $_.DirectoryName -like "*bin*" } `
+                     | Select-Object -First 1
+              if ($exe) {
+                New-Item -ItemType Directory -Force -Path deps
+                Copy-Item $exe.FullName -Destination deps\ffmpeg.exe
+                $mb = [math]::Round((Get-Item deps\ffmpeg.exe).Length / 1MB, 1)
+                Write-Host "ffmpeg ready ($mb MB)"
+              } else {
+                Write-Warning "ffmpeg.exe not found in archive — building without it"
+              }
+            }
           } finally {
             Remove-Item ffmpeg.zip, ffmpeg_tmp -Recurse -Force -ErrorAction SilentlyContinue
           }
@@ -138,7 +158,7 @@ jobs:
       # trigger OIDC). allow-no-subscriptions: the signing app only has the
       # Certificate Profile Signer role, no subscription-level access.
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -150,7 +170,7 @@ jobs:
       # DLLs one-at-a-time over the network took minutes and blew the timeout.
       # (If Vanguard ever quarantines auto-updates, revisit signing dll too.)
       - name: Sign published binaries
-        uses: azure/trusted-signing-action@v2.0.0
+        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: https://eus.codesigning.azure.net/
           signing-account-name: revu-signing
@@ -189,7 +209,7 @@ jobs:
       # them. Signing must happen BEFORE upload (and before the Revu-Setup.exe
       # copy below, so that copy inherits the signature).
       - name: Sign Velopack wrapper exes
-        uses: azure/trusted-signing-action@v2.0.0
+        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: https://eus.codesigning.azure.net/
           signing-account-name: revu-signing
@@ -226,7 +246,7 @@ jobs:
           Write-Host "Staged Revu-Setup.exe from $($setup.Name)"
 
       - name: Attach cleanly-named installer to GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ env.TAG }}
           files: Releases/Revu-Setup.exe
@@ -234,5 +254,6 @@ jobs:
 
       # Coach sidecar packs (coach-core ~31 MB + coach-ml ~234 MB) were built
       # and attached here. The AI coach feature was removed from the app for v1,
-      # so we no longer build or ship those packs. The coach/ source remains in
-      # the repo (and on the coach-preservation branch) for a future revival.
+      # so we no longer build or ship those packs. The coach/ source was removed
+      # from main; it lives on the coach-preservation branch (and in git
+      # history) for a future revival.
