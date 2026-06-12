@@ -32,6 +32,12 @@ public interface ITiltCheckRepository
     /// <summary>Get recent tilt checks, newest first.</summary>
     Task<IReadOnlyList<Dictionary<string, object?>>> GetRecentAsync(int limit = 20);
 
+    /// <summary>
+    /// Latest non-empty if-then plan no older than <paramref name="maxAgeDays"/>,
+    /// or null. Display-only read — plans are never scored against behavior.
+    /// </summary>
+    Task<string?> GetLatestPlanAsync(int maxAgeDays = 14);
+
     /// <summary>Get aggregate tilt check stats.</summary>
     Task<TiltCheckStats> GetStatsAsync();
 }

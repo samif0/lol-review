@@ -172,6 +172,26 @@
                                    VerticalAlignment="Center"/>
                     </StackPanel>
 
+                    <!-- v2.18 (digest 2026-06-12 P3b): latest Tilt Fix if-then
+                         plan, read-only. A plan only works while it's active at
+                         the cue; it is never scored against behavior. -->
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7"
+                          Visibility="{x:Bind ViewModel.HasActivePlan, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Grid.Column="0"
+                                   Text="ACTIVE PLAN"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="120"
+                                   Foreground="{StaticResource AccentTealBrush}"
+                                   VerticalAlignment="Top"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{x:Bind ViewModel.ActivePlanText, Mode=OneWay}"
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                    </Grid>
+
                     <!-- Editable intent — hidden while the user opts out -->
                     <StackPanel Spacing="10"
                                 Visibility="{x:Bind CollapsedWhen(ViewModel.IsIntentCleared), Mode=OneWay}">
@@ -208,6 +228,12 @@
                                           IsChecked="{x:Bind ViewModel.IsAdherenceSourceSelected, Mode=OneWay}"
                                           Command="{x:Bind ViewModel.UseAdherenceSourceCommand}"
                                           Visibility="{x:Bind ViewModel.HasAdherenceSource, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                            <!-- v2.18 (digest 2026-06-12 P3a): optional if-then
+                                 reshape — the user writes both halves. -->
+                            <Button Content="IF &#x2192; THEN"
+                                    Command="{x:Bind ViewModel.ApplyIfThenScaffoldCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"
+                                    ToolTipService.ToolTip="Reshape into an if-then plan: 'If [moment], then I will [action]'. Plans tied to a concrete moment are easier to execute than goals."/>
                         </StackPanel>
 
                         <!-- Save hint + explicit opt-out -->

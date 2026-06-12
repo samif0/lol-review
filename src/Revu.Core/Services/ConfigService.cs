@@ -48,6 +48,7 @@ public sealed class ConfigService : IConfigService
 
     public string GithubToken => GetCached().GithubToken;
     public string? AscentFolder => GetValidatedFolder(GetCached().AscentFolder);
+    public string AscentFolderRaw => GetCached().AscentFolder;
     public bool TiltFixEnabled => GetCached().TiltFixMode;
     public string ClipsFolder => GetValidatedClipsFolder();
     public int ClipsMaxSizeMb => GetCached().ClipsMaxSizeMb;
@@ -148,7 +149,14 @@ public sealed class ConfigService : IConfigService
         // Bounded wait so a stuck background writer can never freeze the UI thread.
         if (!_lock.Wait(TimeSpan.FromSeconds(2)))
         {
-            return _cached ?? new AppConfig();
+            // P-009: never fabricate an empty AppConfig here — a fabricated
+            // config silently misconfigures every read that races a writer
+            // (Ascent folder, Tilt Fix gate, clips folder, riot session).
+            // Writes are atomic (temp + move), so an uncached disk read is
+            // safe; the one-time secret-migration write stays lock-guarded.
+            if (_cached is not null) return _cached;
+            _logger.LogWarning("Config lock contended >2s; serving uncached disk read instead of empty defaults");
+            return LoadFromDiskSync(allowMigrationWrite: false);
         }
         try
         {
@@ -193,7 +201,7 @@ public sealed class ConfigService : IConfigService
         return HydrateSecrets(new AppConfig());
     }
 
-    private AppConfig LoadFromDiskSync()
+    private AppConfig LoadFromDiskSync(bool allowMigrationWrite = true)
     {
         try
         {
@@ -207,7 +215,7 @@ public sealed class ConfigService : IConfigService
                 }
 
                 var sanitized = CreateSanitizedConfig(config);
-                if (migrated)
+                if (migrated && allowMigrationWrite)
                 {
                     Directory.CreateDirectory(_configDir);
                     var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);

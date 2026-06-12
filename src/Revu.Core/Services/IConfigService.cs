@@ -20,6 +20,11 @@ public interface IConfigService
 
     string GithubToken { get; }
     string? AscentFolder { get; }
+
+    /// <summary>P-009: unvalidated Ascent folder exactly as stored in config —
+    /// for diagnostics that must distinguish "never set" from "set but failed
+    /// validation" (the validated <see cref="AscentFolder"/> is null for both).</summary>
+    string AscentFolderRaw { get; }
     bool TiltFixEnabled { get; }
     string ClipsFolder { get; }
     int ClipsMaxSizeMb { get; }

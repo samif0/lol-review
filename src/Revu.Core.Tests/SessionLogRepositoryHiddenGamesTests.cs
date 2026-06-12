@@ -4,38 +4,12 @@ namespace Revu.Core.Tests;
 
 /// <summary>
 /// games.is_hidden = 1 rows are soft-removed (user-hidden or legacy
-/// cross-account imports). Their session_log rows must not feed day stats,
-/// daily summaries, or the adherence streak — while manual session rows
-/// (game_id NULL, no games row) must keep counting.
+/// cross-account imports). Their session_log rows must not feed day stats
+/// or daily summaries — while manual session rows (game_id NULL, no games
+/// row) must keep counting.
 /// </summary>
 public sealed class SessionLogRepositoryHiddenGamesTests
 {
-    [Fact]
-    public async Task GetAdherenceStreak_IgnoresRuleBreaksFromHiddenGames()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-        using var conn = scope.OpenConnection();
-
-        await InsertRuleAsync(conn, createdDaysAgo: 10);
-
-        var today = DateTime.Today;
-        // Today + two days ago: clean, visible games. Yesterday: the only game
-        // is hidden and broke a rule — it must not terminate the streak.
-        await InsertGameAsync(conn, gameId: 1001, win: true, hidden: false);
-        await InsertSessionRowAsync(conn, DateStr(today), gameId: 1001, win: true);
-
-        await InsertGameAsync(conn, gameId: 1002, win: false, hidden: true);
-        await InsertSessionRowAsync(conn, DateStr(today.AddDays(-1)), gameId: 1002, win: false, ruleBroken: true);
-
-        await InsertGameAsync(conn, gameId: 1003, win: true, hidden: false);
-        await InsertSessionRowAsync(conn, DateStr(today.AddDays(-2)), gameId: 1003, win: true);
-
-        var streak = await scope.SessionLog.GetAdherenceStreakAsync();
-
-        Assert.Equal(2, streak);
-    }
-
     [Fact]
     public async Task GetStatsForDate_ExcludesHiddenGames_KeepsManualRows()
     {
@@ -91,15 +65,6 @@ public sealed class SessionLogRepositoryHiddenGamesTests
     // ── Raw-SQL helpers (dates must be controlled, LogGameAsync stamps today) ──
 
     private static string DateStr(DateTime d) => d.ToString("yyyy-MM-dd");
-
-    private static async Task InsertRuleAsync(SqliteConnection conn, int createdDaysAgo)
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO rules (name, created_at) VALUES ('No int after loss', @createdAt)";
-        cmd.Parameters.AddWithValue("@createdAt",
-            DateTimeOffset.Now.AddDays(-createdDaysAgo).ToUnixTimeSeconds());
-        await cmd.ExecuteNonQueryAsync();
-    }
 
     private static async Task InsertGameAsync(SqliteConnection conn, long gameId, bool win, bool hidden)
     {

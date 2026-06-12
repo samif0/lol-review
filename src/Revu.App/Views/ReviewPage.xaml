@@ -517,10 +517,21 @@
                                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                                    Foreground="{StaticResource AccentBlueBrush}"/>
                                                     </StackPanel>
-                                                    <ToggleButton Grid.Column="1"
-                                                                  Content="PRACTICED"
-                                                                  IsChecked="{x:Bind Practiced, Mode=TwoWay}"
-                                                                  Style="{StaticResource HudPracticedToggleStyle}"/>
+                                                    <StackPanel Grid.Column="1" Spacing="3">
+                                                        <ToggleButton Content="PRACTICED"
+                                                                      IsChecked="{x:Bind Practiced, Mode=TwoWay}"
+                                                                      Style="{StaticResource HudPracticedToggleStyle}"
+                                                                      HorizontalAlignment="Right"/>
+                                                        <!-- P-008: explains the pre-check when evidence
+                                                             on this game links to this objective. -->
+                                                        <TextBlock Text="AUTO &#x2014; EVIDENCE ATTACHED"
+                                                                   FontFamily="{StaticResource MonoFont}"
+                                                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                   CharacterSpacing="120"
+                                                                   Foreground="{StaticResource AccentTealBrush}"
+                                                                   HorizontalAlignment="Right"
+                                                                   Visibility="{x:Bind PracticedFromEvidence, Converter={StaticResource BoolToVis}}"/>
+                                                    </StackPanel>
                                                 </Grid>
 
                                                 <!-- Row 1: Criteria + measured verdict (v2.18, schema v5) -->

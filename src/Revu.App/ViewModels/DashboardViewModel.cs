@@ -61,6 +61,7 @@ public partial class DashboardViewModel : ObservableObject
     private readonly IVodRepository _vodRepo;
     private readonly IEvidenceRepository _evidenceRepo;
     private readonly IDeathClassificationsRepository _deathClassRepo;
+    private readonly IRulesRepository _rulesRepo;
     private readonly INavigationService _navigationService;
     private readonly IConfigService _configService;
     private readonly IDialogService _dialogService;
@@ -92,6 +93,9 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     private double _avgMental;
 
+    /// <summary>Consecutive clean play-days, computed behaviorally (games vs
+    /// active rules — never rule_broken flags). Kept as a streak mechanic by
+    /// user decision 2026-06-12; the re-base makes it unfakeable.</summary>
     [ObservableProperty]
     private int _adherenceStreak;
 
@@ -104,7 +108,7 @@ public partial class DashboardViewModel : ObservableObject
     private string _avgMentalSub = "";
 
     [ObservableProperty]
-    private string _adherenceSub = "DAYS W/O RULE BREAKS";
+    private string _adherenceSub = "DAYS W/O RULE TRIPS";
 
     /// <summary>
     /// Today's session goal locked in via Start Block. Empty until the user
@@ -208,9 +212,6 @@ public partial class DashboardViewModel : ObservableObject
 
     [ObservableProperty]
     private string _winLossColorHex = "#F0EEF8";
-
-    [ObservableProperty]
-    private string _adherenceColorHex = "#F0EEF8";
 
     [ObservableProperty]
     private int _unreviewedCount;
@@ -328,6 +329,7 @@ public partial class DashboardViewModel : ObservableObject
         IVodRepository vodRepo,
         IEvidenceRepository evidenceRepo,
         IDeathClassificationsRepository deathClassRepo,
+        IRulesRepository rulesRepo,
         INavigationService navigationService,
         IConfigService configService,
         IDialogService dialogService,
@@ -343,6 +345,7 @@ public partial class DashboardViewModel : ObservableObject
         _vodRepo = vodRepo;
         _evidenceRepo = evidenceRepo;
         _deathClassRepo = deathClassRepo;
+        _rulesRepo = rulesRepo;
         _navigationService = navigationService;
         _configService = configService;
         _dialogService = dialogService;
@@ -387,10 +390,11 @@ public partial class DashboardViewModel : ObservableObject
                 WinLossColorHex = "#F0EEF8";
             }
 
-            // Adherence streak
-            AdherenceStreak = await _sessionLogRepo.GetAdherenceStreakAsync();
-            AdherenceColorHex = AdherenceStreak >= 3 ? "#7EC9A0" : "#F0EEF8";
-            AdherenceSub = AdherenceStreak > 0 ? "DAYS W/O RULE BREAKS" : "NO ACTIVE STREAK";
+            // Adherence streak — behavioral re-base (P2a + user decision):
+            // counts game-derived rule trips, so clearing flags neither
+            // fakes nor breaks it.
+            AdherenceStreak = await _rulesRepo.GetBehavioralAdherenceStreakAsync();
+            AdherenceSub = AdherenceStreak > 0 ? "DAYS W/O RULE TRIPS" : "NO ACTIVE STREAK";
 
             // Win streak
             WinStreak = await _gameAnalytics.GetWinStreakAsync();
@@ -969,6 +973,15 @@ public partial class DashboardViewModel : ObservableObject
         // is still worth a reminder.
         var dismissed = _configService.AscentReminderDismissed;
         ShowAscentReminder = !dismissed && !_configService.IsAscentEnabled;
+        if (ShowAscentReminder)
+        {
+            // P-009: if this banner appears for a user whose folder IS
+            // configured, this line says which input lied — raw empty
+            // (config read produced defaults) vs raw set (validation failed).
+            _logger.LogWarning(
+                "Ascent reminder visible: dismissed={Dismissed}, rawFolder='{RawFolder}'",
+                dismissed, _configService.AscentFolderRaw);
+        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────

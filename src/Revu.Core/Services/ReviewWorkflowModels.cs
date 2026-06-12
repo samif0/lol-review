@@ -23,7 +23,11 @@ public sealed record ReviewObjectiveState(
     // v2.18 (schema v5): live structured-criterion verdict for this game.
     // Sign: 0 = no verdict, 1 = hit, -1 = miss.
     string CriteriaVerdict = "",
-    int CriteriaVerdictSign = 0);
+    int CriteriaVerdictSign = 0,
+    // P-008: true when Practiced defaulted ON because evidence_items link
+    // this objective to this game and no saved/draft answer exists yet.
+    // Explicable pre-check only — an explicit user answer always wins.
+    bool PracticedFromEvidence = false);
 
 public sealed record ReviewMatchupHistoryItem(
     string Note,

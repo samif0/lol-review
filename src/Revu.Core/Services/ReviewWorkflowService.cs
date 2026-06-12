@@ -17,6 +17,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
     private readonly IObjectivesRepository _objectivesRepository;
     private readonly IReviewDraftRepository _reviewDraftRepository;
     private readonly IMatchupNotesRepository _matchupNotesRepository;
+    private readonly IEvidenceRepository _evidenceRepository;
     private readonly IConfigService _configService;
     private readonly ICoachSidecarNotifier _coachNotifier;
     private readonly ILogger<ReviewWorkflowService> _logger;
@@ -30,6 +31,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         IObjectivesRepository objectivesRepository,
         IReviewDraftRepository reviewDraftRepository,
         IMatchupNotesRepository matchupNotesRepository,
+        IEvidenceRepository evidenceRepository,
         IConfigService configService,
         ICoachSidecarNotifier coachNotifier,
         ILogger<ReviewWorkflowService> logger)
@@ -42,6 +44,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         _objectivesRepository = objectivesRepository;
         _reviewDraftRepository = reviewDraftRepository;
         _matchupNotesRepository = matchupNotesRepository;
+        _evidenceRepository = evidenceRepository;
         _configService = configService;
         _coachNotifier = coachNotifier;
         _logger = logger;
@@ -69,6 +72,26 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             ?? activeObjectives.FirstOrDefault();
         var savedObjectives = await _objectivesRepository.GetGameObjectivesAsync(gameId);
         var savedNoteForGame = await _matchupNotesRepository.GetForGameAsync(gameId);
+
+        // P-008: objectives with evidence attached on this game default their
+        // PRACTICED toggle ON (a clip/bookmark tied to the objective is the
+        // strongest practice signal). An explicit saved or drafted answer
+        // always wins; the state carries a flag so the pre-check is explicable.
+        var evidenceObjectiveIds = new HashSet<long>();
+        try
+        {
+            foreach (var item in await _evidenceRepository.GetForGameAsync(gameId))
+            {
+                if (item.ObjectiveId is long objectiveId)
+                {
+                    evidenceObjectiveIds.Add(objectiveId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Evidence lookup for practiced-default failed for game {GameId}", gameId);
+        }
 
         var vod = await _vodRepository.GetVodAsync(gameId);
         if (vod is null && _configService.IsAscentEnabled)
@@ -100,7 +123,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 IsSelected: snapshot.SelectedTagIds.Contains(tag.Id)))
             .ToList();
 
-        var objectiveStates = BuildObjectiveStates(activeObjectives, priorityObjective, savedObjectives, snapshot.ObjectivePractices, game);
+        var objectiveStates = BuildObjectiveStates(activeObjectives, priorityObjective, savedObjectives, snapshot.ObjectivePractices, game, evidenceObjectiveIds);
         var matchupHistory = await GetMatchupHistoryAsync(game.ChampionName, snapshot.EnemyLaner, gameId, cancellationToken);
         var bookmarkCount = vod is null ? 0 : await _vodRepository.GetBookmarkCountAsync(gameId);
 
@@ -400,7 +423,8 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         ObjectiveSummary? priorityObjective,
         IReadOnlyList<GameObjectiveRecord> savedObjectives,
         IReadOnlyList<SaveObjectivePracticeRequest> selectedPractices,
-        GameStats game)
+        GameStats game,
+        IReadOnlySet<long> evidenceObjectiveIds)
     {
         var selectedById = selectedPractices.ToDictionary(static item => item.ObjectiveId);
         var savedById = savedObjectives.ToDictionary(static item => item.ObjectiveId);
@@ -415,16 +439,22 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             var (verdict, sign) = BuildCriteriaVerdict(
                 objective.CriteriaMetric, objective.CriteriaOp, objective.CriteriaValue, game);
 
+            // P-008: evidence linked to this objective on this game defaults
+            // the toggle ON — but never over an explicit saved/draft answer.
+            var evidenceDefault = selected is null && saved is null
+                && evidenceObjectiveIds.Contains(objective.Id);
+
             results.Add(new ReviewObjectiveState(
                 ObjectiveId: objective.Id,
                 Title: objective.Title,
                 Criteria: objective.CompletionCriteria,
                 Phase: objective.Phase,
                 IsPriority: objective.Id == priorityObjectiveId,
-                Practiced: selected?.Practiced ?? saved?.Practiced ?? false,
+                Practiced: selected?.Practiced ?? saved?.Practiced ?? evidenceDefault,
                 ExecutionNote: selected?.ExecutionNote ?? saved?.ExecutionNote ?? "",
                 CriteriaVerdict: verdict,
-                CriteriaVerdictSign: sign));
+                CriteriaVerdictSign: sign,
+                PracticedFromEvidence: evidenceDefault));
 
             savedById.Remove(objective.Id);
         }

@@ -40,20 +40,23 @@
                             Margin="0,16,0,0"/>
                 </Grid>
 
-                <!-- Active Violations Banner -->
-                <Border Background="#3f1111"
+                <!-- Rule check banner. P2b (digest 2026-06-12): neutral
+                     observation styling — a tripped rule is data the player
+                     calibrates against, not a violation verdict (the red
+                     framing was rejected in practice; METHODOLOGY tension #8). -->
+                <Border Background="{StaticResource CardBackgroundBrush}"
                         CornerRadius="2"
                         Padding="16,12"
                         BorderThickness="2"
-                        BorderBrush="{StaticResource LossRedBrush}"
+                        BorderBrush="{StaticResource AccentGoldBrush}"
                         Visibility="{x:Bind ViewModel.HasViolations, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <StackPanel Spacing="8">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE7BA;" FontSize="{Binding Title, Source={StaticResource FontSizes}}"
-                                      Foreground="{StaticResource LossRedBrush}"/>
-                            <TextBlock Text="RULES BROKEN"
+                                      Foreground="{StaticResource AccentGoldBrush}"/>
+                            <TextBlock Text="RULE CHECK"
                                        FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}" FontWeight="Bold"
-                                       Foreground="{StaticResource LossRedBrush}"/>
+                                       Foreground="{StaticResource AccentGoldBrush}"/>
                         </StackPanel>
                         <ItemsRepeater ItemsSource="{x:Bind ViewModel.Violations, Mode=OneWay}">
                             <ItemsRepeater.Layout>
@@ -70,7 +73,7 @@
                                                    Foreground="{StaticResource SecondaryTextBrush}"/>
                                         <TextBlock Text="{x:Bind Reason}"
                                                    FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                   Foreground="{StaticResource LossRedBrush}"/>
+                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
                                     </StackPanel>
                                 </DataTemplate>
                             </ItemsRepeater.ItemTemplate>
@@ -280,14 +283,16 @@
                                                    Foreground="{StaticResource PrimaryTextBrush}"
                                                    VerticalAlignment="Center"/>
 
-                                        <!-- Violation badge -->
+                                        <!-- Trip badge — neutral observation, not a verdict (P2b) -->
                                         <StackPanel Grid.Column="2" Orientation="Horizontal">
-                                            <Border Background="{StaticResource LossRedBrush}"
+                                            <Border Background="Transparent"
                                                     CornerRadius="2" Padding="8,2"
+                                                    BorderThickness="1"
+                                                    BorderBrush="{StaticResource AccentGoldBrush}"
                                                     Visibility="{x:Bind IsViolated, Converter={StaticResource BoolToVis}}">
-                                                <TextBlock Text="BROKEN"
+                                                <TextBlock Text="TRIPPED"
                                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="Bold"
-                                                           Foreground="White"/>
+                                                           Foreground="{StaticResource AccentGoldBrush}"/>
                                             </Border>
                                             <Border Background="{StaticResource WinGreenBrush}"
                                                     CornerRadius="2" Padding="8,2"
@@ -299,10 +304,10 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <!-- Violation Reason -->
+                                    <!-- Trip Reason -->
                                     <TextBlock Text="{x:Bind ViolationReason}"
                                                FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                               Foreground="{StaticResource LossRedBrush}"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
                                                Visibility="{x:Bind HasViolationReason, Converter={StaticResource BoolToVis}}"/>
 
                                     <!-- Description -->
@@ -317,6 +322,17 @@
                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                Foreground="{StaticResource MutedTextBrush}"
                                                Visibility="{x:Bind HasCondition, Converter={StaticResource BoolToVis}}"/>
+
+                                    <!-- P2b (digest 2026-06-12): the rule's own record,
+                                         computed from game outcomes — not from
+                                         clearing-censored rule_broken flags. -->
+                                    <TextBlock Text="{x:Bind EvidenceLine}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="120"
+                                               Foreground="{StaticResource AccentTealBrush}"
+                                               TextWrapping="Wrap"
+                                               Visibility="{x:Bind HasEvidenceLine, Converter={StaticResource BoolToVis}}"/>
 
                                     <!-- Action Buttons -->
                                     <StackPanel Orientation="Horizontal" Spacing="6"
@@ -394,6 +410,15 @@
                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                Foreground="{StaticResource MutedTextBrush}"
                                                Visibility="{x:Bind HasCondition, Converter={StaticResource BoolToVis}}"/>
+
+                                    <!-- P2b: record line helps decide re-enable vs delete -->
+                                    <TextBlock Text="{x:Bind EvidenceLine}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="120"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               TextWrapping="Wrap"
+                                               Visibility="{x:Bind HasEvidenceLine, Converter={StaticResource BoolToVis}}"/>
 
                                     <!-- Action Buttons -->
                                     <StackPanel Orientation="Horizontal" Spacing="6"

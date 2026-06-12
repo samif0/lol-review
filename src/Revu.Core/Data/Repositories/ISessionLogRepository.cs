@@ -62,7 +62,6 @@ public sealed record TiltWarning(
 public sealed record SessionPatterns(
     double AvgGamesPerSession,
     double AvgMentalDelta,
-    double TiltFrequencyPct,
     int TotalSessionDays
 );
 
@@ -171,9 +170,6 @@ public interface ISessionLogRepository
 
     /// <summary>Get per-day summary stats for the last N days.</summary>
     Task<List<DailySummary>> GetDailySummariesAsync(int days = 7);
-
-    /// <summary>Count consecutive clean play-days (no rule breaks).</summary>
-    Task<int> GetAdherenceStreakAsync();
 
     /// <summary>Analyze winrate by mental rating bracket.</summary>
     Task<List<MentalCorrelationPoint>> GetMentalWinrateCorrelationAsync();

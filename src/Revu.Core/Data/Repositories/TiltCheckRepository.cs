@@ -66,6 +66,22 @@ public sealed class TiltCheckRepository : ITiltCheckRepository
         return await ReadAllRowsAsync(cmd);
     }
 
+    public async Task<string?> GetLatestPlanAsync(int maxAgeDays = 14)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT if_then_plan FROM tilt_checks
+            WHERE TRIM(COALESCE(if_then_plan, '')) <> ''
+              AND created_at >= @cutoff
+            ORDER BY created_at DESC LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("@cutoff",
+            DateTimeOffset.UtcNow.AddDays(-maxAgeDays).ToUnixTimeSeconds());
+        var val = await cmd.ExecuteScalarAsync();
+        return val is string s && !string.IsNullOrWhiteSpace(s) ? s : null;
+    }
+
     public async Task<TiltCheckStats> GetStatsAsync()
     {
         using var conn = _factory.CreateConnection();

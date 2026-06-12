@@ -284,6 +284,62 @@ public sealed class ReviewWorkflowServiceTests
         Assert.Equal("Crashed before roam", record.ExecutionNote);
     }
 
+    [Fact]
+    public async Task LoadAsync_EvidenceLinkedObjective_DefaultsPracticed_ButNeverOverridesSavedAnswer()
+    {
+        // P-008: evidence attached to an objective on this game is the
+        // strongest practice signal — the PRACTICED toggle defaults ON, with
+        // a flag so the UI can explain the pre-check. An explicit saved
+        // answer must always win over the default.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 5003;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Jinx", win: true));
+        var withEvidence = await scope.Objectives.CreateAsync("Ward river by 3:00", "laning");
+        var withoutEvidence = await scope.Objectives.CreateAsync("Track enemy jungler", "laning");
+        await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: "bookmark",
+            SourceId: null,
+            SourceKey: "p008-bm-1",
+            StartTimeSeconds: 60,
+            EndTimeSeconds: 90,
+            Title: "River ward",
+            ObjectiveId: withEvidence));
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
+        var data = await workflow.LoadAsync(gameId);
+        Assert.NotNull(data);
+
+        var defaulted = Assert.Single(data!.ObjectiveAssessments, s => s.ObjectiveId == withEvidence);
+        Assert.True(defaulted.Practiced);
+        Assert.True(defaulted.PracticedFromEvidence);
+
+        var untouched = Assert.Single(data.ObjectiveAssessments, s => s.ObjectiveId == withoutEvidence);
+        Assert.False(untouched.Practiced);
+        Assert.False(untouched.PracticedFromEvidence);
+
+        // Explicitly answer "not practiced" — the evidence default must not
+        // resurrect the toggle on reload.
+        var save = await workflow.SaveAsync(new SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: "Jinx",
+            Win: true,
+            RequireReviewNotes: false,
+            Snapshot: EmptySnapshot with
+            {
+                MentalRating = 7,
+                ObjectivePractices = [new SaveObjectivePracticeRequest(withEvidence, false, "")],
+            }));
+        Assert.True(save.Success);
+
+        var reloaded = await workflow.LoadAsync(gameId);
+        var savedState = Assert.Single(reloaded!.ObjectiveAssessments, s => s.ObjectiveId == withEvidence);
+        Assert.False(savedState.Practiced);
+        Assert.False(savedState.PracticedFromEvidence);
+    }
+
     private static ReviewWorkflowService CreateWorkflow(TestDatabaseScope scope, bool requireReviewNotes)
     {
         return new ReviewWorkflowService(
@@ -295,6 +351,7 @@ public sealed class ReviewWorkflowServiceTests
             scope.Objectives,
             scope.ReviewDrafts,
             scope.MatchupNotes,
+            scope.Evidence,
             new TestConfigService(new AppConfig { RequireReviewNotes = requireReviewNotes }),
             new NullCoachSidecarNotifier(),
             NullLogger<ReviewWorkflowService>.Instance);

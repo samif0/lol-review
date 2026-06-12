@@ -48,6 +48,7 @@ public partial class SessionLoggerViewModel : ObservableObject
 {
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IGameRepository _gameRepo;
+    private readonly IRulesRepository _rulesRepo;
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
     private readonly Revu.Core.Services.IConfigService _configService;
@@ -81,6 +82,7 @@ public partial class SessionLoggerViewModel : ObservableObject
     [ObservableProperty]
     private int _ruleBreaks;
 
+    /// <summary>Behavioral streak (see DashboardViewModel.AdherenceStreak).</summary>
     [ObservableProperty]
     private int _adherenceStreak;
 
@@ -132,6 +134,7 @@ public partial class SessionLoggerViewModel : ObservableObject
     public SessionLoggerViewModel(
         ISessionLogRepository sessionLogRepo,
         IGameRepository gameRepo,
+        IRulesRepository rulesRepo,
         INavigationService navigationService,
         IDialogService dialogService,
         Revu.Core.Services.IConfigService configService,
@@ -139,6 +142,7 @@ public partial class SessionLoggerViewModel : ObservableObject
     {
         _sessionLogRepo = sessionLogRepo;
         _gameRepo = gameRepo;
+        _rulesRepo = rulesRepo;
         _navigationService = navigationService;
         _dialogService = dialogService;
         _configService = configService;
@@ -321,7 +325,7 @@ public partial class SessionLoggerViewModel : ObservableObject
         Losses = stats.Losses;
         AvgMental = stats.Games > 0 ? $"{stats.AvgMental:F1}" : "\u2014";
         RuleBreaks = stats.RuleBreaks;
-        AdherenceStreak = await _sessionLogRepo.GetAdherenceStreakAsync();
+        AdherenceStreak = await _rulesRepo.GetBehavioralAdherenceStreakAsync();
 
         // Load session intention
         var session = await _sessionLogRepo.GetSessionAsync(dateStr);

@@ -58,6 +58,10 @@ public partial class ObjectiveAssessment : ObservableObject
             ? Styling.AppSemanticPalette.PositiveHex
             : Styling.AppSemanticPalette.NegativeHex);
 
+    /// <summary>P-008: Practiced was pre-checked because evidence on this game
+    /// links to this objective (and no saved answer existed). Display-only.</summary>
+    public bool PracticedFromEvidence { get; init; }
+
     [ObservableProperty]
     private bool _practiced;
 

@@ -69,6 +69,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     private readonly ISessionLogRepository _sessionLogRepo;
     private readonly IMatchupNotesRepository _matchupNotesRepo;
     private readonly IPromptsRepository _promptsRepo;
+    private readonly ITiltCheckRepository _tiltChecks;
     private readonly IConfigService _configService;
     private readonly IMessenger _messenger;
     private readonly PreGameIntelService _intelService;
@@ -159,6 +160,17 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     private string _objectiveProvenance = "";
     private string _adherenceSeedText = "";
     private string _adherenceProvenance = "";
+
+    /// <summary>v2.18 (digest 2026-06-12 P3b): latest Tilt Fix if-then plan
+    /// (≤14 days old), shown read-only on the intent card. A plan only works
+    /// if it's active when its cue occurs — until now saved plans were
+    /// write-only. Never scored against behavior.</summary>
+    [ObservableProperty]
+    private string _activePlanText = "";
+
+    public bool HasActivePlan => !string.IsNullOrWhiteSpace(ActivePlanText);
+
+    partial void OnActivePlanTextChanged(string value) => OnPropertyChanged(nameof(HasActivePlan));
 
     [ObservableProperty]
     private string _sessionIntention = "";
@@ -360,6 +372,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         ISessionLogRepository sessionLogRepo,
         IMatchupNotesRepository matchupNotesRepo,
         IPromptsRepository promptsRepo,
+        ITiltCheckRepository tiltChecks,
         IConfigService configService,
         IMessenger messenger,
         PreGameIntelService intelService,
@@ -370,6 +383,7 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         _sessionLogRepo = sessionLogRepo;
         _matchupNotesRepo = matchupNotesRepo;
         _promptsRepo = promptsRepo;
+        _tiltChecks = tiltChecks;
         _configService = configService;
         _messenger = messenger;
         _intelService = intelService;
@@ -567,6 +581,19 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
             {
                 _logger.LogDebug(ex, "Lowest-adherence seed skipped");
                 HasAdherenceSource = false;
+            }
+
+            // v2.18 (digest 2026-06-12 P3b): latest if-then plan from a Tilt
+            // Fix run, display-only. Re-exposure at champ select is the
+            // mechanism implementation intentions need; nothing is tracked.
+            try
+            {
+                ActivePlanText = await _tiltChecks.GetLatestPlanAsync() ?? "";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Active if-then plan read skipped");
+                ActivePlanText = "";
             }
 
             // Continuing flow: re-apply what the user already chose this flow
@@ -881,6 +908,21 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
         // DB source stays 'objective' — the adherence chip is just a different
         // way of picking an objective seed (rider 2a value set is closed).
         ApplySeed(_adherenceSeedText, _adherenceProvenance, "objective", "adherence");
+    }
+
+    /// <summary>v2.18 (digest 2026-06-12 P3a): optional reshape of the current
+    /// intention into if-then form. The app contributes only the skeleton —
+    /// the user's own text becomes the action half when present. Goes through
+    /// OnFocusTextChanged, so intention_source becomes 'edited'.</summary>
+    [RelayCommand]
+    private void ApplyIfThenScaffold()
+    {
+        var current = FocusText.Trim();
+        if (current.StartsWith("If ", StringComparison.OrdinalIgnoreCase))
+            return; // already in if-then form
+        FocusText = string.IsNullOrEmpty(current)
+            ? "If [moment], then I will [action]"
+            : $"If [moment], then I will {current}";
     }
 
     /// <summary>"✕ don't carry" / "restore" toggle. Cleared = nothing is

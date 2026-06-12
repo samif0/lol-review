@@ -631,60 +631,6 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return list;
     }
 
-    public async Task<int> GetAdherenceStreakAsync()
-    {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
-
-        // Only count adherence from the date the first user-defined rule was created.
-        // Before that point rule_broken flags were stamped by a since-removed heuristic
-        // and don't reflect real rule violations.
-        string? rulesExistSince = null;
-        using (var rulesCmd = conn.CreateCommand())
-        {
-            rulesCmd.CommandText = "SELECT MIN(DATE(created_at, 'unixepoch', 'localtime')) FROM rules";
-            var val = await rulesCmd.ExecuteScalarAsync();
-            if (val is string s && !string.IsNullOrEmpty(s))
-                rulesExistSince = s;
-        }
-
-        using var cmd = conn.CreateCommand();
-        if (rulesExistSince is not null)
-        {
-            // Skipped games are adherence-neutral. The user opted out of
-            // engaging with the game, so its rule_broken flag (whether
-            // set by the rules engine at ingest or by the legacy
-            // heuristic) shouldn't terminate the streak.
-            cmd.CommandText = $@"
-                SELECT sl.date,
-                    SUM(CASE WHEN COALESCE(sl.is_skipped, 0) = 0 THEN sl.rule_broken ELSE 0 END) as breaks
-                FROM session_log sl
-                {VisibleGamesJoin}
-                WHERE sl.date >= @since
-                  AND {VisibleGamesFilter}
-                GROUP BY sl.date
-                ORDER BY sl.date DESC";
-            cmd.Parameters.AddWithValue("@since", rulesExistSince);
-        }
-        else
-        {
-            // No rules ever created — adherence streak is always 0
-            return 0;
-        }
-
-        var streak = 0;
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            var breaks = reader.IsDBNull(reader.GetOrdinal("breaks")) ? 0 : reader.GetInt32(reader.GetOrdinal("breaks"));
-            if (breaks == 0)
-                streak++;
-            else
-                break;
-        }
-        return streak;
-    }
-
     public async Task<List<MentalCorrelationPoint>> GetMentalWinrateCorrelationAsync()
     {
         using var conn = _factory.CreateConnection();
@@ -888,38 +834,24 @@ public sealed class SessionLogRepository : ISessionLogRepository
             avgMentalDelta = deltas.Count > 0 ? Math.Round(deltas.Average(), 1) : 0;
         }
 
-        // Tilt frequency: % of days with a rule broken
+        // Total distinct play-days. (Tilt-days % retired — rule_broken is
+        // clearing-censored; see METHODOLOGY tension #8.)
         int totalDays;
-        int tiltDays;
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = $@"
-                SELECT
-                        COUNT(DISTINCT sl.date) as total_days,
-                        COUNT(DISTINCT CASE WHEN sl.rule_broken = 1 THEN sl.date END) as tilt_days
+                SELECT COUNT(DISTINCT sl.date) as total_days
                 FROM session_log sl
                 {VisibleGamesJoin}
                 WHERE {VisibleGamesFilter}";
 
-            await using var reader = await cmd.ExecuteReaderAsync();
-            if (await reader.ReadAsync())
-            {
-                totalDays = reader.IsDBNull(reader.GetOrdinal("total_days")) ? 0 : reader.GetInt32(reader.GetOrdinal("total_days"));
-                tiltDays = reader.IsDBNull(reader.GetOrdinal("tilt_days")) ? 0 : reader.GetInt32(reader.GetOrdinal("tilt_days"));
-            }
-            else
-            {
-                totalDays = 0;
-                tiltDays = 0;
-            }
+            var val = await cmd.ExecuteScalarAsync();
+            totalDays = val is long l ? (int)l : 0;
         }
-
-        var tiltPct = totalDays > 0 ? Math.Round(100.0 * tiltDays / totalDays, 1) : 0;
 
         return new SessionPatterns(
             AvgGamesPerSession: avgGames,
             AvgMentalDelta: avgMentalDelta,
-            TiltFrequencyPct: tiltPct,
             TotalSessionDays: totalDays
         );
     }

@@ -132,9 +132,6 @@ public static class GameConstants
     /// <summary>Mental >= 5 is blue/decent (below = red).</summary>
     public const int MentalDecentThreshold = 5;
 
-    /// <summary>Days of adherence to show "locked in".</summary>
-    public const int AdherenceStreakLockedIn = 3;
-
     /// <summary>Consecutive losses before warning flash.</summary>
     public const int ConsecutiveLossWarning = 2;
 

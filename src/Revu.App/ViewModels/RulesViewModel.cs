@@ -52,9 +52,15 @@ public sealed class RuleDisplayItem
         }
     }
 
+    /// <summary>P2b (digest 2026-06-12): the rule's own behavioral record —
+    /// trips counted from game outcomes/times, never from clearing-censored
+    /// rule_broken flags. Empty for custom rules (no automated record).</summary>
+    public string EvidenceLine { get; init; } = "";
+
     public bool HasDescription => !string.IsNullOrWhiteSpace(Description);
     public bool HasCondition => !string.IsNullOrWhiteSpace(ConditionText);
     public bool HasViolationReason => IsViolated && !string.IsNullOrWhiteSpace(ViolationReason);
+    public bool HasEvidenceLine => !string.IsNullOrWhiteSpace(EvidenceLine);
     public string ToggleText => IsActive ? "Disable" : "Enable";
     public bool IsCustom => RuleType == "custom";
 
@@ -463,6 +469,18 @@ public partial class RulesViewModel : ObservableObject
             violationMap[v.Rule.Id] = v;
         }
 
+        // P2b: per-rule behavioral record (best-effort — the page still
+        // renders if the evidence query fails).
+        IReadOnlyDictionary<long, RuleEvidence> evidenceMap;
+        try
+        {
+            evidenceMap = await _rulesRepo.GetRuleEvidenceAsync(allRules);
+        }
+        catch
+        {
+            evidenceMap = new Dictionary<long, RuleEvidence>();
+        }
+
         ActiveRules.Clear();
         InactiveRules.Clear();
         Violations.Clear();
@@ -470,6 +488,7 @@ public partial class RulesViewModel : ObservableObject
         foreach (var rule in allRules)
         {
             violationMap.TryGetValue(rule.Id, out var violation);
+            evidenceMap.TryGetValue(rule.Id, out var evidence);
 
             var item = new RuleDisplayItem
             {
@@ -482,6 +501,7 @@ public partial class RulesViewModel : ObservableObject
                 IsViolated = violation?.Violated ?? false,
                 ViolationReason = violation?.Reason ?? "",
                 IsChecked = violation != null && rule.RuleType != "custom",
+                EvidenceLine = BuildEvidenceLine(evidence),
             };
 
             if (rule.IsActive)
@@ -506,5 +526,26 @@ public partial class RulesViewModel : ObservableObject
         HasInactiveRules = InactiveRules.Count > 0;
         HasRules = HasActiveRules || HasInactiveRules;
         HasViolations = Violations.Count > 0;
+    }
+
+    /// <summary>Neutral, n-honest record line: exact W–L below 10 trips,
+    /// percentages from 10 up. Never judges — states what trips cost.</summary>
+    private static string BuildEvidenceLine(RuleEvidence? evidence)
+    {
+        if (evidence is null) return "";
+        if (evidence.TriggerGames == 0) return "NO TRIPS ON RECORD";
+
+        var baselinePct = evidence.BaselineGames > 0
+            ? (int)Math.Round(100.0 * evidence.BaselineWins / evidence.BaselineGames)
+            : 0;
+
+        if (evidence.TriggerGames < 10)
+        {
+            var losses = evidence.TriggerGames - evidence.TriggerWins;
+            return $"TRIPPED {evidence.TriggerGames}× ({evidence.TriggerWins}W–{losses}L) · BASELINE WR {baselinePct}% · LAST {evidence.LastTriggerDate}";
+        }
+
+        var trippedPct = (int)Math.Round(100.0 * evidence.TriggerWins / evidence.TriggerGames);
+        return $"TRIPPED {evidence.TriggerGames}× · WR WHEN TRIPPED {trippedPct}% VS {baselinePct}% BASELINE · LAST {evidence.LastTriggerDate}";
     }
 }

@@ -336,6 +336,164 @@ public sealed class RulesRepository : IRulesRepository
         return results;
     }
 
+    public async Task<IReadOnlyDictionary<long, RuleEvidence>> GetRuleEvidenceAsync(
+        IReadOnlyList<RuleRecord> rules)
+    {
+        // One pass over the visible game history; each rule's trigger
+        // condition is evaluated behaviorally from outcomes/times — NOT from
+        // session_log.rule_broken, which the user can (and does) clear.
+        var games = await LoadEvidenceGamesAsync();
+
+        var baselineWins = games.Count(static g => g.Win);
+        var result = new Dictionary<long, RuleEvidence>();
+        foreach (var rule in rules)
+        {
+            if (rule.RuleType == "custom") continue;
+            var triggers = FindTriggerGames(rule, games);
+            result[rule.Id] = new RuleEvidence(
+                RuleId: rule.Id,
+                TriggerGames: triggers.Count,
+                TriggerWins: triggers.Count(static g => g.Win),
+                LastTriggerDate: triggers.Count > 0 ? triggers[^1].Date : "",
+                BaselineGames: games.Count,
+                BaselineWins: baselineWins);
+        }
+        return result;
+    }
+
+    public async Task<int> GetBehavioralAdherenceStreakAsync()
+    {
+        // P2a re-base (user decision 2026-06-12): the streak mechanic stays,
+        // but it counts behavioral trips — games played while an active
+        // rule's condition held — so flag housekeeping can neither fake the
+        // number nor break it. A rule only judges games played after it was
+        // created; play-days before the first rule are out of scope.
+        var rules = (await GetActiveAsync())
+            .Where(static r => r.RuleType != "custom")
+            .ToList();
+        if (rules.Count == 0) return 0;
+
+        var firstRuleCreated = rules.Min(static r => r.CreatedAt ?? long.MaxValue);
+        if (firstRuleCreated == long.MaxValue) return 0;
+        var sinceDate = DateTimeOffset.FromUnixTimeSeconds(firstRuleCreated)
+            .ToLocalTime().ToString("yyyy-MM-dd");
+
+        var games = await LoadEvidenceGamesAsync();
+        if (games.Count == 0) return 0;
+
+        // Skipped games are streak-neutral (user decision 2026-06-12): skip
+        // is the player's explicit "this one doesn't count" lever, and using
+        // it to protect the streak is fine — the streak is a motivation
+        // mechanic. The per-rule records in GetRuleEvidenceAsync deliberately
+        // do NOT honor this: the instrument stays honest while the mechanic
+        // forgives.
+        var triggerDates = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rule in rules)
+        {
+            foreach (var trigger in FindTriggerGames(rule, games))
+            {
+                if (trigger.Skipped) continue;
+                if (rule.CreatedAt is not long created || trigger.Ts >= created)
+                {
+                    triggerDates.Add(trigger.Date);
+                }
+            }
+        }
+
+        var streak = 0;
+        foreach (var day in games.Select(static g => g.Date)
+                     .Distinct()
+                     .OrderByDescending(static d => d, StringComparer.Ordinal))
+        {
+            if (string.CompareOrdinal(day, sinceDate) < 0) break;
+            if (triggerDates.Contains(day)) break;
+            streak++;
+        }
+        return streak;
+    }
+
+    private async Task<List<EvidenceGame>> LoadEvidenceGamesAsync()
+    {
+        var games = new List<EvidenceGame>();
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT g.timestamp, g.win, sl.mental_rating, COALESCE(sl.is_skipped, 0)
+            FROM games g
+            LEFT JOIN session_log sl ON sl.game_id = g.game_id
+            WHERE COALESCE(g.is_hidden, 0) = 0 AND g.timestamp > 0
+            ORDER BY g.timestamp ASC
+            """;
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var ts = reader.GetInt64(0);
+            var local = DateTimeOffset.FromUnixTimeSeconds(ts).ToLocalTime();
+            var skipped = !reader.IsDBNull(3) && reader.GetInt64(3) != 0;
+            games.Add(new EvidenceGame(
+                Ts: ts,
+                Date: local.ToString("yyyy-MM-dd"),
+                Hour: local.Hour,
+                DayName: local.ToString("dddd", CultureInfo.InvariantCulture).ToLowerInvariant(),
+                Win: !reader.IsDBNull(1) && reader.GetInt64(1) != 0,
+                // Skipped games are excluded from mental stats by app
+                // convention — their self-report must not arm min_mental.
+                Mental: skipped || reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                Skipped: skipped));
+        }
+        return games;
+    }
+
+    /// <summary>
+    /// Games played while <paramref name="rule"/>'s condition already held —
+    /// the historical mirror of <see cref="CheckViolationsAsync"/> semantics
+    /// (cooldowns ignored: the record asks "queued in the condition at all?").
+    /// </summary>
+    private static List<EvidenceGame> FindTriggerGames(RuleRecord rule, List<EvidenceGame> games)
+    {
+        var triggers = new List<EvidenceGame>();
+        var currentDate = "";
+        var consecutiveLosses = 0;
+        var gamesToday = 0;
+        int? previousMental = null;
+
+        foreach (var game in games)
+        {
+            if (game.Date != currentDate)
+            {
+                currentDate = game.Date;
+                consecutiveLosses = 0;
+                gamesToday = 0;
+                previousMental = null;
+            }
+
+            var triggered = rule.RuleType switch
+            {
+                "loss_streak" => ParseLossStreakCondition(rule.ConditionValue).Threshold is int t
+                    && t > 0 && consecutiveLosses >= t,
+                "max_games" => int.TryParse(rule.ConditionValue, out var maxGames)
+                    && maxGames > 0 && gamesToday >= maxGames,
+                "min_mental" => int.TryParse(rule.ConditionValue, out var minMental)
+                    && previousMental is int m && m > 0 && m < minMental,
+                "no_play_after" => int.TryParse(rule.ConditionValue, out var hour)
+                    && game.Hour >= hour,
+                "no_play_day" => rule.ConditionValue
+                    .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                    .Any(day => string.Equals(day, game.DayName, StringComparison.OrdinalIgnoreCase)),
+                _ => false,
+            };
+            if (triggered) triggers.Add(game);
+
+            consecutiveLosses = game.Win ? 0 : consecutiveLosses + 1;
+            gamesToday++;
+            if (game.Mental is int mental && mental > 0) previousMental = mental;
+        }
+
+        return triggers;
+    }
+
+    private sealed record EvidenceGame(long Ts, string Date, int Hour, string DayName, bool Win, int? Mental, bool Skipped);
+
     /// <summary>
     /// Parses a loss_streak condition value. Format: "X" (threshold only, no cooldown →
     /// rest-of-day) or "X:Y" where Y is cooldown minutes after the last loss.

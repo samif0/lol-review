@@ -93,6 +93,8 @@ internal sealed class TestConfigService : IConfigService
 
     public string? AscentFolder => string.IsNullOrWhiteSpace(Current.AscentFolder) ? null : Current.AscentFolder;
 
+    public string AscentFolderRaw => Current.AscentFolder;
+
     public bool TiltFixEnabled => Current.TiltFixMode;
 
     public string ClipsFolder => Current.ClipsFolder;

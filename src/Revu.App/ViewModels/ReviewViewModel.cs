@@ -1459,6 +1459,7 @@ public partial class ReviewViewModel : ObservableObject,
                     ExecutionNote = objective.ExecutionNote,
                     CriteriaVerdict = objective.CriteriaVerdict,
                     CriteriaVerdictSign = objective.CriteriaVerdictSign,
+                    PracticedFromEvidence = objective.PracticedFromEvidence,
                 });
             }
 
