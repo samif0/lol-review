@@ -83,3 +83,14 @@ Desktop.ini
 .claude-flow/
 .swarm/
 ruvector.db
+
+# Research loop: local DB snapshots (user game data - never commit)
+automation/research/snapshots/
+
+# Internal working material — lives on disk, stays off the public repo
+/docs/
+/experiments/
+/.claude/
+/PERF_REPORT.md
+/scripts/scrub-api-key.ps1
+/scripts/scrub-api-key.py

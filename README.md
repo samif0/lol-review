@@ -53,11 +53,8 @@ src/
   Revu.Core.Tests/ xUnit tests over temp-file SQLite fixtures
 site/              Static landing site at revu.lol
 proxy/             Cloudflare Worker that proxies Riot Match-V5
-docs/              Architecture and operational docs
 .github/           Issue templates and the release workflow
 ```
-
-For a deeper tour, see [docs/CODEBASE_ONBOARDING.md](docs/CODEBASE_ONBOARDING.md).
 
 ## Contributing
 
