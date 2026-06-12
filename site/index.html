@@ -14,7 +14,38 @@
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
 
+  <link rel="canonical" href="https://revu.lol/" />
+
+  <!-- P-011: PNG sizes alongside the .ico — Google's SERP favicon picker
+       wants an explicit ≥48px bitmap it can crawl. -->
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="96x96" href="/icon-96.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "name": "Revu",
+        "url": "https://revu.lol/"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Revu",
+        "url": "https://revu.lol/",
+        "operatingSystem": "Windows",
+        "applicationCategory": "GameApplication",
+        "description": "Auto-capture and review every ranked League of Legends game. Local-first, no telemetry.",
+        "image": "https://revu.lol/icon-512.png",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    ]
+  }
+  </script>
 
   <link rel="preload" href="/fonts/Orbitron.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="preload" href="/fonts/Rajdhani-Bold.woff2" as="font" type="font/woff2" crossorigin />
