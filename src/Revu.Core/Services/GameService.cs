@@ -224,30 +224,39 @@ public sealed class GameService : IGameService
 
     private async Task ScheduleVodRetryAsync(long gameId)
     {
-        try
+        // P-007: a ladder, not a single shot. The EOG attempt races Ascent's
+        // encode finalization; when one 90s retry also lost that race, the
+        // recording stayed unlinked until the next app start. Each attempt is
+        // independent — TryLinkRecordingAsync is idempotent and returns true
+        // once a valid link exists.
+        foreach (var delayMs in GameConstants.VodRetryLadderMs)
         {
-            await Task.Delay(GameConstants.VodRetryDelayMs).ConfigureAwait(false);
-
-            if (!_config.IsAscentEnabled)
+            try
             {
-                return;
-            }
+                await Task.Delay(delayMs).ConfigureAwait(false);
 
-            var game = await _games.GetAsync(gameId).ConfigureAwait(false);
-            if (game == null)
-            {
-                return;
-            }
+                if (!_config.IsAscentEnabled)
+                {
+                    return;
+                }
 
-            var linked = await _vodService.TryLinkRecordingAsync(game).ConfigureAwait(false);
-            if (linked)
-            {
-                _logger.LogInformation("Delayed VOD retry succeeded for game {GameId}", gameId);
+                var game = await _games.GetAsync(gameId).ConfigureAwait(false);
+                if (game == null)
+                {
+                    return;
+                }
+
+                var linked = await _vodService.TryLinkRecordingAsync(game).ConfigureAwait(false);
+                if (linked)
+                {
+                    _logger.LogInformation("Delayed VOD retry succeeded for game {GameId}", gameId);
+                    return;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Delayed VOD retry failed for game {GameId}", gameId);
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Delayed VOD retry attempt failed for game {GameId}", gameId);
+            }
         }
     }
 }

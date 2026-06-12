@@ -109,9 +109,30 @@ public sealed partial class SettingsPage : Page
             var recordings = await vodService.FindRecordingsAsync();
             var matched = await vodService.AutoMatchRecordingsAsync();
 
+            // P-007: surface silent misses — a recent recording that matches
+            // no game is exactly the failure the user can't otherwise see.
+            var unmatchedNote = "";
+            try
+            {
+                var vodRepo = App.GetService<Revu.Core.Data.Repositories.IVodRepository>();
+                var linkedPaths = new HashSet<string>(
+                    (await vodRepo.GetAllVodsAsync()).Select(v => v.FilePath),
+                    StringComparer.OrdinalIgnoreCase);
+                var weekAgo = DateTimeOffset.Now.AddDays(-7).ToUnixTimeSeconds();
+                var unmatchedRecent = recordings.Count(r => r.Mtime >= weekAgo && !linkedPaths.Contains(r.Path));
+                if (unmatchedRecent > 0)
+                {
+                    unmatchedNote = $" {unmatchedRecent} recording(s) from the last 7 days match no game.";
+                }
+            }
+            catch
+            {
+                // Diagnostics only — never let the note break the scan result.
+            }
+
             if (matched > 0)
             {
-                ScanResultText.Text = $"Matched {matched} VOD(s) to games! ({recordings.Count} recordings found)";
+                ScanResultText.Text = $"Matched {matched} VOD(s) to games! ({recordings.Count} recordings found){unmatchedNote}";
             }
             else if (recordings.Count == 0)
             {
@@ -119,7 +140,7 @@ public sealed partial class SettingsPage : Page
             }
             else
             {
-                ScanResultText.Text = $"Found {recordings.Count} recordings but no new matches. Games may already be linked or outside the match window.";
+                ScanResultText.Text = $"Found {recordings.Count} recordings but no new matches. Games may already be linked or outside the match window.{unmatchedNote}";
             }
             ScanResultText.Visibility = Visibility.Visible;
         }

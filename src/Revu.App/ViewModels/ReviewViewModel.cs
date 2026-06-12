@@ -24,6 +24,10 @@ public partial class ReviewViewModel : ObservableObject,
     private const int MaxEvidenceInboxItems = 12;
     private const int EvidenceJumpPreRollSeconds = 5;
 
+    // P-006: deaths get a longer run-up than evidence clips — the cause
+    // (greed, missing vision, wave state) is visible in the approach.
+    private const int DeathJumpPreRollSeconds = 10;
+
     private readonly IReviewWorkflowService _reviewWorkflowService;
     private readonly INavigationService _navigationService;
     private readonly IPromptsRepository _promptsRepository;
@@ -1027,6 +1031,31 @@ public partial class ReviewViewModel : ObservableObject,
         }
 
         _navigationService.NavigateTo("vodplayer", GameId);
+    }
+
+    /// <summary>v2.18 (P-006): jump the VOD to a specific death so its cause
+    /// can be tagged from what actually happened instead of from memory.
+    /// ~10s of lead-in shows the mistake forming, not just the death.</summary>
+    [RelayCommand]
+    private async Task OpenDeathInVodAsync(DeathAuditItem? death)
+    {
+        if (death is null || GameId <= 0 || !HasVod)
+        {
+            return;
+        }
+
+        var saved = await _reviewWorkflowService.SaveDraftAsync(new ReviewDraftRequest(GameId, BuildSnapshot()));
+        if (!saved)
+        {
+            SetValidation("Couldn't preserve your review draft before opening the VOD.");
+            return;
+        }
+
+        _navigationService.NavigateTo("vodplayer", new VodPlayerNavigationRequest
+        {
+            GameId = GameId,
+            SeekTimeS = Math.Max(0, death.GameTimeSeconds - DeathJumpPreRollSeconds),
+        });
     }
 
     [RelayCommand]

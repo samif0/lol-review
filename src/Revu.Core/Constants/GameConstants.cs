@@ -82,8 +82,15 @@ public static class GameConstants
     /// <summary>Delay before scanning for VOD files on startup (milliseconds).</summary>
     public const int StartupVodScanDelayMs = 3_000;
 
-    /// <summary>Retry VOD match after Ascent encoding (~90s) in milliseconds.</summary>
-    public const int VodRetryDelayMs = 90_000;
+    /// <summary>
+    /// v2.18 (P-007): VOD-match retry ladder after game end — delays between
+    /// successive attempts. Ascent finalizes its file seconds-to-minutes after
+    /// the game ends; a single 90s shot lost that race once and the recording
+    /// stayed orphaned until the next startup scan. Attempts land ~1.5, ~4.5
+    /// and ~9.5 minutes after EOG. In-memory only: app restarts are covered by
+    /// the startup scan and the review-open rematch.
+    /// </summary>
+    public static readonly int[] VodRetryLadderMs = [90_000, 180_000, 300_000];
 
     /// <summary>Delay before restarting after update install (milliseconds).</summary>
     public const int UpdateRestartDelayMs = 1_500;
