@@ -200,6 +200,29 @@
                                            Label="WARDS" Value="{x:Bind ViewModel.WardsPlacedText, Mode=OneWay}"/>
                     </Grid>
 
+                    <!-- v2.18: laning-at-10 + rank benchmark context — the stat
+                         cards above read against ground truth, not a vacuum. -->
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="{x:Bind ViewModel.LaningAt10Line, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="150"
+                                   Foreground="{StaticResource AccentBlueBrush}"
+                                   Visibility="{x:Bind ViewModel.HasLaningAt10, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                        <TextBlock Text="{x:Bind ViewModel.BenchmarkRankLine, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="150"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   Visibility="{x:Bind ViewModel.HasBenchmarks, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                        <TextBlock Text="{x:Bind ViewModel.BenchmarkNextLine, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="150"
+                                   Foreground="{StaticResource AccentGoldBrush}"
+                                   Visibility="{x:Bind ViewModel.HasBenchmarks, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
+
                     <!-- •••••••••••••••••••••••••••••••••••••••••••
                          OBJECTIVE PRACTICE (moved up, after stats)
                          ••••••••••••••••••••••••••••••••••••••••••• -->
@@ -219,6 +242,116 @@
                                    Fill="{StaticResource SubtleBorderBrush}"
                                    VerticalAlignment="Center"/>
                     </Grid>
+
+                    <!-- v2.18 (schema v5): one-tap focus check. The first input on
+                         the page — fast enough to answer while tilted. Asked
+                         against the Start Block intent for the day. -->
+                    <controls:CornerBracketedCard
+                            CardBorderBrush="{StaticResource AccentGoldBrush}"
+                            Visibility="{x:Bind ViewModel.HasSessionIntentionForGame, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <Grid ColumnSpacing="14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <controls:SectionTitle Text="FOCUS CHECK"/>
+                                <TextBlock FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           TextWrapping="Wrap"
+                                           Text="{x:Bind ViewModel.SessionIntentionForGame, Mode=OneWay}"/>
+                                <TextBlock Text="Did you actually play to it this game?"
+                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                           Foreground="{StaticResource MutedTextBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <ToggleButton Content="Yes"
+                                              IsChecked="{x:Bind ViewModel.FocusAdherenceYes, Mode=OneWay}"
+                                              Command="{x:Bind ViewModel.SetFocusAdherenceCommand}"
+                                              CommandParameter="2"
+                                              Style="{StaticResource HudPracticedToggleStyle}"/>
+                                <ToggleButton Content="Partly"
+                                              IsChecked="{x:Bind ViewModel.FocusAdherencePartly, Mode=OneWay}"
+                                              Command="{x:Bind ViewModel.SetFocusAdherenceCommand}"
+                                              CommandParameter="1"
+                                              Style="{StaticResource HudPracticedToggleStyle}"/>
+                                <ToggleButton Content="No"
+                                              IsChecked="{x:Bind ViewModel.FocusAdherenceNo, Mode=OneWay}"
+                                              Command="{x:Bind ViewModel.SetFocusAdherenceCommand}"
+                                              CommandParameter="0"
+                                              Style="{StaticResource HudPracticedToggleStyle}"/>
+                            </StackPanel>
+                        </Grid>
+                    </controls:CornerBracketedCard>
+
+                    <!-- v2.18 (schema v5): death audit. One tap per death — the
+                         classified mix across games becomes the diagnosis. -->
+                    <controls:CornerBracketedCard
+                            Visibility="{x:Bind ViewModel.HasDeathAudit, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="10">
+                            <controls:SectionTitle Text="DEATH AUDIT"/>
+                            <TextBlock Text="Tag the cause of each death. One tap each — the pattern across games is the diagnosis, not any single death."
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.DeathAudit, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Spacing="6"/>
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:DeathAuditItem">
+                                        <Border Background="{StaticResource InputBackgroundBrush}"
+                                                BorderBrush="{StaticResource SubtleBorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="2"
+                                                Padding="10,6">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{x:Bind TimeText}"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                           Foreground="{StaticResource LossRedBrush}"
+                                                           VerticalAlignment="Center"
+                                                           MinWidth="44"/>
+                                                <ItemsRepeater Grid.Column="1" ItemsSource="{x:Bind Chips}">
+                                                    <ItemsRepeater.Layout>
+                                                        <UniformGridLayout MinItemWidth="92"
+                                                                           MinRowSpacing="4"
+                                                                           MinColumnSpacing="4"
+                                                                           ItemsStretch="Fill"/>
+                                                    </ItemsRepeater.Layout>
+                                                    <ItemsRepeater.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:DeathChipOption">
+                                                            <Button Background="Transparent"
+                                                                    BorderThickness="1"
+                                                                    BorderBrush="{x:Bind ChipBorderBrush, Mode=OneWay}"
+                                                                    Padding="8,3"
+                                                                    HorizontalAlignment="Stretch"
+                                                                    HorizontalContentAlignment="Center"
+                                                                    CornerRadius="2"
+                                                                    DataContext="{x:Bind}"
+                                                                    Click="OnDeathChipClick"
+                                                                    ToolTipService.ToolTip="{x:Bind Hint}">
+                                                                <TextBlock Text="{x:Bind Label}"
+                                                                           FontFamily="{StaticResource MonoFont}"
+                                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                                           CharacterSpacing="150"
+                                                                           Foreground="{x:Bind ChipForegroundBrush, Mode=OneWay}"/>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsRepeater.ItemTemplate>
+                                                </ItemsRepeater>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                        </StackPanel>
+                    </controls:CornerBracketedCard>
 
                     <controls:CornerBracketedCard
                             Visibility="{x:Bind ViewModel.HasObjectives, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -362,16 +495,25 @@
                                                                    Foreground="{StaticResource AccentBlueBrush}"/>
                                                     </StackPanel>
                                                     <ToggleButton Grid.Column="1"
+                                                                  Content="PRACTICED"
                                                                   IsChecked="{x:Bind Practiced, Mode=TwoWay}"
                                                                   Style="{StaticResource HudPracticedToggleStyle}"/>
                                                 </Grid>
 
-                                                <!-- Row 1: Criteria -->
-                                                <TextBlock Grid.Row="1"
-                                                           Text="{x:Bind Criteria}"
-                                                           FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                           Foreground="{StaticResource SecondaryTextBrush}"
-                                                           TextWrapping="Wrap"/>
+                                                <!-- Row 1: Criteria + measured verdict (v2.18, schema v5) -->
+                                                <StackPanel Grid.Row="1" Spacing="4">
+                                                    <TextBlock Text="{x:Bind Criteria}"
+                                                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{x:Bind CriteriaVerdict}"
+                                                               FontFamily="{StaticResource MonoFont}"
+                                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                                               CharacterSpacing="150"
+                                                               Foreground="{x:Bind CriteriaVerdictBrush}"
+                                                               TextWrapping="Wrap"
+                                                               Visibility="{x:Bind HasCriteriaVerdict, Converter={StaticResource BoolToVis}}"/>
+                                                </StackPanel>
 
                                                 <!-- Row 2: General notes for this objective on this game -->
                                                 <StackPanel Grid.Row="2" Spacing="4">
@@ -580,6 +722,66 @@
                                    Fill="{StaticResource SubtleBorderBrush}"
                                    VerticalAlignment="Center"/>
                     </Grid>
+
+                    <!-- v2.18 (digest 2026-06-11-2 P3a): REAPPRAISAL — the
+                         outside/within-control pair. ViewModel, drafts, and
+                         repository have round-tripped these since 2026-03-22;
+                         the form never rendered the inputs (write-path audit,
+                         brief 2026-06-11-03). Collapsed by default so the cost
+                         stays opt-in; auto-expands when saved text exists. -->
+                    <controls:CornerBracketedCard>
+                        <StackPanel Spacing="10">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <controls:SectionTitle Grid.Column="0"
+                                                       Text="REAPPRAISAL"
+                                                       VerticalAlignment="Center"/>
+                                <ToggleButton Grid.Column="1"
+                                              Content="WRITE"
+                                              Style="{StaticResource HudPracticedToggleStyle}"
+                                              IsChecked="{x:Bind ViewModel.IsReappraisalExpanded, Mode=TwoWay}"/>
+                            </Grid>
+                            <TextBlock Text="Optional — split the game into what was outside your control and what was yours to change."
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <StackPanel Spacing="10"
+                                        Visibility="{x:Bind ViewModel.IsReappraisalExpanded, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Outside your control"
+                                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                                    <TextBox Text="{x:Bind ViewModel.OutsideControl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="Jungle diff, autofill, disconnects..."
+                                             TextWrapping="Wrap"
+                                             AcceptsReturn="True"
+                                             MinHeight="56"
+                                             FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                             Background="{StaticResource InputBackgroundBrush}"
+                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                             CornerRadius="2"/>
+                                </StackPanel>
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Within your control"
+                                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                                    <TextBox Text="{x:Bind ViewModel.WithinControl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="What you could have done differently..."
+                                             TextWrapping="Wrap"
+                                             AcceptsReturn="True"
+                                             MinHeight="56"
+                                             FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                             Background="{StaticResource InputBackgroundBrush}"
+                                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                                             Foreground="{StaticResource PrimaryTextBrush}"
+                                             CornerRadius="2"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </controls:CornerBracketedCard>
 
                     <controls:CornerBracketedCard>
                         <StackPanel Spacing="10">

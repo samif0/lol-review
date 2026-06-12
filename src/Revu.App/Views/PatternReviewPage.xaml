@@ -313,6 +313,52 @@
                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                    CharacterSpacing="100"/>
                     </Button>
+
+                    <!-- v2.18: pattern → mini objective. Watching isn't fixing;
+                         the offer turns the insight into a 5-game focus drill. -->
+                    <StackPanel Spacing="8"
+                                Visibility="{x:Bind ViewModel.ShowFixObjectiveOffer, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="TURN IT INTO A DRILL?"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="200"
+                                   Foreground="{StaticResource AccentGoldBrush}"/>
+                        <TextBox Text="{x:Bind ViewModel.FixObjectiveTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 FontFamily="{StaticResource BodyFont}"
+                                 FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}"
+                                 CornerRadius="0"/>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0"
+                                    Command="{x:Bind ViewModel.CreateFixObjectiveCommand}"
+                                    Style="{StaticResource GoldActionButtonStyle}"
+                                    HorizontalAlignment="Stretch" Height="36">
+                                <TextBlock Text="DRILL IT — 5 GAMES"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="100"/>
+                            </Button>
+                            <Button Grid.Column="1"
+                                    Command="{x:Bind ViewModel.DismissFixObjectiveCommand}"
+                                    Style="{StaticResource SecondaryActionButtonStyle}"
+                                    HorizontalAlignment="Stretch" Height="36"
+                                    Content="Not now"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <TextBlock Text="FOCUS DRILL CREATED — IT'LL SHOW PRE-GAME"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                               CharacterSpacing="150"
+                               Foreground="{StaticResource WinGreenBrush}"
+                               TextWrapping="Wrap"
+                               Visibility="{x:Bind ViewModel.FixObjectiveCreated, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
                 </StackPanel>
             </Grid>
         </Grid>

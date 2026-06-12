@@ -36,4 +36,12 @@ public sealed partial class PreGamePage : Page
     /// <summary>x:Bind helper — show a placeholder until the enemy laner locks.</summary>
     public string EnemyOrPlaceholder(string? enemy)
         => string.IsNullOrEmpty(enemy) ? "..." : enemy;
+
+    // x:Bind helpers for the intent card's cleared state (the inverse case
+    // has no converter in this page's resources).
+    public Microsoft.UI.Xaml.Visibility VisibleWhen(bool value)
+        => value ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public Microsoft.UI.Xaml.Visibility CollapsedWhen(bool value)
+        => value ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
 }

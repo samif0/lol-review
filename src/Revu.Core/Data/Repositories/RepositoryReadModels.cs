@@ -31,11 +31,17 @@ public sealed record ObjectiveSummary(
     // v2.17.7: mini-objective target game count. 0 = no target (primary).
     int TargetGameCount = 0,
     // v2.18 (F2): game-phase focus for auto-clip matching. '' = auto-infer from title.
-    string FocusPhase = "")
+    string FocusPhase = "",
+    // v2.18 (schema v5): structured, machine-checkable criterion. Empty metric
+    // means the objective only has the free-text CompletionCriteria (if any).
+    string CriteriaMetric = "",
+    string CriteriaOp = ">=",
+    double CriteriaValue = 0)
 {
     public bool IsMini => string.Equals(Type, "mini", StringComparison.OrdinalIgnoreCase);
     public int GamesRemaining => Math.Max(0, TargetGameCount - GameCount);
     public bool IsMiniComplete => IsMini && TargetGameCount > 0 && GameCount >= TargetGameCount;
+    public bool HasStructuredCriteria => !string.IsNullOrWhiteSpace(CriteriaMetric);
 }
 
 public sealed record GameObjectiveRecord(
@@ -47,7 +53,13 @@ public sealed record GameObjectiveRecord(
     string CompletionCriteria,
     string Type,
     bool IsPriority,
-    string Phase);
+    string Phase,
+    // v2.18 (schema v5): outcome of the structured criterion for this game.
+    // null = not evaluated (no criterion, or stat unavailable).
+    int? CriteriaMet = null,
+    string CriteriaMetric = "",
+    string CriteriaOp = ">=",
+    double CriteriaValue = 0);
 
 public sealed record MatchupNoteRecord(
     long Id,

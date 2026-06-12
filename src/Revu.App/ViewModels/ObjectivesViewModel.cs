@@ -143,7 +143,28 @@ public sealed class ObjectiveDisplayItem : System.ComponentModel.INotifyProperty
 
     public string TypeBadge => IsMental ? "MENTAL" : IsMini ? "FOCUS" : "GAMEPLAY";
     public string PriorityBadge => IsPriority ? "PRIORITY" : "";
-    public string ScoreText => $"{Score} pts  \u2022  {GameCount} games";
+
+    // Mini objectives are a fixed N-game commitment, not a mastery-ladder
+    // objective \u2014 the Exploring\u2192Ready progression, score, and "pts to next
+    // level" are meaningless on them. The card hides that chrome for minis and
+    // shows game progress instead.
+    public bool ShowLevelLadder => !IsMini;
+
+    /// <summary>Level name for normal objectives; "FOCUS" framing for minis.</summary>
+    public string LevelDisplayName => IsMini ? "FOCUS DRILL" : LevelName;
+
+    /// <summary>Score line for normal objectives; game-count framing for minis.</summary>
+    public string ScoreText => IsMini
+        ? $"{GameCount} games played"
+        : $"{Score} pts  \u2022  {GameCount} games";
+
+    /// <summary>
+    /// Progress-bar fill: score-toward-Ready for normal objectives, but
+    /// games-completed for a mini (its only meaningful progress).
+    /// </summary>
+    public double DisplayProgress => IsMini && TargetGameCount > 0
+        ? Math.Clamp((double)GameCount / TargetGameCount, 0.0, 1.0)
+        : Progress;
 
     /// <summary>v2.17.7: "2 of 3 games" badge on mini objectives, blank for primary.</summary>
     public string FocusProgressText => IsMini && TargetGameCount > 0
@@ -165,7 +186,7 @@ public sealed class ObjectiveDisplayItem : System.ComponentModel.INotifyProperty
     }
     public double ProgressPercent => Progress * 100;
     public bool HasSkillArea => !string.IsNullOrWhiteSpace(SkillArea);
-    public bool HasCriteria => !string.IsNullOrWhiteSpace(CompletionCriteria);
+    public bool HasCriteria => HasStructuredCriteria || !string.IsNullOrWhiteSpace(CompletionCriteria);
     public int PhaseIndex => ObjectivePhases.ToIndex(Phase);
     public string PhaseLabel => ObjectivePhases.ToDisplayLabel(Phase);
 
@@ -201,7 +222,30 @@ public sealed class ObjectiveDisplayItem : System.ComponentModel.INotifyProperty
     /// <summary>Cumulative score per game, oldest→newest, for sparkline rendering.</summary>
     public IReadOnlyList<int> ScoreHistory { get; init; } = [];
     public bool HasScoreHistory => ScoreHistory.Count >= 2;
-    public string CriteriaText => $"Success: {CompletionCriteria}";
+
+    // v2.18 (schema v5): structured criterion + measured hit rate. When a
+    // metric is set, the criteria line renders the machine-checkable form and
+    // the card shows how often the threshold was actually hit.
+    public string CriteriaMetric { get; init; } = "";
+    public string CriteriaOp { get; init; } = ">=";
+    public double CriteriaValue { get; init; }
+    public int CriteriaHits { get; init; }
+    public int CriteriaEvaluated { get; init; }
+    public bool HasStructuredCriteria => !string.IsNullOrWhiteSpace(CriteriaMetric);
+    public bool HasCriteriaHitRate => HasStructuredCriteria;
+    public string CriteriaHitRateText => !HasStructuredCriteria
+        ? ""
+        : CriteriaEvaluated > 0
+            ? $"HIT {CriteriaHits}/{CriteriaEvaluated} GAMES"
+            : "NOT MEASURED YET";
+    public SolidColorBrush CriteriaHitRateBrush => AppSemanticPalette.Brush(
+        CriteriaEvaluated == 0 ? AppSemanticPalette.MutedTextHex
+        : CriteriaHits * 2 >= CriteriaEvaluated ? AppSemanticPalette.PositiveHex
+        : AppSemanticPalette.NegativeHex);
+
+    public string CriteriaText => HasStructuredCriteria
+        ? $"Success: {Revu.Core.Services.ObjectiveCriteria.Describe(CriteriaMetric, CriteriaOp, CriteriaValue)}"
+        : $"Success: {CompletionCriteria}";
     public string RemainingText
     {
         get
@@ -385,6 +429,44 @@ public partial class ObjectivesViewModel : ObservableObject
 
     [ObservableProperty]
     private string _newCriteria = "";
+
+    // v2.18 (schema v5): structured criteria builder. Metric index 0 = "Free
+    // text only"; 1.. map to ObjectiveCriteria.Metrics[index-1]. The selected
+    // metric's LowerIsBetter flips the comparator default so "Deaths" starts
+    // as "at most" while "CS per minute" starts as "at least".
+    [ObservableProperty]
+    private int _newCriteriaMetricIndex;
+
+    /// <summary>0 = at least (&gt;=), 1 = at most (&lt;=).</summary>
+    [ObservableProperty]
+    private int _newCriteriaOpIndex;
+
+    [ObservableProperty]
+    private string _newCriteriaValueText = "";
+
+    public bool ShowCriteriaBuilderValue => NewCriteriaMetricIndex > 0;
+
+    partial void OnNewCriteriaMetricIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(ShowCriteriaBuilderValue));
+        if (value > 0 && value <= Revu.Core.Services.ObjectiveCriteria.Metrics.Count)
+        {
+            NewCriteriaOpIndex = Revu.Core.Services.ObjectiveCriteria.Metrics[value - 1].LowerIsBetter ? 1 : 0;
+        }
+    }
+
+    /// <summary>ComboBox options for the criteria metric picker.</summary>
+    public IReadOnlyList<string> CriteriaMetricOptions { get; } = BuildCriteriaMetricOptions();
+
+    private static IReadOnlyList<string> BuildCriteriaMetricOptions()
+    {
+        var options = new List<string> { "Free text only" };
+        foreach (var metric in Revu.Core.Services.ObjectiveCriteria.Metrics)
+        {
+            options.Add(metric.Label);
+        }
+        return options;
+    }
 
     [ObservableProperty]
     private string _newDescription = "";
@@ -599,6 +681,23 @@ public partial class ObjectivesViewModel : ObservableObject
             objectiveId,
             Revu.Core.Data.Repositories.ObjectiveFocusPhases.FromIndex(NewFocusPhaseIndex));
 
+        // v2.18 (schema v5): persist the structured criterion (empty metric clears).
+        var criteriaMetricKey =
+            NewCriteriaMetricIndex > 0 && NewCriteriaMetricIndex <= Revu.Core.Services.ObjectiveCriteria.Metrics.Count
+                ? Revu.Core.Services.ObjectiveCriteria.Metrics[NewCriteriaMetricIndex - 1].Key
+                : "";
+        var criteriaValueText = NewCriteriaValueText.Trim();
+        if (!double.TryParse(criteriaValueText, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var criteriaValue))
+        {
+            double.TryParse(criteriaValueText, out criteriaValue);
+        }
+        await _objectivesRepo.UpdateCriteriaAsync(
+            objectiveId,
+            criteriaMetricKey,
+            NewCriteriaOpIndex == 1 ? "<=" : ">=",
+            criteriaValue);
+
         ClearForm();
         IsCreating = false;
         await RefreshDataAsync();
@@ -781,6 +880,14 @@ public partial class ObjectivesViewModel : ObservableObject
         NewPracticeIn   = objective.PracticeIn;
         NewPracticePost = objective.PracticePost;
         NewCriteria = objective.CompletionCriteria;
+        // v2.18 (schema v5): hydrate the structured-criteria builder. Metric
+        // first — its change handler resets the comparator default — then the
+        // stored comparator and threshold overwrite it.
+        NewCriteriaMetricIndex = CriteriaMetricIndexFromKey(objective.CriteriaMetric);
+        NewCriteriaOpIndex = objective.CriteriaOp == "<=" ? 1 : 0;
+        NewCriteriaValueText = objective.HasStructuredCriteria
+            ? Revu.Core.Services.ObjectiveCriteria.FormatValue(objective.CriteriaValue)
+            : "";
         NewDescription = objective.Description;
 
         // Hydrate the custom prompt editor from DB.
@@ -833,6 +940,26 @@ public partial class ObjectivesViewModel : ObservableObject
         ResetFormFields();
     }
 
+    /// <summary>Map a persisted criteria metric key to its picker index (0 = free text).</summary>
+    private static int CriteriaMetricIndexFromKey(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return 0;
+        }
+
+        var metrics = Revu.Core.Services.ObjectiveCriteria.Metrics;
+        for (var i = 0; i < metrics.Count; i++)
+        {
+            if (string.Equals(metrics[i].Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                return i + 1;
+            }
+        }
+
+        return 0;
+    }
+
     private void ResetFormFields()
     {
         NewTitle = "";
@@ -845,6 +972,9 @@ public partial class ObjectivesViewModel : ObservableObject
         NewPracticeIn = true;
         NewPracticePost = false;
         NewCriteria = "";
+        NewCriteriaMetricIndex = 0;
+        NewCriteriaOpIndex = 0;
+        NewCriteriaValueText = "";
         NewDescription = "";
         NewPrompts.Clear();
         NewChampions.Clear();
@@ -872,6 +1002,9 @@ public partial class ObjectivesViewModel : ObservableObject
                 var scoreHistory = await _objectivesRepo.GetScoreHistoryAsync(obj.Id);
                 var prompts = await _promptsRepo.GetPromptsForObjectiveAsync(obj.Id);
                 var champions = await _objectivesRepo.GetChampionsForObjectiveAsync(obj.Id);
+                var (criteriaHits, criteriaEvaluated) = obj.HasStructuredCriteria
+                    ? await _objectivesRepo.GetCriteriaHitRateAsync(obj.Id)
+                    : (0, 0);
 
                 var item = new ObjectiveDisplayItem
                 {
@@ -880,6 +1013,11 @@ public partial class ObjectivesViewModel : ObservableObject
                     SkillArea = obj.SkillArea,
                     Type = obj.Type,
                     CompletionCriteria = obj.CompletionCriteria,
+                    CriteriaMetric = obj.CriteriaMetric,
+                    CriteriaOp = obj.CriteriaOp,
+                    CriteriaValue = obj.CriteriaValue,
+                    CriteriaHits = criteriaHits,
+                    CriteriaEvaluated = criteriaEvaluated,
                     Description = obj.Description,
                     Phase = obj.Phase,
                     PracticePre = obj.PracticePre,

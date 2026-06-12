@@ -102,7 +102,7 @@ public sealed partial class GameRepository
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $@"
-            SELECT focus_next, mistakes, went_well
+            SELECT focus_next, mistakes, went_well, champion_name, win, timestamp
             FROM games
             WHERE (focus_next != '' OR mistakes != '')
                 {CasualFilter}
@@ -115,7 +115,10 @@ public sealed partial class GameRepository
             return new ReviewFocus(
                 FocusNext: reader.IsDBNull(reader.GetOrdinal("focus_next")) ? "" : reader.GetString(reader.GetOrdinal("focus_next")),
                 Mistakes: reader.IsDBNull(reader.GetOrdinal("mistakes")) ? "" : reader.GetString(reader.GetOrdinal("mistakes")),
-                WentWell: reader.IsDBNull(reader.GetOrdinal("went_well")) ? "" : reader.GetString(reader.GetOrdinal("went_well"))
+                WentWell: reader.IsDBNull(reader.GetOrdinal("went_well")) ? "" : reader.GetString(reader.GetOrdinal("went_well")),
+                ChampionName: reader.IsDBNull(reader.GetOrdinal("champion_name")) ? "" : reader.GetString(reader.GetOrdinal("champion_name")),
+                Win: !reader.IsDBNull(reader.GetOrdinal("win")) && reader.GetInt32(reader.GetOrdinal("win")) != 0,
+                Timestamp: reader.IsDBNull(reader.GetOrdinal("timestamp")) ? 0 : reader.GetInt64(reader.GetOrdinal("timestamp"))
             );
         }
         return null;

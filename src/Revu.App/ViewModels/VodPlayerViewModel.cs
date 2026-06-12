@@ -392,7 +392,11 @@ public partial class VodPlayerViewModel : ObservableObject
 
             ChampionName = game.ChampionName;
             Win = game.Win;
-            HeaderText = $"VOD Review - {game.ChampionName} ({(game.Win ? "W" : "L")})";
+            // Role-aware matchup in the header (2v2 for adc/supp/mid/jg, 1v1 top),
+            // shared with the games list + review so it reads identically.
+            var matchup = Revu.Core.Services.MatchupDisplay.Build(
+                game.ChampionName, game.EnemyLaner, game.Position, game.ParticipantMap);
+            HeaderText = $"VOD Review - {matchup} ({(game.Win ? "W" : "L")})";
             GameDurationS = game.GameDuration;
             TotalTimeText = FormatTime(game.GameDuration);
 

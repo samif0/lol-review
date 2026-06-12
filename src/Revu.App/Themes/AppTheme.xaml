@@ -694,7 +694,7 @@
                                           FontSize="{Binding Micro, Source={StaticResource FontSizes}}"
                                           Foreground="{StaticResource MutedTextBrush}"/>
                                 <TextBlock x:Name="Label"
-                                           Text="PRACTICED"
+                                           Text="{TemplateBinding Content}"
                                            FontFamily="{StaticResource HeadingFont}"
                                            FontWeight="SemiBold"
                                            FontSize="{Binding Meta, Source={StaticResource FontSizes}}"

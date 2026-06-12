@@ -306,6 +306,18 @@
                                     Background="{x:Bind RoleBrush(ViewModel.IsUtilitySelected), Mode=OneWay}"/>
                         </Grid>
 
+                        <!-- v2.18: rank is auto-detected from the Riot API when
+                             the account resolves — no picker here. This line is
+                             just the confirmation; Settings holds the manual
+                             override for skip-path and unranked users. -->
+                        <TextBlock Text="{x:Bind ViewModel.DetectedRankLine, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="200"
+                                   Foreground="{StaticResource AccentGoldBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{x:Bind ViewModel.HasDetectedRank, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+
                         <Button Content="CONTINUE"
                                 Command="{x:Bind ViewModel.FinishRoleCommand}"
                                 Style="{StaticResource PrimaryActionButtonStyle}"

@@ -46,6 +46,7 @@
                     CornerRadius="2"
                     MinWidth="240"
                     MaxHeight="240"
+                    VerticalAlignment="Top"
                     KeyDown="OnPopupKeyDown">
                 <ListView x:Name="SuggestionsList"
                           SelectionMode="Single"

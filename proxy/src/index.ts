@@ -195,6 +195,33 @@ async function handleMatch(matchId: string, url: URL, env: Env): Promise<Respons
   return riotGet(u, env);
 }
 
+// v2.18: League-V4 ranked entries by PUUID. Platform-routed (na1, euw1, ...)
+// unlike Match-V5 which goes through the regional cluster. Powers rank
+// auto-detection when the user links their Riot account.
+async function handleRank(url: URL, env: Env): Promise<Response> {
+  const puuid = url.searchParams.get("puuid");
+  const platform = url.searchParams.get("region");
+  if (!puuid || !platform) return badRequest("puuid and region required");
+  if (!regionalFor(platform)) return badRequest(`unknown region '${platform}'`);
+  const u = `https://${platform.toLowerCase()}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`;
+  return riotGet(u, env);
+}
+
+// v2.18: Match-V5 timeline — per-minute participant frames (gold, CS, XP,
+// positions) and positioned events. Powers the desktop app's laning-at-10
+// backfill (CS@10 / gold-diff@10).
+async function handleTimeline(matchId: string, url: URL, env: Env): Promise<Response> {
+  const platform = url.searchParams.get("region");
+  if (!platform) return badRequest("region required");
+  const regional = regionalFor(platform);
+  if (!regional) return badRequest(`unknown region '${platform}'`);
+  if (!/^[A-Z0-9]{2,5}_[0-9]+$/.test(matchId)) {
+    return badRequest("invalid matchId shape");
+  }
+  const u = `https://${regional}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}/timeline`;
+  return riotGet(u, env);
+}
+
 // ── Rate limit by IP (auth endpoints) ───────────────────────────────────
 //
 // Signup/login/verify are public and unauthenticated. Throttle by CF-Connecting-IP
@@ -576,6 +603,11 @@ export default {
           response = await handleAccount(url, env);
         } else if (url.pathname === "/web/matches") {
           response = await handleMatches(url, env);
+        } else if (url.pathname === "/web/rank") {
+          response = await handleRank(url, env);
+        } else if (url.pathname.startsWith("/web/timeline/")) {
+          const matchId = url.pathname.slice("/web/timeline/".length);
+          response = await handleTimeline(matchId, url, env);
         } else if (url.pathname.startsWith("/web/match/")) {
           const matchId = url.pathname.slice("/web/match/".length);
           response = await handleMatch(matchId, url, env);
@@ -621,6 +653,11 @@ export default {
         response = await handleAccount(url, env);
       } else if (url.pathname === "/matches") {
         response = await handleMatches(url, env);
+      } else if (url.pathname === "/rank") {
+        response = await handleRank(url, env);
+      } else if (url.pathname.startsWith("/timeline/")) {
+        const matchId = url.pathname.slice("/timeline/".length);
+        response = await handleTimeline(matchId, url, env);
       } else if (url.pathname.startsWith("/match/")) {
         const matchId = url.pathname.slice("/match/".length);
         response = await handleMatch(matchId, url, env);

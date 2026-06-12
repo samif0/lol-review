@@ -181,6 +181,41 @@
                          BorderBrush="{StaticResource SubtleBorderBrush}"
                          Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
 
+                <!-- v2.18 (digest 2026-06-11-2 P3a): collapsed-by-default
+                     reappraisal pair; shares IsReappraisalExpanded with
+                     ReviewPage so the state follows the review. -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock Grid.Column="0" Text="REAPPRAISAL"
+                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="Bold"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               VerticalAlignment="Center"/>
+                    <ToggleButton Grid.Column="1"
+                                  Content="WRITE"
+                                  Style="{StaticResource HudPracticedToggleStyle}"
+                                  IsChecked="{x:Bind ReviewVM.IsReappraisalExpanded, Mode=TwoWay}"/>
+                </Grid>
+                <StackPanel Spacing="8"
+                            Visibility="{x:Bind ReviewVM.IsReappraisalExpanded, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="Outside your control" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                    <TextBox Text="{x:Bind ReviewVM.OutsideControl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="Jungle diff, autofill, disconnects..."
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             MinHeight="56" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                    <TextBlock Text="Within your control" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                               Foreground="{StaticResource PrimaryTextBrush}"/>
+                    <TextBox Text="{x:Bind ReviewVM.WithinControl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="What you could have done differently..."
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             MinHeight="56" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}" CornerRadius="2"/>
+                </StackPanel>
+
                 <TextBlock Text="Focus for next game" FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                            Foreground="{StaticResource PrimaryTextBrush}"/>
                 <TextBox Text="{x:Bind ReviewVM.FocusNext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"

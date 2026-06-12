@@ -157,4 +157,27 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
             // dashboard simply doesn't refresh.
         }
     }
+
+    private async void EndBlockButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new EndBlockDialog
+            {
+                XamlRoot = XamlRoot,
+            };
+            await dialog.ShowAsync();
+
+            // Reload so the End Block button collapses to the CLOSED stamp.
+            if (dialog.Saved && ViewModel.LoadCommand.CanExecute(null))
+            {
+                await ViewModel.LoadCommand.ExecuteAsync(null);
+            }
+        }
+        catch
+        {
+            // Dialog failure (e.g. one already open) is non-fatal; the
+            // dashboard simply doesn't refresh.
+        }
+    }
 }

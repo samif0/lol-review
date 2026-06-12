@@ -113,6 +113,53 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     [ObservableProperty]
     private string _focusText = "";
 
+    // ── v2.18 intent carry-over card (digest 2026-06-11-2 P2) ──────────
+    // FocusText doubles as the card's editable text; these track where it
+    // came from so the save can distinguish a zero-tap carry from intent.
+
+    /// <summary>Provenance line above the intent box, e.g.
+    /// "FROM YOUR LAST REVIEW — KAI'SA (L) · YESTERDAY 23:12".</summary>
+    [ObservableProperty]
+    private string _intentProvenance = "";
+
+    public bool HasIntentProvenance => !string.IsNullOrWhiteSpace(IntentProvenance);
+
+    partial void OnIntentProvenanceChanged(string value) => OnPropertyChanged(nameof(HasIntentProvenance));
+
+    /// <summary>True when the user opted out — nothing is written this game.</summary>
+    [ObservableProperty]
+    private bool _isIntentCleared;
+
+    [ObservableProperty]
+    private bool _hasCarrySource;
+
+    [ObservableProperty]
+    private bool _hasObjectiveSource;
+
+    /// <summary>Lowest-adherence chip: hidden until enough criteria_met data
+    /// exists (repository data gate — first possible read ≈ July 2026).</summary>
+    [ObservableProperty]
+    private bool _hasAdherenceSource;
+
+    [ObservableProperty]
+    private bool _isCarrySourceSelected;
+
+    [ObservableProperty]
+    private bool _isObjectiveSourceSelected;
+
+    [ObservableProperty]
+    private bool _isAdherenceSourceSelected;
+
+    // 'carry' | 'objective' | 'edited' | '' — the DB-facing source value.
+    private string _intentSource = "";
+    private bool _seedingIntent;
+    private string _carrySeedText = "";
+    private string _carryProvenance = "";
+    private string _objectiveSeedText = "";
+    private string _objectiveProvenance = "";
+    private string _adherenceSeedText = "";
+    private string _adherenceProvenance = "";
+
     [ObservableProperty]
     private string _sessionIntention = "";
 
@@ -278,6 +325,33 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     /// <summary>Snapshot of practiced objective IDs from the last pre-game session, read by ShellViewModel on game end.</summary>
     internal static IReadOnlyList<long> LastPracticedObjectiveIds { get; set; } = [];
 
+    // ── v2.18 (schema v6): pre-game snapshots consumed by ShellViewModel at
+    // game end — the write hop the audit found severed (brief 2026-06-11-03).
+    // Statics, not instance state: InGamePage gets a fresh VM instance and the
+    // EOG handler runs in ShellViewModel, so instance state would be lost
+    // (same reasoning as LastSessionKey / P-002).
+
+    /// <summary>Mirror of SelectedMood for the EOG session_log write.</summary>
+    internal static int LastPreGameMood { get; private set; }
+
+    /// <summary>The intent text to persist at game end ("" = nothing).</summary>
+    internal static string LastIntention { get; private set; } = "";
+
+    /// <summary>'carry' | 'objective' | 'edited' | '' — provenance for
+    /// session_log.intention_source (digest 2026-06-11-2 rider 2a).</summary>
+    internal static string LastIntentionSource { get; private set; } = "";
+
+    /// <summary>True when the user explicitly opted out via "don't carry".</summary>
+    internal static bool LastIntentCleared { get; private set; }
+
+    internal static void ResetPreGameSnapshots()
+    {
+        LastPreGameMood = 0;
+        LastIntention = "";
+        LastIntentionSource = "";
+        LastIntentCleared = false;
+    }
+
     // ── Constructor ─────────────────────────────────────────────────
 
     public PreGameDialogViewModel(
@@ -346,8 +420,31 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     {
         try
         {
-            // Check if tilt fix mode is enabled
-            ShowMoodSelector = _configService.TiltFixEnabled;
+            // v2.18: same champ-select → game flow when a session key is live
+            // (InGamePage shares this VM type and re-runs LoadAsync — P-002).
+            // A fresh flow re-seeds; a continuing flow must preserve the
+            // user's pre-game choices, which live in the static snapshots.
+            var continuingFlow = !string.IsNullOrEmpty(LastSessionKey);
+            if (!continuingFlow)
+            {
+                IsIntentCleared = false;
+                _intentSource = "";
+                _carrySeedText = ""; _carryProvenance = "";
+                _objectiveSeedText = ""; _objectiveProvenance = "";
+                _adherenceSeedText = ""; _adherenceProvenance = "";
+                IsCarrySourceSelected = false;
+                IsObjectiveSourceSelected = false;
+                IsAdherenceSourceSelected = false;
+            }
+
+            // v2.18 (digest 2026-06-11-2 P2): mood picker un-gated from Tilt
+            // Fix — the gate kept the instrument dark for users with
+            // tilt_fix_mode off, which is why pre_game_mood had 0 rows ever.
+            ShowMoodSelector = true;
+            if (continuingFlow && LastPreGameMood > 0 && SelectedMood == 0)
+            {
+                SelectedMood = LastPreGameMood;
+            }
 
             // Get last review focus
             var lastReview = await _gameRepo.GetLastReviewFocusAsync();
@@ -358,11 +455,21 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
                 LastMistakes = lastReview.Mistakes;
                 HasLastMistakes = !string.IsNullOrWhiteSpace(lastReview.Mistakes);
 
-                // Pre-fill focus with last focus
                 if (HasLastFocus)
                 {
-                    FocusText = lastReview.FocusNext;
+                    _carrySeedText = lastReview.FocusNext.Trim();
+                    _carryProvenance = BuildCarryProvenance(lastReview);
                 }
+            }
+            HasCarrySource = !string.IsNullOrWhiteSpace(_carrySeedText);
+
+            // Zero-tap default: seed from the last review's focus_next. The
+            // blank-box variant of this feature already failed 0/47 in the
+            // Python era (brief 2026-06-11-03) — do-nothing must equal
+            // carry-forward. User edits are restored further down.
+            if (HasCarrySource)
+            {
+                ApplySeed(_carrySeedText, _carryProvenance, "carry", "carry");
             }
 
             // Get active objective
@@ -415,10 +522,17 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
                 ActiveObjectiveCriteria = obj.CompletionCriteria;
                 HasActiveObjective = true;
 
-                // Pre-fill focus with objective title if no prior focus
-                if (!HasLastFocus && !string.IsNullOrWhiteSpace(ActiveObjectiveTitle))
+                // Objective seed: criteria phrasing when it exists (executable
+                // beats decorative), title otherwise.
+                _objectiveSeedText = string.IsNullOrWhiteSpace(ActiveObjectiveCriteria)
+                    ? ActiveObjectiveTitle
+                    : $"{ActiveObjectiveTitle} — {ActiveObjectiveCriteria}";
+                _objectiveProvenance = $"FROM PRIORITY OBJECTIVE — {ActiveObjectiveTitle.ToUpperInvariant()}";
+
+                // Fallback seed when there is no review focus to carry.
+                if (!HasCarrySource && !string.IsNullOrWhiteSpace(_objectiveSeedText))
                 {
-                    FocusText = ActiveObjectiveTitle;
+                    ApplySeed(_objectiveSeedText, _objectiveProvenance, "objective", "objective");
                 }
             }
             else
@@ -428,6 +542,56 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
                 ActiveObjectiveTitle = "";
                 ActiveObjectiveCriteria = "";
             }
+            HasObjectiveSource = !string.IsNullOrWhiteSpace(_objectiveSeedText);
+
+            // v2.18: third seed — lowest criteria adherence. The repository
+            // data-gates this (null until ≥10 evaluated rows, ≥3 per
+            // objective), so the chip stays hidden until ~July 2026 data.
+            try
+            {
+                var weakest = await _objectivesRepo.GetLowestCriteriaAdherenceAsync();
+                if (weakest is not null)
+                {
+                    _adherenceSeedText = string.IsNullOrWhiteSpace(weakest.CompletionCriteria)
+                        ? weakest.Title
+                        : $"{weakest.Title} — {weakest.CompletionCriteria}";
+                    var pct = weakest.Evaluated > 0
+                        ? (int)Math.Round(100.0 * weakest.Hits / weakest.Evaluated)
+                        : 0;
+                    _adherenceProvenance =
+                        $"WEAKEST OBJECTIVE — {weakest.Title.ToUpperInvariant()} · {weakest.Hits}/{weakest.Evaluated} HIT ({pct}%)";
+                }
+                HasAdherenceSource = !string.IsNullOrWhiteSpace(_adherenceSeedText);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Lowest-adherence seed skipped");
+                HasAdherenceSource = false;
+            }
+
+            // Continuing flow: re-apply what the user already chose this flow
+            // so the InGamePage re-run doesn't clobber it (mirrors the P-002
+            // draft-restore fix for prompt answers).
+            if (continuingFlow)
+            {
+                if (LastIntentCleared)
+                {
+                    IsIntentCleared = true;
+                    IntentProvenance = "NOTHING CARRIED THIS GAME";
+                }
+                else if (LastIntentionSource == "edited")
+                {
+                    _seedingIntent = true;
+                    FocusText = LastIntention;
+                    _seedingIntent = false;
+                    _intentSource = "edited";
+                    IntentProvenance = "EDITED BY YOU — SAVES AS WRITTEN";
+                    IsCarrySourceSelected = false;
+                    IsObjectiveSourceSelected = false;
+                    IsAdherenceSourceSelected = false;
+                }
+            }
+            UpdateIntentSnapshot();
 
             // Populate pre-game objectives with practiced toggles
             PreGameObjectives.Clear();
@@ -455,7 +619,10 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
             var today = DateTime.Now.ToString("yyyy-MM-dd");
             var todayEntries = await _sessionLogRepo.GetForDateAsync(today);
             IsFirstGame = todayEntries.Count == 0;
-            ShowIntention = ShowMoodSelector && IsFirstGame;
+            // ShowMoodSelector is un-gated now (v2.18); the session-intention
+            // section keeps its original Tilt Fix gate — only mood was approved
+            // for un-gating (digest 2026-06-11-2 P2).
+            ShowIntention = _configService.TiltFixEnabled && IsFirstGame;
 
             // Load existing session intention
             if (ShowIntention)
@@ -470,10 +637,21 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
             // Load matchup history if we have champion info
             await LoadMatchupHistoryAsync(champInfo?.MyChampion, champInfo?.EnemyLaner);
 
-            // v2.15.0: mint a fresh session key (so a new champ-select restarts drafts)
-            // and load custom pre-game prompts for active objectives.
-            _sessionKey = Guid.NewGuid().ToString("N");
-            LastSessionKey = _sessionKey;
+            // v2.15.0: session key scopes draft prompt answers to one
+            // champ-select → game flow. Reuse the active key when one exists:
+            // InGamePage shares this VM type and re-runs LoadAsync on navigate,
+            // and minting a fresh key there orphaned the champ-select drafts so
+            // post-game promotion found nothing. ShellViewModel resets the key
+            // after promoting at game end, so non-null means "same flow".
+            if (string.IsNullOrEmpty(LastSessionKey))
+            {
+                _sessionKey = Guid.NewGuid().ToString("N");
+                LastSessionKey = _sessionKey;
+            }
+            else
+            {
+                _sessionKey = LastSessionKey;
+            }
             await LoadPreGamePromptsAsync();
         }
         catch (Exception ex)
@@ -492,6 +670,16 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
             // so the user sees everything they might need.
             var champGate = string.IsNullOrWhiteSpace(MyChampionName) ? null : MyChampionName;
             var active = await _promptsRepo.GetActivePromptsForPhaseAsync(ObjectivePhases.PreGame, champGate);
+
+            // Drafts already staged under this session key prefill the boxes,
+            // so text typed in champ select survives re-navigation and shows
+            // on InGamePage mid-game instead of silently vanishing.
+            var draftTexts = new Dictionary<long, string>();
+            foreach (var (draftPromptId, draftAnswer) in await _promptsRepo.GetDraftAnswersAsync(_sessionKey))
+            {
+                draftTexts[draftPromptId] = draftAnswer;
+            }
+
             // Group by objective; sort is already applied by the repo query.
             PreGameObjectivePromptBlock? current = null;
             foreach (var p in active)
@@ -512,6 +700,12 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
                     PromptId = p.PromptId,
                     Label = p.Label,
                 };
+                // Prefill before wiring the save handler so restoring a draft
+                // doesn't immediately re-write it.
+                if (draftTexts.TryGetValue(p.PromptId, out var existingDraft))
+                {
+                    answer.AnswerText = existingDraft;
+                }
                 // Debounce-ish save: write to drafts on every text change. Cheap —
                 // it's a single upsert — and protects against losing the answer
                 // if the app crashes before game end.
@@ -607,11 +801,21 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
     private void SelectMood(int mood)
     {
         SelectedMood = mood;
-        IsTiltedSelected = mood == 1;
-        IsOffSelected = mood == 2;
-        IsNeutralSelected = mood == 3;
-        IsGoodSelected = mood == 4;
-        IsLockedInSelected = mood == 5;
+    }
+
+    // Runs for both entry points — the SelectMood command and the
+    // MoodSelector's two-way binding — so the highlight flags and the EOG
+    // snapshot can't drift apart. The snapshot is the previously-severed
+    // wire: nothing read SelectedMood after the dialog closed (brief
+    // 2026-06-11-03).
+    partial void OnSelectedMoodChanged(int value)
+    {
+        IsTiltedSelected = value == 1;
+        IsOffSelected = value == 2;
+        IsNeutralSelected = value == 3;
+        IsGoodSelected = value == 4;
+        IsLockedInSelected = value == 5;
+        LastPreGameMood = value;
     }
 
     [RelayCommand]
@@ -638,5 +842,132 @@ public partial class PreGameDialogViewModel : ObservableObject, IRecipient<Champ
             .Where(static o => o.Practiced)
             .Select(static o => o.ObjectiveId)
             .ToList();
+    }
+
+    // ── v2.18 intent carry-over internals ───────────────────────────────
+
+    /// <summary>User typed in the intent box: provenance flips to "edited"
+    /// and the chips deselect. Programmatic seeds suppress this via
+    /// <see cref="_seedingIntent"/>.</summary>
+    partial void OnFocusTextChanged(string value)
+    {
+        if (_seedingIntent) return;
+        _intentSource = "edited";
+        IntentProvenance = "EDITED BY YOU — SAVES AS WRITTEN";
+        IsCarrySourceSelected = false;
+        IsObjectiveSourceSelected = false;
+        IsAdherenceSourceSelected = false;
+        UpdateIntentSnapshot();
+    }
+
+    [RelayCommand]
+    private void UseCarrySource()
+    {
+        if (!HasCarrySource) return;
+        ApplySeed(_carrySeedText, _carryProvenance, "carry", "carry");
+    }
+
+    [RelayCommand]
+    private void UseObjectiveSource()
+    {
+        if (!HasObjectiveSource) return;
+        ApplySeed(_objectiveSeedText, _objectiveProvenance, "objective", "objective");
+    }
+
+    [RelayCommand]
+    private void UseAdherenceSource()
+    {
+        if (!HasAdherenceSource) return;
+        // DB source stays 'objective' — the adherence chip is just a different
+        // way of picking an objective seed (rider 2a value set is closed).
+        ApplySeed(_adherenceSeedText, _adherenceProvenance, "objective", "adherence");
+    }
+
+    /// <summary>"✕ don't carry" / "restore" toggle. Cleared = nothing is
+    /// written this game — the zero-tap default needs an explicit exit or it
+    /// would manufacture false intention rows.</summary>
+    [RelayCommand]
+    private void ToggleIntentCarry()
+    {
+        if (IsIntentCleared)
+        {
+            IsIntentCleared = false;
+            if (HasCarrySource)
+            {
+                ApplySeed(_carrySeedText, _carryProvenance, "carry", "carry");
+            }
+            else if (HasObjectiveSource)
+            {
+                ApplySeed(_objectiveSeedText, _objectiveProvenance, "objective", "objective");
+            }
+            else
+            {
+                _seedingIntent = true;
+                FocusText = "";
+                _seedingIntent = false;
+                _intentSource = "";
+                IntentProvenance = "";
+                UpdateIntentSnapshot();
+            }
+        }
+        else
+        {
+            IsIntentCleared = true;
+            IntentProvenance = "NOTHING CARRIED THIS GAME";
+            UpdateIntentSnapshot();
+        }
+    }
+
+    private void ApplySeed(string text, string provenance, string dbSource, string chip)
+    {
+        _seedingIntent = true;
+        FocusText = text;
+        _seedingIntent = false;
+        _intentSource = dbSource;
+        IntentProvenance = provenance;
+        IsIntentCleared = false;
+        // All-false first so re-clicking the already-selected chip still
+        // raises a change — the ToggleButton self-toggles a local value that
+        // only a fresh notification overwrites.
+        IsCarrySourceSelected = false;
+        IsObjectiveSourceSelected = false;
+        IsAdherenceSourceSelected = false;
+        switch (chip)
+        {
+            case "carry": IsCarrySourceSelected = true; break;
+            case "objective": IsObjectiveSourceSelected = true; break;
+            case "adherence": IsAdherenceSourceSelected = true; break;
+        }
+        UpdateIntentSnapshot();
+    }
+
+    /// <summary>Keep the static EOG snapshot in lock-step with the card.</summary>
+    private void UpdateIntentSnapshot()
+    {
+        LastIntentCleared = IsIntentCleared;
+        var text = IsIntentCleared ? "" : FocusText.Trim();
+        LastIntention = text;
+        LastIntentionSource = string.IsNullOrWhiteSpace(text) ? "" : _intentSource;
+    }
+
+    private static string BuildCarryProvenance(ReviewFocus lastReview)
+    {
+        var champPart = string.IsNullOrWhiteSpace(lastReview.ChampionName)
+            ? ""
+            : $" — {lastReview.ChampionName.ToUpperInvariant()} ({(lastReview.Win ? "W" : "L")})";
+        var age = FormatAge(lastReview.Timestamp);
+        return string.IsNullOrEmpty(age)
+            ? $"FROM YOUR LAST REVIEW{champPart}"
+            : $"FROM YOUR LAST REVIEW{champPart} · {age}";
+    }
+
+    private static string FormatAge(long unixSeconds)
+    {
+        if (unixSeconds <= 0) return "";
+        var local = DateTimeOffset.FromUnixTimeSeconds(unixSeconds).ToLocalTime();
+        var today = DateTime.Today;
+        if (local.Date == today) return $"TODAY {local:HH:mm}";
+        if (local.Date == today.AddDays(-1)) return $"YESTERDAY {local:HH:mm}";
+        return local.ToString("MMM d").ToUpperInvariant();
     }
 }

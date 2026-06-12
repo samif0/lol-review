@@ -41,6 +41,18 @@ public interface IRiotAuthClient
         string riotId,
         string region,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// v2.18: GET /rank — the account's ranked solo/duo tier via League-V4,
+    /// already mapped to a benchmark rank ("GOLD", "MASTER+", ...).
+    /// Best-effort: returns "" when unranked, the proxy lacks the route, or
+    /// anything fails — never throws.
+    /// </summary>
+    Task<string> GetSoloRankAsync(
+        string sessionToken,
+        string puuid,
+        string region,
+        CancellationToken ct = default);
 }
 
 public sealed class RiotAuthClient : IRiotAuthClient
@@ -111,6 +123,40 @@ public sealed class RiotAuthClient : IRiotAuthClient
             throw new RiotAuthException("Riot returned an empty account.");
         }
         return new RiotAccountResult(body.puuid, body.gameName ?? "", body.tagLine ?? "");
+    }
+
+    public async Task<string> GetSoloRankAsync(
+        string sessionToken,
+        string puuid,
+        string region,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"{RiotProxyEndpoint.BaseUrl}/rank?puuid={Uri.EscapeDataString(puuid)}&region={Uri.EscapeDataString(region)}");
+            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", sessionToken);
+            var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                // 404 also covers a proxy that predates the /rank route.
+                _logger.LogDebug("Rank lookup returned {Status}", res.StatusCode);
+                return "";
+            }
+
+            var entries = await res.Content
+                .ReadFromJsonAsync<List<LeagueEntryDto>>(cancellationToken: ct)
+                .ConfigureAwait(false);
+            var solo = entries?.FirstOrDefault(static e =>
+                string.Equals(e.queueType, "RANKED_SOLO_5x5", StringComparison.OrdinalIgnoreCase));
+            return RankBenchmarks.FromRiotTier(solo?.tier);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Rank lookup failed (non-fatal)");
+            return "";
+        }
     }
 
     public async Task LogoutAsync(string sessionToken, CancellationToken ct = default)
@@ -185,5 +231,11 @@ public sealed class RiotAuthClient : IRiotAuthClient
         public string puuid { get; set; } = "";
         public string? gameName { get; set; }
         public string? tagLine { get; set; }
+    }
+
+    private sealed class LeagueEntryDto
+    {
+        public string? queueType { get; set; }
+        public string? tier { get; set; }
     }
 }

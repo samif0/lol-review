@@ -94,3 +94,6 @@ automation/research/snapshots/
 /PERF_REPORT.md
 /scripts/scrub-api-key.ps1
 /scripts/scrub-api-key.py
+
+# Research loop working files (personal usage data - local only, public repo)
+automation/

@@ -190,6 +190,14 @@
                                                TextWrapping="Wrap"
                                                Visibility="{x:Bind HasCriteria, Converter={StaticResource BoolToVis}}"/>
 
+                                    <!-- v2.18 (schema v5): measured hit rate for structured criteria -->
+                                    <TextBlock Text="{x:Bind CriteriaHitRateText}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="150"
+                                               Foreground="{x:Bind CriteriaHitRateBrush}"
+                                               Visibility="{x:Bind HasCriteriaHitRate, Converter={StaticResource BoolToVis}}"/>
+
                                     <Grid ColumnSpacing="10">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
@@ -219,17 +227,19 @@
                                          actually moves the number. -->
                                     <StackPanel Orientation="Horizontal" Spacing="8"
                                                 ToolTipService.ToolTip="How score moves: +2 per win and −1 per loss in games where you practice this objective, +2 each time you attach clip evidence. 15 pts reaches Drilling, 30 Ingraining, 50 Ready.">
-                                        <TextBlock Text="{x:Bind LevelName}"
+                                        <TextBlock Text="{x:Bind LevelDisplayName}"
                                                    FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="Bold"
                                                    Foreground="{x:Bind LevelColorBrush}"/>
                                         <TextBlock Text="{x:Bind ScoreText}"
                                                    FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
                                                    Foreground="{StaticResource SecondaryTextBrush}"
                                                    VerticalAlignment="Center"/>
+                                        <!-- "pts to next level" is mastery-ladder language — hide on minis. -->
                                         <TextBlock Text="{x:Bind ProgressText}"
                                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                    Foreground="{StaticResource MutedTextBrush}"
-                                                   VerticalAlignment="Center"/>
+                                                   VerticalAlignment="Center"
+                                                   Visibility="{x:Bind ShowLevelLadder, Converter={StaticResource BoolToVis}}"/>
                                         <!-- v2.17.7: mini-focus countdown chip. Only mini objectives surface this. -->
                                         <Border Background="{StaticResource TagBackgroundBrush}"
                                                 BorderBrush="{StaticResource AccentGoldBrush}"
@@ -250,7 +260,7 @@
                                             <ColumnDefinition Width="80"/>
                                         </Grid.ColumnDefinitions>
                                         <controls:ObjectiveProgressBar Grid.Column="0"
-                                                                       Progress="{x:Bind Progress}"
+                                                                       Progress="{x:Bind DisplayProgress}"
                                                                        BarHeight="8"
                                                                        BarCornerRadius="2"
                                                                        MinimumVisibleFillWidth="6"
@@ -266,8 +276,11 @@
                                     </Grid>
 
                                     <!-- v2.16: visible level ladder so users can predict the
-                                         next threshold (Exploring 0 → Drilling 15 → … → Ready 50). -->
-                                    <ItemsRepeater ItemsSource="{x:Bind LevelLadder}">
+                                         next threshold (Exploring 0 → Drilling 15 → … → Ready 50).
+                                         Mini "focus" objectives are a fixed game count, not a
+                                         mastery ladder, so the strip is hidden for them. -->
+                                    <ItemsRepeater ItemsSource="{x:Bind LevelLadder}"
+                                                   Visibility="{x:Bind ShowLevelLadder, Converter={StaticResource BoolToVis}}">
                                         <ItemsRepeater.Layout>
                                             <StackLayout Orientation="Horizontal" Spacing="14"/>
                                         </ItemsRepeater.Layout>

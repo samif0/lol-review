@@ -36,6 +36,7 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IGameDeletionService>(sp => sp.GetRequiredService<GameRepository>());
         services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
         services.AddSingleton<IObjectivesRepository, ObjectivesRepository>();
+        services.AddSingleton<IDeathClassificationsRepository, DeathClassificationsRepository>();
         services.AddSingleton<IRulesRepository, RulesRepository>();
         services.AddSingleton<IConceptTagRepository, ConceptTagRepository>();
         services.AddSingleton<IVodRepository, VodRepository>();
@@ -69,6 +70,7 @@ internal static class ServiceCollectionExtensions
         services.AddHttpClient<IRiotAuthClient, RiotAuthClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddHttpClient<IRiotMatchClient, RiotMatchClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton<EnemyLanerBackfillService>();
+        services.AddSingleton<LaningBackfillService>();
 
         // Public clip sharing (revu.lol/<id>). Uploads a local clip via the
         // logged-in session token; the clip is publicly viewable, owner-deletable.

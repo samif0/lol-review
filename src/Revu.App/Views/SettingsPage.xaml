@@ -376,6 +376,26 @@
                     </StackPanel>
                 </controls:CornerBracketedCard>
 
+                <!-- v2.18: benchmark rank for the post-game "vs your rank" context -->
+                <controls:CornerBracketedCard>
+                    <StackPanel Spacing="8">
+                        <controls:SectionTitle Text="BENCHMARK RANK"/>
+
+                        <TextBlock Text="Your current rank. Post-game stats are framed against approximate averages for this rank and the one above it, so numbers read against ground truth instead of in a vacuum."
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+
+                        <ComboBox ItemsSource="{x:Bind ViewModel.BenchmarkRankOptions}"
+                                  SelectedIndex="{x:Bind ViewModel.BenchmarkRankIndex, Mode=TwoWay}"
+                                  Background="{StaticResource InputBackgroundBrush}"
+                                  Foreground="{StaticResource PrimaryTextBrush}"
+                                  BorderBrush="{StaticResource SubtleBorderBrush}"
+                                  CornerRadius="2"
+                                  MinWidth="180"/>
+                    </StackPanel>
+                </controls:CornerBracketedCard>
+
                 <!-- v2.15.0: Display / motion preferences -->
                 <!-- v2.16: APPEARANCE category -->
                 <TextBlock x:Name="AppearanceSection"

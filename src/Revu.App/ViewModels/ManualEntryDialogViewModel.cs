@@ -47,6 +47,17 @@ public partial class ObjectiveAssessment : ObservableObject
             ? (Microsoft.UI.Xaml.Media.SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["AccentGoldBrush"]
             : (Microsoft.UI.Xaml.Media.SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["AccentTealBrush"];
 
+    // v2.18 (schema v5): structured-criterion verdict for this game, e.g.
+    // "HIT — 7.4 (CS per minute ≥ 7)". Empty when no measured criterion or
+    // the stat wasn't available. Sign: 1 = hit, -1 = miss.
+    public string CriteriaVerdict { get; init; } = "";
+    public int CriteriaVerdictSign { get; init; }
+    public bool HasCriteriaVerdict => !string.IsNullOrWhiteSpace(CriteriaVerdict);
+    public Microsoft.UI.Xaml.Media.SolidColorBrush CriteriaVerdictBrush =>
+        Styling.AppSemanticPalette.Brush(CriteriaVerdictSign > 0
+            ? Styling.AppSemanticPalette.PositiveHex
+            : Styling.AppSemanticPalette.NegativeHex);
+
     [ObservableProperty]
     private bool _practiced;
 

@@ -10,7 +10,12 @@ public static class Schema
 {
     // v2 (2026-05): mini-objective target game count column.
     // v3 (2026-05): vod_bookmarks.share_url for public clip sharing.
-    public const int CurrentAppSchemaVersion = 4;
+    // v5 (2026-06): loop-closure columns — structured objective criteria,
+    //               per-game criteria outcome, focus adherence, laning-at-10
+    //               numbers from the Match-V5 timeline backfill.
+    // v6 (2026-06): session_log.intention_source — provenance tag for the
+    //               pre-game intent carry-over (digest 2026-06-11-2, rider 2a).
+    public const int CurrentAppSchemaVersion = 6;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -499,6 +504,24 @@ public static class Schema
         );
         """;
 
+    // v2.18 (schema v5): one-tap death audit. Each DEATH event from the live
+    // kill feed can be classified post-game with a coarse cause taxonomy
+    // (greed / vision / wave / cooldowns / outnumbered / tempo). Keyed on
+    // (game_id, game_time_s) — the same identity the game_events row carries —
+    // so re-classifying a death updates in place. Aggregating death_class over
+    // a window of games turns subjective review into a measurable death mix.
+    public const string CreateDeathClassificationsTable = """
+        CREATE TABLE IF NOT EXISTS death_classifications (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id      INTEGER NOT NULL,
+            game_time_s  INTEGER NOT NULL,
+            death_class  TEXT NOT NULL DEFAULT '',
+            created_at   INTEGER,
+            FOREIGN KEY (game_id) REFERENCES games(game_id),
+            UNIQUE(game_id, game_time_s)
+        );
+        """;
+
     // ────────────────────────────────────────────────────────────────────────
     // LEGACY Coach Lab tables (Phase -1 of coach rebuild, 2026-04-18).
     //
@@ -839,6 +862,31 @@ public static class Schema
         "ALTER TABLE games ADD COLUMN participant_map TEXT DEFAULT ''",
     ];
 
+    /// <summary>
+    /// v2.18 (schema v5): loop-closure columns.
+    /// objectives.criteria_*  — structured, machine-checkable completion
+    ///   criteria (metric + comparator + threshold) evaluated against the
+    ///   game's extracted stats at post-game; replaces the decorative
+    ///   free-text completion_criteria as the source of pass/fail truth.
+    /// game_objectives.criteria_met — per-game evaluation outcome
+    ///   (NULL = not evaluated, 0 = missed, 1 = hit).
+    /// session_log.focus_adherence — one-tap "did you do your focus?"
+    ///   (NULL = unanswered, 0 = no, 1 = partly, 2 = yes).
+    /// games.cs_at_10 / gold_diff_at_10 / cs_diff_at_10 — laning numbers from
+    ///   the Match-V5 timeline backfill (NULL until backfilled).
+    /// </summary>
+    public static readonly string[] MigrateLoopClosure =
+    [
+        "ALTER TABLE objectives ADD COLUMN criteria_metric TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE objectives ADD COLUMN criteria_op TEXT NOT NULL DEFAULT '>='",
+        "ALTER TABLE objectives ADD COLUMN criteria_value REAL NOT NULL DEFAULT 0",
+        "ALTER TABLE game_objectives ADD COLUMN criteria_met INTEGER",
+        "ALTER TABLE session_log ADD COLUMN focus_adherence INTEGER",
+        "ALTER TABLE games ADD COLUMN cs_at_10 REAL",
+        "ALTER TABLE games ADD COLUMN gold_diff_at_10 INTEGER",
+        "ALTER TABLE games ADD COLUMN cs_diff_at_10 REAL",
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -887,6 +935,7 @@ public static class Schema
         CreateTiltChecksTable,
         CreateMissedGameDecisionsTable,
         CreateClearedRuleBreaksTable,
+        CreateDeathClassificationsTable,
         CreateCoachPlayersTable,
         CreateCoachObjectiveBlocksTable,
         CreateCoachMomentsTable,
@@ -924,6 +973,18 @@ public static class Schema
         .. MigrateSessionLogIsSkipped,
     ];
 
+    /// <summary>
+    /// v2.18 (schema v6): provenance tag for the pre-game intent carry-over.
+    /// Distinguishes a zero-tap carried default from a deliberately chosen or
+    /// edited intention, so "intention row exists" can't masquerade as player
+    /// engagement (digest 2026-06-11-2, rider 2a). Values: '' (legacy/none),
+    /// 'carry', 'objective', 'edited'.
+    /// </summary>
+    public static readonly string[] MigrateIntentionSource =
+    [
+        "ALTER TABLE session_log ADD COLUMN intention_source TEXT NOT NULL DEFAULT ''",
+    ];
+
     public sealed record VersionedMigration(int Version, string Name, string[] Statements);
 
     public static readonly VersionedMigration[] VersionedMigrations =
@@ -937,6 +998,11 @@ public static class Schema
         new(3, "bookmarks-share-url", MigrateBookmarksShareUrl),
         // v2.18 (schema v4, F2): objectives.focus_phase for auto-clip matching.
         new(4, "objectives-focus-phase", MigrateObjectivesFocusPhase),
+        // v2.18 (schema v5): loop closure — executable criteria, focus
+        // adherence, laning-at-10 backfill columns.
+        new(5, "loop-closure", MigrateLoopClosure),
+        // v2.18 (schema v6): intent carry-over provenance tag.
+        new(6, "intention-source", MigrateIntentionSource),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

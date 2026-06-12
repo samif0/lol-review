@@ -75,6 +75,91 @@ describe("worker proxy", () => {
     );
   });
 
+  it("forwards timeline requests to the Match-V5 timeline endpoint", async () => {
+    const token = "timeline-token";
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(
+      new Request("https://proxy.example/timeline/NA1_123456?region=na1", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env(token),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://americas.api.riotgames.com/lol/match/v5/matches/NA1_123456/timeline",
+      { headers: { "X-Riot-Token": "riot-key" } },
+    );
+  });
+
+  it("forwards rank requests to the platform-routed League-V4 endpoint", async () => {
+    const token = "rank-token";
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(
+      new Request("https://proxy.example/rank?puuid=abc-123&region=na1", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env(token),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://na1.api.riotgames.com/lol/league/v4/entries/by-puuid/abc-123",
+      { headers: { "X-Riot-Token": "riot-key" } },
+    );
+  });
+
+  it("rejects rank requests with missing params or unknown region", async () => {
+    const token = "rank-bad-token";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const missing = await worker.fetch(
+      new Request("https://proxy.example/rank?region=na1", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env(token),
+    );
+    expect(missing.status).toBe(400);
+
+    const unknown = await worker.fetch(
+      new Request("https://proxy.example/rank?puuid=abc&region=zz9", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env(token),
+    );
+    expect(unknown.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("validates timeline match id shape before calling Riot", async () => {
+    const token = "timeline-shape-token";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(
+      new Request("https://proxy.example/timeline/not-a-match-id?region=na1", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env(token),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await json(response)).toEqual({
+      error: "bad_request",
+      message: "invalid matchId shape",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("applies per-token rate limits offline", async () => {
     const token = "rate-token";
     const limitedEnv = { ...env(token), PER_TOKEN_RPS: "1" };

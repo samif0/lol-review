@@ -171,18 +171,9 @@
             </Border>
 
             <!-- ••• Last Game Focus ••• -->
-            <Border Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                    Style="{StaticResource CardStyle}">
-                <StackPanel Spacing="4">
-                    <TextBlock Text="YOUR FOCUS FROM LAST GAME"
-                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}" FontWeight="Bold"
-                               Foreground="{StaticResource AccentBlueBrush}"/>
-                    <TextBlock Text="{x:Bind ViewModel.LastFocus, Mode=OneWay}"
-                               FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               TextWrapping="Wrap"/>
-                </StackPanel>
-            </Border>
+            <!-- v2.18: the "Last Game Focus" card was removed here. The focus
+                 box below now arrives prefilled with that exact text (intent
+                 carry-over), so the card was a verbatim duplicate. -->
 
             <!-- ••• Last Game Mistakes ••• -->
             <Border Visibility="{x:Bind ViewModel.HasLastMistakes, Mode=OneWay, Converter={StaticResource BoolToVis}}"
@@ -205,6 +196,15 @@
             <TextBlock Text="What's your focus this game?"
                        FontSize="{Binding Subtitle, Source={StaticResource FontSizes}}" FontWeight="Bold"
                        Foreground="{StaticResource PrimaryTextBrush}"/>
+
+            <!-- v2.18 (digest 2026-06-11-2 P2): provenance for the prefilled
+                 intent. The box arrives seeded (carry-forward) and saves to
+                 session_log.pregame_intention at game end. -->
+            <TextBlock Text="{x:Bind ViewModel.IntentProvenance, Mode=OneWay}"
+                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                       Foreground="{StaticResource AccentGoldBrush}"
+                       TextWrapping="Wrap"
+                       Visibility="{x:Bind ViewModel.HasIntentProvenance, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
             <TextBox Text="{x:Bind ViewModel.FocusText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                      PlaceholderText="What will you focus on?"

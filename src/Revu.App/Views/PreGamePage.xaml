@@ -146,23 +146,98 @@
                 </StackPanel>
             </controls:CornerBracketedCard>
 
-            <!-- Last game intel — carry-over from most recent review -->
-            <controls:CornerBracketedCard
-                CardBorderBrush="{StaticResource AccentBlueBrush}"
-                Visibility="{x:Bind ViewModel.HasLastFocus, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                <StackPanel Spacing="8">
-                    <controls:SectionTitle Text="LAST GAME INTEL"/>
-                    <TextBlock Text="{x:Bind ViewModel.LastFocus, Mode=OneWay}"
-                               FontFamily="{StaticResource BodyFont}"
-                               FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               TextWrapping="Wrap"/>
-                    <TextBlock Text="{x:Bind ViewModel.LastMistakes, Mode=OneWay}"
-                               FontFamily="{StaticResource MonoFont}"
-                               FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                               Foreground="{StaticResource MutedTextBrush}"
-                               TextWrapping="Wrap"
-                               Visibility="{x:Bind ViewModel.HasLastMistakes, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+            <!-- v2.18 (digest 2026-06-11-2 P2): THIS GAME'S INTENT — the intent
+                 carry-over card. Replaces the read-only LAST GAME INTEL card:
+                 same slot, same data, now editable and persisted. Arrives
+                 pre-filled from the last review's focus_next (zero-tap =
+                 carry-forward; the blank-box variant of this feature went 0/47
+                 in the Python era). Saved to session_log.pregame_intention via
+                 the EOG relay in ShellViewModel. -->
+            <controls:CornerBracketedCard CardBorderBrush="{StaticResource AccentGoldBrush}">
+                <StackPanel Spacing="10">
+                    <controls:SectionTitle Text="THIS GAME'S INTENT"/>
+
+                    <!-- Provenance: where the text came from + how old it is -->
+                    <StackPanel Orientation="Horizontal" Spacing="7"
+                                Visibility="{x:Bind ViewModel.HasIntentProvenance, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <Rectangle Width="5" Height="5"
+                                   Fill="{StaticResource AccentGoldBrush}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="{x:Bind ViewModel.IntentProvenance, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                   CharacterSpacing="120"
+                                   Foreground="{StaticResource AccentGoldBrush}"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- Editable intent — hidden while the user opts out -->
+                    <StackPanel Spacing="10"
+                                Visibility="{x:Bind CollapsedWhen(ViewModel.IsIntentCleared), Mode=OneWay}">
+                        <TextBox Text="{x:Bind ViewModel.FocusText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="What is the one thing this game is for?"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 MinHeight="56"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 BorderBrush="{StaticResource SubtleBorderBrush}"
+                                 Foreground="{StaticResource PrimaryTextBrush}"
+                                 FontFamily="{StaticResource BodyFont}"
+                                 FontSize="{Binding Body, Source={StaticResource FontSizes}}"/>
+
+                        <!-- One-tap source swap -->
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <ToggleButton Content="LAST FOCUS"
+                                          Style="{StaticResource HudPracticedToggleStyle}"
+                                          MinWidth="0" HorizontalAlignment="Left"
+                                          IsChecked="{x:Bind ViewModel.IsCarrySourceSelected, Mode=OneWay}"
+                                          Command="{x:Bind ViewModel.UseCarrySourceCommand}"
+                                          Visibility="{x:Bind ViewModel.HasCarrySource, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                            <ToggleButton Content="PRIORITY OBJECTIVE"
+                                          Style="{StaticResource HudPracticedToggleStyle}"
+                                          MinWidth="0" HorizontalAlignment="Left"
+                                          IsChecked="{x:Bind ViewModel.IsObjectiveSourceSelected, Mode=OneWay}"
+                                          Command="{x:Bind ViewModel.UseObjectiveSourceCommand}"
+                                          Visibility="{x:Bind ViewModel.HasObjectiveSource, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                            <!-- Data-gated: repository returns null until ≥10
+                                 evaluated criteria_met rows exist (~July 2026). -->
+                            <ToggleButton Content="LOWEST ADHERENCE"
+                                          Style="{StaticResource HudPracticedToggleStyle}"
+                                          MinWidth="0" HorizontalAlignment="Left"
+                                          IsChecked="{x:Bind ViewModel.IsAdherenceSourceSelected, Mode=OneWay}"
+                                          Command="{x:Bind ViewModel.UseAdherenceSourceCommand}"
+                                          Visibility="{x:Bind ViewModel.HasAdherenceSource, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                        </StackPanel>
+
+                        <!-- Save hint + explicit opt-out -->
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Column="0"
+                                       Text="Saves when your game starts — no tap needed."
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="1"
+                                    Content="&#x2715; DON'T CARRY"
+                                    Command="{x:Bind ViewModel.ToggleIntentCarryCommand}"
+                                    Style="{StaticResource QuietActionButtonStyle}"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Cleared state -->
+                    <StackPanel Orientation="Horizontal" Spacing="10"
+                                Visibility="{x:Bind VisibleWhen(ViewModel.IsIntentCleared), Mode=OneWay}">
+                        <TextBlock Text="Nothing will be carried this game."
+                                   FontFamily="{StaticResource BodyFont}"
+                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   VerticalAlignment="Center"/>
+                        <Button Content="RESTORE"
+                                Command="{x:Bind ViewModel.ToggleIntentCarryCommand}"
+                                Style="{StaticResource QuietActionButtonStyle}"/>
+                    </StackPanel>
                 </StackPanel>
             </controls:CornerBracketedCard>
 
@@ -248,6 +323,7 @@
                                             </StackPanel>
                                             <ToggleButton Grid.Column="1"
                                                           VerticalAlignment="Center"
+                                                          Content="PRACTICED"
                                                           IsChecked="{x:Bind Practiced, Mode=TwoWay}"
                                                           Style="{StaticResource HudPracticedToggleStyle}"/>
                                         </Grid>

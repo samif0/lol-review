@@ -43,14 +43,12 @@ public partial class ShellViewModel : ObservableRecipient,
     private readonly IUpdateService _updateService;
     private readonly IGameMonitorService _gameMonitor;
     private readonly EnemyLanerBackfillService _enemyLanerBackfill;
+    private readonly LaningBackfillService _laningBackfill;
     private readonly ILogger<ShellViewModel> _logger;
     private bool _hasInitialized;
     private bool _hasTriggeredConnectedMissedGamesCheck;
     private bool _isHandlingMissedGames;
     private string? _lastMissedGamesKey;
-
-    // Store pre-game mood from the page so we can pass it to ProcessGameEndAsync
-    private int _preGameMood;
 
     [ObservableProperty]
     private bool _isConnected;
@@ -150,6 +148,7 @@ public partial class ShellViewModel : ObservableRecipient,
         IUpdateService updateService,
         IGameMonitorService gameMonitor,
         EnemyLanerBackfillService enemyLanerBackfill,
+        LaningBackfillService laningBackfill,
         ILogger<ShellViewModel> logger)
     {
         _navigationService = navigationService;
@@ -166,6 +165,7 @@ public partial class ShellViewModel : ObservableRecipient,
         _updateService = updateService;
         _gameMonitor = gameMonitor;
         _enemyLanerBackfill = enemyLanerBackfill;
+        _laningBackfill = laningBackfill;
         _logger = logger;
         RefreshAccountIndicator();
 
@@ -301,6 +301,20 @@ public partial class ShellViewModel : ObservableRecipient,
                 $"AutoBackfill done: scanned={result.Scanned} updated={result.Updated} " +
                 $"skipped={result.Skipped} failed={result.Failed}");
 
+            // v2.18 (schema v5): laning-at-10 numbers from the Match-V5
+            // timeline. Smaller per-run cap — it's two round-trips per game.
+            try
+            {
+                var laning = await _laningBackfill.RunAsync(maxGames: 25).ConfigureAwait(false);
+                AppDiagnostics.WriteVerbose("startup.log",
+                    $"LaningBackfill done: scanned={laning.Scanned} updated={laning.Updated} " +
+                    $"skipped={laning.Skipped} failed={laning.Failed}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "LaningBackfill: silent failure");
+            }
+
             // C6: write sentinel so we skip the HTTP calls for 24h
             try
             {
@@ -418,15 +432,21 @@ public partial class ShellViewModel : ObservableRecipient,
         {
             try
             {
-                // 1. Save game stats to DB
+                // 1. Save game stats to DB.
+                // v2.18 (schema v6): consume the pre-game snapshots — the mood
+                // hop and intent carry-over write (digest 2026-06-11-2 P2).
+                // Recovered games skip them: their champ select is long gone
+                // and stale snapshots would mislabel the wrong game.
                 var practicedIds = PreGameDialogViewModel.LastPracticedObjectiveIds;
                 PreGameDialogViewModel.LastPracticedObjectiveIds = [];
                 var result = await _gameLifecycleWorkflow.ProcessGameEndAsync(
                     new ProcessGameEndRequest(
                         message.Stats,
                         MentalRating: 5,
-                        PreGameMood: message.IsRecovered ? 0 : _preGameMood,
-                        PreGamePracticedObjectiveIds: message.IsRecovered ? null : practicedIds),
+                        PreGameMood: message.IsRecovered ? 0 : PreGameDialogViewModel.LastPreGameMood,
+                        PreGamePracticedObjectiveIds: message.IsRecovered ? null : practicedIds,
+                        PregameIntention: message.IsRecovered ? "" : PreGameDialogViewModel.LastIntention,
+                        IntentionSource: message.IsRecovered ? "" : PreGameDialogViewModel.LastIntentionSource),
                     isRecovered: message.IsRecovered);
 
                 if (!result.WasSaved)
@@ -460,7 +480,8 @@ public partial class ShellViewModel : ObservableRecipient,
                     }
                 }
 
-                _preGameMood = 0; // Reset for next game
+                // Reset mood + intent snapshots for the next flow.
+                PreGameDialogViewModel.ResetPreGameSnapshots();
 
                 // 2a. Post-loss tilt-check gate: if this loss trips the user's loss_streak rule
                 // exactly on this game, route to the tilt check first. Post-game opens after.

@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -37,66 +37,10 @@ public sealed class SessionGameEntry
     public string GameRole { get; init; } = "";
 
     /// <summary>"Kai'Sa+Nautilus vs Tristana+Renata" when role + map are
-    /// available, otherwise the lane-only fallback "Kai'Sa vs Tristana".</summary>
-    public string ChampionDisplay => RoleAwareDisplay() ?? LaneOnlyDisplay();
-
-    private string LaneOnlyDisplay() => string.IsNullOrWhiteSpace(EnemyChampion)
-        ? ChampionName
-        : $"{ChampionName} vs {EnemyChampion}";
-
-    // Cached deserialization of ParticipantMapJson — false means "not yet parsed".
-    private System.Collections.Generic.Dictionary<string, string>? _participantMapCache;
-    private bool _participantMapParsed;
-
-    private System.Collections.Generic.Dictionary<string, string>? GetParticipantMap()
-    {
-        if (_participantMapParsed) return _participantMapCache;
-        _participantMapParsed = true;
-        if (string.IsNullOrWhiteSpace(ParticipantMapJson)) return null;
-        try
-        {
-            _participantMapCache = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(ParticipantMapJson);
-        }
-        catch { _participantMapCache = null; }
-        return _participantMapCache;
-    }
-
-    private string? RoleAwareDisplay()
-    {
-        if (string.IsNullOrWhiteSpace(GameRole) || string.IsNullOrWhiteSpace(ParticipantMapJson))
-            return null;
-
-        var map = GetParticipantMap();
-        if (map is null || map.Count == 0) return null;
-
-        var role = GameRole.ToLowerInvariant();
-        return role switch
-        {
-            "adc" or "bottom" or "bot" =>
-                Pair(map, "ownBot", "ownSupp", "enemyBot", "enemySupp"),
-            "support" or "supp" or "utility" =>
-                Pair(map, "ownSupp", "ownBot", "enemySupp", "enemyBot"),
-            "mid" or "middle" =>
-                Pair(map, "ownMid", "ownJg", "enemyMid", "enemyJg"),
-            "jungle" or "jg" =>
-                Pair(map, "ownJg", "ownMid", "enemyJg", "enemyMid"),
-            _ => null,
-        };
-    }
-
-    private static string? Pair(
-        System.Collections.Generic.Dictionary<string, string> map,
-        string ownPrimary, string ownPartner,
-        string enemyPrimary, string enemyPartner)
-    {
-        if (!map.TryGetValue(ownPrimary, out var op) || string.IsNullOrEmpty(op)) return null;
-        if (!map.TryGetValue(enemyPrimary, out var ep) || string.IsNullOrEmpty(ep)) return null;
-        var ownPart = map.TryGetValue(ownPartner, out var v1) ? v1 : "";
-        var enemyPart = map.TryGetValue(enemyPartner, out var v2) ? v2 : "";
-        var ownStr = string.IsNullOrEmpty(ownPart) ? op : $"{op}+{ownPart}";
-        var enemyStr = string.IsNullOrEmpty(enemyPart) ? ep : $"{ep}+{enemyPart}";
-        return $"{ownStr} vs {enemyStr}";
-    }
+    /// available, otherwise the lane-only fallback "Kai'Sa vs Tristana".
+    /// Shared with the games list + review so the matchup reads identically.</summary>
+    public string ChampionDisplay =>
+        Revu.Core.Services.MatchupDisplay.Build(ChampionName, EnemyChampion, GameRole, ParticipantMapJson);
 }
 
 /// <summary>ViewModel for the Session Logger page.</summary>

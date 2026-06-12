@@ -58,6 +58,15 @@ public class AppConfig
     public bool OnboardingSkipped { get; set; }
 
     /// <summary>
+    /// v2.18: the rank used for benchmark comparisons (IRON..MASTER+ from
+    /// <see cref="Revu.Core.Services.RankBenchmarks.Ranks"/>). Empty = GOLD,
+    /// the ladder median. Set in Settings; intentionally manual — the app
+    /// doesn't track ranked LP, and self-declared rank is good enough for
+    /// "is this number bad?" context.
+    /// </summary>
+    public string BenchmarkRank { get; set; } = "";
+
+    /// <summary>
     /// True if the user dismissed the Dashboard reminder to point at an
     /// Ascent recordings folder. The reminder only shows when this is false
     /// AND no folder is configured.

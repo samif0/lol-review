@@ -247,13 +247,72 @@ public sealed partial class ObjectivePicker : UserControl
         }
     }
 
+    // Most this popup ever wants to be tall. Edge-aware placement clamps it
+    // smaller when there isn't this much room above/below the textbox.
+    private const double PopupMaxHeight = 240;
+    private const double PopupEdgeMargin = 12;
+    private const double PopupGap = 2;
+
     private void OpenPopupAnchoredToTextBox()
     {
         if (Source is null || Source.Count == 0) return;
         SyncPopupWidth();
         SuggestionPopup.HorizontalOffset = 0;
-        SuggestionPopup.VerticalOffset = SearchBox.ActualHeight + 2;
+        PlacePopupVertically();
         SuggestionPopup.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Open downward by default, but flip above the textbox when there isn't
+    /// room below (small / near-bottom windows), and clamp the popup height to
+    /// the space actually available on the chosen side — so the list always
+    /// stays on-screen and scrolls internally instead of spilling past the
+    /// window edge where it can't be reached.
+    /// </summary>
+    private void PlacePopupVertically()
+    {
+        var boxHeight = SearchBox.ActualHeight;
+        double belowOffset = boxHeight + PopupGap;
+
+        // Default: downward, full height. Used when we can't measure the window.
+        if (XamlRoot?.Content is not FrameworkElement rootContent || boxHeight <= 0)
+        {
+            SuggestionPopupBorder.MaxHeight = PopupMaxHeight;
+            SuggestionPopup.VerticalOffset = belowOffset;
+            return;
+        }
+
+        var windowHeight = rootContent.ActualHeight;
+        double boxTopInWindow;
+        try
+        {
+            var transform = SearchBox.TransformToVisual(rootContent);
+            boxTopInWindow = transform.TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+        }
+        catch
+        {
+            SuggestionPopupBorder.MaxHeight = PopupMaxHeight;
+            SuggestionPopup.VerticalOffset = belowOffset;
+            return;
+        }
+
+        var spaceBelow = windowHeight - (boxTopInWindow + boxHeight) - PopupEdgeMargin;
+        var spaceAbove = boxTopInWindow - PopupEdgeMargin;
+
+        // Prefer below unless above has meaningfully more room.
+        if (spaceBelow >= Math.Min(PopupMaxHeight, spaceAbove) || spaceBelow >= spaceAbove)
+        {
+            SuggestionPopupBorder.MaxHeight = Math.Max(120, Math.Min(PopupMaxHeight, spaceBelow));
+            SuggestionPopup.VerticalOffset = belowOffset;
+        }
+        else
+        {
+            // Flip above: a negative offset places the popup's bottom edge just
+            // over the textbox top. Height is clamped to the room above.
+            var height = Math.Max(120, Math.Min(PopupMaxHeight, spaceAbove));
+            SuggestionPopupBorder.MaxHeight = height;
+            SuggestionPopup.VerticalOffset = -(height + PopupGap);
+        }
     }
 
     // ── Event handlers ──────────────────────────────────────────────

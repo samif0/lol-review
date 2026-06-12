@@ -140,9 +140,16 @@ public sealed partial class IntelRotatorControl : UserControl
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         RebuildDots();
-        // If the deck repopulated and we don't have a valid index, restart.
-        if (ItemsSource is not null && (_currentIndex < 0 || _currentIndex >= ItemsSource.Count))
+        // Restart whenever the index is invalid OR the surface isn't showing a
+        // card — after a Clear() the surface is collapsed, and cards re-added
+        // afterwards must bring it back even if the old index happens to be in
+        // range again.
+        if (ItemsSource is null || ItemsSource.Count == 0
+            || _currentIndex < 0 || _currentIndex >= ItemsSource.Count
+            || CardSurface.Visibility == Visibility.Collapsed)
+        {
             JumpToFirst();
+        }
         // Keep timer in sync with item count.
         if (!_userTookControl)
         {
@@ -177,6 +184,11 @@ public sealed partial class IntelRotatorControl : UserControl
     {
         if (ItemsSource is null || ItemsSource.Count == 0)
         {
+            // A stale index must not survive an empty deck: the VM repopulates
+            // via Clear()+Add, and if the old index still looked "valid" after
+            // the re-adds, OnCollectionChanged would never jump back — leaving
+            // the card surface collapsed forever (empty box, dots only).
+            _currentIndex = -1;
             EmptyHint.Visibility = Visibility.Visible;
             CardSurface.Visibility = Visibility.Collapsed;
             return;

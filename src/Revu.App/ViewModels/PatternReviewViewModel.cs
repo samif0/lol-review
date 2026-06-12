@@ -31,6 +31,7 @@ public partial class PatternReviewViewModel : ObservableObject
     private readonly IClipService _clipService;
     private readonly IConfigService _configService;
     private readonly INavigationService _navigationService;
+    private readonly IObjectivesRepository _objectivesRepo;
     private readonly ILogger<PatternReviewViewModel> _logger;
 
     private ObjectivePatternCard? _pattern;
@@ -41,6 +42,7 @@ public partial class PatternReviewViewModel : ObservableObject
         IClipService clipService,
         IConfigService configService,
         INavigationService navigationService,
+        IObjectivesRepository objectivesRepo,
         ILogger<PatternReviewViewModel> logger)
     {
         _evidenceRepo = evidenceRepo;
@@ -48,6 +50,7 @@ public partial class PatternReviewViewModel : ObservableObject
         _clipService = clipService;
         _configService = configService;
         _navigationService = navigationService;
+        _objectivesRepo = objectivesRepo;
         _logger = logger;
     }
 
@@ -297,12 +300,56 @@ public partial class PatternReviewViewModel : ObservableObject
             IsReviewed = true;
             // Tell the dashboard to refresh its pattern card + reviewed count.
             WeakReferenceMessenger.Default.Send<PatternReviewedMessage>(new PatternReviewedMessage(_pattern.PatternKey));
+
+            // v2.18: feed the insight forward — offer to turn the pattern into
+            // a 5-game mini objective instead of letting it vanish with the nag.
+            FixObjectiveTitle = $"Fix: {_pattern.Title}";
+            ShowFixObjectiveOffer = true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to mark pattern {Key} reviewed", _pattern.PatternKey);
         }
     }
+
+    // ── v2.18: pattern → mini-objective pipe ────────────────────────────────
+
+    [ObservableProperty] private bool _showFixObjectiveOffer;
+    [ObservableProperty] private string _fixObjectiveTitle = "";
+    [ObservableProperty] private bool _fixObjectiveCreated;
+
+    [RelayCommand]
+    private async Task CreateFixObjectiveAsync()
+    {
+        if (_pattern is null || string.IsNullOrWhiteSpace(FixObjectiveTitle))
+        {
+            return;
+        }
+
+        try
+        {
+            await _objectivesRepo.CreateWithPhasesAndTargetAsync(
+                FixObjectiveTitle.Trim(),
+                skillArea: "pattern fix",
+                type: "mini",
+                completionCriteria: "",
+                description: $"From pattern review: {_pattern.Title}. {_pattern.Detail}".Trim(),
+                practicePre: true,
+                practiceIn: true,
+                practicePost: false,
+                targetGameCount: 5);
+
+            FixObjectiveCreated = true;
+            ShowFixObjectiveOffer = false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create fix objective from pattern {Key}", _pattern.PatternKey);
+        }
+    }
+
+    [RelayCommand]
+    private void DismissFixObjective() => ShowFixObjectiveOffer = false;
 
     // ── "This moment" work panel — autosave ─────────────────────────────────
     //

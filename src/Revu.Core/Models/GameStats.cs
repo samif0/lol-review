@@ -119,6 +119,13 @@ public class GameStats
     public int TeamDeaths { get; set; }
     public double KillParticipation { get; set; }
 
+    // ── Laning numbers (Match-V5 timeline backfill; schema v5) ───────
+    // NULL until the timeline backfill has run for this game.
+
+    public double? CsAt10 { get; set; }
+    public int? GoldDiffAt10 { get; set; }
+    public double? CsDiffAt10 { get; set; }
+
     // ── Review fields (populated from DB when present) ───────────────
 
     public string ReviewNotes { get; set; } = "";

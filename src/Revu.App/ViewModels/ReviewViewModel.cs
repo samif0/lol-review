@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using System.Collections.ObjectModel;
 using System.IO;
@@ -32,6 +32,8 @@ public partial class ReviewViewModel : ObservableObject,
     private readonly IGameEventsRepository _eventsRepository;
     private readonly IEvidenceRepository _evidenceRepository;
     private readonly IReviewExportService _reviewExportService;
+    private readonly ISessionLogRepository _sessionLogRepository;
+    private readonly IDeathClassificationsRepository _deathClassificationsRepository;
     private readonly IMessenger _messenger;
     private readonly ILogger<ReviewViewModel> _logger;
 
@@ -69,6 +71,11 @@ public partial class ReviewViewModel : ObservableObject,
     [ObservableProperty] private string _spottedProblems = "";
     [ObservableProperty] private string _outsideControl = "";
     [ObservableProperty] private string _withinControl = "";
+
+    /// <summary>v2.18 (digest 2026-06-11-2 P3a): reappraisal section expander.
+    /// Collapsed by default so the two extra free-text fields stay opt-in;
+    /// auto-expands on load when saved text exists.</summary>
+    [ObservableProperty] private bool _isReappraisalExpanded;
     [ObservableProperty] private string _personalContribution = "";
     [ObservableProperty] private string _matchupNote = "";
     [ObservableProperty] private bool _requireReviewNotes;
@@ -91,6 +98,175 @@ public partial class ReviewViewModel : ObservableObject,
     // was reviewed on an earlier version and has data in the cut columns.
     [ObservableProperty] private bool _showLegacyFields;
 
+    // v2.18 (schema v5): one-tap focus adherence. -1 = unanswered,
+    // 0 = no, 1 = partly, 2 = yes. Asked against the session intention
+    // declared at Start Block for the day this game was played.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FocusAdherenceYes))]
+    [NotifyPropertyChangedFor(nameof(FocusAdherencePartly))]
+    [NotifyPropertyChangedFor(nameof(FocusAdherenceNo))]
+    private int _focusAdherence = -1;
+
+    public bool FocusAdherenceYes => FocusAdherence == 2;
+    public bool FocusAdherencePartly => FocusAdherence == 1;
+    public bool FocusAdherenceNo => FocusAdherence == 0;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSessionIntentionForGame))]
+    private string _sessionIntentionForGame = "";
+
+    public bool HasSessionIntentionForGame => !string.IsNullOrWhiteSpace(SessionIntentionForGame);
+
+    // v2.18: rank benchmark context rendered under the stat cards — the
+    // app's answer to "is this number bad?". Approximate per-rank averages
+    // for the role this game was played in.
+    [ObservableProperty] private string _benchmarkRankLine = "";
+    [ObservableProperty] private string _benchmarkNextLine = "";
+    [ObservableProperty] private bool _hasBenchmarks;
+
+    // v2.18 (schema v5): laning numbers from the Match-V5 timeline backfill.
+    // Empty until the backfill has run for this game.
+    [ObservableProperty] private string _laningAt10Line = "";
+    [ObservableProperty] private bool _hasLaningAt10;
+
+    private void ApplyBenchmarks(ReviewScreenData screenData)
+    {
+        var rank = Revu.Core.Services.RankBenchmarks.NormalizeRank(screenData.BenchmarkRank);
+        var role = Revu.Core.Services.RankBenchmarks.NormalizeRole(screenData.Game.Position);
+        var current = Revu.Core.Services.RankBenchmarks.Get(screenData.Game.Position, rank);
+        if (role.Length == 0 || current is null)
+        {
+            BenchmarkRankLine = "";
+            BenchmarkNextLine = "";
+            HasBenchmarks = false;
+            return;
+        }
+
+        var nextRank = Revu.Core.Services.RankBenchmarks.NextRank(rank);
+        var next = Revu.Core.Services.RankBenchmarks.Get(screenData.Game.Position, nextRank);
+
+        BenchmarkRankLine = $"~{rank} {role} AVG // {Revu.Core.Services.RankBenchmarks.FormatLine(current)}";
+        BenchmarkNextLine = next is not null && !string.Equals(nextRank, rank, StringComparison.Ordinal)
+            ? $"~{nextRank} TARGET // {Revu.Core.Services.RankBenchmarks.FormatLine(next)}"
+            : "";
+        HasBenchmarks = true;
+    }
+
+    // v2.18 (schema v5): death audit — one row per DEATH event from the live
+    // kill feed, each with six one-tap cause chips. The mix over a block of
+    // games turns "I die too much" into "44% of my deaths are vision-class".
+    public ObservableCollection<DeathAuditItem> DeathAudit { get; } = new();
+
+    [ObservableProperty] private bool _hasDeathAudit;
+
+    private async Task LoadDeathAuditAsync(long gameId)
+    {
+        try
+        {
+            var events = await _eventsRepository.GetEventsAsync(gameId);
+            var deaths = events
+                .Where(static e => string.Equals(e.EventType, Revu.Core.Models.GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(static e => e.GameTimeS)
+                .ToList();
+
+            var saved = await _deathClassificationsRepository.GetForGameAsync(gameId);
+            var savedByTime = saved
+                .GroupBy(static c => c.GameTimeSeconds)
+                .ToDictionary(static g => g.Key, static g => g.First().DeathClass);
+
+            DispatcherHelper.RunOnUIThread(() =>
+            {
+                DeathAudit.Clear();
+                foreach (var death in deaths)
+                {
+                    var item = new DeathAuditItem
+                    {
+                        GameId = gameId,
+                        GameTimeSeconds = death.GameTimeS,
+                    };
+                    savedByTime.TryGetValue(death.GameTimeS, out var selectedClass);
+                    foreach (var (key, label, hint) in Revu.Core.Data.Repositories.DeathClasses.All)
+                    {
+                        item.Chips.Add(new DeathChipOption
+                        {
+                            GameId = gameId,
+                            GameTimeSeconds = death.GameTimeS,
+                            Key = key,
+                            Label = label,
+                            Hint = hint,
+                            IsSelected = string.Equals(selectedClass, key, StringComparison.OrdinalIgnoreCase),
+                        });
+                    }
+                    DeathAudit.Add(item);
+                }
+                HasDeathAudit = DeathAudit.Count > 0;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load death audit for game {GameId}", gameId);
+            DispatcherHelper.RunOnUIThread(() =>
+            {
+                DeathAudit.Clear();
+                HasDeathAudit = false;
+            });
+        }
+    }
+
+    /// <summary>One-tap death classification: select persists, re-tap clears.</summary>
+    public void ClassifyDeath(DeathChipOption chip)
+    {
+        var item = DeathAudit.FirstOrDefault(d => d.GameTimeSeconds == chip.GameTimeSeconds);
+        if (item is null)
+        {
+            return;
+        }
+
+        if (chip.IsSelected)
+        {
+            chip.IsSelected = false;
+            BackgroundTaskRunner.Run(
+                () => _deathClassificationsRepository.ClearAsync(chip.GameId, chip.GameTimeSeconds),
+                _logger,
+                $"death class clear {chip.GameId}@{chip.GameTimeSeconds}");
+            return;
+        }
+
+        foreach (var sibling in item.Chips)
+        {
+            sibling.IsSelected = sibling == chip;
+        }
+
+        BackgroundTaskRunner.Run(
+            () => _deathClassificationsRepository.UpsertAsync(chip.GameId, chip.GameTimeSeconds, chip.Key),
+            _logger,
+            $"death class {chip.Key} {chip.GameId}@{chip.GameTimeSeconds}");
+    }
+
+    [RelayCommand]
+    private void SetFocusAdherence(string? value)
+    {
+        if (!int.TryParse(value, out var parsed))
+        {
+            return;
+        }
+
+        // Tapping the already-selected answer clears back to unanswered.
+        FocusAdherence = FocusAdherence == parsed ? -1 : Math.Clamp(parsed, 0, 2);
+
+        // Persist immediately — the row already exists for auto-captured games;
+        // the review-save path re-stamps it for everything else.
+        var gameId = GameId;
+        var adherence = FocusAdherence < 0 ? (int?)null : FocusAdherence;
+        if (gameId > 0)
+        {
+            BackgroundTaskRunner.Run(
+                () => _sessionLogRepository.UpdateFocusAdherenceAsync(gameId, adherence),
+                _logger,
+                $"focus adherence {gameId}");
+        }
+    }
+
     public ObservableCollection<ConceptTagItem> AllTags { get; } = new();
     public ObservableCollection<long> SelectedTagIds { get; } = new();
     public ObservableCollection<ObjectiveAssessment> ObjectiveAssessments { get; } = new();
@@ -110,9 +286,24 @@ public partial class ReviewViewModel : ObservableObject,
         "External"
     ];
 
-    public string MatchupHeading => HasEnemyLaner
-        ? $"{ChampionName} vs {EnemyLaner}"
-        : $"{ChampionName} matchup notes";
+    // v2.16 role→champion map + the role played this game, captured at game end.
+    // Drive the role-aware 2v2 matchup title (ADC+supp, mid+jg; top stays 1v1).
+    private string _participantMapJson = "";
+    private string _gameRole = "";
+
+    public string MatchupHeading
+    {
+        get
+        {
+            if (!HasEnemyLaner && string.IsNullOrWhiteSpace(_participantMapJson))
+                return $"{ChampionName} matchup notes";
+
+            // Shared with the games-list pill so the title matches everywhere:
+            // expands to the role pairing when the map is available, else 1v1.
+            return Revu.Core.Services.MatchupDisplay.Build(
+                ChampionName, EnemyLaner, _gameRole, _participantMapJson);
+        }
+    }
 
     public ReviewViewModel(
         IReviewWorkflowService reviewWorkflowService,
@@ -123,6 +314,8 @@ public partial class ReviewViewModel : ObservableObject,
         IGameEventsRepository eventsRepository,
         IEvidenceRepository evidenceRepository,
         IReviewExportService reviewExportService,
+        ISessionLogRepository sessionLogRepository,
+        IDeathClassificationsRepository deathClassificationsRepository,
         IMessenger messenger,
         ILogger<ReviewViewModel> logger)
     {
@@ -134,6 +327,8 @@ public partial class ReviewViewModel : ObservableObject,
         _eventsRepository = eventsRepository;
         _evidenceRepository = evidenceRepository;
         _reviewExportService = reviewExportService;
+        _sessionLogRepository = sessionLogRepository;
+        _deathClassificationsRepository = deathClassificationsRepository;
         _messenger = messenger;
         _logger = logger;
         _messenger.RegisterAll(this);
@@ -212,6 +407,8 @@ public partial class ReviewViewModel : ObservableObject,
             ApplyTags(screenData.Tags);
             ApplyObjectives(screenData.ObjectiveAssessments, screenData.PriorityObjective);
             ApplyMatchupHistory(screenData.MatchupHistory);
+            SessionIntentionForGame = screenData.SessionIntention;
+            ApplyBenchmarks(screenData);
 
             // v2.15.0: legacy-field visibility is recomputed from the already-
             // loaded snapshot (SelfAssessment etc. live in Snapshot). True when
@@ -225,9 +422,18 @@ public partial class ReviewViewModel : ObservableObject,
                             || !string.IsNullOrWhiteSpace(PersonalContribution)
                             || !string.IsNullOrWhiteSpace(ImprovementNote);
 
+            // v2.18 (digest 2026-06-11-2 P3a): the reappraisal section is
+            // collapsed by default (opt-in cost), but saved text must never
+            // hide — auto-expand when either field already has content.
+            IsReappraisalExpanded = !string.IsNullOrWhiteSpace(OutsideControl)
+                                 || !string.IsNullOrWhiteSpace(WithinControl);
+
             // v2.15.0: load custom prompts for each post-phase assessment and
             // hydrate previously-saved answers for this game.
             await HydratePromptsAsync(gameId);
+
+            // v2.18 (schema v5): death audit rows from the live kill feed.
+            await LoadDeathAuditAsync(gameId);
 
             // v2.15.0: bookmark/clip autopopulate — injects [MM:SS] lines into
             // each assessment's general-notes field from bookmarks/clips
@@ -1103,13 +1309,18 @@ public partial class ReviewViewModel : ObservableObject,
                     ObjectiveId: assessment.ObjectiveId,
                     Practiced: assessment.Practiced,
                     ExecutionNote: assessment.ExecutionNote))
-                .ToList());
+                .ToList(),
+            FocusAdherence: FocusAdherence < 0 ? null : FocusAdherence);
     }
 
     private void ApplyGameData(ReviewScreenData screenData)
     {
         var game = screenData.Game;
         ChampionName = game.ChampionName;
+        // Feed the role-aware matchup title (2v2 for adc/supp/mid/jg, 1v1 top).
+        _participantMapJson = game.ParticipantMap;
+        _gameRole = game.Position;
+        OnPropertyChanged(nameof(MatchupHeading));
         Win = game.Win;
         ResultText = game.Win ? "VICTORY" : "DEFEAT";
         ResultColorHex = game.Win ? AppSemanticPalette.PositiveHex : AppSemanticPalette.NegativeHex;
@@ -1117,7 +1328,7 @@ public partial class ReviewViewModel : ObservableObject,
         KdaRatioText = $"{game.KdaRatio:F2} KDA";
         GameModeText = game.DisplayGameMode;
         DurationText = game.GameDuration > 0 ? $"{game.GameDuration / 60}:{game.GameDuration % 60:D2}" : "";
-        HeaderText = $"Review -- {game.ChampionName} ({(game.Win ? "W" : "L")})";
+        HeaderText = $"Review -- {Revu.Core.Services.MatchupDisplay.Build(game.ChampionName, game.EnemyLaner, game.Position, game.ParticipantMap)} ({(game.Win ? "W" : "L")})";
 
         DamageText = FormatNumber(game.TotalDamageToChampions);
         CsText = game.CsTotal.ToString();
@@ -1127,6 +1338,29 @@ public partial class ReviewViewModel : ObservableObject,
         KillParticipationText = game.KillParticipation > 0 ? $"{game.KillParticipation:F0}%" : "—";
         DamageTakenText = FormatNumber(game.TotalDamageTaken);
         WardsPlacedText = game.WardsPlaced.ToString();
+
+        // v2.18 (schema v5): laning-at-10 from the timeline backfill. The
+        // canonical "did I win lane?" numbers — gold/CS deltas vs the lane
+        // opponent at the 10-minute mark.
+        if (game.CsAt10 is { } csAt10)
+        {
+            var line = $"LANING @10 // CS {Revu.Core.Services.ObjectiveCriteria.FormatValue(csAt10)}";
+            if (game.GoldDiffAt10 is { } goldDiff)
+            {
+                line += $" · GOLD DIFF {(goldDiff >= 0 ? "+" : "")}{goldDiff}";
+            }
+            if (game.CsDiffAt10 is { } csDiff)
+            {
+                line += $" · CS DIFF {(csDiff >= 0 ? "+" : "")}{Revu.Core.Services.ObjectiveCriteria.FormatValue(csDiff)}";
+            }
+            LaningAt10Line = line;
+            HasLaningAt10 = true;
+        }
+        else
+        {
+            LaningAt10Line = "";
+            HasLaningAt10 = false;
+        }
     }
 
     private void ApplySnapshot(ReviewSnapshot snapshot)
@@ -1145,6 +1379,7 @@ public partial class ReviewViewModel : ObservableObject,
         PersonalContribution = snapshot.PersonalContribution;
         EnemyLaner = snapshot.EnemyLaner;
         MatchupNote = snapshot.MatchupNote;
+        FocusAdherence = snapshot.FocusAdherence ?? -1;
         UpdateMentalColor();
         ShowMentalReflection = MentalRating <= 3;
     }
@@ -1193,6 +1428,8 @@ public partial class ReviewViewModel : ObservableObject,
                     IsPriority = objective.IsPriority,
                     Practiced = objective.Practiced,
                     ExecutionNote = objective.ExecutionNote,
+                    CriteriaVerdict = objective.CriteriaVerdict,
+                    CriteriaVerdictSign = objective.CriteriaVerdictSign,
                 });
             }
 

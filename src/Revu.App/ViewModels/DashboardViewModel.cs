@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using System.Collections.ObjectModel;
 using System.IO;
@@ -60,6 +60,7 @@ public partial class DashboardViewModel : ObservableObject
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IVodRepository _vodRepo;
     private readonly IEvidenceRepository _evidenceRepo;
+    private readonly IDeathClassificationsRepository _deathClassRepo;
     private readonly INavigationService _navigationService;
     private readonly IConfigService _configService;
     private readonly IDialogService _dialogService;
@@ -73,6 +74,7 @@ public partial class DashboardViewModel : ObservableObject
     private bool _isLoading;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEndBlockStandalone))]
     private int _totalGames;
 
     [ObservableProperty]
@@ -111,12 +113,50 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSessionIntention))]
     [NotifyPropertyChangedFor(nameof(ShowIntentHero))]
+    [NotifyPropertyChangedFor(nameof(ShowEndBlockStandalone))]
     private string _sessionIntention = "";
 
     public bool HasSessionIntention => !string.IsNullOrWhiteSpace(SessionIntention);
 
     /// <summary>Intent-first hero shows until a goal is locked for today.</summary>
     public bool ShowIntentHero => !HasSessionIntention;
+
+    /// <summary>
+    /// Today's End Block debrief rating (0 = block not closed yet). Drives the
+    /// End Block affordances: the button shows until the block is closed, then
+    /// collapses to a "CLOSED n/10" stamp.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDebrief))]
+    [NotifyPropertyChangedFor(nameof(ShowEndBlockButton))]
+    [NotifyPropertyChangedFor(nameof(ShowEndBlockStandalone))]
+    [NotifyPropertyChangedFor(nameof(BlockClosedText))]
+    private int _debriefRating;
+
+    public bool HasDebrief => DebriefRating > 0;
+
+    /// <summary>End Block button inside the locked-intent chip.</summary>
+    public bool ShowEndBlockButton => !HasDebrief;
+
+    /// <summary>
+    /// Standalone End Block button (next to Run Reset) for sessions where games
+    /// were played without locking an intent — the debrief is still worth
+    /// capturing even when the block was never formally opened.
+    /// </summary>
+    public bool ShowEndBlockStandalone => !HasDebrief && !HasSessionIntention && TotalGames > 0;
+
+    public string BlockClosedText => HasDebrief ? $"CLOSED {DebriefRating}/10" : "";
+
+    /// <summary>
+    /// v2.18 (schema v5): the classified death mix over the last 14 days,
+    /// e.g. "VISION 44% of 27 tagged deaths". Empty until deaths have been
+    /// tagged in the post-game death audit.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDeathMix))]
+    private string _deathMixText = "";
+
+    public bool HasDeathMix => !string.IsNullOrWhiteSpace(DeathMixText);
 
     [ObservableProperty]
     private int _winStreak;
@@ -287,6 +327,7 @@ public partial class DashboardViewModel : ObservableObject
         IObjectivesRepository objectivesRepo,
         IVodRepository vodRepo,
         IEvidenceRepository evidenceRepo,
+        IDeathClassificationsRepository deathClassRepo,
         INavigationService navigationService,
         IConfigService configService,
         IDialogService dialogService,
@@ -301,6 +342,7 @@ public partial class DashboardViewModel : ObservableObject
         _objectivesRepo = objectivesRepo;
         _vodRepo = vodRepo;
         _evidenceRepo = evidenceRepo;
+        _deathClassRepo = deathClassRepo;
         _navigationService = navigationService;
         _configService = configService;
         _dialogService = dialogService;
@@ -356,6 +398,31 @@ public partial class DashboardViewModel : ObservableObject
             // Start Block intent for today — drives the hero CTA vs. locked chip.
             var sessionInfo = await _sessionLogRepo.GetSessionAsync(today);
             SessionIntention = sessionInfo?.Intention?.Trim() ?? "";
+            DebriefRating = sessionInfo?.DebriefRating ?? 0;
+
+            // v2.18 (schema v5): classified death mix over the last 14 days.
+            // The death audit's payoff — the dominant cause, quantified.
+            try
+            {
+                var mix = await _deathClassRepo.GetClassMixAsync(days: 14);
+                var tagged = mix.Sum(static m => m.Count);
+                if (tagged >= 5)
+                {
+                    var top = mix[0];
+                    var percent = (int)Math.Round(100.0 * top.Count / tagged);
+                    var label = Revu.Core.Data.Repositories.DeathClasses.LabelFor(top.DeathClass);
+                    DeathMixText = $"DEATH MIX 14D // {label} {percent}% OF {tagged} TAGGED DEATHS";
+                }
+                else
+                {
+                    DeathMixText = "";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Dashboard: death mix computation failed");
+                DeathMixText = "";
+            }
 
             // 30-day baseline under the today-only cells, so a one-game day
             // reads against the user's own normal instead of in a vacuum.
@@ -426,18 +493,31 @@ public partial class DashboardViewModel : ObservableObject
                 {
                     var info = IObjectivesRepository.GetLevelInfo(obj.Score, obj.GameCount);
 
+                    var isMini = obj.IsMini;
+                    // Minis are a fixed game count, not a mastery ladder \u2014 fill
+                    // the ring by games done and drop the Exploring/pts framing.
+                    var miniProgress = isMini && obj.TargetGameCount > 0
+                        ? Math.Clamp((double)obj.GameCount / obj.TargetGameCount, 0.0, 1.0)
+                        : info.Progress;
+
                     ActiveObjectives.Add(new DashboardObjectiveItem
                     {
                         Id = obj.Id,
                         Title = obj.Title,
                         PhaseLabel = ObjectivePhases.ToDisplayLabel(obj.Phase),
-                        LevelName = info.LevelName,
+                        IsMini = isMini,
+                        TargetGameCount = obj.TargetGameCount,
+                        LevelName = isMini ? "" : info.LevelName,
                         Score = obj.Score,
                         GameCount = obj.GameCount,
-                        Progress = info.Progress,
-                        LevelColorHex = GetLevelColor(info.LevelIndex),
-                        LevelDimColorHex = AppSemanticPalette.ObjectiveLevelDimHex(info.LevelIndex),
-                        InfoText = $"{info.LevelName}  \u2022  {obj.Score} pts  \u2022  {obj.GameCount} games",
+                        Progress = miniProgress,
+                        LevelColorHex = isMini ? AppSemanticPalette.AccentGoldHex : GetLevelColor(info.LevelIndex),
+                        LevelDimColorHex = isMini ? AppSemanticPalette.AccentGoldDimHex : AppSemanticPalette.ObjectiveLevelDimHex(info.LevelIndex),
+                        InfoText = isMini
+                            ? (obj.TargetGameCount > 0
+                                ? $"FOCUS DRILL  \u2022  {Math.Min(obj.GameCount, obj.TargetGameCount)} of {obj.TargetGameCount} games"
+                                : $"FOCUS DRILL  \u2022  {obj.GameCount} games")
+                            : $"{info.LevelName}  \u2022  {obj.Score} pts  \u2022  {obj.GameCount} games",
                         IsPriority = obj.IsPriority
                     });
                 }
@@ -1105,72 +1185,9 @@ public class GameDisplayItem
     /// are populated, expands to a role-aware pairing like "Kai'Sa+Nautilus vs
     /// Tristana+Renata" (ADC) or "Ahri+Lee vs Syndra+Graves" (Mid).
     /// Used by GameRowCard.Champion so games-list pills identify the matchup.</summary>
-    public string ChampionDisplay => RoleAwareDisplay() ?? LaneOnlyDisplay();
+    public string ChampionDisplay =>
+        Revu.Core.Services.MatchupDisplay.Build(ChampionName, EnemyChampion, GameRole, ParticipantMapJson);
 
-    private string LaneOnlyDisplay() => string.IsNullOrWhiteSpace(EnemyChampion)
-        ? ChampionName
-        : $"{ChampionName} vs {EnemyChampion}";
-
-    // Cached deserialization of ParticipantMapJson — null means "not yet parsed",
-    // an empty dict means "parsed but empty/invalid". Set once on first access.
-    private System.Collections.Generic.Dictionary<string, string>? _participantMapCache;
-    private bool _participantMapParsed;
-
-    private System.Collections.Generic.Dictionary<string, string>? GetParticipantMap()
-    {
-        if (_participantMapParsed) return _participantMapCache;
-        _participantMapParsed = true;
-        if (string.IsNullOrWhiteSpace(ParticipantMapJson)) return null;
-        try
-        {
-            _participantMapCache = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(ParticipantMapJson);
-        }
-        catch { _participantMapCache = null; }
-        return _participantMapCache;
-    }
-
-    private string? RoleAwareDisplay()
-    {
-        if (string.IsNullOrWhiteSpace(GameRole) || string.IsNullOrWhiteSpace(ParticipantMapJson))
-            return null;
-
-        var map = GetParticipantMap();
-        if (map is null || map.Count == 0) return null;
-
-        // Pairing rules per docs/V2_16_BACKLOG.md. Returns null for top
-        // (no obvious adjacent pairing) so the lane-only fallback kicks in.
-        // Accepts both LCU position names (BOTTOM/UTILITY/JUNGLE/MIDDLE/TOP)
-        // and the user-config short names (adc/supp/jg/mid/top).
-        var role = GameRole.ToLowerInvariant();
-        return role switch
-        {
-            "adc" or "bottom" or "bot" =>
-                Pair(map, "ownBot", "ownSupp", "enemyBot", "enemySupp"),
-            "support" or "supp" or "utility" =>
-                Pair(map, "ownSupp", "ownBot", "enemySupp", "enemyBot"),
-            "mid" or "middle" =>
-                Pair(map, "ownMid", "ownJg", "enemyMid", "enemyJg"),
-            "jungle" or "jg" =>
-                Pair(map, "ownJg", "ownMid", "enemyJg", "enemyMid"),
-            _ => null,
-        };
-    }
-
-    private static string? Pair(
-        System.Collections.Generic.Dictionary<string, string> map,
-        string ownPrimary, string ownPartner,
-        string enemyPrimary, string enemyPartner)
-    {
-        if (!map.TryGetValue(ownPrimary, out var op) || string.IsNullOrEmpty(op)) return null;
-        if (!map.TryGetValue(enemyPrimary, out var ep) || string.IsNullOrEmpty(ep)) return null;
-
-        var ownPart = map.TryGetValue(ownPartner, out var v1) ? v1 : "";
-        var enemyPart = map.TryGetValue(enemyPartner, out var v2) ? v2 : "";
-
-        var ownStr = string.IsNullOrEmpty(ownPart) ? op : $"{op}+{ownPart}";
-        var enemyStr = string.IsNullOrEmpty(enemyPart) ? ep : $"{ep}+{enemyPart}";
-        return $"{ownStr} vs {enemyStr}";
-    }
     public string WinLossText { get; set; } = "";
     public int Kills { get; set; }
     public int Deaths { get; set; }
@@ -1224,14 +1241,33 @@ public class DashboardObjectiveItem
     public string LevelDimColorHex { get; set; } = "#10121A";
     public string InfoText { get; set; } = "";
     public bool IsPriority { get; set; }
+    public bool IsMini { get; set; }
+    public int TargetGameCount { get; set; }
 
     /// <summary>Short percentage label for the center of HudProgressRing.</summary>
     public string ProgressLabel => $"{Math.Clamp((int)Math.Round(Progress * 100.0), 0, 100)}%";
 
-    /// <summary>"LVL N // PHASE // SCORE PTS" for the meta line beside the ring.</summary>
-    public string MetaText => string.IsNullOrWhiteSpace(LevelName)
-        ? PhaseLabel.ToUpperInvariant()
-        : $"{LevelName.ToUpperInvariant()}  //  {PhaseLabel.ToUpperInvariant()}  //  {Score} PTS";
+    /// <summary>
+    /// Meta line beside the ring. Mastery objectives show "LEVEL // PHASE //
+    /// SCORE PTS"; minis show their game progress ("FOCUS // PHASE // 5/6
+    /// GAMES") since the level/pts framing doesn't apply to them.
+    /// </summary>
+    public string MetaText
+    {
+        get
+        {
+            if (IsMini)
+            {
+                var games = TargetGameCount > 0
+                    ? $"{Math.Min(GameCount, TargetGameCount)}/{TargetGameCount} GAMES"
+                    : $"{GameCount} GAMES";
+                return $"FOCUS  //  {PhaseLabel.ToUpperInvariant()}  //  {games}";
+            }
+            return string.IsNullOrWhiteSpace(LevelName)
+                ? PhaseLabel.ToUpperInvariant()
+                : $"{LevelName.ToUpperInvariant()}  //  {PhaseLabel.ToUpperInvariant()}  //  {Score} PTS";
+        }
+    }
     public Microsoft.UI.Xaml.Media.SolidColorBrush LevelColorBrush =>
         AppSemanticPalette.Brush(LevelColorHex);
 

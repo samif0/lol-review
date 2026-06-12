@@ -19,7 +19,11 @@ public sealed record ReviewObjectiveState(
     string Phase,
     bool IsPriority,
     bool Practiced,
-    string ExecutionNote);
+    string ExecutionNote,
+    // v2.18 (schema v5): live structured-criterion verdict for this game.
+    // Sign: 0 = no verdict, 1 = hit, -1 = miss.
+    string CriteriaVerdict = "",
+    int CriteriaVerdictSign = 0);
 
 public sealed record ReviewMatchupHistoryItem(
     string Note,
@@ -48,7 +52,10 @@ public sealed record ReviewSnapshot(
     string EnemyLaner,
     string MatchupNote,
     IReadOnlyList<long> SelectedTagIds,
-    IReadOnlyList<SaveObjectivePracticeRequest> ObjectivePractices);
+    IReadOnlyList<SaveObjectivePracticeRequest> ObjectivePractices,
+    // v2.18 (schema v5): one-tap focus adherence. null = unanswered,
+    // 0 = no, 1 = partly, 2 = yes.
+    int? FocusAdherence = null);
 
 public sealed record ReviewScreenData(
     GameStats Game,
@@ -59,7 +66,12 @@ public sealed record ReviewScreenData(
     IReadOnlyList<ReviewTagState> Tags,
     IReadOnlyList<ReviewObjectiveState> ObjectiveAssessments,
     IReadOnlyList<ReviewMatchupHistoryItem> MatchupHistory,
-    ReviewSnapshot Snapshot);
+    ReviewSnapshot Snapshot,
+    // v2.18 (schema v5): the intent declared at Start Block for the day this
+    // game was played — what the adherence question is asked against.
+    string SessionIntention = "",
+    // v2.18: self-declared rank for benchmark context (config.BenchmarkRank).
+    string BenchmarkRank = "");
 
 public sealed record ReviewDraftRequest(
     long GameId,

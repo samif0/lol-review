@@ -8,7 +8,9 @@ public sealed record ProcessGameEndRequest(
     GameStats Stats,
     int MentalRating = 5,
     int PreGameMood = 0,
-    IReadOnlyList<long>? PreGamePracticedObjectiveIds = null);
+    IReadOnlyList<long>? PreGamePracticedObjectiveIds = null,
+    string PregameIntention = "",
+    string IntentionSource = "");
 
 public sealed record ProcessGameEndResult(
     long? GameId,

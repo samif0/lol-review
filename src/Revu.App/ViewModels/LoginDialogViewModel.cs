@@ -199,6 +199,16 @@ public partial class LoginDialogViewModel : ObservableObject
             config.RiotRegion = region;
             config.RiotPuuid = account.Puuid;
             config.OnboardingSkipped = false;
+
+            // v2.18: anchor the benchmark context to the account's ranked
+            // solo/duo tier (League-V4). Best-effort — unranked keeps the
+            // GOLD default; changeable in Settings.
+            var detectedRank = await _authClient.GetSoloRankAsync(session, account.Puuid, region);
+            if (!string.IsNullOrEmpty(detectedRank))
+            {
+                config.BenchmarkRank = detectedRank;
+            }
+
             await _configService.SaveAsync(config);
 
             Completed = true;

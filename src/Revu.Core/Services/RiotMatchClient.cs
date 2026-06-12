@@ -16,6 +16,13 @@ namespace Revu.Core.Services;
 public interface IRiotMatchClient
 {
     Task<JsonElement?> GetMatchAsync(string matchId, string region, CancellationToken ct = default);
+
+    /// <summary>
+    /// v2.18: Match-V5 timeline — per-minute participant frames (gold, CS,
+    /// XP, position) and positioned events. Null on any failure, including a
+    /// proxy that hasn't been redeployed with the /timeline route yet.
+    /// </summary>
+    Task<JsonElement?> GetTimelineAsync(string matchId, string region, CancellationToken ct = default);
 }
 
 public sealed class RiotMatchClient : IRiotMatchClient
@@ -69,6 +76,49 @@ public sealed class RiotMatchClient : IRiotMatchClient
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Match {MatchId} fetch errored", matchId);
+            return null;
+        }
+    }
+
+    public async Task<JsonElement?> GetTimelineAsync(string matchId, string region, CancellationToken ct = default)
+    {
+        var token = _config.RiotSessionToken;
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            _logger.LogWarning("RiotMatchClient: no session token; user must reauth.");
+            return null;
+        }
+
+        using var req = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{RiotProxyEndpoint.BaseUrl}/timeline/{Uri.EscapeDataString(matchId)}?region={Uri.EscapeDataString(region)}");
+        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        try
+        {
+            var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                // 404 covers both matches outside Riot's window AND an
+                // un-redeployed proxy without the /timeline route — both are
+                // expected during rollout, keep at debug.
+                if ((int)res.StatusCode == 404)
+                {
+                    _logger.LogDebug("Timeline {MatchId} not found upstream", matchId);
+                }
+                else
+                {
+                    _logger.LogWarning("Timeline {MatchId} fetch failed: {Status}", matchId, res.StatusCode);
+                }
+                return null;
+            }
+            var doc = await res.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct).ConfigureAwait(false);
+            return doc;
+        }
+        catch (TaskCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Timeline {MatchId} fetch errored", matchId);
             return null;
         }
     }

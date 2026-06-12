@@ -113,7 +113,9 @@ public sealed class GameService : IGameService
             stats.Win,
             request.MentalRating,
             preGameMood: request.PreGameMood,
-            ruleBroken: ruleBroken).ConfigureAwait(false);
+            ruleBroken: ruleBroken,
+            pregameIntention: request.PregameIntention,
+            intentionSource: request.IntentionSource).ConfigureAwait(false);
 
         // 5. Save live events via IGameEventsRepository
         if (stats.LiveEvents is { Count: > 0 })

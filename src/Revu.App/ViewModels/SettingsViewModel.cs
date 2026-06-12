@@ -108,6 +108,13 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _autoTimelineClippingEnabled = true;
 
+    // v2.18: self-declared rank for benchmark context (index into
+    // RankBenchmarks.Ranks; default 3 = GOLD, the ladder median).
+    [ObservableProperty]
+    private int _benchmarkRankIndex = 3;
+
+    public IReadOnlyList<string> BenchmarkRankOptions { get; } = Revu.Core.Services.RankBenchmarks.Ranks;
+
     // v2.15.0: reset/revert state.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsResetConfirmTextValid))]
@@ -223,6 +230,7 @@ public partial class SettingsViewModel : ObservableObject
 
     private readonly IRiotAuthClient _riotAuthClient;
     private readonly EnemyLanerBackfillService _backfillService;
+    private readonly Revu.Core.Services.LaningBackfillService _laningBackfillService;
 
     public SettingsViewModel(
         IConfigService configService,
@@ -232,6 +240,7 @@ public partial class SettingsViewModel : ObservableObject
         IBackupService backupService,
         IReviewExportService reviewExportService,
         EnemyLanerBackfillService backfillService,
+        Revu.Core.Services.LaningBackfillService laningBackfillService,
         ILogger<SettingsViewModel> logger)
     {
         _configService = configService;
@@ -241,6 +250,7 @@ public partial class SettingsViewModel : ObservableObject
         _backupService = backupService;
         _reviewExportService = reviewExportService;
         _backfillService = backfillService;
+        _laningBackfillService = laningBackfillService;
         _logger = logger;
     }
 
@@ -263,6 +273,8 @@ public partial class SettingsViewModel : ObservableObject
             SidebarAnimationEnabled = config.SidebarAnimationEnabled;
             MinimizeDuringGame = config.MinimizeDuringGame;
             AutoTimelineClippingEnabled = config.AutoTimelineClippingEnabled;
+            BenchmarkRankIndex = Math.Max(0, BenchmarkRankOptions.ToList().IndexOf(
+                Revu.Core.Services.RankBenchmarks.NormalizeRank(config.BenchmarkRank)));
             RiotId = config.RiotId;
             RiotRegion = config.RiotRegion;
             RestoreRiotAuthState(config);
@@ -356,6 +368,9 @@ public partial class SettingsViewModel : ObservableObject
             config.SidebarAnimationEnabled = SidebarAnimationEnabled;
             config.MinimizeDuringGame = MinimizeDuringGame;
             config.AutoTimelineClippingEnabled = AutoTimelineClippingEnabled;
+            config.BenchmarkRank = BenchmarkRankIndex >= 0 && BenchmarkRankIndex < BenchmarkRankOptions.Count
+                ? BenchmarkRankOptions[BenchmarkRankIndex]
+                : "";
             // Propagate immediately so the user sees the effect without a restart.
             // SidebarEnergyDrainAnimator.UpdateTarget checks this flag every time
             // the nav selection changes; toggling off clears current trails on
@@ -386,6 +401,17 @@ public partial class SettingsViewModel : ObservableObject
                     var account = await _riotAuthClient.ResolveAccountAsync(
                         config.RiotSessionToken, newRiotId, newRiotRegion);
                     config.RiotPuuid = account.Puuid ?? "";
+
+                    // v2.18: a newly-linked account refreshes the benchmark
+                    // rank from League-V4 (overrides the manual picker only
+                    // on link/re-link, never on ordinary saves).
+                    var detectedRank = await _riotAuthClient.GetSoloRankAsync(
+                        config.RiotSessionToken, config.RiotPuuid, newRiotRegion);
+                    if (!string.IsNullOrEmpty(detectedRank))
+                    {
+                        config.BenchmarkRank = detectedRank;
+                        BenchmarkRankIndex = Math.Max(0, BenchmarkRankOptions.ToList().IndexOf(detectedRank));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1088,10 +1114,24 @@ public partial class SettingsViewModel : ObservableObject
                 WeakReferenceMessenger.Default.Send(new GameMatchupsBackfilledMessage(result.Updated));
             }
 
-            BackfillStatus = result.Scanned == 0
-                ? "Nothing to backfill — every game already has its enemy laner."
-                : $"Done. Updated {result.Updated} of {result.Scanned} games "
+            // v2.18: the manual card also drains the laning-at-10 queue
+            // (CS@10 / gold-diff@10 from the Match-V5 timeline).
+            var laning = new Revu.Core.Services.LaningBackfillResult(0, 0, 0, 0);
+            try
+            {
+                BackfillStatus = "Fetching laning numbers (CS@10)...";
+                laning = await _laningBackfillService.RunAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Laning backfill failed (manual card)");
+            }
+
+            BackfillStatus = result.Scanned == 0 && laning.Scanned == 0
+                ? "Nothing to backfill — every game already has its enemy laner and laning numbers."
+                : $"Done. Matchups: updated {result.Updated} of {result.Scanned} "
                   + $"(skipped {result.Skipped}, failed {result.Failed}). "
+                  + $"Laning @10: filled {laning.Updated} of {laning.Scanned}. "
                   + "Dashboard / History will refresh automatically.";
         }
         catch (Exception ex)

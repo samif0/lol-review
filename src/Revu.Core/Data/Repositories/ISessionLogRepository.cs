@@ -78,6 +78,10 @@ public interface ISessionLogRepository
     /// If an entry already exists for this game_id, updates it instead.
     /// <paramref name="ruleBroken"/> should only be true when a user-defined rule
     /// was violated — it is never auto-detected by the repository.
+    /// v2.18 (schema v6): <paramref name="pregameIntention"/> /
+    /// <paramref name="intentionSource"/> carry the champ-select intent; on
+    /// update, default (empty / 0) values never overwrite an existing stamp —
+    /// the review-save re-log must not clobber what EOG wrote.
     /// </summary>
     Task LogGameAsync(
         long gameId,
@@ -86,7 +90,9 @@ public interface ISessionLogRepository
         int mentalRating = 5,
         string improvementNote = "",
         int preGameMood = 0,
-        bool ruleBroken = false
+        bool ruleBroken = false,
+        string pregameIntention = "",
+        string intentionSource = ""
     );
 
     /// <summary>Update the mental rating for a specific game.</summary>
@@ -123,6 +129,12 @@ public interface ISessionLogRepository
 
     /// <summary>Save the session debrief (did you stick to your goal?).</summary>
     Task SaveSessionDebriefAsync(string dateStr, int rating, string note = "");
+
+    /// <summary>
+    /// v2.18 (schema v5): stamp the one-tap focus-adherence answer
+    /// (null = unanswered, 0 = no, 1 = partly, 2 = yes) on a game's row.
+    /// </summary>
+    Task UpdateFocusAdherenceAsync(long gameId, int? adherence);
 
     /// <summary>Get a single session_log entry by game_id, or null if not found.</summary>
     Task<SessionLogEntry?> GetEntryAsync(long gameId);

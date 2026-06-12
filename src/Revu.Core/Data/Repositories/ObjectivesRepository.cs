@@ -100,6 +100,129 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     }
 
     /// <summary>
+    /// v2.18 (schema v5): set or clear the structured criterion. Pass an empty
+    /// metric to clear (the objective falls back to free-text criteria only).
+    /// </summary>
+    public async Task UpdateCriteriaAsync(long objectiveId, string criteriaMetric, string criteriaOp, double criteriaValue)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE objectives
+            SET criteria_metric = @metric,
+                criteria_op = @op,
+                criteria_value = @value
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@metric", criteriaMetric?.Trim() ?? "");
+        cmd.Parameters.AddWithValue("@op", criteriaOp == "<=" ? "<=" : ">=");
+        cmd.Parameters.AddWithValue("@value", criteriaValue);
+        cmd.Parameters.AddWithValue("@id", objectiveId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// v2.18 (schema v5): stamp the structured-criterion outcome for one game.
+    /// Only touches existing game_objectives rows — evaluation never creates a
+    /// practice record on its own.
+    /// </summary>
+    public async Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE game_objectives
+            SET criteria_met = @met
+            WHERE game_id = @gameId AND objective_id = @objectiveId
+            """;
+        cmd.Parameters.AddWithValue("@met", met ? 1 : 0);
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// v2.18 (schema v5): per-objective criteria hit-rate over evaluated games.
+    /// Returns (hits, evaluated) — evaluated counts only games where the
+    /// criterion actually ran (criteria_met not null) on visible games.
+    /// </summary>
+    public async Task<(int Hits, int Evaluated)> GetCriteriaHitRateAsync(long objectiveId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT COALESCE(SUM(CASE WHEN go.criteria_met = 1 THEN 1 ELSE 0 END), 0),
+                   COUNT(go.criteria_met)
+            FROM game_objectives go
+            JOIN games g ON g.game_id = go.game_id
+            WHERE go.objective_id = @objectiveId
+              AND go.criteria_met IS NOT NULL
+              AND COALESCE(g.is_hidden, 0) = 0
+            """;
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return (reader.GetInt32(0), reader.GetInt32(1));
+        }
+        return (0, 0);
+    }
+
+    /// <summary>
+    /// v2.18 (schema v6 build): lowest criteria hit rate among active
+    /// objectives, for the pre-game intent card. Null until the data gate is
+    /// met: ≥ minEvaluatedTotal evaluated rows overall, ≥3 per objective.
+    /// </summary>
+    public async Task<ObjectiveAdherenceSummary?> GetLowestCriteriaAdherenceAsync(int minEvaluatedTotal = 10)
+    {
+        using var conn = _factory.CreateConnection();
+
+        using (var gateCmd = conn.CreateCommand())
+        {
+            gateCmd.CommandText = """
+                SELECT COUNT(go.criteria_met)
+                FROM game_objectives go
+                JOIN objectives o ON o.id = go.objective_id
+                JOIN games g ON g.game_id = go.game_id
+                WHERE go.criteria_met IS NOT NULL
+                  AND o.status = 'active'
+                  AND COALESCE(g.is_hidden, 0) = 0
+                """;
+            var total = Convert.ToInt32(await gateCmd.ExecuteScalarAsync() ?? 0);
+            if (total < minEvaluatedTotal) return null;
+        }
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT o.id, o.title, o.completion_criteria,
+                   COALESCE(SUM(CASE WHEN go.criteria_met = 1 THEN 1 ELSE 0 END), 0) AS hits,
+                   COUNT(go.criteria_met) AS evaluated
+            FROM game_objectives go
+            JOIN objectives o ON o.id = go.objective_id
+            JOIN games g ON g.game_id = go.game_id
+            WHERE go.criteria_met IS NOT NULL
+              AND o.status = 'active'
+              AND COALESCE(g.is_hidden, 0) = 0
+            GROUP BY o.id
+            HAVING COUNT(go.criteria_met) >= 3
+            ORDER BY CAST(SUM(CASE WHEN go.criteria_met = 1 THEN 1 ELSE 0 END) AS REAL) / COUNT(go.criteria_met) ASC,
+                     COUNT(go.criteria_met) DESC
+            LIMIT 1
+            """;
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new ObjectiveAdherenceSummary(
+                ObjectiveId: reader.GetInt64(0),
+                Title: reader.IsDBNull(1) ? "" : reader.GetString(1),
+                CompletionCriteria: reader.IsDBNull(2) ? "" : reader.GetString(2),
+                Hits: reader.GetInt32(3),
+                Evaluated: reader.GetInt32(4));
+        }
+        return null;
+    }
+
+    /// <summary>
     /// v2.18 (F2): set the game-phase focus used to match auto-clips to this
     /// objective. '' = auto-infer from title. See <see cref="ObjectiveFocusPhases"/>.
     /// </summary>
@@ -733,7 +856,8 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT go.game_id, go.objective_id, go.practiced, go.execution_note,
-                   o.title, o.completion_criteria, o.type, o.is_priority, o.phase
+                   o.title, o.completion_criteria, o.type, o.is_priority, o.phase,
+                   go.criteria_met, o.criteria_metric, o.criteria_op, o.criteria_value
             FROM game_objectives go
             JOIN objectives o ON o.id = go.objective_id
             WHERE go.game_id = @gameId
@@ -865,7 +989,11 @@ public sealed class ObjectivesRepository : IObjectivesRepository
                 CompletionCriteria: reader.IsDBNull(5) ? "" : reader.GetString(5),
                 Type: reader.IsDBNull(6) ? "primary" : reader.GetString(6),
                 IsPriority: !reader.IsDBNull(7) && reader.GetInt64(7) != 0,
-                Phase: reader.IsDBNull(8) ? ObjectivePhases.InGame : ObjectivePhases.Normalize(reader.GetString(8))));
+                Phase: reader.IsDBNull(8) ? ObjectivePhases.InGame : ObjectivePhases.Normalize(reader.GetString(8)),
+                CriteriaMet: reader.FieldCount > 9 && !reader.IsDBNull(9) ? reader.GetInt32(9) : null,
+                CriteriaMetric: reader.FieldCount > 10 && !reader.IsDBNull(10) ? reader.GetString(10) : "",
+                CriteriaOp: reader.FieldCount > 11 && !reader.IsDBNull(11) ? reader.GetString(11) : ">=",
+                CriteriaValue: reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetDouble(12) : 0));
         }
 
         return results;
@@ -918,6 +1046,20 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             }
         }
 
+        // v2.18 (schema v5): criteria_value column; tolerate absence.
+        static double OptDouble(SqliteDataReader r, string col)
+        {
+            try
+            {
+                var idx = r.GetOrdinal(col);
+                return r.IsDBNull(idx) ? 0 : r.GetDouble(idx);
+            }
+            catch (IndexOutOfRangeException)
+            {
+                return 0;
+            }
+        }
+
         return new ObjectiveSummary(
             Id: reader.IsDBNull(reader.GetOrdinal("id")) ? 0 : reader.GetInt64(reader.GetOrdinal("id")),
             Title: reader.IsDBNull(reader.GetOrdinal("title")) ? "" : reader.GetString(reader.GetOrdinal("title")),
@@ -936,6 +1078,9 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             PracticeIn: OptBool(reader, "practice_ingame"),
             PracticePost: OptBool(reader, "practice_postgame"),
             TargetGameCount: OptInt(reader, "target_game_count"),
-            FocusPhase: OptText(reader, "focus_phase"));
+            FocusPhase: OptText(reader, "focus_phase"),
+            CriteriaMetric: OptText(reader, "criteria_metric"),
+            CriteriaOp: OptText(reader, "criteria_op") is { Length: > 0 } op ? op : ">=",
+            CriteriaValue: OptDouble(reader, "criteria_value"));
     }
 }

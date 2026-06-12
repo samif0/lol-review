@@ -115,6 +115,14 @@ public sealed partial class ReviewPage : Page, INotifyPropertyChanged
         }
     }
 
+    private void OnDeathChipClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: DeathChipOption chip })
+        {
+            ViewModel.ClassifyDeath(chip);
+        }
+    }
+
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

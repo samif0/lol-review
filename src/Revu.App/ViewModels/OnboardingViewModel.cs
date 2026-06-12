@@ -93,6 +93,25 @@ public partial class OnboardingViewModel : ObservableObject
         OnPropertyChanged(nameof(IsUtilitySelected));
     }
 
+    // ── Rank (benchmark context) ─────────────────────────────────────
+
+    /// <summary>
+    /// v2.18: ranked solo/duo tier auto-detected from League-V4 when the
+    /// account resolves. No manual picker in onboarding — the API is ground
+    /// truth; skip-path and unranked users default to GOLD and can change it
+    /// in Settings. Empty until (and unless) detection succeeds.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDetectedRank))]
+    [NotifyPropertyChangedFor(nameof(DetectedRankLine))]
+    private string _detectedRank = "";
+
+    public bool HasDetectedRank => !string.IsNullOrEmpty(DetectedRank);
+
+    public string DetectedRankLine => HasDetectedRank
+        ? $"RANK DETECTED: {DetectedRank} — BENCHMARKS CALIBRATED"
+        : "";
+
     /// <summary>Fires when the flow completes (with or without auth).</summary>
     public event Action? Completed;
 
@@ -279,6 +298,17 @@ public partial class OnboardingViewModel : ObservableObject
             config.RiotRegion = region;
             config.RiotPuuid = account.Puuid;
             config.OnboardingSkipped = false;
+
+            // v2.18: auto-detect the ranked solo/duo tier from League-V4 and
+            // anchor the benchmark context to it. Best-effort — unranked
+            // accounts fall back to the GOLD default (changeable in Settings).
+            var detectedRank = await _authClient.GetSoloRankAsync(session, account.Puuid, region);
+            if (!string.IsNullOrEmpty(detectedRank))
+            {
+                config.BenchmarkRank = detectedRank;
+                DetectedRank = detectedRank;
+            }
+
             await _configService.SaveAsync(config);
 
             State = "role";

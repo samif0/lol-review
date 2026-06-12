@@ -38,11 +38,16 @@ public sealed record OverallStats(
     double BestKda
 );
 
-/// <summary>Focus/mistakes/went-well from the most recently reviewed game.</summary>
+/// <summary>Focus/mistakes/went-well from the most recently reviewed game.
+/// v2.18 (schema v6 build): champion/result/timestamp let the pre-game intent
+/// card show where its carried default came from and how old it is.</summary>
 public sealed record ReviewFocus(
     string FocusNext,
     string Mistakes,
-    string WentWell
+    string WentWell,
+    string ChampionName = "",
+    bool Win = false,
+    long Timestamp = 0
 );
 
 /// <summary>Win/loss breakdown by attribution value.</summary>
@@ -170,6 +175,13 @@ public interface IGameWriter
     /// like "Kai'Sa+Nautilus vs Tristana+Renata".
     /// </summary>
     Task UpdateParticipantMapAsync(long gameId, string participantMapJson);
+
+    /// <summary>
+    /// v2.18 (schema v5): persist laning-at-10 numbers from the Match-V5
+    /// timeline backfill. Diffs are null when the lane opponent couldn't be
+    /// identified.
+    /// </summary>
+    Task UpdateLaningAt10Async(long gameId, double csAt10, int? goldDiffAt10, double? csDiffAt10);
 }
 
 /// <summary>Read model for game history and review queues.</summary>
@@ -178,6 +190,10 @@ public interface IGameHistoryQuery
     /// <summary>v2.15.8: enumerate game_ids that have no enemy_laner set, so a
     /// backfill pass can resolve them via the Riot API. Excludes hidden games.</summary>
     Task<IReadOnlyList<long>> GetGameIdsMissingEnemyLanerAsync();
+
+    /// <summary>v2.18 (schema v5): game_ids with no laning-at-10 numbers yet,
+    /// for the Match-V5 timeline backfill. Excludes hidden + casual games.</summary>
+    Task<IReadOnlyList<long>> GetGameIdsMissingLaningAsync();
 
     /// <summary>Get a single game by game_id, or null if not found.</summary>
     Task<GameStats?> GetAsync(long gameId);

@@ -30,6 +30,11 @@ public sealed partial class StartBlockDialog : ContentDialog, INotifyPropertyCha
     public string PriorityObjectiveCriteria { get; private set; } = "";
     public bool HasPriorityObjective => !string.IsNullOrWhiteSpace(PriorityObjectiveTitle);
 
+    public string LastDebriefMeta { get; private set; } = "";
+    public string LastDebriefNote { get; private set; } = "";
+    public bool HasLastDebrief => !string.IsNullOrWhiteSpace(LastDebriefNote)
+        || !string.IsNullOrWhiteSpace(LastDebriefMeta);
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>The session goal text the user entered. Read after the dialog returns.</summary>
@@ -64,6 +69,38 @@ public sealed partial class StartBlockDialog : ContentDialog, INotifyPropertyCha
         catch
         {
             // non-fatal — dialog still works without a priority objective
+        }
+
+        try
+        {
+            // Feed-forward edge of the loop: surface the most recent End Block
+            // debrief (up to a week back, so weekend gaps don't lose it).
+            for (var daysBack = 1; daysBack <= 7; daysBack++)
+            {
+                var date = DateTime.Now.AddDays(-daysBack);
+                var prior = await _sessionLogRepo.GetSessionAsync(date.ToString("yyyy-MM-dd"));
+                if (prior is null || (prior.DebriefRating <= 0 && string.IsNullOrWhiteSpace(prior.DebriefNote)))
+                {
+                    continue;
+                }
+
+                var dayLabel = daysBack == 1
+                    ? "YESTERDAY"
+                    : date.ToString("MMM dd").ToUpperInvariant();
+                LastDebriefMeta = prior.DebriefRating > 0
+                    ? $"{dayLabel} — STUCK TO IT {prior.DebriefRating}/10"
+                    : dayLabel;
+                LastDebriefNote = prior.DebriefNote?.Trim() ?? "";
+                OnPropertyChanged(nameof(LastDebriefMeta));
+                OnPropertyChanged(nameof(LastDebriefNote));
+                OnPropertyChanged(nameof(HasLastDebrief));
+                Bindings.Update();
+                break;
+            }
+        }
+        catch
+        {
+            // non-fatal — dialog still works without the last debrief card
         }
 
         StartCountdown();

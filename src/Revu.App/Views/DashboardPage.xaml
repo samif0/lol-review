@@ -110,6 +110,7 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0"
                                        Text="INTENT LOCKED //"
@@ -130,6 +131,20 @@
                                     Click="StartBlockButton_Click"
                                     Style="{StaticResource ListActionButtonStyle}"
                                     VerticalAlignment="Center"/>
+                            <Button Grid.Column="3"
+                                    Content="End Block"
+                                    Click="EndBlockButton_Click"
+                                    Style="{StaticResource ListActionButtonStyle}"
+                                    VerticalAlignment="Center"
+                                    Visibility="{x:Bind ViewModel.ShowEndBlockButton, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                            <TextBlock Grid.Column="3"
+                                       Text="{x:Bind ViewModel.BlockClosedText, Mode=OneWay}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       CharacterSpacing="200"
+                                       Foreground="{StaticResource AccentGoldBrush}"
+                                       VerticalAlignment="Center"
+                                       Visibility="{x:Bind ViewModel.HasDebrief, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
                         </Grid>
                     </Border>
 
@@ -238,18 +253,46 @@
                                             Visibility="{x:Bind ViewModel.ShowSessionBanner, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
 
                     <!-- Run reset (voluntary tilt ritual) -->
-                    <Button Command="{x:Bind ViewModel.RunResetCommand}"
-                            HorizontalAlignment="Right"
-                            Background="Transparent"
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                Spacing="10">
+                        <Button Click="EndBlockButton_Click"
+                                Background="Transparent"
+                                BorderBrush="{StaticResource AccentGoldBrush}"
+                                BorderThickness="1"
+                                Padding="14,6"
+                                Visibility="{x:Bind ViewModel.ShowEndBlockStandalone, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <TextBlock FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource AccentGoldBrush}"
+                                       Text="END BLOCK — DEBRIEF"/>
+                        </Button>
+                        <Button Command="{x:Bind ViewModel.RunResetCommand}"
+                                Background="Transparent"
+                                BorderBrush="{StaticResource LossRedBrush}"
+                                BorderThickness="1"
+                                Padding="14,6"
+                                Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <TextBlock FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource LossRedBrush}"
+                                       Text="I'M TILTED — RUN RESET"/>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- v2.18 (schema v5): dominant classified death cause, last 14 days -->
+                    <Border Background="{StaticResource SurfaceInsetBrush}"
                             BorderBrush="{StaticResource LossRedBrush}"
                             BorderThickness="1"
-                            Padding="14,6"
-                            Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                        <TextBlock FontFamily="{StaticResource MonoFont}"
+                            CornerRadius="2"
+                            Padding="14,10"
+                            Visibility="{x:Bind ViewModel.HasDeathMix, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="{x:Bind ViewModel.DeathMixText, Mode=OneWay}"
+                                   FontFamily="{StaticResource MonoFont}"
                                    FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
-                                   Foreground="{StaticResource LossRedBrush}"
-                                   Text="I'M TILTED — RUN RESET"/>
-                    </Button>
+                                   CharacterSpacing="200"
+                                   Foreground="{StaticResource LossRedBrush}"/>
+                    </Border>
 
                     <!-- ••• STAT STRIP ••• -->
                     <controls:StatStrip Visibility="{x:Bind ViewModel.ShowMainDashboardSections, Mode=OneWay, Converter={StaticResource BoolToVis}}">

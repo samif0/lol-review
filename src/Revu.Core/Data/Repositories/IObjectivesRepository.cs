@@ -13,6 +13,18 @@ public sealed record ObjectiveLevelInfo(
     bool CanComplete,
     bool SuggestComplete);
 
+/// <summary>
+/// v2.18 (schema v6 build): the active objective with the lowest executable-
+/// criteria hit rate — the "lowest adherence" seed for the pre-game intent
+/// card. Evaluated counts only games where the criterion actually ran.
+/// </summary>
+public sealed record ObjectiveAdherenceSummary(
+    long ObjectiveId,
+    string Title,
+    string CompletionCriteria,
+    int Hits,
+    int Evaluated);
+
 /// <summary>CRUD + scoring for the objectives and game_objectives tables.</summary>
 public interface IObjectivesRepository
 {
@@ -50,6 +62,34 @@ public interface IObjectivesRepository
     /// objective. '' = auto-infer from title.
     /// </summary>
     Task UpdateFocusPhaseAsync(long objectiveId, string focusPhase);
+
+    /// <summary>
+    /// v2.18 (schema v5): set or clear the structured criterion
+    /// (metric key + comparator + threshold). Empty metric clears it.
+    /// </summary>
+    Task UpdateCriteriaAsync(long objectiveId, string criteriaMetric, string criteriaOp, double criteriaValue);
+
+    /// <summary>
+    /// v2.18 (schema v5): stamp the structured-criterion pass/fail outcome on
+    /// an existing game_objectives row.
+    /// </summary>
+    Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met);
+
+    /// <summary>
+    /// v2.18 (schema v5): (hits, evaluated) criteria outcomes for an objective
+    /// across visible games. Evaluated counts only games where the criterion ran.
+    /// </summary>
+    Task<(int Hits, int Evaluated)> GetCriteriaHitRateAsync(long objectiveId);
+
+    /// <summary>
+    /// v2.18 (schema v6 build): the active objective with the lowest criteria
+    /// hit rate, for the intent card's LOWEST ADHERENCE chip. Data-gated:
+    /// returns null until at least <paramref name="minEvaluatedTotal"/>
+    /// evaluated rows exist across active objectives (digest 2026-06-11-2),
+    /// and an objective needs ≥3 evaluated games to qualify so one bad game
+    /// can't define "lowest".
+    /// </summary>
+    Task<ObjectiveAdherenceSummary?> GetLowestCriteriaAdherenceAsync(int minEvaluatedTotal = 10);
 
     /// <summary>
     /// v2.17.7: archive any active mini objectives whose <c>game_count</c> has

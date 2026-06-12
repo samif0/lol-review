@@ -66,6 +66,26 @@
                        TextWrapping="Wrap"
                        Foreground="{StaticResource SecondaryTextBrush}"/>
 
+            <!-- The note left at the last End Block — the loop's feed-forward
+                 edge. Yesterday-you wrote this for exactly this moment. -->
+            <controls:CornerBracketedCard CardPadding="16"
+                                          CardBorderBrush="{StaticResource AccentTealBrush}"
+                                          Visibility="{x:Bind HasLastDebrief, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="6">
+                    <controls:SectionTitle Text="LAST DEBRIEF"/>
+                    <TextBlock Text="{x:Bind LastDebriefMeta, Mode=OneWay}"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="10"
+                               CharacterSpacing="200"
+                               Foreground="{StaticResource MutedTextBrush}"/>
+                    <TextBlock Text="{x:Bind LastDebriefNote, Mode=OneWay}"
+                               FontFamily="{StaticResource BodyFont}"
+                               FontSize="13"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </controls:CornerBracketedCard>
+
             <!-- Priority objective (only shown when one is set). Lives above
                  the write-it-down card so the user reads it first, then
                  retypes it below. -->

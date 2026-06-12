@@ -100,9 +100,30 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 IsSelected: snapshot.SelectedTagIds.Contains(tag.Id)))
             .ToList();
 
-        var objectiveStates = BuildObjectiveStates(activeObjectives, priorityObjective, savedObjectives, snapshot.ObjectivePractices);
+        var objectiveStates = BuildObjectiveStates(activeObjectives, priorityObjective, savedObjectives, snapshot.ObjectivePractices, game);
         var matchupHistory = await GetMatchupHistoryAsync(game.ChampionName, snapshot.EnemyLaner, gameId, cancellationToken);
         var bookmarkCount = vod is null ? 0 : await _vodRepository.GetBookmarkCountAsync(gameId);
+
+        // v2.18 (schema v5): the intent declared at Start Block on the day this
+        // game was played — what the one-tap adherence question asks against.
+        var sessionIntention = "";
+        try
+        {
+            var gameDate = !string.IsNullOrWhiteSpace(sessionEntry?.Date)
+                ? sessionEntry!.Date
+                : game.Timestamp > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(game.Timestamp).LocalDateTime.ToString("yyyy-MM-dd")
+                    : "";
+            if (!string.IsNullOrEmpty(gameDate))
+            {
+                var session = await _sessionLogRepository.GetSessionAsync(gameDate);
+                sessionIntention = session?.Intention?.Trim() ?? "";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Session intention lookup failed for game {GameId}", gameId);
+        }
 
         return new ReviewScreenData(
             Game: game,
@@ -113,7 +134,9 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             Tags: tagStates,
             ObjectiveAssessments: objectiveStates,
             MatchupHistory: matchupHistory,
-            Snapshot: snapshot);
+            Snapshot: snapshot,
+            SessionIntention: sessionIntention,
+            BenchmarkRank: config.BenchmarkRank ?? "");
     }
 
     public async Task<VodCheckResult> CheckVodAsync(long gameId, CancellationToken cancellationToken = default)
@@ -181,6 +204,9 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 request.Snapshot.MentalRating,
                 request.Snapshot.ImprovementNote.Trim());
             await _sessionLogRepository.UpdateMentalHandledAsync(request.GameId, request.Snapshot.MentalHandled.Trim());
+            // v2.18 (schema v5): persist the one-tap focus-adherence answer.
+            // Runs after LogGameAsync so the session_log row is guaranteed.
+            await _sessionLogRepository.UpdateFocusAdherenceAsync(request.GameId, request.Snapshot.FocusAdherence);
             // Clear any prior skip-marker; if the caller is doing a true
             // skip-save, they re-stamp is_skipped after this returns.
             await _sessionLogRepository.ClearSkippedAsync(request.GameId);
@@ -207,6 +233,15 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                     objective.ObjectiveId,
                     objective.Practiced,
                     objective.ExecutionNote.Trim());
+
+                // v2.18 (schema v5): re-evaluate structured criteria on review
+                // save so post-game-checked objectives get a verdict too.
+                // Only practiced objectives are judged — an unpracticed
+                // criterion outcome would be noise.
+                if (objective.Practiced && existingGame is not null)
+                {
+                    await EvaluateCriteriaAsync(request.GameId, objective.ObjectiveId, existingGame);
+                }
             }
 
             await _conceptTagRepository.SetForGameAsync(request.GameId, request.Snapshot.SelectedTagIds);
@@ -226,6 +261,37 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         {
             _logger.LogError(ex, "Failed to save review for game {GameId}", request.GameId);
             return ReviewSaveResult.Fail("Failed to save review. Check the logs and try again.");
+        }
+    }
+
+    /// <summary>
+    /// v2.18 (schema v5): evaluate an objective's structured criterion against
+    /// the game's stats and stamp game_objectives.criteria_met. Silent no-op
+    /// when the objective has no structured criterion or the stat is missing.
+    /// </summary>
+    private async Task EvaluateCriteriaAsync(long gameId, long objectiveId, GameStats stats)
+    {
+        try
+        {
+            var objective = await _objectivesRepository.GetAsync(objectiveId);
+            if (objective is null || !objective.HasStructuredCriteria)
+            {
+                return;
+            }
+
+            var met = ObjectiveCriteria.Evaluate(
+                objective.CriteriaMetric, objective.CriteriaOp, objective.CriteriaValue, stats);
+            if (met is null)
+            {
+                return;
+            }
+
+            await _objectivesRepository.SetCriteriaMetAsync(gameId, objectiveId, met.Value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Criteria evaluation failed for game {GameId} objective {ObjectiveId}", gameId, objectiveId);
         }
     }
 
@@ -325,14 +391,16 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             EnemyLaner: enemyLaner,
             MatchupNote: savedNoteForGame?.Note ?? "",
             SelectedTagIds: selectedTagIds.ToList(),
-            ObjectivePractices: objectivePractices);
+            ObjectivePractices: objectivePractices,
+            FocusAdherence: sessionEntry?.FocusAdherence);
     }
 
     private static IReadOnlyList<ReviewObjectiveState> BuildObjectiveStates(
         IReadOnlyList<ObjectiveSummary> activeObjectives,
         ObjectiveSummary? priorityObjective,
         IReadOnlyList<GameObjectiveRecord> savedObjectives,
-        IReadOnlyList<SaveObjectivePracticeRequest> selectedPractices)
+        IReadOnlyList<SaveObjectivePracticeRequest> selectedPractices,
+        GameStats game)
     {
         var selectedById = selectedPractices.ToDictionary(static item => item.ObjectiveId);
         var savedById = savedObjectives.ToDictionary(static item => item.ObjectiveId);
@@ -344,6 +412,9 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             savedById.TryGetValue(objective.Id, out var saved);
             selectedById.TryGetValue(objective.Id, out var selected);
 
+            var (verdict, sign) = BuildCriteriaVerdict(
+                objective.CriteriaMetric, objective.CriteriaOp, objective.CriteriaValue, game);
+
             results.Add(new ReviewObjectiveState(
                 ObjectiveId: objective.Id,
                 Title: objective.Title,
@@ -351,7 +422,9 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 Phase: objective.Phase,
                 IsPriority: objective.Id == priorityObjectiveId,
                 Practiced: selected?.Practiced ?? saved?.Practiced ?? false,
-                ExecutionNote: selected?.ExecutionNote ?? saved?.ExecutionNote ?? ""));
+                ExecutionNote: selected?.ExecutionNote ?? saved?.ExecutionNote ?? "",
+                CriteriaVerdict: verdict,
+                CriteriaVerdictSign: sign));
 
             savedById.Remove(objective.Id);
         }
@@ -359,6 +432,10 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         foreach (var leftover in savedById.Values)
         {
             selectedById.TryGetValue(leftover.ObjectiveId, out var selected);
+
+            var (verdict, sign) = BuildCriteriaVerdict(
+                leftover.CriteriaMetric, leftover.CriteriaOp, leftover.CriteriaValue, game);
+
             results.Add(new ReviewObjectiveState(
                 ObjectiveId: leftover.ObjectiveId,
                 Title: leftover.Title,
@@ -366,10 +443,33 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 Phase: leftover.Phase,
                 IsPriority: leftover.ObjectiveId == priorityObjectiveId,
                 Practiced: selected?.Practiced ?? leftover.Practiced,
-                ExecutionNote: selected?.ExecutionNote ?? leftover.ExecutionNote));
+                ExecutionNote: selected?.ExecutionNote ?? leftover.ExecutionNote,
+                CriteriaVerdict: verdict,
+                CriteriaVerdictSign: sign));
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// v2.18 (schema v5): live verdict line for the review screen, e.g.
+    /// "HIT — 7.4 (CS per minute ≥ 7)". Empty when the objective has no
+    /// structured criterion or the stat isn't available for this game.
+    /// Sign: 1 = hit, -1 = miss, 0 = no verdict.
+    /// </summary>
+    private static (string Verdict, int Sign) BuildCriteriaVerdict(
+        string criteriaMetric, string criteriaOp, double criteriaValue, GameStats game)
+    {
+        var met = ObjectiveCriteria.Evaluate(criteriaMetric, criteriaOp, criteriaValue, game);
+        if (met is null)
+        {
+            return ("", 0);
+        }
+
+        var measured = ObjectiveCriteria.Measure(criteriaMetric, game);
+        var measuredText = measured is null ? "?" : ObjectiveCriteria.FormatValue(measured.Value);
+        var line = $"{(met.Value ? "HIT" : "MISS")} — {measuredText} ({ObjectiveCriteria.Describe(criteriaMetric, criteriaOp, criteriaValue)})";
+        return (line, met.Value ? 1 : -1);
     }
 
     private static ReviewSnapshot ApplyDraft(ReviewSnapshot snapshot, ReviewDraft draft)

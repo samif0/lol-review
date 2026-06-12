@@ -45,7 +45,27 @@ public sealed class SessionLogRepository : ISessionLogRepository
             Timestamp = reader.IsDBNull(reader.GetOrdinal("timestamp")) ? 0 : reader.GetInt64(reader.GetOrdinal("timestamp")),
             MentalHandled = GetStringOrDefault(reader, "mental_handled"),
             PreGameMood = GetIntOrDefault(reader, "pre_game_mood"),
+            FocusAdherence = GetNullableIntOrDefault(reader, "focus_adherence"),
+            // v2.18 (schema v6): intent carry-over. Dropped by the C# rewrite
+            // (write-path audit, brief 2026-06-11-03) — mapped again here.
+            PregameIntention = GetStringOrDefaultSafe(reader, "pregame_intention"),
+            IntentionSource = GetStringOrDefaultSafe(reader, "intention_source"),
         };
+    }
+
+    // v2.18 (schema v5): focus_adherence is added by migration; tolerate its
+    // absence and preserve NULL = unanswered.
+    private static int? GetNullableIntOrDefault(SqliteDataReader r, string col)
+    {
+        try
+        {
+            var ord = r.GetOrdinal(col);
+            return r.IsDBNull(ord) ? null : r.GetInt32(ord);
+        }
+        catch (IndexOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     private static SessionInfo MapSessionInfo(SqliteDataReader reader)
@@ -80,6 +100,21 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return r.IsDBNull(ord) ? "" : r.GetString(ord);
     }
 
+    // Migration-added TEXT columns: tolerate absence (same contract as
+    // GetNullableIntOrDefault above) so reads against a pre-migration DB
+    // can't throw.
+    private static string GetStringOrDefaultSafe(SqliteDataReader r, string col)
+    {
+        try
+        {
+            return GetStringOrDefault(r, col);
+        }
+        catch (IndexOutOfRangeException)
+        {
+            return "";
+        }
+    }
+
     private static async Task<List<SessionLogEntry>> ReadAllEntriesAsync(SqliteCommand cmd)
     {
         var list = new List<SessionLogEntry>();
@@ -100,7 +135,9 @@ public sealed class SessionLogRepository : ISessionLogRepository
         int mentalRating = 5,
         string improvementNote = "",
         int preGameMood = 0,
-        bool ruleBroken = false)
+        bool ruleBroken = false,
+        string pregameIntention = "",
+        string intentionSource = "")
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -122,7 +159,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
 
             if (existing is not null)
             {
-                // Update existing entry
+                // Update existing entry. Pre-game stamps (mood, intention,
+                // source) are write-once-unless-replaced: the review-save
+                // re-log calls this with defaults, and a default must never
+                // erase what end-of-game wrote.
                 using var updateCmd = conn.CreateCommand();
                 updateCmd.CommandText = @"
                     UPDATE session_log
@@ -132,7 +172,9 @@ public sealed class SessionLogRepository : ISessionLogRepository
                         mental_rating = @mental,
                         improvement_note = @note,
                         timestamp = @timestamp,
-                        pre_game_mood = @pre_game_mood
+                        pre_game_mood = CASE WHEN @pre_game_mood > 0 THEN @pre_game_mood ELSE pre_game_mood END,
+                        pregame_intention = CASE WHEN @pregame_intention != '' THEN @pregame_intention ELSE pregame_intention END,
+                        intention_source = CASE WHEN @intention_source != '' THEN @intention_source ELSE intention_source END
                     WHERE game_id = @gameId";
                 updateCmd.Parameters.AddWithValue("@date", sessionDate);
                 updateCmd.Parameters.AddWithValue("@champion_name", championName);
@@ -141,6 +183,8 @@ public sealed class SessionLogRepository : ISessionLogRepository
                 updateCmd.Parameters.AddWithValue("@note", improvementNote);
                 updateCmd.Parameters.AddWithValue("@timestamp", sessionTimestamp);
                 updateCmd.Parameters.AddWithValue("@pre_game_mood", preGameMood);
+                updateCmd.Parameters.AddWithValue("@pregame_intention", pregameIntention);
+                updateCmd.Parameters.AddWithValue("@intention_source", intentionSource);
                 updateCmd.Parameters.AddWithValue("@gameId", gameId);
                 await updateCmd.ExecuteNonQueryAsync();
                 return;
@@ -151,9 +195,9 @@ public sealed class SessionLogRepository : ISessionLogRepository
         insertCmd.CommandText = @"
             INSERT INTO session_log
             (date, game_id, champion_name, win, mental_rating, improvement_note,
-            rule_broken, timestamp, pre_game_mood)
+            rule_broken, timestamp, pre_game_mood, pregame_intention, intention_source)
             VALUES (@date, @game_id, @champion_name, @win, @mental_rating, @improvement_note,
-                    @rule_broken, @timestamp, @pre_game_mood)";
+                    @rule_broken, @timestamp, @pre_game_mood, @pregame_intention, @intention_source)";
 
         insertCmd.Parameters.AddWithValue("@date", sessionDate);
         insertCmd.Parameters.AddWithValue("@game_id", gameId);
@@ -164,6 +208,8 @@ public sealed class SessionLogRepository : ISessionLogRepository
         insertCmd.Parameters.AddWithValue("@rule_broken", ruleBroken ? 1 : 0);
         insertCmd.Parameters.AddWithValue("@timestamp", sessionTimestamp);
         insertCmd.Parameters.AddWithValue("@pre_game_mood", preGameMood);
+        insertCmd.Parameters.AddWithValue("@pregame_intention", pregameIntention);
+        insertCmd.Parameters.AddWithValue("@intention_source", intentionSource);
 
         await insertCmd.ExecuteNonQueryAsync();
     }
@@ -323,6 +369,24 @@ public sealed class SessionLogRepository : ISessionLogRepository
         cmd.Parameters.AddWithValue("@intention", intention);
         cmd.Parameters.AddWithValue("@started_at", now);
 
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// v2.18 (schema v5): stamp the one-tap focus-adherence answer on a game's
+    /// session_log row. Pass null to clear back to unanswered. No-op when the
+    /// game has no session_log row yet (the review save path re-stamps after
+    /// LogGameAsync creates it).
+    /// </summary>
+    public async Task UpdateFocusAdherenceAsync(long gameId, int? adherence)
+    {
+        using var conn = _factory.CreateConnection();
+        await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE session_log SET focus_adherence = @adherence WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@adherence", adherence.HasValue ? Math.Clamp(adherence.Value, 0, 2) : DBNull.Value);
+        cmd.Parameters.AddWithValue("@gameId", gameId);
         await cmd.ExecuteNonQueryAsync();
     }
 

@@ -134,6 +134,45 @@
                 </ComboBox>
             </StackPanel>
 
+            <!-- v2.18 (schema v5): measured success criterion. When a metric is
+                 picked, every game that practices this objective gets an
+                 automatic pass/fail against the threshold from its post-game
+                 stats — the card then shows a real hit rate instead of a
+                 decorative sentence. -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Measured criterion" FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                <TextBlock Text="Pick a stat and a threshold and Revu checks it automatically after every practiced game. Leave on 'Free text only' to keep the criterion as words."
+                           FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
+                           Foreground="{StaticResource MutedTextBrush}"
+                           TextWrapping="Wrap"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox ItemsSource="{Binding CriteriaMetricOptions, Mode=OneWay}"
+                              SelectedIndex="{Binding NewCriteriaMetricIndex, Mode=TwoWay}"
+                              Background="{StaticResource InputBackgroundBrush}"
+                              Foreground="{StaticResource PrimaryTextBrush}"
+                              BorderBrush="{StaticResource SubtleBorderBrush}"
+                              CornerRadius="2" MinWidth="200"/>
+                    <ComboBox SelectedIndex="{Binding NewCriteriaOpIndex, Mode=TwoWay}"
+                              Background="{StaticResource InputBackgroundBrush}"
+                              Foreground="{StaticResource PrimaryTextBrush}"
+                              BorderBrush="{StaticResource SubtleBorderBrush}"
+                              CornerRadius="2" MinWidth="110"
+                              Visibility="{Binding ShowCriteriaBuilderValue, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <ComboBoxItem Content="At least"/>
+                        <ComboBoxItem Content="At most"/>
+                    </ComboBox>
+                    <TextBox Text="{Binding NewCriteriaValueText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="7"
+                             MinWidth="80"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             Foreground="{StaticResource PrimaryTextBrush}"
+                             BorderBrush="{StaticResource SubtleBorderBrush}"
+                             CornerRadius="2"
+                             Visibility="{Binding ShowCriteriaBuilderValue, Mode=OneWay, Converter={StaticResource BoolToVis}}"/>
+                </StackPanel>
+            </StackPanel>
+
             <!-- Completion Criteria -->
             <StackPanel Spacing="4">
                 <TextBlock Text="Completion Criteria" FontSize="{Binding Body, Source={StaticResource FontSizes}}"

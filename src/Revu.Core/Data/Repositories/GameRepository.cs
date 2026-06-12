@@ -98,6 +98,11 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             EnemyLaner = GetStringOrDefault(reader, "enemy_laner"),
             ParticipantMap = GetStringOrDefault(reader, "participant_map"),
 
+            // v2.18 (schema v5): laning-at-10, NULL until timeline backfill.
+            CsAt10 = GetNullableDouble(reader, "cs_at_10"),
+            GoldDiffAt10 = GetNullableInt(reader, "gold_diff_at_10"),
+            CsDiffAt10 = GetNullableDouble(reader, "cs_diff_at_10"),
+
             // Review fields
             ReviewNotes = GetStringOrDefault(reader, "review_notes"),
             Rating = GetIntOrDefault(reader, "rating"),
@@ -153,6 +158,28 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             return r.IsDBNull(ord) ? 0L : r.GetInt64(ord);
         }
         catch { return 0L; }
+    }
+
+    // v2.18 (schema v5): nullable reads where NULL means "not backfilled yet",
+    // which must stay distinguishable from zero.
+    private static double? GetNullableDouble(SqliteDataReader r, string col)
+    {
+        try
+        {
+            var ord = r.GetOrdinal(col);
+            return r.IsDBNull(ord) ? null : r.GetDouble(ord);
+        }
+        catch { return null; }
+    }
+
+    private static int? GetNullableInt(SqliteDataReader r, string col)
+    {
+        try
+        {
+            var ord = r.GetOrdinal(col);
+            return r.IsDBNull(ord) ? null : (int)r.GetInt64(ord);
+        }
+        catch { return null; }
     }
 
     private static double GetDoubleOrDefault(SqliteDataReader r, string col)
@@ -255,7 +282,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
                 spell1_casts, spell2_casts, spell3_casts, spell4_casts,
                 summoner1_id, summoner2_id, items,
                 champ_level, team_kills, kill_participation,
-                raw_stats, enemy_laner
+                raw_stats, enemy_laner, participant_map
             ) VALUES (
                 @game_id, @timestamp, @date_played, @game_duration, @game_mode,
                 @game_type, @queue_type, @summoner_name, @champion_name, @champion_id,
@@ -278,7 +305,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
                 @spell1_casts, @spell2_casts, @spell3_casts, @spell4_casts,
                 @summoner1_id, @summoner2_id, @items,
                 @champ_level, @team_kills, @kill_participation,
-                @raw_stats, @enemy_laner
+                @raw_stats, @enemy_laner, @participant_map
             )";
 
         cmd.Parameters.AddWithValue("@game_id", stats.GameId);
@@ -346,6 +373,10 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         cmd.Parameters.AddWithValue("@kill_participation", stats.KillParticipation);
         cmd.Parameters.AddWithValue("@raw_stats", JsonSerializer.Serialize(stats.RawStats));
         cmd.Parameters.AddWithValue("@enemy_laner", stats.EnemyLaner);
+        // StatsExtractor stamps the role->champion map at EOG precisely so the
+        // 2v2 pairing can render before any backfill; dropping it here was why
+        // the pairing only appeared after EnemyLanerBackfillService re-ran.
+        cmd.Parameters.AddWithValue("@participant_map", stats.ParticipantMap);
 
         await cmd.ExecuteNonQueryAsync();
 
