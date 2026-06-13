@@ -22,8 +22,11 @@ public sealed class RulesRepositoryEvidenceTests
         // Consecutive losses BEFORE each game: 0, 0, 1, 2, 3
         //   → loss_streak(2) triggers on #4 and #5 (1W–1L).
         // Same-day index BEFORE each game: 0..4 → max_games(3) triggers on #4, #5.
-        // Previous game's mental BEFORE each: -, -, 3, 6, 2
-        //   → min_mental(5) triggers on #3 and #5 (1W–1L).
+        // min_mental (P-015 semantics): the trip is a game played within the 2h
+        // cool-off after a TILTED game (mental ≤ 3). Previous game's mental
+        // BEFORE each: -, 3, 6, 2 (hidden game has none). Tilted-prior + <2h gap:
+        //   #3 (prev #2 = 3, 40m) and #5 (prev #4 = 2, 40m) → triggers (1W–1L).
+        //   #4's prior (#3 = 6) is not tilted, so #4 does not trip on min_mental.
         // A hidden loss between #2 and #3 must not shift any of those counts.
         // Day 2: one loss — day boundary resets every counter, so no triggers.
         var day1 = new DateTimeOffset(DateTime.Today.AddDays(-2).AddHours(10));
@@ -62,6 +65,95 @@ public sealed class RulesRepositoryEvidenceTests
         Assert.Equal(1, minMental.TriggerWins);
 
         Assert.False(evidence.ContainsKey(customId)); // no automated record for custom rules
+    }
+
+    [Fact]
+    public async Task GetBehavioralAdherenceStreak_MinMental_SubThresholdButNotTilted_DoesNotTrip()
+    {
+        // P-015 regression — the reported day, verbatim:
+        //   16:11 Loss (mental 6) → 16:42 Win (m7) → 17:18 Win (m9)
+        //   → [3h41m break] → 20:59 Win (m10)
+        // The old reconstruction tripped min_mental at 16:42 (prior game m6 was
+        // below the configured threshold of 7), zeroing a 51-day streak. Under
+        // the simplified rule, m6 is NOT tilted (floor = 3), so nothing arms the
+        // cool-off and today stays a clean streak day.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var rules = new RulesRepository(scope.ConnectionFactory);
+
+        var dayMinus1 = new DateTimeOffset(DateTime.Today.AddDays(-1).AddHours(10));
+        var today = new DateTimeOffset(DateTime.Today.AddHours(16).AddMinutes(11));
+        using (var conn = scope.OpenConnection())
+        {
+            await InsertRuleAsync(conn, "Min mental 7", "min_mental", "7",
+                createdAt: dayMinus1.AddDays(-10).ToUnixTimeSeconds());
+
+            // A prior clean day so the streak has something to count back to.
+            await InsertGameAsync(conn, 9501, win: true, dayMinus1, hidden: false, mental: 8);
+
+            // Today: the exact reported sequence.
+            await InsertGameAsync(conn, 9502, win: false, today, hidden: false, mental: 6);
+            await InsertGameAsync(conn, 9503, win: true, today.AddMinutes(31), hidden: false, mental: 7);
+            await InsertGameAsync(conn, 9504, win: true, today.AddMinutes(67), hidden: false, mental: 9);
+            await InsertGameAsync(conn, 9505, win: true, today.AddHours(3).AddMinutes(41 + 67), hidden: false, mental: 10);
+        }
+
+        // Today + yesterday are both clean → streak of 2, NOT 0.
+        Assert.Equal(2, await rules.GetBehavioralAdherenceStreakAsync("2000-01-01"));
+    }
+
+    [Fact]
+    public async Task GetBehavioralAdherenceStreak_MinMental_TiltedThenCoolOff_DoesNotTrip()
+    {
+        // The prescribed remedy works: a tilted game (≤3) followed by a 2h+
+        // break is NOT a trip — the break is exactly what the rule asks for.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var rules = new RulesRepository(scope.ConnectionFactory);
+
+        var today = new DateTimeOffset(DateTime.Today.AddHours(12));
+        using (var conn = scope.OpenConnection())
+        {
+            await InsertRuleAsync(conn, "Min mental 7", "min_mental", "7",
+                createdAt: today.AddDays(-10).ToUnixTimeSeconds());
+
+            await InsertGameAsync(conn, 9601, win: false, today, hidden: false, mental: 2);
+            // Next game is 2h1m later — outside the cool-off window.
+            await InsertGameAsync(conn, 9602, win: true, today.AddHours(2).AddMinutes(1), hidden: false, mental: 8);
+        }
+
+        Assert.Equal(1, await rules.GetBehavioralAdherenceStreakAsync("2000-01-01"));
+    }
+
+    [Fact]
+    public async Task GetBehavioralAdherenceStreak_MinMental_TiltedThenRequeue_Trips()
+    {
+        // The behavior the rule exists to catch: a tilted game (≤3) and the
+        // player requeues inside the 2h cool-off instead of resting → trip.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var rules = new RulesRepository(scope.ConnectionFactory);
+
+        var dayMinus1 = new DateTimeOffset(DateTime.Today.AddDays(-1).AddHours(12));
+        using (var conn = scope.OpenConnection())
+        {
+            await InsertRuleAsync(conn, "Min mental 7", "min_mental", "7",
+                createdAt: dayMinus1.AddDays(-10).ToUnixTimeSeconds());
+
+            // Day -1: tilted game, then requeue 30m later (inside cool-off) → trip.
+            await InsertGameAsync(conn, 9701, win: false, dayMinus1, hidden: false, mental: 3);
+            await InsertGameAsync(conn, 9702, win: false, dayMinus1.AddMinutes(30), hidden: false, mental: 4);
+            // Today: clean single game.
+            await InsertGameAsync(conn, 9703, win: true, dayMinus1.AddDays(1), hidden: false, mental: 8);
+        }
+
+        // Today is clean (streak 1); day -1 tripped, so the walk stops there.
+        Assert.Equal(1, await rules.GetBehavioralAdherenceStreakAsync("2000-01-01"));
+
+        // And the per-rule record counts that trip.
+        var evidence = await rules.GetRuleEvidenceAsync(await rules.GetAllAsync());
+        var record = Assert.Single(evidence.Values);
+        Assert.Equal(1, record.TriggerGames);
     }
 
     [Fact]

@@ -53,13 +53,22 @@
                             HorizontalAlignment="Right"
                             Margin="16,14,0,0"
                             Spacing="4">
-                    <Button Content="Export"
-                            Command="{x:Bind ViewModel.ExportReviewCommand}"
-                            IsEnabled="{x:Bind Not(ViewModel.IsExportingReview), Mode=OneWay}"
-                            Style="{StaticResource SecondaryActionButtonStyle}"
-                            Height="32"
-                            Padding="14,0"
-                            ToolTipService.ToolTip="Export this game's review"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                        <Button Content="Copy"
+                                Command="{x:Bind ViewModel.CopyReviewCommand}"
+                                IsEnabled="{x:Bind Not(ViewModel.IsExportingReview), Mode=OneWay}"
+                                Style="{StaticResource SecondaryActionButtonStyle}"
+                                Height="32"
+                                Padding="14,0"
+                                ToolTipService.ToolTip="Copy this game's review as markdown to the clipboard"/>
+                        <Button Content="Export"
+                                Command="{x:Bind ViewModel.ExportReviewCommand}"
+                                IsEnabled="{x:Bind Not(ViewModel.IsExportingReview), Mode=OneWay}"
+                                Style="{StaticResource SecondaryActionButtonStyle}"
+                                Height="32"
+                                Padding="14,0"
+                                ToolTipService.ToolTip="Export this game's review to a markdown file"/>
+                    </StackPanel>
                     <TextBlock Text="{x:Bind ViewModel.ExportStatusText, Mode=OneWay}"
                                FontFamily="{StaticResource MonoFont}"
                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}"

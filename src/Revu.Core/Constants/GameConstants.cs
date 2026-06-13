@@ -132,6 +132,22 @@ public static class GameConstants
     /// <summary>Mental >= 5 is blue/decent (below = red).</summary>
     public const int MentalDecentThreshold = 5;
 
+    /// <summary>
+    /// Mental at or below this is "tilted" (matches the app's 1–3 TILTED
+    /// analytics bucket). A game rated this low requires a cool-off break
+    /// before queueing again — see <see cref="TiltCooloffSeconds"/>.
+    /// </summary>
+    public const int MentalTiltedFloor = 3;
+
+    /// <summary>
+    /// Required cool-off (seconds) after a tilted game (mental ≤
+    /// <see cref="MentalTiltedFloor"/>) before the next game. The min_mental
+    /// rule's behavioral streak reads this: rate a game tilted, then requeue
+    /// inside this window, and that next game is the trip. 2h is the
+    /// user-specified break (P-015).
+    /// </summary>
+    public const int TiltCooloffSeconds = 2 * 60 * 60;
+
     /// <summary>Consecutive losses before warning flash.</summary>
     public const int ConsecutiveLossWarning = 2;
 

@@ -2,6 +2,7 @@
 
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Data.Repositories;
 
@@ -472,8 +473,23 @@ public sealed class RulesRepository : IRulesRepository
 
     /// <summary>
     /// Games played while <paramref name="rule"/>'s condition already held —
-    /// the historical mirror of <see cref="CheckViolationsAsync"/> semantics
-    /// (cooldowns ignored: the record asks "queued in the condition at all?").
+    /// the historical reconstruction of the live <see cref="CheckViolationsAsync"/>
+    /// check (cooldowns ignored for loss_streak: the record asks "queued in the
+    /// condition at all?"). Faithful for conditions whose live inputs replay
+    /// from game history (loss_streak, max_games, no_play_after, no_play_day).
+    ///
+    /// min_mental is intentionally NOT a mirror of the live check. The live
+    /// check warns pre-game on the current mental ("don't queue below N"), which
+    /// fires for most games (the player's average sits near the threshold) and —
+    /// when reconstructed from the PRIOR game's post-game rating — punished
+    /// ordinary one-off bad games and even games played after a long break
+    /// (P-015). The user's rule, simplified: a genuinely tilted game (mental ≤
+    /// <see cref="GameConstants.MentalTiltedFloor"/>) requires a
+    /// <see cref="GameConstants.TiltCooloffSeconds"/> cool-off; requeueing
+    /// inside that window is the trip. The rule's configured threshold no longer
+    /// drives the streak — the hard tilt floor does — so the streak only breaks
+    /// on real "kept playing while tilted" behavior, not on every sub-threshold
+    /// rating.
     /// </summary>
     private static List<EvidenceGame> FindTriggerGames(RuleRecord rule, List<EvidenceGame> games)
     {
@@ -481,6 +497,7 @@ public sealed class RulesRepository : IRulesRepository
         var currentDate = "";
         var consecutiveLosses = 0;
         var gamesToday = 0;
+        long previousTs = 0;
         int? previousMental = null;
 
         foreach (var game in games)
@@ -490,7 +507,6 @@ public sealed class RulesRepository : IRulesRepository
                 currentDate = game.Date;
                 consecutiveLosses = 0;
                 gamesToday = 0;
-                previousMental = null;
             }
 
             var triggered = rule.RuleType switch
@@ -499,8 +515,13 @@ public sealed class RulesRepository : IRulesRepository
                     && t > 0 && consecutiveLosses >= t,
                 "max_games" => int.TryParse(rule.ConditionValue, out var maxGames)
                     && maxGames > 0 && gamesToday >= maxGames,
-                "min_mental" => int.TryParse(rule.ConditionValue, out var minMental)
-                    && previousMental is int m && m > 0 && m < minMental,
+                // Trip = previous game was tilted (≤ floor) AND this game was
+                // played inside the required cool-off window. A break clears it;
+                // a non-tilted prior game never arms it.
+                "min_mental" => previousMental is int pm
+                    && pm > 0 && pm <= GameConstants.MentalTiltedFloor
+                    && previousTs > 0
+                    && game.Ts - previousTs < GameConstants.TiltCooloffSeconds,
                 "no_play_after" => int.TryParse(rule.ConditionValue, out var hour)
                     && game.Hour >= hour,
                 "no_play_day" => rule.ConditionValue
@@ -512,7 +533,8 @@ public sealed class RulesRepository : IRulesRepository
 
             consecutiveLosses = game.Win ? 0 : consecutiveLosses + 1;
             gamesToday++;
-            if (game.Mental is int mental && mental > 0) previousMental = mental;
+            previousMental = game.Mental;
+            previousTs = game.Ts;
         }
 
         return triggers;

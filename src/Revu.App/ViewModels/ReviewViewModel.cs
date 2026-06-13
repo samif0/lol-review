@@ -691,33 +691,22 @@ public partial class ReviewViewModel : ObservableObject,
                     Status: polarity == EvidencePolarities.Neutral ? EvidenceStatuses.NeedsReview : EvidenceStatuses.Evidence));
             }
 
-            var rows = PrioritizeEvidenceRows(await _evidenceRepository.GetForGameAsync(gameId));
+            // The prioritized/capped set feeds the per-objective attachment and
+            // the main "ATTACHED EVIDENCE" list. The full set (minus dismissed)
+            // feeds the "EVIDENCE TO SORT" inbox so it surfaces every unassigned
+            // moment — the export lists them all, and the two must agree (P-013).
+            var allRows = await _evidenceRepository.GetForGameAsync(gameId);
+            var prioritized = PrioritizeEvidenceRows(allRows);
             DispatcherHelper.RunOnUIThread(() =>
             {
                 EvidenceItems.Clear();
-                foreach (var row in rows)
+                foreach (var row in prioritized)
                 {
-                    EvidenceItems.Add(new EvidenceInboxItem
-                    {
-                        Id = row.Id,
-                        GameId = row.GameId,
-                        SourceKind = row.SourceKind,
-                        SourceId = row.SourceId,
-                        SourceKey = row.SourceKey,
-                        StartTimeSeconds = row.StartTimeSeconds,
-                        EndTimeSeconds = row.EndTimeSeconds,
-                        Title = row.Title,
-                        Note = row.Note,
-                        ObjectiveId = row.ObjectiveId,
-                        Polarity = row.Polarity,
-                        Status = row.Status,
-                        ObjectiveOptions = EvidenceObjectiveOptions,
-                        TagOptions = EvidenceTagOptions,
-                    });
+                    EvidenceItems.Add(ToInboxItem(row));
                 }
 
                 HasEvidenceItems = EvidenceItems.Count > 0;
-                AttachEvidenceToObjectives();
+                AttachEvidenceToObjectives(allRows);
             });
         }
         catch (Exception ex)
@@ -744,16 +733,40 @@ public partial class ReviewViewModel : ObservableObject,
             .ToArray();
     }
 
-    private void AttachEvidenceToObjectives()
+    private EvidenceInboxItem ToInboxItem(EvidenceItemRecord row) => new()
     {
-        var byObjective = EvidenceItems
-            .Where(static item => item.ObjectiveId.HasValue)
-            .GroupBy(static item => item.ObjectiveId!.Value)
+        Id = row.Id,
+        GameId = row.GameId,
+        SourceKind = row.SourceKind,
+        SourceId = row.SourceId,
+        SourceKey = row.SourceKey,
+        StartTimeSeconds = row.StartTimeSeconds,
+        EndTimeSeconds = row.EndTimeSeconds,
+        Title = row.Title,
+        Note = row.Note,
+        ObjectiveId = row.ObjectiveId,
+        Polarity = row.Polarity,
+        Status = row.Status,
+        ObjectiveOptions = EvidenceObjectiveOptions,
+        TagOptions = EvidenceTagOptions,
+    };
+
+    private void AttachEvidenceToObjectives(IReadOnlyList<EvidenceItemRecord> allRows)
+    {
+        // Derive both views from the same fresh row set so the per-objective
+        // attachment and the sorting inbox can't drift (P-013). Assigned,
+        // non-dismissed moments group under their objective regardless of the
+        // inbox cap — an attached moment is always worth showing.
+        var byObjective = allRows
+            .Where(static row => row.ObjectiveId.HasValue
+                && row.Status != EvidenceStatuses.Dismissed)
+            .GroupBy(static row => row.ObjectiveId!.Value)
             .ToDictionary(
                 static group => group.Key,
-                static group => group
-                    .OrderBy(static item => item.StartTimeSeconds ?? int.MaxValue)
-                    .ThenBy(static item => item.Id)
+                group => group
+                    .OrderBy(static row => row.StartTimeSeconds ?? int.MaxValue)
+                    .ThenBy(static row => row.Id)
+                    .Select(ToInboxItem)
                     .ToArray());
 
         foreach (var assessment in ObjectiveAssessments)
@@ -764,13 +777,16 @@ public partial class ReviewViewModel : ObservableObject,
                     : []);
         }
 
+        // Sorting inbox = ALL unassigned, non-dismissed moments (not the capped
+        // prioritized set), so nothing the export shows is hidden here (P-013).
         UnassignedEvidenceItems.Clear();
-        foreach (var item in EvidenceItems
-                     .Where(static item => !item.ObjectiveId.HasValue)
-                     .OrderBy(static item => item.StartTimeSeconds ?? int.MaxValue)
-                     .ThenBy(static item => item.Id))
+        foreach (var row in allRows
+                     .Where(static row => !row.ObjectiveId.HasValue
+                         && row.Status != EvidenceStatuses.Dismissed)
+                     .OrderBy(static row => row.StartTimeSeconds ?? int.MaxValue)
+                     .ThenBy(static row => row.Id))
         {
-            UnassignedEvidenceItems.Add(item);
+            UnassignedEvidenceItems.Add(ToInboxItem(row));
         }
 
         OnPropertyChanged(nameof(HasUnassignedEvidenceItems));
@@ -1068,7 +1084,7 @@ public partial class ReviewViewModel : ObservableObject,
             {
                 EvidenceItems.Remove(evidence);
                 HasEvidenceItems = EvidenceItems.Count > 0;
-                AttachEvidenceToObjectives();
+                AttachEvidenceToObjectives(await _evidenceRepository.GetForGameAsync(GameId));
             }
             else
             {
@@ -1130,7 +1146,7 @@ public partial class ReviewViewModel : ObservableObject,
                 await SyncPracticedFlagsAsync(GameId);
             }
 
-            AttachEvidenceToObjectives();
+            AttachEvidenceToObjectives(await _evidenceRepository.GetForGameAsync(GameId));
         }
         catch (Exception ex)
         {
@@ -1177,6 +1193,44 @@ public partial class ReviewViewModel : ObservableObject,
         {
             _logger.LogError(ex, "Failed to export review for game {GameId}", GameId);
             ExportStatusText = "Export failed. Check the logs and try again.";
+        }
+        finally
+        {
+            IsExportingReview = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task CopyReviewAsync()
+    {
+        if (IsExportingReview || GameId <= 0)
+        {
+            return;
+        }
+
+        IsExportingReview = true;
+        ExportStatusText = "Building export...";
+
+        try
+        {
+            var markdown = await _reviewExportService.ExportGameAsync(GameId);
+            if (string.IsNullOrWhiteSpace(markdown))
+            {
+                ExportStatusText = "Could not find this game.";
+                return;
+            }
+
+            // Command handlers run on the UI thread, where clipboard access is
+            // required. Same pattern as VodPlayerViewModel.CopyToClipboard.
+            var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            pkg.SetText(markdown);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+            ExportStatusText = "Copied to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to copy review for game {GameId}", GameId);
+            ExportStatusText = "Copy failed. Check the logs and try again.";
         }
         finally
         {
