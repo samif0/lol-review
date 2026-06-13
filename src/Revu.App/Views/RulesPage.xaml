@@ -228,14 +228,17 @@
                                                        FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                        Foreground="{StaticResource MutedTextBrush}"/>
                                         </StackPanel>
+                                        <!-- P-010 sibling fix: ElementName bindings don't resolve
+                                             inside ItemsRepeater templates — this button's command
+                                             was silently dead. Code-behind Click instead. -->
                                         <Button Grid.Column="1"
                                                 Content="+ Add"
                                                 Style="{StaticResource ListActionButtonStyle}"
                                                 FontSize="{Binding Body, Source={StaticResource FontSizes}}" Height="30"
                                                 Padding="14,0" CornerRadius="2"
                                                 VerticalAlignment="Center"
-                                                Command="{Binding ElementName=RulesPageRoot, Path=ViewModel.AddSuggestedRuleCommand}"
-                                                CommandParameter="{x:Bind}"/>
+                                                DataContext="{x:Bind}"
+                                                Click="AddSuggestedRule_Click"/>
                                     </Grid>
                                 </Border>
                             </DataTemplate>

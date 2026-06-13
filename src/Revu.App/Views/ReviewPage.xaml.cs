@@ -123,6 +123,14 @@ public sealed partial class ReviewPage : Page, INotifyPropertyChanged
         }
     }
 
+    private async void OnOpenDeathClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: DeathAuditItem death })
+        {
+            await ViewModel.OpenDeathInVodCommand.ExecuteAsync(death);
+        }
+    }
+
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

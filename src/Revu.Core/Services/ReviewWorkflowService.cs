@@ -158,8 +158,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             ObjectiveAssessments: objectiveStates,
             MatchupHistory: matchupHistory,
             Snapshot: snapshot,
-            SessionIntention: sessionIntention,
-            BenchmarkRank: config.BenchmarkRank ?? "");
+            SessionIntention: sessionIntention);
     }
 
     public async Task<VodCheckResult> CheckVodAsync(long gameId, CancellationToken cancellationToken = default)

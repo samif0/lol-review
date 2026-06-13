@@ -57,14 +57,9 @@ public class AppConfig
     /// <summary>True if the user dismissed the onboarding flow (LCU-only mode).</summary>
     public bool OnboardingSkipped { get; set; }
 
-    /// <summary>
-    /// v2.18: the rank used for benchmark comparisons (IRON..MASTER+ from
-    /// <see cref="Revu.Core.Services.RankBenchmarks.Ranks"/>). Empty = GOLD,
-    /// the ladder median. Set in Settings; intentionally manual — the app
-    /// doesn't track ranked LP, and self-declared rank is good enough for
-    /// "is this number bad?" context.
-    /// </summary>
-    public string BenchmarkRank { get; set; } = "";
+    // (v2.18 BenchmarkRank removed per P-005 — the rank-benchmark feature was
+    // rejected by the user. A stale benchmark_rank key in config.json is
+    // ignored harmlessly by the deserializer.)
 
     /// <summary>
     /// True if the user dismissed the Dashboard reminder to point at an

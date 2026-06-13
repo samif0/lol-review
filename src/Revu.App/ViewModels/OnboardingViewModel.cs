@@ -109,7 +109,7 @@ public partial class OnboardingViewModel : ObservableObject
     public bool HasDetectedRank => !string.IsNullOrEmpty(DetectedRank);
 
     public string DetectedRankLine => HasDetectedRank
-        ? $"RANK DETECTED: {DetectedRank} — BENCHMARKS CALIBRATED"
+        ? $"RANK DETECTED: {DetectedRank}"
         : "";
 
     /// <summary>Fires when the flow completes (with or without auth).</summary>
@@ -299,13 +299,12 @@ public partial class OnboardingViewModel : ObservableObject
             config.RiotPuuid = account.Puuid;
             config.OnboardingSkipped = false;
 
-            // v2.18: auto-detect the ranked solo/duo tier from League-V4 and
-            // anchor the benchmark context to it. Best-effort — unranked
-            // accounts fall back to the GOLD default (changeable in Settings).
+            // Detect the ranked solo/duo tier from League-V4 as a link
+            // confirmation. Display-only — the rank-benchmark feature it once
+            // calibrated was removed per P-005.
             var detectedRank = await _authClient.GetSoloRankAsync(session, account.Puuid, region);
             if (!string.IsNullOrEmpty(detectedRank))
             {
-                config.BenchmarkRank = detectedRank;
                 DetectedRank = detectedRank;
             }
 

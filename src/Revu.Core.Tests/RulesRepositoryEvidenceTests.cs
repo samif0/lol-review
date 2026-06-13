@@ -72,7 +72,7 @@ public sealed class RulesRepositoryEvidenceTests
         var rules = new RulesRepository(scope.ConnectionFactory);
 
         // No rules yet → no streak to speak of.
-        Assert.Equal(0, await rules.GetBehavioralAdherenceStreakAsync());
+        Assert.Equal(0, await rules.GetBehavioralAdherenceStreakAsync("2000-01-01"));
 
         var dayMinus2 = new DateTimeOffset(DateTime.Today.AddDays(-2).AddHours(10));
         using (var conn = scope.OpenConnection())
@@ -91,7 +91,8 @@ public sealed class RulesRepositoryEvidenceTests
             await InsertGameAsync(conn, 9106, win: false, dayMinus2.AddDays(2), hidden: false);
         }
 
-        Assert.Equal(2, await rules.GetBehavioralAdherenceStreakAsync());
+        // Epoch pinned to the past so every day gets behavioral judgment.
+        Assert.Equal(2, await rules.GetBehavioralAdherenceStreakAsync("2000-01-01"));
     }
 
     [Fact]
@@ -118,7 +119,7 @@ public sealed class RulesRepositoryEvidenceTests
             await InsertGameAsync(conn, 9306, win: false, dayMinus2.AddDays(2), hidden: false);
         }
 
-        Assert.Equal(3, await rules.GetBehavioralAdherenceStreakAsync());
+        Assert.Equal(3, await rules.GetBehavioralAdherenceStreakAsync("2000-01-01"));
 
         // The per-rule record stays unforgiving: the skipped trip still counts.
         var evidence = await rules.GetRuleEvidenceAsync(await rules.GetAllAsync());
@@ -148,7 +149,48 @@ public sealed class RulesRepositoryEvidenceTests
                 createdAt: new DateTimeOffset(DateTime.Today).ToUnixTimeSeconds());
         }
 
-        Assert.Equal(1, await rules.GetBehavioralAdherenceStreakAsync());
+        Assert.Equal(1, await rules.GetBehavioralAdherenceStreakAsync("2000-01-01"));
+    }
+
+    [Fact]
+    public async Task GetBehavioralAdherenceStreak_PreEpochDays_KeepFlagEraVerdicts()
+    {
+        // The re-base must not retroactively erase an earned streak: days
+        // before the behavioral epoch are judged by surviving non-skipped
+        // rule_broken flags (the old standard), days from the epoch onward
+        // behaviorally. Same data, two judges, two answers — by design.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var rules = new RulesRepository(scope.ConnectionFactory);
+
+        var dayMinus3 = new DateTimeOffset(DateTime.Today.AddDays(-3).AddHours(10));
+        using (var conn = scope.OpenConnection())
+        {
+            await InsertRuleAsync(conn, "Stop after 2 losses", "loss_streak", "2",
+                createdAt: dayMinus3.AddDays(-10).ToUnixTimeSeconds());
+
+            // Day -3: W L L L — a behavioral trigger day, but NO flag stamped
+            // (or it was cleared): clean under the flag era.
+            await InsertGameAsync(conn, 9401, win: true, dayMinus3, hidden: false);
+            await InsertGameAsync(conn, 9402, win: false, dayMinus3.AddMinutes(40), hidden: false);
+            await InsertGameAsync(conn, 9403, win: false, dayMinus3.AddMinutes(80), hidden: false);
+            await InsertGameAsync(conn, 9404, win: false, dayMinus3.AddMinutes(120), hidden: false);
+            // Day -2: behaviorally clean single game, but a surviving flag:
+            // a trip day under the flag era.
+            await InsertGameAsync(conn, 9405, win: true, dayMinus3.AddDays(1), hidden: false, ruleBroken: true);
+            // Day -1 and today: clean.
+            await InsertGameAsync(conn, 9406, win: true, dayMinus3.AddDays(2), hidden: false);
+            await InsertGameAsync(conn, 9407, win: false, dayMinus3.AddDays(3), hidden: false);
+        }
+
+        // Epoch in the future → every day is pre-epoch (flag-judged):
+        // today + day -1 are clean, the surviving flag on day -2 breaks it.
+        Assert.Equal(2, await rules.GetBehavioralAdherenceStreakAsync("2099-01-01"));
+
+        // Epoch in the past → every day is behavioral: the flag on day -2 is
+        // ignored (clearing-immune in both directions), the loss-streak
+        // pattern on day -3 breaks it instead.
+        Assert.Equal(3, await rules.GetBehavioralAdherenceStreakAsync("2000-01-01"));
     }
 
     private static async Task InsertRuleAsync(
@@ -167,7 +209,7 @@ public sealed class RulesRepositoryEvidenceTests
 
     private static async Task InsertGameAsync(
         SqliteConnection conn, long gameId, bool win, DateTimeOffset at, bool hidden,
-        int? mental = null, bool skipped = false)
+        int? mental = null, bool skipped = false, bool ruleBroken = false)
     {
         using (var cmd = conn.CreateCommand())
         {
@@ -181,17 +223,18 @@ public sealed class RulesRepositoryEvidenceTests
             await cmd.ExecuteNonQueryAsync();
         }
 
-        if (mental is not null || skipped)
+        if (mental is not null || skipped || ruleBroken)
         {
             using var slCmd = conn.CreateCommand();
             slCmd.CommandText = @"
-                INSERT INTO session_log (date, game_id, champion_name, win, mental_rating, is_skipped, timestamp)
-                VALUES (@date, @gameId, 'Ahri', @win, @mental, @skipped, @timestamp)";
+                INSERT INTO session_log (date, game_id, champion_name, win, mental_rating, is_skipped, rule_broken, timestamp)
+                VALUES (@date, @gameId, 'Ahri', @win, @mental, @skipped, @ruleBroken, @timestamp)";
             slCmd.Parameters.AddWithValue("@date", at.ToString("yyyy-MM-dd"));
             slCmd.Parameters.AddWithValue("@gameId", gameId);
             slCmd.Parameters.AddWithValue("@win", win ? 1 : 0);
             slCmd.Parameters.AddWithValue("@mental", mental is int rating ? rating : DBNull.Value);
             slCmd.Parameters.AddWithValue("@skipped", skipped ? 1 : 0);
+            slCmd.Parameters.AddWithValue("@ruleBroken", ruleBroken ? 1 : 0);
             slCmd.Parameters.AddWithValue("@timestamp", at.ToUnixTimeSeconds());
             await slCmd.ExecuteNonQueryAsync();
         }

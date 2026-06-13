@@ -150,7 +150,7 @@ public sealed class RiotAuthClient : IRiotAuthClient
                 .ConfigureAwait(false);
             var solo = entries?.FirstOrDefault(static e =>
                 string.Equals(e.queueType, "RANKED_SOLO_5x5", StringComparison.OrdinalIgnoreCase));
-            return RankBenchmarks.FromRiotTier(solo?.tier);
+            return TierDisplayName(solo?.tier);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -158,6 +158,23 @@ public sealed class RiotAuthClient : IRiotAuthClient
             return "";
         }
     }
+
+    /// <summary>Riot tier → display name; apex tiers collapse into MASTER+,
+    /// unranked/unknown returns "". (Formerly RankBenchmarks.FromRiotTier —
+    /// the benchmark feature was removed per P-005; detection remains as a
+    /// display-only link confirmation.)</summary>
+    private static string TierDisplayName(string? tier) => tier?.Trim().ToUpperInvariant() switch
+    {
+        "IRON" => "IRON",
+        "BRONZE" => "BRONZE",
+        "SILVER" => "SILVER",
+        "GOLD" => "GOLD",
+        "PLATINUM" => "PLATINUM",
+        "EMERALD" => "EMERALD",
+        "DIAMOND" => "DIAMOND",
+        "MASTER" or "GRANDMASTER" or "CHALLENGER" => "MASTER+",
+        _ => "",
+    };
 
     public async Task LogoutAsync(string sessionToken, CancellationToken ct = default)
     {

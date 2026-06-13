@@ -361,13 +361,21 @@ public sealed class RulesRepository : IRulesRepository
         return result;
     }
 
-    public async Task<int> GetBehavioralAdherenceStreakAsync()
+    /// <summary>Local date the behavioral streak judgment shipped (v2.17.31).
+    /// Days before it are judged by the standard that existed then —
+    /// surviving non-skipped rule_broken flags — so the re-base never
+    /// retroactively erases a streak the player had already earned.</summary>
+    private const string BehavioralRebaseEpochDate = "2026-06-12";
+
+    public async Task<int> GetBehavioralAdherenceStreakAsync(string? behavioralSinceDate = null)
     {
         // P2a re-base (user decision 2026-06-12): the streak mechanic stays,
         // but it counts behavioral trips — games played while an active
         // rule's condition held — so flag housekeeping can neither fake the
         // number nor break it. A rule only judges games played after it was
-        // created; play-days before the first rule are out of scope.
+        // created; play-days before the first rule are out of scope. The
+        // same no-retroactivity principle applies to the judge itself: days
+        // before the epoch keep their flag-era verdicts.
         var rules = (await GetActiveAsync())
             .Where(static r => r.RuleType != "custom")
             .ToList();
@@ -386,13 +394,28 @@ public sealed class RulesRepository : IRulesRepository
         // it to protect the streak is fine — the streak is a motivation
         // mechanic. The per-rule records in GetRuleEvidenceAsync deliberately
         // do NOT honor this: the instrument stays honest while the mechanic
-        // forgives.
+        // forgives. (Those records also ignore the epoch — full-history
+        // behavioral analysis is their whole job.)
+        var epoch = behavioralSinceDate ?? BehavioralRebaseEpochDate;
         var triggerDates = new HashSet<string>(StringComparer.Ordinal);
+
+        // Pre-epoch days: flag-era judgment (non-skipped surviving flags).
+        foreach (var game in games)
+        {
+            if (string.CompareOrdinal(game.Date, epoch) < 0
+                && game.RuleBroken && !game.Skipped)
+            {
+                triggerDates.Add(game.Date);
+            }
+        }
+
+        // Epoch onward: behavioral judgment.
         foreach (var rule in rules)
         {
             foreach (var trigger in FindTriggerGames(rule, games))
             {
                 if (trigger.Skipped) continue;
+                if (string.CompareOrdinal(trigger.Date, epoch) < 0) continue;
                 if (rule.CreatedAt is not long created || trigger.Ts >= created)
                 {
                     triggerDates.Add(trigger.Date);
@@ -418,7 +441,8 @@ public sealed class RulesRepository : IRulesRepository
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT g.timestamp, g.win, sl.mental_rating, COALESCE(sl.is_skipped, 0)
+            SELECT g.timestamp, g.win, sl.mental_rating, COALESCE(sl.is_skipped, 0),
+                   COALESCE(sl.rule_broken, 0)
             FROM games g
             LEFT JOIN session_log sl ON sl.game_id = g.game_id
             WHERE COALESCE(g.is_hidden, 0) = 0 AND g.timestamp > 0
@@ -439,7 +463,9 @@ public sealed class RulesRepository : IRulesRepository
                 // Skipped games are excluded from mental stats by app
                 // convention — their self-report must not arm min_mental.
                 Mental: skipped || reader.IsDBNull(2) ? null : reader.GetInt32(2),
-                Skipped: skipped));
+                Skipped: skipped,
+                // Flag-era verdict; only the streak's pre-epoch branch reads it.
+                RuleBroken: !reader.IsDBNull(4) && reader.GetInt64(4) != 0));
         }
         return games;
     }
@@ -492,7 +518,7 @@ public sealed class RulesRepository : IRulesRepository
         return triggers;
     }
 
-    private sealed record EvidenceGame(long Ts, string Date, int Hour, string DayName, bool Win, int? Mental, bool Skipped);
+    private sealed record EvidenceGame(long Ts, string Date, int Hour, string DayName, bool Win, int? Mental, bool Skipped, bool RuleBroken);
 
     /// <summary>
     /// Parses a loss_streak condition value. Format: "X" (threshold only, no cooldown →

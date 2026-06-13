@@ -24,6 +24,14 @@ public sealed partial class RulesPage : Page
         await ViewModel.LoadCommand.ExecuteAsync(null);
     }
 
+    private async void AddSuggestedRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: SuggestedRule suggestion })
+        {
+            await ViewModel.AddSuggestedRuleCommand.ExecuteAsync(suggestion);
+        }
+    }
+
     private async void ToggleRule_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is long ruleId)

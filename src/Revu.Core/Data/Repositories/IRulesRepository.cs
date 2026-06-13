@@ -66,6 +66,10 @@ public interface IRulesRepository
     /// Trips on is_skipped games are streak-neutral — skip is the player's
     /// deliberate streak-protection lever (the streak is a motivation
     /// mechanic; <see cref="GetRuleEvidenceAsync"/> records stay unforgiving).
+    /// Days before the behavioral re-base epoch (2026-06-12) keep their
+    /// flag-era verdicts (surviving non-skipped rule_broken flags) so the
+    /// re-base never retroactively erases an earned streak.
+    /// <paramref name="behavioralSinceDate"/> overrides the epoch (tests).
     /// </summary>
-    Task<int> GetBehavioralAdherenceStreakAsync();
+    Task<int> GetBehavioralAdherenceStreakAsync(string? behavioralSinceDate = null);
 }

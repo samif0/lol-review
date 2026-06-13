@@ -73,9 +73,7 @@ public sealed record ReviewScreenData(
     ReviewSnapshot Snapshot,
     // v2.18 (schema v5): the intent declared at Start Block for the day this
     // game was played — what the adherence question is asked against.
-    string SessionIntention = "",
-    // v2.18: self-declared rank for benchmark context (config.BenchmarkRank).
-    string BenchmarkRank = "");
+    string SessionIntention = "");
 
 public sealed record ReviewDraftRequest(
     long GameId,

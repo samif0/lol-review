@@ -12,11 +12,17 @@ namespace Revu.App.ViewModels;
 /// cause classification. Six chips per death; selecting one persists
 /// immediately, tapping the selected chip clears back to unclassified.
 /// </summary>
-public sealed class DeathAuditItem
+public sealed partial class DeathAuditItem : ObservableObject
 {
     public long GameId { get; init; }
     public int GameTimeSeconds { get; init; }
     public string TimeText => $"{GameTimeSeconds / 60:D2}:{GameTimeSeconds % 60:D2}";
+
+    /// <summary>P-010: drives the row's play button (jump to the death in the
+    /// VOD). Observable because a recording can finalize and attach after the
+    /// page loaded (the VOD-recheck path flips it live).</summary>
+    [ObservableProperty]
+    private bool _hasVod;
 
     public ObservableCollection<DeathChipOption> Chips { get; } = new();
 }

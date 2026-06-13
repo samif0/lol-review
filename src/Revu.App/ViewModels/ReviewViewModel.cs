@@ -121,40 +121,10 @@ public partial class ReviewViewModel : ObservableObject,
 
     public bool HasSessionIntentionForGame => !string.IsNullOrWhiteSpace(SessionIntentionForGame);
 
-    // v2.18: rank benchmark context rendered under the stat cards — the
-    // app's answer to "is this number bad?". Approximate per-rank averages
-    // for the role this game was played in.
-    [ObservableProperty] private string _benchmarkRankLine = "";
-    [ObservableProperty] private string _benchmarkNextLine = "";
-    [ObservableProperty] private bool _hasBenchmarks;
-
     // v2.18 (schema v5): laning numbers from the Match-V5 timeline backfill.
     // Empty until the backfill has run for this game.
     [ObservableProperty] private string _laningAt10Line = "";
     [ObservableProperty] private bool _hasLaningAt10;
-
-    private void ApplyBenchmarks(ReviewScreenData screenData)
-    {
-        var rank = Revu.Core.Services.RankBenchmarks.NormalizeRank(screenData.BenchmarkRank);
-        var role = Revu.Core.Services.RankBenchmarks.NormalizeRole(screenData.Game.Position);
-        var current = Revu.Core.Services.RankBenchmarks.Get(screenData.Game.Position, rank);
-        if (role.Length == 0 || current is null)
-        {
-            BenchmarkRankLine = "";
-            BenchmarkNextLine = "";
-            HasBenchmarks = false;
-            return;
-        }
-
-        var nextRank = Revu.Core.Services.RankBenchmarks.NextRank(rank);
-        var next = Revu.Core.Services.RankBenchmarks.Get(screenData.Game.Position, nextRank);
-
-        BenchmarkRankLine = $"~{rank} {role} AVG // {Revu.Core.Services.RankBenchmarks.FormatLine(current)}";
-        BenchmarkNextLine = next is not null && !string.Equals(nextRank, rank, StringComparison.Ordinal)
-            ? $"~{nextRank} TARGET // {Revu.Core.Services.RankBenchmarks.FormatLine(next)}"
-            : "";
-        HasBenchmarks = true;
-    }
 
     // v2.18 (schema v5): death audit — one row per DEATH event from the live
     // kill feed, each with six one-tap cause chips. The mix over a block of
@@ -163,7 +133,7 @@ public partial class ReviewViewModel : ObservableObject,
 
     [ObservableProperty] private bool _hasDeathAudit;
 
-    private async Task LoadDeathAuditAsync(long gameId)
+    private async Task LoadDeathAuditAsync(long gameId, bool hasVod)
     {
         try
         {
@@ -187,6 +157,7 @@ public partial class ReviewViewModel : ObservableObject,
                     {
                         GameId = gameId,
                         GameTimeSeconds = death.GameTimeS,
+                        HasVod = hasVod,
                     };
                     savedByTime.TryGetValue(death.GameTimeS, out var selectedClass);
                     foreach (var (key, label, hint) in Revu.Core.Data.Repositories.DeathClasses.All)
@@ -412,7 +383,6 @@ public partial class ReviewViewModel : ObservableObject,
             ApplyObjectives(screenData.ObjectiveAssessments, screenData.PriorityObjective);
             ApplyMatchupHistory(screenData.MatchupHistory);
             SessionIntentionForGame = screenData.SessionIntention;
-            ApplyBenchmarks(screenData);
 
             // v2.15.0: legacy-field visibility is recomputed from the already-
             // loaded snapshot (SelfAssessment etc. live in Snapshot). True when
@@ -437,7 +407,7 @@ public partial class ReviewViewModel : ObservableObject,
             await HydratePromptsAsync(gameId);
 
             // v2.18 (schema v5): death audit rows from the live kill feed.
-            await LoadDeathAuditAsync(gameId);
+            await LoadDeathAuditAsync(gameId, screenData.HasVod);
 
             // v2.15.0: bookmark/clip autopopulate — injects [MM:SS] lines into
             // each assessment's general-notes field from bookmarks/clips
@@ -1558,6 +1528,11 @@ public partial class ReviewViewModel : ObservableObject,
                         {
                             HasVod = true;
                             BookmarkCount = result.BookmarkCount;
+                            // P-010: light up the death rows' play buttons too.
+                            foreach (var death in DeathAudit)
+                            {
+                                death.HasVod = true;
+                            }
                         });
                         return;
                     }
