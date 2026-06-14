@@ -60,6 +60,7 @@ public partial class PatternReviewViewModel : ObservableObject
     private bool _isLoading;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ClosureSummary))]
     private string _patternTitle = "";
 
     [ObservableProperty]
@@ -77,6 +78,8 @@ public partial class PatternReviewViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasMoments))]
     [NotifyPropertyChangedFor(nameof(IsEmpty))]
+    [NotifyPropertyChangedFor(nameof(NotesCount))]
+    [NotifyPropertyChangedFor(nameof(ClosureSummary))]
     private int _momentCount;
 
     [ObservableProperty]
@@ -316,7 +319,34 @@ public partial class PatternReviewViewModel : ObservableObject
 
     [ObservableProperty] private bool _showFixObjectiveOffer;
     [ObservableProperty] private string _fixObjectiveTitle = "";
-    [ObservableProperty] private bool _fixObjectiveCreated;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsClosed))]
+    private bool _fixObjectiveCreated;
+
+    // ── P-012 (digest 2026-06-14): closure state ────────────────────────────
+    // Make "mark reviewed" feel done. Presentation-only over data the VM already
+    // holds — no schema, no repo call. Both offer branches now terminate: DRILL IT
+    // already showed a confirmation; "Not now" used to collapse into silence, so
+    // IsClosedNoDrill gives it an explicit terminal line.
+
+    /// <summary>Set when the user declined the drill ("Not now") — drives the
+    /// "no drill created" terminal line so the decline branch isn't silent.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsClosed))]
+    private bool _isClosedNoDrill;
+
+    /// <summary>Count of this pattern's moments that have a note saved.</summary>
+    public int NotesCount => Moments.Count(static m => m.HasNote);
+
+    /// <summary>One-line plain-English closure summary shown in the terminal panel.</summary>
+    public string ClosureSummary =>
+        $"Worked through {PatternTitle} — {MomentCount} moment{(MomentCount == 1 ? "" : "s")} reviewed"
+        + (NotesCount > 0 ? $", {NotesCount} note{(NotesCount == 1 ? "" : "s")} saved." : ".");
+
+    /// <summary>The pattern has reached a terminal state (drilled or declined),
+    /// so the completion summary + Back-to-dashboard affordance should show.</summary>
+    public bool IsClosed => FixObjectiveCreated || IsClosedNoDrill;
 
     [RelayCommand]
     private async Task CreateFixObjectiveAsync()
@@ -349,7 +379,14 @@ public partial class PatternReviewViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void DismissFixObjective() => ShowFixObjectiveOffer = false;
+    private void DismissFixObjective()
+    {
+        // P-012: "Not now" used to just hide the offer and end in silence. Mark a
+        // terminal state so the closure panel shows a "no drill created" line and
+        // the Back-to-dashboard affordance, matching the DRILL IT branch.
+        ShowFixObjectiveOffer = false;
+        IsClosedNoDrill = true;
+    }
 
     // ── "This moment" work panel — autosave ─────────────────────────────────
     //

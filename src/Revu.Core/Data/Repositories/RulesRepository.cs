@@ -15,7 +15,7 @@ public sealed class RulesRepository : IRulesRepository
     public RulesRepository(IDbConnectionFactory factory) => _factory = factory;
 
     public async Task<long> CreateAsync(string name, string description = "", string ruleType = "custom",
-        string conditionValue = "")
+        string conditionValue = "", string replacementPlan = "")
     {
         using var conn = _factory.CreateConnection();
         var schema = await GetSchemaAsync(conn);
@@ -58,6 +58,13 @@ public sealed class RulesRepository : IRulesRepository
             columnNames.Add("condition_value");
             values.Add("@conditionValue");
             cmd.Parameters.AddWithValue("@conditionValue", conditionValue);
+        }
+
+        if (schema.HasReplacementPlan)
+        {
+            columnNames.Add("replacement_plan");
+            values.Add("@replacementPlan");
+            cmd.Parameters.AddWithValue("@replacementPlan", replacementPlan);
         }
 
         if (schema.HasIsActive)
@@ -177,7 +184,8 @@ public sealed class RulesRepository : IRulesRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdateAsync(long ruleId, string name, string description, string ruleType, string conditionValue)
+    public async Task UpdateAsync(long ruleId, string name, string description, string ruleType, string conditionValue,
+        string replacementPlan = "")
     {
         using var conn = _factory.CreateConnection();
         var schema = await GetSchemaAsync(conn);
@@ -211,6 +219,12 @@ public sealed class RulesRepository : IRulesRepository
         {
             sets.Add("condition_value = @conditionValue");
             cmd.Parameters.AddWithValue("@conditionValue", conditionValue);
+        }
+
+        if (schema.HasReplacementPlan)
+        {
+            sets.Add("replacement_plan = @replacementPlan");
+            cmd.Parameters.AddWithValue("@replacementPlan", replacementPlan);
         }
 
         if (sets.Count == 0) return;
@@ -566,9 +580,15 @@ public sealed class RulesRepository : IRulesRepository
                 {BuildRuleTypeExpression(schema)} AS rule_type,
                 {BuildConditionValueExpression(schema)} AS condition_value,
                 {BuildIsActiveExpression(schema)} AS is_active,
-                {BuildCreatedAtExpression(schema)} AS created_at
+                {BuildCreatedAtExpression(schema)} AS created_at,
+                {BuildReplacementPlanExpression(schema)} AS replacement_plan
             FROM rules
             """;
+    }
+
+    private static string BuildReplacementPlanExpression(RulesSchema schema)
+    {
+        return schema.HasReplacementPlan ? "COALESCE(replacement_plan, '')" : "''";
     }
 
     private static string BuildNameExpression(RulesSchema schema)
@@ -657,7 +677,8 @@ public sealed class RulesRepository : IRulesRepository
             HasRuleType: columns.Contains("rule_type"),
             HasConditionValue: columns.Contains("condition_value"),
             HasIsActive: columns.Contains("is_active"),
-            HasCreatedAt: columns.Contains("created_at"));
+            HasCreatedAt: columns.Contains("created_at"),
+            HasReplacementPlan: columns.Contains("replacement_plan"));
 
         return _cachedSchema;
     }
@@ -689,7 +710,8 @@ public sealed class RulesRepository : IRulesRepository
             RuleType: reader.IsDBNull(reader.GetOrdinal("rule_type")) ? "custom" : reader.GetString(reader.GetOrdinal("rule_type")),
             ConditionValue: reader.IsDBNull(reader.GetOrdinal("condition_value")) ? "" : reader.GetString(reader.GetOrdinal("condition_value")),
             IsActive: !reader.IsDBNull(reader.GetOrdinal("is_active")) && reader.GetInt64(reader.GetOrdinal("is_active")) != 0,
-            CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")));
+            CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")),
+            ReplacementPlan: reader.IsDBNull(reader.GetOrdinal("replacement_plan")) ? "" : reader.GetString(reader.GetOrdinal("replacement_plan")));
     }
 
     private sealed record RulesSchema(
@@ -700,5 +722,6 @@ public sealed class RulesRepository : IRulesRepository
         bool HasRuleType,
         bool HasConditionValue,
         bool HasIsActive,
-        bool HasCreatedAt);
+        bool HasCreatedAt,
+        bool HasReplacementPlan);
 }

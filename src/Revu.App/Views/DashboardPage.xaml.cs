@@ -134,8 +134,22 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
         App.GetService<INavigationService>().NavigateTo("tiltcheck");
     }
 
+    // P-018: WinUI 3 allows only ONE ContentDialog open per XamlRoot at a time.
+    // A second ShowAsync() while one is still open throws (and the old empty
+    // catch silently swallowed it — so "New Block" did nothing the second time
+    // after the first was closed but before teardown, or when the deep-link
+    // path fired while a dialog was up). This flag makes a re-entrant open a
+    // deliberate no-op instead of a thrown-and-eaten exception.
+    private bool _blockDialogOpen;
+
     private async void StartBlockButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_blockDialogOpen)
+        {
+            return;
+        }
+
+        _blockDialogOpen = true;
         try
         {
             var dialog = new StartBlockDialog
@@ -151,15 +165,26 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
                 await ViewModel.LoadCommand.ExecuteAsync(null);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Dialog failure (e.g. one already open) is non-fatal; the
-            // dashboard simply doesn't refresh.
+            // Don't swallow blindly — if ShowAsync still throws (slot not yet
+            // released), log it so it's diagnosable rather than a silent dead-end.
+            AppDiagnostics.WriteCrash($"[DashboardPage] StartBlockDialog show failed: {ex}");
+        }
+        finally
+        {
+            _blockDialogOpen = false;
         }
     }
 
     private async void EndBlockButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_blockDialogOpen)
+        {
+            return;
+        }
+
+        _blockDialogOpen = true;
         try
         {
             var dialog = new EndBlockDialog
@@ -174,10 +199,13 @@ public sealed partial class DashboardPage : Page, INotifyPropertyChanged
                 await ViewModel.LoadCommand.ExecuteAsync(null);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Dialog failure (e.g. one already open) is non-fatal; the
-            // dashboard simply doesn't refresh.
+            AppDiagnostics.WriteCrash($"[DashboardPage] EndBlockDialog show failed: {ex}");
+        }
+        finally
+        {
+            _blockDialogOpen = false;
         }
     }
 }

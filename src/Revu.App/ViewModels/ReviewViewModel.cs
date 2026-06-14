@@ -325,6 +325,7 @@ public partial class ReviewViewModel : ObservableObject,
             {
                 await AutoPopulateBookmarkNotesAsync(GameId);
                 await SyncPracticedFlagsAsync(GameId);
+                await ReconcileDismissedEvidenceAsync(GameId);
             }
             catch (Exception ex) { _logger.LogDebug(ex, "Live bookmark auto-populate failed"); }
         }), _logger, $"live bookmark refresh {message.GameId}");
@@ -350,6 +351,47 @@ public partial class ReviewViewModel : ObservableObject,
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Practiced-flag sync failed for game {GameId}", gameId);
+        }
+    }
+
+    /// <summary>P-017(A): when evidence is dismissed elsewhere (e.g. the VOD
+    /// viewer) on this game, drop any rows that are no longer visible from the
+    /// live inbox / unassigned / per-objective lists — in place, so the review
+    /// page's scroll position is preserved (no Clear-and-rebuild).</summary>
+    private async Task ReconcileDismissedEvidenceAsync(long gameId)
+    {
+        try
+        {
+            var rows = await _evidenceRepository.GetForGameAsync(gameId);
+            // GetForGameAsync already filters out dismissed rows, so anything in a
+            // live collection whose id isn't in this set has been dismissed.
+            var liveIds = rows.Select(r => r.Id).ToHashSet();
+
+            foreach (var stale in EvidenceItems.Where(e => !liveIds.Contains(e.Id)).ToList())
+            {
+                EvidenceItems.Remove(stale);
+            }
+            HasEvidenceItems = EvidenceItems.Count > 0;
+
+            var removedUnassigned = false;
+            foreach (var stale in UnassignedEvidenceItems.Where(e => !liveIds.Contains(e.Id)).ToList())
+            {
+                UnassignedEvidenceItems.Remove(stale);
+                removedUnassigned = true;
+            }
+            if (removedUnassigned) OnPropertyChanged(nameof(HasUnassignedEvidenceItems));
+
+            foreach (var assessment in ObjectiveAssessments)
+            {
+                foreach (var stale in assessment.EvidenceItems.Where(e => !liveIds.Contains(e.Id)).ToList())
+                {
+                    assessment.RemoveEvidenceItem(stale.Id);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Dismissed-evidence reconcile failed for game {GameId}", gameId);
         }
     }
 
@@ -1082,9 +1124,26 @@ public partial class ReviewViewModel : ObservableObject,
             await _evidenceRepository.UpdateStatusAsync(evidence.Id, status);
             if (status == EvidenceStatuses.Dismissed)
             {
+                // P-017(B): remove the dismissed row IN PLACE from every list that
+                // may hold it rather than re-fetching + Clear-and-rebuilding the
+                // collections. A dismiss only removes a row (never moves it between
+                // buckets), so a targeted remove keeps the page ScrollViewer's
+                // offset — the full AttachEvidenceToObjectives rebuild collapsed the
+                // ItemsRepeater and snapped the page to the top.
                 EvidenceItems.Remove(evidence);
                 HasEvidenceItems = EvidenceItems.Count > 0;
-                AttachEvidenceToObjectives(await _evidenceRepository.GetForGameAsync(GameId));
+
+                var unassigned = UnassignedEvidenceItems.FirstOrDefault(e => e.Id == evidence.Id);
+                if (unassigned is not null)
+                {
+                    UnassignedEvidenceItems.Remove(unassigned);
+                    OnPropertyChanged(nameof(HasUnassignedEvidenceItems));
+                }
+
+                foreach (var assessment in ObjectiveAssessments)
+                {
+                    assessment.RemoveEvidenceItem(evidence.Id);
+                }
             }
             else
             {

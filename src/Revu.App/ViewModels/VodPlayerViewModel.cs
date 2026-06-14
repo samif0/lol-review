@@ -871,6 +871,11 @@ public partial class VodPlayerViewModel : ObservableObject
                 {
                     RemoveReviewMomentOnCurrentThread(evidence);
                 });
+                // P-017(A): tell an already-open ReviewPage for this game to drop the
+                // dismissed row so it doesn't linger there until a full reload. The
+                // review VM reconciles its evidence lists in place (no scroll jump).
+                try { _messenger.Send(new Revu.Core.Lcu.BookmarkChangedMessage(GameId)); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Notify review of evidence dismiss failed"); }
             }
             else
             {

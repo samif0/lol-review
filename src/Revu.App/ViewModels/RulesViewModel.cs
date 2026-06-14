@@ -57,10 +57,15 @@ public sealed class RuleDisplayItem
     /// rule_broken flags. Empty for custom rules (no automated record).</summary>
     public string EvidenceLine { get; init; } = "";
 
+    /// <summary>P2c (digest 2026-06-14): player-authored "then I will…" plan
+    /// shown on the card (above the record) and at the trip cue. Display-only.</summary>
+    public string ReplacementPlan { get; init; } = "";
+
     public bool HasDescription => !string.IsNullOrWhiteSpace(Description);
     public bool HasCondition => !string.IsNullOrWhiteSpace(ConditionText);
     public bool HasViolationReason => IsViolated && !string.IsNullOrWhiteSpace(ViolationReason);
     public bool HasEvidenceLine => !string.IsNullOrWhiteSpace(EvidenceLine);
+    public bool HasReplacementPlan => !string.IsNullOrWhiteSpace(ReplacementPlan);
     public string ToggleText => IsActive ? "Disable" : "Enable";
     public bool IsCustom => RuleType == "custom";
 
@@ -88,6 +93,14 @@ public sealed class ViolationBannerItem
 {
     public string RuleName { get; init; } = "";
     public string Reason { get; init; } = "";
+
+    // P2c (digest 2026-06-14): when the tripped rule has a replacement plan, the
+    // banner leads with the plan (cue + action) and demotes RuleName/Reason to a
+    // subhead. ConditionCue is the rule's own IF leg (RuleDisplayItem.ConditionText)
+    // so the player never re-types it. HasPlan selects the plan-led DataTemplate.
+    public string ReplacementPlan { get; init; } = "";
+    public string ConditionCue { get; init; } = "";
+    public bool HasPlan => !string.IsNullOrWhiteSpace(ReplacementPlan);
 }
 
 /// <summary>A pre-built rule suggestion shown in the empty state.</summary>
@@ -138,6 +151,12 @@ public partial class RulesViewModel : ObservableObject
 
     [ObservableProperty]
     private string _newDescription = "";
+
+    // P2c: optional "then I will…" replacement plan authored at rule creation.
+    // The IF leg is shown read-only from the rule's condition; the player writes
+    // only the THEN.
+    [ObservableProperty]
+    private string _newReplacementPlan = "";
 
     [ObservableProperty]
     private bool _canCreate;
@@ -251,7 +270,31 @@ public partial class RulesViewModel : ObservableObject
     partial void OnNewRuleTypeIndexChanged(int value)
     {
         UpdateConditionField(value);
+        OnPropertyChanged(nameof(NewConditionCue));
+        OnPropertyChanged(nameof(HasNewConditionCue));
     }
+
+    partial void OnNewConditionValueChanged(string value)
+    {
+        OnPropertyChanged(nameof(NewConditionCue));
+        OnPropertyChanged(nameof(HasNewConditionCue));
+    }
+
+    /// <summary>P2c: the create form's IF leg, rendered from the current type +
+    /// condition so the player writes only the THEN. Reuses RuleDisplayItem's
+    /// per-type ConditionText formatter. Empty until a condition is entered.</summary>
+    public string NewConditionCue
+    {
+        get
+        {
+            var typeKey = NewRuleTypeIndex >= 0 && NewRuleTypeIndex < RuleTypeKeys.Length
+                ? RuleTypeKeys[NewRuleTypeIndex] : "custom";
+            var probe = new RuleDisplayItem { RuleType = typeKey, ConditionValue = NewConditionValue.Trim() };
+            return probe.ConditionText;
+        }
+    }
+
+    public bool HasNewConditionCue => !string.IsNullOrWhiteSpace(NewConditionCue);
 
     private void UpdateConditionField(int typeIndex)
     {
@@ -337,6 +380,7 @@ public partial class RulesViewModel : ObservableObject
 
         NewRuleName = rule.Name;
         NewDescription = rule.Description;
+        NewReplacementPlan = rule.ReplacementPlan;
         NewRuleTypeIndex = IndexForRuleType(rule.RuleType);
 
         if (rule.RuleType == "loss_streak")
@@ -386,6 +430,8 @@ public partial class RulesViewModel : ObservableObject
             conditionValue = $"{conditionValue}:{cd}";
         }
 
+        var replacementPlan = NewReplacementPlan.Trim();
+
         if (EditingRuleId is long id)
         {
             await _rulesRepo.UpdateAsync(
@@ -393,7 +439,8 @@ public partial class RulesViewModel : ObservableObject
                 NewRuleName.Trim(),
                 NewDescription.Trim(),
                 typeKey,
-                conditionValue);
+                conditionValue,
+                replacementPlan);
         }
         else
         {
@@ -401,7 +448,8 @@ public partial class RulesViewModel : ObservableObject
                 NewRuleName.Trim(),
                 NewDescription.Trim(),
                 typeKey,
-                conditionValue);
+                conditionValue,
+                replacementPlan);
         }
 
         ClearForm();
@@ -444,6 +492,7 @@ public partial class RulesViewModel : ObservableObject
         NewConditionValue = "";
         NewLossStreakCooldown = "";
         NewDescription = "";
+        NewReplacementPlan = "";
     }
 
     private async Task RefreshDataAsync()
@@ -502,6 +551,7 @@ public partial class RulesViewModel : ObservableObject
                 ViolationReason = violation?.Reason ?? "",
                 IsChecked = violation != null && rule.RuleType != "custom",
                 EvidenceLine = BuildEvidenceLine(evidence),
+                ReplacementPlan = rule.ReplacementPlan,
             };
 
             if (rule.IsActive)
@@ -513,6 +563,10 @@ public partial class RulesViewModel : ObservableObject
                     {
                         RuleName = rule.Name,
                         Reason = violation!.Reason,
+                        // P2c: the banner leads with the plan when one exists; the
+                        // cue is the rule's own IF leg, so the player never re-types it.
+                        ReplacementPlan = item.ReplacementPlan,
+                        ConditionCue = item.ConditionText,
                     });
                 }
             }

@@ -15,7 +15,10 @@ public static class Schema
     //               numbers from the Match-V5 timeline backfill.
     // v6 (2026-06): session_log.intention_source — provenance tag for the
     //               pre-game intent carry-over (digest 2026-06-11-2, rider 2a).
-    public const int CurrentAppSchemaVersion = 6;
+    // v7 (2026-06): rules.replacement_plan — player-authored "then I will…"
+    //               implementation-intention shown at the trip cue (P2c,
+    //               digest 2026-06-14). Display-only, never scored.
+    public const int CurrentAppSchemaVersion = 7;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -309,13 +312,14 @@ public static class Schema
 
     public const string CreateRulesTable = """
         CREATE TABLE IF NOT EXISTS rules (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            name            TEXT NOT NULL,
-            description     TEXT DEFAULT '',
-            rule_type       TEXT DEFAULT 'custom',
-            condition_value TEXT DEFAULT '',
-            is_active       INTEGER DEFAULT 1,
-            created_at      INTEGER
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            name             TEXT NOT NULL,
+            description      TEXT DEFAULT '',
+            rule_type        TEXT DEFAULT 'custom',
+            condition_value  TEXT DEFAULT '',
+            is_active        INTEGER DEFAULT 1,
+            created_at       INTEGER,
+            replacement_plan TEXT DEFAULT ''
         );
         """;
 
@@ -698,6 +702,14 @@ public static class Schema
         "ALTER TABLE tilt_checks ADD COLUMN if_then_plan TEXT DEFAULT ''",
     ];
 
+    /// <summary>P2c (digest 2026-06-14): rules.replacement_plan — player-authored
+    /// "then I will…" replacement intention shown at the trip cue. Forward-only,
+    /// no backfill (old rules show no plan until edited).</summary>
+    public static readonly string[] MigrateRulesReplacementPlan =
+    [
+        "ALTER TABLE rules ADD COLUMN replacement_plan TEXT DEFAULT ''",
+    ];
+
     public static readonly string[] MigrateBookmarksClipColumns =
     [
         "ALTER TABLE vod_bookmarks ADD COLUMN clip_start_s INTEGER",
@@ -1003,6 +1015,8 @@ public static class Schema
         new(5, "loop-closure", MigrateLoopClosure),
         // v2.18 (schema v6): intent carry-over provenance tag.
         new(6, "intention-source", MigrateIntentionSource),
+        // v2.18 (schema v7): rules.replacement_plan — P2c trip-cue plan.
+        new(7, "rules-replacement-plan", MigrateRulesReplacementPlan),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

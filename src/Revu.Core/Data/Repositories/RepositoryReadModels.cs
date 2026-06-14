@@ -105,7 +105,8 @@ public sealed record RuleRecord(
     string RuleType,
     string ConditionValue,
     bool IsActive,
-    long? CreatedAt);
+    long? CreatedAt,
+    string ReplacementPlan = "");
 
 public sealed record RuleCheckGame(
     long GameId,

@@ -27,9 +27,10 @@ public sealed record RuleEvidence(
 public interface IRulesRepository
 {
     Task<long> CreateAsync(string name, string description = "", string ruleType = "custom",
-        string conditionValue = "");
+        string conditionValue = "", string replacementPlan = "");
 
-    Task UpdateAsync(long ruleId, string name, string description, string ruleType, string conditionValue);
+    Task UpdateAsync(long ruleId, string name, string description, string ruleType, string conditionValue,
+        string replacementPlan = "");
 
     Task<IReadOnlyList<RuleRecord>> GetAllAsync();
 

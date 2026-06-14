@@ -64,16 +64,64 @@
                             </ItemsRepeater.Layout>
                             <ItemsRepeater.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ViolationBannerItem">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="{x:Bind RuleName}"
-                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource PrimaryTextBrush}"/>
-                                        <TextBlock Text="&#x2014;"
-                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
-                                        <TextBlock Text="{x:Bind Reason}"
-                                                   FontSize="{Binding Body, Source={StaticResource FontSizes}}"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <StackPanel Spacing="6">
+                                        <!-- P2c: when a replacement plan exists, lead with the plan
+                                             (cue + action) and demote rule name/reason to a subhead.
+                                             NOTE: bind TextBlock.Text directly, never <Run>.Text —
+                                             x:Bind on a child Run renders empty (feedback note). -->
+                                        <StackPanel Spacing="6"
+                                                    Visibility="{x:Bind HasPlan, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                                <TextBlock Text="IF"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                           CharacterSpacing="100"
+                                                           Foreground="{StaticResource AccentGoldBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Text="{x:Bind ConditionCue}"
+                                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                                           TextWrapping="Wrap"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                                <TextBlock Text="THEN"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                           CharacterSpacing="100"
+                                                           Foreground="{StaticResource WinGreenBrush}"
+                                                           VerticalAlignment="Top"
+                                                           Margin="0,2,0,0"/>
+                                                <TextBlock Text="{x:Bind ReplacementPlan}"
+                                                           FontSize="{Binding BodyEmphasis, Source={StaticResource FontSizes}}"
+                                                           Foreground="{StaticResource PrimaryTextBrush}"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="TRIGGERED BY"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                           CharacterSpacing="100"
+                                                           Foreground="{StaticResource MutedTextBrush}"/>
+                                                <TextBlock Text="{x:Bind RuleName}"
+                                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+
+                                        <!-- No plan: today's rule-name + reason line. -->
+                                        <StackPanel Orientation="Horizontal" Spacing="6"
+                                                    Visibility="{x:Bind HasPlan, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+                                            <TextBlock Text="{x:Bind RuleName}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"/>
+                                            <TextBlock Text="&#x2014;"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                                            <TextBlock Text="{x:Bind Reason}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                                        </StackPanel>
                                     </StackPanel>
                                 </DataTemplate>
                             </ItemsRepeater.ItemTemplate>
@@ -160,6 +208,63 @@
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
                                      MinHeight="60"/>
+                        </StackPanel>
+
+                        <!-- P2c: replacement plan (optional "then I will…"). The IF
+                             leg is rendered from the rule's own condition, so the
+                             player authors only the THEN. Display-only, never scored. -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="When this trips, what will you do instead? (optional)"
+                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <Border Background="{StaticResource InputBackgroundBrush}"
+                                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="2"
+                                    Padding="10,7"
+                                    Visibility="{x:Bind ViewModel.HasNewConditionCue, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="IF"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                               CharacterSpacing="100"
+                                               Foreground="{StaticResource AccentGoldBrush}"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.NewConditionCue, Mode=OneWay}"
+                                               FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                               Foreground="{StaticResource PrimaryTextBrush}"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="THEN"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                           CharacterSpacing="100"
+                                           Foreground="{StaticResource WinGreenBrush}"
+                                           Margin="0,9,0,0"/>
+                                <TextBox Grid.Column="1"
+                                         Text="{x:Bind ViewModel.NewReplacementPlan, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         PlaceholderText="…I will close the client and walk for 10 minutes before I even think about requeue."
+                                         Background="{StaticResource InputBackgroundBrush}"
+                                         Foreground="{StaticResource PrimaryTextBrush}"
+                                         BorderBrush="{StaticResource SubtleBorderBrush}"
+                                         CornerRadius="2"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         MinHeight="54"/>
+                            </Grid>
+                            <TextBlock Text="A plan you'll actually do beats a rule you'll ignore. Leave it blank and the rule still works."
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"/>
                         </StackPanel>
 
                         <!-- Action Buttons -->
@@ -325,6 +430,27 @@
                                                FontSize="{Binding Meta, Source={StaticResource FontSizes}}"
                                                Foreground="{StaticResource MutedTextBrush}"
                                                Visibility="{x:Bind HasCondition, Converter={StaticResource BoolToVis}}"/>
+
+                                    <!-- P2c (digest 2026-06-14): the player's replacement plan,
+                                         re-exposed at rest above the record. Display-only. -->
+                                    <Border Background="{StaticResource InputBackgroundBrush}"
+                                            BorderThickness="2,0,0,0"
+                                            BorderBrush="{StaticResource WinGreenBrush}"
+                                            CornerRadius="0"
+                                            Padding="9,6"
+                                            Visibility="{x:Bind HasReplacementPlan, Converter={StaticResource BoolToVis}}">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="YOUR PLAN INSTEAD"
+                                                       FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="{Binding Caption, Source={StaticResource FontSizes}}"
+                                                       CharacterSpacing="150"
+                                                       Foreground="{StaticResource WinGreenBrush}"/>
+                                            <TextBlock Text="{x:Bind ReplacementPlan}"
+                                                       FontSize="{Binding Body, Source={StaticResource FontSizes}}"
+                                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
 
                                     <!-- P2b (digest 2026-06-12): the rule's own record,
                                          computed from game outcomes — not from

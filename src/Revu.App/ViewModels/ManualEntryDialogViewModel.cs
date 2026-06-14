@@ -101,6 +101,17 @@ public partial class ObjectiveAssessment : ObservableObject
         EvidenceItems.Add(item);
         OnPropertyChanged(nameof(HasEvidenceItems));
     }
+
+    /// <summary>Remove a single evidence row by id in place (no clear-and-rebuild),
+    /// so a dismiss elsewhere doesn't collapse this list. Returns true if removed.</summary>
+    public bool RemoveEvidenceItem(long id)
+    {
+        var existing = EvidenceItems.FirstOrDefault(e => e.Id == id);
+        if (existing is null) return false;
+        EvidenceItems.Remove(existing);
+        OnPropertyChanged(nameof(HasEvidenceItems));
+        return true;
+    }
 }
 
 /// <summary>ViewModel for the manual game entry page.</summary>
