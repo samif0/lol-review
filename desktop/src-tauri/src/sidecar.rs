@@ -30,15 +30,36 @@ fn handshake_path() -> Option<PathBuf> {
 }
 
 /// Resolve the Revu.Sidecar.exe location.
-/// In `tauri dev` the cwd is desktop/src-tauri, so we walk to the repo's build
-/// output. In a bundled build the exe ships next to the app (resource dir);
-/// that wiring is added when we move past dev.
+/// Order: explicit override → bundled build (next to the app exe, incl. common
+/// resource subdirs) → dev build output under the repo. The bundled lookup is what
+/// a packaged release uses; the dev lookup is for `tauri dev`.
 fn sidecar_exe_path() -> Option<PathBuf> {
     // Allow an explicit override (handy for dev / CI).
     if let Ok(p) = std::env::var("REVU_SIDECAR_EXE") {
         let pb = PathBuf::from(p);
         if pb.exists() {
             return Some(pb);
+        }
+    }
+
+    // Bundled build: the sidecar ships alongside the app exe. Tauri places extra
+    // `resources` either next to the exe or under a `resources/` (sometimes
+    // `resources/_up_/`) subdir depending on the bundler/source path, so probe the
+    // exe's own directory and the common resource subdirs.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidates = [
+                dir.join("Revu.Sidecar.exe"),
+                dir.join("resources").join("Revu.Sidecar.exe"),
+                dir.join("resources")
+                    .join("sidecar")
+                    .join("Revu.Sidecar.exe"),
+            ];
+            for cand in candidates {
+                if cand.exists() {
+                    return Some(cand);
+                }
+            }
         }
     }
 

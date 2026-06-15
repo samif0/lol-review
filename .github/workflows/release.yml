@@ -1,4 +1,11 @@
-name: Build & Release (C#)
+name: Build & Release (Tauri)
+
+# NOTE (untested packaging path): this workflow was migrated from the old WinUI
+# MSBuild pipeline to build the Tauri app + the C# sidecar and pack them with
+# Velopack. The Velopack identity is preserved (packId=LoLReview) so existing
+# installs update IN PLACE. The end-to-end packaging path (Tauri build → sidecar
+# bundling → Velopack → auto-update) has NOT been validated by a real release yet.
+# Shake it out with a PRERELEASE tag before trusting it for a public release.
 
 on:
   workflow_dispatch:
@@ -13,7 +20,6 @@ permissions:
 jobs:
   test:
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -39,8 +45,13 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Extract version from tag
         shell: bash
@@ -51,23 +62,23 @@ jobs:
           echo "TAG=$TAG" >> $GITHUB_ENV
           echo "Building version $VERSION from tag $TAG"
 
-      - name: Stamp version in csproj
+      # Stamp the version into tauri.conf.json so the title bar (app_version) and the
+      # bundle metadata match the tag. The sidecar/Core have no shipped version
+      # surface that needs stamping for the desktop app.
+      - name: Stamp version in tauri.conf.json
         shell: pwsh
         run: |
-          $version = "${{ env.VERSION }}"
-          $csproj = "src/Revu.App/Revu.App.csproj"
-          $content = Get-Content $csproj -Raw
-          $content = $content -replace '<Version>[^<]*</Version>', "<Version>$version</Version>"
-          Set-Content $csproj $content
-          Write-Host "Stamped version: $version"
+          $conf = "desktop/src-tauri/tauri.conf.json"
+          $json = Get-Content $conf -Raw | ConvertFrom-Json
+          $json.version = "${{ env.VERSION }}"
+          $json | ConvertTo-Json -Depth 64 | Set-Content $conf
+          Write-Host "Stamped tauri.conf.json version: ${{ env.VERSION }}"
 
-      # ffmpeg ships INSIDE the signed release, so it must be supply-chain
-      # pinned: a fixed (dated) BtbN build + SHA-256 verification, never the
-      # rolling "latest" artifact (which is rebuilt and replaced in place).
-      # Download failure is soft (clip extraction is optional); a CHECKSUM
-      # MISMATCH is a tamper signal and hard-fails the build. To bump ffmpeg:
-      # pick a newer autobuild tag and take the asset's sha256 digest from
-      # the GitHub release API.
+      # ffmpeg ships INSIDE the signed release (clip extraction), so it is
+      # supply-chain pinned: a fixed (dated) BtbN build + SHA-256 verification.
+      # Download failure is soft (clips are optional); a CHECKSUM MISMATCH is a
+      # tamper signal and hard-fails. To bump: pick a newer autobuild tag and take
+      # the asset's sha256 from the GitHub release API.
       - name: Download ffmpeg (pinned + checksum-verified)
         shell: pwsh
         run: |
@@ -75,88 +86,80 @@ jobs:
           $expectedSha256 = "55ECBF2C5DB210A72D525746013F6C1AF87A8CB3D0740D42280222831FD7F157"
           $downloaded = $false
           try {
-            Write-Host "Downloading pinned ffmpeg build..."
             Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip -TimeoutSec 300
             $downloaded = $true
           } catch {
-            Write-Warning "ffmpeg download failed: $_ — building without it"
+            Write-Warning "ffmpeg download failed: $_ - building without it"
           }
           try {
             if ($downloaded) {
               $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash
               if ($actual -ne $expectedSha256) {
-                Write-Error "ffmpeg checksum mismatch — expected $expectedSha256, got $actual. Refusing to ship an unverified binary."
+                Write-Error "ffmpeg checksum mismatch - expected $expectedSha256, got $actual."
                 exit 1
               }
-              Write-Host "ffmpeg checksum OK"
               Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
               $exe = Get-ChildItem -Recurse -Filter "ffmpeg.exe" ffmpeg_tmp `
-                     | Where-Object { $_.DirectoryName -like "*bin*" } `
-                     | Select-Object -First 1
+                     | Where-Object { $_.DirectoryName -like "*bin*" } | Select-Object -First 1
               if ($exe) {
-                New-Item -ItemType Directory -Force -Path deps
+                New-Item -ItemType Directory -Force -Path deps | Out-Null
                 Copy-Item $exe.FullName -Destination deps\ffmpeg.exe
-                $mb = [math]::Round((Get-Item deps\ffmpeg.exe).Length / 1MB, 1)
-                Write-Host "ffmpeg ready ($mb MB)"
-              } else {
-                Write-Warning "ffmpeg.exe not found in archive — building without it"
-              }
+                Write-Host "ffmpeg ready"
+              } else { Write-Warning "ffmpeg.exe not found in archive" }
             }
           } finally {
             Remove-Item ffmpeg.zip, ffmpeg_tmp -Recurse -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Restore NuGet packages
-        run: dotnet restore src/Revu.App/Revu.App.csproj -r win-x64
-
-      - name: Build and publish with MSBuild
+      # ── Build the C# sidecar (self-contained win-x64). Tauri spawns this exe at
+      #    runtime; sidecar.rs's bundled lookup finds it next to the app exe. ──
+      - name: Publish sidecar (self-contained)
         shell: pwsh
         run: |
-          $publishDir = Join-Path $env:GITHUB_WORKSPACE "publish"
-          msbuild src/Revu.App/Revu.App.csproj `
-            /p:Configuration=Release `
-            /p:Platform=x64 `
-            /p:RuntimeIdentifier=win-x64 `
-            /p:SelfContained=true `
-            "/p:PublishDir=$publishDir\" `
-            /t:Publish `
-            /m `
-            /verbosity:minimal
+          dotnet publish src/Revu.Sidecar/Revu.Sidecar.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Platform=x64 `
+            -o sidecar_publish
 
-      - name: Copy ffmpeg to publish output
+      # ── Build the Tauri app (release). cargo build (not `tauri build`) so we own
+      #    the publish layout Velopack packs, instead of Tauri's own MSI/NSIS. ──
+      - name: Install Tauri CLI + frontend deps
         shell: pwsh
         run: |
-          if (Test-Path deps\ffmpeg.exe) {
-            Copy-Item deps\ffmpeg.exe publish\ffmpeg.exe
-            Write-Host "ffmpeg copied to publish output"
-          } else {
-            Write-Host "No ffmpeg to copy — clip extraction will be unavailable"
-          }
+          npm --prefix desktop install
+          cargo install tauri-cli --version "^2" --locked
+
+      - name: Build Tauri app (cargo, release)
+        shell: pwsh
+        working-directory: desktop/src-tauri
+        run: cargo build --release
+
+      # ── Assemble the publish dir Velopack will pack: the Tauri exe, the bundled
+      #    frontend (../ui), the sidecar published output, and ffmpeg. The frontend
+      #    is served from frontendDist (../ui); in a packaged build it must sit where
+      #    the exe expects it. Tauri embeds the frontend into the binary for release
+      #    builds (frontendDist is read at compile time), so only the exe + sidecar
+      #    + ffmpeg need to ship. ──
+      - name: Assemble publish dir
+        shell: pwsh
+        run: |
+          $pub = "publish"
+          New-Item -ItemType Directory -Force -Path $pub | Out-Null
+          Copy-Item "desktop/src-tauri/target/release/revu-desktop.exe" "$pub/revu-desktop.exe"
+          # Sidecar next to the app exe (sidecar.rs bundled lookup checks here first).
+          Copy-Item "sidecar_publish/*" $pub -Recurse -Force
+          if (Test-Path deps\ffmpeg.exe) { Copy-Item deps\ffmpeg.exe "$pub/ffmpeg.exe" }
+          Write-Host "Publish contents:"; Get-ChildItem $pub | Select-Object Name, Length
 
       - name: Verify publish output
         shell: pwsh
         run: |
-          $publishDir = Join-Path $env:GITHUB_WORKSPACE "publish"
-          Write-Host "Publish dir: $publishDir"
-          Write-Host "Exists: $(Test-Path $publishDir)"
-          if (Test-Path $publishDir) {
-            $exe = Get-ChildItem $publishDir -Filter "LoLReview.App.exe" -ErrorAction SilentlyContinue
-            $pri = Get-ChildItem $publishDir -Filter "resources.pri" -ErrorAction SilentlyContinue
-            Write-Host "LoLReview.App.exe: $($exe.Length) bytes"
-            Write-Host "resources.pri: $($pri.Length) bytes"
-            Write-Host "Total files: $((Get-ChildItem $publishDir | Measure-Object).Count)"
-          } else {
-            Write-Error "Publish directory not found!"
-            exit 1
-          }
+          if (-not (Test-Path "publish/revu-desktop.exe")) { Write-Error "revu-desktop.exe missing"; exit 1 }
+          if (-not (Test-Path "publish/Revu.Sidecar.exe")) { Write-Error "Revu.Sidecar.exe missing"; exit 1 }
+          Write-Host "OK: app + sidecar present"
 
-      # ───────────────────────── Code signing (Azure Artifact Signing) ─────────────────────────
-      # OIDC login FIRST: azure/login exchanges the GitHub id-token for an Azure
-      # token and exports AZURE_* env vars. The signing action uses
-      # DefaultAzureCredential, which then reads those env vars — so this step is
-      # REQUIRED (passing client/tenant ids to the action directly does NOT
-      # trigger OIDC). allow-no-subscriptions: the signing app only has the
-      # Certificate Profile Signer role, no subscription-level access.
+      # ── Code signing (Azure Artifact Signing) — unchanged identity. OIDC login
+      #    first so the signing action's DefaultAzureCredential picks up AZURE_*. ──
       - name: Azure login (OIDC)
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
@@ -164,11 +167,9 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      # Stage 1: sign the app's OWN exe in publish/ BEFORE vpk packs it. We sign
-      # only .exe (not the ~200 bundled runtime/dependency DLLs) — that's what
-      # SmartScreen judges for the "unknown publisher" warning, and signing 200
-      # DLLs one-at-a-time over the network took minutes and blew the timeout.
-      # (If Vanguard ever quarantines auto-updates, revisit signing dll too.)
+      # Sign the app + sidecar exes in publish/ BEFORE vpk packs. (exe only — the
+      # bundled .NET runtime DLLs aren't what SmartScreen judges, and signing them
+      # one-at-a-time blows the timeout, same rationale as the old WinUI flow.)
       - name: Sign published binaries
         uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
@@ -193,6 +194,8 @@ jobs:
             --repoUrl "https://github.com/${{ github.repository }}" `
             --token "${{ secrets.GITHUB_TOKEN }}"
 
+      # packId stays LoLReview so existing installs update IN PLACE (delta chain
+      # intact); only --mainExe changes to the Tauri exe.
       - name: Pack Velopack release
         shell: pwsh
         run: |
@@ -201,13 +204,11 @@ jobs:
             --packTitle "Revu" `
             --packVersion "${{ env.VERSION }}" `
             --packDir publish `
-            --mainExe LoLReview.App.exe `
+            --mainExe revu-desktop.exe `
             --outputDir Releases
 
-      # Stage 2: sign the wrapper exes Velopack injected into Releases/
-      # (Setup.exe + Update.exe). These are NOT in publish/, so stage 1 missed
-      # them. Signing must happen BEFORE upload (and before the Revu-Setup.exe
-      # copy below, so that copy inherits the signature).
+      # Sign the Velopack wrapper exes (Setup.exe + Update.exe) it injected into
+      # Releases/ — not present in publish/, so the first signing pass missed them.
       - name: Sign Velopack wrapper exes
         uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
@@ -231,12 +232,9 @@ jobs:
             --releaseName "Revu v${{ env.VERSION }}" `
             --tag "${{ env.TAG }}"
 
-      # Velopack names the installer after --packId (LoLReview-win-Setup.exe).
-      # We keep packId = LoLReview so auto-updates and delta generation stay
-      # intact, but users shouldn't download a file called "LoLReview". Ship a
-      # cleanly-named COPY (Revu-Setup.exe) as an extra release asset; the
-      # website's download button prefers it. The original setup + the RELEASES
-      # / .nupkg files Velopack needs are left untouched.
+      # Velopack names the installer after --packId (LoLReview-win-Setup.exe). We keep
+      # packId=LoLReview for update continuity but ship a cleanly-named COPY
+      # (Revu-Setup.exe) as an extra asset; the website download button prefers it.
       - name: Stage cleanly-named installer copy
         shell: pwsh
         run: |
@@ -251,9 +249,3 @@ jobs:
           tag_name: ${{ env.TAG }}
           files: Releases/Revu-Setup.exe
           fail_on_unmatched_files: true
-
-      # Coach sidecar packs (coach-core ~31 MB + coach-ml ~234 MB) were built
-      # and attached here. The AI coach feature was removed from the app for v1,
-      # so we no longer build or ship those packs. The coach/ source was removed
-      # from main; it lives on the coach-preservation branch (and in git
-      # history) for a future revival.
