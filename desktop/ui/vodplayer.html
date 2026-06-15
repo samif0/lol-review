@@ -98,6 +98,11 @@
               <div class="track"></div>
               <div class="prog" id="vp-seek-fill"></div>
               <div class="vp-markers" id="vp-markers"></div>
+              <!-- Clip range overlay: a highlighted band between the Start/End points
+                   plus a flag at each, so the in/out you set is visible on the timeline. -->
+              <div class="vp-clipband" id="vp-clip-band" hidden></div>
+              <div class="vp-clipflag vp-clipflag-in" id="vp-clip-flag-in" hidden><span>IN</span></div>
+              <div class="vp-clipflag vp-clipflag-out" id="vp-clip-flag-out" hidden><span>OUT</span></div>
               <div class="play" id="vp-playhead" style="left:0%"></div>
             </div>
           </div>

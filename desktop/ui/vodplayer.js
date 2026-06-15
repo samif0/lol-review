@@ -152,6 +152,9 @@ function onMeta() {
   // refs); refresh the readout once here so the right duration shows immediately.
   if (_T) _T.refreshReadout();
   placeMarkers(dur);
+  // Reposition any clip In/Out markers now the real duration is known (they were
+  // % of a possibly-stale fallback duration before metadata loaded).
+  renderClipOverlay();
   // A ?t=SECONDS param (from a pattern moment / bookmark) jumps straight there.
   const t = Number(new URLSearchParams(window.location.search).get('t') || 0);
   if (t > 0) { if (_T) _T.seekTo(t); v.play().catch(() => {}); }
@@ -947,6 +950,43 @@ function renderClipState() {
   document.querySelectorAll('#vp-clip-qual .q').forEach((q) => {
     q.classList.toggle('on', q.dataset.q === _clipQuality);
   });
+
+  renderClipOverlay();
+}
+
+// Draw the In/Out clip markers (and the band between them) onto the event
+// timeline so setting Start/End is visible there, not just in the Clip card.
+// Positions are % of duration; flags clamp to [0,100] so they never overflow.
+function renderClipOverlay() {
+  const band = $('vp-clip-band');
+  const flagIn = $('vp-clip-flag-in');
+  const flagOut = $('vp-clip-flag-out');
+  if (!band && !flagIn && !flagOut) return;
+
+  const v = video();
+  const dur = (v && v.duration) || (_vod && _vod.gameDurationSeconds) || 0;
+  const pct = (s) => (dur > 0 ? Math.max(0, Math.min(100, (s / dur) * 100)) : 0);
+
+  if (flagIn) {
+    const on = _clipIn >= 0;
+    show(flagIn, on);
+    if (on) flagIn.style.left = `${pct(_clipIn)}%`;
+  }
+  if (flagOut) {
+    const on = _clipOut >= 0;
+    show(flagOut, on);
+    if (on) flagOut.style.left = `${pct(_clipOut)}%`;
+  }
+  if (band) {
+    const both = _clipIn >= 0 && _clipOut >= 0;
+    show(band, both);
+    if (both) {
+      const a = pct(Math.min(_clipIn, _clipOut));
+      const b = pct(Math.max(_clipIn, _clipOut));
+      band.style.left = `${a}%`;
+      band.style.width = `${Math.max(0, b - a)}%`;
+    }
+  }
 }
 
 function setClipIn() {

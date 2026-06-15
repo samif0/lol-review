@@ -1858,6 +1858,22 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .vp-timeline .play{position:absolute;top:6px;bottom:18px;width:2px;background:#fff;
   transform:translateX(-50%);box-shadow:0 0 8px rgba(255,255,255,0.7);pointer-events:none}
 
+/* Clip In/Out indicators on the event timeline. A translucent gold band spans the
+   selected range; a gold flag (vertical line + tab label) marks each endpoint, so
+   the user sees their Start/End live on the timeline, not only in the Clip card.
+   Gold = clip, matching .ev-clip / .evbar-gold. Decorative, never a hit target. */
+.vp-timeline .vp-clipband{position:absolute;top:6px;bottom:18px;width:0;pointer-events:none;
+  background:rgba(243,199,148,0.16);border-left:1px solid rgba(243,199,148,0.0);border-right:1px solid rgba(243,199,148,0.0)}
+.vp-timeline .vp-clipband[hidden]{display:none}
+.vp-timeline .vp-clipflag{position:absolute;top:6px;bottom:18px;width:2px;pointer-events:none;
+  transform:translateX(-50%);background:var(--gold);box-shadow:0 0 8px rgba(243,199,148,0.85)}
+.vp-timeline .vp-clipflag[hidden]{display:none}
+.vp-timeline .vp-clipflag>span{position:absolute;top:-2px;left:50%;transform:translateX(-50%);
+  font-family:var(--fm);font-size:8px;font-weight:700;letter-spacing:1px;line-height:1;color:#1b1233;
+  background:var(--gold);border-radius:3px;padding:2px 4px;white-space:nowrap;box-shadow:0 2px 6px -2px rgba(243,199,148,0.7)}
+/* Nudge the OUT tab to sit left of its line so a tight range doesn't overlap labels. */
+.vp-timeline .vp-clipflag-out>span{left:auto;right:50%;transform:translateX(50%)}
+
 /* ── TAG / CLIP TOOLS (write features — disabled, coming soon) ── */
 .duo{display:grid;grid-template-columns:1fr 1.25fr;gap:14px}
 @media(max-width:560px){.duo{grid-template-columns:1fr}}
