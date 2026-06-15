@@ -30,12 +30,25 @@
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
 
-  <!-- Branded title strip (inside the webview client area; the OS keeps its own
-       window controls). Mirrors the old WinUI REVU brand mark + version. Lives in
-       the persistent shell so it never reloads on navigation. -->
-  <header class="appbar" id="appbar">
+  <!-- Custom title bar (the window is frameless: decorations:false). This branded
+       bar IS the title bar — REVU + version on the left, custom window controls on
+       the right, draggable middle (data-tauri-drag-region). Mirrors old Revu (one
+       branded bar, no separate OS strip). Lives in the persistent shell. -->
+  <header class="appbar" id="appbar" data-tauri-drag-region>
     <span class="appbar-brand">REVU</span>
     <span class="appbar-ver" id="appbar-ver"></span>
+    <span class="appbar-spring" data-tauri-drag-region></span>
+    <div class="appbar-controls">
+      <button class="winbtn" id="win-min" type="button" aria-label="Minimize" title="Minimize">
+        <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>
+      </button>
+      <button class="winbtn" id="win-max" type="button" aria-label="Maximize" title="Maximize">
+        <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><rect x="2.3" y="2.3" width="7.4" height="7.4" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+      </button>
+      <button class="winbtn winbtn-close" id="win-close" type="button" aria-label="Close" title="Close">
+        <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>
+      </button>
+    </div>
   </header>
 
   <!-- The content viewport. Pages load here; only this reloads on navigation. The

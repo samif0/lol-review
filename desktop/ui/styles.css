@@ -96,7 +96,7 @@ body{font-family:var(--fb);color:var(--t2);min-height:100vh;padding-bottom:64px;
 /* ── APP SHELL: left nav rail (static <nav> before .shell on every page) ──────
    Matches the dashboard's clean style: glass rail, Space Grotesk labels,
    accent-energized active state. The page content sits in .shell to its right. */
-.nav{position:fixed;left:0;top:0;bottom:0;width:72px;z-index:30;
+.nav{position:fixed;left:0;top:34px;bottom:0;width:72px;z-index:30;
   display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 0;
   background:rgba(12,10,28,0.55);backdrop-filter:blur(18px);
   border-right:1px solid var(--gline2);overflow:visible}
@@ -189,19 +189,28 @@ body[data-sidebar-anim="off"] .nav.nav-ready::before{animation:none}
 .nav-i:hover .tip{opacity:1;transform:translateX(0)}
 .nav-i .badge{position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--loss);box-shadow:0 0 6px var(--loss)}
 
-/* Branded title strip — a 34px bar across the top of the content area (right of the
-   72px rail), inside the webview client area so it never collides with the OS window
-   controls. Accent top-rule (the ::before gradient line) + REVU brand + version,
-   mirroring the old WinUI title bar. Persistent (lives in the shell, never reloads). */
-.appbar{position:fixed;left:72px;top:0;right:0;height:34px;z-index:3;
-  display:flex;align-items:center;gap:9px;padding:0 16px;
-  background:rgba(16,12,34,0.62);backdrop-filter:blur(10px);
+/* Custom title bar (window is frameless). Spans the FULL width at the very top and
+   IS the title bar: REVU brand + version on the left, a draggable spring in the
+   middle, custom window controls on the right. Accent top-rule via ::before. The
+   rail + content iframe both start BELOW it (top:34px). Persistent (never reloads). */
+.appbar{position:fixed;left:0;top:0;right:0;height:34px;z-index:50;
+  display:flex;align-items:center;gap:9px;padding:0 0 0 14px;
+  background:rgba(14,10,30,0.92);backdrop-filter:blur(10px);
   border-bottom:1px solid var(--gline2)}
 .appbar::before{content:'';position:absolute;left:0;right:0;top:0;height:2px;
-  background:linear-gradient(90deg,transparent,var(--accent) 18%,var(--accent) 82%,transparent);
-  opacity:0.75;pointer-events:none}
-.appbar-brand{font-family:var(--fo);font-weight:700;font-size:13px;letter-spacing:3px;color:var(--accent)}
-.appbar-ver{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t4)}
+  background:linear-gradient(90deg,var(--accent) 0%,var(--accent) 60%,transparent);
+  opacity:0.7;pointer-events:none}
+.appbar-brand{font-family:var(--fo);font-weight:700;font-size:13px;letter-spacing:3px;color:var(--accent);pointer-events:none}
+.appbar-ver{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t4);pointer-events:none}
+/* The draggable middle — fills the gap so most of the bar moves the window. */
+.appbar-spring{flex:1;align-self:stretch}
+/* Custom window controls (right). No drag region here so clicks hit the buttons. */
+.appbar-controls{display:flex;align-items:stretch;height:100%}
+.winbtn{display:flex;align-items:center;justify-content:center;width:46px;height:100%;
+  border:0;background:transparent;color:var(--t3);cursor:pointer;
+  transition:background .12s ease,color .12s ease}
+.winbtn:hover{background:rgba(255,255,255,0.08);color:#fff}
+.winbtn-close:hover{background:#e23b48;color:#fff}
 
 /* The persistent shell's content iframe — fills everything right of the 72px rail,
    below the 34px title strip. Only this element reloads on navigation; the rail +

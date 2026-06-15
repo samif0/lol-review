@@ -113,6 +113,26 @@ async function fillAppVersion() {
 }
 fillAppVersion();
 
+// ── Custom window controls (frameless title bar) ─────────────────────────────
+// The window is decorations:false, so the appbar's min/max/close buttons drive the
+// native window via the Tauri window API. withGlobalTauri exposes window.__TAURI__.
+// In browser preview these are absent → the buttons no-op silently.
+async function wireWindowControls() {
+  let getWin = null;
+  try {
+    const w = await import('@tauri-apps/api/window');
+    if (w && typeof w.getCurrentWindow === 'function') getWin = w.getCurrentWindow;
+  } catch (_) { /* fall through */ }
+  if (!getWin && window.__TAURI__?.window?.getCurrentWindow) getWin = window.__TAURI__.window.getCurrentWindow;
+  if (!getWin) return; // preview — no window API
+  const win = getWin();
+  const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener('click', () => { fn().catch(() => {}); }); };
+  on('win-min', () => win.minimize());
+  on('win-max', () => win.toggleMaximize());
+  on('win-close', () => win.close());
+}
+wireWindowControls();
+
 // ── LCU live auto-show (retargeted at the iframe) ────────────────────────────
 // Same contract as the old per-page shell.js, but it navigates the CONTENT IFRAME
 // instead of the top document, and lives ONCE on the persistent shell (so there's

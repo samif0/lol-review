@@ -1,10 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core defaults plus the Settings page native ops: shell-open the log folder, folder/save-file dialogs, and writing the Markdown export to a chosen path. The app drives these from Rust commands, but the plugin permissions are granted here so the model is explicit (and a future JS path works).",
+  "description": "Core defaults plus the Settings page native ops (shell-open the log folder, folder/save-file dialogs, Markdown export) and the frameless title bar's custom window controls (minimize / toggle-maximize / close / drag). The app drives the native ops from Rust commands; the window controls call the JS window API, so those permissions are granted explicitly.",
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
     "shell:allow-open",
     "dialog:default",
     "fs:default"
