@@ -207,6 +207,18 @@ body[data-sidebar-anim="off"] .nav.nav-ready::before{animation:none}
   opacity:0.7;pointer-events:none}
 .appbar-brand{font-family:var(--fo);font-weight:700;font-size:13px;letter-spacing:3px;color:var(--accent);pointer-events:none}
 .appbar-ver{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t4);pointer-events:none}
+/* LCU (League Client) connection chip — sits next to the version. Dim + grey when
+   disconnected; green dot + label when the client is connected. The win/green is
+   the same token the old app's green connection line used, kept subtle so the
+   purple title bar still reads as the brand. */
+.appbar-lcu{display:flex;align-items:center;gap:5px;margin-left:4px;
+  font-family:var(--fm);font-size:9px;letter-spacing:1.5px;color:var(--t4);
+  opacity:0.7;transition:color .2s ease,opacity .2s ease}
+.appbar-lcu-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;
+  background:var(--t4);box-shadow:none;transition:background .2s ease,box-shadow .2s ease}
+.appbar-lcu.on{color:var(--win);opacity:1}
+.appbar-lcu.on .appbar-lcu-dot{background:var(--win);
+  box-shadow:0 0 7px rgba(142,231,186,0.9);animation:dot-pulse 2.4s ease-in-out infinite}
 /* The draggable middle — fills the gap so most of the bar moves the window. */
 .appbar-spring{flex:1;align-self:stretch}
 /* Custom window controls (right). No drag region here so clicks hit the buttons. */

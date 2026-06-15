@@ -36,6 +36,13 @@
   <header class="appbar" id="appbar" data-tauri-drag-region>
     <span class="appbar-brand">REVU</span>
     <span class="appbar-ver" id="appbar-ver"></span>
+    <!-- LCU (League Client) connection indicator. Dot + label; lights green when the
+         client is connected. Driven by shell-outer.js off the SSE liveState +
+         lcuConnection events. Starts in the disconnected (dim) state. -->
+    <span class="appbar-lcu" id="appbar-lcu" title="League Client: not connected">
+      <span class="appbar-lcu-dot"></span>
+      <span class="appbar-lcu-txt">LCU</span>
+    </span>
     <span class="appbar-spring" data-tauri-drag-region></span>
     <div class="appbar-controls">
       <button class="winbtn" id="win-min" type="button" aria-label="Minimize" title="Minimize">

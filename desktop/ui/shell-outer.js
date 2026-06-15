@@ -113,6 +113,17 @@ async function fillAppVersion() {
 }
 fillAppVersion();
 
+// ── LCU (League Client) connection indicator ─────────────────────────────────
+// Toggles the appbar's LCU chip between connected (green dot) and not. Called from
+// the SSE listener below: seeded by the replayed liveState, updated live by the
+// lcuConnection event. Pure DOM toggle — safe to call before the stream is wired.
+function setLcuIndicator(connected) {
+  const el = document.getElementById('appbar-lcu');
+  if (!el) return;
+  el.classList.toggle('on', !!connected);
+  el.title = connected ? 'League Client: connected' : 'League Client: not connected';
+}
+
 // ── Custom window controls (frameless title bar) ─────────────────────────────
 // The window is decorations:false, so the appbar's min/max/close buttons drive the
 // native window via the Tauri window API. withGlobalTauri exposes window.__TAURI__.
@@ -168,12 +179,16 @@ async function wireLiveAutoShow() {
       case 'gameEnded':
       case 'champSelectCancelled': leaveLiveSurface(); break;
       case 'liveState':
+        // The replayed snapshot carries the current client state — seed the LCU
+        // indicator from it (live changes arrive via 'lcuConnection' below).
+        setLcuIndicator(!!p.lcuConnected);
         if (!sawFirstLiveState) {
           sawFirstLiveState = true;
           if (p.isGameInProgress) goto('ingame.html');
           else if (p.sessionKey) goto('pregame.html');
         }
         break;
+      case 'lcuConnection': setLcuIndicator(!!p.connected); break;
       default: break;
     }
   });
