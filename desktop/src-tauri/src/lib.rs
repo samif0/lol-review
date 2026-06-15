@@ -324,6 +324,31 @@ async fn delete_game(payload: serde_json::Value) -> Result<serde_json::Value, St
     sidecar::post_json("/api/game/delete", payload).await
 }
 
+/// DESTRUCTIVE: wipe ALL data and start fresh. The sidecar takes a full backup
+/// FIRST (returns its path), then clears. On success the app RELAUNCHES so it
+/// rehydrates from the empty DB cleanly. The frontend MUST type-to-confirm first.
+/// See Revu.Sidecar POST /api/settings/reset.
+#[tauri::command]
+async fn reset_all_data(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    // Sidecar resets the DB (full backup taken first, server-side). Propagate any
+    // error to the caller; only relaunch on success.
+    let _ = sidecar::post_json("/api/settings/reset", serde_json::json!({})).await?;
+    // Relaunch so the app rehydrates from the fresh DB. restart() exits the current
+    // process (the new instance deletes the stale handshake + spawns its own sidecar);
+    // it never returns, so no value is produced past this point.
+    app.restart();
+}
+
+/// DESTRUCTIVE: replace the live DB with a chosen backup ({backupFilePath}). The
+/// sidecar takes a PRE-RESTORE safety backup FIRST, then swaps the file. On success
+/// the app RELAUNCHES so it loads the restored DB. The frontend MUST confirm first.
+/// See Revu.Sidecar POST /api/settings/restore.
+#[tauri::command]
+async fn restore_backup(app: tauri::AppHandle, payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    let _ = sidecar::post_json("/api/settings/restore", payload).await?;
+    app.restart();
+}
+
 /// Saves an in-progress review draft (so nav-away to VOD doesn't lose edits).
 /// See Revu.Sidecar POST /api/review/draft/save.
 #[tauri::command]
@@ -799,6 +824,8 @@ pub fn run() {
             run_reset,
             save_config,
             delete_game,
+            reset_all_data,
+            restore_backup,
             save_review_draft,
             set_evidence_polarity,
             set_evidence_objective,

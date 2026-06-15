@@ -586,6 +586,34 @@ app.MapGet("/api/settings/export", async (IReviewExportService export, ILogger<P
     return Results.Json(new { ok = true, markdown, fileName }, jsonOptions);
 });
 
+// POST /api/settings/reset — DESTRUCTIVE: wipe all data and start fresh. The Core
+// IBackupService.ResetAllDataAsync ALWAYS takes a full backup FIRST (returns its
+// path), then clears, so this can never blind-overwrite. The Tauri host relaunches
+// the app on success. Returns { ok, backupPath } or { ok:false, error }.
+app.MapPost("/api/settings/reset", async (WriteServices w, ILogger<Program> log) =>
+{
+    var result = await w.Backup.ResetAllDataAsync();
+    if (!result.Success)
+        return Results.Json(new { ok = false, error = result.ErrorMessage ?? "Reset failed." }, jsonOptions, statusCode: 422);
+    log.LogWarning("Reset all data (backup at {BackupPath})", result.BackupFilePath);
+    return Results.Json(new { ok = true, backupPath = result.BackupFilePath }, jsonOptions);
+});
+
+// POST /api/settings/restore { backupFilePath } — DESTRUCTIVE: replace the live DB
+// with a chosen backup. Core RestoreFromBackupAsync takes a PRE-RESTORE safety
+// backup FIRST (returns its path), then swaps in the chosen file. The Tauri host
+// relaunches on success. Returns { ok, preRestoreBackupPath } or { ok:false, error }.
+app.MapPost("/api/settings/restore", async (RestoreBackupBody body, WriteServices w, ILogger<Program> log) =>
+{
+    if (body is null || string.IsNullOrWhiteSpace(body.BackupFilePath))
+        return Results.BadRequest(new { error = "backupFilePath required" });
+    var result = await w.Backup.RestoreFromBackupAsync(body.BackupFilePath);
+    if (!result.Success)
+        return Results.Json(new { ok = false, error = result.ErrorMessage ?? "Restore failed." }, jsonOptions, statusCode: 422);
+    log.LogWarning("Restored backup {Path} (pre-restore backup at {PreBackup})", body.BackupFilePath, result.PreRestoreBackupFilePath);
+    return Results.Json(new { ok = true, preRestoreBackupPath = result.PreRestoreBackupFilePath }, jsonOptions);
+});
+
 // GET /api/review/export?gameId=N — SINGLE-game review markdown (for the review
 // page's Copy + Export). Reuses ReviewExportService.ExportGameAsync (returns null
 // when the game doesn't exist). The review page copies the markdown to the
@@ -2055,6 +2083,7 @@ static async Task PersistObjectiveSideTablesAsync(
 // ── Write-endpoint request bodies ────────────────────────────────────────────
 internal sealed record StartBlockBody(string Intention);
 internal sealed record EndBlockBody(int Rating, string? Note);
+internal sealed record RestoreBackupBody(string BackupFilePath);
 internal sealed record GameIdBody(long GameId);
 internal sealed record ObjectiveIdBody(long Id);
 

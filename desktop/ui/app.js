@@ -83,14 +83,29 @@ function renderHeader(d) {
 }
 
 // ── render: next step ───────────────────────────────────────────────────────
+// A session block is ACTIVE when Start Block set an intention (intent.sessionIntention)
+// but End Block hasn't recorded a debrief yet (intent.debriefRating == null). In that
+// state the card flips to "End Block" (the close-out ritual) over the active intention.
 function renderNextStep(d) {
   const ns = d.nextStep || {};
+  const intent = d.intent || {};
+  const blockActive = !!intent.sessionIntention && (intent.debriefRating == null);
+  const cta = $('nextstep-cta');
+
+  if (blockActive) {
+    $('nextstep-k').textContent = 'In session · End Block';
+    $('nextstep-h').textContent = 'Wrap the block.';
+    $('nextstep-p').textContent = `Focus: ${intent.sessionIntention}. Rate how the block went and lock it in.`;
+    cta.textContent = 'END BLOCK →';
+    cta.dataset.action = 'end_block';
+    return;
+  }
+
   // Server may override the card copy; defaults match the mockup.
   $('nextstep-k').textContent = ns.kicker || 'Next step · Start Block';
   $('nextstep-h').textContent = ns.title || 'Set your intent before you queue.';
   $('nextstep-p').textContent = ns.detail ||
     'A 30-second ritual: name one focus, check your priority objective, lock in.';
-  const cta = $('nextstep-cta');
   cta.textContent = ns.ctaLabel || 'START BLOCK →';
   cta.dataset.action = ns.action || 'start_block';
 }
@@ -383,6 +398,100 @@ function openIntentEditor(cta) {
   });
 }
 
+// ── inline End Block editor ──────────────────────────────────────────────────
+// Clicking END BLOCK swaps the button for a small close-out ritual in place: rate
+// the block 1-10 (required) + an optional note, then invoke('end_block') and reload.
+// Mirrors the Start Block editor. Escape / Cancel aborts without touching the backend.
+let _endBlockOpen = false;
+function openEndBlockEditor(cta) {
+  if (_endBlockOpen) return;
+  _endBlockOpen = true;
+  const body = cta.closest('.body') || cta.parentElement;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'intent-edit';
+
+  const ratingRow = document.createElement('div');
+  ratingRow.className = 'endblock-rating';
+  const ratingLabel = document.createElement('span');
+  ratingLabel.className = 'endblock-rating-k';
+  ratingLabel.textContent = 'How did the block go?';
+  ratingRow.appendChild(ratingLabel);
+  const chips = document.createElement('div');
+  chips.className = 'endblock-chips';
+  let _rating = 0;
+  for (let n = 1; n <= 10; n++) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'endblock-chip';
+    chip.textContent = String(n);
+    chip.addEventListener('click', () => {
+      _rating = n;
+      chips.querySelectorAll('.endblock-chip').forEach((c, i) => c.classList.toggle('on', i + 1 === n));
+    });
+    chips.appendChild(chip);
+  }
+  ratingRow.appendChild(chips);
+
+  const note = document.createElement('input');
+  note.type = 'text';
+  note.className = 'intent-input';
+  note.maxLength = 240;
+  note.placeholder = 'Optional: a note on how it went…';
+  note.setAttribute('aria-label', 'Block note');
+
+  const actions = document.createElement('div');
+  actions.className = 'intent-actions';
+  const confirm = document.createElement('button');
+  confirm.type = 'button';
+  confirm.className = 'cta cta-sm';
+  confirm.textContent = 'LOCK IN →';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'intent-cancel';
+  cancel.textContent = 'Cancel';
+  actions.append(confirm, cancel);
+
+  wrap.append(ratingRow, note, actions);
+  cta.hidden = true;
+  body.appendChild(wrap);
+
+  function close(restoreButton) {
+    _endBlockOpen = false;
+    wrap.remove();
+    if (restoreButton) cta.hidden = false;
+  }
+
+  async function submit() {
+    if (_rating < 1) { chips.classList.add('endblock-chips-need'); return; }
+    const invoke = await getInvoke();
+    if (!invoke) {
+      console.info('[dashboard] (preview) end_block — no Tauri backend.');
+      close(true);
+      return;
+    }
+    confirm.disabled = true;
+    note.disabled = true;
+    try {
+      await invoke('end_block', { payload: { rating: _rating, note: note.value.trim() } });
+      close(false);
+      await loadDashboard();
+    } catch (err) {
+      renderError(err);
+      console.error('[dashboard] action "end_block" failed:', err);
+      confirm.disabled = false;
+      note.disabled = false;
+    }
+  }
+
+  confirm.addEventListener('click', submit);
+  cancel.addEventListener('click', () => close(true));
+  note.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); submit(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); close(true); }
+  });
+}
+
 // ── single delegated action handler ─────────────────────────────────────────
 // start_block  = opens the inline intention editor → invoke('start_block').
 // skip_review  = the per-row SKIP chip → invoke('skip_review',{gameId}), reload.
@@ -391,7 +500,7 @@ function openIntentEditor(cta) {
 //                rendered on the dashboard.
 // open_review  = clicking a whole unreviewed row (→ review page, deferred).
 // review_vod   = the separate VOD-evidence hint (→ vod viewer, deferred).
-const ACTIONS = new Set(['start_block', 'run_reset', 'skip_review', 'review_vod', 'take_next_step', 'open_review']);
+const ACTIONS = new Set(['start_block', 'end_block', 'run_reset', 'skip_review', 'review_vod', 'take_next_step', 'open_review']);
 
 // Nav-only stubs: no backend command yet.
 const DEFERRED = new Set(['take_next_step']);
@@ -415,6 +524,12 @@ document.addEventListener('click', async (ev) => {
   // START BLOCK is interactive: collect the intention inline before writing.
   if (action === 'start_block') {
     openIntentEditor(target);
+    return;
+  }
+
+  // END BLOCK is interactive too: the close-out ritual (rating + note) inline.
+  if (action === 'end_block') {
+    openEndBlockEditor(target);
     return;
   }
 

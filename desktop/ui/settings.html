@@ -102,15 +102,31 @@
 
     <div class="card set-card">
       <div class="seclabel">Available Backups</div>
-      <div class="set-row-s">Saved DB snapshots, newest first.</div>
+      <div class="set-row-s">Saved DB snapshots, newest first. Select one to restore.</div>
       <div class="set-backups" id="backups-list"></div>
       <div class="set-status" id="backups-empty" hidden>No backups found yet.</div>
       <div class="set-btnrow">
         <button class="rule-act" type="button" data-action="refresh_backups">Refresh list</button>
-        <button class="rule-act set-act-disabled" type="button" data-action="restore_backup" disabled
-                title="Restore relaunches the app; coming soon to the desktop shell.">Restore (coming soon)</button>
+        <button class="rule-act" type="button" id="restore-btn" data-action="restore_backup" disabled
+                title="Select a backup above to restore">Restore selected</button>
       </div>
-      <div class="set-acct-note">Restoring a backup relaunches the app, so it's handled in the current build for now.</div>
+      <div class="set-status" id="restore-status" hidden></div>
+      <div class="set-acct-note">Restoring takes a safety backup of your current data first, then relaunches the app.</div>
+    </div>
+
+    <!-- DANGER ZONE: reset all data. Type-to-confirm; a full backup is taken first. -->
+    <div class="card set-card set-danger">
+      <div class="seclabel set-danger-k">Danger zone</div>
+      <div class="seclabel">Reset all data</div>
+      <div class="set-row-s">Wipes every game, review, objective, rule, and note and starts fresh. A full backup is taken first, then the app relaunches. This cannot be undone except by restoring that backup.</div>
+      <div class="obj-field" style="margin-top:10px">
+        <div class="obj-field-k">Type RESET to confirm</div>
+        <input class="obj-input" id="reset-confirm" type="text" spellcheck="false" autocomplete="off" placeholder="RESET" />
+      </div>
+      <div class="set-btnrow">
+        <button class="rule-act set-danger-btn" type="button" id="reset-btn" data-action="reset_all_data" disabled>Reset all data</button>
+      </div>
+      <div class="set-status" id="reset-status" hidden></div>
     </div>
 
     <!-- APP BEHAVIOR -->

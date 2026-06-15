@@ -132,15 +132,20 @@ function renderStatus(s) {
   applyStatusText($('ascent-status'), s.ascent, '');
   applyStatusText($('clip-usage'), s.clipUsage, '');
 
-  // Backups list.
+  // Backups list — each row is selectable; selecting one enables Restore.
   const list = $('backups-list');
   const empty = $('backups-empty');
   const backups = Array.isArray(s.backups) ? s.backups : [];
   if (list) {
     clearEl(list);
+    _selectedBackupPath = '';
+    syncRestoreEnabled();
     for (const b of backups) {
       const row = document.createElement('div');
       row.className = 'set-backup-row';
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+      if (b.filePath) row.dataset.path = b.filePath;
 
       const label = document.createElement('div');
       label.className = 'set-backup-label';
@@ -160,6 +165,28 @@ function renderStatus(s) {
   }
   show(empty, backups.length === 0);
 }
+
+// ── Restore-backup selection + Reset-confirm gating ──────────────────────────
+let _selectedBackupPath = '';
+function syncRestoreEnabled() {
+  const btn = $('restore-btn');
+  if (btn) btn.disabled = !_selectedBackupPath;
+}
+// Select a backup row (delegated; rows re-render on refresh).
+document.addEventListener('click', (ev) => {
+  const row = ev.target.closest && ev.target.closest('.set-backup-row');
+  if (!row || !row.dataset.path) return;
+  _selectedBackupPath = row.dataset.path;
+  document.querySelectorAll('.set-backup-row').forEach((r) => r.classList.toggle('on', r === row));
+  syncRestoreEnabled();
+});
+// Reset button enables only when the confirm box reads exactly RESET.
+document.addEventListener('input', (ev) => {
+  if (ev.target && ev.target.id === 'reset-confirm') {
+    const btn = $('reset-btn');
+    if (btn) btn.disabled = ev.target.value.trim() !== 'RESET';
+  }
+});
 
 // ── collect the editable surface into a save payload ────────────────────────
 // Only fields the page owns; the sidecar read-modify-writes so unrelated config
@@ -260,6 +287,7 @@ function setSaveStatus(text, tone) { setStatusEl($('save-status'), text, tone, t
 const ACTIONS = new Set([
   'save_config', 'pick_ascent', 'pick_clips', 'pick_backup', 'clear_ascent',
   'scan_vods', 'refresh_backups', 'export_data', 'open_logs',
+  'restore_backup', 'reset_all_data',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -291,11 +319,59 @@ document.addEventListener('click', async (ev) => {
     if (action === 'refresh_backups') return await loadStatus();
     if (action === 'export_data') return await doExport(invoke, target);
     if (action === 'open_logs') return await invoke('open_log_folder');
+    if (action === 'restore_backup') return await doRestore(invoke, target);
+    if (action === 'reset_all_data') return await doReset(invoke, target);
   } catch (err) {
     console.error(`[settings] ${action} failed:`, err);
     renderError(err);
   }
 });
+
+// Restore the selected backup. The sidecar takes a pre-restore safety backup first;
+// on success the app RELAUNCHES (the invoke never resolves — the process restarts).
+async function doRestore(invoke, target) {
+  if (!_selectedBackupPath) { setStatusEl($('restore-status'), 'Select a backup to restore.', 'bad', true); return; }
+  const ok = window.confirm(
+    'Restore this backup?\n\nYour current data will be replaced by the selected backup. A safety backup of your current data is taken first, then the app relaunches.');
+  if (!ok) return;
+  if ('disabled' in target) target.disabled = true;
+  setStatusEl($('restore-status'), 'Restoring… the app will relaunch.', null, false);
+  try {
+    // restore_backup relaunches the app on success, so this call won't return.
+    await invoke('restore_backup', { payload: { backupFilePath: _selectedBackupPath } });
+  } catch (err) {
+    setStatusEl($('restore-status'), errText(err) || 'Restore failed.', 'bad', false);
+    if ('disabled' in target) target.disabled = false;
+    console.error('[settings] restore_backup failed:', err);
+  }
+}
+
+// Reset all data (gated behind the type-RESET confirm + a final dialog). The sidecar
+// takes a FULL backup first; on success the app RELAUNCHES.
+async function doReset(invoke, target) {
+  const box = $('reset-confirm');
+  if (!box || box.value.trim() !== 'RESET') { setStatusEl($('reset-status'), 'Type RESET to confirm.', 'bad', true); return; }
+  const ok = window.confirm(
+    'Reset ALL data?\n\nEvery game, review, objective, rule, and note will be wiped. A full backup is taken first (you can restore it), then the app relaunches. This cannot be undone otherwise.');
+  if (!ok) return;
+  if ('disabled' in target) target.disabled = true;
+  setStatusEl($('reset-status'), 'Resetting… a backup is being taken and the app will relaunch.', null, false);
+  try {
+    // reset_all_data relaunches the app on success, so this call won't return.
+    await invoke('reset_all_data');
+  } catch (err) {
+    setStatusEl($('reset-status'), errText(err) || 'Reset failed.', 'bad', false);
+    if ('disabled' in target) target.disabled = false;
+    console.error('[settings] reset_all_data failed:', err);
+  }
+}
+
+// Normalize a sidecar/Tauri error to a readable string (strip the HTTP prefix).
+function errText(err) {
+  const s = (err && err.message) ? err.message : String(err);
+  const m = s.match(/sidecar HTTP \d+:\s*(.*)$/i);
+  return m ? m[1] : s;
+}
 
 // save_config = persist the editable surface; refetch after to reflect the
 // canonical (and server-normalized, e.g. lower-cased region) values + status.
