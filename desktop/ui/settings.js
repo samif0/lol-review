@@ -100,12 +100,31 @@ function render(d) {
     setToggle($(f), !!d[f]);
   }
 
-  // Account email (display-only; visible when signed in).
+  // Riot account attachment status. "Attached" means we have a stored identity
+  // (riotId) — independent of an active OTP session — so a configured account
+  // still reads as attached after a session lapses. The email line is the
+  // stronger "signed in this session" signal and stays gated on the live state.
+  const signedIn = d.riotAuthState === 'loggedIn' && !!d.riotSessionEmail;
+  const attached = signedIn || !!(d.riotId && String(d.riotId).trim());
+  const stateEl = $('acct-state');
+  const dotEl = $('acct-dot');
+  const statusEl = $('acct-status');
+  if (stateEl) {
+    if (attached) {
+      const region = d.region ? ` · ${String(d.region).toUpperCase()}` : '';
+      stateEl.textContent = `Account attached: ${d.riotId}${region}`;
+    } else {
+      stateEl.textContent = 'No account attached';
+    }
+  }
+  if (dotEl) dotEl.classList.toggle('on', attached);
+  if (statusEl) statusEl.classList.toggle('on', attached);
+
+  // Account email (display-only; visible when signed in this session).
   const email = $('acct-email');
   if (email) {
-    const signedIn = d.riotAuthState === 'loggedIn' && d.riotSessionEmail;
     if (signedIn) email.textContent = `Signed in as ${d.riotSessionEmail}`;
-    show(email, !!signedIn);
+    show(email, signedIn);
   }
 
   // Header status line.

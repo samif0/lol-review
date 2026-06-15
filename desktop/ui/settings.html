@@ -194,6 +194,10 @@
     <div class="seclabel seclabel-lead">Riot Account</div>
 
     <div class="card set-card set-account">
+      <div class="set-acct-status" id="acct-status">
+        <span class="set-acct-dot" id="acct-dot"></span>
+        <span class="set-acct-state" id="acct-state">Not signed in</span>
+      </div>
       <div class="set-acct-email" id="acct-email" hidden></div>
       <div class="obj-field">
         <div class="obj-field-k">Riot ID</div>
@@ -201,7 +205,7 @@
       </div>
       <div class="obj-field">
         <div class="obj-field-k">Region</div>
-        <select class="obj-input" id="region">
+        <select class="obj-input obj-select" id="region">
           <option value="na1">NA</option><option value="br1">BR</option>
           <option value="la1">LAN</option><option value="la2">LAS</option>
           <option value="euw1">EUW</option><option value="eun1">EUNE</option>
