@@ -34,6 +34,14 @@
     <div class="hero"><h1 id="vp-title">Loading recording…</h1></div>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
+    <!-- Sign-in hint: sharing clips to revu.lol needs a signed-in account. Shown
+         only when signed out (the JS checks get_auth_status on load). -->
+    <a class="vp-signin-hint" id="vp-signin-hint" href="onboarding.html" hidden>
+      <span class="vp-signin-dot"></span>
+      <span class="vp-signin-txt"><b>Sign in to share clips.</b> Saving and bookmarking work offline — publishing a clip link to revu.lol needs a signed-in account.</span>
+      <span class="vp-signin-cta">Sign in →</span>
+    </a>
+
     <!-- No-VOD state -->
     <div class="card vp-novod" id="vp-novod" hidden>
       <div class="vline">No recording found for this game.</div>

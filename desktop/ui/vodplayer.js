@@ -740,6 +740,7 @@ async function shareVerify() {
     // Session persisted server-side — now upload the clip we stashed at Share time.
     const bmId = _pendingShareBmId;
     cancelShareLogin();
+    refreshSignInHint(); // now signed in — drop the banner
     if (bmId) await uploadShare(bmId);
   } catch (err) {
     shareLoginErr(errText(err));
@@ -771,6 +772,9 @@ async function uploadShare(bmId) {
   } catch (err) {
     // The Tauri layer surfaces "sidecar HTTP 401: …" for an expired session.
     if (/401|needsLogin|logged in|log in/i.test(String(err))) {
+      // Reset the button out of its "Sharing…" state — otherwise it sticks on
+      // "SHARING…" forever while the login panel is up (or after it's dismissed).
+      setShareBtnBusy(bmId, false, 'Share clip');
       openShareLogin(bmId, _shareEmail);
     } else {
       // Surface the real reason (e.g. the 90s-cap "trim and re-clip" message) on the
@@ -1188,6 +1192,23 @@ async function boot() {
   } catch (err) {
     renderError(err);
     console.error('[vodplayer] load failed:', err);
+  }
+  // Best-effort: surface the "sign in to share" hint when signed out. Never
+  // blocks the player — a failed/absent auth check just leaves the banner hidden.
+  refreshSignInHint();
+}
+
+// Show the sign-in hint banner only when signed out. Sharing a clip to revu.lol
+// needs an account; everything else on this page works offline.
+async function refreshSignInHint() {
+  const hint = $('vp-signin-hint');
+  if (!hint || !_core) return;
+  try {
+    const s = await _core.invoke('get_auth_status');
+    show(hint, !(s && s.signedIn));
+  } catch (_) {
+    // Auth status unavailable — don't nag; leave the hint hidden.
+    show(hint, false);
   }
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

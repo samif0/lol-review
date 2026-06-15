@@ -1740,6 +1740,22 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .vp-wrap{margin-top:22px}
 .vp-novod{margin-top:18px}
 
+/* Sign-in hint banner — gold/amber, shown only when signed out. Whole banner is
+   a link to onboarding. Sits between the statusline and the player. */
+.vp-signin-hint{display:flex;align-items:center;gap:12px;margin-top:14px;
+  padding:11px 16px;border-radius:12px;text-decoration:none;cursor:pointer;
+  border:1px solid rgba(243,199,148,0.34);background:rgba(243,199,148,0.08);
+  transition:border-color .16s ease,background .16s ease}
+.vp-signin-hint[hidden]{display:none}
+.vp-signin-hint:hover{border-color:rgba(243,199,148,0.55);background:rgba(243,199,148,0.13)}
+.vp-signin-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;
+  background:var(--gold);box-shadow:0 0 9px rgba(243,199,148,0.85)}
+.vp-signin-txt{flex:1;min-width:0;font-family:var(--fb);font-size:12.5px;line-height:1.45;color:var(--t3)}
+.vp-signin-txt b{color:var(--gold);font-weight:600}
+.vp-signin-cta{flex-shrink:0;font-family:var(--fm);font-size:10px;letter-spacing:1px;
+  text-transform:uppercase;font-weight:700;color:#1b1233;background:linear-gradient(180deg,#f6cfa0,var(--gold));
+  border-radius:8px;padding:7px 13px;box-shadow:0 6px 16px -8px rgba(243,199,148,0.6)}
+
 /* OPEN REVIEW primary card — the one loud element (accent rim/glow + CTA). */
 .vp-primary{display:flex;flex-direction:row;align-items:center;gap:22px;margin:0 0 22px;padding:20px 24px}
 .vp-primary .body{flex:1}
