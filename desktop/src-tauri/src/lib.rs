@@ -677,7 +677,17 @@ async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     // Async commands run off the main thread, so the blocking dialog variant is
     // the canonical pattern here (no callback/channel threading to reason about).
     let picked = app.dialog().file().blocking_pick_folder();
-    Ok(picked.map(|p| p.to_string()))
+    // FilePath is an enum: Path(PathBuf) on most desktop picks, but Url(file://…)
+    // on some platforms/configs. `to_string()` on the Url variant yields a
+    // "file:///C:/Users/…" URI with forward slashes — which the sidecar then
+    // stores verbatim and Directory.Exists rejects, so the Ascent scan silently
+    // finds nothing. into_path() normalises BOTH variants to a real filesystem
+    // path (same fix save_export_file already uses). On the rare Url-resolve
+    // failure, fall back to to_string() rather than dropping the pick entirely.
+    Ok(picked.map(|p| match p.clone().into_path() {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(_) => p.to_string(),
+    }))
 }
 
 /// Opens a native "Save As" dialog (default name from the sidecar) and writes the
