@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Core defaults plus the Settings page native ops: shell-open the log folder, folder/save-file dialogs, and writing the Markdown export to a chosen path. The app drives these from Rust commands, but the plugin permissions are granted here so the model is explicit (and a future JS path works).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "dialog:default",
+    "fs:default"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-06-14T20:00:00",
+  "hasVod": false,
+  "gameId": 5580598581,
+  "filePath": "",
+  "fileName": "06-12-2026-20-59.mp4",
+  "championName": "Sivir",
+  "enemyChampion": "Senna",
+  "resultText": "Victory",
+  "resultColorHex": "#8ee7ba",
+  "gameMode": "Ranked Solo/Duo",
+  "datePlayed": "Jun 12, 20:59",
+  "gameDurationSeconds": 1820,
+  "bookmarks": [
+    { "id": 1, "gameTimeSeconds": 323, "timeLabel": "5:23", "note": "Good trade level 3", "tagsJson": "", "hasClip": false, "clipStartSeconds": null, "clipEndSeconds": null },
+    { "id": 2, "gameTimeSeconds": 761, "timeLabel": "12:41", "note": "Caught without vision", "tagsJson": "", "hasClip": true, "clipStartSeconds": 750, "clipEndSeconds": 775 }
+  ],
+  "gameEvents": [
+    { "id": 11, "eventType": "FIRST_BLOOD", "gameTimeSeconds": 184, "timeLabel": "3:04", "shortLabel": "FB", "label": "First Blood", "summary": "", "kind": "loss", "colorHex": "#f3a3a8" },
+    { "id": 12, "eventType": "KILL", "gameTimeSeconds": 327, "timeLabel": "5:27", "shortLabel": "KIL", "label": "Kill", "summary": "Senna", "kind": "win", "colorHex": "#8ee7ba" },
+    { "id": 13, "eventType": "DRAGON", "gameTimeSeconds": 612, "timeLabel": "10:12", "shortLabel": "DRG", "label": "Dragon", "summary": "Infernal", "kind": "gold", "colorHex": "#f3c794" },
+    { "id": 14, "eventType": "DEATH", "gameTimeSeconds": 765, "timeLabel": "12:45", "shortLabel": "DTH", "label": "Death", "summary": "Lee Sin", "kind": "loss", "colorHex": "#f3a3a8" },
+    { "id": 15, "eventType": "BARON", "gameTimeSeconds": 1420, "timeLabel": "23:40", "shortLabel": "BAR", "label": "Baron", "summary": "by Sivir", "kind": "gold", "colorHex": "#f3c794" }
+  ],
+  "autoMoments": [
+    { "id": 31, "sourceKind": "timeline_region", "sourceId": null, "startTimeSeconds": 180, "endTimeSeconds": 200, "timeLabel": "3:00", "title": "Early death", "note": "", "objectiveId": null, "objectiveTitle": "", "polarity": "bad", "polarityColorHex": "#f3a3a8", "status": "needs_review", "hasClip": false },
+    { "id": 32, "sourceKind": "timeline_region", "sourceId": null, "startTimeSeconds": 605, "endTimeSeconds": 625, "timeLabel": "10:05", "title": "Dragon fight", "note": "Good rotation", "objectiveId": 4, "objectiveTitle": "Track jungle pathing", "polarity": "good", "polarityColorHex": "#8ee7ba", "status": "evidence", "hasClip": false }
+  ],
+  "savedClips": [
+    { "id": 41, "sourceKind": "clip", "sourceId": 2, "startTimeSeconds": 750, "endTimeSeconds": 775, "timeLabel": "12:30", "title": "Caught without vision", "note": "Stepped up with no ward", "objectiveId": null, "objectiveTitle": "", "polarity": "bad", "polarityColorHex": "#f3a3a8", "status": "needs_review", "hasClip": true }
+  ]
+}

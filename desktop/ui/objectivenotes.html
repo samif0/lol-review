@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Objective Notes</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+<style>
+  /* ── Page-scoped chrome (mirrors house vars; no SolidColorBrush). ─────────── */
+  .on-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px}
+  .on-back{flex-shrink:0;margin-top:3px;font-family:var(--fo);font-size:18px;line-height:1;
+    color:var(--t3);background:transparent;border:1px solid var(--gline2);border-radius:10px;
+    width:34px;height:34px;cursor:pointer;transition:transform .16s cubic-bezier(0.22,1,0.36,1),color .16s ease,border-color .16s ease}
+  .on-back:hover{color:#fff;border-color:var(--gline);transform:translateX(-2px)}
+  .on-back:active{transform:translateX(0);transition-duration:.06s}
+  .on-titles{min-width:0}
+  .on-title{font-family:var(--fo);font-size:24px;font-weight:600;color:#fff;letter-spacing:0.3px;line-height:1.15}
+  .on-status{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3);margin-top:6px}
+
+  /* A note section: eyebrow + a stack of cards. */
+  .on-sec{margin-bottom:8px}
+  .on-eyebrow{font-family:var(--fm);font-size:11px;letter-spacing:var(--label-spacing);text-transform:uppercase;
+    margin:0 0 11px 3px}
+  .on-eyebrow-gold{color:var(--gold)}
+  .on-eyebrow-blue{color:#a9c8ff}
+  .on-eyebrow-purple{color:var(--accent)}
+  .on-list{display:flex;flex-direction:column;gap:8px}
+
+  /* A note card (shared shell). */
+  .on-card{padding:14px 16px;border-radius:12px;background:var(--glass2);border:1px solid var(--gline2)}
+  .on-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .on-card-main{min-width:0}
+  .on-card-header{font-family:var(--fb);font-size:12px;font-weight:600;color:var(--t3);letter-spacing:0.3px}
+  .on-card-body{font-size:13px;color:#fff;line-height:1.5;margin-top:6px;white-space:pre-wrap}
+  .on-card-body.italic{font-style:italic;color:var(--t2)}
+
+  /* Open / Play jump buttons. */
+  .on-jump{flex-shrink:0;font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;
+    border-radius:8px;padding:6px 11px;cursor:pointer;white-space:nowrap;align-self:flex-start;
+    transition:transform .16s cubic-bezier(0.22,1,0.36,1),color .16s ease,background .16s ease,border-color .16s ease}
+  .on-jump:hover{transform:translateY(-1px)}
+  .on-jump:active{transform:translateY(0);transition-duration:.06s}
+  .on-jump-open{color:var(--t2);border:1px solid var(--gline2);background:var(--glass)}
+  .on-jump-open:hover{color:#fff;border-color:var(--gline);background:rgba(157,139,255,0.10)}
+  .on-jump-play{color:var(--accent);border:1px solid rgba(157,139,255,0.45);background:rgba(157,139,255,0.08)}
+  .on-jump-play:hover{color:#fff;background:rgba(157,139,255,0.20);border-color:rgba(157,139,255,0.7)}
+
+  /* Clip row: time-chip + game label, then note + tags. */
+  .on-clip-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .on-clip-time{font-family:var(--fm);font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--accent);
+    border-radius:6px;padding:3px 8px;background:var(--glass);border:1px solid var(--gline2)}
+  .on-clip-game{font-size:13px;color:var(--t3)}
+  .on-clip-tags{font-family:var(--fm);font-size:9.5px;letter-spacing:0.5px;color:var(--t4);margin-top:8px}
+
+  .on-empty{padding:34px 20px;text-align:center}
+  .on-empty-h{font-family:var(--fo);font-size:16px;font-weight:600;color:var(--t2);line-height:1.4;max-width:420px;margin:0 auto}
+  @media(prefers-reduced-motion:reduce){.on-back,.on-jump{transition:none}}
+</style>
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="objectives"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i active" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <div class="eyebrow">Learning · Objective</div>
+
+    <!-- HEADER: back chevron + objective title / status -->
+    <div class="on-head">
+      <button class="on-back" id="back-btn" data-action="back" type="button" aria-label="Back">‹</button>
+      <div class="on-titles">
+        <div class="on-title" id="obj-title">Objective</div>
+        <div class="on-status" id="obj-status"></div>
+      </div>
+    </div>
+
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- REVIEW NOTES -->
+    <div class="on-sec" id="review-sec" hidden>
+      <div class="on-eyebrow on-eyebrow-gold">Review Notes</div>
+      <div class="on-list" id="review-list"></div>
+    </div>
+
+    <!-- EXECUTION NOTES -->
+    <div class="on-sec" id="exec-sec" hidden>
+      <div class="on-eyebrow on-eyebrow-blue">Execution Notes</div>
+      <div class="on-list" id="exec-list"></div>
+    </div>
+
+    <!-- CLIPS & BOOKMARKS -->
+    <div class="on-sec" id="clip-sec" hidden>
+      <div class="on-eyebrow on-eyebrow-purple">Clips &amp; Bookmarks</div>
+      <div class="on-list" id="clip-list"></div>
+    </div>
+
+    <!-- EMPTY STATE -->
+    <div class="card on-empty" id="empty" hidden>
+      <div class="on-empty-h">No notes, execution notes, or clips linked to this objective yet.</div>
+    </div>
+
+    <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load these notes.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPEATING-CELL TEMPLATES ── -->
+
+  <!-- A review note: header + notes, with an Open → review jump button. -->
+  <template id="tpl-review">
+    <div class="on-card">
+      <div class="on-row">
+        <div class="on-card-main">
+          <div class="on-card-header"></div>
+          <div class="on-card-body"></div>
+        </div>
+        <button class="on-jump on-jump-open" data-action="open_review" type="button">Open</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- An execution note: header + italic note. No jump button (read-only). -->
+  <template id="tpl-exec">
+    <div class="on-card">
+      <div class="on-card-header"></div>
+      <div class="on-card-body italic"></div>
+    </div>
+  </template>
+
+  <!-- A clip/bookmark: time-chip + game label, note, tags, with a Play → VOD jump. -->
+  <template id="tpl-clip">
+    <div class="on-card">
+      <div class="on-row">
+        <div class="on-card-main">
+          <div class="on-clip-top">
+            <span class="on-clip-time"></span>
+            <span class="on-clip-game"></span>
+          </div>
+          <div class="on-card-body" hidden></div>
+          <div class="on-clip-tags" hidden></div>
+        </div>
+        <button class="on-jump on-jump-play" data-action="play_clip" type="button">Play</button>
+      </div>
+    </div>
+  </template>
+
+  <script type="module" src="./objectivenotes.js"></script>
+</body>
+</html>

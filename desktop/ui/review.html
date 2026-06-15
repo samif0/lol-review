@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Review</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="review"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <div class="eyebrow">Game Analysis</div>
+    <div class="hero"><h1 id="hero-title">Review</h1></div>
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- HERO GAME CARD — gold-rim glass, read-only result header (champ · result · KDA · VOD). -->
+    <div class="glass rv-hero" id="rv-hero" hidden>
+      <div class="rv-hero-row">
+        <div class="rv-hero-lead">
+          <div class="rv-champ" id="rv-champ">—</div>
+          <div class="rv-resline">
+            <span class="rv-res" id="rv-res">—</span>
+            <span class="rv-gmode" id="rv-gmode"></span>
+            <span class="rv-gdur" id="rv-gdur"></span>
+          </div>
+          <div class="rv-matchup" id="rv-matchup"></div>
+        </div>
+        <div class="rv-hero-kda">
+          <div class="rv-kda" id="rv-kda">— / — / —</div>
+          <div class="rv-kdar" id="rv-kdar"></div>
+        </div>
+      </div>
+      <div class="rv-vodbar">
+        <button class="review rv-vodbtn" id="rv-vodbtn" data-action="review_vod">▶ Review VOD</button>
+        <span class="rv-reviewed" id="rv-reviewed" hidden>Already reviewed</span>
+      </div>
+    </div>
+
+    <!-- OBJECTIVES IN PLAY — the focus, lifted to the TOP (first section after the
+         game header). Animated ring card + practiced switch + custom prompts. -->
+    <div class="rv-objsec" id="rv-objsec" hidden>
+      <div class="seclabel" id="rv-obj-label" hidden>Objectives in play <span class="n">what you could practice</span></div>
+      <div id="rv-objectives"></div>
+      <div class="rv-emptyline" id="rv-obj-empty" hidden>No active objectives. Set one from the Objectives page.</div>
+    </div>
+
+    <!-- TWO-COLUMN BODY: stats (left) / debrief review (right) — AFTER the objectives. -->
+    <div class="rv-body" id="rv-body" hidden>
+      <div class="rv-col-main">
+        <!-- AUTO-CAPTURED STAT STRIP — reuse the dashboard .strip / .stat cells. -->
+        <div class="seclabel">Game Stats <span class="n">auto-captured</span></div>
+        <div class="strip rv-strip" id="rv-strip"></div>
+
+        <!-- LANING @10 — the "did I win lane?" line from the timeline backfill. -->
+        <div class="rv-laning" id="rv-laning" hidden></div>
+
+        <!-- DEATH AUDIT — one row per death + its saved cause chips (read-only). -->
+        <div class="rv-deathsec" id="rv-deathsec" hidden>
+          <div class="seclabel">Death Audit <span class="n">cause of each death</span></div>
+          <div id="rv-deaths"></div>
+        </div>
+
+        <!-- EVIDENCE — attached moments + the "evidence to sort" inbox (read-only). -->
+        <div class="rv-evidsec" id="rv-evidsec" hidden>
+          <div class="seclabel" id="rv-evid-attached-label" hidden>Attached Evidence <span class="n">tagged moments</span></div>
+          <div id="rv-evid-attached"></div>
+          <div class="seclabel rv-seclabel-sub" id="rv-evid-unassigned-label" hidden>Evidence to sort <span class="n">unassigned moments</span></div>
+          <div id="rv-evid-unassigned"></div>
+        </div>
+      </div>
+
+      <div class="rv-col-side">
+        <!-- YOUR REVIEW — editable form. Save commits (no un-review); Skip marks reviewed. -->
+        <div class="seclabel">Your Review <span class="n">debrief &amp; commit</span></div>
+
+        <!-- Already-saved banner (this game carries a prior review). -->
+        <div class="rv-note rv-note-saved" id="rv-savednote" hidden>
+          <span class="rv-note-dot"></span>
+          <span class="rv-note-text" id="rv-savednote-text">This game already has a saved review; saving again overwrites it.</span>
+        </div>
+
+        <!-- FOCUS CHECK — did you play to the session's intention this game? The
+             Yes/Partly/No buttons persist IMMEDIATELY (set_focus_adherence);
+             re-tapping the selected one clears it. -->
+        <div class="card glass rv-focus" id="rv-focus">
+          <div class="rv-focus-lbl">Focus Check</div>
+          <div class="rv-focus-intent" id="rv-focus-intent" hidden></div>
+          <div class="rv-focus-q">Did you actually play to it this game?</div>
+          <div class="rv-focus-btns" id="rv-focus-btns">
+            <button type="button" class="rv-focus-btn" data-focus="2">Yes</button>
+            <button type="button" class="rv-focus-btn" data-focus="1">Partly</button>
+            <button type="button" class="rv-focus-btn" data-focus="0">No</button>
+          </div>
+        </div>
+
+        <form class="card glass rv-review" id="rv-form" novalidate>
+          <!-- Mental rating — 1–10 slider with a tinted live readout. -->
+          <div class="rv-mentalrow" id="rv-mentalrow">
+            <label class="rv-field-k" for="rv-mental-input">Mental Rating</label>
+            <div class="rv-mental-ctl">
+              <input type="range" id="rv-mental-input" class="rv-range" min="1" max="10" step="1" value="5"
+                     aria-label="Mental rating, 1 to 10">
+              <span class="rv-mental" id="rv-mental">5</span>
+            </div>
+          </div>
+
+          <!-- Debrief textareas. Each pairs a small-caps label with a glass textarea. -->
+          <div id="rv-fields"></div>
+
+          <!-- Concept tags — comma/Enter-separated editable chips. -->
+          <div class="rv-tags-wrap" id="rv-tags-wrap">
+            <label class="rv-field-k" for="rv-tag-input">Concept Tags</label>
+            <div class="rv-tagedit" id="rv-tagedit">
+              <span class="rv-tags" id="rv-tags"></span>
+              <input type="text" id="rv-tag-input" class="rv-taginput" placeholder="Add a tag, press Enter"
+                     autocomplete="off" aria-label="Add a concept tag">
+            </div>
+          </div>
+        </form>
+
+        <!-- COMMIT BAR — Save (commits) + Skip (mark reviewed) + Delete (un-review,
+             shown only when a prior review exists). -->
+        <div class="rv-commitbar" id="rv-commitbar">
+          <button type="button" class="cta rv-savebtn" id="rv-savebtn" data-action="save_review">SAVE REVIEW</button>
+          <button type="button" class="review rv-skipbtn" id="rv-skipbtn" data-action="skip_review">Skip</button>
+          <button type="button" class="rv-deletebtn" id="rv-deletebtn" data-action="delete_review" hidden>Delete review</button>
+          <span class="rv-commit-msg" id="rv-commit-msg" hidden></span>
+        </div>
+
+        <!-- CONCEPT-TAG CATALOG — full tag list w/ selection state (read-only grid). -->
+        <div class="rv-tagcat" id="rv-tagcat" hidden>
+          <div class="seclabel rv-seclabel-sub">Concept Tags <span class="n">catalog</span></div>
+          <div class="rv-tagcat-grid" id="rv-tagcat-grid"></div>
+        </div>
+
+        <!-- MATCHUP HISTORY — past notes for this champ vs enemy (read-only list). -->
+        <div class="rv-matchsec" id="rv-matchsec" hidden>
+          <div class="seclabel rv-seclabel-sub">Matchup History <span class="n">past notes</span></div>
+          <div id="rv-matchlist"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMPTY STATE — no reviewable game. -->
+    <div class="rv-empty" id="rv-empty" hidden>
+      <div class="rv-empty-h">No game to review.</div>
+      <div class="rv-empty-p">Play a ranked or normal game and it lands here for review.</div>
+    </div>
+
+    <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load the review.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPEATING-CELL TEMPLATES ── -->
+  <template id="tpl-stat">
+    <div class="stat">
+      <div class="k"></div>
+      <div class="v"></div>
+      <div class="s"></div>
+    </div>
+  </template>
+
+  <!-- One objective in play — ring card + a "practiced this game?" ON/OFF switch
+       and an execution-note input. The switch and note feed objectivePractices on
+       save. Custom coaching prompts (if any) render as read-only guided questions. -->
+  <template id="tpl-objective">
+    <div class="card glass rv-obj">
+      <div class="ring">
+        <div class="ringwrap">
+          <svg width="58" height="58" viewBox="0 0 58 58">
+            <circle class="ring-track" cx="29" cy="29" r="24" fill="none" stroke-width="4"/>
+            <circle class="ring-prog" cx="29" cy="29" r="24" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="150.8"/>
+          </svg>
+          <div class="pc"></div>
+        </div>
+        <div class="rv-obj-text">
+          <span class="pill" hidden>PRIORITY</span>
+          <div class="oname"></div>
+          <div class="ometa"></div>
+          <div class="rv-crit" hidden></div>
+        </div>
+        <!-- Practiced ON/OFF switch — whole control (label + track) is clickable. -->
+        <label class="rv-switch">
+          <input type="checkbox" class="rv-practiced-cb" role="switch">
+          <span class="rv-switch-track" aria-hidden="true"><span class="rv-switch-knob"></span></span>
+          <span class="rv-switch-lbl">Not practiced</span>
+        </label>
+      </div>
+      <!-- Custom coaching prompts — read-only guided questions (display-only). -->
+      <div class="rv-prompts" hidden></div>
+      <input type="text" class="rv-objnote" placeholder="How did it go? (optional)"
+             autocomplete="off" hidden>
+    </div>
+  </template>
+
+  <!-- One coaching prompt line (tiny phase chip + the question label + an
+       EDITABLE answer box for this game). The answer saves on blur via
+       save_prompt_answer (empty text deletes the answer row). -->
+  <template id="tpl-prompt">
+    <div class="rv-prompt">
+      <div class="rv-prompt-q">
+        <span class="rv-prompt-phase" hidden></span>
+        <span class="rv-prompt-txt"></span>
+      </div>
+      <textarea class="rv-prompt-input" rows="1" autocomplete="off"
+                placeholder="Your answer (saved automatically)"></textarea>
+    </div>
+  </template>
+
+  <!-- One editable debrief field (small-caps label + glass textarea). -->
+  <template id="tpl-field">
+    <div class="rv-field">
+      <label class="rv-field-k"></label>
+      <textarea class="rv-field-in" rows="2" autocomplete="off"></textarea>
+    </div>
+  </template>
+
+  <!-- One editable concept-tag chip (label + remove ✕). -->
+  <template id="tpl-tag">
+    <span class="rv-tag">
+      <span class="rv-tag-txt"></span>
+      <button type="button" class="rv-tag-x" aria-label="Remove tag">×</button>
+    </span>
+  </template>
+
+  <!-- One death-audit row — timestamp + saved cause + the six read-only chips. -->
+  <template id="tpl-death">
+    <div class="card glass rv-death">
+      <div class="rv-death-head">
+        <span class="rv-death-time"></span>
+        <span class="rv-death-cause" hidden></span>
+      </div>
+      <div class="rv-death-chips"></div>
+    </div>
+  </template>
+
+  <!-- One read-only death-cause chip (selected one gets .on). -->
+  <template id="tpl-deathchip">
+    <span class="rv-dchip"><span class="rv-dchip-lbl"></span></span>
+  </template>
+
+  <!-- One evidence/moment triage row: time + title + polarity dot + objective
+       tag + status, plus the triage controls (Good/Bad polarity, attach-to-
+       objective picker, Dismiss). Controls persist immediately; ATTACHED rows
+       hide the picker/Good/Bad (already triaged) and show only Dismiss. -->
+  <template id="tpl-evid">
+    <div class="card glass rv-evid">
+      <span class="rv-evid-dot" aria-hidden="true"></span>
+      <div class="rv-evid-body">
+        <div class="rv-evid-line">
+          <span class="rv-evid-time" hidden></span>
+          <span class="rv-evid-title"></span>
+        </div>
+        <div class="rv-evid-note" hidden></div>
+        <div class="rv-evid-meta">
+          <span class="rv-evid-obj" hidden></span>
+          <span class="rv-evid-status"></span>
+        </div>
+        <!-- Triage controls — wired in review.js (data-evid-action). -->
+        <div class="rv-evid-actions" hidden>
+          <button type="button" class="rv-evid-btn rv-evid-good" data-evid-action="good" title="Mark good">▲ Good</button>
+          <button type="button" class="rv-evid-btn rv-evid-bad" data-evid-action="bad" title="Mark bad">▼ Bad</button>
+          <select class="rv-evid-pick" data-evid-action="objective" aria-label="Attach to objective"></select>
+          <button type="button" class="rv-evid-btn rv-evid-dismiss" data-evid-action="dismiss" title="Dismiss">✕</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- One matchup-history note (read-only): note text + meta line + helpful pip. -->
+  <template id="tpl-match">
+    <div class="card glass rv-match">
+      <div class="rv-match-note"></div>
+      <div class="rv-match-meta"></div>
+    </div>
+  </template>
+
+  <!-- One concept-tag catalog chip w/ selection state (read-only; .on = selected). -->
+  <template id="tpl-tagcat">
+    <span class="rv-tagcat-chip"><span class="rv-tagcat-txt"></span></span>
+  </template>
+
+  <script type="module" src="./review.js"></script>
+</body>
+</html>

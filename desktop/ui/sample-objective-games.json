@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-06-14T10:32:00",
+  "objectiveId": 7,
+  "objectiveTitle": "Improve wave management",
+  "objectiveStatus": "Active • In-Game",
+  "counterText": "3 practiced / 4 total",
+  "totalCount": 4,
+  "practicedCount": 3,
+  "hasGames": true,
+  "hasEvidence": true,
+  "hasActivity": true,
+  "evidenceSummary": "3 evidence item(s)  /  1 good  /  1 bad  /  1 neutral",
+  "games": [
+    {
+      "gameId": 5581979143,
+      "championName": "Aatrox",
+      "win": true,
+      "resultText": "W",
+      "resultColorHex": "#8ee7ba",
+      "dateText": "Jun 12, 2026",
+      "kdaText": "8/3/6",
+      "practiced": true,
+      "practicedText": "Practiced",
+      "practicedColorHex": "#8ee7ba",
+      "practicedDimColorHex": "#10221a",
+      "executionNote": "Held the slow push into the dive at 6; recall timing was clean.",
+      "hasExecutionNote": true
+    },
+    {
+      "gameId": 5581970022,
+      "championName": "Camille",
+      "win": false,
+      "resultText": "L",
+      "resultColorHex": "#f3a3a8",
+      "dateText": "Jun 11, 2026",
+      "kdaText": "4/7/3",
+      "practiced": true,
+      "practicedText": "Practiced",
+      "practicedColorHex": "#8ee7ba",
+      "practicedDimColorHex": "#10221a",
+      "executionNote": "Shoved when I should have frozen; gave up plates.",
+      "hasExecutionNote": true
+    },
+    {
+      "gameId": 5581965540,
+      "championName": "Renekton",
+      "win": true,
+      "resultText": "W",
+      "resultColorHex": "#8ee7ba",
+      "dateText": "Jun 10, 2026",
+      "kdaText": "11/2/4",
+      "practiced": true,
+      "practicedText": "Practiced",
+      "practicedColorHex": "#8ee7ba",
+      "practicedDimColorHex": "#10221a",
+      "executionNote": "",
+      "hasExecutionNote": false
+    },
+    {
+      "gameId": 5581960018,
+      "championName": "Gnar",
+      "win": false,
+      "resultText": "L",
+      "resultColorHex": "#f3a3a8",
+      "dateText": "Jun 9, 2026",
+      "kdaText": "2/6/5",
+      "practiced": false,
+      "practicedText": "Skipped",
+      "practicedColorHex": "#a79ec2",
+      "practicedDimColorHex": "#16131f",
+      "executionNote": "",
+      "hasExecutionNote": false
+    }
+  ],
+  "evidence": [
+    {
+      "gameId": 5581979143,
+      "title": "Clean slow-push into tower dive",
+      "metaText": "Aatrox  /  Jun 12, 2026  /  6:14",
+      "displayNote": "Set up the crash exactly on the dive timer.",
+      "hasDisplayNote": true,
+      "polarity": "good",
+      "polarityLabel": "Good example",
+      "polarityColorHex": "#8ee7ba"
+    },
+    {
+      "gameId": 5581970022,
+      "title": "Over-pushed with no vision",
+      "metaText": "Camille  /  Jun 11, 2026  /  9:48",
+      "displayNote": "Got collapsed on bot side; should have frozen.",
+      "hasDisplayNote": true,
+      "polarity": "bad",
+      "polarityLabel": "Bad example",
+      "polarityColorHex": "#f3a3a8"
+    },
+    {
+      "gameId": 5581965540,
+      "title": "Mid-game wave reset",
+      "metaText": "Renekton  /  Jun 10, 2026",
+      "displayNote": "",
+      "hasDisplayNote": false,
+      "polarity": "neutral",
+      "polarityLabel": "Neutral",
+      "polarityColorHex": "#a79ec2"
+    }
+  ]
+}

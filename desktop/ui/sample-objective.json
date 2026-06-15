@@ -1,0 +1,115 @@
+{
+  "objective": {
+    "id": 1,
+    "title": "Improve wave management",
+    "skillArea": "Laning",
+    "type": "primary",
+    "typeIndex": 0,
+    "status": "active",
+    "isActive": true,
+    "completionCriteria": "Freeze near tower when ahead; crash before recall.",
+    "description": "Track wave state every recall window.",
+    "practicePre": true,
+    "practiceIn": true,
+    "practicePost": false,
+    "targetGameCount": 3,
+    "focusPhaseIndex": 1,
+    "criteriaMetricIndex": 1,
+    "criteriaOpIndex": 0,
+    "criteriaValueText": "7",
+    "prompts": [
+      {
+        "id": 11,
+        "phase": "pregame",
+        "phaseIndex": 0,
+        "label": "What's my plan for the first 3 waves?"
+      },
+      {
+        "id": 12,
+        "phase": "postgame",
+        "phaseIndex": 2,
+        "label": "Did I lose CS to bad freezes?"
+      }
+    ],
+    "champions": [
+      "Ahri",
+      "Orianna"
+    ],
+    "playedChampions": [
+      "Ahri",
+      "Akali",
+      "Sylas",
+      "Orianna",
+      "Viktor",
+      "Azir"
+    ]
+  },
+  "criteriaMetrics": [
+    {
+      "index": 0,
+      "key": "",
+      "label": "Free text only",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 1,
+      "key": "cs_per_min",
+      "label": "CS per minute",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 2,
+      "key": "deaths",
+      "label": "Deaths",
+      "lowerIsBetter": true
+    },
+    {
+      "index": 3,
+      "key": "vision_score",
+      "label": "Vision score",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 4,
+      "key": "wards_placed",
+      "label": "Wards placed",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 5,
+      "key": "control_wards",
+      "label": "Control wards bought",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 6,
+      "key": "kda",
+      "label": "KDA",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 7,
+      "key": "kill_participation",
+      "label": "Kill participation (%)",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 8,
+      "key": "cs_total",
+      "label": "Total CS",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 9,
+      "key": "cs_at_10",
+      "label": "CS at 10 min",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 10,
+      "key": "gold_diff_at_10",
+      "label": "Gold diff at 10 min",
+      "lowerIsBetter": false
+    }
+  ]
+}

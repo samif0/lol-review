@@ -288,6 +288,22 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task ClearReviewMarkersAsync(long gameId)
+    {
+        // Delete-review: blank only the queue-gating fields. mental_rating /
+        // focus_adherence / rule_broken are intentionally NOT touched so the live-
+        // computed mental + adherence streaks stay byte-identical (see the interface).
+        using var conn = _factory.CreateConnection();
+        await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            "UPDATE session_log SET improvement_note = '', mental_handled = '', is_skipped = 0 WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task UpdateMentalHandledAsync(long gameId, string mentalHandled)
     {
         using var conn = _factory.CreateConnection();

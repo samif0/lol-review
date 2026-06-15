@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Patterns</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="patterns"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i active" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <div class="eyebrow">Objective Loop</div>
+    <div class="hero"><h1>Patterns</h1></div>
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- PATTERN SELECTOR — pending + reviewed cross-game patterns as clickable
+         cards. The active card drives the moment playlist below. The whole strip
+         is the page's navigation between patterns. -->
+    <div class="seclabel seclabel-lead" id="pat-label" hidden>Cross-game patterns <span class="n" id="pat-sub"></span></div>
+    <div class="pat-pick" id="pat-pick"></div>
+
+    <!-- ACTIVE PATTERN — the selected pattern's VOD surface + note (left) beside
+         its moment rail (right). Hidden until a pattern is selected. -->
+    <div class="pat-main" id="pat-main" hidden>
+
+      <!-- PLAYER COLUMN — active-moment strip over a VOD surface, then the note. -->
+      <div class="pat-playcol">
+        <div class="glass pat-stage">
+          <div class="pat-mstrip">
+            <span class="pat-rtag" id="m-rtag"></span>
+            <span class="pat-mtitle" id="m-title"></span>
+            <span class="pat-glabel" id="m-glabel"></span>
+          </div>
+          <div class="pat-surface" id="m-surface" data-action="play_moment" role="button" tabindex="0">
+            <div class="pat-scan" aria-hidden="true"></div>
+            <div class="pat-play" id="m-play" aria-hidden="true"></div>
+            <div class="pat-vhead" id="m-vhead"></div>
+            <div class="pat-novod" id="m-novod" hidden>No VOD matched for this moment</div>
+            <div class="pat-scrub" aria-hidden="true">
+              <span id="m-tstart"></span>
+              <div class="pat-bar"><i></i></div>
+              <span id="m-tend"></span>
+            </div>
+            <!-- Inline clip player. Revealed on play_moment: the moment's VOD is
+                 streamed via the asset protocol and jumped to the moment's start,
+                 so review happens IN PLACE in the pattern UI (not the VOD page).
+                 NO native controls — the shared transport bar below (#m-transport)
+                 drives playback, exactly like the full VOD player. -->
+            <video class="pat-video" id="m-video" preload="metadata" playsinline hidden></video>
+          </div>
+          <!-- Shared VOD transport bar (play/pause, step seek, speed, mute, enlarge)
+               built by vodtransport.js so the inline player feels identical to the
+               full viewer. Hidden until a moment's clip is loaded. -->
+          <div class="pat-transport" id="m-transport" hidden></div>
+        </div>
+
+        <!-- This-moment note panel — editable, autosaves on pause/blur. Saving a
+             non-empty note silently clips the moment's window the first time. -->
+        <div class="card pat-npanel">
+          <div class="pat-nhead">
+            <span class="pat-nk">Your note on this moment</span>
+            <span class="pat-nstatus" id="m-nstatus" hidden></span>
+            <span class="pat-clipt" id="m-clipt" hidden>CLIP KEPT</span>
+          </div>
+          <textarea class="pat-noteinput" id="m-note" rows="3" placeholder="What happened here? What should have happened?"></textarea>
+        </div>
+
+        <!-- Prev / next within the active pattern's playlist. -->
+        <div class="pat-nav">
+          <button class="pat-btn pat-btn-sec" id="m-prev" data-action="prev_moment">&#8592; PREV MOMENT</button>
+          <button class="pat-btn pat-btn-gold" id="m-next" data-action="next_moment">NEXT MOMENT &#8594;</button>
+        </div>
+      </div>
+
+      <!-- PATTERN RAIL — the moments composing the active pattern. -->
+      <div class="pat-railcol">
+        <div class="seclabel" id="rail-label">The pattern <span class="n" id="rail-sub"></span></div>
+        <div class="pat-rail" id="pat-rail"></div>
+
+        <div class="pat-rdiv"></div>
+
+        <!-- CLOSURE — read-only state. Reviewed shows the closed panel; pending
+             shows the calm "review deferred" note (mark-reviewed is a WRITE). -->
+        <div class="card pat-closed" id="pat-closed" hidden>
+          <div class="pat-ck"><span class="pat-chk">&#10003;</span> Pattern reviewed</div>
+          <div class="pat-csum" id="pat-csum"></div>
+        </div>
+        <div class="pat-pending" id="pat-pending" hidden>
+          <div class="hint">
+            <span class="hint-dot"></span>
+            <span class="hint-text" id="pat-pending-text"></span>
+          </div>
+          <button class="pat-btn pat-btn-gold pat-markrev" id="pat-markrev" data-action="mark_reviewed" type="button">&#10003; MARK REVIEWED</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMPTY STATE — no patterns surfaced. -->
+    <div class="pat-empty" id="pat-empty" hidden>
+      <div class="pat-empty-h" id="pat-empty-h">No cross-game patterns yet.</div>
+      <div class="pat-empty-p" id="pat-empty-p">Review a few games and recurring moments will collect here as patterns.</div>
+    </div>
+
+    <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load your patterns.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPEATING-CELL TEMPLATES ── -->
+
+  <!-- One pattern selector card. Whole card selects the pattern (select_pattern).
+       Reuses .gamerow hover hype + left edge bar; the edge color carries severity. -->
+  <template id="tpl-patcard">
+    <div class="card gamerow pat-card" data-action="select_pattern" tabindex="0" role="button">
+      <span class="gamerow-sweep" aria-hidden="true"></span>
+      <span class="gamerow-edge" aria-hidden="true"></span>
+      <div class="crow">
+        <div class="pat-card-main">
+          <div class="pat-card-top">
+            <span class="pat-sev"></span>
+            <span class="vline pat-card-title"></span>
+          </div>
+          <div class="vsmall pat-card-detail"></div>
+          <div class="pat-card-sub"></div>
+        </div>
+        <div class="pat-card-right">
+          <span class="pat-card-state"></span>
+          <div class="gamerow-cue" aria-hidden="true">OPEN <span class="arr">→</span></div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- One moment row in the rail. Whole row jumps to that moment (goto_moment).
+       Polarity-colored left border; CLIP badge + GOOD/BAD/NEUTRAL tag. -->
+  <template id="tpl-momrow">
+    <div class="pat-row" data-action="goto_moment" tabindex="0" role="button">
+      <div class="pat-rtop">
+        <span class="pat-rg"></span>
+        <span class="pat-rright">
+          <span class="pat-rclip" hidden>CLIP</span>
+          <span class="pat-rpol"></span>
+        </span>
+      </div>
+      <div class="pat-rtitle"></div>
+      <div class="pat-rnote" hidden></div>
+    </div>
+  </template>
+
+  <script type="module" src="./patterns.js"></script>
+</body>
+</html>

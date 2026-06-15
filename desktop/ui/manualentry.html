@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Manual Entry</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="manualentry"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <div class="eyebrow">Manual Entry</div>
+    <div class="hero"><h1>Log a Game</h1></div>
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Hand-log a game that wasn't auto-captured.</b></div>
+
+    <div class="me-form">
+      <!-- Top-of-form error (champion required / save failed) -->
+      <div class="me-error" id="me-error" hidden></div>
+
+      <!-- CHAMPION + RESULT + KDA -->
+      <div class="card bracket bracket-gold">
+        <div class="me-headrow">
+          <div class="me-headcol">
+            <input class="me-champ" id="me-champ" type="text" placeholder="Champion Name" autocomplete="off">
+            <div class="me-result">
+              <label class="me-radio"><input type="radio" name="result" id="me-win"> <span class="rwin">Victory</span></label>
+              <label class="me-radio"><input type="radio" name="result" id="me-loss" checked> <span class="rloss">Defeat</span></label>
+            </div>
+          </div>
+          <div class="me-kda">
+            <div class="me-kda-cell">
+              <input class="me-num" id="me-k" inputmode="numeric" value="0" aria-label="Kills">
+              <div class="me-kda-lbl">K</div>
+            </div>
+            <span class="me-kda-sep">/</span>
+            <div class="me-kda-cell">
+              <input class="me-num" id="me-d" inputmode="numeric" value="0" aria-label="Deaths">
+              <div class="me-kda-lbl">D</div>
+            </div>
+            <span class="me-kda-sep">/</span>
+            <div class="me-kda-cell">
+              <input class="me-num" id="me-a" inputmode="numeric" value="0" aria-label="Assists">
+              <div class="me-kda-lbl">A</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MENTAL RATING -->
+      <div class="card bracket">
+        <div class="seclabel">Mental Rating</div>
+        <div class="me-slrow">
+          <input type="range" class="me-range" id="me-mental" min="1" max="10" step="1" value="5"
+                 aria-label="Mental rating, 1 to 10">
+          <span class="me-slval" id="me-mental-val">5</span>
+        </div>
+      </div>
+
+      <!-- LEARNING OBJECTIVES (collapsed when none active) -->
+      <div class="card bracket bracket-blue" id="me-obj-card" hidden>
+        <div class="seclabel">Learning Objectives</div>
+        <div id="me-obj-list"></div>
+      </div>
+
+      <!-- PERFORMANCE REVIEW -->
+      <div class="card bracket">
+        <div class="seclabel">Performance Review</div>
+        <div class="me-field-lbl">What went well?</div>
+        <textarea class="me-input me-multi" id="me-well" rows="3" placeholder="Good plays, decisions, mechanics…"></textarea>
+        <div class="me-field-lbl">What could improve?</div>
+        <textarea class="me-input me-multi" id="me-mistakes" rows="3" placeholder="Deaths, missed plays, bad decisions…"></textarea>
+        <div class="me-field-lbl">Focus for next game</div>
+        <input class="me-input" id="me-focus" type="text" placeholder="What will you focus on improving?" autocomplete="off">
+      </div>
+
+      <!-- ADDITIONAL NOTES -->
+      <div class="card bracket">
+        <div class="seclabel">Additional Notes</div>
+        <textarea class="me-input me-multi" id="me-notes" rows="3" placeholder="Any other notes about this game…"></textarea>
+      </div>
+
+      <!-- ACTIONS -->
+      <div class="me-actions">
+        <button class="me-cancel" id="me-cancel" data-action="cancel" type="button">Cancel</button>
+        <button class="cta me-save" id="me-save" data-action="save" type="button">Save Game Entry</button>
+      </div>
+    </div>
+
+    <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't save this game.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- One learning-objective assessment row: title + phase + practiced toggle + note. -->
+  <template id="tpl-meobj">
+    <div class="me-obj">
+      <div class="me-obj-top">
+        <div class="me-obj-head">
+          <div class="me-obj-title"></div>
+          <div class="me-obj-phase"></div>
+        </div>
+        <label class="me-toggle">
+          <input type="checkbox" class="me-obj-practiced">
+          <span class="me-toggle-track"><span class="me-toggle-knob"></span></span>
+          <span class="me-toggle-lbl">Not practiced</span>
+        </label>
+      </div>
+      <input class="me-input me-obj-note" type="text" placeholder="How did you execute on this?" autocomplete="off">
+    </div>
+  </template>
+
+  <script type="module" src="./manualentry.js"></script>
+</body>
+</html>

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: VOD Player</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="vodplayer"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <div class="eyebrow">VOD Analysis</div>
+    <div class="hero"><h1 id="vp-title">Loading recording…</h1></div>
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- No-VOD state -->
+    <div class="card vp-novod" id="vp-novod" hidden>
+      <div class="vline">No recording found for this game.</div>
+      <div class="vsmall">A VOD shows here when an Ascent recording matches the game and the file still exists on disk.</div>
+    </div>
+
+    <!-- Player -->
+    <div class="vp-wrap" id="vp-wrap" hidden>
+
+      <!-- PRIMARY: open review (the one loud element) -->
+      <div class="glass primary vp-primary">
+        <div class="body">
+          <div class="k">Next step · Open review</div>
+          <h2>Done tagging? Take these moments into the review.</h2>
+          <p>Auto-picked moments, saved clips, and bookmarks flow straight into the structured review on the other side.</p>
+        </div>
+        <button class="cta" id="vp-open-review" type="button">OPEN REVIEW →</button>
+      </div>
+
+      <!-- 2-col: video + transport + timeline (left) · moments (right) -->
+      <div class="cols">
+
+        <!-- ── LEFT ── -->
+        <div class="stack">
+
+          <div class="seclabel">Recording</div>
+          <div class="card pad0">
+            <div class="vp-stage">
+              <video id="vp-video" class="vp-video" preload="metadata" playsinline></video>
+            </div>
+          </div>
+
+          <!-- transport bar -->
+          <div class="card vp-transport-card">
+            <div class="vp-transport">
+              <button class="tbtn" id="vp-back" title="Back one step (←). Up/Down arrows change the step." data-action="seek" data-delta="-1">⏮</button>
+              <button class="tbtn play" id="vp-play" title="Play / Pause (space)" data-action="playpause">▶</button>
+              <button class="tbtn" id="vp-fwd" title="Forward one step (→). Up/Down arrows change the step." data-action="seek" data-delta="1">⏭</button>
+              <span class="ttime" id="vp-time">0:00 / 0:00&nbsp;&nbsp;<span class="step">step 5s</span></span>
+              <span class="tspring"></span>
+              <label class="tlabel" for="vp-rate-sel">Speed</label>
+              <select class="vp-rate-sel" id="vp-rate-sel" aria-label="Playback speed">
+                <option value="0.25">0.25×</option>
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="1.5">1.5×</option>
+                <option value="2">2×</option>
+                <option value="3">3×</option>
+              </select>
+              <button class="tbtn" id="vp-mute" title="Mute" data-action="mute">🔊</button>
+              <button class="tbtn" id="vp-fs" title="Fullscreen / enlarge" aria-label="Fullscreen" data-action="fullscreen">⛶</button>
+            </div>
+          </div>
+
+          <!-- event timeline (click-to-scrub + bookmark markers) -->
+          <div class="seclabel">Event timeline <span class="n">bookmarks · clips</span></div>
+          <div class="card">
+            <div class="vp-timeline" id="vp-seek" title="Click to scrub">
+              <div class="ph" style="left:8px">EARLY</div>
+              <div class="ph" style="left:42%">MID</div>
+              <div class="ph" style="right:8px">LATE</div>
+              <div class="track"></div>
+              <div class="prog" id="vp-seek-fill"></div>
+              <div class="vp-markers" id="vp-markers"></div>
+              <div class="play" id="vp-playhead" style="left:0%"></div>
+            </div>
+          </div>
+
+          <!-- quick bookmark (live write) + clip tools (clips deferred to Batch 3) -->
+          <div class="duo">
+            <div class="mini">
+              <div class="mtitle">Quick Bookmark <span class="keycap">B</span></div>
+              <input class="inp" id="vp-bm-note" type="text" placeholder="Note…" autocomplete="off">
+              <div class="row">
+                <select class="inp" id="vp-bm-obj" style="flex:1;margin-bottom:0">
+                  <option value="">No objective</option>
+                </select>
+                <button class="addbtn" id="vp-bm-add" data-action="add_bookmark" type="button">Add</button>
+              </div>
+              <div class="vp-bm-hint" id="vp-bm-hint" hidden></div>
+            </div>
+
+            <div class="mini vp-clip">
+              <div class="mtitle">Clip <span class="vp-cliprange" id="vp-clip-range"></span></div>
+              <div class="row">
+                <button class="key vp-iobtn" id="vp-clip-in" data-action="clip_in" type="button">Start <span class="keycap">I</span></button>
+                <button class="key vp-iobtn" id="vp-clip-out" data-action="clip_out" type="button">End <span class="keycap">O</span></button>
+                <button class="key vp-iobtn vp-clipclear" id="vp-clip-clear" data-action="clip_clear" type="button" hidden>Clear</button>
+              </div>
+              <input class="inp" id="vp-clip-note" type="text" placeholder="What's happening?" autocomplete="off">
+              <div class="qual" id="vp-clip-qual">
+                <span class="q good" data-action="clip_qual" data-q="good">Good</span>
+                <span class="q" data-action="clip_qual" data-q="neutral">Neutral</span>
+                <span class="q" data-action="clip_qual" data-q="bad">Bad</span>
+              </div>
+              <button class="savebtn" id="vp-clip-save" data-action="clip_save" type="button" disabled>⬇ SAVE CLIP <span class="keycap">S</span></button>
+              <div class="vp-clip-hint" id="vp-clip-hint" hidden></div>
+
+              <!-- Inline login-to-share panel. Revealed when a Share is attempted
+                   while logged out (or the session expired). Two steps: email →
+                   OTP. After Verify it uploads the pending clip captured at Share
+                   time. Mirrors the WinUI ShareLoginPanel (email / OTP steps). -->
+              <div class="vp-sharelogin" id="vp-sharelogin" hidden>
+                <div class="vp-sl-title">Log in to share</div>
+                <div class="vp-sl-msg" id="vp-sl-msg" hidden></div>
+                <!-- email step -->
+                <div class="vp-sl-step" id="vp-sl-email">
+                  <input class="inp" id="vp-sl-emailbox" type="email" placeholder="you@example.com" autocomplete="off">
+                  <div class="row">
+                    <button class="addbtn" data-action="share_send_code" type="button">Send code</button>
+                    <button class="vp-sl-cancel" data-action="share_login_cancel" type="button">Cancel</button>
+                  </div>
+                </div>
+                <!-- OTP step -->
+                <div class="vp-sl-step" id="vp-sl-otp" hidden>
+                  <input class="inp vp-sl-code" id="vp-sl-codebox" type="text" placeholder="8-character code" autocomplete="off" maxlength="12">
+                  <div class="row">
+                    <button class="addbtn" data-action="share_verify" type="button">Verify &amp; share</button>
+                    <button class="vp-sl-cancel" data-action="share_login_cancel" type="button">Cancel</button>
+                  </div>
+                </div>
+                <div class="vp-sl-err" id="vp-sl-err" hidden></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── RIGHT: moments to review ── -->
+        <div class="stack">
+          <div class="seclabel">Moments to review</div>
+          <div class="card vp-moments-card">
+            <div class="mhead">
+              <div>
+                <div class="mtitle" style="margin-bottom:0">Moments to Review</div>
+                <div class="sub">Auto-picked moments, saved clips, and bookmarks.</div>
+              </div>
+              <span class="openbadge" id="vp-open-count">0 open</span>
+            </div>
+
+            <!-- 3-way tab filter: Auto / Clips / Bookmarks -->
+            <div class="tabs" id="vp-tabs">
+              <div class="tab auto on" data-filter="auto">Auto <span class="c" id="vp-c-all">(0)</span></div>
+              <div class="tab clips" data-filter="clips">Clips <span class="c" id="vp-c-clips">(0)</span></div>
+              <div class="tab bm" data-filter="bm">Bookmarks <span class="c" id="vp-c-bm">(0)</span></div>
+            </div>
+
+            <div class="moments" id="vp-bookmarks"></div>
+            <div class="vp-moments-empty" id="vp-moments-empty" hidden>No moments tagged for this game yet.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Error panel -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow"><div>
+        <div class="vline" id="err-line">Couldn't load the VOD.</div>
+        <div class="vsmall" id="err-detail"></div>
+      </div></div>
+    </div>
+  </div>
+
+  <template id="tpl-bookmark">
+    <div class="moment" data-action="jump" role="button" tabindex="0">
+      <div class="ricon" title="Jump to moment">▶</div>
+      <div class="mbadges">
+        <span class="b src vp-bm-src">Bookmark</span>
+        <span class="b time vp-bm-time"></span>
+        <span class="b srcclip vp-bm-clip" hidden>Clip</span>
+      </div>
+      <div class="mtl vp-bm-note"></div>
+      <!-- Share — shown only for saved-clip rows. "Share" uploads the clip to
+           revu.lol and copies the link; once shared it flips to "Copy link". -->
+      <div class="vp-bm-share" hidden>
+        <button class="vp-share-btn" data-action="share_clip" type="button">Share clip</button>
+        <span class="vp-share-url" hidden></span>
+      </div>
+      <!-- Inline edit/delete — shown only for plain bookmark rows (carry an id).
+           The note field autosaves on blur/Enter; delete removes the bookmark. -->
+      <div class="vp-bm-edit" hidden>
+        <input class="inp vp-bm-editnote" type="text" placeholder="Edit note…" autocomplete="off">
+        <button class="vp-bm-del" data-action="delete_bookmark" title="Delete bookmark" aria-label="Delete bookmark">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <!-- Evidence edit — shown for auto-moment + saved-clip rows (carry an evidence
+           id). An objective tag picker (attaches the moment to an objective) and an
+           editable note that autosaves on blur/Enter. -->
+      <div class="vp-ev-edit" hidden>
+        <select class="inp vp-ev-obj" aria-label="Tag objective">
+          <option value="">No objective</option>
+        </select>
+        <input class="inp vp-ev-note" type="text" placeholder="Add a note…" autocomplete="off">
+      </div>
+    </div>
+  </template>
+
+  <script type="module" src="./vodplayer.js"></script>
+</body>
+</html>

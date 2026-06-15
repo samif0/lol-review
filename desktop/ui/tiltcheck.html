@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Tilt Check</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="tiltcheck"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i active" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <div class="eyebrow">Mental Recovery</div>
+    <div class="hero"><h1 id="hero-title">Tilt Check</h1></div>
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- ════ THE ONE LOUD ELEMENT — the reset ritual card ════
+         Rests as a single "Run a reset" CTA; clicking it expands the guided
+         ritual inline (emotion → before → reframe → if-then → after). Confirm
+         writes via invoke('run_reset', {…}) then re-fetches the page. -->
+    <div class="glass tc-primary" id="tc-primary">
+      <div class="tc-primary-head">
+        <div class="tc-primary-lead">
+          <div class="k">Reset ritual</div>
+          <h2 id="tc-primary-h">Feeling the tilt? Run a reset.</h2>
+          <p id="tc-primary-p">Name the emotion, breathe, reframe the thought, and lock one if-then plan. A 90-second loop that measurably lowers arousal.</p>
+        </div>
+      </div>
+      <button class="cta tc-runbtn" id="tc-runbtn" data-action="open_ritual">RUN A RESET →</button>
+    </div>
+
+    <!-- STAT STRIP — total resets / before→after / avg drop / top emotion. -->
+    <div class="seclabel">Your resets <span class="n">all-time</span></div>
+    <div class="strip tc-strip" id="tc-strip"></div>
+
+    <!-- TOP EMOTIONS — chips sized by frequency. Hidden until there's data. -->
+    <div class="seclabel" id="tc-emotions-label" hidden>Most common <span class="n">what tends to tilt you</span></div>
+    <div class="tc-emotions" id="tc-emotions"></div>
+
+    <!-- LATEST PLAN — the most recent if-then implementation intention. -->
+    <div class="glass card tc-plan" id="tc-plan" hidden>
+      <div class="tc-plan-k">Your latest plan</div>
+      <div class="tc-plan-v" id="tc-plan-v"></div>
+    </div>
+
+    <!-- RECENT LOG — past resets, newest first. Each row shows the emotion,
+         the before→after intensity drop, and the reframe response. -->
+    <div class="seclabel seclabel-lead" id="tc-recent-label" hidden>Recent resets</div>
+    <div id="tc-recent"></div>
+
+    <!-- EMPTY STATE — no resets logged yet. -->
+    <div class="tc-empty" id="tc-empty" hidden>
+      <div class="tc-empty-h">No resets logged yet.</div>
+      <div class="tc-empty-p">Next time a game leaves you tilted, run a reset: naming the feeling and lowering it lands here so you can see the pattern over time.</div>
+    </div>
+
+    <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load Tilt Check.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPEATING-CELL TEMPLATES ── -->
+  <template id="tpl-stat">
+    <div class="stat">
+      <div class="k"></div>
+      <div class="v"></div>
+      <div class="s"></div>
+    </div>
+  </template>
+
+  <!-- One top-emotion chip — label + count, tinted by the emotion color. -->
+  <template id="tpl-emotion">
+    <span class="tc-emo">
+      <span class="tc-emo-dot" aria-hidden="true"></span>
+      <span class="tc-emo-name"></span>
+      <span class="tc-emo-n"></span>
+    </span>
+  </template>
+
+  <!-- One recent-reset row — emotion + before→after duo + reframe response. -->
+  <template id="tpl-recent">
+    <div class="card tc-row">
+      <span class="tc-row-edge" aria-hidden="true"></span>
+      <div class="tc-row-main">
+        <div class="tc-row-top">
+          <span class="tc-row-emo"></span>
+          <span class="tc-row-when"></span>
+          <span class="tc-row-plan" hidden>PLAN</span>
+        </div>
+        <div class="tc-row-text"></div>
+      </div>
+      <div class="tc-row-ba">
+        <span class="tc-row-before"></span>
+        <span class="tc-row-arr" aria-hidden="true">→</span>
+        <span class="tc-row-after"></span>
+        <span class="tc-row-drop"></span>
+      </div>
+    </div>
+  </template>
+
+  <!-- The guided reset ritual — a 5-step linear wizard (Name It / Breathe /
+       Reframe / Plan / Done) built inline (in place of the primary CTA) when the
+       user clicks RUN A RESET. Exactly one step is visible at a time. JS clones
+       this, rotates the content pools each run, runs the breathing timer, and on
+       SAVE invokes run_reset; SAVE → SET INTENT also navigates to the dashboard
+       Start Block. -->
+  <template id="tpl-ritual">
+    <div class="tc-ritual">
+      <!-- progress dots -->
+      <div class="tc-progress" id="tc-progress" aria-hidden="true"></div>
+
+      <!-- STEP 0 · NAME IT -->
+      <div class="tc-step" data-step="0">
+        <div class="tc-step-k">Step 1 · Name it</div>
+        <p class="tc-step-intro">Pick up to 3 labels that fit right now. Labeling beats venting.</p>
+        <div class="tc-chips" id="tc-chips"></div>
+        <div class="tc-selreadout" id="tc-sel-readout" hidden></div>
+        <div class="tc-step-k tc-sub">Intensity, right now</div>
+        <div class="tc-slrow">
+          <input type="range" class="tc-range" id="tc-before" min="1" max="10" step="1" value="7"
+                 aria-label="Intensity before, 1 to 10">
+          <span class="tc-slval loss" id="tc-before-val">7</span>
+        </div>
+        <div class="tc-step-nav">
+          <button type="button" class="cta cta-sm tc-next" data-action="step_next" disabled>NEXT →</button>
+        </div>
+      </div>
+
+      <!-- STEP 1 · BREATHE -->
+      <div class="tc-step" data-step="1" hidden>
+        <div class="tc-step-k">Step 2 · Breathe</div>
+        <p class="tc-step-intro">Cyclic sighing: exhale longer than you inhale. 80 seconds.</p>
+        <div class="tc-breathe">
+          <div class="tc-ring" id="tc-ring">
+            <div class="tc-ring-count" id="tc-breathe-count">80</div>
+          </div>
+          <div class="tc-breathe-phase" id="tc-breathe-phase">Inhale…</div>
+          <div class="tc-breathe-hint">Double-inhale through the nose, long exhale through the mouth.</div>
+          <div class="tc-breathe-track"><span class="tc-breathe-fill" id="tc-breathe-fill"></span></div>
+          <div class="tc-breathe-cycle" id="tc-breathe-cycle">Cycle 1</div>
+        </div>
+        <div class="tc-step-nav">
+          <button type="button" class="tc-skip" data-action="skip_breathing">SKIP →</button>
+        </div>
+      </div>
+
+      <!-- STEP 2 · REFRAME -->
+      <div class="tc-step" data-step="2" hidden>
+        <div class="tc-step-k">Step 3 · Reframe</div>
+        <p class="tc-step-intro">Pick the one that lands. A calmer frame beats arguing with the loss.</p>
+        <div class="tc-menu" id="tc-reframe-menu"></div>
+        <div class="tc-selreadout" id="tc-reframe-readout" hidden></div>
+        <div class="tc-step-nav">
+          <button type="button" class="cta cta-sm tc-next" data-action="step_next">NEXT →</button>
+        </div>
+      </div>
+
+      <!-- STEP 3 · PLAN -->
+      <div class="tc-step" data-step="3" hidden>
+        <div class="tc-step-k">Step 4 · Plan</div>
+        <p class="tc-step-intro">One trigger, one response. "If X then Y" beats willpower.</p>
+        <div class="tc-menu-lbl tc-if">If…</div>
+        <div class="tc-menu" id="tc-trigger-menu"></div>
+        <div class="tc-menu-lbl tc-then">Then…</div>
+        <div class="tc-menu" id="tc-response-menu"></div>
+        <div class="tc-selreadout" id="tc-plan-readout" hidden></div>
+        <div class="tc-step-nav">
+          <button type="button" class="cta cta-sm tc-next" data-action="step_next">NEXT →</button>
+        </div>
+      </div>
+
+      <!-- STEP 4 · DONE -->
+      <div class="tc-step" data-step="4" hidden>
+        <div class="tc-step-k">Step 5 · Done</div>
+        <p class="tc-step-intro" id="tc-done-labeled">You labeled it.</p>
+        <div class="tc-ba">
+          <span class="tc-ba-before" id="tc-ba-before">7</span>
+          <span class="tc-ba-arr" aria-hidden="true">→</span>
+          <span class="tc-ba-after" id="tc-ba-after">4</span>
+        </div>
+        <div class="tc-step-k tc-sub">How intense is the feeling now?</div>
+        <div class="tc-slrow">
+          <input type="range" class="tc-range" id="tc-after" min="1" max="10" step="1" value="4"
+                 aria-label="Intensity after, 1 to 10">
+          <span class="tc-slval win" id="tc-after-val">4</span>
+        </div>
+        <div class="tc-result" id="tc-result" hidden></div>
+        <p class="tc-why">A ~4-minute ritual can't clear cortisol; it catches you on the slope, before the next queue.</p>
+        <div class="tc-ritual-bar">
+          <button type="button" class="tc-cancelbtn" id="tc-startover" data-action="start_over">Start over</button>
+          <button type="button" class="tc-savebtn-sec" id="tc-savebtn" data-action="confirm_reset">SAVE &amp; CLOSE</button>
+          <button type="button" class="cta cta-sm tc-saveintent" id="tc-saveintent" data-action="save_set_intent"
+                  title="Save this reset, then lock in a fresh intent before you queue again.">SAVE → SET INTENT</button>
+        </div>
+        <span class="tc-ritual-msg" id="tc-ritual-msg" hidden></span>
+      </div>
+    </div>
+  </template>
+
+  <!-- One emotion chip inside the ritual's Name-it step. -->
+  <template id="tpl-chip">
+    <button type="button" class="tc-chip"></button>
+  </template>
+
+  <!-- One menu option (reframe / trigger / response). -->
+  <template id="tpl-menu-opt">
+    <button type="button" class="tc-menuopt"></button>
+  </template>
+
+  <script type="module" src="./tiltcheck.js"></script>
+</body>
+</html>

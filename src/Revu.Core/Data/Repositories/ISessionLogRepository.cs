@@ -107,6 +107,13 @@ public interface ISessionLogRepository
     /// gets a real review on a follow-up open of the review page.</summary>
     Task ClearSkippedAsync(long gameId);
 
+    /// <summary>Delete-review: clear ONLY the three fields that gate the review
+    /// queue (improvement_note, mental_handled, is_skipped), returning the game to
+    /// the unreviewed queue. Deliberately preserves mental_rating, focus_adherence
+    /// and rule_broken so the live-computed mental + adherence streaks (and the
+    /// pre-2026-06-12 grandfathered verdicts) are untouched — the row stays.</summary>
+    Task ClearReviewMarkersAsync(long gameId);
+
     /// <summary>v2.15.10: clear or set the rule_broken flag for a specific game.
     /// User-initiated only — used to undo a false positive flagged by the
     /// since-removed heuristic, or by the live rules engine.

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Welcome</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="onboarding"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i active" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <!-- FIRST-LAUNCH WIZARD. A single page that swaps which state card is visible
+       based on the active state (welcome / emailEntry / codeSent / account /
+       role / done). Two completion paths:
+         • SKIP / LOCAL  : welcome → role → done  (stamps OnboardingSkipped=true)
+         • LOGIN         : welcome → emailEntry → codeSent → account → role → done
+       Mirrors OnboardingViewModel exactly. Partial-session cleanup on every
+       Back hop is load-bearing — see onboarding.js ClearPartialSession. -->
+  <div class="shell onb-shell">
+    <!-- HERO (always visible) -->
+    <div class="hero onb-hero">
+      <div class="eyebrow">Welcome</div>
+      <h1>Revu</h1>
+      <div class="onb-subt">RANKED LEAGUE, REVIEWED</div>
+    </div>
+
+    <!-- ── SIGNED IN ── shown when get_auth_status reports signedIn=true (returning
+         to this page after logging in). Confirms the session + offers sign-out.
+         This is the feedback that was missing: a clear "you're signed in" state. -->
+    <section class="card onb-card onb-card-green" id="card-signedIn" data-state="signedIn" hidden>
+      <div class="seclabel onb-sectitle">Signed in</div>
+      <div class="onb-acct">
+        <span class="onb-acct-dot"></span>
+        <div>
+          <div class="onb-acct-h" id="onb-acct-email">you@example.com</div>
+          <div class="onb-acct-p" id="onb-acct-sub">Your account is linked.</div>
+        </div>
+      </div>
+      <button class="cta onb-cta" id="signedin-continue" data-action="go_dashboard" type="button">GO TO DASHBOARD →</button>
+      <button class="onb-link" id="signedin-logout" data-action="sign_out" type="button">Sign out</button>
+    </section>
+
+    <!-- ── WELCOME ── -->
+    <section class="card onb-card onb-card-blue" id="card-welcome" data-state="welcome" hidden>
+      <div class="seclabel onb-sectitle">Get started</div>
+      <p class="onb-body">
+        Revu turns every ranked game into data you can actually learn from:
+        captured in the background, reviewed in a minute, tied to the habits
+        you're working on.
+      </p>
+      <div class="onb-how">
+        <div class="onb-how-row">
+          <span class="onb-how-dot"></span>
+          <div>
+            <div class="onb-how-h">Background capture</div>
+            <div class="onb-how-p">Your games and VODs are logged automatically while you play.</div>
+          </div>
+        </div>
+        <div class="onb-how-row">
+          <span class="onb-how-dot"></span>
+          <div>
+            <div class="onb-how-h">Quick review</div>
+            <div class="onb-how-p">A 60-second post-game ritual that builds real self-awareness.</div>
+          </div>
+        </div>
+        <div class="onb-how-row">
+          <span class="onb-how-dot"></span>
+          <div>
+            <div class="onb-how-h">Objectives + Rules</div>
+            <div class="onb-how-p">Set what to practice and the guardrails that keep you disciplined.</div>
+          </div>
+        </div>
+      </div>
+      <button class="cta onb-cta" id="welcome-start" data-action="start_using" type="button">START USING REVU</button>
+      <button class="onb-link" id="welcome-login" data-action="begin_login" type="button">Log in or sign up with email (optional)</button>
+    </section>
+
+    <!-- ── EMAIL ENTRY (login path) ── -->
+    <section class="card onb-card onb-card-blue" id="card-emailEntry" data-state="emailEntry" hidden>
+      <div class="seclabel onb-sectitle">Log in</div>
+      <p class="onb-body">Enter your email. We'll send a one-time code.</p>
+      <label class="obj-field onb-field">
+        <span class="obj-field-k">Email</span>
+        <input class="obj-input onb-input-mono" id="f-email" type="email" inputmode="email"
+               autocomplete="email" placeholder="you@example.com" maxlength="160" spellcheck="false">
+      </label>
+      <button class="cta onb-cta" id="email-send" data-action="send_code" type="button">EMAIL ME A CODE</button>
+      <button class="onb-link" id="email-back" data-action="back_to_welcome" type="button">← Back</button>
+    </section>
+
+    <!-- ── CODE SENT (login path) ── -->
+    <section class="card onb-card onb-card-gold" id="card-codeSent" data-state="codeSent" hidden>
+      <div class="seclabel onb-sectitle">Check your email</div>
+      <p class="onb-body" id="code-info">Check your email for a code.</p>
+      <label class="obj-field onb-field">
+        <span class="obj-field-k">Code</span>
+        <input class="obj-input onb-input-mono onb-input-code" id="f-code" type="text"
+               autocomplete="one-time-code" placeholder="8-character code from email"
+               maxlength="16" spellcheck="false">
+      </label>
+      <button class="cta onb-cta" id="code-verify" data-action="verify_code" type="button">VERIFY</button>
+      <button class="onb-link" id="code-back" data-action="back_to_email" type="button">Wrong email? Go back</button>
+    </section>
+
+    <!-- ── LINK RIOT ID (login path) ── -->
+    <section class="card onb-card onb-card-green" id="card-account" data-state="account" hidden>
+      <div class="seclabel onb-sectitle">Link your Riot ID</div>
+      <p class="onb-body">Enter the account you play on. We'll verify it with Riot and link your games.</p>
+      <label class="obj-field onb-field">
+        <span class="obj-field-k">Riot ID</span>
+        <input class="obj-input onb-input-mono" id="f-riotid" type="text"
+               placeholder="gameName#tagLine" maxlength="120" spellcheck="false" autocomplete="off">
+      </label>
+      <label class="obj-field onb-field">
+        <span class="obj-field-k">Region</span>
+        <select class="obj-input obj-select" id="f-region">
+          <option value="na1">NA</option>
+          <option value="br1">BR</option>
+          <option value="la1">LAN</option>
+          <option value="la2">LAS</option>
+          <option value="euw1">EUW</option>
+          <option value="eun1">EUNE</option>
+          <option value="tr1">TR</option>
+          <option value="ru">RU</option>
+          <option value="kr">KR</option>
+          <option value="jp1">JP</option>
+          <option value="oc1">OCE</option>
+          <option value="ph2">PH</option>
+          <option value="sg2">SG</option>
+          <option value="th2">TH</option>
+          <option value="tw2">TW</option>
+          <option value="vn2">VN</option>
+        </select>
+      </label>
+      <button class="cta onb-cta" id="account-continue" data-action="finish_account" type="button">CONTINUE</button>
+    </section>
+
+    <!-- ── ROLE (both paths; last screen before done) ── -->
+    <section class="card onb-card onb-card-violet" id="card-role" data-state="role" hidden>
+      <div class="seclabel onb-sectitle">Your main role</div>
+      <p class="onb-body">Pick the role you play most. Actual role per game is detected from the client when you queue.</p>
+      <div class="onb-roles" id="onb-roles">
+        <button class="onb-role" data-action="select_role" data-role="TOP" type="button">TOP</button>
+        <button class="onb-role" data-action="select_role" data-role="JUNGLE" type="button">JUNGLE</button>
+        <button class="onb-role" data-action="select_role" data-role="MIDDLE" type="button">MID</button>
+        <button class="onb-role" data-action="select_role" data-role="BOTTOM" type="button">ADC</button>
+        <button class="onb-role" data-action="select_role" data-role="UTILITY" type="button">SUPPORT</button>
+      </div>
+      <div class="onb-rank" id="onb-rank" hidden></div>
+      <button class="cta onb-cta" id="role-continue" data-action="finish_role" type="button">CONTINUE</button>
+    </section>
+
+    <!-- Shared footer: inline error + busy spinner -->
+    <div class="onb-foot">
+      <div class="onb-error" id="onb-error" hidden></div>
+      <div class="onb-spin" id="onb-spin" hidden aria-label="Working" role="status"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./onboarding.js"></script>
+</body>
+</html>

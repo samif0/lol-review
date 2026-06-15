@@ -1,0 +1,110 @@
+{
+  "generatedAt": "2026-06-14T09:12:00",
+  "today": "2026-06-14",
+  "greeting": "Good morning. Lock in.",
+  "stats": {
+    "totalGames": 0,
+    "wins": 0,
+    "losses": 0,
+    "winratePercent": "—",
+    "winRateSub": "30D · 56%",
+    "avgMental": 7.3,
+    "avgMentalSub": "30D · 7.3",
+    "adherenceStreak": 53,
+    "adherenceSub": "DAYS CLEAN",
+    "reviewedPatternCount": 2,
+    "patternsReviewedSub": "CROSS-GAME"
+  },
+  "nextStep": {
+    "kicker": "Next step · Start Block",
+    "title": "Set your intent before you queue.",
+    "detail": "A 30-second ritual: name one focus, check your priority objective, lock in.",
+    "ctaLabel": "START BLOCK →",
+    "action": "start_block"
+  },
+  "intent": {
+    "sessionIntention": null,
+    "debriefRating": null
+  },
+  "deathMix": {
+    "text": "Your most-tagged death cause is vision: 27% of the last 11 tagged deaths.",
+    "label": "vision",
+    "pct": "27%",
+    "sample": 11
+  },
+  "vodPending": {
+    "show": true,
+    "gameId": 48213,
+    "text": "Sivir has a VOD but no objective-tagged evidence yet."
+  },
+  "unreviewed": {
+    "count": 2,
+    "countText": "2 games",
+    "allReviewed": false,
+    "items": [
+      {
+        "gameId": 5581701721,
+        "championName": "Sivir",
+        "enemyChampion": "Senna",
+        "gameRole": "BOTTOM",
+        "win": true,
+        "winLossText": "W",
+        "kdaText": "4/2/12",
+        "csPerMin": 9.2,
+        "visionScore": 10,
+        "totalDamageToChampions": 32362,
+        "duration": "29:05",
+        "datePlayed": "Jun 14, 12:32",
+        "gameMode": "Ranked Solo/Duo",
+        "winLossColorHex": "#8ee7ba",
+        "borderColorHex": "#8ee7ba",
+        "hasReview": false,
+        "statsLine": "CS 269 (9.2/m) · 32.4k dmg",
+        "metaLine": "RANKED SOLO/DUO · JUN 14, 12:32 · 29:05"
+      },
+      {
+        "gameId": 5581655110,
+        "championName": "Jinx",
+        "enemyChampion": "Caitlyn",
+        "gameRole": "BOTTOM",
+        "win": false,
+        "winLossText": "L",
+        "kdaText": "3/7/5",
+        "csPerMin": 6.1,
+        "visionScore": 14,
+        "totalDamageToChampions": 18430,
+        "duration": "27:48",
+        "datePlayed": "Jun 14, 11:58",
+        "gameMode": "Ranked Solo/Duo",
+        "winLossColorHex": "#f3a3a8",
+        "borderColorHex": "#f3a3a8",
+        "hasReview": false,
+        "statsLine": "CS 184 (6.1/m) · 18.4k dmg",
+        "metaLine": "RANKED SOLO/DUO · JUN 14, 11:58 · 27:48"
+      }
+    ]
+  },
+  "activeObjectives": [
+    {
+      "id": 7,
+      "title": "Planning",
+      "phaseLabel": "Pre-game",
+      "isMini": false,
+      "targetGameCount": 10,
+      "levelName": "Ingraining",
+      "score": 40,
+      "gameCount": 8,
+      "progress": 0.8,
+      "levelColorHex": "#9d8bff",
+      "levelDimColorHex": "rgba(255,255,255,0.13)",
+      "infoText": "INGRAINING · PRE-GAME · 40 PTS",
+      "isPriority": true,
+      "progressLabel": "80%",
+      "metaText": "INGRAINING · PRE-GAME · 40 PTS"
+    }
+  ],
+  "patterns": {
+    "has": false,
+    "items": []
+  }
+}

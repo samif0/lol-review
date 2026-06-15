@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Settings</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="settings"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i active" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <!-- HERO -->
+    <div class="hero">
+      <div class="eyebrow">Configuration</div>
+      <h1>Settings</h1>
+      <div class="set-subt">VOD FOLDERS // BACKUPS // INTEGRATIONS</div>
+    </div>
+
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- RECORDINGS & CLIPS -->
+    <div class="seclabel seclabel-lead">Recordings &amp; Clips</div>
+
+    <div class="card set-card">
+      <div class="seclabel">Ascent VOD Recordings</div>
+      <div class="set-row-s">Your Ascent recordings folder. Revu scans it to match VODs to games.</div>
+      <div class="obj-field">
+        <div class="obj-field-k">Recordings folder</div>
+        <input class="obj-input" id="ascentFolder" type="text" spellcheck="false"
+               placeholder="Path to your Ascent recordings folder" />
+      </div>
+      <div class="set-status" id="ascent-status"></div>
+      <div class="set-btnrow">
+        <button class="rule-act" type="button" data-action="pick_ascent">Browse…</button>
+        <button class="rule-act" type="button" data-action="clear_ascent">Clear folder</button>
+        <button class="rule-act set-act-primary" type="button" data-action="scan_vods" id="scan-btn">Scan for VODs</button>
+      </div>
+      <div class="set-status" id="scan-result" hidden></div>
+    </div>
+
+    <div class="card set-card">
+      <div class="seclabel">Clip Settings</div>
+      <div class="set-status" id="ffmpeg-status">Checking ffmpeg…</div>
+      <div class="set-row-s">Where extracted clips are saved. Oldest clips auto-delete past the size cap.</div>
+      <div class="obj-field">
+        <div class="obj-field-k">Clips folder</div>
+        <input class="obj-input" id="clipsFolder" type="text" spellcheck="false"
+               placeholder="Where extracted clips are saved" />
+      </div>
+      <div class="set-btnrow">
+        <button class="rule-act" type="button" data-action="pick_clips">Browse…</button>
+      </div>
+      <div class="obj-field" style="max-width:220px">
+        <div class="obj-field-k">Max folder size (MB)</div>
+        <input class="obj-input" id="clipsMaxSizeMb" type="number" min="100" max="50000" step="1" />
+      </div>
+      <div class="set-status" id="clip-usage"></div>
+    </div>
+
+    <!-- BACKUPS -->
+    <div class="seclabel seclabel-lead">Backups</div>
+
+    <div class="card set-card">
+      <div class="seclabel">Database Backup</div>
+      <div class="set-row" data-toggle="backupEnabled">
+        <div class="set-row-txt">
+          <div class="set-row-h">Enable automatic backups</div>
+          <div class="set-row-s">Snapshots your review DB on startup (keeps the last few).</div>
+        </div>
+        <button class="set-toggle" id="backupEnabled" type="button" role="switch" aria-checked="false"><i></i></button>
+      </div>
+      <div class="obj-field">
+        <div class="obj-field-k">Backup folder</div>
+        <input class="obj-input" id="backupFolder" type="text" spellcheck="false"
+               placeholder="Backup destination (blank = default)" />
+      </div>
+      <div class="set-btnrow">
+        <button class="rule-act" type="button" data-action="pick_backup">Browse…</button>
+      </div>
+    </div>
+
+    <div class="card set-card">
+      <div class="seclabel">Available Backups</div>
+      <div class="set-row-s">Saved DB snapshots, newest first.</div>
+      <div class="set-backups" id="backups-list"></div>
+      <div class="set-status" id="backups-empty" hidden>No backups found yet.</div>
+      <div class="set-btnrow">
+        <button class="rule-act" type="button" data-action="refresh_backups">Refresh list</button>
+        <button class="rule-act set-act-disabled" type="button" data-action="restore_backup" disabled
+                title="Restore relaunches the app; coming soon to the desktop shell.">Restore (coming soon)</button>
+      </div>
+      <div class="set-acct-note">Restoring a backup relaunches the app, so it's handled in the current build for now.</div>
+    </div>
+
+    <!-- APP BEHAVIOR -->
+    <div class="seclabel seclabel-lead">App Behavior</div>
+
+    <div class="card set-card">
+      <div class="set-row" data-toggle="tiltFixMode">
+        <div class="set-row-txt">
+          <div class="set-row-h">Tilt Fix mode</div>
+          <div class="set-row-s">Nudge a guided reset after a rough stretch.</div>
+        </div>
+        <button class="set-toggle" id="tiltFixMode" type="button" role="switch" aria-checked="false"><i></i></button>
+      </div>
+      <div class="set-row" data-toggle="requireReviewNotes">
+        <div class="set-row-txt">
+          <div class="set-row-h">Require review notes before save</div>
+          <div class="set-row-s">When off, a game can be marked reviewed with blank notes.</div>
+        </div>
+        <button class="set-toggle" id="requireReviewNotes" type="button" role="switch" aria-checked="false"><i></i></button>
+      </div>
+      <div class="set-row" data-toggle="autoTimelineClippingEnabled">
+        <div class="set-row-txt">
+          <div class="set-row-h">Auto-fill Timeline Inbox from game events</div>
+          <div class="set-row-s">Surfaces kills/deaths/objective fights as Needs-Review items.</div>
+        </div>
+        <button class="set-toggle" id="autoTimelineClippingEnabled" type="button" role="switch" aria-checked="false"><i></i></button>
+      </div>
+      <div class="set-row" data-toggle="minimizeDuringGame">
+        <div class="set-row-txt">
+          <div class="set-row-h">Minimize during games</div>
+          <div class="set-row-s">Minimizes the window + pauses trails while a game is live.</div>
+        </div>
+        <button class="set-toggle" id="minimizeDuringGame" type="button" role="switch" aria-checked="false"><i></i></button>
+      </div>
+    </div>
+
+    <!-- APPEARANCE -->
+    <div class="seclabel seclabel-lead">Appearance</div>
+
+    <div class="card set-card">
+      <div class="set-row" data-toggle="sidebarAnimationEnabled">
+        <div class="set-row-txt">
+          <div class="set-row-h">Sidebar energy trails</div>
+          <div class="set-row-s">The animated glow on the left nav rail.</div>
+        </div>
+        <button class="set-toggle" id="sidebarAnimationEnabled" type="button" role="switch" aria-checked="false"><i></i></button>
+      </div>
+    </div>
+
+    <!-- EXPORT -->
+    <div class="seclabel seclabel-lead">Export &amp; Tools</div>
+
+    <div class="card set-card set-export">
+      <div class="seclabel">Export Review Data</div>
+      <div class="set-row-s">Bundles your games, notes, prompt answers, objectives, tags, matchup
+        notes and bookmarks into a single Markdown file.</div>
+      <div class="set-btnrow">
+        <button class="rule-act set-act-primary" type="button" data-action="export_data" id="export-btn">Export all review data</button>
+        <button class="rule-act" type="button" data-action="open_logs">Open log folder</button>
+      </div>
+      <div class="set-status" id="export-status" hidden></div>
+    </div>
+
+    <!-- RIOT ACCOUNT (config-backed fields only; OTP login is deferred) -->
+    <div class="seclabel seclabel-lead">Riot Account</div>
+
+    <div class="card set-card set-account">
+      <div class="set-acct-email" id="acct-email" hidden></div>
+      <div class="obj-field">
+        <div class="obj-field-k">Riot ID</div>
+        <input class="obj-input" id="riotId" type="text" spellcheck="false" placeholder="gameName#tagLine" />
+      </div>
+      <div class="obj-field">
+        <div class="obj-field-k">Region</div>
+        <select class="obj-input" id="region">
+          <option value="na1">NA</option><option value="br1">BR</option>
+          <option value="la1">LAN</option><option value="la2">LAS</option>
+          <option value="euw1">EUW</option><option value="eun1">EUNE</option>
+          <option value="tr1">TR</option><option value="ru">RU</option>
+          <option value="kr">KR</option><option value="jp1">JP</option>
+          <option value="oc1">OCE</option><option value="ph2">PH</option>
+          <option value="sg2">SG</option><option value="th2">TH</option>
+          <option value="tw2">TW</option><option value="vn2">VN</option>
+        </select>
+      </div>
+      <div class="set-acct-note">Account sign-in (email code) and sign-out stay in the current build for now.</div>
+    </div>
+
+    <!-- ABOUT & UPDATES (deferred — installer-managed) -->
+    <div class="seclabel seclabel-lead">About &amp; Updates</div>
+
+    <div class="card set-card">
+      <div class="seclabel">App Updates</div>
+      <div class="set-row-s">Updates are managed by the installer for the desktop shell; there's
+        nothing to check here. The app picks up new versions automatically.</div>
+      <div class="set-acct-note">Managed by installer.</div>
+    </div>
+
+    <!-- GLOBAL SAVE -->
+    <div class="set-saverow">
+      <div class="set-savestatus" id="save-status"></div>
+      <button class="cta" id="save-btn" type="button" data-action="save_config">SAVE SETTINGS →</button>
+    </div>
+
+    <!-- ERROR PANEL -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load your settings.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="set-spacer"></div>
+  </div>
+
+  <script type="module" src="./settings.js"></script>
+</body>
+</html>

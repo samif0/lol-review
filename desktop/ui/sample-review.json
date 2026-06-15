@@ -1,0 +1,226 @@
+{
+  "generatedAt": "2026-06-14T20:45:00",
+  "subject": {
+    "gameId": 5581701721,
+    "header": {
+      "championName": "Jinx",
+      "enemyChampion": "Caitlyn",
+      "matchupHeading": "Jinx + Nautilus vs Caitlyn + Lux",
+      "gameRole": "BOTTOM",
+      "win": true,
+      "resultText": "VICTORY",
+      "winLossText": "W",
+      "resultColorHex": "#8ee7ba",
+      "kills": 8,
+      "deaths": 2,
+      "assists": 11,
+      "kdaRatio": 9.5,
+      "kdaText": "8 / 2 / 11",
+      "kdaRatioText": "(9.50)",
+      "gameMode": "Ranked Solo/Duo",
+      "duration": "32:11",
+      "datePlayed": "Jun 14, 20:42",
+      "metaLine": "RANKED SOLO/DUO  ·  JUN 14, 20:42  ·  32:11",
+      "hasReview": false,
+      "laningAt10Line": "LANING @10 // CS 84 · GOLD DIFF +210 · CS DIFF +6",
+      "hasLaningAt10": true
+    },
+    "stats": [
+      { "label": "Damage", "value": "28.4k", "sub": "" },
+      { "label": "CS", "value": "231", "sub": "7.2/min" },
+      { "label": "Vision", "value": "42", "sub": "" },
+      { "label": "Gold", "value": "14.2k", "sub": "" },
+      { "label": "Kill Part.", "value": "63%", "sub": "" },
+      { "label": "Dmg Taken", "value": "12.1k", "sub": "" },
+      { "label": "Wards", "value": "18", "sub": "placed" },
+      { "label": "KDA", "value": "8/2/11", "sub": "9.50 KDA" }
+    ],
+    "objectives": [
+      {
+        "id": 3,
+        "title": "CS Fundamentals",
+        "completionCriteria": "Hit 8 CS/min by 15 minutes",
+        "phaseLabel": "In-Game",
+        "isMini": false,
+        "isPriority": true,
+        "levelName": "Ingraining",
+        "score": 40,
+        "gameCount": 12,
+        "targetGameCount": 0,
+        "progress": 0.8,
+        "progressLabel": "80%",
+        "levelColorHex": "#D4A44E",
+        "levelDimColorHex": "#1E1810",
+        "metaText": "INGRAINING  ·  IN-GAME  ·  40 PTS",
+        "prompts": [
+          { "id": 1, "phase": "Laning", "label": "Did you last-hit under tower cleanly each wave?", "answer": "Mostly; dropped 3-4 CS during the level-2 all-in but recovered." },
+          { "id": 2, "phase": "Mid", "label": "Were you on a wave when you recalled?", "answer": "" }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Lane Trading",
+        "completionCriteria": "Win 2 short trades before each recall",
+        "phaseLabel": "In-Game",
+        "isMini": false,
+        "isPriority": false,
+        "levelName": "Exploring",
+        "score": 8,
+        "gameCount": 4,
+        "targetGameCount": 0,
+        "progress": 0.16,
+        "progressLabel": "16%",
+        "levelColorHex": "#7B8494",
+        "levelDimColorHex": "#10121A",
+        "metaText": "EXPLORING  ·  IN-GAME  ·  8 PTS",
+        "prompts": [
+          { "id": 3, "phase": "", "label": "Did you trade with your strongest ability up?", "answer": "" }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Minimap checks",
+        "completionCriteria": "",
+        "phaseLabel": "In-Game",
+        "isMini": true,
+        "isPriority": false,
+        "levelName": "",
+        "score": 0,
+        "gameCount": 3,
+        "targetGameCount": 10,
+        "progress": 0.3,
+        "progressLabel": "30%",
+        "levelColorHex": "#f3c794",
+        "levelDimColorHex": "rgba(255,255,255,0.13)",
+        "metaText": "FOCUS  ·  IN-GAME  ·  3/10 GAMES",
+        "prompts": []
+      }
+    ],
+    "hasObjectives": true,
+    "sessionIntention": "Ward the river before every rotation and respect Caitlyn's range pre-6.",
+    "form": {
+      "editable": true,
+      "editingNote": "",
+      "mentalRating": 7,
+      "mentalRatingColorHex": "#8ee7ba",
+      "focusAdherence": 1,
+      "wentWell": "Laning phase was clean; won the 2v2 with Nautilus engages and converted the lead into plates.",
+      "mistakes": "Got caught rotating to mid around 22:00 without vision on the enemy jungler.",
+      "focusNext": "Ward river before crossing the map. Check minimap before every rotation.",
+      "reviewNotes": "",
+      "spottedProblems": "Tunnel-visioned on CS during the dragon setup and missed the first contest.",
+      "attribution": "My play",
+      "personalContribution": "",
+      "outsideControl": "",
+      "withinControl": "",
+      "tagsJson": "[\"Dominated lane\",\"Good CS\"]"
+    },
+    "deaths": [
+      {
+        "gameTimeSeconds": 754,
+        "timeText": "12:34",
+        "selectedClass": "vision",
+        "selectedLabel": "VISION",
+        "isClassified": true,
+        "chips": [
+          { "key": "greed", "label": "GREED", "hint": "Overstayed: wave, tower dive, one more trade", "isSelected": false },
+          { "key": "vision", "label": "VISION", "hint": "No ward coverage where the threat came from", "isSelected": true },
+          { "key": "wave", "label": "WAVE", "hint": "Overextended for the wave state", "isSelected": false },
+          { "key": "cooldowns", "label": "COOLDOWNS", "hint": "Fought without key spells (yours or theirs)", "isSelected": false },
+          { "key": "outnumbered", "label": "NUMBERS", "hint": "Took a fight down bodies", "isSelected": false },
+          { "key": "tempo", "label": "TEMPO", "hint": "Shouldn't have been there at all", "isSelected": false }
+        ]
+      },
+      {
+        "gameTimeSeconds": 1322,
+        "timeText": "22:02",
+        "selectedClass": "",
+        "selectedLabel": "",
+        "isClassified": false,
+        "chips": [
+          { "key": "greed", "label": "GREED", "hint": "Overstayed: wave, tower dive, one more trade", "isSelected": false },
+          { "key": "vision", "label": "VISION", "hint": "No ward coverage where the threat came from", "isSelected": false },
+          { "key": "wave", "label": "WAVE", "hint": "Overextended for the wave state", "isSelected": false },
+          { "key": "cooldowns", "label": "COOLDOWNS", "hint": "Fought without key spells (yours or theirs)", "isSelected": false },
+          { "key": "outnumbered", "label": "NUMBERS", "hint": "Took a fight down bodies", "isSelected": false },
+          { "key": "tempo", "label": "TEMPO", "hint": "Shouldn't have been there at all", "isSelected": false }
+        ]
+      }
+    ],
+    "hasDeaths": true,
+    "evidence": {
+      "attached": [
+        {
+          "id": 41,
+          "sourceKind": "clip",
+          "startTimeSeconds": 312,
+          "endTimeSeconds": 327,
+          "timeText": "05:12–05:27",
+          "title": "Won the level-2 all-in",
+          "note": "Nautilus hook → kill, no flash used.",
+          "objectiveId": 5,
+          "objectiveTitle": "Lane Trading",
+          "polarity": "good",
+          "status": "evidence",
+          "polarityColorHex": "#8ee7ba",
+          "statusLabel": "Evidence"
+        },
+        {
+          "id": 44,
+          "sourceKind": "timeline_region",
+          "startTimeSeconds": 754,
+          "endTimeSeconds": 768,
+          "timeText": "12:34–12:48",
+          "title": "Death: caught crossing river",
+          "note": "",
+          "objectiveId": null,
+          "objectiveTitle": "",
+          "polarity": "bad",
+          "status": "needs_review",
+          "polarityColorHex": "#f3a3a8",
+          "statusLabel": "Needs review"
+        }
+      ],
+      "hasAttached": true,
+      "unassigned": [
+        {
+          "id": 52,
+          "sourceKind": "timeline_region",
+          "startTimeSeconds": 1010,
+          "endTimeSeconds": 1024,
+          "timeText": "16:50–17:04",
+          "title": "Dragon setup",
+          "note": "Late to the pit; missed first contest.",
+          "objectiveId": null,
+          "objectiveTitle": "",
+          "polarity": "neutral",
+          "status": "needs_review",
+          "polarityColorHex": "#9d8bff",
+          "statusLabel": "Needs review"
+        }
+      ],
+      "hasUnassigned": true
+    },
+    "matchupHistory": [
+      {
+        "note": "Caitlyn will trap-zone you off the wave; respect her range until 6, then all-in with Nautilus.",
+        "helpful": true,
+        "metaText": "Game 5580012933  ·  Jun 12, 2026 18:04  ·  Helpful"
+      },
+      {
+        "note": "Tried to fight pre-3 last time and lost the trade hard. Don't.",
+        "helpful": false,
+        "metaText": "Game 5579880210  ·  Jun 10, 2026 21:31  ·  Not helpful"
+      }
+    ],
+    "hasMatchupHistory": true,
+    "tagCatalog": [
+      { "id": 1, "name": "Dominated lane", "polarity": "good", "colorHex": "#8ee7ba", "isSelected": true },
+      { "id": 2, "name": "Good CS", "polarity": "good", "colorHex": "#8ee7ba", "isSelected": true },
+      { "id": 3, "name": "Forced fights", "polarity": "bad", "colorHex": "#f3a3a8", "isSelected": false },
+      { "id": 4, "name": "Tilted", "polarity": "bad", "colorHex": "#f3a3a8", "isSelected": false },
+      { "id": 5, "name": "Good vision", "polarity": "neutral", "colorHex": "#9d8bff", "isSelected": false }
+    ]
+  },
+  "subjectSourceText": "Most recent unreviewed game"
+}

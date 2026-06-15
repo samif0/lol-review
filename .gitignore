@@ -97,3 +97,12 @@ automation/research/snapshots/
 
 # Research loop working files (personal usage data - local only, public repo)
 automation/
+
+# throwaway WebView2 glass demo (not part of app)
+_glassdemo/
+
+# Tauri desktop build artifacts
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+.parity/

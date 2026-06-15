@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Dashboard</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="dashboard"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i active" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <div class="eyebrow">Dashboard</div>
+    <div class="hero"><h1 id="hero-title">Good morning. Lock in.</h1></div>
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- TOP ROW: Intent (40%) + Active objectives (60%) side by side -->
+    <div class="toprow">
+      <div class="glass primary" id="nextstep">
+        <div class="body">
+          <div class="k" id="nextstep-k">Next step</div>
+          <h2 id="nextstep-h">…</h2>
+          <p id="nextstep-p">…</p>
+          <button class="cta" id="nextstep-cta" data-action="start_block">START BLOCK →</button>
+        </div>
+      </div>
+
+      <div class="objpane" id="objpane">
+        <div class="seclabel" id="objectives-label" hidden>Active objectives</div>
+        <div id="objectives"></div>
+      </div>
+    </div>
+
+    <!-- STAT STRIP -->
+    <div class="seclabel">Today <span class="n">vs your 30-day baseline</span></div>
+    <div class="strip" id="strip"></div>
+
+    <!-- UNREVIEWED — the important section -->
+    <div class="seclabel seclabel-lead" id="unreviewed-label" hidden>Unreviewed games</div>
+    <div id="unreviewed"></div>
+
+    <!-- VOD evidence — a small inline hint, not a section -->
+    <div class="hint" id="vod-hint" hidden>
+      <span class="hint-dot"></span>
+      <span class="hint-text" id="vod-line"></span>
+      <button class="hint-link" id="vod-btn" data-action="review_vod">Review VOD →</button>
+    </div>
+
+    <!-- ERROR PANEL -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load the dashboard.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPEATING-CELL TEMPLATES ── -->
+  <template id="tpl-stat">
+    <div class="stat">
+      <div class="k"></div>
+      <div class="v"></div>
+      <div class="s"></div>
+    </div>
+  </template>
+
+  <template id="tpl-objective">
+    <div class="card">
+      <div class="ring">
+        <div class="ringwrap">
+          <svg width="58" height="58" viewBox="0 0 58 58">
+            <circle class="ring-track" cx="29" cy="29" r="24" fill="none" stroke-width="4"/>
+            <circle class="ring-prog" cx="29" cy="29" r="24" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="150.8"/>
+          </svg>
+          <div class="pc"></div>
+        </div>
+        <div>
+          <span class="pill" hidden>PRIORITY</span>
+          <div class="oname"></div>
+          <div class="ometa"></div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-gamerow">
+    <div class="card gamerow" data-action="open_review" tabindex="0" role="button">
+      <span class="gamerow-sweep" aria-hidden="true"></span>
+      <span class="gamerow-edge" aria-hidden="true"></span>
+      <div class="crow">
+        <div>
+          <div class="vline"></div>
+          <div class="vsmall"></div>
+        </div>
+        <div class="gamerow-right">
+          <div class="gamerow-cue" aria-hidden="true">REVIEW <span class="arr">→</span></div>
+          <button type="button" class="gamerow-skip" data-action="skip_review">SKIP</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

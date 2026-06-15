@@ -1,0 +1,20 @@
+{
+  "ascentFolder": "C:\\Users\\you\\Videos\\Ascent",
+  "ascentReminderDismissed": false,
+  "isAscentEnabled": true,
+  "clipsFolder": "C:\\Users\\you\\Videos\\Ascent\\clips",
+  "clipsMaxSizeMb": 2048,
+  "backupEnabled": true,
+  "backupFolder": "",
+  "tiltFixMode": false,
+  "requireReviewNotes": false,
+  "sidebarAnimationEnabled": true,
+  "minimizeDuringGame": true,
+  "autoTimelineClippingEnabled": true,
+  "autoTimelineClippingHintDismissed": false,
+  "riotId": "chapy#NA1",
+  "region": "na1",
+  "primaryRole": "BOTTOM",
+  "riotSessionEmail": "you@example.com",
+  "riotAuthState": "loggedIn"
+}

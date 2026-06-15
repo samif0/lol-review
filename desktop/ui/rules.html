@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Rules</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="rules"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i active" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <!-- HERO — eyebrow / title / subtitle + the "+ New rule" action that opens
+         the create form. -->
+    <div class="rules-hero">
+      <div class="hero">
+        <div class="eyebrow">Session protocols</div>
+        <h1>Session Rules</h1>
+        <div class="rules-subt" id="rules-subt">STOP-LOSSES · TIME LIMITS · MINDSET CHECKS</div>
+      </div>
+      <div class="rules-hero-act">
+        <button class="cta rules-new-btn" id="new-rule" data-action="new_rule" type="button">+ NEW RULE</button>
+      </div>
+    </div>
+
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- CREATE / EDIT FORM — hidden until "New rule" or "Edit" opens it. A single
+         form serves both: create_rule (no id) and update_rule (id set). The
+         condition field + its label/placeholder, the loss_streak cooldown field,
+         and the IF-leg preview all react to the selected Type. -->
+    <form class="glass card obj-form rule-form" id="rule-form" hidden novalidate>
+      <div class="obj-form-head">
+        <span class="obj-form-title" id="form-title">New Rule</span>
+        <button class="obj-form-x" id="form-cancel" data-action="cancel_form" type="button" aria-label="Cancel">✕</button>
+      </div>
+      <div class="obj-form-grid">
+        <label class="obj-field">
+          <span class="obj-field-k">Name <i>*</i></span>
+          <input class="obj-input" id="f-name" type="text" placeholder="e.g., Stop after 3 losses" maxlength="120" autocomplete="off">
+        </label>
+        <label class="obj-field">
+          <span class="obj-field-k">Type</span>
+          <select class="obj-input obj-select" id="f-type">
+            <option value="custom">Custom</option>
+            <option value="no_play_day">No-Play Day</option>
+            <option value="no_play_after">No Play After</option>
+            <option value="loss_streak">Loss Streak</option>
+            <option value="max_games">Max Games/Day</option>
+            <option value="min_mental">Minimum Mental</option>
+          </select>
+        </label>
+        <!-- Per-type condition input — hidden for custom; label + placeholder
+             swap per type (see rules.js TYPE_FIELDS). -->
+        <label class="obj-field" id="f-cond-wrap" hidden>
+          <span class="obj-field-k" id="f-cond-label">Condition</span>
+          <input class="obj-input" id="f-cond" type="text" placeholder="" maxlength="80" autocomplete="off">
+        </label>
+        <!-- loss_streak only: optional cooldown minutes (blank = rest of day). -->
+        <label class="obj-field" id="f-cooldown-wrap" hidden>
+          <span class="obj-field-k">Cooldown (minutes)</span>
+          <input class="obj-input" id="f-cooldown" type="number" min="1" max="1440" step="1" placeholder="Blank = rest of day. e.g., 120 for 2 hours" inputmode="numeric">
+          <span class="rule-form-help">Leave blank to lock out for the rest of the day.</span>
+        </label>
+        <label class="obj-field">
+          <span class="obj-field-k">Description</span>
+          <textarea class="obj-input obj-textarea" id="f-desc" placeholder="Why is this rule important to you?" maxlength="400" rows="2"></textarea>
+        </label>
+        <!-- REPLACEMENT PLAN (P2c) — "then I will…". The IF leg is read-only,
+             built live from the type+condition; the player writes only the THEN. -->
+        <div class="obj-field">
+          <span class="rule-plan-head">When this trips, what will you do instead? (optional)</span>
+          <div class="rule-if-preview" id="f-if-preview" hidden>
+            <span class="rule-leg rule-leg-if">IF</span>
+            <span class="rule-if-cue" id="f-if-cue"></span>
+          </div>
+          <div class="rule-then-row">
+            <span class="rule-leg rule-leg-then">THEN</span>
+            <textarea class="obj-input obj-textarea" id="f-plan" placeholder="e.g., Stand up, get water, take a 10-minute walk before requeueing." maxlength="300" rows="2"></textarea>
+          </div>
+          <div class="rule-plan-foot">A plan you'll actually do beats a rule you'll ignore.</div>
+        </div>
+        <div class="obj-form-err" id="form-err" hidden></div>
+        <div class="obj-form-act">
+          <button class="obj-ghost" data-action="cancel_form" type="button">Cancel</button>
+          <button class="cta obj-form-submit" id="form-submit" data-action="submit_form" type="button">Create</button>
+        </div>
+      </div>
+    </form>
+
+    <!-- RULE CHECK banner — live check vs today's games. P2b: observation, not
+         a verdict. Hidden unless an active rule is tripped today. Each entry has
+         two layouts: a plan-led IF/THEN block (when the rule has a replacement
+         plan) or a plain "RuleName — Reason" line. -->
+    <div class="rule-check" id="rule-check" hidden>
+      <div class="rule-check-head">
+        <span class="rule-check-ico" aria-hidden="true">⚠</span>
+        <span class="rule-check-k">RULE CHECK</span>
+      </div>
+      <div id="rule-check-list"></div>
+    </div>
+
+    <!-- ACTIVE rules -->
+    <div class="seclabel rules-seclabel-lead" id="active-label" hidden>Active <span class="n" id="active-n"></span></div>
+    <div id="active-list"></div>
+
+    <!-- DISABLED rules — dimmed -->
+    <div class="seclabel rules-seclabel-disabled" id="inactive-label" hidden>Disabled <span class="n" id="inactive-n"></span></div>
+    <div id="inactive-list"></div>
+
+    <!-- EMPTY STATE — 4 pre-built starter rules the player can add in one tap. -->
+    <div class="rules-empty" id="rules-empty" hidden>
+      <div class="rules-empty-h" id="rules-empty-h">No rules yet.</div>
+      <div class="rules-empty-p" id="rules-empty-p">Add guardrails to stay disciplined; start with one of these, or write your own.</div>
+      <div class="rules-suggest" id="rules-suggest"></div>
+    </div>
+
+    <!-- ERROR PANEL -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load your rules.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPEATING-CELL TEMPLATE: one rule card ── -->
+  <template id="tpl-rule">
+    <div class="rule-card" data-rule-id="">
+      <div class="rule-top">
+        <span class="rule-badge"></span>
+        <span class="rule-name"></span>
+        <span class="rule-status" hidden></span>
+      </div>
+      <!-- Live violation reason — only on tripped rules. -->
+      <div class="rule-vreason" hidden></div>
+      <div class="rule-desc" hidden></div>
+      <div class="rule-cond" hidden></div>
+      <div class="rule-plan" hidden>
+        <div class="rule-plan-k">YOUR PLAN INSTEAD</div>
+        <div class="rule-plan-t"></div>
+      </div>
+      <!-- P2b behavioral record (mono, teal). Empty for custom rules. -->
+      <div class="rule-evid" hidden></div>
+      <!-- Per-card actions: Edit / Enable-or-Disable / Delete. -->
+      <div class="rule-actrow">
+        <button class="rule-act" data-action="edit_rule" type="button">Edit</button>
+        <button class="rule-act rule-act-toggle" data-action="toggle_rule" type="button">Disable</button>
+        <button class="rule-act rule-act-del" data-action="delete_rule" type="button">Delete</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- ── SUGGESTED STARTER RULE chip (empty state) ── -->
+  <template id="tpl-suggest">
+    <div class="rules-suggest-card">
+      <div class="rules-suggest-main">
+        <span class="rules-suggest-badge"></span>
+        <div class="rules-suggest-name"></div>
+        <div class="rules-suggest-desc"></div>
+        <div class="rules-suggest-cond"></div>
+      </div>
+      <button class="cta cta-sm rules-suggest-add" data-action="add_suggested" type="button">+ Add</button>
+    </div>
+  </template>
+
+  <!-- ── BANNER-ITEM TEMPLATE (no plan): "RuleName — Reason" ── -->
+  <template id="tpl-vbanner">
+    <div class="rule-check-item">
+      <span class="rule-check-name"></span>
+      <span class="rule-check-dash" aria-hidden="true">—</span>
+      <span class="rule-check-reason"></span>
+    </div>
+  </template>
+
+  <!-- ── BANNER-ITEM TEMPLATE (plan-led): IF cue / THEN plan / TRIGGERED BY ── -->
+  <template id="tpl-vbanner-plan">
+    <div class="rule-check-item rule-check-item-plan">
+      <div class="rule-check-if"><span class="rule-check-leg rcl-if">IF</span> <span class="rule-check-cue"></span></div>
+      <div class="rule-check-then"><span class="rule-check-leg rcl-then">THEN</span> <span class="rule-check-plan"></span></div>
+      <div class="rule-check-by"><span class="rule-check-by-k">TRIGGERED BY</span> <span class="rule-check-by-name"></span></div>
+    </div>
+  </template>
+
+  <script type="module" src="./rules.js"></script>
+</body>
+</html>

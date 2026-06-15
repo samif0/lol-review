@@ -1,0 +1,9 @@
+{
+  "ffmpeg": { "available": true, "text": "Available", "colorHex": "#7EC9A0" },
+  "ascent": { "text": "Found 12 recordings", "colorHex": "#7EC9A0" },
+  "clipUsage": { "text": "Using 640 MB / 2048 MB (31%)", "colorHex": "#7EC9A0" },
+  "backups": [
+    { "filePath": "C:\\Users\\you\\AppData\\Local\\Revu\\backups\\revu_20260614_0930.db", "fileName": "revu_20260614_0930.db", "label": "Today 09:30 · 4.2 MB", "timestamp": "2026-06-14 09:30", "sizeMb": 4.2 },
+    { "filePath": "C:\\Users\\you\\AppData\\Local\\Revu\\backups\\revu_20260613_2115.db", "fileName": "revu_20260613_2115.db", "label": "Yesterday 21:15 · 4.1 MB", "timestamp": "2026-06-13 21:15", "sizeMb": 4.1 }
+  ]
+}

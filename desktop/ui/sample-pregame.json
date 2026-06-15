@@ -1,0 +1,93 @@
+{
+  "generatedAt": "2026-06-14T18:42:00",
+  "myChampion": "Kai'Sa",
+  "enemyChampion": "Caitlyn",
+  "myPosition": "ADC",
+  "intelDeck": [
+    { "eyebrow": "FOCUS THIS SESSION", "headline": "Trade on cooldown windows", "body": "Success: land 3+ clean trades when her Q is down" },
+    { "eyebrow": "LAST GAME · KAI'SA · L", "headline": "Stop face-checking river at 3", "body": "Mental: 6/10" },
+    { "eyebrow": "MATCHUP · KAI'SA VS CAITLYN", "headline": "Respect lvl-2 all-in; she traps the wave", "body": "" },
+    { "eyebrow": "ENEMY · KEY COOLDOWNS", "headline": "Caitlyn", "body": "Q · Piltover Peacemaker · 9s lvl 1 · W · Yordle Snap Trap · 0s · E · 90 Caliber Net · 16s" }
+  ],
+  "matchup": {
+    "hasMatchupDetected": true,
+    "myChampion": "Kai'Sa",
+    "enemyOrPlaceholder": "Caitlyn",
+    "accentHex": "#7cc7ff"
+  },
+  "matchupHistory": {
+    "has": true,
+    "headerText": "YOUR NOTES vs CAITLYN",
+    "items": [
+      { "note": "Don't walk up before 6; her net + trap zones the wave.", "dateText": "Jun 9", "wasHelpful": true, "hasHelpfulRating": true },
+      { "note": "Buy cloth + 4 pots, you out-sustain after first back.", "dateText": "May 30", "wasHelpful": false, "hasHelpfulRating": true }
+    ],
+    "accentHex": "#7cc7ff"
+  },
+  "intent": {
+    "seedText": "Stop face-checking river at 3",
+    "provenance": "FROM YOUR LAST REVIEW: KAI'SA (L) · YESTERDAY 23:12",
+    "selectedSource": "carry",
+    "hasCarrySource": true,
+    "carrySeed": "Stop face-checking river at 3",
+    "carryProvenance": "FROM YOUR LAST REVIEW: KAI'SA (L) · YESTERDAY 23:12",
+    "hasObjectiveSource": true,
+    "objectiveSeed": "Trade on cooldown windows: land 3+ clean trades when her Q is down",
+    "objectiveProvenance": "FROM PRIORITY OBJECTIVE: TRADE ON COOLDOWN WINDOWS",
+    "hasAdherenceSource": false,
+    "adherenceSeed": "",
+    "adherenceProvenance": "",
+    "accentHex": "#f3c794"
+  },
+  "activePlan": "If I die before 6, then I will ping back and reset for 20 seconds.",
+  "showMoodSelector": true,
+  "sessionIntention": {
+    "show": true,
+    "isFirstGame": true,
+    "intention": "",
+    "quickOptions": [
+      "When I die, I'll review why",
+      "When tilted, I'll take 3 breaths",
+      "When behind, I'll focus on farm"
+    ],
+    "accentHex": "#9d8bff"
+  },
+  "objectives": {
+    "hasActiveObjective": true,
+    "priorityTitle": "Trade on cooldown windows",
+    "priorityCriteria": "Land 3+ clean trades when her Q is down",
+    "hasObjectives": true,
+    "items": [
+      { "objectiveId": 12, "title": "Trade on cooldown windows", "criteria": "Land 3+ clean trades when her Q is down", "isPriority": true },
+      { "objectiveId": 8, "title": "Ward river bush before recall", "criteria": "", "isPriority": false }
+    ],
+    "accentHex": "#f3c794"
+  },
+  "promptBlocks": [
+    {
+      "objectiveId": 12,
+      "objectiveTitle": "Trade on cooldown windows",
+      "isPriority": true,
+      "eyebrow": "PRIORITY",
+      "accentHex": "#f3c794",
+      "prompts": [
+        { "promptId": 31, "label": "What's her hardest cooldown to bait?", "answerText": "" },
+        { "promptId": 32, "label": "What's my plan if she traps the wave?", "answerText": "" }
+      ]
+    },
+    {
+      "objectiveId": 8,
+      "objectiveTitle": "Ward river bush before recall",
+      "isPriority": false,
+      "eyebrow": "ACTIVE",
+      "accentHex": "#7fe0d4",
+      "prompts": [
+        { "promptId": 40, "label": "Which bush gets warded first?", "answerText": "" }
+      ]
+    }
+  ],
+  "goldHex": "#f3c794",
+  "tealHex": "#7fe0d4",
+  "purpleHex": "#9d8bff",
+  "blueHex": "#7cc7ff"
+}

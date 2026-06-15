@@ -1,0 +1,74 @@
+{
+  "generatedAt": "2026-06-14T09:16:00",
+  "recent": [
+    {
+      "id": 142,
+      "emotion": "frustrated",
+      "intensityBefore": 8,
+      "intensityAfter": 4,
+      "intensityReduction": 4,
+      "reframeThought": "I'm going to lose LP because my jungler never ganks.",
+      "reframeResponse": "I control my lane and my recalls. One bad game doesn't define the session.",
+      "thoughtType": "catastrophizing",
+      "cueWord": "reset",
+      "focusIntention": "Wave management on the next recall.",
+      "gameId": 5581701721,
+      "ifThenPlan": "If I feel tilt rising after a death, then I take one slow breath before re-engaging.",
+      "hasPlan": true,
+      "createdAt": 1749892560,
+      "createdAtText": "Jun 14, 09:16",
+      "emotionColorHex": "#f3a3a8"
+    },
+    {
+      "id": 141,
+      "emotion": "anxious",
+      "intensityBefore": 6,
+      "intensityAfter": 3,
+      "intensityReduction": 3,
+      "reframeThought": "If I lose this one I'll drop a division.",
+      "reframeResponse": "My rank reflects 50+ games, not this one. Play the map, not the LP.",
+      "thoughtType": "fortune-telling",
+      "cueWord": "breathe",
+      "focusIntention": "Track the enemy jungler on the minimap.",
+      "gameId": null,
+      "ifThenPlan": "",
+      "hasPlan": false,
+      "createdAt": 1749806160,
+      "createdAtText": "Jun 13, 09:16",
+      "emotionColorHex": "#f3a3a8"
+    },
+    {
+      "id": 140,
+      "emotion": "frustrated",
+      "intensityBefore": 7,
+      "intensityAfter": null,
+      "intensityReduction": null,
+      "reframeThought": "My team keeps inting and there's nothing I can do.",
+      "reframeResponse": "I can still farm, ward, and take objectives independently.",
+      "thoughtType": "helplessness",
+      "cueWord": "",
+      "focusIntention": "",
+      "gameId": null,
+      "ifThenPlan": "",
+      "hasPlan": false,
+      "createdAt": 1749719760,
+      "createdAtText": "Jun 12, 09:16",
+      "emotionColorHex": "#f3a3a8"
+    }
+  ],
+  "hasRecent": true,
+  "stats": {
+    "total": 18,
+    "avgBefore": 7.2,
+    "avgAfter": 3.9,
+    "avgReduction": 3.3,
+    "avgReductionText": "+3.3 avg",
+    "topEmotions": [
+      { "emotion": "frustrated", "count": 9, "emotionColorHex": "#f3a3a8" },
+      { "emotion": "anxious", "count": 5, "emotionColorHex": "#f3a3a8" },
+      { "emotion": "angry", "count": 4, "emotionColorHex": "#f3a3a8" }
+    ]
+  },
+  "latestPlan": "If I feel tilt rising after a death, then I take one slow breath before re-engaging.",
+  "hasLatestPlan": true
+}

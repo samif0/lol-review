@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Objectives</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="objectives"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i active" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <div class="eyebrow">Learning</div>
+    <div class="hero obj-hero">
+      <h1>Objectives</h1>
+      <button class="cta obj-new-btn" id="new-objective" data-action="new_objective" type="button">+ NEW OBJECTIVE</button>
+    </div>
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- CREATE / EDIT FORM — hidden until "New Objective" or "Edit" opens it.
+         A single form serves both: create_objective (no id) and update_objective
+         (id set). Phase checkboxes map pre/in/post; target-game-count row reveals
+         only for the mini type; the custom-prompts editor + champion gate +
+         focus-phase + structured-criterion pickers mirror the WinUI form. The whole
+         form posts to the sidecar then reloads. Edit prefills via get_objective. -->
+    <form class="glass obj-form" id="obj-form" hidden novalidate>
+      <div class="obj-form-head">
+        <span class="obj-form-title" id="form-title">New Objective</span>
+        <button class="obj-form-x" id="form-cancel" data-action="cancel_form" type="button" aria-label="Cancel">✕</button>
+      </div>
+      <div class="obj-form-grid">
+        <label class="obj-field">
+          <span class="obj-field-k">Title <i>*</i></span>
+          <input class="obj-input" id="f-title" type="text" placeholder="e.g., Improve wave management" maxlength="120" autocomplete="off">
+        </label>
+        <label class="obj-field">
+          <span class="obj-field-k">Skill area</span>
+          <input class="obj-input" id="f-skill" type="text" placeholder="e.g., Laning, Macro, Teamfighting" maxlength="80" autocomplete="off">
+        </label>
+        <div class="obj-field-row2">
+          <label class="obj-field">
+            <span class="obj-field-k">Type</span>
+            <select class="obj-input obj-select" id="f-type">
+              <option value="primary">Primary</option>
+              <option value="mental">Mental</option>
+              <option value="mini">Mini (focus drill)</option>
+            </select>
+          </label>
+          <label class="obj-field obj-field-target" id="f-target-wrap" hidden>
+            <span class="obj-field-k">Focus for N games</span>
+            <input class="obj-input" id="f-target" type="number" min="1" max="20" step="1" placeholder="3" inputmode="numeric">
+          </label>
+        </div>
+        <div class="obj-field">
+          <span class="obj-field-k">Practice during</span>
+          <div class="obj-checks">
+            <label class="obj-check"><input type="checkbox" id="f-pre" checked><span class="obj-box"></span>Pre-Game</label>
+            <label class="obj-check"><input type="checkbox" id="f-in" checked><span class="obj-box"></span>In-Game</label>
+            <label class="obj-check"><input type="checkbox" id="f-post"><span class="obj-box"></span>Post-Game</label>
+          </div>
+        </div>
+        <label class="obj-field">
+          <span class="obj-field-k">Focus phase <i class="obj-field-hint">auto-clips</i></span>
+          <select class="obj-input obj-select" id="f-focus">
+            <option value="0">Auto (from title)</option>
+            <option value="1">Laning / early game</option>
+            <option value="2">Mid / late game</option>
+            <option value="3">Teamfighting</option>
+            <option value="4">Any phase</option>
+          </select>
+        </label>
+
+        <!-- MEASURED CRITERION — a machine-checkable metric + comparator + value.
+             Op + value reveal only once a metric (>0) is chosen. Metric options
+             are populated from the sidecar (criteriaMetrics) so the list never
+             drifts from Revu.Core.ObjectiveCriteria. -->
+        <div class="obj-field">
+          <span class="obj-field-k">Measured criterion</span>
+          <div class="obj-crit-row">
+            <select class="obj-input obj-select obj-crit-metric" id="f-crit-metric">
+              <option value="0">Free text only</option>
+            </select>
+            <select class="obj-input obj-select obj-crit-op" id="f-crit-op" hidden>
+              <option value="0">At least</option>
+              <option value="1">At most</option>
+            </select>
+            <input class="obj-input obj-crit-val" id="f-crit-val" type="text" inputmode="decimal" placeholder="e.g. 7" hidden autocomplete="off">
+          </div>
+        </div>
+
+        <label class="obj-field">
+          <span class="obj-field-k">Completion criteria <i class="obj-field-hint">free text</i></span>
+          <input class="obj-input" id="f-criteria" type="text" placeholder="How will you know you've mastered this?" maxlength="160" autocomplete="off">
+        </label>
+        <label class="obj-field">
+          <span class="obj-field-k">Description</span>
+          <textarea class="obj-input obj-textarea" id="f-desc" placeholder="Additional notes…" maxlength="400" rows="2"></textarea>
+        </label>
+
+        <!-- CUSTOM PROMPTS — per-objective questions rendered in champ-select /
+             review. Each row: phase select + label + remove. Diff-saved server-side. -->
+        <div class="obj-field">
+          <span class="obj-field-k obj-field-k-prompt">Custom prompts</span>
+          <div class="obj-prompts" id="f-prompts"></div>
+          <button class="obj-subadd obj-subadd-prompt" id="f-add-prompt" data-action="add_prompt" type="button">+ Add prompt</button>
+        </div>
+
+        <!-- CHAMPIONS — gate the objective to specific champions (empty = all).
+             Picked chips above a typeahead input backed by a <datalist> of the
+             user's played champions. -->
+        <div class="obj-field">
+          <span class="obj-field-k obj-field-k-champ">Champions <i class="obj-field-hint">empty = all</i></span>
+          <div class="obj-chips" id="f-champs"></div>
+          <input class="obj-input obj-champ-input" id="f-champ-input" type="text" list="f-champ-list" placeholder="Search champion…" autocomplete="off" maxlength="40">
+          <datalist id="f-champ-list"></datalist>
+        </div>
+
+        <div class="obj-form-err" id="form-err" hidden></div>
+        <div class="obj-form-act">
+          <button class="obj-ghost" data-action="cancel_form" type="button">Cancel</button>
+          <button class="cta obj-form-submit" id="form-submit" data-action="submit_form" type="button">Create</button>
+        </div>
+      </div>
+    </form>
+
+    <!-- OBJECTIVES: ONE unified list of leveling objectives as glass ring cards.
+         The priority objective sorts first and carries a PRIORITY chip + accent
+         rim (the .obj-card-priority modifier); the rest follow as calm cards.
+         Mini/focus drills render separately in the Focus section below. -->
+    <div class="seclabel seclabel-lead" id="active-label" hidden>Objectives</div>
+    <div id="active-list"></div>
+
+    <!-- FOCUS: mini drills auto-archiving at their target game count. Compact rows. -->
+    <div class="seclabel" id="focus-label" hidden>Focus drills <span class="n">auto-archive at target</span></div>
+    <div id="focus-list"></div>
+
+    <!-- SPOTTED PROBLEMS: review-noted issues, raw material for future objectives.
+         Clickable game rows (reuse .gamerow + W/L edge bar) → open that review. -->
+    <div class="seclabel" id="spotted-label" hidden>Spotted problems <span class="n">noted in reviews</span></div>
+    <div id="spotted-list"></div>
+
+    <!-- COMPLETED: collapsed by default, calm done rows. -->
+    <div class="obj-completed-toggle" id="completed-toggle-wrap" hidden>
+      <button class="obj-toggle" id="completed-toggle" data-action="toggle_completed" aria-expanded="false">
+        <span class="arr">▸</span> <span id="completed-toggle-label">Show completed</span>
+      </button>
+    </div>
+    <div id="completed-list" hidden></div>
+
+    <!-- EMPTY STATE -->
+    <div class="obj-empty" id="empty" hidden>
+      <div class="obj-empty-h">No objectives yet.</div>
+      <div class="obj-empty-p">Objectives turn one focus skill into a measurable, leveling goal across games.</div>
+      <button class="cta obj-empty-cta" data-action="new_objective" type="button">+ NEW OBJECTIVE</button>
+    </div>
+
+    <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load your objectives.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MILESTONE CELEBRATION OVERLAY — full-screen scrim + HUD card, shown when an
+       objective is marked complete. Auto-dismisses after 5s; CONTINUE closes it. -->
+  <div class="obj-celebrate" id="celebrate" hidden>
+    <div class="obj-celebrate-card glass">
+      <span class="obj-celebrate-bracket tl" aria-hidden="true"></span>
+      <span class="obj-celebrate-bracket tr" aria-hidden="true"></span>
+      <span class="obj-celebrate-bracket bl" aria-hidden="true"></span>
+      <span class="obj-celebrate-bracket br" aria-hidden="true"></span>
+      <div class="obj-celebrate-eyebrow">Milestone reached</div>
+      <div class="obj-celebrate-head">Objective Ready</div>
+      <div class="obj-celebrate-title" id="celebrate-title"></div>
+      <div class="obj-celebrate-stats" id="celebrate-stats"></div>
+      <div class="obj-celebrate-line">Skill acquired: carry it into your next games.</div>
+      <button class="cta obj-celebrate-cta" id="celebrate-continue" data-action="dismiss_celebration" type="button">Continue</button>
+    </div>
+  </div>
+
+  <!-- ── REPEATING-CELL TEMPLATES ── -->
+
+  <!-- A calm active objective: animated ring (58px) + name/level/score, mastery
+       ladder, optional champion gate. Mirrors the dashboard objective ring card. -->
+  <template id="tpl-active">
+    <div class="card obj-card">
+      <div class="obj-card-top">
+        <div class="ringwrap">
+          <svg width="58" height="58" viewBox="0 0 58 58">
+            <circle class="ring-track" cx="29" cy="29" r="24" fill="none" stroke-width="4"/>
+            <circle class="ring-prog" cx="29" cy="29" r="24" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="150.8"/>
+          </svg>
+          <div class="pc"></div>
+        </div>
+        <div class="obj-card-head">
+          <div class="obj-badges">
+            <span class="pill obj-card-pri" hidden>PRIORITY</span>
+            <span class="obj-tag obj-card-type"></span>
+          </div>
+          <div class="oname obj-card-name"></div>
+          <div class="obj-card-meta"></div>
+        </div>
+      </div>
+      <!-- MEASURED CRITERION — the success line + a mono hit-rate chip (v2.18).
+           Hidden when the objective has no structured criterion or free text. -->
+      <div class="obj-card-crit" hidden>
+        <div class="obj-crit-text"></div>
+        <div class="obj-crit-hit" hidden></div>
+      </div>
+      <!-- SCORE SPARKLINE — cumulative per-game score trend; shown only when the
+           objective has >=2 score points (hasScoreHistory). -->
+      <svg class="obj-spark obj-card-spark" viewBox="0 0 96 30" preserveAspectRatio="none" hidden aria-hidden="true">
+        <polyline class="obj-spark-line" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points=""/>
+      </svg>
+      <div class="ladder obj-card-ladder"></div>
+      <div class="obj-gate obj-card-gate" hidden>
+        <span class="obj-gate-k">Champions</span>
+        <span class="obj-gate-v"></span>
+      </div>
+      <div class="obj-actrow obj-card-actrow">
+        <button class="obj-act obj-act-gold" data-action="set_objective_priority" type="button">Make Priority</button>
+        <button class="obj-act" data-action="open_obj_games" type="button">Games</button>
+        <button class="obj-act" data-action="open_obj_notes" type="button">Notes</button>
+        <button class="obj-act" data-action="edit_objective" type="button">Edit</button>
+        <button class="obj-act obj-act-danger" data-action="delete_objective" type="button">Delete</button>
+        <!-- Complete-Early shows when NOT yet at the Ready threshold; the green
+             Complete shows once ready. JS toggles which one is visible per card. -->
+        <button class="obj-act obj-act-early" data-action="complete_objective" type="button" title="Mark this objective done before reaching Ready" hidden>Complete Early</button>
+        <button class="obj-act obj-act-win" data-action="complete_objective" type="button" hidden>Mark Complete</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- A focus mini-drill row. -->
+  <template id="tpl-focus">
+    <div class="card obj-mini">
+      <div class="obj-mini-main">
+        <div class="obj-mini-head">
+          <span class="obj-tag obj-tag-focus">FOCUS</span>
+          <span class="obj-mini-name"></span>
+        </div>
+        <div class="obj-mini-prog"></div>
+      </div>
+      <div class="obj-mini-track"><div class="obj-mini-fill"></div></div>
+      <div class="obj-actrow obj-mini-actrow">
+        <button class="obj-act" data-action="open_obj_games" type="button">Games</button>
+        <button class="obj-act" data-action="open_obj_notes" type="button">Notes</button>
+        <button class="obj-act" data-action="edit_objective" type="button">Edit</button>
+        <button class="obj-act obj-act-danger" data-action="delete_objective" type="button">Delete</button>
+        <button class="obj-act obj-act-early" data-action="complete_objective" type="button" title="Mark this drill done early" hidden>Complete Early</button>
+        <button class="obj-act obj-act-win" data-action="complete_objective" type="button" hidden>Mark Complete</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- A custom-prompt editor row: phase select + label + remove. -->
+  <template id="tpl-prompt-row">
+    <div class="obj-prompt-row">
+      <select class="obj-input obj-select obj-prompt-phase">
+        <option value="0">Pre</option>
+        <option value="1">In</option>
+        <option value="2">Post</option>
+      </select>
+      <textarea class="obj-input obj-textarea obj-prompt-label" rows="1" maxlength="200" placeholder="Question to ask yourself…"></textarea>
+      <button class="obj-prompt-x" data-action="remove_prompt" type="button" aria-label="Remove prompt">✕</button>
+    </div>
+  </template>
+
+  <!-- A picked-champion chip (click to remove). -->
+  <template id="tpl-champ-chip">
+    <button class="obj-chip" data-action="remove_champ" type="button" title="Click to remove">
+      <span class="obj-chip-name"></span><span class="obj-chip-x" aria-hidden="true">✕</span>
+    </button>
+  </template>
+
+  <!-- A spotted-problem clickable game row (reuse .gamerow hover + W/L edge). -->
+  <template id="tpl-spotted">
+    <div class="card gamerow obj-spot" data-action="open_review" tabindex="0" role="button">
+      <span class="gamerow-sweep" aria-hidden="true"></span>
+      <span class="gamerow-edge" aria-hidden="true"></span>
+      <div class="crow">
+        <div class="obj-spot-main">
+          <div class="obj-spot-meta">
+            <span class="obj-spot-wl"></span>
+            <span class="obj-spot-champ"></span>
+            <span class="obj-spot-sep">·</span>
+            <span class="obj-spot-date"></span>
+          </div>
+          <div class="vline obj-spot-text"></div>
+        </div>
+        <div class="gamerow-cue" aria-hidden="true">REVIEW <span class="arr">→</span></div>
+      </div>
+    </div>
+  </template>
+
+  <!-- A completed objective row (calm, done). Edits via the top form (full
+       hydration), and offers View Games / View Notes / Delete. -->
+  <template id="tpl-completed">
+    <div class="card obj-done">
+      <div class="obj-done-main">
+        <div class="obj-done-name"></div>
+        <div class="obj-done-phase"></div>
+      </div>
+      <div class="obj-done-sum"></div>
+      <span class="obj-done-badge">DONE</span>
+      <div class="obj-actrow obj-done-actrow">
+        <button class="obj-act" data-action="edit_objective" type="button">Edit</button>
+        <button class="obj-act" data-action="open_obj_games" type="button">Games</button>
+        <button class="obj-act" data-action="open_obj_notes" type="button">Notes</button>
+        <button class="obj-act obj-act-danger" data-action="delete_objective" type="button">Delete</button>
+      </div>
+    </div>
+  </template>
+
+  <script type="module" src="./objectives.js"></script>
+</body>
+</html>

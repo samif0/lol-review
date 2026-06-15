@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Champ Select</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="pregame"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <div class="nav-logo">R</div>
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell pg-shell">
+    <div class="eyebrow">Champ Select</div>
+    <div class="hero"><h1 id="hero-title">Lock In</h1></div>
+    <div class="statusline" id="statusline">
+      <span class="dot" id="lcu-dot"></span>
+      <b>Stays open through the loading screen; closes when your game begins.</b>
+    </div>
+
+    <!-- LIVE banner (champ-select cancelled / game saved / etc). Data-driven. -->
+    <div class="live-banner" id="live-banner" hidden></div>
+
+    <!-- ════ INTEL ════ rotating cooldown/intel deck -->
+    <div class="seclabel" id="intel-label">Intel</div>
+    <div class="glass card pg-intel" id="intel-wrap" hidden>
+      <div class="intel-deck" id="intel-deck"></div>
+      <div class="intel-foot">
+        <div class="intel-arrows" id="intel-arrows" hidden>
+          <button type="button" class="intel-arr" data-action="intel_prev" aria-label="Previous intel">‹</button>
+          <button type="button" class="intel-arr" data-action="intel_next" aria-label="Next intel">›</button>
+        </div>
+        <div class="intel-dots" id="intel-dots"></div>
+      </div>
+    </div>
+
+    <!-- ════ MATCHUP ════ live champ vs enemy + 2v2 pairing -->
+    <div class="glass card pg-card matchup" id="matchup-card" hidden>
+      <div class="seclabel-in">Matchup</div>
+      <div class="matchup-pairing" id="matchup-pairing" hidden></div>
+      <div class="matchup-vs">
+        <span class="matchup-my" id="matchup-my">—</span>
+        <span class="matchup-x">vs</span>
+        <span class="matchup-enemy" id="matchup-enemy">…</span>
+      </div>
+    </div>
+
+    <!-- ════ MATCHUP HISTORY ════ your saved notes vs this enemy -->
+    <div class="glass card pg-card mh" id="mh-card" hidden>
+      <div class="seclabel-in" id="mh-header">Your notes</div>
+      <div id="mh-list"></div>
+    </div>
+
+    <!-- ════ THIS GAME'S INTENT ════ carry-over card (zero-tap default) -->
+    <div class="glass card pg-card intent" id="intent-card" hidden>
+      <div class="seclabel-in">This game’s intent</div>
+      <div class="intent-prov-row" id="intent-prov-row" hidden>
+        <span class="intent-dot" aria-hidden="true"></span>
+        <span class="intent-prov" id="intent-prov"></span>
+      </div>
+      <div class="active-plan-row" id="active-plan-row" hidden>
+        <span class="active-plan-k">Active plan</span>
+        <span class="active-plan" id="active-plan"></span>
+      </div>
+
+      <div id="intent-edit">
+        <textarea class="pg-textarea" id="intent-input" rows="2"
+                  placeholder="What is the one thing this game is for?"></textarea>
+        <div class="intent-chips">
+          <button type="button" class="src-chip" id="chip-carry" data-action="use_carry" hidden>Last focus</button>
+          <button type="button" class="src-chip" id="chip-objective" data-action="use_objective" hidden>Priority objective</button>
+          <button type="button" class="src-chip" id="chip-adherence" data-action="use_adherence" hidden>Lowest adherence</button>
+          <button type="button" class="src-chip ifthen" data-action="apply_ifthen" title="Reshape into an if-then plan">If → Then</button>
+        </div>
+        <div class="intent-hint">
+          <span class="intent-hint-t">Saves when your game starts; no tap needed.</span>
+          <button type="button" class="intent-dont" data-action="toggle_carry">✕ Don’t carry</button>
+        </div>
+      </div>
+      <div class="intent-cleared" id="intent-cleared" hidden>
+        <span>Nothing will be carried this game.</span>
+        <button type="button" class="src-chip" data-action="toggle_carry">Restore</button>
+      </div>
+    </div>
+
+    <!-- ════ MENTAL ════ mood selector -->
+    <div class="glass card pg-card mood" id="mood-card" hidden>
+      <div class="seclabel-in">How are you feeling?</div>
+      <div class="mood-row">
+        <button type="button" class="mood-btn m1" data-action="set_mood" data-mood="1">Tilted</button>
+        <button type="button" class="mood-btn m2" data-action="set_mood" data-mood="2">Off</button>
+        <button type="button" class="mood-btn m3" data-action="set_mood" data-mood="3">Neutral</button>
+        <button type="button" class="mood-btn m4" data-action="set_mood" data-mood="4">Good</button>
+        <button type="button" class="mood-btn m5" data-action="set_mood" data-mood="5">Locked In</button>
+      </div>
+    </div>
+
+    <!-- ════ SESSION INTENTION ════ first-game-of-day implementation intention -->
+    <div class="glass card pg-card session" id="session-card" hidden>
+      <div class="seclabel-in">Session intention</div>
+      <textarea class="pg-textarea" id="session-input" rows="2"
+                placeholder="One if-then intention for this session…"></textarea>
+      <div class="session-quick" id="session-quick"></div>
+    </div>
+
+    <!-- ════ OBJECTIVES ════ priority headline + practiced toggles -->
+    <div class="glass card pg-card obj" id="obj-card" hidden>
+      <div class="seclabel-in">Priority</div>
+      <div class="obj-priority-title" id="obj-priority-title"></div>
+      <div class="obj-priority-crit" id="obj-priority-crit" hidden></div>
+
+      <div class="seclabel-in obj-sub" id="obj-list-label" hidden>Practiced this game?</div>
+      <div id="obj-list"></div>
+    </div>
+
+    <!-- ════ YOUR PRE-GAME PROMPTS ════ per-objective answer boxes -->
+    <div class="glass card pg-card prompts" id="prompts-card" hidden>
+      <div class="seclabel-in">Your pre-game prompts</div>
+      <div id="prompts-list"></div>
+    </div>
+
+    <!-- ERROR PANEL -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn’t load pre-game intel.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TEMPLATES ── -->
+  <template id="tpl-intel">
+    <div class="intel-card">
+      <div class="intel-eyebrow"></div>
+      <div class="intel-headline"></div>
+      <div class="intel-body"></div>
+    </div>
+  </template>
+
+  <template id="tpl-mh">
+    <div class="mh-row">
+      <div class="mh-note"></div>
+      <div class="mh-meta"><span class="mh-date"></span><span class="mh-helpful" hidden></span></div>
+    </div>
+  </template>
+
+  <template id="tpl-prompt-block">
+    <div class="pb">
+      <div class="pb-head"><span class="pb-eyebrow"></span><span class="pb-title"></span></div>
+      <div class="pb-prompts"></div>
+    </div>
+  </template>
+
+  <template id="tpl-prompt">
+    <div class="p-row">
+      <div class="p-label"></div>
+      <textarea class="pg-textarea p-input" rows="2" placeholder="Write your answer…"></textarea>
+    </div>
+  </template>
+
+  <template id="tpl-obj">
+    <div class="obj-row">
+      <div class="obj-main">
+        <div class="obj-top"><span class="obj-title"></span><span class="obj-pri" hidden>PRIORITY</span></div>
+        <div class="obj-crit" hidden></div>
+      </div>
+      <button type="button" class="obj-toggle">Practiced</button>
+    </div>
+  </template>
+
+  <script type="module" src="./pregame.js"></script>
+</body>
+</html>

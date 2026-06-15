@@ -1,0 +1,401 @@
+// Revu desktop — Settings page renderer for the glass-aurora layout.
+//
+// Reads/writes app config via the Tauri commands get_config / save_config (see
+// Revu.Sidecar GET /api/config + POST /api/config/save) AND the Batch-6 settings
+// surface: get_settings_status (ffmpeg + Ascent/clip status + backups list),
+// scan_vods, get_export_markdown, and the native ops pick_folder /
+// save_export_file / open_log_folder. Mirrors app.js conventions exactly:
+//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
+//   • fetchConfig/fetchStatus try invoke FIRST, then a sample JSON fallback so
+//     the page previews in a plain browser.
+//   • Every server string is written via textContent (never innerHTML); color
+//     hexes arrive as strings applied to style props only.
+//   • ONE delegated [data-action] click handler; refetch after writes.
+//
+// DEFERRED to the auth batch (secrets): account login/logout/OTP. Riot ID +
+// region are plain config fields and ARE editable here. DEFERRED (platform):
+// app update (installer-managed), restore/reset (destructive + relaunch) — those
+// render as static notes / disabled buttons.
+
+// ── invoke resolver ────────────────────────────────────────────────────────
+let _invoke = null;
+async function getInvoke() {
+  if (_invoke) return _invoke;
+  try {
+    const mod = await import('@tauri-apps/api/core');
+    if (mod && typeof mod.invoke === 'function') {
+      _invoke = mod.invoke;
+      return _invoke;
+    }
+  } catch (_) {
+    // module not resolvable outside the Tauri bundler — fall through
+  }
+  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+    return _invoke;
+  }
+  return null;
+}
+
+// ── small DOM helpers ───────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+function show(el, on) { if (el) el.hidden = !on; }
+function clearEl(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
+
+// Editable text/number/select inputs ↔ config field names (camelCase wire).
+const TEXT_FIELDS = ['ascentFolder', 'clipsFolder', 'backupFolder', 'riotId', 'region'];
+const NUM_FIELDS = ['clipsMaxSizeMb'];
+// role=switch toggle buttons ↔ config bool field names.
+const TOGGLE_FIELDS = [
+  'backupEnabled', 'tiltFixMode', 'requireReviewNotes',
+  'autoTimelineClippingEnabled', 'minimizeDuringGame', 'sidebarAnimationEnabled',
+];
+// Browse buttons ↔ the text field they fill.
+const PICK_TARGETS = { pick_ascent: 'ascentFolder', pick_clips: 'clipsFolder', pick_backup: 'backupFolder' };
+
+let _data = null;
+
+// ── data fetch ──────────────────────────────────────────────────────────────
+async function fetchConfig() {
+  const invoke = await getInvoke();
+  if (invoke) return invoke('get_config');
+  const res = await fetch('./sample-settings.json');
+  if (!res.ok) throw new Error(`sample-settings.json ${res.status}`);
+  return res.json();
+}
+
+async function fetchStatus() {
+  const invoke = await getInvoke();
+  if (invoke) return invoke('get_settings_status');
+  // Browser preview: best-effort sample, else a benign empty shape.
+  try {
+    const res = await fetch('./sample-settings-status.json');
+    if (res.ok) return res.json();
+  } catch (_) { /* no sample present in preview — fine */ }
+  return { ffmpeg: null, ascent: null, clipUsage: null, backups: [] };
+}
+
+// ── toggle helpers ──────────────────────────────────────────────────────────
+function setToggle(el, on) {
+  if (!el) return;
+  el.classList.toggle('on', !!on);
+  el.setAttribute('aria-checked', on ? 'true' : 'false');
+}
+function toggleState(el) { return el ? el.getAttribute('aria-checked') === 'true' : false; }
+
+// ── render: editable config surface ──────────────────────────────────────────
+function render(d) {
+  _data = d;
+  clearError();
+
+  for (const f of TEXT_FIELDS) {
+    const el = $(f);
+    if (el) el.value = d[f] != null ? String(d[f]) : '';
+  }
+  for (const f of NUM_FIELDS) {
+    const el = $(f);
+    if (el) el.value = d[f] != null ? String(d[f]) : '';
+  }
+  for (const f of TOGGLE_FIELDS) {
+    setToggle($(f), !!d[f]);
+  }
+
+  // Account email (display-only; visible when signed in).
+  const email = $('acct-email');
+  if (email) {
+    const signedIn = d.riotAuthState === 'loggedIn' && d.riotSessionEmail;
+    if (signedIn) email.textContent = `Signed in as ${d.riotSessionEmail}`;
+    show(email, !!signedIn);
+  }
+
+  // Header status line.
+  const statusB = document.querySelector('#statusline b');
+  if (statusB) statusB.textContent = d.riotId ? `Configured · ${d.riotId}` : 'Configured';
+
+  playEntrance();
+}
+
+// ── render: read-only diagnostics (ffmpeg / Ascent / clip usage / backups) ────
+function applyStatusText(el, status, fallbackText) {
+  if (!el) return;
+  const text = status && status.text != null ? status.text : (fallbackText || '');
+  el.textContent = text;
+  // Server-provided hex applied to style only (never trusted as markup).
+  const hex = status && status.colorHex ? status.colorHex : '';
+  el.style.color = hex || '';
+}
+
+function renderStatus(s) {
+  if (!s) return;
+
+  applyStatusText($('ffmpeg-status'), s.ffmpeg, 'ffmpeg status unavailable.');
+  applyStatusText($('ascent-status'), s.ascent, '');
+  applyStatusText($('clip-usage'), s.clipUsage, '');
+
+  // Backups list.
+  const list = $('backups-list');
+  const empty = $('backups-empty');
+  const backups = Array.isArray(s.backups) ? s.backups : [];
+  if (list) {
+    clearEl(list);
+    for (const b of backups) {
+      const row = document.createElement('div');
+      row.className = 'set-backup-row';
+
+      const label = document.createElement('div');
+      label.className = 'set-backup-label';
+      label.textContent = b.label || b.fileName || 'Backup';
+
+      const meta = document.createElement('div');
+      meta.className = 'set-backup-meta';
+      const parts = [];
+      if (b.timestamp) parts.push(String(b.timestamp));
+      if (b.sizeMb != null) parts.push(`${b.sizeMb} MB`);
+      meta.textContent = parts.join(' · ');
+
+      row.appendChild(label);
+      row.appendChild(meta);
+      list.appendChild(row);
+    }
+  }
+  show(empty, backups.length === 0);
+}
+
+// ── collect the editable surface into a save payload ────────────────────────
+// Only fields the page owns; the sidecar read-modify-writes so unrelated config
+// keys (secrets, keybinds, puuid) are never touched.
+function collectPayload() {
+  const p = {};
+  for (const f of TEXT_FIELDS) {
+    const el = $(f);
+    if (el) p[f] = el.value.trim();
+  }
+  for (const f of NUM_FIELDS) {
+    const el = $(f);
+    if (el) {
+      const n = parseInt(el.value, 10);
+      // Mirror the WinUI clamp/reject: only send a valid in-range int.
+      if (Number.isFinite(n) && n >= 100 && n <= 50000) p[f] = n;
+    }
+  }
+  for (const f of TOGGLE_FIELDS) {
+    p[f] = toggleState($(f));
+  }
+  return p;
+}
+
+// ── error panel ─────────────────────────────────────────────────────────────
+function renderError(err) {
+  const detail = $('err-detail');
+  if (detail) detail.textContent = (err && err.message) ? err.message : String(err);
+  show($('errpanel'), true);
+}
+function clearError() { show($('errpanel'), false); }
+
+// ── entrance stagger ────────────────────────────────────────────────────────
+let _entranceDone = false;
+function playEntrance() {
+  if (_entranceDone) return;
+  _entranceDone = true;
+  const cards = Array.from(document.querySelectorAll('.set-card, .set-saverow'));
+  cards.forEach((el, i) => el.classList.add('anim-rise', `anim-d${Math.min(i + 1, 5)}`));
+}
+
+// ── load orchestration ──────────────────────────────────────────────────────
+let _loading = false;
+async function loadConfig() {
+  if (_loading) return;
+  _loading = true;
+  const maxAttempts = 25; // cold-start grace while the sidecar binds
+  try {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        render(await fetchConfig());
+        // Status is a best-effort second read — never blocks the editable page.
+        loadStatus();
+        return;
+      } catch (err) {
+        const transient = /sidecar not ready|not ready|connection refused|failed to fetch/i.test(String(err));
+        if (transient && attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 400));
+          continue;
+        }
+        renderError(err);
+        console.error('[settings] load failed:', err);
+        return;
+      }
+    }
+  } finally {
+    _loading = false;
+  }
+}
+
+async function loadStatus() {
+  try {
+    renderStatus(await fetchStatus());
+  } catch (err) {
+    console.warn('[settings] status load failed (non-fatal):', err);
+  }
+}
+
+// ── generic + save status helpers (auto-clear, mirror the WinUI 2s clear) ────
+function setStatusEl(el, text, tone, autoClear) {
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.remove('good', 'bad');
+  if (tone) el.classList.add(tone);
+  if ('hidden' in el) el.hidden = !text;
+  if (el._timer) { clearTimeout(el._timer); el._timer = null; }
+  if (text && autoClear) {
+    el._timer = setTimeout(() => {
+      el.textContent = '';
+      el.classList.remove('good', 'bad');
+      if ('hidden' in el) el.hidden = true;
+    }, 2400);
+  }
+}
+function setSaveStatus(text, tone) { setStatusEl($('save-status'), text, tone, true); }
+
+// ── single delegated action handler ─────────────────────────────────────────
+const ACTIONS = new Set([
+  'save_config', 'pick_ascent', 'pick_clips', 'pick_backup', 'clear_ascent',
+  'scan_vods', 'refresh_backups', 'export_data', 'open_logs',
+]);
+
+document.addEventListener('click', async (ev) => {
+  const target = ev.target.closest('[data-action]');
+  if (!target) return;
+  const action = target.dataset.action;
+  if (!ACTIONS.has(action)) return;
+  ev.preventDefault();
+
+  // Local-only action (no backend needed).
+  if (action === 'clear_ascent') {
+    const f = $('ascentFolder');
+    if (f) f.value = '';
+    applyStatusText($('ascent-status'), { text: 'Ascent VOD disabled', colorHex: '#8A80A8' });
+    return;
+  }
+
+  const invoke = await getInvoke();
+  if (!invoke) {
+    console.info(`[settings] (preview) ${action} — no Tauri backend.`);
+    if (action === 'save_config') setSaveStatus('Preview only; not saved.', 'bad');
+    return;
+  }
+
+  try {
+    if (action === 'save_config') return await doSave(invoke, target);
+    if (action in PICK_TARGETS) return await doPick(invoke, action);
+    if (action === 'scan_vods') return await doScan(invoke, target);
+    if (action === 'refresh_backups') return await loadStatus();
+    if (action === 'export_data') return await doExport(invoke, target);
+    if (action === 'open_logs') return await invoke('open_log_folder');
+  } catch (err) {
+    console.error(`[settings] ${action} failed:`, err);
+    renderError(err);
+  }
+});
+
+// save_config = persist the editable surface; refetch after to reflect the
+// canonical (and server-normalized, e.g. lower-cased region) values + status.
+async function doSave(invoke, target) {
+  const payload = collectPayload();
+  const canDisable = 'disabled' in target;
+  if (canDisable) target.disabled = true;
+  setSaveStatus('Saving…');
+  try {
+    await invoke('save_config', { payload });
+    setSaveStatus('Settings saved.', 'good');
+    await loadConfig(); // manual invalidation — no message bus
+  } catch (err) {
+    renderError(err);
+    setSaveStatus('Error saving settings.', 'bad');
+    console.error('[settings] save_config failed:', err);
+  } finally {
+    if (canDisable) target.disabled = false;
+  }
+}
+
+// Native folder picker → drop the chosen path into the matching field. Not
+// persisted until Save (mirrors the WinUI Browse commands).
+async function doPick(invoke, action) {
+  const fieldId = PICK_TARGETS[action];
+  const picked = await invoke('pick_folder');
+  if (picked) {
+    const el = $(fieldId);
+    if (el) el.value = String(picked);
+  }
+}
+
+// Scan = read+write (auto-matches recordings to games). Shows the result text the
+// sidecar built; refresh status after so any clip/ascent counts update.
+async function doScan(invoke, target) {
+  const canDisable = 'disabled' in target;
+  const prev = target.textContent;
+  if (canDisable) target.disabled = true;
+  target.textContent = 'Scanning…';
+  setStatusEl($('scan-result'), 'Scanning your recordings folder…', null, false);
+  try {
+    const res = await invoke('scan_vods');
+    const text = res && res.text ? String(res.text) : 'Scan complete.';
+    setStatusEl($('scan-result'), text, res && res.ok === false ? 'bad' : 'good', false);
+    await loadStatus();
+  } catch (err) {
+    setStatusEl($('scan-result'), `Scan failed: ${err && err.message ? err.message : err}`, 'bad', false);
+  } finally {
+    if (canDisable) target.disabled = false;
+    target.textContent = prev;
+  }
+}
+
+// Export = build the Markdown (sidecar read) then write it via the native save
+// dialog (Rust). 'saved:false' means the user cancelled (no error).
+async function doExport(invoke, target) {
+  const canDisable = 'disabled' in target;
+  if (canDisable) target.disabled = true;
+  setStatusEl($('export-status'), 'Building export…', null, false);
+  try {
+    const built = await invoke('get_export_markdown');
+    if (!built || typeof built.markdown !== 'string') {
+      setStatusEl($('export-status'), 'Export failed: no data returned.', 'bad', false);
+      return;
+    }
+    const out = await invoke('save_export_file', {
+      fileName: built.fileName || 'revu-review-export.md',
+      markdown: built.markdown,
+    });
+    if (out && out.saved) {
+      setStatusEl($('export-status'), 'Export saved.', 'good', true);
+    } else {
+      setStatusEl($('export-status'), 'Export canceled.', null, true);
+    }
+  } catch (err) {
+    setStatusEl($('export-status'), `Export failed: ${err && err.message ? err.message : err}`, 'bad', false);
+  } finally {
+    if (canDisable) target.disabled = false;
+  }
+}
+
+// Toggle buttons flip their own visual state on click (saved on Save).
+document.addEventListener('click', (ev) => {
+  const t = ev.target.closest('.set-toggle[role="switch"]');
+  if (!t) return;
+  setToggle(t, !toggleState(t));
+});
+
+// Keyboard activation for the role="switch" toggles (Enter / Space).
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  const t = ev.target.closest('.set-toggle[role="switch"]');
+  if (!t) return;
+  ev.preventDefault();
+  setToggle(t, !toggleState(t));
+});
+
+// ── boot ────────────────────────────────────────────────────────────────────
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', loadConfig);
+} else {
+  loadConfig();
+}

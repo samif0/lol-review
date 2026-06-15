@@ -287,6 +287,54 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
     }
 
     /// <summary>
+    /// Delete a saved review — see IReviewWorkflowService.DeleteAsync. Clears only
+    /// the review payload that gates the queue, KEEPS objective progress + the
+    /// session_log behavioral row (no streak corruption), and keeps the game row.
+    /// Best-effort per repo (the save path is likewise non-transactional); a failure
+    /// is logged and surfaced but earlier clears are not rolled back (the operation
+    /// is monotonic — it only ever clears, never re-creates, so a partial run still
+    /// leaves the game closer to unreviewed, never in a worse state).
+    /// </summary>
+    public async Task<ReviewSaveResult> DeleteAsync(long gameId, CancellationToken cancellationToken = default)
+    {
+        if (gameId <= 0)
+        {
+            return ReviewSaveResult.Fail("Game id is required to delete a review.");
+        }
+
+        try
+        {
+            // (a) games review columns → blank (Rating=0 so the COALESCE(rating,0)>0
+            // queue gate is false; all text fields ''). No dedicated clear method —
+            // a blank GameReview through the existing update is sufficient.
+            await _gameRepository.UpdateReviewAsync(gameId, new GameReview());
+
+            // (b) session_log → clear only the queue-gating markers; KEEP mental_rating
+            // / focus_adherence / rule_broken so streaks stay byte-identical.
+            await _sessionLogRepository.ClearReviewMarkersAsync(gameId);
+
+            // (c) concept tags → clear all for the game (empty set replaces).
+            await _conceptTagRepository.SetForGameAsync(gameId, System.Array.Empty<long>());
+
+            // (d) matchup note + (e) any leftover draft → remove (not queue-gating,
+            // but part of the review payload).
+            await _matchupNotesRepository.DeleteForGameAsync(gameId);
+            await _reviewDraftRepository.DeleteAsync(gameId);
+
+            // NOTE: game_objectives + objectives.score/game_count are intentionally
+            // LEFT INTACT — deleting a review preserves earned objective progress.
+
+            _logger.LogInformation("Review deleted (un-reviewed) for game {GameId}", gameId);
+            return ReviewSaveResult.Ok("");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete review for game {GameId}", gameId);
+            return ReviewSaveResult.Fail("Failed to delete review. Check the logs and try again.");
+        }
+    }
+
+    /// <summary>
     /// v2.18 (schema v5): evaluate an objective's structured criterion against
     /// the game's stats and stamp game_objectives.criteria_met. Silent no-op
     /// when the objective has no structured criterion or the stat is missing.

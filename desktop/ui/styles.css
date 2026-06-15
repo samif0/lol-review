@@ -1,0 +1,2554 @@
+@font-face {
+  font-family: 'Exo 2';
+  src: url('./fonts/Exo2.woff2') format('woff2');
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Orbitron';
+  src: url('./fonts/Orbitron.woff2') format('woff2');
+  font-weight: 500 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Share Tech Mono';
+  src: url('./fonts/ShareTechMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+/* Typography-variant fonts (for the A/B/C type explorations). */
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('./fonts/SpaceGrotesk.ttf') format('truetype');
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/Inter.ttf') format('truetype');
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Rajdhani';
+  src: url('./fonts/Rajdhani-Bold.woff2') format('woff2');
+  font-weight: 500 700;
+  font-display: swap;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+/* The [hidden] attribute must always win. Class rules with display:flex/block
+   (.seclabel, .glass, .pill, .hint, etc.) otherwise override the UA
+   [hidden]{display:none}, leaving "hidden" sections + labels visibly empty. */
+[hidden]{display:none !important}
+:root{
+  /* readability pass: muted tiers lifted; mono labels brighter */
+  --t1:#ffffff;--t2:#ece8f7;--t3:#c9c2dc;--t4:#a79ec2;
+  --accent:#9d8bff;--gold:#f3c794;--win:#8ee7ba;--loss:#f3a3a8;
+  --glass:rgba(255,255,255,0.07);--glass2:rgba(255,255,255,0.05);
+  --gline:rgba(255,255,255,0.18);--gline2:rgba(255,255,255,0.11);
+  /* CLEAN type system (chosen 2026-06-14): Space Grotesk for display +
+     headings + numbers, Inter for body, Space Grotesk small-caps for the
+     little all-caps labels (no monospace — reads as a polished modern tool,
+     not an esports HUD). */
+  --fo:'Space Grotesk',sans-serif;--fb:'Inter',sans-serif;--fm:'Space Grotesk',sans-serif;
+  --tsh:0 1px 8px rgba(10,8,24,0.55);
+  /* Label legibility: brighter tier + reduced tracking so the small all-caps
+     labels read clearly instead of dim/cramped. */
+  --label-spacing:2px;
+  --label-bright:var(--t3);
+}
+/* scrollbar-gutter:stable always reserves the scrollbar's width so the centered
+   content doesn't shift when a vertical scrollbar appears/disappears (the "UI
+   jumps on scroll / page switch" issue). */
+html{scrollbar-gutter:stable;scrollbar-color:rgba(157,139,250,0.34) transparent;scrollbar-width:thin}
+
+/* Themed scrollbar (WebView2 is Chromium, so ::-webkit-scrollbar applies). A
+   slim, translucent accent-tinted thumb on a transparent track so it reads as
+   part of the glass/aurora surface instead of the chunky default OS bar. The
+   Firefox properties above (scrollbar-color/width) are the cross-engine fallback. */
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{
+  background:linear-gradient(180deg,rgba(157,139,250,0.42),rgba(157,139,250,0.26));
+  border:3px solid transparent;background-clip:padding-box;border-radius:8px;
+  transition:background .16s ease}
+::-webkit-scrollbar-thumb:hover{
+  background:linear-gradient(180deg,rgba(157,139,250,0.62),rgba(157,139,250,0.40));
+  background-clip:padding-box}
+::-webkit-scrollbar-thumb:active{
+  background:linear-gradient(180deg,rgba(188,172,255,0.78),rgba(157,139,250,0.55));
+  background-clip:padding-box}
+::-webkit-scrollbar-corner{background:transparent}
+body{font-family:var(--fb);color:var(--t2);min-height:100vh;padding-bottom:64px;position:relative;background:#0a0818;overflow-x:hidden}
+.aurora{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.aurora i{position:absolute;border-radius:50%;filter:blur(70px);opacity:0.85}
+.aurora .a1{width:560px;height:560px;top:-180px;right:-120px;background:radial-gradient(circle,rgba(125,160,255,0.55),transparent 68%)}
+.aurora .a2{width:520px;height:520px;top:8%;left:-160px;background:radial-gradient(circle,rgba(255,130,210,0.40),transparent 68%)}
+.aurora .a3{width:620px;height:480px;bottom:-220px;left:30%;background:radial-gradient(circle,rgba(120,225,255,0.30),transparent 70%)}
+.grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:0.5;background:repeating-linear-gradient(0deg,rgba(255,255,255,0.010) 0 1px,transparent 1px 3px)}
+
+/* The rail is now AUTHORED AS STATIC HTML in every page, so it paints with the
+   first frame. The old body::before backdrop (a glass column drawn in CSS to mask
+   the frame where the JS-injected <nav> hadn't arrived yet) is no longer needed —
+   there is no missing-nav frame to cover — so it's been removed. */
+
+/* ── APP SHELL: left nav rail (static <nav> before .shell on every page) ──────
+   Matches the dashboard's clean style: glass rail, Space Grotesk labels,
+   accent-energized active state. The page content sits in .shell to its right. */
+.nav{position:fixed;left:0;top:0;bottom:0;width:72px;z-index:30;
+  display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 0;
+  background:rgba(12,10,28,0.55);backdrop-filter:blur(18px);
+  border-right:1px solid var(--gline2);overflow:visible}
+  /* NOTE: no transform / will-change / contain here. Those create a containing block
+     + paint-containment, which CLIPPED the hover tooltip (.nav-i .tip — a fixed,
+     z-40 flyout positioned at left:64px, i.e. OVER the content iframe) to the rail's
+     72px box, so it rendered "behind"/cut-off by the content. The rail is static
+     markup in the persistent shell now (never reloads), so it doesn't need compositor
+     isolation; dropping it lets the fixed tooltip escape and paint above the iframe.
+     overflow is visible so the tooltip can spill past the rail; the energy trail is a
+     full-bleed ::before that doesn't need clipping. */
+
+/* ── Sidebar energy trails (port of SidebarEnergyDrainAnimator) ───────────────
+   The original WinUI app traced thin accent-tinted "energy" lines down the rail
+   edges. We reproduce that as two persistent, glowing vertical traces hugging the
+   left + right edges, with a gentle traveling highlight that pulses DOWN each
+   trace (a subtle moving glint, not a sweeping blob). A soft ambient accent glow
+   pools at the rail's foot. GPU-cheap (background-position + opacity only — no
+   layout), pointer-events off, behind the nav items. Honors prefers-reduced-motion
+   + the body[data-sidebar-anim="off"] gate. The traces are drawn on a single
+   full-height ::before (both edges via two backgrounds); ::after is the foot glow. */
+.nav::before,.nav::after{content:'';position:absolute;pointer-events:none;z-index:0}
+/* Two full-height edge traces (left + right). Each is a thin vertical line with a
+   traveling bright glint that scrolls downward, looping seamlessly. The base line
+   stays lit so the trace is always visible (the calm look from the target). */
+.nav::before{
+  inset:0;
+  background:
+    /* RIGHT edge: base line + moving glint */
+    linear-gradient(180deg,
+      rgba(157,139,250,0.55), rgba(157,139,250,0.30) 30%,
+      rgba(157,139,250,0.30) 70%, rgba(157,139,250,0.55)) right top / 1.5px 100% no-repeat,
+    linear-gradient(180deg, transparent, rgba(204,190,255,0.95) 50%, transparent) right -100% / 1.5px 55% no-repeat,
+    /* LEFT edge: base line + moving glint (offset phase) */
+    linear-gradient(180deg,
+      rgba(157,139,250,0.40), rgba(157,139,250,0.20) 30%,
+      rgba(157,139,250,0.20) 70%, rgba(157,139,250,0.40)) left top / 1.5px 100% no-repeat,
+    linear-gradient(180deg, transparent, rgba(204,190,255,0.75) 50%, transparent) left -100% / 1.5px 45% no-repeat;
+}
+/* Run the traveling glint only once the rail is ready (avoids any first-paint
+   restart flicker); the base edge traces are always visible regardless. The glow
+   is baked into the trace gradients above (no per-frame drop-shadow filter, which
+   was the WebView2 repaint cost). */
+.nav.nav-ready::before{
+  /* Slow ping-pong: the glint travels down, bounces off the bottom, travels back up,
+     bounces off the top — no abrupt jump-to-top reset. `alternate` plays the keyframe
+     forward then backward; ease-in-out softens each turnaround so the bounce reads as
+     a gentle deceleration at the edges rather than a hard stop. Slowed to 9s. */
+  animation:nav-trace 9s ease-in-out infinite alternate;
+  animation-delay:var(--nav-trace-delay,0ms);
+}
+/* Soft accent pool at the foot of the rail. */
+.nav::after{inset:auto 0 0 0;height:42%;
+  background:linear-gradient(180deg,transparent,rgba(157,139,250,0.10));opacity:0.9}
+/* Move only the GLINT background layers (2nd + 4th) between the TOP and BOTTOM edges;
+   the base lines (1st + 3rd) stay put at top. Endpoints are on-screen (0% = glint at
+   the top edge, 100% = glint at the bottom edge) so the bounce is visible AT each
+   edge. The two glints use staggered ranges so they don't move in lockstep. */
+@keyframes nav-trace{
+  0%   {background-position:right top, right 0%,   left top, left 12%}
+  100% {background-position:right top, right 100%, left top, left 88%}
+}
+/* Lift the rail contents above the trail layer. */
+.nav-logo,.nav-i,.nav-spacer{position:relative;z-index:1}
+/* Settings gate + accessibility: stop the traveling glint (base traces stay).
+   Higher specificity than .nav.nav-ready::before so the gate wins. */
+body[data-sidebar-anim="off"] .nav.nav-ready::before{animation:none}
+@media(prefers-reduced-motion:reduce){
+  .nav.nav-ready::before{animation:none}
+}
+.nav-logo{font-family:var(--fo);font-size:13px;font-weight:700;letter-spacing:1px;color:var(--accent);margin-bottom:10px}
+.nav-spacer{flex:1}
+.nav-i{position:relative;width:44px;height:44px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  color:var(--t4);cursor:pointer;background:transparent;border:1px solid transparent}
+/* Keep nav item feedback color-only. A 1px hover lift on a fixed rail compounds
+   the trace restart during full-page nav and reads as the rail jiggling. */
+.nav.nav-ready .nav-i{
+  transition:color .18s ease,background .18s ease,border-color .18s ease}
+.nav-i svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7}
+.nav.nav-ready .nav-i:hover{color:var(--t2);background:rgba(157,139,250,0.06)}
+/* Before ready, hover still recolors (no transform/motion) so the rail is usable
+   the instant it paints without contributing to the jiggle. */
+.nav-i:hover{color:var(--t2);background:rgba(157,139,250,0.06)}
+.nav-i.active{color:var(--accent);background:rgba(157,139,250,0.10);border-color:rgba(157,139,250,0.22)}
+.nav-i.active::before{content:'';position:absolute;left:-1px;top:25%;height:50%;width:2px;border-radius:2px;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.nav-i .tip{position:fixed;left:64px;transform:translateX(-4px);white-space:nowrap;pointer-events:none;opacity:0;
+  font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t2);
+  background:rgba(20,16,40,0.95);border:1px solid var(--gline2);border-radius:7px;padding:5px 10px;z-index:40;
+  transition:opacity .16s ease,transform .16s ease}
+.nav-i:hover .tip{opacity:1;transform:translateX(0)}
+.nav-i .badge{position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--loss);box-shadow:0 0 6px var(--loss)}
+
+/* The persistent shell's content iframe — fills everything right of the 72px rail,
+   full height, transparent (the shell paints the aurora/grain behind it). Only this
+   element reloads on navigation; the rail beside it never does. */
+.app-frame{position:fixed;left:72px;top:0;right:0;bottom:0;width:calc(100vw - 72px);height:100vh;
+  border:0;margin:0;padding:0;background:#0a0818;z-index:2;display:block;color-scheme:dark}
+
+/* Page content shifts right of the rail. */
+.shell{position:relative;z-index:2;max-width:1180px;margin:0 auto;padding:26px 40px 0 112px}
+
+/* ── FRAMED MODE: this page is loaded inside the persistent app shell's <iframe> ──
+   The shell (index.html) owns the ONE persistent nav rail that never reloads, so a
+   framed page must NOT render its own rail (it would double up and, being inside the
+   reloading iframe document, would be the very thing that "jiggles" on nav). Hide it
+   and reclaim the rail gutter — the iframe is already positioned right of the shell's
+   rail. framed.js (a synchronous <head> script) sets html.framed before first paint,
+   so the rail never flashes inside the frame.
+   NOTE: the framed page KEEPS its own dark #0a0818 background + .aurora/.grain — the
+   glass cards are translucent (white-at-low-opacity) and are designed to sit on the
+   dark base. Making the framed body transparent let the shell's bright aurora bleed
+   through the glass and washed the whole UI out to white, so we do NOT zero the
+   background here; the iframe is self-contained dark. */
+html.framed .nav,
+html.framed body::before{display:none}
+html.framed .shell{padding-left:40px}
+
+.eyebrow{font-family:var(--fm);font-size:11px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright);text-shadow:var(--tsh);display:flex;align-items:center;gap:8px;margin-bottom:11px}
+.eyebrow::before{content:'';width:24px;height:1px;background:var(--accent)}
+.hero h1{font-family:var(--fo);font-size:31px;font-weight:600;letter-spacing:0.5px;color:#fff;line-height:1.14;text-shadow:0 2px 18px rgba(10,8,24,0.5)}
+/* The header subtext (eyebrow → H1 → statusline) needs clear separation from the
+   page content beneath it; an 11px top gap above + a 24px bottom gap below gives
+   the header room to breathe instead of the content crowding right under it. Pages
+   whose first content block carries its own top margin (e.g. the dashboard .toprow)
+   zero that margin so the gap doesn't double up. */
+.statusline{font-family:var(--fm);font-size:11px;color:var(--t3);letter-spacing:0.5px;margin:11px 0 24px;text-shadow:var(--tsh);display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.statusline .dot{width:6px;height:6px;border-radius:50%;background:var(--win);box-shadow:0 0 8px rgba(142,231,186,0.9)}
+.statusline b{color:var(--t1);font-weight:500}
+
+.glass{position:relative;border-radius:18px;background:var(--glass);border:1px solid var(--gline);
+  backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3);
+  box-shadow:0 20px 50px -22px rgba(0,0,0,0.85),0 2px 0 rgba(255,255,255,0.05) inset,0 -20px 40px -30px rgba(157,139,255,0.4) inset}
+.glass::before{content:'';position:absolute;inset:0 0 auto 0;height:48%;border-radius:18px 18px 0 0;background:linear-gradient(180deg,rgba(255,255,255,0.10),transparent);pointer-events:none}
+
+/* TOP ROW: intent card (40%) beside active objectives (60%). The statusline above
+   now owns the header-to-content gap (24px), so the top margin here is zeroed to
+   avoid doubling it. */
+.toprow{display:grid;grid-template-columns:2fr 3fr;gap:14px;margin:0 0 26px;align-items:stretch}
+@media(max-width:820px){.toprow{grid-template-columns:1fr}}
+
+/* Intent card — now a vertical card filling its 40% column (was a wide flex row). */
+.primary{margin:0;padding:22px 24px;display:flex;flex-direction:column;justify-content:center;border-color:rgba(157,139,255,0.45);
+  box-shadow:0 24px 60px -24px rgba(80,40,160,0.7),0 2px 0 rgba(255,255,255,0.07) inset,0 0 60px -30px rgba(157,139,255,0.7) inset}
+.primary .body{display:flex;flex-direction:column}
+.primary .k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:#c3b6ff}
+.primary h2{font-size:20px;font-weight:600;color:#fff;margin:9px 0 6px;letter-spacing:-0.2px;line-height:1.2}
+.primary p{font-size:13px;color:var(--t3);line-height:1.5}
+.cta{align-self:flex-start;margin-top:16px;font-family:var(--fm);font-size:11px;letter-spacing:1.5px;color:#1b1233;font-weight:700;border:none;border-radius:11px;padding:13px 24px;cursor:pointer;white-space:nowrap;background:linear-gradient(180deg,#bcacff,#9d8bff);box-shadow:0 10px 24px -8px rgba(157,139,255,0.7),0 1px 0 rgba(255,255,255,0.5) inset;transition:transform .16s cubic-bezier(0.22,1,0.36,1),box-shadow .16s ease,filter .16s ease}
+.cta:hover{transform:translateY(-1px);filter:brightness(1.06);box-shadow:0 16px 34px -10px rgba(157,139,255,0.85),0 1px 0 rgba(255,255,255,0.6) inset}
+.cta:active{transform:translateY(0);box-shadow:0 6px 16px -8px rgba(157,139,255,0.7),0 1px 0 rgba(255,255,255,0.4) inset;transition-duration:.06s}
+.cta:disabled{opacity:0.6;cursor:default;transform:none;filter:none}
+
+/* Inline intention editor — replaces the START BLOCK button in place when the
+   user clicks it. A glass text field + a compact confirm CTA, matching the
+   card's accent language. JS builds/removes it; reload restores the button. */
+.intent-edit{margin-top:16px;display:flex;flex-direction:column;gap:10px}
+.intent-input{width:100%;font-family:var(--fb);font-size:13px;color:#fff;
+  background:rgba(10,8,24,0.4);border:1px solid rgba(157,139,255,0.4);border-radius:11px;padding:11px 14px;
+  transition:border-color .16s ease,box-shadow .16s ease}
+.intent-input::placeholder{color:var(--t4)}
+.intent-input:focus{outline:none;border-color:rgba(157,139,255,0.75);box-shadow:0 0 0 3px rgba(157,139,255,0.14)}
+.intent-actions{display:flex;align-items:center;gap:10px}
+/* The confirm button rides the shared .cta gradient; .cta-sm trims it to fit. */
+.cta-sm{margin-top:0;padding:11px 20px}
+.intent-cancel{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);
+  background:none;border:none;cursor:pointer;padding:6px 4px;transition:color .14s ease}
+.intent-cancel:hover{color:var(--t2)}
+
+/* Objectives pane — header + ring cards stacked in the 60% column. */
+.objpane{display:flex;flex-direction:column}
+.objpane .seclabel{margin-top:2px}
+.objpane>#objectives{display:flex;flex-direction:column;gap:10px;flex:1}
+.objpane .card{margin-bottom:0}
+
+/* VOD evidence — a thin inline hint line, not a full card-section. */
+.hint{display:flex;align-items:center;gap:9px;margin:4px 0 0;padding:9px 4px;font-size:12.5px;color:var(--t3)}
+.hint-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--gold);box-shadow:0 0 8px rgba(243,199,148,0.7)}
+.hint-text{color:var(--t2)}
+.hint-link{font-family:var(--fb);font-size:12px;font-weight:600;color:var(--gold);background:none;border:none;cursor:pointer;padding:0;margin-left:2px;transition:filter .14s ease,opacity .14s ease}
+.hint-link:hover{filter:brightness(1.15);text-decoration:underline;text-underline-offset:2px}
+
+/* The Unreviewed lead label sits a touch higher to read as the page's focus. */
+.seclabel-lead{margin-top:6px}
+
+.seclabel{font-family:var(--fm);font-size:11px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright);text-shadow:var(--tsh);margin:0 0 11px 3px;display:flex;align-items:center;gap:8px}
+.seclabel .n{color:var(--t3);opacity:0.75}
+
+.strip{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-bottom:24px}
+@media(max-width:720px){.strip{grid-template-columns:repeat(2,1fr)}}
+.stat{padding:14px 15px;border-radius:14px;background:var(--glass2);border:1px solid var(--gline2);backdrop-filter:blur(16px);box-shadow:0 12px 28px -18px rgba(0,0,0,0.7),0 1px 0 rgba(255,255,255,0.06) inset;position:relative;overflow:hidden}
+.stat::before{content:'';position:absolute;inset:0 0 auto 0;height:50%;border-radius:14px 14px 0 0;background:linear-gradient(180deg,rgba(255,255,255,0.07),transparent)}
+.stat .k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright);position:relative}
+.stat .v{font-family:var(--fo);font-size:24px;font-weight:600;color:#fff;margin-top:6px;line-height:1;position:relative}
+.stat .s{font-family:var(--fm);font-size:9px;color:var(--t4);margin-top:6px;position:relative}
+.stat.flag .v{color:var(--gold)}
+
+/* ── WORTH KNOWING — reworked: badge-led cards in a row, no fixed label column ── */
+.know{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px}
+@media(max-width:720px){.know{grid-template-columns:1fr}}
+.kcard{padding:16px 18px;border-radius:16px;background:var(--glass2);border:1px solid var(--gline2);backdrop-filter:blur(16px);box-shadow:0 14px 32px -20px rgba(0,0,0,0.7),0 1px 0 rgba(255,255,255,0.05) inset;position:relative;overflow:hidden}
+.kcard::before{content:'';position:absolute;inset:0 0 auto 0;height:42%;background:linear-gradient(180deg,rgba(255,255,255,0.06),transparent)}
+.ktop{display:flex;align-items:center;gap:9px;margin-bottom:10px;position:relative}
+.kdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.kcard.death .kdot{background:var(--loss);box-shadow:0 0 9px rgba(243,163,168,0.8)}
+.kcard.tilt .kdot{background:var(--gold);box-shadow:0 0 9px rgba(243,199,148,0.8)}
+.ktop .kk{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright)}
+.kbody{font-size:13.5px;color:var(--t2);line-height:1.5;position:relative}
+.kbody .em{color:#fff;font-weight:500}
+.kbody .big{color:var(--loss);font-weight:600}
+.kact{margin-top:12px;position:relative}
+.kact button{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:#1b1233;font-weight:700;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 8px 18px -8px rgba(243,199,148,0.6)}
+
+/* ── each follow-up section is full-width and on its own (no awkward side-by-side) ── */
+.card{padding:18px 20px;border-radius:16px;background:var(--glass2);border:1px solid var(--gline2);backdrop-filter:blur(16px);box-shadow:0 14px 32px -20px rgba(0,0,0,0.7),0 1px 0 rgba(255,255,255,0.05) inset;position:relative;overflow:hidden;margin-bottom:14px}
+.card::before{content:'';position:absolute;inset:0 0 auto 0;height:38%;background:linear-gradient(180deg,rgba(255,255,255,0.06),transparent)}
+.crow{display:flex;align-items:center;justify-content:space-between;gap:14px;position:relative}
+.vline{font-size:14px;color:#fff;transition:transform .22s cubic-bezier(0.22,1,0.36,1)}
+.vsmall{font-family:var(--fm);font-size:9px;color:var(--t4);margin-top:4px;letter-spacing:0.5px}
+
+/* ── CLICKABLE GAME ROW ──────────────────────────────────────────────────────
+   The whole row is the review action (no button). Hover energizes the outer
+   rectangle to build hype: lift, accent border + glow, a growing left edge bar,
+   a light sweep across the card, and the "REVIEW →" cue sliding in. */
+.gamerow{cursor:pointer;outline:none;--wl:var(--accent);
+  transition:transform .22s cubic-bezier(0.22,1,0.36,1),border-color .22s ease,box-shadow .22s ease,background .22s ease}
+.gamerow .crow{padding-left:14px}
+
+/* Left accent edge — a refined capsule in the game's win/loss color. Rests at
+   ~55% height with a soft center-bright vertical gradient + glow; on hover it
+   grows toward full height and its glow intensifies. --wl is the W/L color set
+   per-row in JS (falls back to the violet accent). */
+.gamerow-edge{position:absolute;left:7px;top:50%;height:55%;width:3px;border-radius:99px;
+  transform:translateY(-50%) scaleY(1);transform-origin:center;
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--wl) 30%, transparent) 0%,
+    var(--wl) 32%,
+    var(--wl) 68%,
+    color-mix(in srgb, var(--wl) 30%, transparent) 100%);
+  box-shadow:0 0 8px -1px color-mix(in srgb, var(--wl) 55%, transparent);
+  transition:height .26s cubic-bezier(0.22,1,0.36,1),width .26s ease,box-shadow .26s ease,opacity .22s ease}
+
+/* Light sweep that travels across the card on hover. */
+.gamerow-sweep{position:absolute;inset:0;pointer-events:none;border-radius:inherit;opacity:0;
+  background:linear-gradient(105deg,transparent 20%,rgba(157,139,255,0.12) 45%,rgba(255,255,255,0.05) 50%,transparent 75%);
+  transform:translateX(-60%);transition:opacity .2s ease}
+
+/* The "REVIEW →" cue — hidden until hover, then slides in from the right. */
+.gamerow-cue{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;color:var(--accent);
+  white-space:nowrap;opacity:0;transform:translateX(8px);
+  transition:opacity .22s ease,transform .22s cubic-bezier(0.22,1,0.36,1)}
+.gamerow-cue .arr{display:inline-block;transition:transform .22s ease}
+
+/* HOVER / FOCUS state — the hype moment. */
+.gamerow:hover,.gamerow:focus-visible{
+  transform:translateY(-2px);
+  border-color:rgba(157,139,255,0.6);
+  background:rgba(157,139,255,0.05);
+  box-shadow:0 20px 40px -18px rgba(80,40,160,0.8),0 0 28px -8px rgba(157,139,255,0.45),0 1px 0 rgba(255,255,255,0.08) inset}
+.gamerow:hover .gamerow-edge,.gamerow:focus-visible .gamerow-edge{
+  height:78%;width:4px;
+  box-shadow:0 0 14px 0 color-mix(in srgb, var(--wl) 80%, transparent)}
+.gamerow:hover .gamerow-sweep,.gamerow:focus-visible .gamerow-sweep{
+  opacity:1;transform:translateX(60%);transition:opacity .2s ease,transform .8s cubic-bezier(0.22,1,0.36,1)}
+.gamerow:hover .gamerow-cue,.gamerow:focus-visible .gamerow-cue{opacity:1;transform:translateX(0)}
+.gamerow:hover .gamerow-cue .arr,.gamerow:focus-visible .gamerow-cue .arr{transform:translateX(3px)}
+.gamerow:hover .vline,.gamerow:focus-visible .vline{transform:translateX(2px)}
+
+.gamerow:active{transform:translateY(0);transition-duration:.07s}
+
+/* Right cluster — the hover cue stacks above a calm SKIP affordance. */
+.gamerow-right{display:flex;align-items:center;gap:12px;flex-shrink:0}
+/* SKIP — a quiet outlined chip; it dismisses an unreviewed game without opening
+   the review. It sits inside the clickable row but carries its own data-action,
+   so the delegated handler resolves to the button (closest match), never the row.
+   Calm by default; on hover it warms to the loss tint to read as "discard". */
+.gamerow-skip{font-family:var(--fm);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);
+  background:rgba(255,255,255,0.03);border:1px solid var(--gline2);border-radius:8px;padding:7px 12px;cursor:pointer;white-space:nowrap;
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.gamerow-skip:hover{color:var(--loss);background:rgba(243,163,168,0.08);border-color:rgba(243,163,168,0.4);transform:translateY(-1px)}
+.gamerow-skip:active{transform:translateY(0);transition-duration:.06s}
+.gamerow-skip:disabled{opacity:0.5;cursor:default}
+@media(prefers-reduced-motion:reduce){.gamerow-skip{transition:none}}
+
+@media (prefers-reduced-motion: reduce){
+  .gamerow,.gamerow-edge,.gamerow-sweep,.gamerow-cue,.gamerow-cue .arr,.gamerow .vline{
+    transition:none !important;animation:none !important;
+  }
+  .gamerow:hover .gamerow-sweep{transform:none}
+}
+.review{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--gold);border:1px solid rgba(243,199,148,0.45);border-radius:9px;padding:10px 16px;cursor:pointer;white-space:nowrap;background:rgba(243,199,148,0.07);transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease,border-color .16s ease,box-shadow .16s ease}
+.review:hover{transform:translateY(-1px);background:rgba(243,199,148,0.16);border-color:rgba(243,199,148,0.75);box-shadow:0 8px 20px -10px rgba(243,199,148,0.55)}
+.review:active{transform:translateY(0);background:rgba(243,199,148,0.12);transition-duration:.06s}
+.ring{display:flex;align-items:center;gap:16px;position:relative}
+.ringwrap{position:relative;width:58px;height:58px;flex-shrink:0}
+/* overflow:visible so the ring-glow drop-shadow fades past the SVG edges
+   instead of clipping to the 58×58 viewBox (which showed a faint rectangle). */
+.ringwrap svg{transform:rotate(-90deg);overflow:visible}
+/* Progress arc: JS sets the final stroke-dashoffset; transitioning it from the
+   empty state (full circumference) animates the ring "drawing" on load. The
+   soft glow-pulse keeps it feeling alive. */
+.ring-prog{transition:stroke-dashoffset 1.1s cubic-bezier(0.22,1,0.36,1);animation:ring-glow 3.2s ease-in-out infinite}
+.ringwrap .pc{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--fo);font-size:14px;font-weight:600;color:#fff}
+.pill{display:inline-block;font-family:var(--fm);font-size:8px;letter-spacing:1.5px;color:var(--gold);border:1px solid rgba(243,199,148,0.45);border-radius:6px;padding:2px 8px;margin-bottom:6px;background:rgba(243,199,148,0.07)}
+.oname{font-size:17px;font-weight:600;color:#fff}
+.ometa{font-family:var(--fm);font-size:9px;letter-spacing:1px;color:var(--t3);margin-top:4px}
+.objright{margin-left:auto;font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t3);text-align:right}
+
+/* ── MOTION ──────────────────────────────────────────────────────────────────
+   Ambient + entrance animations. Tasteful: nothing bounces or spins gratuitously.
+   All disabled under prefers-reduced-motion (block at the bottom). */
+
+/* Ring glow breathes so the progress arc reads as "live". */
+@keyframes ring-glow{
+  0%,100%{filter:drop-shadow(0 0 3px rgba(157,139,255,0.25))}
+  50%{filter:drop-shadow(0 0 9px rgba(157,139,255,0.6)) drop-shadow(0 0 18px rgba(157,139,255,0.25))}
+}
+
+/* The percent number counts up subtly by fading in after the ring starts drawing. */
+.ringwrap .pc{animation:pc-in .7s ease .25s backwards}
+@keyframes pc-in{from{opacity:0;transform:scale(0.8)}to{opacity:1;transform:scale(1)}}
+
+/* Status dot pulses like a connection indicator. */
+.statusline .dot{animation:dot-pulse 2.2s ease-in-out infinite}
+@keyframes dot-pulse{0%,100%{opacity:1;box-shadow:0 0 8px rgba(142,231,186,0.9)}50%{opacity:0.55;box-shadow:0 0 4px rgba(142,231,186,0.5)}}
+
+/* Priority pill glints gently so PRIORITY draws the eye. */
+.pill{animation:pill-glow 3s ease-in-out infinite}
+@keyframes pill-glow{0%,100%{box-shadow:0 0 0 rgba(243,199,148,0)}50%{box-shadow:0 0 10px -2px rgba(243,199,148,0.5)}}
+
+/* VOD-hint dot pulses (it's a nudge). */
+.hint-dot{animation:dot-pulse-gold 2.4s ease-in-out infinite}
+@keyframes dot-pulse-gold{0%,100%{opacity:1;box-shadow:0 0 8px rgba(243,199,148,0.7)}50%{opacity:0.55;box-shadow:0 0 4px rgba(243,199,148,0.4)}}
+
+/* Entrance: sections FADE in only — NO vertical movement. This replays on EVERY
+   navigation (each page is a full reload), so any translateY made the whole content
+   column visibly slide up beside the fixed rail on every single click — that
+   per-nav slide is what read as the page "bouncing" on click. It's now pure opacity
+   (no transform) with a tiny, near-simultaneous stagger, so content appears without
+   any motion that could look like a bounce. (Earlier passes shrank the slide
+   12px→4px chasing this; taking it to 0 is the actual fix.) */
+@keyframes rise-in{from{opacity:0}to{opacity:1}}
+.anim-rise{animation:rise-in .26s ease-out backwards}
+.anim-d1{animation-delay:.02s}
+.anim-d2{animation-delay:.04s}
+.anim-d3{animation-delay:.06s}
+.anim-d4{animation-delay:.08s}
+.anim-d5{animation-delay:.10s}
+
+@media (prefers-reduced-motion: reduce){
+  .ring-prog,.ringwrap .pc,.statusline .dot,.pill,.hint-dot,
+  .anim-rise,.anim-d1,.anim-d2,.anim-d3,.anim-d4,.anim-d5,
+  .rv-switch-track,.rv-switch-knob,.rv-switch-lbl{
+    animation:none !important;
+    transition:none !important;
+  }
+}
+
+/* ── data-driven additions (not in mockup body): error panel ── */
+.errpanel{border-color:rgba(243,163,168,0.45);background:rgba(243,163,168,0.06)}
+.errpanel .vline{color:var(--loss)}
+
+/* ── GAMES PAGE ──────────────────────────────────────────────────────────────
+   Page-specific classes ONLY. Reuses the shared kit: .glass / .primary (queue
+   command bar), .card + .gamerow (clickable rows w/ W/L edge bar + hover hype),
+   .strip / .stat (at-a-glance), .seclabel / .eyebrow / .hero / .statusline, and
+   all the motion classes. New here: the queue bar's horizontal layout + count,
+   the filter segment, the row's matchup/KDA/token internals, load-more, empty. */
+
+/* Hero row: page title left, the Manual Entry action right (moved off the nav rail).
+   Mirrors .rules-hero. */
+.games-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.games-manual-btn{margin-top:4px;align-self:center;white-space:nowrap}
+
+/* Queue command bar — the dashboard's vertical .primary card, re-laid-out as a
+   horizontal command bar (lead copy left, filter segment right). The one loud
+   element on the page; rows below stay calm glass. */
+.games-bar{margin:22px 0 22px;padding:18px 22px;flex-direction:row;align-items:center;gap:20px;flex-wrap:wrap;justify-content:space-between}
+.games-bar-lead{flex:1;min-width:230px}
+.games-bar-lead .k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:#c3b6ff}
+.games-bar-lead h2{font-size:20px;font-weight:600;color:#fff;margin:8px 0 0;letter-spacing:-0.2px;line-height:1.2}
+.games-bar-cnt{font-family:var(--fm);font-size:10.5px;letter-spacing:0.5px;color:var(--gold);margin-top:8px;display:flex;align-items:center;gap:8px}
+.games-bar-cnt .pdot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--gold);box-shadow:0 0 8px rgba(243,199,148,0.9);animation:dot-pulse-gold 2.4s ease-in-out infinite}
+/* When the queue is empty the count nudge goes calm green, not gold-urgent. */
+.games-bar.queue-clear .games-bar-cnt{color:var(--win)}
+.games-bar.queue-clear .games-bar-cnt .pdot{background:var(--win);box-shadow:0 0 8px rgba(142,231,186,0.9);animation:dot-pulse 2.4s ease-in-out infinite}
+
+/* Filter segment — inset pill track; active tab is the accent gradient chip. */
+.seg{display:flex;gap:4px;padding:4px;border-radius:12px;background:rgba(10,8,24,0.4);border:1px solid var(--gline2)}
+.seg button{font-family:var(--fm);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--t3);background:transparent;border:1px solid transparent;border-radius:9px;padding:9px 15px;cursor:pointer;white-space:nowrap;transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.seg button:hover{color:var(--t1);border-color:var(--gline2)}
+.seg button.on{color:#1b1233;font-weight:700;border:none;background:linear-gradient(180deg,#bcacff,#9d8bff);box-shadow:0 10px 24px -8px rgba(157,139,255,0.7),0 1px 0 rgba(255,255,255,0.5) inset}
+.seg button:active{transform:translateY(1px);transition-duration:.06s}
+
+/* ── GAME ROW internals ──────────────────────────────────────────────────────
+   The row chrome (.gamerow hover, edge bar, sweep, cue) is shared. These rules
+   only lay out the row body: matchup headline + meta + tokens on the left, a
+   right-aligned KDA column. */
+.gamerow-game .crow{align-items:center;gap:16px}
+.grow-main{min-width:0;flex:1}
+.grow-top{display:flex;align-items:center;gap:9px}
+/* W/L capsule — small outlined chip in the game's win/loss color (color set in JS). */
+.grow-wl{font-family:var(--fo);font-size:11px;font-weight:700;line-height:1;letter-spacing:0.5px;
+  display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;flex-shrink:0;
+  border:1px solid currentColor;border-radius:6px;background:rgba(255,255,255,0.03)}
+.grow-champ{font-family:var(--fo);font-size:15px;font-weight:600;letter-spacing:0.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grow-meta{margin-top:6px}
+.grow-tokens{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+@media(max-width:680px){.grow-tokens{display:none}}
+
+/* State-token chips — calm by default, tinted by meaning (good/warn/muted). */
+.gtoken{font-family:var(--fm);font-size:8.5px;letter-spacing:0.5px;text-transform:uppercase;
+  padding:4px 8px;border-radius:7px;border:1px solid var(--gline2);background:rgba(255,255,255,0.03);color:var(--t3);white-space:nowrap}
+.gtoken.good{color:var(--win);border-color:rgba(142,231,186,0.35);background:rgba(142,231,186,0.07)}
+.gtoken.warn{color:var(--gold);border-color:rgba(243,199,148,0.35);background:rgba(243,199,148,0.07)}
+.gtoken.muted{color:var(--t4)}
+
+/* Right column — KDA reads fast (display font), ratio dim beneath; cue under it. */
+.grow-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0}
+.grow-kda{text-align:right;line-height:1}
+.grow-kda-n{font-family:var(--fo);font-size:16px;font-weight:600;color:#fff;letter-spacing:0.3px}
+.grow-kda-r{display:block;font-family:var(--fm);font-size:9px;color:var(--t4);margin-top:4px;letter-spacing:0.5px}
+
+/* ── LOAD MORE — calm glass button, centered. ── */
+.loadwrap{display:flex;justify-content:center;margin:16px 0 30px}
+.loadmore{font-family:var(--fm);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--t2);
+  background:var(--glass2);border:1px solid var(--gline);border-radius:11px;padding:11px 30px;cursor:pointer;
+  backdrop-filter:blur(16px);transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,color .16s ease,box-shadow .16s ease}
+.loadmore:hover{transform:translateY(-1px);border-color:rgba(157,139,255,0.45);color:#fff;box-shadow:0 12px 28px -14px rgba(157,139,255,0.5)}
+.loadmore:active{transform:translateY(0);transition-duration:.06s}
+.loadmore:disabled{opacity:0.5;cursor:default}
+
+/* ── EMPTY STATE — quiet glass-less message block. ── */
+.games-empty{padding:34px 22px;text-align:center}
+.games-empty-h{font-family:var(--fo);font-size:17px;font-weight:600;color:var(--t2)}
+.games-empty-p{font-size:13px;color:var(--t4);margin-top:8px}
+
+/* ── OBJECTIVES PAGE ──────────────────────────────────────────────────────────
+   Only new classes this page needs — it reuses the shared kit: .glass / .primary
+   (the loud priority pane), .card + .gamerow (clickable spotted-problem rows w/
+   W/L edge bar + hover hype), .ringwrap / .ring-* / .pc (animated rings), .pill,
+   .seclabel / .eyebrow / .hero / .statusline, .hint (deferred-create note), and
+   all the motion classes. Page-specific bits: a large priority ring pane, a calm
+   ring-card grid, the mastery LADDER step strip, a score SPARKLINE, FOCUS
+   mini-drill rows with a progress track, the COMPLETED collapse, type tag chips. */
+
+/* Type tag chips — colored by objective type (gameplay / mental / focus). */
+.obj-tag{font-family:var(--fm);font-size:9px;letter-spacing:1.4px;text-transform:uppercase;
+  padding:3px 9px;border-radius:6px;display:inline-block;line-height:1.3}
+.obj-tag-gameplay{color:#cfc6ff;background:rgba(157,139,255,0.16);border:1px solid rgba(157,139,255,0.30)}
+.obj-tag-mental{color:#a9c8ff;background:rgba(57,150,255,0.14);border:1px solid rgba(57,150,255,0.30)}
+.obj-tag-focus{color:var(--gold);background:rgba(243,199,148,0.12);border:1px solid rgba(243,199,148,0.32)}
+.obj-badges{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+/* PRIORITY pane — the one loud element. Accent-rim .primary glass holding a big
+   92px animated ring + sparkline beside the name / level / ladder / champ gate. */
+.obj-primary{margin:0 0 24px;padding:24px 26px}
+.obj-primary-grid{display:grid;grid-template-columns:auto 1fr;gap:26px;align-items:center}
+@media(max-width:680px){.obj-primary-grid{grid-template-columns:1fr;gap:18px}}
+.obj-ringcol{display:flex;flex-direction:column;align-items:center;gap:12px}
+.obj-ring-lg{width:92px;height:92px}
+.obj-ring-lg .pc{font-size:21px}
+.obj-spark{width:96px;height:30px;flex-shrink:0;opacity:0.92}
+.obj-primary-body{display:flex;flex-direction:column;gap:0}
+.obj-primary-body .pill{margin-bottom:0}
+.obj-name-lg{font-family:var(--fo);font-size:22px;font-weight:600;color:#fff;letter-spacing:0.2px;line-height:1.15;margin-top:11px}
+.obj-skill{font-size:13px;color:var(--t3);margin-top:5px}
+.obj-levelrow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:12px}
+.obj-level{font-family:var(--fo);font-size:15px;font-weight:600;color:var(--accent)}
+.obj-score{font-family:var(--fm);font-size:11px;letter-spacing:1px;color:var(--t3)}
+
+/* MASTERY LADDER — mono step strip; the reached step lights to the level color. */
+.ladder{display:flex;gap:14px;flex-wrap:wrap;margin-top:13px}
+.ladder span{font-family:var(--fm);font-size:9.5px;letter-spacing:1px;color:var(--t4);text-shadow:var(--tsh);white-space:nowrap}
+.ladder span.on{color:var(--accent);font-weight:600}
+
+/* CHAMPION GATE — only shown for champion-scoped objectives. */
+.obj-gate{display:flex;align-items:center;gap:9px;margin-top:13px;padding-top:12px;border-top:1px solid var(--gline2)}
+.obj-gate-k{font-family:var(--fm);font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:var(--t4)}
+.obj-gate-v{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--win)}
+
+/* CALM ACTIVE CARDS — a responsive grid of ring cards (reuse .card + .ringwrap). */
+#active-list{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:8px}
+@media(max-width:820px){#active-list{grid-template-columns:1fr}}
+.obj-card{margin-bottom:0;display:flex;flex-direction:column}
+.obj-card-top{display:flex;align-items:center;gap:16px}
+.obj-card-head{min-width:0}
+.obj-card-name{margin-top:6px}
+.obj-card-meta{font-family:var(--fm);font-size:9px;letter-spacing:1px;color:var(--t3);margin-top:4px}
+.obj-card .ladder{margin-top:14px}
+.obj-card .obj-gate{margin-top:12px}
+
+/* MEASURED CRITERION — success line + mono HIT x/y GAMES chip (v2.18). */
+.obj-card-crit{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;margin-top:13px;padding-top:12px;border-top:1px solid var(--gline2)}
+.obj-card-crit[hidden]{display:none}
+.obj-crit-text{font-size:12.5px;color:var(--t3);line-height:1.4;min-width:0}
+.obj-crit-text[hidden]{display:none}
+.obj-crit-hit{font-family:var(--fm);font-size:9.5px;letter-spacing:1px;font-weight:700;
+  white-space:nowrap;color:var(--t4)}
+.obj-crit-hit[hidden]{display:none}
+
+/* CARD SPARKLINE — full-width per-game score trend under the head. The shared
+   .obj-spark sets height/opacity; the card variant stretches to the row width. */
+.obj-card-spark{width:100%;height:34px;margin-top:13px}
+.obj-card-spark[hidden]{display:none}
+
+/* PRIORITY CARD — the lead objective: spans the full row and wears the accent
+   rim/glow of the shared .primary card, so it reads louder than the calm cards
+   without needing a separate section. The PRIORITY pill leads its badge row. */
+.obj-card-priority{grid-column:1/-1;border-color:rgba(157,139,255,0.45);
+  box-shadow:0 24px 60px -24px rgba(80,40,160,0.7),0 2px 0 rgba(255,255,255,0.07) inset,0 0 60px -30px rgba(157,139,255,0.7) inset}
+.obj-card-pri{margin-bottom:0}
+
+/* FOCUS MINI-DRILL ROWS — compact, gold-edged, with a slim progress track. */
+#focus-list{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
+.obj-mini{margin-bottom:0;display:flex;align-items:center;gap:16px;border-color:rgba(243,199,148,0.26);padding:14px 18px}
+.obj-mini-main{flex:1;min-width:0}
+.obj-mini-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.obj-mini-name{font-size:15px;font-weight:600;color:#fff}
+.obj-mini-prog{font-family:var(--fm);font-size:10px;letter-spacing:0.8px;color:var(--gold);margin-top:5px}
+.obj-mini-track{width:120px;flex-shrink:0;height:7px;border-radius:4px;background:rgba(255,255,255,0.09);overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.4)}
+.obj-mini-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#f6cfa0,var(--gold));transition:width 1.0s cubic-bezier(0.22,1,0.36,1)}
+@media(prefers-reduced-motion:reduce){.obj-mini-fill{transition:none}}
+
+/* SPOTTED PROBLEMS — clickable game rows; the result letter leads the meta line. */
+#spotted-list{display:flex;flex-direction:column;gap:11px;margin-bottom:8px}
+.obj-spot{margin-bottom:0}
+.obj-spot-main{min-width:0}
+.obj-spot-meta{display:flex;align-items:center;gap:7px;font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4)}
+.obj-spot-wl{font-weight:700}
+.obj-spot-champ{color:var(--t3)}
+.obj-spot-sep{opacity:0.5}
+.obj-spot-text{margin-top:6px;font-size:13.5px;line-height:1.45}
+
+/* COMPLETED — calm done rows + the collapse toggle. */
+.obj-completed-toggle{margin:18px 0 0}
+.obj-toggle{font-family:var(--fm);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--t3);
+  background:rgba(255,255,255,0.04);border:1px solid var(--gline2);border-radius:9px;padding:9px 15px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:8px;transition:color .16s ease,background .16s ease,border-color .16s ease}
+.obj-toggle:hover{color:var(--t1);background:rgba(157,139,255,0.07);border-color:rgba(157,139,255,0.28)}
+.obj-toggle .arr{font-size:10px}
+#completed-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.obj-done{margin-bottom:0;display:flex;align-items:center;gap:14px;opacity:0.88;padding:13px 18px}
+.obj-done-main{flex:1;min-width:0}
+.obj-done-name{font-size:14px;color:var(--t2)}
+.obj-done-phase{font-family:var(--fm);font-size:9px;letter-spacing:1px;color:var(--t4);margin-top:3px}
+.obj-done-sum{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3);white-space:nowrap}
+.obj-done-badge{font-family:var(--fm);font-size:9px;letter-spacing:1.2px;color:var(--win);
+  background:rgba(142,231,186,0.12);border:1px solid rgba(142,231,186,0.30);border-radius:6px;padding:3px 9px}
+
+/* EMPTY STATE — calm, centered. */
+.obj-empty{text-align:center;padding:48px 20px;color:var(--t3)}
+.obj-empty-h{font-family:var(--fo);font-size:18px;font-weight:600;color:var(--t2)}
+.obj-empty-p{font-size:13px;color:var(--t4);margin-top:8px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.5}
+.obj-empty-cta{display:inline-block;margin:20px auto 0}
+
+/* HERO ROW — title left, "New Objective" CTA right. */
+.obj-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.obj-new-btn{margin-top:0;align-self:center}
+
+/* PER-CARD ACTION ROW — calm ghost buttons divided off the card body. The
+   priority / active / mini cards reuse this; specific intents are color-tinted. */
+.obj-actrow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px;padding-top:13px;border-top:1px solid var(--gline2)}
+.obj-card-actrow,.obj-mini-actrow{justify-content:flex-end}
+.obj-mini-actrow{width:100%;flex-basis:100%;margin-top:13px}
+.obj-mini{flex-wrap:wrap}
+.obj-act{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--t2);
+  background:rgba(255,255,255,0.04);border:1px solid var(--gline2);border-radius:9px;padding:8px 14px;cursor:pointer;white-space:nowrap;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease,border-color .16s ease,box-shadow .16s ease,color .16s ease}
+.obj-act:hover{transform:translateY(-1px);color:#fff;background:rgba(157,139,255,0.10);border-color:rgba(157,139,255,0.4);box-shadow:0 8px 20px -12px rgba(157,139,255,0.55)}
+.obj-act:active{transform:translateY(0);transition-duration:.06s}
+.obj-act:disabled{opacity:0.5;cursor:default;transform:none;box-shadow:none}
+.obj-act-gold{color:var(--gold);border-color:rgba(243,199,148,0.4);background:rgba(243,199,148,0.07)}
+.obj-act-gold:hover{color:#1b1233;background:linear-gradient(180deg,#f6cfa0,var(--gold));border-color:transparent;box-shadow:0 8px 20px -10px rgba(243,199,148,0.6)}
+.obj-act-win{color:var(--win);border-color:rgba(142,231,186,0.4);background:rgba(142,231,186,0.07)}
+.obj-act-win:hover{color:#0e2a1f;background:linear-gradient(180deg,#a9efcc,var(--win));border-color:transparent;box-shadow:0 8px 20px -10px rgba(142,231,186,0.6)}
+@media(prefers-reduced-motion:reduce){.obj-act{transition:none}}
+
+/* CREATE / EDIT FORM — a blue-rimmed glass panel. Inline edit forms (rendered
+   in place of a card via JS) reuse the same .obj-form-* classes. */
+.obj-form{margin:18px 0 8px;padding:22px 24px;border-color:rgba(57,150,255,0.34)}
+.obj-form-inline{margin:0 0 14px}
+.obj-form-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;position:relative}
+.obj-form-title{font-family:var(--fo);font-size:16px;font-weight:600;color:var(--t1)}
+.obj-form-x{font-family:var(--fb);font-size:13px;line-height:1;color:var(--t4);background:transparent;border:1px solid var(--gline2);border-radius:8px;width:28px;height:28px;cursor:pointer;transition:color .16s ease,border-color .16s ease,background .16s ease}
+.obj-form-x:hover{color:var(--t1);border-color:rgba(243,163,168,0.5);background:rgba(243,163,168,0.08)}
+.obj-form-grid{display:flex;flex-direction:column;gap:14px;position:relative}
+.obj-field{display:flex;flex-direction:column;gap:6px}
+/* [hidden] must win over the flex display above (the UA [hidden]{display:none}
+   loses to an explicit display) — the mini-only target field toggles via el.hidden. */
+.obj-field[hidden]{display:none}
+.obj-field-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright)}
+.obj-field-k i{color:var(--loss);font-style:normal}
+.obj-field-row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:560px){.obj-field-row2{grid-template-columns:1fr}}
+.obj-input{font-family:var(--fb);font-size:13.5px;color:var(--t1);background:rgba(10,8,24,0.4);
+  border:1px solid var(--gline2);border-radius:10px;padding:10px 13px;width:100%;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
+.obj-input::placeholder{color:var(--t4)}
+.obj-input:focus{outline:none;border-color:rgba(157,139,255,0.6);background:rgba(157,139,255,0.05);box-shadow:0 0 0 3px rgba(157,139,255,0.12)}
+.obj-select{appearance:none;-webkit-appearance:none;cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--t3) 50%),linear-gradient(135deg,var(--t3) 50%,transparent 50%);
+  background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:34px}
+.obj-select option{background:#14102a;color:var(--t1)}
+.obj-textarea{resize:vertical;min-height:54px;line-height:1.5;font-family:var(--fb)}
+/* "Practice during" phase selectors — togglable PILL chips (matches the role picker
+   / concept-tag language) instead of the old filled checkboxes. The <input> stays
+   (hidden) so the form logic still reads f-pre/f-in/f-post .checked; the whole label
+   is the clickable chip and lights up in accent when its checkbox is checked. */
+.obj-checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.obj-check{display:inline-flex;align-items:center;font-family:var(--fm);font-size:11px;
+  letter-spacing:0.6px;text-transform:uppercase;color:var(--t3);cursor:pointer;user-select:none;
+  padding:7px 14px;border-radius:999px;border:1px solid var(--gline2);background:rgba(255,255,255,0.03);
+  transition:color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease}
+.obj-check:hover{color:var(--t2);border-color:rgba(157,139,255,0.35);background:rgba(157,139,255,0.06)}
+.obj-check input{position:absolute;opacity:0;width:0;height:0}
+/* The old check-box square is no longer drawn — the chip itself is the indicator. */
+.obj-box{display:none}
+.obj-check:has(input:checked){color:#fff;border-color:rgba(157,139,255,0.55);
+  background:rgba(157,139,255,0.16);box-shadow:0 0 0 1px rgba(157,139,255,0.25) inset,0 0 14px -6px rgba(157,139,255,0.8)}
+.obj-check:has(input:focus-visible){box-shadow:0 0 0 3px rgba(157,139,255,0.25)}
+.obj-form-err{font-family:var(--fb);font-size:12px;color:var(--loss);line-height:1.45}
+.obj-form-act{display:flex;justify-content:flex-end;gap:9px;margin-top:4px}
+.obj-form-submit{margin-top:0;align-self:auto;font-size:11px;padding:11px 22px}
+.obj-ghost{font-family:var(--fm);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--t3);
+  background:rgba(255,255,255,0.04);border:1px solid var(--gline2);border-radius:11px;padding:11px 18px;cursor:pointer;
+  transition:color .16s ease,background .16s ease,border-color .16s ease}
+.obj-ghost:hover{color:var(--t1);background:rgba(157,139,255,0.07);border-color:rgba(157,139,255,0.28)}
+
+/* Field-label hint (e.g. "auto-clips", "empty = all") — quiet inline annotation. */
+.obj-field-hint{color:var(--t4);font-style:normal;font-weight:400;text-transform:none;letter-spacing:0.3px}
+/* Section-label accent on the two grouped editors (purple prompts / teal champs). */
+.obj-field-k-prompt{color:var(--accent)}
+.obj-field-k-champ{color:var(--win)}
+
+/* MEASURED CRITERION — metric + comparator + value on one row; op/value reveal
+   only once a metric is chosen (JS toggles [hidden]). */
+.obj-crit-row{display:grid;grid-template-columns:1.4fr 0.9fr 0.7fr;gap:10px}
+.obj-crit-row .obj-crit-op[hidden],.obj-crit-row .obj-crit-val[hidden]{display:none}
+.obj-crit-row.metric-only{grid-template-columns:1fr}
+@media(max-width:560px){.obj-crit-row{grid-template-columns:1fr}}
+
+/* CUSTOM PROMPTS editor — stacked rows of phase-select + label + remove. */
+.obj-prompts{display:flex;flex-direction:column;gap:9px}
+.obj-prompt-row{display:grid;grid-template-columns:74px 1fr 30px;gap:9px;align-items:start}
+.obj-prompt-phase{padding-right:26px;background-position:calc(100% - 11px) 50%,calc(100% - 7px) 50%}
+.obj-prompt-label{min-height:40px}
+.obj-prompt-x{font-family:var(--fb);font-size:12px;line-height:1;color:var(--t4);background:transparent;
+  border:1px solid var(--gline2);border-radius:8px;width:30px;height:40px;cursor:pointer;flex-shrink:0;
+  transition:color .16s ease,border-color .16s ease,background .16s ease}
+.obj-prompt-x:hover{color:var(--loss);border-color:rgba(243,163,168,0.5);background:rgba(243,163,168,0.08)}
+.obj-subadd{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;
+  background:transparent;border:1px dashed var(--gline2);border-radius:10px;padding:9px 14px;margin-top:9px;align-self:flex-start;
+  transition:color .16s ease,border-color .16s ease,background .16s ease}
+.obj-subadd-prompt{color:var(--accent)}
+.obj-subadd-prompt:hover{border-color:rgba(157,139,255,0.45);background:rgba(157,139,255,0.06)}
+
+/* CHAMPION GATE — picked chips above a typeahead input (datalist-backed). */
+.obj-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:9px}
+.obj-chips:empty{margin-bottom:0}
+.obj-chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--fb);font-size:12px;color:var(--t1);cursor:pointer;
+  background:rgba(142,231,186,0.10);border:1px solid rgba(142,231,186,0.34);border-radius:9px;padding:5px 10px;
+  transition:color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease}
+.obj-chip:hover{border-color:rgba(243,163,168,0.5);background:rgba(243,163,168,0.10);transform:translateY(-1px)}
+.obj-chip-x{font-size:10px;color:var(--t4)}
+.obj-chip:hover .obj-chip-x{color:var(--loss)}
+.obj-champ-input{max-width:100%}
+
+/* DANGER + COMPLETE-EARLY card action buttons (extend the .obj-act kit). */
+.obj-act-danger{color:var(--loss);border-color:rgba(243,163,168,0.4);background:rgba(243,163,168,0.07)}
+.obj-act-danger:hover{color:#2a1316;background:linear-gradient(180deg,#f6b6bb,var(--loss));border-color:transparent;box-shadow:0 8px 20px -10px rgba(243,163,168,0.6)}
+.obj-act-early{color:var(--t3);border-color:var(--gline2);background:rgba(255,255,255,0.03)}
+.obj-act-early:hover{color:var(--win);border-color:rgba(142,231,186,0.4);background:rgba(142,231,186,0.07)}
+
+/* Completed-row action strip — right-aligned, tighter top border. */
+.obj-done-actrow{justify-content:flex-end;width:100%;margin-top:12px;padding-top:11px}
+
+/* MILESTONE CELEBRATION OVERLAY — full-screen scrim + HUD card with corner
+   brackets; entrance scale/opacity. */
+.obj-celebrate{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
+  background:rgba(6,11,11,0.80);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:24px}
+.obj-celebrate[hidden]{display:none}
+.obj-celebrate-card{position:relative;max-width:420px;width:100%;text-align:center;padding:38px 34px 32px;
+  border-color:rgba(243,199,148,0.42);
+  box-shadow:0 30px 80px -30px rgba(0,0,0,0.9),0 -22px 50px -34px rgba(243,199,148,0.45) inset;
+  animation:obj-celebrate-in .45s cubic-bezier(0.22,1,0.36,1) both}
+.obj-celebrate-bracket{position:absolute;width:16px;height:16px;border:2px solid rgba(243,199,148,0.7)}
+.obj-celebrate-bracket.tl{top:12px;left:12px;border-right:0;border-bottom:0}
+.obj-celebrate-bracket.tr{top:12px;right:12px;border-left:0;border-bottom:0}
+.obj-celebrate-bracket.bl{bottom:12px;left:12px;border-right:0;border-top:0}
+.obj-celebrate-bracket.br{bottom:12px;right:12px;border-left:0;border-top:0}
+.obj-celebrate-eyebrow{font-family:var(--fm);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--gold)}
+.obj-celebrate-head{font-family:var(--fo);font-size:30px;font-weight:700;color:#fff;margin-top:12px;line-height:1.05}
+.obj-celebrate-title{font-family:var(--fb);font-size:15px;color:var(--gold);margin-top:14px;font-weight:600}
+.obj-celebrate-stats{font-family:var(--fm);font-size:11px;letter-spacing:0.8px;color:var(--t2);margin-top:8px}
+.obj-celebrate-line{font-family:var(--fb);font-size:12.5px;color:var(--t3);margin-top:16px;line-height:1.5}
+.obj-celebrate-cta{margin-top:24px;align-self:center}
+@keyframes obj-celebrate-in{from{opacity:0;transform:scale(0.85)}to{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.obj-celebrate-card{animation:none}}
+
+/* ── REVIEW PAGE ──────────────────────────────────────────────────────────────
+   Per-game review. Reuses shared primitives: .glass / .card / .strip / .stat /
+   .ring (+ draw-on-load) / .seclabel / .pill / .review / .anim-rise. Only the
+   review-specific surfaces are defined here: the gold-rim HERO GAME CARD
+   (read-only result header + KDA + VOD bar), the two-column body, the objective
+   completion-criteria line, the read-only saved-review panel (note banner,
+   mental badge, labelled text blocks, concept-tag chips), and the empty state.
+   All classes are rv-* prefixed so nothing collides with the shared kit. */
+
+/* HERO GAME CARD — gold-rim glass; the game under review, read-only. */
+.rv-hero{margin:18px 0 0;padding:22px 26px;border-color:rgba(243,199,148,0.42);
+  box-shadow:0 20px 50px -22px rgba(0,0,0,0.85),0 2px 0 rgba(255,255,255,0.06) inset,0 -22px 44px -30px rgba(243,199,148,0.4) inset}
+.rv-hero-row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;position:relative}
+.rv-hero-lead{min-width:0}
+.rv-champ{font-family:var(--fo);font-size:30px;font-weight:700;color:var(--gold);line-height:1.05;text-shadow:0 2px 16px rgba(10,8,24,0.5)}
+.rv-resline{display:flex;align-items:center;gap:12px;margin-top:9px;flex-wrap:wrap}
+.rv-res{font-size:15px;font-weight:700;color:var(--win);letter-spacing:0.5px}
+.rv-gmode{font-size:12.5px;color:var(--t3)}
+.rv-gdur{font-family:var(--fm);font-size:11px;color:var(--t4);letter-spacing:0.5px}
+.rv-matchup{font-size:13px;font-weight:600;color:#9ec8ff;margin-top:10px;text-shadow:var(--tsh)}
+.rv-hero-kda{text-align:right;flex-shrink:0}
+.rv-kda{font-family:var(--fo);font-size:26px;font-weight:600;color:#fff;line-height:1}
+.rv-kdar{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t3);margin-top:6px}
+.rv-vodbar{display:flex;align-items:center;gap:13px;margin-top:16px;position:relative;flex-wrap:wrap}
+/* .rv-vodbtn rides the shared .review pill; no overrides needed. */
+.rv-reviewed{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--win)}
+
+/* OBJECTIVES SECTION — the focus block, lifted to the top under the game header. */
+.rv-objsec{margin-top:26px}
+
+/* TWO-COLUMN BODY — stats (left) beside the debrief review (right). */
+.rv-body{display:grid;grid-template-columns:3fr 2fr;gap:24px;margin-top:26px;align-items:start}
+@media(max-width:900px){.rv-body{grid-template-columns:1fr;gap:8px}}
+.rv-col-main,.rv-col-side{min-width:0}
+.rv-strip{margin-bottom:0}
+/* Objective ring cards stack with a small gap; criteria line under the meta. */
+.rv-obj{margin-bottom:10px}
+.rv-obj-text{min-width:0}
+.rv-crit{font-size:12px;color:var(--t3);line-height:1.5;margin-top:8px}
+
+/* NOTE banner — dashed gold hint (e.g. "already reviewed — saving overwrites"). */
+.rv-note{display:flex;align-items:center;gap:9px;margin:0 0 12px;padding:9px 13px;border-radius:10px;
+  border:1px dashed rgba(243,199,148,0.32);background:rgba(243,199,148,0.05);
+  font-size:12px;color:var(--t3);line-height:1.45}
+.rv-note-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--gold);box-shadow:0 0 8px rgba(243,199,148,0.7);animation:dot-pulse-gold 2.4s ease-in-out infinite}
+.rv-note-text{color:var(--t2)}
+
+/* REVIEW FORM panel — labelled editable blocks. */
+.rv-review{margin-bottom:14px;display:flex;flex-direction:column}
+.rv-field-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright);display:block}
+.rv-field{position:relative}
+.rv-field+.rv-field{margin-top:14px}
+
+/* Editable inputs — glass field, accent focus ring (matches the violet kit). */
+.rv-field-in,.rv-objnote,.rv-taginput{font-family:var(--fb);font-size:13px;color:var(--t1);
+  width:100%;background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:10px;
+  padding:9px 12px;line-height:1.5;outline:none;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
+.rv-field-in{margin-top:6px;resize:vertical;min-height:42px}
+.rv-field-in::placeholder,.rv-objnote::placeholder,.rv-taginput::placeholder{color:var(--t4)}
+.rv-field-in:focus,.rv-objnote:focus,.rv-taginput:focus{border-color:rgba(157,139,255,0.6);
+  background:rgba(157,139,255,0.05);box-shadow:0 0 0 3px rgba(157,139,255,0.14)}
+
+/* Mental rating — slider + live tinted readout. */
+.rv-mentalrow{display:flex;align-items:center;justify-content:space-between;gap:16px;position:relative;
+  padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--gline2)}
+.rv-mental-ctl{display:flex;align-items:center;gap:14px;flex:1;justify-content:flex-end}
+.rv-mental{font-family:var(--fo);font-size:30px;font-weight:700;color:var(--win);line-height:1;min-width:38px;text-align:right}
+.rv-range{-webkit-appearance:none;appearance:none;flex:1;max-width:150px;height:6px;border-radius:99px;
+  background:linear-gradient(90deg,rgba(157,139,255,0.55),rgba(157,139,255,0.18));outline:none;cursor:pointer}
+.rv-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:17px;height:17px;border-radius:50%;
+  background:linear-gradient(180deg,#bcacff,#9d8bff);border:2px solid rgba(255,255,255,0.6);
+  box-shadow:0 4px 10px -2px rgba(157,139,255,0.8);cursor:pointer}
+.rv-range::-moz-range-thumb{width:17px;height:17px;border-radius:50%;border:2px solid rgba(255,255,255,0.6);
+  background:#9d8bff;box-shadow:0 4px 10px -2px rgba(157,139,255,0.8);cursor:pointer}
+.rv-range:focus-visible{box-shadow:0 0 0 3px rgba(157,139,255,0.22)}
+
+/* OBJECTIVE practiced switch + execution note (per ring card). */
+.rv-obj .ring{flex-wrap:wrap}
+.rv-obj.is-practiced{border-color:rgba(157,139,255,0.4)}
+.rv-objnote{margin-top:12px}
+
+/* ── REVIEW: practiced switch ──────────────────────────────────────────────────
+   Big, obvious ON/OFF slide-switch replacing the old checkbox. The WHOLE control
+   (label + track) is clickable — generous hit area. Off = muted glass; on = accent
+   fill (--accent) with the knob slid right. Smooth .16s glass-house transitions;
+   motion is dropped under prefers-reduced-motion (block at the bottom). */
+.rv-switch{display:inline-flex;align-items:center;gap:11px;margin-left:auto;cursor:pointer;
+  user-select:none;flex-shrink:0;position:relative;padding:6px 4px;-webkit-tap-highlight-color:transparent}
+.rv-practiced-cb{position:absolute;opacity:0;width:0;height:0}
+.rv-switch-track{position:relative;width:52px;height:28px;border-radius:99px;flex-shrink:0;
+  background:rgba(10,8,24,0.55);border:1px solid var(--gline);
+  transition:background .16s ease,border-color .16s ease,box-shadow .16s ease}
+.rv-switch-knob{position:absolute;top:50%;left:3px;width:20px;height:20px;border-radius:50%;
+  transform:translateY(-50%);background:linear-gradient(180deg,#fff,#d9d2f5);
+  box-shadow:0 2px 6px -1px rgba(0,0,0,0.6);
+  transition:left .16s cubic-bezier(0.22,1,0.36,1),background .16s ease}
+.rv-switch-lbl{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--t3);min-width:78px;transition:color .16s ease}
+/* ON state — accent-filled track, knob slid right, label brightened to accent. */
+.rv-practiced-cb:checked+.rv-switch-track{background:linear-gradient(180deg,#bcacff,#9d8bff);
+  border-color:transparent;box-shadow:0 0 14px -3px rgba(157,139,255,0.7)}
+.rv-practiced-cb:checked+.rv-switch-track .rv-switch-knob{left:29px;background:linear-gradient(180deg,#fff,#efeaff)}
+.rv-obj.is-practiced .rv-switch-lbl{color:var(--accent)}
+.rv-switch:hover .rv-switch-track{border-color:rgba(157,139,255,0.5)}
+.rv-practiced-cb:focus-visible+.rv-switch-track{box-shadow:0 0 0 3px rgba(157,139,255,0.3)}
+@media(max-width:900px){.rv-switch{margin-left:0;margin-top:6px}}
+
+/* ── REVIEW: custom coaching prompts ──────────────────────────────────────────
+   Read-only guided questions under an objective card. Subtle muted lines with a
+   tiny phase chip; display-only (no answer inputs this phase). */
+.rv-prompts{margin-top:12px;padding-top:11px;border-top:1px solid var(--gline2);
+  display:flex;flex-direction:column;gap:9px}
+.rv-prompt{font-family:var(--fb);font-size:12px;color:var(--t3);line-height:1.45}
+/* The question row keeps the bullet-dot + phase chip + label inline. */
+.rv-prompt-q{display:flex;align-items:baseline;gap:9px}
+.rv-prompt-q::before{content:'';flex-shrink:0;width:5px;height:5px;border-radius:50%;
+  margin-top:6px;background:rgba(157,139,255,0.55);box-shadow:0 0 6px rgba(157,139,255,0.4)}
+.rv-prompt-phase{flex-shrink:0;font-family:var(--fm);font-size:8px;letter-spacing:1.2px;
+  text-transform:uppercase;color:var(--accent);border:1px solid rgba(157,139,255,0.35);
+  border-radius:6px;padding:2px 7px;background:rgba(157,139,255,0.08)}
+.rv-prompt-txt{min-width:0}
+/* The saved answer reads as a quote indented under its question. */
+.rv-prompt-answer{margin:5px 0 0 14px;padding-left:9px;border-left:2px solid rgba(157,139,255,0.3);
+  font-size:12.5px;color:var(--t2);line-height:1.5;white-space:pre-wrap}
+
+/* CONCEPT TAGS — editable chips + add input. */
+.rv-tags-wrap{margin-top:14px;padding-top:14px;border-top:1px solid var(--gline2);position:relative}
+.rv-tagedit{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:9px}
+.rv-tags{display:contents}
+.rv-tag{display:inline-flex;align-items:center;gap:6px;font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t2);
+  border:1px solid rgba(157,139,255,0.4);border-radius:8px;padding:5px 7px 5px 11px;background:rgba(157,139,255,0.1)}
+.rv-tag-x{font-family:var(--fb);font-size:14px;line-height:1;color:var(--t3);background:none;border:none;cursor:pointer;padding:0 1px;
+  transition:color .14s ease,transform .14s ease}
+.rv-tag-x:hover{color:var(--loss);transform:scale(1.15)}
+.rv-taginput{flex:1;min-width:130px;width:auto;padding:6px 10px}
+
+/* COMMIT BAR — Save (loud accent CTA) + Skip + inline confirmation. */
+.rv-commitbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:2px}
+.rv-savebtn{margin-top:0;align-self:auto}
+.rv-skipbtn{padding:12px 18px}
+.rv-savebtn:disabled,.rv-skipbtn:disabled{opacity:0.55;cursor:default;transform:none;filter:none}
+.rv-commit-msg{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3)}
+/* Delete-review — a quiet, loss-tinted ghost action (destructive but secondary;
+   only shown once a review exists). Pushed to the right so it's away from Save. */
+.rv-deletebtn{margin-left:auto;padding:12px 16px;border-radius:11px;cursor:pointer;
+  font-family:var(--fm);font-size:11px;letter-spacing:0.8px;text-transform:uppercase;
+  color:var(--loss);background:transparent;border:1px solid rgba(243,163,168,0.32);
+  transition:color .16s ease,background .16s ease,border-color .16s ease}
+.rv-deletebtn:hover{color:#fff;background:rgba(243,163,168,0.14);border-color:rgba(243,163,168,0.55)}
+.rv-deletebtn:disabled{opacity:0.55;cursor:default}
+.rv-commit-msg.ok{color:var(--win)}
+.rv-commit-msg.err{color:var(--loss)}
+
+/* Inline empty lines (no objectives). */
+.rv-emptyline{font-size:12.5px;color:var(--t4);line-height:1.5;padding:4px 2px}
+
+/* EMPTY STATE — no reviewable game. */
+.rv-empty{margin-top:40px;text-align:center;padding:40px 20px}
+.rv-empty-h{font-family:var(--fo);font-size:20px;font-weight:600;color:#fff;letter-spacing:0.3px}
+.rv-empty-p{font-size:13.5px;color:var(--t3);margin-top:10px;line-height:1.5}
+
+/* ── REVIEW: Batch-1A read sections (all READ-ONLY) ───────────────────────────
+   Laning@10 line, death audit, evidence triage, concept-tag catalog, matchup
+   history. All reuse the shared .card/.glass language + the palette vars; the
+   classify/triage/tag-toggle WRITES are deferred (rendered display-only). */
+
+/* A lighter sub-heading for the second+ section under a column (matchup, tags,
+   evidence-to-sort) so they read as nested under the column's lead seclabel. */
+.rv-seclabel-sub{margin-top:22px}
+
+/* LANING @10 — a single mono line under the stat strip; gold "won lane" accent. */
+.rv-laning{font-family:var(--fm);font-size:11px;letter-spacing:0.8px;color:var(--gold);
+  margin-top:12px;padding:9px 13px;border-radius:10px;border:1px solid rgba(243,199,148,0.28);
+  background:rgba(243,199,148,0.05);line-height:1.4;text-shadow:var(--tsh)}
+
+/* DEATH AUDIT — one card per death: head row (time + saved cause) then chips. */
+.rv-deathsec{margin-top:24px}
+#rv-deaths{display:flex;flex-direction:column;gap:8px}
+.rv-death{padding:12px 14px}
+.rv-death-head{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.rv-death-time{font-family:var(--fm);font-size:12px;letter-spacing:0.5px;color:var(--loss);font-weight:600}
+.rv-death-cause{font-family:var(--fm);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--gold);border:1px solid rgba(243,199,148,0.4);border-radius:6px;padding:2px 8px;
+  background:rgba(243,199,148,0.08)}
+.rv-death-chips{display:flex;flex-wrap:wrap;gap:6px}
+.rv-dchip{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--t4);border:1px solid var(--gline2);border-radius:7px;padding:5px 9px;
+  background:rgba(255,255,255,0.02);cursor:pointer;transition:border-color .16s,color .16s,background .16s}
+.rv-dchip:hover{color:var(--t2);border-color:rgba(243,199,148,0.4)}
+.rv-dchip:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(243,199,148,0.3)}
+.rv-dchip.on{color:#1b1233;font-weight:700;border-color:transparent;
+  background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 6px 14px -8px rgba(243,199,148,0.6)}
+.rv-dchip.on:hover{color:#1b1233}
+
+/* EVIDENCE TRIAGE — moment rows: polarity dot + body (time/title/note/meta). */
+.rv-evidsec{margin-top:24px}
+#rv-evid-attached,#rv-evid-unassigned{display:flex;flex-direction:column;gap:8px}
+.rv-evid{display:flex;align-items:flex-start;gap:11px;padding:11px 14px}
+.rv-evid-dot{flex-shrink:0;width:7px;height:7px;border-radius:50%;margin-top:5px;
+  background:var(--accent);box-shadow:0 0 7px rgba(157,139,255,0.5)}
+.rv-evid-body{min-width:0;flex:1}
+.rv-evid-line{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.rv-evid-time{flex-shrink:0;font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t4)}
+.rv-evid-title{font-family:var(--fb);font-size:13px;color:var(--t1);line-height:1.4;min-width:0}
+.rv-evid-note{font-size:12px;color:var(--t3);line-height:1.45;margin-top:4px;white-space:pre-wrap}
+.rv-evid-meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:6px}
+.rv-evid-obj{font-family:var(--fm);font-size:8px;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--accent);border:1px solid rgba(157,139,255,0.35);border-radius:6px;padding:2px 7px;
+  background:rgba(157,139,255,0.08)}
+.rv-evid-status{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4)}
+/* EVIDENCE TRIAGE CONTROLS — Good/Bad polarity, attach picker, dismiss. */
+.rv-evid-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px}
+.rv-evid-btn{font-family:var(--fm);font-size:9px;letter-spacing:0.8px;text-transform:uppercase;
+  color:var(--t3);border:1px solid var(--gline2);border-radius:7px;padding:5px 10px;
+  background:rgba(255,255,255,0.02);cursor:pointer;transition:border-color .16s,color .16s,background .16s}
+.rv-evid-btn:hover{color:var(--t1);border-color:rgba(157,139,255,0.45)}
+.rv-evid-good.on{color:#0f2419;border-color:transparent;font-weight:700;background:var(--win)}
+.rv-evid-bad.on{color:#2b1213;border-color:transparent;font-weight:700;background:var(--loss)}
+.rv-evid-dismiss{color:var(--loss);border-color:rgba(243,163,168,0.35);margin-left:auto}
+.rv-evid-dismiss:hover{color:#fff;background:rgba(243,163,168,0.18);border-color:rgba(243,163,168,0.55)}
+.rv-evid-pick{font-family:var(--fb);font-size:11px;color:var(--t2);background:rgba(255,255,255,0.02);
+  border:1px solid var(--gline2);border-radius:7px;padding:5px 9px;cursor:pointer;max-width:220px}
+.rv-evid-pick:focus{outline:none;border-color:rgba(157,139,255,0.6)}
+.rv-evid-pick option{background:#16121f;color:var(--t1)}
+
+/* FOCUS CHECK — did you play to the session intention? (immediate Yes/Partly/No) */
+.rv-focus{padding:14px 16px;margin-bottom:14px;border-left:2px solid rgba(243,199,148,0.5)}
+.rv-focus-lbl{font-family:var(--fm);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--gold)}
+.rv-focus-intent{font-family:var(--fb);font-size:13px;color:var(--t1);line-height:1.45;margin-top:7px}
+.rv-focus-q{font-family:var(--fb);font-size:12px;color:var(--t3);margin-top:7px}
+.rv-focus-btns{display:flex;gap:8px;margin-top:10px}
+.rv-focus-btn{font-family:var(--fm);font-size:11px;letter-spacing:0.8px;text-transform:uppercase;
+  color:var(--t3);border:1px solid var(--gline2);border-radius:8px;padding:7px 16px;
+  background:rgba(255,255,255,0.02);cursor:pointer;transition:border-color .16s,color .16s,background .16s}
+.rv-focus-btn:hover{color:var(--t1);border-color:rgba(243,199,148,0.45)}
+.rv-focus-btn.on{color:#1b1233;font-weight:700;border-color:transparent;
+  background:linear-gradient(180deg,#f6cfa0,var(--gold))}
+
+/* EDITABLE PROMPT ANSWER — grows with content; mirrors the .rv-prompt-answer look. */
+.rv-prompt-input{width:100%;margin:5px 0 0 14px;max-width:calc(100% - 14px);box-sizing:border-box;
+  font-family:var(--fb);font-size:12px;color:var(--t2);line-height:1.45;resize:none;overflow:hidden;
+  border:1px solid var(--gline2);border-left:2px solid rgba(157,139,255,0.3);border-radius:6px;
+  padding:6px 9px;background:rgba(255,255,255,0.02)}
+.rv-prompt-input::placeholder{color:var(--t4)}
+.rv-prompt-input:focus{outline:none;border-color:rgba(157,139,255,0.6);border-left-color:rgba(157,139,255,0.6)}
+
+/* CONCEPT-TAG CATALOG — selectable grid (selected chips get .on). */
+.rv-tagcat{margin-top:22px;padding-top:14px;border-top:1px solid var(--gline2)}
+.rv-tagcat-grid{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.rv-tagcat-chip{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t4);
+  border:1px solid var(--gline2);border-radius:8px;padding:5px 11px;background:rgba(255,255,255,0.02);
+  cursor:pointer;transition:border-color .16s,color .16s,background .16s}
+.rv-tagcat-chip:hover{color:var(--t2);border-color:rgba(157,139,255,0.4)}
+.rv-tagcat-chip:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(157,139,255,0.3)}
+.rv-tagcat-chip.on{color:var(--t1);border-color:rgba(157,139,255,0.5);background:rgba(157,139,255,0.12)}
+
+/* MATCHUP HISTORY — past-note cards; helpful/unhelpful tint the left edge. */
+.rv-matchsec{margin-top:22px}
+#rv-matchlist{display:flex;flex-direction:column;gap:8px}
+.rv-match{padding:12px 14px;border-left:2px solid var(--gline2)}
+.rv-match.helpful{border-left-color:rgba(142,231,186,0.55)}
+.rv-match.unhelpful{border-left-color:rgba(243,163,168,0.5)}
+.rv-match-note{font-size:13px;color:var(--t2);line-height:1.5;white-space:pre-wrap}
+.rv-match-meta{font-family:var(--fm);font-size:9.5px;letter-spacing:0.5px;color:var(--t4);margin-top:7px}
+
+@media (prefers-reduced-motion: reduce){
+  .rv-dchip,.rv-tagcat-chip,.rv-evid-btn,.rv-focus-btn{transition:none}
+}
+
+/* ── RULES PAGE ──────────────────────────────────────────────────────────────
+   Session protocols list. Reuses the shared kit: .eyebrow / .hero / .statusline,
+   .seclabel, .card chrome language, .errpanel, and the motion classes
+   (.anim-rise). Page-specific bits below: the hero row (title + coming-soon
+   note), the calm RULE CARD (type badge + name + Active status pill + optional
+   description + mono condition line + the green left-border "YOUR PLAN INSTEAD"
+   replacement-plan box), the disabled (.off) dimming, and the empty state.
+   All classes are rules-* / rule-* prefixed so nothing collides with the kit. */
+
+/* HERO ROW — title left, "+ New rule" action right. */
+.rules-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.rules-subt{font-family:var(--fm);font-size:11px;color:var(--t3);letter-spacing:1.5px;margin-top:11px;text-shadow:var(--tsh)}
+
+/* The Active lead label sits a touch higher to read as the page's focus; the
+   Disabled label gets extra top room to divide it off the active stack. */
+.rules-seclabel-lead{margin-top:24px}
+.rules-seclabel-disabled{margin-top:26px}
+
+/* Card list spacing — full-width stack of rule cards. */
+#active-list,#inactive-list{display:flex;flex-direction:column;gap:10px}
+#active-list{margin-bottom:4px}
+
+/* ── RULE CARD — calm glass; the shared .card language re-expressed for a rule.
+   Type badge + name + status pill on top, then optional description / condition /
+   plan box. Disabled rules dim via .off. ── */
+.rule-card{padding:16px 18px;border-radius:16px;background:var(--glass2);border:1px solid var(--gline2);
+  backdrop-filter:blur(16px);box-shadow:0 14px 32px -20px rgba(0,0,0,0.7),0 1px 0 rgba(255,255,255,0.05) inset;
+  position:relative;overflow:hidden}
+.rule-card::before{content:'';position:absolute;inset:0 0 auto 0;height:38%;
+  background:linear-gradient(180deg,rgba(255,255,255,0.06),transparent);pointer-events:none}
+.rule-card.off{opacity:0.55}
+
+.rule-top{display:flex;align-items:center;gap:10px;position:relative;margin-bottom:8px}
+/* Type badge — accent rim + label tinted by the per-rule hex (custom rules come
+   through as a muted slate; condition rules as the violet accent). */
+.rule-badge{font-family:var(--fm);font-size:9px;letter-spacing:1px;font-weight:700;color:var(--accent);
+  border:1px solid var(--accent);border-radius:6px;padding:3px 8px;flex-shrink:0;
+  background:rgba(157,139,255,0.08);text-transform:uppercase;white-space:nowrap}
+.rule-name{font-family:var(--fo);font-size:16px;font-weight:600;color:#fff;flex:1;min-width:0;letter-spacing:0.2px}
+/* Status pill — calm green "Active". */
+.rule-status{font-family:var(--fm);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;
+  border-radius:6px;padding:3px 9px;flex-shrink:0}
+.rule-status.ok{color:#0d2a1e;background:var(--win)}
+
+.rule-desc{font-size:13px;color:var(--t3);position:relative;margin-bottom:6px;line-height:1.5}
+.rule-cond{font-family:var(--fm);font-size:10px;color:var(--t4);position:relative;margin-bottom:8px;letter-spacing:0.5px}
+
+/* YOUR PLAN INSTEAD — single-sided green left border, square corners (P2c). */
+.rule-plan{position:relative;background:rgba(8,6,20,0.45);border-left:2px solid var(--win);border-radius:0;
+  padding:9px 12px;margin-top:2px}
+.rule-plan-k{font-family:var(--fm);font-size:9px;letter-spacing:2px;color:var(--win);margin-bottom:4px}
+.rule-plan-t{font-size:13px;color:var(--t2);line-height:1.5}
+
+/* TRIPPED status pill — gold-outline (RULE CHECK is observation, not a verdict). */
+.rule-status.tripped{color:var(--gold);background:rgba(243,199,148,0.10);
+  border:1px solid rgba(243,199,148,0.55)}
+/* Live violation reason line under the head — gold, mono. */
+.rule-vreason{font-family:var(--fm);font-size:10.5px;color:var(--gold);position:relative;
+  margin-bottom:8px;letter-spacing:0.5px;line-height:1.45}
+.rule-vreason[hidden]{display:none}
+/* P2b behavioral record — mono teal record line, set off by a hairline. */
+.rule-evid{font-family:var(--fm);font-size:9.5px;color:var(--win);opacity:0.85;letter-spacing:0.6px;
+  line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid var(--gline2);position:relative}
+.rule-evid[hidden]{display:none}
+.rule-card.off .rule-evid{color:var(--t4)}
+
+/* ── RULE CHECK BANNER — live trip surface; gold-rimmed glass, P2b neutral. ── */
+.rule-check{margin:18px 0 4px;padding:16px 18px;border-radius:16px;background:var(--glass2);
+  border:2px solid rgba(243,199,148,0.55);backdrop-filter:blur(16px);position:relative;overflow:hidden;
+  box-shadow:0 14px 32px -20px rgba(0,0,0,0.7),0 0 50px -30px rgba(243,199,148,0.6) inset}
+.rule-check[hidden]{display:none}
+.rule-check-head{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+.rule-check-ico{color:var(--gold);font-size:14px;line-height:1}
+.rule-check-k{font-family:var(--fm);font-size:11px;letter-spacing:2px;font-weight:700;color:var(--gold)}
+#rule-check-list{display:flex;flex-direction:column;gap:11px}
+.rule-check-item{font-size:13.5px;color:var(--t2);line-height:1.5}
+.rule-check-name{font-family:var(--fo);font-weight:600;color:#fff}
+.rule-check-dash{margin:0 6px;color:var(--t4)}
+.rule-check-reason{color:var(--t3)}
+/* Plan-led entry — IF cue (gold) / THEN plan (green) / TRIGGERED BY subhead. */
+.rule-check-item-plan{display:flex;flex-direction:column;gap:5px;
+  padding-left:12px;border-left:2px solid rgba(243,199,148,0.4)}
+.rule-check-if,.rule-check-then{font-size:13px;line-height:1.45;color:var(--t2)}
+.rule-check-leg{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;font-weight:700;margin-right:6px}
+.rcl-if{color:var(--gold)}
+.rcl-then{color:var(--win)}
+.rule-check-cue{color:var(--t3)}
+.rule-check-plan{color:var(--t1)}
+.rule-check-by{font-family:var(--fm);font-size:9px;letter-spacing:1.4px;color:var(--t4);margin-top:1px}
+.rule-check-by-k{margin-right:6px}
+.rule-check-by-name{color:var(--t3)}
+
+/* EMPTY STATE — calm, centered (no rules at all). */
+.rules-empty{text-align:center;padding:40px 20px 8px;color:var(--t3)}
+.rules-empty-h{font-family:var(--fo);font-size:18px;font-weight:600;color:var(--t2)}
+.rules-empty-p{font-size:13px;color:var(--t4);margin-top:8px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.5}
+
+/* ── RULES CRUD (Session Protocols writes) ────────────────────────────────────
+   The + New rule action lives in the hero; per-card Edit / Enable-Disable / Delete
+   ghost buttons; a blue-rimmed create/edit form (reuses the shared .obj-form-*
+   primitives) with a live IF-leg preview + THEN replacement-plan block; and the
+   4 starter-rule preset chips in the empty state. */
+
+/* Hero action — the + New rule button (reuse .cta loud-violet, sized down). */
+.rules-hero-act{display:flex;align-items:center;gap:10px;margin-top:4px}
+.rules-new-btn{margin-top:0;align-self:center}
+
+/* Per-card action row — calm ghost buttons divided off the card body (mirrors
+   .obj-actrow). The disabled list's row reads the same; Enable is green-tinted. */
+.rule-actrow{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;margin-top:13px;padding-top:12px;border-top:1px solid var(--gline2)}
+.rule-act{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--t2);
+  background:rgba(255,255,255,0.04);border:1px solid var(--gline2);border-radius:9px;padding:8px 14px;cursor:pointer;white-space:nowrap;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease,border-color .16s ease,box-shadow .16s ease,color .16s ease}
+.rule-act:hover{transform:translateY(-1px);color:#fff;background:rgba(157,139,255,0.10);border-color:rgba(157,139,255,0.4);box-shadow:0 8px 20px -12px rgba(157,139,255,0.55)}
+.rule-act:active{transform:translateY(0);transition-duration:.06s}
+.rule-act:disabled{opacity:0.5;cursor:default;transform:none;box-shadow:none}
+/* Enable (re-activate a disabled rule) — green intent. */
+.rule-act-win{color:var(--win);border-color:rgba(142,231,186,0.4);background:rgba(142,231,186,0.07)}
+.rule-act-win:hover{color:#0e2a1f;background:linear-gradient(180deg,#a9efcc,var(--win));border-color:transparent;box-shadow:0 8px 20px -10px rgba(142,231,186,0.6)}
+/* Delete — destructive, loss-red intent. */
+.rule-act-del{color:var(--loss);border-color:rgba(243,163,168,0.38);background:rgba(243,163,168,0.06)}
+.rule-act-del:hover{color:#2a0e10;background:linear-gradient(180deg,#f6b9bd,var(--loss));border-color:transparent;box-shadow:0 8px 20px -10px rgba(243,163,168,0.6)}
+
+/* CREATE / EDIT FORM — blue-rimmed glass panel (reuses .obj-form-* layout). */
+.rule-form{margin:18px 0 8px}
+.rule-form .obj-field[hidden]{display:none}
+/* loss_streak cooldown helper line + the replacement-plan helper footnote. */
+.rule-form-help{font-family:var(--fb);font-size:11.5px;color:var(--t4);font-style:italic;line-height:1.45;margin-top:-2px}
+
+/* Replacement-plan (P2c) block: a section heading, the read-only IF-leg preview
+   built from the current type+condition, then the THEN textarea + a footnote. */
+.rule-plan-head{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright)}
+.rule-if-preview{display:flex;align-items:baseline;gap:8px;background:rgba(8,6,20,0.45);border-left:2px solid var(--gold);
+  border-radius:0 8px 8px 0;padding:9px 12px;margin-top:2px}
+.rule-if-preview[hidden]{display:none}
+.rule-leg{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;font-weight:700;flex-shrink:0}
+.rule-leg-if{color:var(--gold)}
+.rule-leg-then{color:var(--win)}
+.rule-if-cue{font-family:var(--fb);font-size:13px;color:var(--t3);line-height:1.4}
+.rule-then-row{display:flex;align-items:flex-start;gap:8px;margin-top:10px}
+.rule-then-row .obj-input{flex:1}
+.rule-plan-foot{font-family:var(--fb);font-size:11px;color:var(--t4);line-height:1.45;margin-top:8px}
+
+/* SUGGESTED STARTER RULES — 4 preset chips in the empty state (reuse .rule-card
+   look, dimmer; a badge pill + name + condition line + a + Add button). */
+.rules-suggest{display:flex;flex-direction:column;gap:11px;margin-top:18px;max-width:560px;margin-left:auto;margin-right:auto;text-align:left}
+.rules-suggest-card{padding:15px 17px;border-radius:14px;background:var(--glass2);border:1px solid var(--gline2);
+  position:relative;overflow:hidden;display:flex;align-items:center;gap:14px;opacity:0.92;
+  transition:border-color .16s ease,opacity .16s ease}
+.rules-suggest-card:hover{opacity:1;border-color:rgba(157,139,255,0.3)}
+.rules-suggest-main{flex:1;min-width:0}
+.rules-suggest-badge{font-family:var(--fm);font-size:9px;letter-spacing:1px;font-weight:700;color:var(--accent);
+  border:1px solid rgba(157,139,255,0.4);border-radius:6px;padding:3px 7px;display:inline-block;margin-bottom:7px}
+.rules-suggest-name{font-family:var(--fo);font-size:15px;font-weight:600;color:#fff;letter-spacing:0.2px}
+.rules-suggest-desc{font-size:12.5px;color:var(--t3);line-height:1.5;margin-top:4px}
+.rules-suggest-cond{font-family:var(--fm);font-size:10px;color:var(--t4);letter-spacing:0.5px;margin-top:6px}
+.rules-suggest-add{flex-shrink:0;align-self:center}
+
+/* ── SESSION PAGE ──────────────────────────────────────────────────────────────
+   Day-grouped session log. Reuses the shared kit: .strip / .stat (window totals),
+   .glass (the day header band), .card + .gamerow (clickable rows w/ W/L edge bar +
+   hover hype), .seclabel / .eyebrow / .hero / .statusline, .games-empty (empty
+   state), and all the motion classes. Page-specific bits below: the W/L-tinted
+   stat values, the per-day header band (record / win-rate / avg-mental / breaks),
+   and the row body (W/L capsule + champion + RULE-BREAK pill + improvement note +
+   Mental readout). All ses-* prefixed so nothing collides with the shared kit. */
+
+/* Window-total strip: tint the Wins/Losses values green/red (mockup parity). */
+.ses-strip .stat .v.win{color:var(--win)}
+.ses-strip .stat .v.loss{color:var(--loss)}
+
+/* ── DAY GROUP ────────────────────────────────────────────────────────────────
+   Each day is a header band (glass) + a stack of its game rows. A little breathing
+   room between days so the groups read as distinct sessions. */
+.ses-day{margin-bottom:26px}
+.ses-day:last-child{margin-bottom:14px}
+
+/* Day header band — record / win-rate / avg-mental on the right, the date +
+   champions-played on the left. Calm glass; the rows below carry the energy. */
+.ses-dayhead{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  padding:14px 20px;margin-bottom:11px}
+.ses-dayhead-lead{min-width:0}
+.ses-daylabel{font-family:var(--fo);font-size:16px;font-weight:600;color:#fff;letter-spacing:0.2px;line-height:1.15;text-shadow:var(--tsh)}
+.ses-daychamps{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+/* The current day gets a subtle accent on its header band so "today" reads fast. */
+.ses-day.is-today .ses-dayhead{border-color:rgba(157,139,255,0.4)}
+
+/* Right cluster — small mono stat chips, dot-led and tinted by meaning color. */
+.ses-daystats{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.ses-daystat{font-family:var(--fm);font-size:10px;letter-spacing:1px;white-space:nowrap;display:inline-flex;align-items:center}
+.ses-daystat::before{content:'';width:5px;height:5px;border-radius:50%;margin-right:7px;flex-shrink:0;background:currentColor;opacity:0.7}
+.ses-dayrec{color:var(--t2)}
+.ses-daywr{color:var(--accent)}
+.ses-daymental{color:var(--gold)}
+.ses-daybreaks{color:var(--loss)}
+
+/* ── SESSION ROW internals ────────────────────────────────────────────────────
+   The row chrome (.gamerow hover, edge bar, sweep, cue) is shared. These rules
+   only lay out the body: W/L capsule + champion + rule-break pill + note on the
+   left, a right-aligned Mental readout with the hover cue beneath it. */
+.ses-row .crow{align-items:center;gap:16px}
+.ses-main{min-width:0;flex:1}
+.ses-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+/* W/L capsule reuses the games-page .grow-wl chip dimensions; color set in JS. */
+.ses-wl{font-family:var(--fo);font-size:11px;font-weight:700;line-height:1;letter-spacing:0.5px;
+  display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;flex-shrink:0;
+  border:1px solid currentColor;border-radius:6px;background:rgba(255,255,255,0.03)}
+.ses-champ{font-family:var(--fo);font-size:15px;font-weight:600;letter-spacing:0.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ses-note{margin-top:7px;white-space:normal;line-height:1.5;color:var(--t3)}
+
+/* RULE-BREAK pill — gold-glow flag chip (mockup parity). Calm warn tint. */
+.ses-break{font-family:var(--fm);font-size:8px;letter-spacing:1px;font-weight:700;text-transform:uppercase;
+  color:var(--gold);border:1px solid rgba(243,199,148,0.45);border-radius:6px;padding:3px 8px;
+  background:rgba(243,199,148,0.09);box-shadow:0 0 10px -2px rgba(243,199,148,0.4);white-space:nowrap;flex-shrink:0}
+
+/* Right column — the Mental readout reads fast (display font, server-tinted),
+   the hover cue slides in beneath it (matches the games-page right column). */
+.ses-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0}
+.ses-mental{font-family:var(--fo);font-size:15px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;color:var(--t2)}
+@media(max-width:560px){.ses-mental{font-size:13px}}
+
+/* ── TILT CHECK PAGE ──────────────────────────────────────────────────────────
+   Mental-recovery log + the guided reset RITUAL. Reuses the shared kit: .glass /
+   .cta (the loud reset card + Save button), .card (latest-plan + recent rows),
+   .strip / .stat (before→after stats), .seclabel / .eyebrow / .hero / .statusline,
+   .errpanel, and all the motion classes. Page-specific bits below: the cool-blue
+   primary reset card (the one loud element), the top-emotion chips, the latest
+   if-then plan card, the recent-reset rows with their before→after intensity duo,
+   the inline RITUAL (emotion chips + two intensity sliders + reframe/if-then text
+   + a live result line), and the empty state. All tc-* prefixed so nothing
+   collides with the shared kit. */
+
+/* PRIMARY RESET CARD — the one loud element, in cool blue (vs the dashboard's
+   violet Start Block) so it reads as "calm down", not "queue up". Rests as a
+   CTA; expands the inline ritual when opened (.is-open). */
+.tc-primary{margin:22px 0 26px;padding:24px 26px;border-color:rgba(125,160,255,0.5);
+  box-shadow:0 24px 60px -24px rgba(40,80,160,0.7),0 2px 0 rgba(255,255,255,0.07) inset,0 0 70px -32px rgba(125,160,255,0.8) inset}
+.tc-primary-head{position:relative}
+.tc-primary-lead .k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:#aecaff}
+.tc-primary-lead h2{font-size:20px;font-weight:600;color:#fff;margin:9px 0 6px;letter-spacing:-0.2px;line-height:1.2}
+.tc-primary-lead p{font-size:13px;color:var(--t3);line-height:1.5;max-width:520px}
+/* The reset CTA rides the shared .cta gradient but in the cool-blue family so it
+   matches the card rim. */
+.tc-runbtn{margin-top:16px;background:linear-gradient(180deg,#a9c6ff,#7da0ff);
+  box-shadow:0 10px 24px -8px rgba(125,160,255,0.7),0 1px 0 rgba(255,255,255,0.5) inset}
+.tc-runbtn:hover{box-shadow:0 16px 34px -10px rgba(125,160,255,0.85),0 1px 0 rgba(255,255,255,0.6) inset}
+.tc-primary.is-open .tc-primary-lead p{display:none}
+
+/* TOP-EMOTION CHIPS — read-only frequency chips, dot-tinted by emotion color. */
+.tc-emotions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
+.tc-emo{display:inline-flex;align-items:center;gap:8px;font-family:var(--fb);font-size:12.5px;color:var(--t2);
+  border:1px solid var(--gline2);border-radius:9px;padding:7px 13px;background:rgba(255,255,255,0.04)}
+.tc-emo-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--loss)}
+.tc-emo-name{font-weight:600}
+.tc-emo-n{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t4)}
+
+/* LATEST PLAN — a violet-rim glass card holding the most recent if-then plan. */
+.tc-plan{border-color:rgba(157,139,255,0.32);margin-bottom:24px}
+.tc-plan-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:#c3b6ff;position:relative}
+.tc-plan-v{font-size:14px;color:#fff;line-height:1.55;margin-top:9px;position:relative;font-weight:500}
+
+/* ── RECENT RESET ROW ─────────────────────────────────────────────────────────
+   Calm glass row: emotion + when + optional PLAN tag on top, the reframe line
+   beneath, and a right-aligned before→after intensity duo with a drop chip. The
+   left edge bar rests in the emotion color (--emo, set per-row in JS). */
+.tc-row{display:flex;align-items:center;gap:18px;padding-left:18px}
+.tc-row-edge{position:absolute;left:7px;top:50%;height:55%;width:3px;border-radius:99px;
+  transform:translateY(-50%);background:var(--emo,var(--loss));
+  box-shadow:0 0 8px -1px var(--emo,var(--loss));opacity:0.85}
+.tc-row-main{flex:1;min-width:0;position:relative}
+.tc-row-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tc-row-emo{font-family:var(--fo);font-size:14px;font-weight:600;letter-spacing:0.2px;color:var(--loss)}
+.tc-row-when{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4)}
+.tc-row-plan{font-family:var(--fm);font-size:8px;letter-spacing:1.4px;font-weight:700;color:var(--accent);
+  border:1px solid rgba(157,139,255,0.4);border-radius:6px;padding:3px 8px;background:rgba(157,139,255,0.09)}
+.tc-row-text{font-size:13px;color:var(--t3);line-height:1.5;margin-top:7px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* Before→after intensity duo — mono numerals, the drop chip tinted by direction. */
+.tc-row-ba{display:flex;align-items:center;gap:9px;flex-shrink:0;position:relative}
+.tc-row-before{font-family:var(--fo);font-size:22px;font-weight:700;color:var(--loss);line-height:1;min-width:18px;text-align:center}
+.tc-row-arr{font-family:var(--fo);font-size:16px;color:var(--t4)}
+.tc-row-after{font-family:var(--fo);font-size:22px;font-weight:700;color:var(--win);line-height:1;min-width:18px;text-align:center}
+.tc-row-drop{font-family:var(--fm);font-size:9px;letter-spacing:0.5px;color:var(--t4);
+  border:1px solid var(--gline2);border-radius:6px;padding:3px 7px;margin-left:3px}
+.tc-row-drop.good{color:var(--win);border-color:rgba(142,231,186,0.35);background:rgba(142,231,186,0.07)}
+.tc-row-drop.bad{color:var(--loss);border-color:rgba(243,163,168,0.35);background:rgba(243,163,168,0.07)}
+@media(max-width:560px){.tc-row{flex-wrap:wrap}.tc-row-ba{width:100%;justify-content:flex-end}}
+
+/* ── INLINE RITUAL ────────────────────────────────────────────────────────────
+   Built in place of the run CTA inside the primary card. A stacked set of steps,
+   each with a small-caps label; the two intensity sliders reuse the review-page
+   slider language; emotion chips are single-select; a live result line shows the
+   before→after delta. */
+.tc-ritual{margin-top:18px;display:flex;flex-direction:column;gap:20px;position:relative;
+  animation:rise-in .4s cubic-bezier(0.22,1,0.36,1)}
+.tc-step{display:flex;flex-direction:column}
+.tc-step-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:#aecaff}
+.tc-step-opt{color:var(--t4);font-weight:400;margin-left:6px}
+.tc-step-intro{font-size:12.5px;color:var(--t3);line-height:1.5;margin:7px 0 11px;max-width:520px}
+
+/* Emotion chips — single-select pills; lit chip rides the blue gradient. */
+.tc-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.tc-chip{font-family:var(--fb);font-size:13px;font-weight:600;color:var(--t2);border:1px solid var(--gline);
+  border-radius:9px;background:rgba(255,255,255,0.05);padding:9px 16px;cursor:pointer;
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.tc-chip:hover{color:#fff;border-color:rgba(125,160,255,0.45);transform:translateY(-1px)}
+.tc-chip.on{color:#1b1233;border-color:transparent;background:linear-gradient(180deg,#a9c6ff,#7da0ff);
+  box-shadow:0 8px 18px -8px rgba(125,160,255,0.55)}
+.tc-chip:active{transform:translateY(0);transition-duration:.06s}
+.tc-chip:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(125,160,255,0.3)}
+
+/* Intensity slider row — reuses the review-page range styling, blue-tracked. */
+.tc-slrow{display:flex;align-items:center;gap:16px;margin-top:11px}
+.tc-range{-webkit-appearance:none;appearance:none;flex:1;max-width:280px;height:6px;border-radius:99px;
+  background:linear-gradient(90deg,rgba(125,160,255,0.6),rgba(125,160,255,0.18));outline:none;cursor:pointer}
+.tc-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;
+  background:linear-gradient(180deg,#a9c6ff,#7da0ff);border:2px solid rgba(255,255,255,0.6);
+  box-shadow:0 4px 10px -2px rgba(125,160,255,0.8);cursor:pointer}
+.tc-range::-moz-range-thumb{width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,0.6);
+  background:#7da0ff;box-shadow:0 4px 10px -2px rgba(125,160,255,0.8);cursor:pointer}
+.tc-range:focus-visible{box-shadow:0 0 0 3px rgba(125,160,255,0.25)}
+.tc-slval{font-family:var(--fo);font-size:34px;font-weight:700;color:var(--accent);min-width:48px;text-align:center;line-height:1}
+.tc-slval.loss{color:var(--loss)}
+.tc-slval.win{color:var(--win)}
+
+/* Free-text reframe / if-then inputs — glass field, accent focus ring. */
+.tc-input{font-family:var(--fb);font-size:13px;color:var(--t1);width:100%;background:rgba(10,8,24,0.4);
+  border:1px solid var(--gline2);border-radius:10px;padding:10px 13px;line-height:1.5;resize:vertical;min-height:44px;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
+.tc-input+.tc-input{margin-top:10px}
+.tc-input::placeholder{color:var(--t4)}
+.tc-input:focus{outline:none;border-color:rgba(157,139,255,0.6);background:rgba(157,139,255,0.05);box-shadow:0 0 0 3px rgba(157,139,255,0.14)}
+
+/* Live result line — shows the before→after delta as the after slider moves. */
+.tc-result{font-size:13px;line-height:1.5;color:var(--t3);margin-top:12px}
+.tc-result.good{color:var(--win)}
+.tc-result.bad{color:var(--gold)}
+
+/* Ritual commit bar — Save (blue CTA) + Cancel + inline message. */
+.tc-ritual-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px;
+  padding-top:18px;border-top:1px solid var(--gline2)}
+.tc-savebtn{margin-top:0;align-self:auto}
+.tc-cancelbtn{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);
+  background:none;border:none;cursor:pointer;padding:6px 4px;transition:color .14s ease}
+.tc-cancelbtn:hover{color:var(--t2)}
+.tc-cancelbtn:disabled{opacity:0.5;cursor:default}
+.tc-ritual-msg{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3)}
+.tc-ritual-msg.ok{color:var(--win)}
+.tc-ritual-msg.err{color:var(--loss)}
+
+/* ── 5-STEP WIZARD chrome (progress / nav / menus / breathing / before-after) ── */
+/* progress dots */
+.tc-progress{display:flex;gap:7px;margin-bottom:16px}
+.tc-pdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.14);transition:background .2s ease,transform .2s ease}
+.tc-pdot.done{background:rgba(125,160,255,0.55)}
+.tc-pdot.on{background:#7da0ff;transform:scale(1.3);box-shadow:0 0 8px rgba(125,160,255,0.8)}
+/* step sub-heading + per-step nav row */
+.tc-step-k.tc-sub{margin-top:18px}
+.tc-step-nav{display:flex;justify-content:flex-end;align-items:center;margin-top:18px}
+.tc-next{align-self:auto}
+.tc-next:disabled{opacity:0.5;cursor:default;transform:none;filter:none}
+.tc-skip{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);
+  background:none;border:1px solid var(--gline2);border-radius:9px;padding:9px 16px;cursor:pointer;transition:color .14s ease,border-color .14s ease}
+.tc-skip:hover{color:var(--t2);border-color:rgba(255,255,255,0.25)}
+/* single-select readout under a step */
+.tc-selreadout{font-size:13px;line-height:1.5;color:var(--accent);margin-top:10px;font-weight:500}
+/* option menus (reframe / trigger / response) */
+.tc-menu{display:flex;flex-direction:column;gap:8px}
+.tc-menu-lbl{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;margin:14px 0 8px}
+.tc-menu-lbl.tc-if{color:#aecaff}
+.tc-menu-lbl.tc-then{color:var(--gold)}
+.tc-menuopt{text-align:left;font-family:var(--fb);font-size:13px;line-height:1.45;color:var(--t2);
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:10px;padding:12px 14px;cursor:pointer;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,background .16s ease,color .16s ease}
+.tc-menuopt:hover{color:#fff;border-color:rgba(125,160,255,0.4);transform:translateY(-1px)}
+.tc-menuopt.on{color:#fff;border-color:rgba(243,199,148,0.6);background:rgba(243,199,148,0.08)}
+.tc-menuopt:active{transform:translateY(0);transition-duration:.06s}
+/* breathing pacer */
+.tc-breathe{display:flex;flex-direction:column;align-items:center;gap:12px;margin:8px 0 4px}
+/* The ring's transform + transition are driven from JS per phase (inhale grows,
+   top-off accelerates, exhale shrinks slowly), so no transition is declared here.
+   A soft aura glow follows the ring's scale smoothly (it's inside .tc-ring, so it
+   inherits the same transform) instead of blinking on a class flip. */
+.tc-ring{position:relative;width:180px;height:180px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  border:3px solid rgba(125,160,255,0.30);transform:scale(0.86);will-change:transform;
+  box-shadow:0 0 26px -6px rgba(125,160,255,0.45) inset,0 0 40px -10px rgba(125,160,255,0.5)}
+/* Aura: a blurred accent halo behind the ring that brightens on inhale and dims on
+   exhale, transitioning over the phase (no hard blink). Duration is inherited via
+   the inline transition JS sets, but give it its own gentle fallback too. */
+.tc-ring::before{content:'';position:absolute;inset:-22px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,rgba(125,160,255,0.35),transparent 70%);
+  opacity:0.45;filter:blur(6px);transition:opacity 1.2s ease}
+.tc-ring.inhale{border-color:rgba(125,160,255,0.55)}
+.tc-ring.inhale::before{opacity:0.85}
+.tc-ring.exhale{border-color:rgba(142,231,186,0.42)}
+.tc-ring.exhale::before{opacity:0.30;background:radial-gradient(circle,rgba(142,231,186,0.30),transparent 70%)}
+.tc-ring-count{font-family:var(--fo);font-size:42px;font-weight:700;color:#aecaff;position:relative}
+.tc-breathe-phase{font-family:var(--fo);font-size:16px;font-weight:600;color:#fff;white-space:nowrap}
+.tc-breathe-hint{font-size:12px;color:var(--t4);text-align:center;max-width:320px;line-height:1.5}
+.tc-breathe-track{width:100%;max-width:360px;height:4px;border-radius:99px;background:rgba(255,255,255,0.10);overflow:hidden}
+.tc-breathe-fill{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#a9c6ff,#7da0ff);transition:width 1s linear}
+.tc-breathe-cycle{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4)}
+/* before → after cluster (done step) */
+.tc-ba{display:flex;align-items:center;justify-content:center;gap:18px;margin:14px 0}
+.tc-ba-before{font-family:var(--fo);font-size:40px;font-weight:700;color:var(--loss)}
+.tc-ba-after{font-family:var(--fo);font-size:40px;font-weight:700;color:var(--win)}
+.tc-ba-arr{font-family:var(--fo);font-size:26px;color:var(--t4)}
+.tc-why{font-size:12px;color:var(--t4);line-height:1.55;margin-top:14px;max-width:520px}
+/* done-step action bar: start-over (ghost) + save (secondary) + set-intent (gold) */
+.tc-savebtn-sec{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t2);
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:11px;padding:11px 18px;cursor:pointer;
+  transition:color .14s ease,border-color .14s ease}
+.tc-savebtn-sec:hover{color:#fff;border-color:rgba(255,255,255,0.25)}
+.tc-savebtn-sec:disabled{opacity:0.5;cursor:default}
+.tc-saveintent{align-self:auto;color:#1b1233;font-weight:700;
+  background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 10px 24px -8px rgba(243,199,148,0.7)}
+.tc-saveintent:hover{filter:brightness(1.05);transform:translateY(-1px)}
+.tc-saveintent:disabled{opacity:0.6;cursor:default;transform:none;filter:none}
+
+/* EMPTY STATE — no resets logged yet. */
+.tc-empty{margin-top:8px;text-align:center;padding:40px 20px}
+.tc-empty-h{font-family:var(--fo);font-size:18px;font-weight:600;color:var(--t2)}
+.tc-empty-p{font-size:13px;color:var(--t4);margin-top:8px;max-width:460px;margin-left:auto;margin-right:auto;line-height:1.5}
+
+@media(prefers-reduced-motion:reduce){
+  .tc-chip,.tc-ritual,.tc-menuopt,.tc-pdot,.tc-ring,.tc-breathe-fill,.tc-saveintent{transition:none !important;animation:none !important}
+}
+
+/* ── PATTERNS PAGE ─────────────────────────────────────────────────────────────
+   Cross-game pattern review. Reuses shared primitives: .glass / .card / .gamerow
+   (the pattern selector cards w/ severity edge bar + hover hype), .seclabel /
+   .eyebrow / .hero / .statusline, .hint (the deferred pending note) and all the
+   motion classes. New here (translated from the research Pattern-Review mockup):
+   the pattern selector card internals, a two-column player+rail layout, a frosted
+   VOD surface (play affordance + scanline + scrub), an active-moment strip, the
+   read-only note panel, the polarity-bordered moment rail rows, prev/next, and the
+   win-green closure tile. All classes are pat-* prefixed so nothing collides. */
+
+/* ── PATTERN SELECTOR CARDS — reuse .gamerow chrome; lay out the body. ── */
+.pat-pick{display:flex;flex-direction:column;gap:11px;margin-bottom:8px}
+.pat-card{margin-bottom:0}
+.pat-card .crow{align-items:center;gap:16px}
+.pat-card-main{min-width:0;flex:1}
+.pat-card-top{display:flex;align-items:center;gap:10px}
+/* Severity chip — small outlined label in the severity color (set in JS). */
+.pat-sev{font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;line-height:1;
+  display:inline-flex;align-items:center;justify-content:center;padding:4px 8px;flex-shrink:0;
+  border:1px solid currentColor;border-radius:6px;background:rgba(255,255,255,0.03)}
+.pat-card-title{font-family:var(--fo);font-size:15px;font-weight:600;letter-spacing:0.2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pat-card-detail{margin-top:7px;line-height:1.5;color:var(--t3);font-family:var(--fb);font-size:12.5px;
+  letter-spacing:normal}
+.pat-card-sub{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4);margin-top:9px}
+.pat-card-right{display:flex;flex-direction:column;align-items:flex-end;gap:9px;flex-shrink:0}
+/* Reviewed / pending state chip — calm by meaning (good = reviewed, warn = pending). */
+.pat-card-state{font-family:var(--fm);font-size:8.5px;letter-spacing:1px;text-transform:uppercase;
+  padding:4px 8px;border-radius:7px;border:1px solid var(--gline2);background:rgba(255,255,255,0.03);color:var(--t3);white-space:nowrap}
+.pat-card-state.good{color:var(--win);border-color:rgba(142,231,186,0.35);background:rgba(142,231,186,0.07)}
+.pat-card-state.warn{color:var(--gold);border-color:rgba(243,199,148,0.35);background:rgba(243,199,148,0.07)}
+/* Active selection reads loud (accent rim); reviewed cards rest dimmer. */
+.pat-card-active{border-color:rgba(157,139,255,0.55);background:rgba(157,139,255,0.06);
+  box-shadow:0 18px 40px -20px rgba(80,40,160,0.7),0 0 30px -12px rgba(157,139,255,0.5) inset,0 1px 0 rgba(255,255,255,0.07) inset}
+.pat-card-viewed:not(.pat-card-active){opacity:0.62}
+.pat-card-viewed:not(.pat-card-active):hover{opacity:1}
+
+/* ── TWO-COLUMN ACTIVE PANEL — player left, moment rail right. ── */
+.pat-main{display:grid;grid-template-columns:1fr 340px;gap:18px;margin:22px 0 8px;align-items:start}
+@media(max-width:900px){.pat-main{grid-template-columns:1fr}}
+.pat-playcol,.pat-railcol{min-width:0}
+
+/* Stage = full .glass pane holding the active-moment strip + the VOD surface. */
+.pat-stage{padding:0;overflow:hidden}
+
+/* Active-moment strip over the surface — result tag · title · champion·time. */
+.pat-mstrip{display:flex;align-items:center;gap:12px;padding:13px 16px;position:relative}
+.pat-rtag{font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;padding:4px 9px;border-radius:7px;flex-shrink:0;
+  border:1px solid currentColor;background:rgba(255,255,255,0.03)}
+.pat-rtag.loss{color:var(--loss)}
+.pat-rtag.win{color:var(--win)}
+.pat-mstrip .pat-mtitle{flex:1;min-width:0;font-size:14px;font-weight:600;color:#fff;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pat-mstrip .pat-glabel{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--gold);flex-shrink:0}
+
+/* VOD surface — frosted moment-playback window. Clicking it opens the viewer
+   (deferred nav). Scanline + glowing play glyph + a scrub bar at the bottom. */
+.pat-surface{margin:0;border-radius:0 0 18px 18px;height:300px;position:relative;overflow:hidden;cursor:pointer;
+  background:linear-gradient(160deg,rgba(20,16,40,0.85),rgba(10,8,24,0.9));border-top:1px solid var(--gline2);
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;outline:none;
+  transition:box-shadow .2s ease}
+.pat-surface:hover,.pat-surface:focus-visible{box-shadow:0 0 50px -18px rgba(157,139,255,0.55) inset}
+.pat-surface.pat-surface-novod{cursor:default}
+.pat-scan{position:absolute;inset:0;opacity:0.4;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,0.018) 0 1px,transparent 1px 4px)}
+.pat-play{width:62px;height:62px;border-radius:50%;
+  background:linear-gradient(180deg,rgba(188,172,255,0.22),rgba(157,139,255,0.12));border:1px solid rgba(157,139,255,0.5);
+  display:flex;align-items:center;justify-content:center;box-shadow:0 0 40px -8px rgba(157,139,255,0.6);position:relative;
+  transition:transform .18s cubic-bezier(0.22,1,0.36,1),box-shadow .18s ease}
+.pat-play::after{content:'';margin-left:4px;border-style:solid;border-width:12px 0 12px 19px;
+  border-color:transparent transparent transparent #d9d0ff}
+.pat-surface:hover .pat-play,.pat-surface:focus-visible .pat-play{transform:scale(1.06);box-shadow:0 0 52px -6px rgba(157,139,255,0.85)}
+.pat-vhead{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;color:var(--t3);text-shadow:var(--tsh);position:relative;text-align:center;padding:0 16px}
+.pat-novod{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t4);position:relative}
+.pat-scrub{position:absolute;left:0;right:0;bottom:0;height:30px;background:rgba(10,8,24,0.6);
+  display:flex;align-items:center;gap:10px;padding:0 12px;font-family:var(--fm);font-size:10px;color:var(--t4)}
+.pat-bar{flex:1;height:3px;border-radius:3px;background:rgba(255,255,255,0.12);position:relative}
+.pat-bar i{position:absolute;left:0;top:0;bottom:0;width:34%;border-radius:3px;background:linear-gradient(90deg,#bcacff,#9d8bff)}
+@media(prefers-reduced-motion:reduce){.pat-surface,.pat-play{transition:none}}
+
+/* Inline clip player — fills the surface. Playback is driven by the shared
+   transport bar (#m-transport) below, NOT native controls, so the inline player
+   matches the full VOD viewer. When playing, the poster overlays (play button,
+   scanlines, header, scrub stub) hide so only the video shows; the surface stops
+   acting like a button. */
+.pat-video{position:absolute;inset:0;width:100%;height:100%;background:#000;
+  border-radius:0 0 18px 18px;display:block;object-fit:contain;z-index:3;
+  /* Own compositor layer so the playing video doesn't flicker against ancestors. */
+  transform:translateZ(0);backface-visibility:hidden}
+/* The pattern stage is a .glass card (backdrop-filter:blur). A playing inline video
+   re-sampling through that blur every frame flickers in WebView2 — so once a clip is
+   loaded, drop the stage's backdrop blur (replace with a solid dark fill; the strip +
+   surface keep their own backgrounds, so the look is unchanged). */
+.pat-stage{background:rgba(8,6,20,0.92);backdrop-filter:none;-webkit-backdrop-filter:none}
+.pat-surface.pat-surface-playing{cursor:default}
+.pat-surface.pat-surface-playing .pat-play,
+.pat-surface.pat-surface-playing .pat-scan,
+.pat-surface.pat-surface-playing .pat-vhead,
+.pat-surface.pat-surface-playing .pat-scrub,
+.pat-surface.pat-surface-playing .pat-novod{display:none}
+.pat-surface.pat-surface-playing:hover{box-shadow:none}
+
+/* Shared transport bar inside the pattern stage. Reuses the .vp-transport / .tbtn
+   classes (so it looks identical to the full viewer); this just seats it under the
+   surface inside the glass stage with a divider. Revealed once a clip is loaded. */
+.pat-transport{padding:10px 14px;border-top:1px solid var(--gline2);background:rgba(10,8,24,0.35)}
+.pat-transport[hidden]{display:none}
+
+/* ENLARGE (in-app, not OS fullscreen). The stage becomes a fixed full-viewport
+   overlay so the clip is CENTERED and fills the frame at any resolution (the old
+   grow-in-flow version stayed inside the shell's max-width + padding and got cut
+   off). F / ⛶ / Esc / the button toggle it via the shared transport core. */
+.pat-stage.pat-expanded{position:fixed;inset:0;z-index:200;margin:0;border-radius:0;
+  display:flex;flex-direction:column;background:#05040d}
+/* The moment strip stays as a slim header; the surface fills the rest, centered. */
+.pat-stage.pat-expanded .pat-surface{flex:1;height:auto;border-radius:0;min-height:0}
+.pat-stage.pat-expanded .pat-video{object-fit:contain}
+/* The transport bar pins to the bottom of the overlay. */
+.pat-stage.pat-expanded .pat-transport{background:rgba(5,4,13,0.92)}
+
+
+/* NOTE panel — read-only mirror of the saved moment note (write deferred). */
+.pat-npanel{margin:14px 0 0}
+.pat-nhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;position:relative}
+.pat-nk{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright)}
+.pat-clipt{font-family:var(--fm);font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:var(--win);
+  border:1px solid rgba(142,231,186,0.35);border-radius:6px;padding:3px 8px;background:rgba(142,231,186,0.07)}
+.pat-note{font-size:13.5px;line-height:1.55;color:var(--t2);position:relative;min-height:22px}
+.pat-note.pat-note-empty{color:var(--t4);font-style:italic}
+/* Editable moment note — autosaves on pause/blur. */
+.pat-noteinput{position:relative;width:100%;resize:vertical;min-height:62px;font-family:var(--fb);font-size:13px;line-height:1.5;
+  color:var(--t2);background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:9px;padding:10px 12px;cursor:text}
+.pat-noteinput::placeholder{color:var(--t4)}
+.pat-noteinput:focus{outline:none;border-color:rgba(157,139,255,0.5)}
+.pat-nstatus{font-family:var(--fm);font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:var(--t4);margin-left:auto;margin-right:8px}
+
+/* PREV / NEXT — secondary ghost + gold lead, mirrors the mockup's nav pair. */
+.pat-nav{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.pat-btn{font-family:var(--fm);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;height:44px;border-radius:11px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease,border-color .16s ease,box-shadow .16s ease,color .16s ease,filter .16s ease}
+.pat-btn-sec{color:var(--t3);background:var(--glass2);border:1px solid var(--gline2)}
+.pat-btn-sec:hover{color:#fff;border-color:rgba(157,139,255,0.4);background:rgba(157,139,255,0.07);transform:translateY(-1px)}
+.pat-btn-gold{color:#241606;font-weight:700;border:none;background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 8px 18px -8px rgba(243,199,148,0.6)}
+.pat-btn-gold:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.pat-btn:active{transform:translateY(0);transition-duration:.06s}
+.pat-btn:disabled{opacity:0.45;cursor:default;transform:none;filter:none;box-shadow:none}
+@media(prefers-reduced-motion:reduce){.pat-btn{transition:none}}
+
+/* ── MOMENT RAIL — polarity-bordered list rows; whole row jumps to that moment. ── */
+.pat-rail{display:flex;flex-direction:column;gap:7px}
+.pat-row{border-radius:12px;background:var(--glass2);border:1px solid var(--gline2);border-left-width:2px;
+  border-left-color:var(--pol);padding:11px 13px;cursor:pointer;position:relative;overflow:hidden;outline:none;--pol:var(--accent);
+  transition:transform .18s cubic-bezier(0.22,1,0.36,1),border-color .18s ease,background .18s ease,box-shadow .18s ease}
+.pat-row::before{content:'';position:absolute;inset:0 0 auto 0;height:42%;background:linear-gradient(180deg,rgba(255,255,255,0.05),transparent);pointer-events:none}
+.pat-row.bad{--pol:var(--loss)}
+.pat-row.good{--pol:var(--win)}
+.pat-row.neutral{--pol:var(--accent)}
+.pat-row:hover,.pat-row:focus-visible{transform:translateY(-1px);border-color:rgba(157,139,255,0.4);background:rgba(157,139,255,0.05);
+  box-shadow:0 12px 28px -16px rgba(80,40,160,0.7)}
+.pat-row.active{background:var(--glass);border-color:rgba(157,139,255,0.5);
+  box-shadow:0 0 30px -14px rgba(157,139,255,0.7) inset,0 1px 0 rgba(255,255,255,0.06) inset}
+.pat-row.viewed:not(.active):not(:hover){opacity:0.6}
+.pat-row:active{transform:translateY(0);transition-duration:.06s}
+.pat-rtop{display:flex;align-items:center;justify-content:space-between;gap:8px;position:relative;margin-bottom:5px}
+.pat-rg{font-family:var(--fm);font-size:9px;letter-spacing:0.5px;color:var(--t3)}
+.pat-rright{display:flex;align-items:center;gap:8px}
+.pat-rclip{font-family:var(--fm);font-size:8px;letter-spacing:1px;color:var(--gold);
+  border:1px solid rgba(243,199,148,0.4);border-radius:5px;padding:2px 6px}
+.pat-rpol{font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:0.5px}
+.pat-rpol.bad{color:var(--loss)}
+.pat-rpol.good{color:var(--win)}
+.pat-rpol.neutral{color:var(--accent)}
+.pat-rtitle{font-size:12.5px;font-weight:600;color:#fff;line-height:1.35;position:relative}
+.pat-rnote{font-size:11.5px;color:var(--accent);font-style:italic;line-height:1.4;margin-top:5px;position:relative}
+@media(prefers-reduced-motion:reduce){.pat-row{transition:none}}
+
+.pat-rdiv{height:1px;background:var(--gline2);margin:16px 0 14px}
+
+/* CLOSURE — win-green-rimmed read-only tile (reviewed) / calm pending note. */
+.pat-closed{margin-bottom:0;border-color:rgba(142,231,186,0.45);background:rgba(142,231,186,0.05)}
+.pat-ck{font-family:var(--fm);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--win);text-shadow:var(--tsh);
+  display:flex;align-items:center;gap:8px;margin-bottom:10px;position:relative}
+.pat-chk{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--win);
+  display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:var(--win)}
+.pat-csum{font-size:12.5px;color:#fff;line-height:1.5;position:relative}
+.pat-pending{margin:0;display:flex;flex-direction:column;gap:12px}
+.pat-pending .hint{margin:0;padding:11px 4px;align-items:flex-start}
+.pat-pending .hint-text{line-height:1.5}
+/* Mark Reviewed lead button — full-width gold, mirrors the nav-pair gold lead. */
+.pat-markrev{width:100%;height:46px}
+
+/* EMPTY STATE — calm, centered (mirrors the games-page empty block). */
+.pat-empty{padding:40px 22px;text-align:center;margin-top:8px}
+.pat-empty-h{font-family:var(--fo);font-size:18px;font-weight:600;color:var(--t2)}
+.pat-empty-p{font-size:13px;color:var(--t4);margin-top:8px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.5}
+
+/* ── VOD PLAYER PAGE ───────────────────────────────────────────────────────────
+   Restyled to the Glass/Aurora mockup: a loud OPEN-REVIEW primary card over a
+   2-col layout — video + transport + event timeline + (coming-soon) tag/clip
+   tools on the left, a Moments-to-review inbox on the right. Reuses the shared
+   kit (.glass / .primary / .card / .cta / .seclabel) and only adds the player
+   surfaces. House palette + Space Grotesk/Inter, .16s hovers, motion-guarded. */
+.vp-wrap{margin-top:22px}
+.vp-novod{margin-top:18px}
+
+/* OPEN REVIEW primary card — the one loud element (accent rim/glow + CTA). */
+.vp-primary{display:flex;flex-direction:row;align-items:center;gap:22px;margin:0 0 22px;padding:20px 24px}
+.vp-primary .body{flex:1}
+.vp-primary .cta{align-self:auto;margin-top:0}
+@media(max-width:720px){.vp-primary{flex-direction:column;align-items:flex-start}}
+
+/* 2-col layout: video (wide) beside the moments inbox. */
+.cols{display:grid;grid-template-columns:1.9fr 1fr;gap:18px;align-items:start}
+@media(max-width:980px){.cols{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column;gap:14px}
+/* In this page the stack manages its own gaps — drop the shared .card margin. */
+.cols .card{margin-bottom:0}
+.cols .seclabel{margin-bottom:0}
+
+/* card.pad0 wraps the video edge-to-edge; .stack on glass/black. The video is
+   opaque, so the card's backdrop-filter blur behind it is invisible — but in WebView2
+   a playing <video> re-sampling through a backdrop-filter ancestor every frame causes
+   a visible FLICKER on the player. Drop the blur here (use a solid dark fill instead)
+   and promote the video to its own clean compositor layer so it never flickers. */
+.card.pad0{padding:6px;backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(8,6,20,0.92)}
+.vp-video{transform:translateZ(0);backface-visibility:hidden}
+.vp-stage{position:relative;border-radius:11px;overflow:hidden;background:#020405;
+  display:flex;align-items:center;justify-content:center;border:1px solid var(--gline2);min-height:240px}
+.vp-video{width:100%;max-height:62vh;display:block;background:#000;border-radius:11px;cursor:pointer}
+
+/* ── ENLARGE MODE (.vp-expanded on .vp-wrap) ──────────────────────────────────
+   Expand the video within the page (not OS fullscreen): hide the OPEN REVIEW
+   card, the right Moments panel, and the clip tools + Quick Bookmark, then let
+   the recording + transport + timeline span the full width with a much taller
+   video. Mirrors the original Revu app's enlarge. The ⛶ button (or F / Esc)
+   toggles it back. */
+.vp-wrap.vp-expanded .vp-primary{display:none}
+.vp-wrap.vp-expanded .cols{grid-template-columns:1fr}
+.vp-wrap.vp-expanded .cols > .stack:last-child{display:none}     /* Moments panel */
+.vp-wrap.vp-expanded .duo{display:none}                          /* clip tools + quick bookmark */
+.vp-wrap.vp-expanded .vp-video{max-height:78vh}
+.vp-wrap.vp-expanded .vp-stage{min-height:360px}
+
+/* ── TRANSPORT BAR ── */
+.vp-transport-card{padding:12px 16px}
+.vp-transport{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:relative}
+.tbtn{width:40px;height:38px;border-radius:9px;border:1px solid var(--gline2);background:var(--glass2);
+  color:var(--t3);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease,border-color .16s ease,color .16s ease}
+.tbtn:hover{transform:translateY(-1px);color:#fff;background:rgba(157,139,255,0.10);border-color:rgba(157,139,255,0.4)}
+.tbtn:active{transform:translateY(0);transition-duration:.06s}
+.tbtn.play{width:56px;color:#fff;border-color:rgba(157,139,255,0.4);background:rgba(157,139,255,0.14)}
+.ttime{font-family:var(--fm);font-size:11px;color:var(--t3);letter-spacing:0.4px;white-space:nowrap}
+.ttime .step{color:var(--accent);font-weight:600}
+.tspring{flex:1;min-width:8px}
+.tlabel{font-family:var(--fm);font-size:10px;color:var(--t3);letter-spacing:0.4px}
+/* Speed dropdown (replaces the three rate buttons). Compact glass select matching
+   the transport's button language. */
+.vp-rate-sel{font-family:var(--fm);font-size:11px;letter-spacing:0.4px;color:var(--t2);cursor:pointer;
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:9px;padding:8px 10px;flex-shrink:0;
+  transition:color .14s ease,border-color .14s ease,background .14s ease}
+.vp-rate-sel:hover{color:#fff;border-color:rgba(157,139,255,0.4);background:rgba(157,139,255,0.10)}
+.vp-rate-sel:focus{outline:none;border-color:rgba(157,139,255,0.6);box-shadow:0 0 0 3px rgba(157,139,255,0.14)}
+.vp-rate-sel option{background:#161229;color:var(--t2)}
+
+/* ── EVENT TIMELINE (click-to-scrub) ── */
+/* Taller so the coded event bars + their 3-letter labels have headroom above the
+   track and the bookmark markers have room below it. */
+.vp-timeline{position:relative;height:104px;border-radius:9px;background:rgba(0,0,0,0.35);
+  border:1px solid var(--gline2);overflow:hidden;cursor:pointer}
+.vp-timeline .ph{position:absolute;bottom:7px;font-family:var(--fm);font-size:8px;letter-spacing:1px;color:var(--t4)}
+/* The scrub track sits low so bars rise above it (like the original Revu timeline). */
+.vp-timeline .track{position:absolute;left:0;right:0;top:72%;height:2px;transform:translateY(-50%);background:rgba(255,255,255,0.14)}
+.vp-timeline .prog{position:absolute;left:0;top:72%;height:2px;transform:translateY(-50%);width:0;
+  background:var(--accent);box-shadow:0 0 8px -1px rgba(157,139,255,0.7)}
+.vp-markers{position:absolute;inset:0;pointer-events:none}
+
+/* Coded event BARS (KIL / DTH / DRG …). A thin vertical bar anchored at the scrub
+   track (72%) rising upward, with its 3-letter code just above the bar top. Color
+   comes from the kind class; --evc (inline from the server colorHex) overrides.
+   HEIGHT is importance-tiered (major/medium/minor) so the timeline reads at a
+   glance AND the labels land on different rows, so they stop overlapping. The
+   bars are short — they no longer span the whole timeline. */
+.vp-timeline .evbar{position:absolute;bottom:28%;left:0;width:2px;transform:translateX(-50%);
+  --evc:var(--accent);--evh:18px;height:var(--evh);
+  background:linear-gradient(180deg,var(--evc),color-mix(in srgb,var(--evc) 55%,transparent));
+  border-radius:2px;box-shadow:0 0 6px -1px var(--evc);
+  transition:filter .14s ease,width .14s ease}
+.vp-timeline .evbar:hover{width:3px;filter:brightness(1.35)}
+/* Importance tiers → bar heights. Major objectives stand tallest. */
+.vp-timeline .evbar-major{--evh:34px}
+.vp-timeline .evbar-medium{--evh:22px}
+.vp-timeline .evbar-minor{--evh:12px;opacity:0.82}
+/* Color buckets. */
+.vp-timeline .evbar-win{--evc:var(--win)}
+.vp-timeline .evbar-loss{--evc:var(--loss)}
+.vp-timeline .evbar-gold{--evc:var(--gold)}
+.vp-timeline .evbar-neutral{--evc:var(--t3)}
+/* The code label rides just above the bar top (which differs by tier, so labels
+   stack on different rows). A faint dark chip behind it keeps it legible even when
+   two land near each other. */
+.vp-timeline .evbar-code{position:absolute;bottom:calc(var(--evh) + 3px);left:50%;transform:translateX(-50%);
+  font-family:var(--fm);font-size:8px;font-weight:700;letter-spacing:0.4px;line-height:1;
+  color:var(--evc);white-space:nowrap;pointer-events:none;
+  padding:1px 3px;border-radius:3px;background:rgba(8,6,18,0.78);box-shadow:0 0 0 1px rgba(0,0,0,0.25)}
+/* Suppressed-label bars (too close to a neighbor): reveal the code on hover via
+   the data-code attribute, with the same chip treatment. */
+.vp-timeline .evbar-nolabel::after{content:attr(data-code);position:absolute;bottom:calc(var(--evh) + 3px);left:50%;
+  transform:translateX(-50%);font-family:var(--fm);font-size:8px;font-weight:700;letter-spacing:0.4px;line-height:1;
+  color:var(--evc);white-space:nowrap;pointer-events:none;opacity:0;
+  padding:1px 3px;border-radius:3px;background:rgba(8,6,18,0.92);transition:opacity .12s ease;z-index:4}
+.vp-timeline .evbar-nolabel:hover::after{opacity:1}
+
+/* Bookmark markers — small diamonds BELOW the track so they never collide with
+   the coded bars. clip → gold, plain → accent. */
+.vp-timeline .ev{position:absolute;top:calc(72% + 9px);width:8px;height:8px;border-radius:2px;
+  transform:translate(-50%,-50%) rotate(45deg);border:1px solid rgba(10,8,24,0.6);
+  background:var(--accent);box-shadow:0 0 7px rgba(157,139,255,0.8)}
+.vp-timeline .ev-clip{background:var(--gold);box-shadow:0 0 7px rgba(243,199,148,0.8)}
+.vp-timeline .ev-bm:hover{transform:translate(-50%,-50%) rotate(45deg) scale(1.3)}
+.vp-timeline .play{position:absolute;top:6px;bottom:18px;width:2px;background:#fff;
+  transform:translateX(-50%);box-shadow:0 0 8px rgba(255,255,255,0.7);pointer-events:none}
+
+/* ── TAG / CLIP TOOLS (write features — disabled, coming soon) ── */
+.duo{display:grid;grid-template-columns:1fr 1.25fr;gap:14px}
+@media(max-width:560px){.duo{grid-template-columns:1fr}}
+.mini{padding:14px;border-radius:13px;background:var(--glass2);border:1px solid var(--gline2);
+  backdrop-filter:blur(16px);position:relative;overflow:hidden}
+.mini::before{content:'';position:absolute;inset:0 0 auto 0;height:40%;background:linear-gradient(180deg,rgba(255,255,255,0.06),transparent);pointer-events:none}
+.mtitle{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;
+  color:var(--label-bright);text-shadow:var(--tsh);margin-bottom:11px;position:relative}
+.vp-soon{opacity:0.72}
+.vp-soon-note{font-family:var(--fm);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--gold);margin-top:4px;position:relative}
+.inp{position:relative;width:100%;font-family:var(--fb);font-size:11.5px;color:var(--t2);
+  background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:8px;padding:9px 11px;margin-bottom:9px}
+.inp::placeholder{color:var(--t4)}
+.inp:disabled{cursor:not-allowed}
+.row{display:flex;align-items:center;gap:7px;position:relative;margin-bottom:9px;flex-wrap:wrap}
+.key{display:inline-flex;align-items:center;gap:6px;font-family:var(--fb);font-size:11px;color:var(--t2);
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:8px;padding:7px 9px}
+.keycap{font-family:var(--fb);font-weight:700;font-size:11px;color:#1b1233;background:var(--gold);border-radius:4px;padding:1px 7px}
+.qual{display:flex;gap:5px;position:relative;margin-bottom:9px}
+.q{font-family:var(--fb);font-size:11px;padding:5px 11px;border-radius:7px;border:1px solid var(--gline2);background:var(--glass2);color:var(--t3)}
+.q.good{color:var(--win);border-color:rgba(142,231,186,0.45);background:rgba(142,231,186,0.10)}
+.addbtn{font-family:var(--fb);font-size:11px;color:#fff;background:rgba(157,139,255,0.16);
+  border:1px solid rgba(157,139,255,0.4);border-radius:8px;padding:8px 16px;cursor:not-allowed}
+.savebtn{position:relative;width:100%;text-align:center;font-family:var(--fm);font-size:10px;letter-spacing:1px;
+  color:#1b1233;font-weight:700;border:1px solid rgba(243,199,148,0.5);border-radius:9px;padding:10px;cursor:not-allowed;
+  background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 8px 18px -8px rgba(243,199,148,0.6)}
+
+/* ── Clip tool (live ffmpeg export) — interactive I/O + quality + save ── */
+.vp-cliprange{font-family:var(--fm);font-size:9px;letter-spacing:1px;color:var(--gold);margin-left:8px;text-transform:none}
+/* I/O point buttons reuse the .key chip look; tap to set, lit when set. */
+.vp-iobtn{cursor:pointer;transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,color .16s ease,background .16s ease}
+.vp-iobtn:hover{transform:translateY(-1px);border-color:rgba(157,139,255,0.5);color:#fff}
+.vp-iobtn:active{transform:translateY(0);transition-duration:.06s}
+.vp-iobtn.is-set{color:var(--gold);border-color:rgba(243,199,148,0.55);background:rgba(243,199,148,0.10)}
+.vp-iobtn.is-set .keycap{background:var(--gold)}
+.vp-clipclear{color:var(--t3)}
+.vp-clipclear:hover{color:var(--loss);border-color:rgba(243,163,168,0.45)}
+/* Quality chips become clickable; selected chip reads loud in its semantic color. */
+#vp-clip-qual .q{cursor:pointer;transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,color .16s ease,background .16s ease}
+#vp-clip-qual .q:hover{transform:translateY(-1px);color:#fff}
+#vp-clip-qual .q.on{color:#fff}
+#vp-clip-qual .q[data-q="good"].on{color:var(--win);border-color:rgba(142,231,186,0.6);background:rgba(142,231,186,0.16)}
+#vp-clip-qual .q[data-q="neutral"].on{color:#fff;border-color:rgba(157,139,255,0.55);background:rgba(157,139,255,0.14)}
+#vp-clip-qual .q[data-q="bad"].on{color:var(--loss);border-color:rgba(243,163,168,0.6);background:rgba(243,163,168,0.16)}
+/* Save Clip is interactive now — override the "coming soon" not-allowed state. */
+#vp-clip-save{cursor:pointer;transition:transform .16s cubic-bezier(0.22,1,0.36,1),filter .16s ease}
+#vp-clip-save .keycap{margin-left:6px;font-size:9px;padding:1px 6px}
+#vp-clip-save:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.06)}
+#vp-clip-save:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
+#vp-clip-save:disabled{opacity:0.5;cursor:default;transform:none;filter:none}
+.vp-clip-hint{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--win);margin-top:7px;line-height:1.4}
+.vp-clip-hint.err{color:var(--loss)}
+
+/* ── MOMENTS INBOX (right) ── */
+.vp-moments-card{padding:16px 18px}
+.mhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;position:relative}
+.mhead .sub{font-family:var(--fm);font-size:9px;color:var(--t4);text-shadow:var(--tsh);margin-top:5px;line-height:1.4;max-width:230px}
+.openbadge{font-family:var(--fm);font-size:10px;color:#fff;border:1px solid var(--gline);
+  background:rgba(0,0,0,0.3);border-radius:8px;padding:6px 10px;white-space:nowrap}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);position:relative;margin:14px 0 4px;border-bottom:1px solid var(--gline2)}
+.tab{text-align:center;padding:9px 4px 8px;font-family:var(--fb);font-size:12px;font-weight:600;color:var(--t4);
+  cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .16s ease}
+.tab:hover{color:var(--t2)}
+.tab .c{font-family:var(--fm);opacity:0.7}
+.tab.on{color:#fff}
+.tab.auto.on{border-color:var(--accent)}
+.tab.clips.on{border-color:var(--gold)}
+.tab.bm.on{border-color:var(--win)}
+
+.moments{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.moment{position:relative;padding:10px 11px;border-radius:10px;background:rgba(0,0,0,0.26);
+  border:1px solid var(--gline2);cursor:pointer;outline:none;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,background .16s ease}
+.moment:hover,.moment:focus-visible{transform:translateY(-1px);border-color:rgba(157,139,255,0.5);background:rgba(157,139,255,0.06)}
+.moment:active{transform:translateY(0);transition-duration:.06s}
+.ricon{width:30px;height:30px;border-radius:7px;border:1px solid var(--gline2);background:var(--glass2);
+  color:var(--t3);font-size:13px;display:flex;align-items:center;justify-content:center;position:absolute;top:10px;right:11px}
+.moment:hover .ricon,.moment:focus-visible .ricon{color:#fff;border-color:rgba(157,139,255,0.4)}
+.mbadges{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+.b{font-family:var(--fm);font-size:8.5px;letter-spacing:0.5px;padding:3px 6px;border-radius:5px;
+  border:1px solid var(--gline2);background:rgba(0,0,0,0.3);color:var(--t3)}
+.b.src{color:var(--accent);border-color:rgba(157,139,255,0.5)}
+.b.srcclip{color:var(--gold);border-color:rgba(243,199,148,0.5)}
+.b.time{color:var(--t3)}
+.mtl{font-size:13px;font-weight:600;color:#fff;line-height:1.35;padding-right:34px}
+
+.vp-moments-empty{font-family:var(--fb);font-size:12.5px;color:var(--t4);padding:18px 4px;line-height:1.5}
+
+/* ── Quick Bookmark (live write) + per-row bookmark edit/delete ── */
+/* The Add button is now interactive — override the "coming soon" not-allowed. */
+#vp-bm-add{cursor:pointer;color:#1b1233;font-weight:700;
+  background:linear-gradient(180deg,#bcacff,var(--accent));border-color:transparent;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),filter .16s ease}
+#vp-bm-add:hover{transform:translateY(-1px);filter:brightness(1.06)}
+#vp-bm-add:active{transform:translateY(0);transition-duration:.06s}
+#vp-bm-add:disabled{opacity:0.6;cursor:default;transform:none;filter:none}
+.mini .keycap{margin-left:6px;font-size:9px;padding:1px 6px}
+.vp-bm-hint{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--win);margin-top:2px}
+.vp-bm-hint.err{color:var(--loss)}
+/* Inline edit row inside a plain-bookmark moment: note field + delete button. */
+.vp-bm-edit{display:flex;align-items:center;gap:7px;margin-top:8px;padding-right:34px}
+.vp-bm-editnote{flex:1;font-family:var(--fb);font-size:11.5px;color:var(--t2);
+  background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:8px;padding:7px 10px;cursor:text}
+.vp-bm-editnote::placeholder{color:var(--t4)}
+.vp-bm-editnote:focus{outline:none;border-color:rgba(157,139,255,0.5)}
+.vp-bm-del{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:30px;height:30px;
+  border-radius:8px;border:1px solid var(--gline2);background:var(--glass2);color:var(--t3);cursor:pointer;
+  transition:color .16s ease,border-color .16s ease,background .16s ease}
+.vp-bm-del:hover{color:var(--loss);border-color:rgba(243,163,168,0.45);background:rgba(243,163,168,0.08)}
+.vp-bm-del svg{stroke:currentColor;fill:none;stroke-width:1.6}
+
+/* Evidence edit (auto-moment / saved-clip rows): objective tag picker + note. */
+.vp-ev-edit{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+.vp-ev-obj,.vp-ev-note{width:100%;font-family:var(--fb);font-size:11.5px;color:var(--t2);
+  background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:8px;padding:7px 10px;cursor:pointer}
+.vp-ev-note{cursor:text}
+.vp-ev-obj option{background:#161229;color:var(--t2)}
+.vp-ev-note::placeholder{color:var(--t4)}
+.vp-ev-obj:focus,.vp-ev-note:focus{outline:none;border-color:rgba(157,139,255,0.5);box-shadow:0 0 0 3px rgba(157,139,255,0.12)}
+
+/* ── Clip share (revu.lol) — per-row Share button + public link chip ── */
+.vp-bm-share{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding-right:34px}
+.vp-share-btn{font-family:var(--fm);font-size:9.5px;letter-spacing:0.6px;font-weight:700;color:var(--gold);
+  border:1px solid rgba(243,199,148,0.5);background:rgba(243,199,148,0.10);border-radius:8px;padding:6px 12px;cursor:pointer;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,color .16s ease,background .16s ease,filter .16s ease}
+.vp-share-btn:hover:not(:disabled){transform:translateY(-1px);color:#fff;border-color:rgba(243,199,148,0.75);background:rgba(243,199,148,0.18)}
+.vp-share-btn:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
+.vp-share-btn:disabled{opacity:0.55;cursor:default;transform:none}
+.vp-share-url{font-family:var(--fm);font-size:9.5px;letter-spacing:0.3px;color:var(--win);
+  border:1px solid rgba(142,231,186,0.4);background:rgba(142,231,186,0.08);border-radius:6px;padding:4px 8px;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;cursor:text}
+
+/* ── Inline login-to-share panel (email → OTP) inside the Clip card ── */
+.vp-sharelogin{margin-top:12px;padding:13px;border-radius:10px;border:1px solid rgba(157,139,255,0.35);
+  background:rgba(157,139,255,0.06);display:flex;flex-direction:column;gap:9px}
+.vp-sl-title{font-family:var(--fm);font-size:9px;letter-spacing:1.5px;font-weight:700;color:var(--accent);text-transform:uppercase}
+.vp-sl-msg{font-family:var(--fb);font-size:11.5px;color:var(--t2);line-height:1.45}
+.vp-sl-step{display:flex;flex-direction:column;gap:8px}
+.vp-sl-step .row{display:flex;gap:8px;align-items:center}
+.vp-sl-code{font-family:var(--fm);letter-spacing:2px;text-transform:uppercase}
+.vp-sl-cancel{font-family:var(--fb);font-size:11px;color:var(--t3);background:transparent;border:1px solid var(--gline2);
+  border-radius:8px;padding:8px 14px;cursor:pointer;transition:color .16s ease,border-color .16s ease}
+.vp-sl-cancel:hover{color:var(--t2);border-color:rgba(157,139,255,0.4)}
+.vp-sharelogin .addbtn{cursor:pointer;color:#1b1233;font-weight:700;
+  background:linear-gradient(180deg,#bcacff,var(--accent));border-color:transparent;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),filter .16s ease}
+.vp-sharelogin .addbtn:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.vp-sl-err{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--loss);line-height:1.4}
+
+@media (prefers-reduced-motion: reduce){
+  .tbtn,.vp-rate-sel,.moment,.tab,#vp-bm-add,.vp-bm-del,.vp-share-btn,.evbar{transition:none !important}
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SETTINGS PAGE (settings.html / settings.js) — config editor backed by
+   GET /api/config + POST /api/config/save. Reuses the shared kit (.card /
+   .seclabel / .eyebrow / .hero / .cta / .obj-field / .obj-input / .statusline)
+   and only adds the toggle switch + setting-row + save-row chrome below. House
+   palette + Space Grotesk/Inter, .16s hovers, motion-guarded. */
+.set-subt{font-family:var(--fm);font-size:11px;letter-spacing:2px;color:var(--t4);margin-top:8px}
+.set-card{display:flex;flex-direction:column;gap:14px;padding:20px 22px}
+.set-card .seclabel{margin-bottom:2px}
+.set-status{font-family:var(--fb);font-size:12px;color:var(--t4);line-height:1.45}
+.set-status.good{color:var(--win)}
+.set-status.bad{color:var(--loss)}
+.set-status[hidden]{display:none}
+
+/* Inline button row inside a settings card (Browse / Scan / Export / Refresh).
+   Reuses the .rule-act chip look; .set-act-primary tints it accent, .set-act-
+   disabled greys a deferred action. */
+.set-btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.set-act-primary{color:#1b1233;border-color:transparent;
+  background:linear-gradient(180deg,#bcacff,#9d8bff);
+  box-shadow:0 6px 16px -8px rgba(157,139,255,0.7),0 1px 0 rgba(255,255,255,0.45) inset}
+.set-act-primary:hover{filter:brightness(1.05)}
+.rule-act:hover{transform:translateY(-1px);border-color:rgba(157,139,255,0.4)}
+.rule-act:disabled,.set-act-disabled{opacity:0.5;cursor:not-allowed}
+.rule-act:disabled:hover,.set-act-disabled:hover{transform:none;border-color:var(--gline2)}
+
+/* Backups list — one row per saved DB snapshot (read-only; restore deferred). */
+.set-backups{display:flex;flex-direction:column;gap:8px}
+.set-backup-row{display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+  padding:9px 12px;border:1px solid var(--gline2);border-radius:9px;
+  background:rgba(255,255,255,0.03)}
+.set-backup-label{font-family:var(--fb);font-size:12.5px;color:var(--t2);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.set-backup-meta{font-family:var(--fm);font-size:10.5px;letter-spacing:0.4px;color:var(--t4);
+  white-space:nowrap;flex-shrink:0}
+
+/* Export card accent (green, mirrors the WinUI EXPORT REVIEW DATA border). */
+.set-export{border-color:rgba(142,231,186,0.28)}
+
+/* A label/description column + a toggle on the right. */
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:18px}
+.set-row-txt{min-width:0}
+.set-row-h{font-family:var(--fb);font-size:13.5px;font-weight:600;color:var(--t1);line-height:1.3}
+.set-row-s{font-family:var(--fb);font-size:12px;color:var(--t4);line-height:1.45;margin-top:3px}
+
+/* Toggle switch — a role=switch button (JS flips .on / aria-checked). */
+.set-toggle{flex-shrink:0;width:46px;height:26px;border-radius:13px;border:1px solid var(--gline2);
+  background:rgba(10,8,24,0.5);cursor:pointer;padding:0;position:relative;
+  transition:background .16s ease,border-color .16s ease,box-shadow .16s ease}
+.set-toggle>i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;
+  background:var(--t4);transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease}
+.set-toggle:hover{border-color:rgba(157,139,255,0.4)}
+.set-toggle:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(157,139,255,0.18)}
+.set-toggle.on{background:linear-gradient(180deg,#bcacff,#9d8bff);border-color:transparent;
+  box-shadow:0 6px 16px -8px rgba(157,139,255,0.7),0 1px 0 rgba(255,255,255,0.45) inset}
+.set-toggle.on>i{transform:translateX(20px);background:#1b1233}
+
+/* Number input chrome reuse — strip spinner noise but keep .obj-input look. */
+.set-card input[type=number]{appearance:textfield}
+.set-card select.obj-input{cursor:pointer}
+
+/* Account card. */
+.set-account{border-color:rgba(57,150,255,0.30)}
+.set-acct-email{font-family:var(--fb);font-size:12.5px;color:var(--t2)}
+.set-acct-email[hidden]{display:none}
+.set-acct-note{font-family:var(--fb);font-size:11.5px;color:var(--t4);line-height:1.45}
+
+/* Global save row. */
+.set-saverow{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin-top:18px}
+.set-savestatus{font-family:var(--fm);font-size:11px;letter-spacing:0.4px;color:var(--t3);margin-right:auto}
+.set-savestatus.good{color:var(--win)}
+.set-savestatus.bad{color:var(--loss)}
+.set-spacer{height:28px}
+
+@media (prefers-reduced-motion: reduce){
+  .set-toggle,.set-toggle>i{transition:none !important}
+}
+
+
+/* ── SESSION LOG PAGE ──────────────────────────────────────────────────────────
+   Per-day journal: date-nav card, 6-cell stat strip, gold-bracket goal card,
+   needs-review vs reviewed lists reusing the .gamerow hover language. The row
+   write actions (skip / clear-rule-break / delete) + the goal Save + Manual
+   Entry are rendered here but wired in Batch 2. */
+
+/* '+ Manual Entry' gold pill in the hero (mirrors .pat-btn-gold). */
+.ses-manual{align-self:flex-start;flex-shrink:0;font-family:var(--fm);font-size:11px;letter-spacing:1px;text-transform:uppercase;
+  color:#241606;font-weight:700;border:none;border-radius:11px;padding:11px 18px;cursor:pointer;white-space:nowrap;
+  background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 8px 18px -8px rgba(243,199,148,0.6);
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),box-shadow .16s ease,filter .16s ease}
+.ses-manual:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.ses-manual:active{transform:translateY(0);transition-duration:.06s}
+
+/* DATE NAVIGATION card. */
+.datenav{display:flex;align-items:center;gap:14px}
+.datenav-label{flex:1;text-align:center;font-family:var(--fo);font-size:18px;font-weight:600;color:#fff;letter-spacing:0.3px}
+.datenav-btn{font-family:var(--fm);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t2);
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:10px;padding:9px 15px;cursor:pointer;white-space:nowrap;
+  transition:color .16s ease,border-color .16s ease,background .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.datenav-btn:hover:not(:disabled){color:#fff;border-color:rgba(157,139,255,0.45);background:rgba(157,139,255,0.06);transform:translateY(-1px)}
+.datenav-btn:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
+.datenav-btn:disabled{opacity:0.4;cursor:default}
+.datenav-today{font-family:var(--fm);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#1b1233;font-weight:700;
+  border:none;border-radius:10px;padding:9px 16px;cursor:pointer;white-space:nowrap;
+  background:linear-gradient(180deg,#bcacff,#9d8bff);box-shadow:0 10px 24px -8px rgba(157,139,255,0.7),0 1px 0 rgba(255,255,255,0.5) inset;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),filter .16s ease}
+.datenav-today:hover{filter:brightness(1.05);transform:translateY(-1px)}
+.datenav-today:active{transform:translateY(0);transition-duration:.06s}
+
+/* 6-cell stat strip override (base .strip is 5 cols). */
+.strip-6{grid-template-columns:repeat(6,1fr)}
+
+/* Corner-bracketed card — gold + neutral variants (mirrors CornerBracketedCard). */
+.bracket{position:relative}
+.bracket::after{content:'';position:absolute;top:9px;left:9px;width:14px;height:14px;
+  border-top:1.5px solid var(--gline);border-left:1.5px solid var(--gline);border-radius:3px 0 0 0;pointer-events:none;opacity:0.7}
+.bracket-gold{border-color:rgba(243,199,148,0.4)}
+.bracket-gold::after{border-top-color:rgba(243,199,148,0.7);border-left-color:rgba(243,199,148,0.7);opacity:1}
+.bracket-gold .seclabel{color:var(--gold)}
+
+/* Per-section empty state inside a card. */
+.list-empty{font-family:var(--fb);font-size:13px;color:var(--t4);padding:6px 3px 2px;line-height:1.5}
+.list-empty.win{color:var(--win)}
+
+.seclabel-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.seclabel-row .n{font-family:var(--fm);color:var(--t3);opacity:0.8}
+
+/* SESSION GOAL card. */
+.goal-text{font-size:14px;color:#fff;line-height:1.55;font-weight:500}
+.goal-actions{display:flex;justify-content:flex-end;margin-top:12px}
+
+/* SESSION GAME ROW — main body (gamerow) + trailing write-action slot. */
+.srow{display:flex;align-items:stretch;gap:8px;margin-bottom:6px}
+.srow:last-child{margin-bottom:0}
+.srow-main{flex:1;margin-bottom:0}
+.srow.reviewed .srow-main{opacity:0.62}
+.srow.reviewed .srow-main:hover,.srow.reviewed .srow-main:focus-visible{opacity:1}
+.srow-champ{font-family:var(--fo);font-weight:600}
+.srow-wl{flex-shrink:0}
+.srow-mental{font-family:var(--fo);font-size:16px;font-weight:700;white-space:nowrap}
+.srow-note{margin-top:5px;color:var(--t3);font-family:var(--fb);font-size:11.5px;letter-spacing:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px}
+
+/* Red 'RULE BREAK' pill (needs-review rows only) — deferred clear stub. */
+.srow-pill{font-family:var(--fm);font-size:8px;letter-spacing:1.4px;text-transform:uppercase;color:var(--loss);
+  border:1px solid rgba(243,163,168,0.45);border-radius:6px;padding:3px 8px;background:rgba(243,163,168,0.08);cursor:pointer;
+  transition:background .16s ease,border-color .16s ease}
+.srow-pill:hover{background:rgba(243,163,168,0.16);border-color:rgba(243,163,168,0.7)}
+
+/* Trailing action slot — Skip (needs-review) / delete (reviewed). */
+.srow-trail{display:flex;align-items:center;flex-shrink:0}
+.srow-skip{font-family:var(--fm);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);
+  background:transparent;border:1px solid var(--gline2);border-radius:10px;padding:0 14px;min-height:46px;cursor:pointer;white-space:nowrap;
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.srow-skip:hover{color:var(--loss);background:rgba(243,163,168,0.08);border-color:rgba(243,163,168,0.4);transform:translateY(-1px)}
+.srow-skip:active{transform:translateY(0);transition-duration:.06s}
+.srow-skip:disabled{opacity:0.5;cursor:default}
+.srow-del{display:inline-flex;align-items:center;justify-content:center;width:46px;min-height:46px;color:var(--t4);
+  background:transparent;border:1px solid var(--gline2);border-radius:10px;cursor:pointer;
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.srow-del svg{fill:none;stroke:currentColor;stroke-width:1.6}
+.srow-del:hover{color:var(--loss);background:rgba(243,163,168,0.08);border-color:rgba(243,163,168,0.4);transform:translateY(-1px)}
+.srow-del:active{transform:translateY(0);transition-duration:.06s}
+.srow-del:disabled{opacity:0.5;cursor:default}
+
+/* ── ANALYTICS PAGE (Patterns & Signals) ──────────────────────────────────────
+   Read-only player-profiling dashboard. Reuses the shared kit: .glass / .card,
+   .strip / .stat (overall stat strip), .cta (APPLY), .seclabel / .eyebrow / .hero
+   / .statusline, and all the motion classes. New here: the header refresh button,
+   the collapsible multi-dimension FILTER BAR (combos + chip groups + champion
+   search), horizontal-bar rows (mental / concept tags), the tilt 5-metric grid,
+   and the champion / matchup tables. */
+
+/* Header row — hero block on the left, ghost refresh icon pinned right. */
+.an-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.an-refresh{flex-shrink:0;margin-top:6px;width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  color:var(--t3);background:var(--glass2);border:1px solid var(--gline2);cursor:pointer;
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.an-refresh svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8}
+.an-refresh:hover{color:#fff;background:rgba(157,139,255,0.08);border-color:rgba(157,139,255,0.4);transform:translateY(-1px) rotate(-30deg)}
+.an-refresh:active{transform:translateY(0);transition-duration:.06s}
+@media(prefers-reduced-motion:reduce){.an-refresh:hover{transform:none}}
+
+/* FILTER BAR — accent-rimmed glass card. Collapsed bar (summary + actions);
+   the chevron expands the detail panel below. */
+.an-filter{margin:22px 0 22px;padding:16px 20px;border-color:rgba(167,139,250,0.4)}
+.an-filter-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;position:relative}
+.an-filter-lead{display:flex;align-items:baseline;gap:12px;min-width:0;flex:1}
+.an-filter-k{font-family:var(--fm);font-size:11px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:#c3b6ff;flex-shrink:0}
+.an-filter-sum{font-size:13px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.an-filter-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
+/* APPLY rides the shared .cta gradient (.cta-sm trims it); disabled when draft==applied. */
+.an-apply{margin-top:0}
+.an-reset{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);
+  background:rgba(255,255,255,0.03);border:1px solid var(--gline2);border-radius:9px;padding:10px 16px;cursor:pointer;white-space:nowrap;
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.an-reset:hover{color:var(--t1);background:rgba(255,255,255,0.06);border-color:var(--gline);transform:translateY(-1px)}
+.an-reset:active{transform:translateY(0);transition-duration:.06s}
+.an-chev{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  color:var(--t3);background:rgba(255,255,255,0.03);border:1px solid var(--gline2);cursor:pointer;
+  transition:color .16s ease,background .16s ease,transform .2s cubic-bezier(0.22,1,0.36,1)}
+.an-chev svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8}
+.an-chev:hover{color:#fff;background:rgba(157,139,255,0.08)}
+.an-chev.open{transform:rotate(180deg)}
+@media(prefers-reduced-motion:reduce){.an-chev{transition:none}}
+
+/* DETAIL PANEL — combos grid + chip groups, divided from the bar. */
+.an-filter-detail{margin-top:16px;padding-top:16px;border-top:1px solid var(--gline2);display:flex;flex-direction:column;gap:16px}
+.an-combos{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:680px){.an-combos{grid-template-columns:1fr}}
+.an-combo{display:flex;flex-direction:column;gap:6px}
+.an-combo-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright)}
+.an-combo select{font-family:var(--fb);font-size:13px;color:#fff;background:rgba(10,8,24,0.5);border:1px solid var(--gline2);border-radius:10px;
+  padding:10px 12px;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease}
+.an-combo select:hover{border-color:rgba(157,139,255,0.4)}
+.an-combo select:focus{outline:none;border-color:rgba(157,139,255,0.75);box-shadow:0 0 0 3px rgba(157,139,255,0.14)}
+.an-combo select option{background:#15112a;color:#fff}
+
+.an-chipgroup{display:flex;flex-direction:column;gap:9px}
+.an-chipgroup-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright)}
+.an-chips{display:flex;flex-wrap:wrap;gap:7px}
+.an-chip{display:inline-flex;align-items:baseline;gap:6px;font-family:var(--fm);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--t3);background:rgba(255,255,255,0.03);border:1px solid var(--gline2);border-radius:9px;padding:8px 13px;cursor:pointer;white-space:nowrap;
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.an-chip:hover{color:var(--t1);border-color:var(--gline);transform:translateY(-1px)}
+.an-chip:active{transform:translateY(0);transition-duration:.06s}
+.an-chip .an-chip-sub{font-size:9px;color:var(--t4);letter-spacing:0.5px}
+/* Selected chip — accent gradient like the .seg active tab. */
+.an-chip.on{color:#1b1233;font-weight:700;border:none;background:linear-gradient(180deg,#bcacff,#9d8bff);box-shadow:0 8px 20px -8px rgba(157,139,255,0.7),0 1px 0 rgba(255,255,255,0.5) inset}
+.an-chip.on .an-chip-sub{color:rgba(27,18,51,0.7)}
+
+/* Champion search — glass text field; the datalist drives suggestions. */
+.an-search{width:100%;max-width:340px;font-family:var(--fb);font-size:13px;color:#fff;
+  background:rgba(10,8,24,0.5);border:1px solid var(--gline2);border-radius:10px;padding:10px 13px;
+  transition:border-color .16s ease,box-shadow .16s ease}
+.an-search::placeholder{color:var(--t4)}
+.an-search:focus{outline:none;border-color:rgba(157,139,255,0.75);box-shadow:0 0 0 3px rgba(157,139,255,0.14)}
+
+/* Override the shared .strip 5-col grid — the analytics strip carries 7 cells. */
+.an-strip{grid-template-columns:repeat(7,1fr)}
+@media(max-width:980px){.an-strip{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:680px){.an-strip{grid-template-columns:repeat(2,1fr)}}
+
+/* HORIZONTAL-BAR ROWS — mental brackets + concept tags share this layout:
+   fixed-width name, a colored fill (px width from server) on an inset track, value. */
+.an-bars{display:flex;flex-direction:column;gap:11px}
+.an-bar{display:flex;align-items:center;gap:14px}
+.an-bar-name{flex-shrink:0;width:140px;font-family:var(--fb);font-size:13px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.an-bar-track{flex:1;height:10px;border-radius:99px;background:rgba(10,8,24,0.5);border:1px solid var(--gline2);overflow:hidden;display:flex;align-items:center}
+.an-bar-fill{height:10px;border-radius:99px;min-width:6px;transition:width .6s cubic-bezier(0.22,1,0.36,1)}
+.an-bar-val{flex-shrink:0;width:54px;text-align:right;font-family:var(--fo);font-size:14px;font-weight:600;color:#fff}
+@media(prefers-reduced-motion:reduce){.an-bar-fill{transition:none}}
+
+/* TILT 5-METRIC GRID — equal columns, each a label + colored number. */
+.an-tilt{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+@media(max-width:720px){.an-tilt{grid-template-columns:repeat(2,1fr)}}
+.an-tilt-cell{display:flex;flex-direction:column;gap:6px}
+.an-tilt-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright)}
+.an-tilt-v{font-family:var(--fo);font-size:22px;font-weight:600;line-height:1}
+
+/* TABLES — champion performance + matchup analysis. Header row + body rows with
+   bottom-border separators. A name column flex-grows; numeric columns are fixed. */
+.an-table{padding:6px 20px 12px}
+.an-trow{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--gline2)}
+.an-trow:last-child{border-bottom:none}
+.an-thead{border-bottom:1px solid var(--gline);padding-bottom:9px}
+.an-thead span{font-family:var(--fm);font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--t4)}
+.an-tc-name{flex:1;min-width:0;font-family:var(--fo);font-size:14px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.an-tc-vs{flex:1;min-width:0;font-family:var(--fo);font-size:13px;font-weight:600;color:var(--loss);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.an-tc-n{flex-shrink:0;width:58px;text-align:right;font-family:var(--fb);font-size:13px;color:var(--t2)}
+.an-thead .an-tc-name,.an-thead .an-tc-vs{font-family:var(--fm);font-size:9.5px;font-weight:400;letter-spacing:1.2px;color:var(--t4)}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MANUAL ENTRY PAGE (manualentry.html / manualentry.js) — hand-log a game +
+   minimal review, backed by GET /api/objectives/active + POST /api/game/manual.
+   Reuses the shared kit (.card / .bracket / .seclabel / .eyebrow / .hero / .cta /
+   .errpanel). House palette + Space Grotesk/Inter, .16s hovers, motion-guarded. */
+/* Blue-accent bracket variant (objectives card) — complements .bracket-gold. */
+.bracket-blue{border-color:rgba(157,139,250,0.4)}
+.bracket-blue::after{border-top-color:rgba(157,139,250,0.7);border-left-color:rgba(157,139,250,0.7);opacity:1}
+.bracket-blue .seclabel{color:var(--accent)}
+
+.me-form{display:flex;flex-direction:column;gap:14px;max-width:700px}
+.me-error{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--loss)}
+
+/* CHAMPION + RESULT + KDA header card */
+.me-headrow{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.me-headcol{display:flex;flex-direction:column;gap:12px;min-width:180px;flex:1}
+.me-champ{font-family:var(--fo);font-size:22px;font-weight:700;color:var(--gold);
+  background:transparent;border:none;border-bottom:2px solid rgba(243,199,148,0.5);
+  padding:4px 2px 6px;outline:none;min-width:180px}
+.me-champ::placeholder{color:rgba(243,199,148,0.45)}
+.me-champ:focus{border-bottom-color:var(--gold)}
+.me-result{display:flex;gap:16px}
+.me-radio{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:var(--fb);font-size:13px;font-weight:600}
+.me-radio input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+.me-radio .rwin{color:var(--win)}
+.me-radio .rloss{color:var(--loss)}
+.me-kda{display:flex;align-items:flex-start;gap:9px}
+.me-kda-cell{display:flex;flex-direction:column;align-items:center;gap:5px}
+.me-num{width:54px;height:46px;text-align:center;font-family:var(--fo);font-size:21px;font-weight:700;color:#fff;
+  background:rgba(10,8,24,0.45);border:1px solid var(--gline2);border-radius:11px;outline:none;
+  box-shadow:0 1px 0 rgba(255,255,255,0.04) inset;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
+.me-num:hover{border-color:rgba(157,139,255,0.32)}
+.me-num:focus{border-color:rgba(157,139,255,0.6);background:rgba(10,8,24,0.6);box-shadow:0 0 0 3px rgba(157,139,255,0.14)}
+.me-kda-lbl{font-family:var(--fm);font-size:9px;letter-spacing:1.5px;color:var(--t4)}
+.me-kda-sep{font-family:var(--fo);font-size:20px;font-weight:700;color:var(--t4);line-height:46px}
+
+/* MENTAL RATING slider */
+.me-slrow{display:flex;align-items:center;gap:18px}
+.me-range{flex:1;accent-color:var(--accent);height:5px;cursor:pointer}
+.me-slval{font-family:var(--fo);font-size:32px;font-weight:700;color:var(--accent);min-width:48px;text-align:center;
+  text-shadow:0 2px 16px rgba(157,139,255,0.45)}
+
+/* PERFORMANCE / NOTES fields */
+.me-field-lbl{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;
+  color:var(--label-bright);margin:14px 0 7px}
+.me-field-lbl:first-of-type{margin-top:4px}
+.me-input{width:100%;font-family:var(--fb);font-size:13px;color:#fff;
+  background:rgba(10,8,24,0.45);border:1px solid var(--gline2);border-radius:11px;padding:11px 13px;outline:none;resize:vertical;
+  box-shadow:0 1px 0 rgba(255,255,255,0.04) inset;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
+.me-input::placeholder{color:var(--t4)}
+.me-input:hover{border-color:rgba(157,139,255,0.3)}
+.me-input:focus{border-color:rgba(157,139,255,0.6);background:rgba(10,8,24,0.6);box-shadow:0 0 0 3px rgba(157,139,255,0.14)}
+.me-multi{min-height:76px;line-height:1.5}
+
+/* LEARNING OBJECTIVE rows */
+.me-obj{display:flex;flex-direction:column;gap:9px;padding:13px 15px;margin-bottom:9px;
+  background:rgba(0,0,0,0.22);border:1px solid var(--gline2);border-radius:12px;
+  transition:border-color .16s ease,background .16s ease}
+.me-obj:hover{border-color:rgba(157,139,255,0.28);background:rgba(157,139,255,0.04)}
+.me-obj:last-child{margin-bottom:0}
+.me-obj-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.me-obj-head{min-width:0;flex:1}
+.me-obj-title{font-family:var(--fo);font-size:14px;font-weight:600;color:#fff;line-height:1.35}
+.me-obj-phase{font-family:var(--fm);font-size:9.5px;letter-spacing:1px;color:var(--accent);margin-top:3px}
+/* practiced toggle (checkbox styled as a switch) */
+.me-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0}
+.me-toggle input{position:absolute;opacity:0;width:0;height:0}
+.me-toggle-track{position:relative;width:38px;height:20px;border-radius:11px;background:rgba(255,255,255,0.12);
+  border:1px solid var(--gline2);transition:background .16s ease,border-color .16s ease}
+.me-toggle-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--t3);
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease}
+.me-toggle input:checked + .me-toggle-track{background:rgba(157,139,250,0.30);border-color:rgba(157,139,250,0.6)}
+.me-toggle input:checked + .me-toggle-track .me-toggle-knob{transform:translateX(18px);background:var(--accent)}
+.me-toggle-lbl{font-family:var(--fm);font-size:9.5px;letter-spacing:0.8px;color:var(--t3);min-width:78px}
+
+/* ACTIONS */
+.me-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}
+.me-cancel{font-family:var(--fm);font-size:11px;letter-spacing:1px;color:var(--t2);
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:11px;padding:13px;cursor:pointer;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,color .16s ease}
+.me-cancel:hover{transform:translateY(-1px);color:#fff;border-color:rgba(157,139,255,0.4)}
+.me-save{align-self:auto;margin-top:0;text-align:center;justify-self:stretch}
+.me-save:disabled{opacity:0.6;cursor:default;transform:none;filter:none}
+
+@media (prefers-reduced-motion: reduce){
+  .me-cancel,.me-toggle-track,.me-toggle-knob{transition:none !important}
+}
+
+/* ── ONBOARDING PAGE (first-launch wizard) ────────────────────────────────────
+   A single, narrow, centered column with one visible state card at a time
+   (welcome / emailEntry / codeSent / account / role / done). Reuses the shared
+   kit: .card / .cta / .eyebrow / .hero / .seclabel / .obj-field / .obj-input /
+   .obj-select. New here: the per-state accent border colors, the "how it works"
+   teaching bullets, the secondary text link, and the 5-up role grid. */
+
+.onb-shell{max-width:560px;padding:48px 40px 40px;display:flex;flex-direction:column;align-items:stretch}
+.onb-hero{text-align:center;margin-bottom:22px}
+.onb-hero .eyebrow{justify-content:center}
+.onb-subt{font-family:var(--fm);font-size:11px;letter-spacing:3px;text-transform:uppercase;
+  color:var(--t3);margin-top:10px;text-shadow:var(--tsh)}
+
+/* State card — base. Per-state accent border + a matching top glow rail. */
+.onb-card{display:flex;flex-direction:column;gap:14px;padding:24px 24px}
+.onb-card-blue{border-color:rgba(125,160,255,0.45)}
+.onb-card-gold{border-color:rgba(243,199,148,0.5)}
+.onb-card-green{border-color:rgba(142,231,186,0.45)}
+.onb-card-violet{border-color:rgba(157,139,250,0.5)}
+.onb-card-blue::before{background:linear-gradient(180deg,rgba(125,160,255,0.12),transparent)}
+.onb-card-gold::before{background:linear-gradient(180deg,rgba(243,199,148,0.12),transparent)}
+.onb-card-green::before{background:linear-gradient(180deg,rgba(142,231,186,0.12),transparent)}
+.onb-card-violet::before{background:linear-gradient(180deg,rgba(157,139,250,0.14),transparent)}
+
+.onb-sectitle{margin:0 0 2px 0}
+.onb-body{font-family:var(--fb);font-size:13.5px;line-height:1.55;color:var(--t2);text-shadow:var(--tsh)}
+
+/* "How Revu works" — three teaching bullets in the welcome card. */
+.onb-how{display:flex;flex-direction:column;gap:13px;margin:2px 0}
+.onb-how-row{display:flex;align-items:flex-start;gap:11px}
+.onb-how-dot{flex-shrink:0;width:7px;height:7px;border-radius:50%;margin-top:5px;
+  background:var(--accent);box-shadow:0 0 8px rgba(157,139,250,0.7)}
+.onb-how-h{font-family:var(--fb);font-size:13px;font-weight:600;color:var(--t1)}
+.onb-how-p{font-family:var(--fb);font-size:12.5px;line-height:1.5;color:var(--t3);margin-top:2px}
+
+/* Signed-in confirmation row — a green status dot + email/linked-account lines. */
+.onb-acct{display:flex;align-items:center;gap:12px;margin:6px 0 16px}
+.onb-acct-dot{flex-shrink:0;width:9px;height:9px;border-radius:50%;
+  background:var(--win);box-shadow:0 0 9px var(--win)}
+.onb-acct-h{font-family:var(--fb);font-size:15px;font-weight:600;color:#fff}
+.onb-acct-p{font-family:var(--fm);font-size:11px;letter-spacing:0.4px;color:var(--t3);margin-top:3px}
+
+/* Fields — reuse .obj-field/.obj-input; mono variant for email/code/Riot ID. */
+.onb-field{margin-top:2px}
+.onb-input-mono{font-family:var(--fm);letter-spacing:0.5px}
+.onb-input-code{letter-spacing:2px;text-transform:uppercase}
+
+/* Primary action — full-width CTA inside the card. */
+.onb-cta{align-self:stretch;text-align:center;margin-top:6px}
+
+/* Secondary text link (begin-login / back hops). */
+.onb-link{align-self:center;font-family:var(--fb);font-size:12.5px;font-weight:600;color:var(--t3);
+  background:none;border:none;cursor:pointer;padding:4px 2px;margin-top:2px;
+  transition:color .16s ease,opacity .16s ease}
+.onb-link:hover{color:var(--accent)}
+.onb-link:disabled{opacity:0.5;cursor:default}
+
+/* ROLE GRID — 5 equal columns. min-width:0 + tight padding so "SUPPORT" never
+   clips to "SUPPOR" (mirrors the WinUI v2.17.8 Padding 6,0 / MinWidth 0 tuning). */
+.onb-roles{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:4px}
+.onb-role{min-width:0;padding:0 6px;min-height:48px;font-family:var(--fm);font-size:10.5px;
+  letter-spacing:1px;text-transform:uppercase;color:var(--t3);cursor:pointer;
+  border:1px solid var(--gline2);border-radius:11px;background:rgba(255,255,255,0.02);
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.onb-role:hover{color:var(--t1);border-color:rgba(157,139,250,0.45);transform:translateY(-1px)}
+.onb-role:active{transform:translateY(0);transition-duration:.06s}
+.onb-role:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(157,139,250,0.3)}
+.onb-role.on{color:#1b1233;font-weight:700;border-color:transparent;
+  background:linear-gradient(180deg,#bcacff,var(--accent));box-shadow:0 8px 20px -10px rgba(157,139,250,0.7)}
+.onb-role.on:hover{color:#1b1233}
+.onb-role:disabled{opacity:0.55;cursor:default;transform:none}
+
+/* RANK DETECTED — gold mono confirmation line (display-only). */
+.onb-rank{font-family:var(--fm);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--gold);text-shadow:var(--tsh);margin-top:2px}
+
+/* Shared footer — inline error + busy spinner. */
+.onb-foot{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:16px}
+.onb-error{font-family:var(--fb);font-size:13px;color:var(--loss);text-align:center;line-height:1.4;
+  text-shadow:var(--tsh)}
+.onb-spin{width:24px;height:24px;border-radius:50%;border:2px solid rgba(157,139,250,0.25);
+  border-top-color:var(--accent);animation:onb-spin 0.8s linear infinite}
+@keyframes onb-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){
+  .onb-role,.onb-link,.onb-cta{transition:none !important}
+  .onb-spin{animation-duration:1.6s}
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PRE-GAME / IN-GAME live pages (Batch 5 / LCU).
+   Champ-select "Lock In" surface + the in-game subset. Both use a narrower
+   single-column reading width (these are glance-while-loading screens) and the
+   shared card vocabulary. Cards take a per-section accent via --cardbr.
+   ════════════════════════════════════════════════════════════════════════════ */
+.pg-shell{max-width:680px}
+.pg-card{--cardbr:var(--gline2);border-color:color-mix(in srgb,var(--cardbr) 40%,var(--gline2));margin-bottom:12px}
+.pg-card .seclabel-in{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright);margin-bottom:10px}
+.pg-card.obj .obj-sub{margin-top:16px}
+
+/* Live banner (cancelled / saved). */
+.live-banner{font-family:var(--fm);font-size:11px;letter-spacing:0.6px;color:var(--t2);
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:11px;padding:10px 14px;margin:0 0 16px 0}
+.live-banner.ok{border-color:rgba(142,231,186,0.4);color:var(--win)}
+.live-banner.warn{border-color:rgba(243,163,168,0.4);color:var(--loss)}
+
+/* Sidebar "live" dot on the In-Game nav item. */
+.nav-i .live-badge{background:var(--win);box-shadow:0 0 7px var(--win);animation:dot-pulse 1.6s ease-in-out infinite}
+/* Connection dot in the status line (lit when the LCU is connected). */
+#lcu-dot{background:var(--t4);box-shadow:none}
+#lcu-dot.on{background:var(--win);box-shadow:0 0 8px rgba(142,231,186,0.9)}
+
+/* INTEL rotator. */
+.pg-intel{padding:18px 20px}
+.intel-card .intel-eyebrow{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold)}
+.intel-card .intel-headline{font-family:var(--fo);font-size:17px;font-weight:600;color:#fff;margin-top:7px;line-height:1.25}
+.intel-card .intel-body{font-family:var(--fb);font-size:12.5px;color:var(--t3);margin-top:7px;line-height:1.45}
+.intel-foot{display:flex;align-items:center;justify-content:space-between;margin-top:14px;min-height:14px}
+.intel-arrows{display:flex;gap:6px}
+.intel-arr{font-family:var(--fo);font-size:15px;line-height:1;color:var(--t3);background:var(--glass2);border:1px solid var(--gline2);
+  border-radius:8px;width:26px;height:24px;cursor:pointer;transition:color .16s ease,background .16s ease,border-color .16s ease}
+.intel-arr:hover{color:#fff;background:rgba(157,139,250,0.10);border-color:rgba(157,139,250,0.3)}
+.intel-dots{display:flex;gap:6px;margin-left:auto}
+.intel-dot{width:6px;height:6px;border-radius:50%;background:var(--gline);transition:background .16s ease}
+.intel-dot.on{background:var(--gold);box-shadow:0 0 6px rgba(243,199,148,0.8)}
+
+/* MATCHUP card. */
+.matchup-pairing{font-family:var(--fo);font-size:15px;font-weight:600;color:var(--gold);margin-bottom:8px}
+.matchup-vs{display:flex;align-items:baseline;gap:12px}
+.matchup-my{font-family:var(--fo);font-size:22px;font-weight:600;color:var(--win)}
+.matchup-x{font-family:var(--fm);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t4)}
+.matchup-enemy{font-family:var(--fo);font-size:22px;font-weight:600;color:var(--loss)}
+
+/* MATCHUP HISTORY rows. */
+.mh-row{padding:11px 13px;border-radius:11px;background:var(--glass2);border:1px solid var(--gline2);margin-bottom:8px}
+.mh-row:last-child{margin-bottom:0}
+.mh-note{font-family:var(--fb);font-size:13px;color:var(--t2);line-height:1.45}
+.mh-meta{display:flex;align-items:center;gap:10px;margin-top:7px}
+.mh-date{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t4)}
+.mh-helpful{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--loss)}
+.mh-helpful.good{color:var(--win)}
+
+/* INTENT card. */
+.intent-prov-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.intent-dot{width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 7px rgba(243,199,148,0.8)}
+.intent-prov{font-family:var(--fm);font-size:10px;letter-spacing:0.8px;text-transform:uppercase;color:var(--gold)}
+.active-plan-row{display:flex;gap:9px;align-items:baseline;padding:9px 12px;border-radius:10px;
+  background:var(--glass2);border:1px solid var(--gline2);margin-bottom:12px}
+.active-plan-k{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--win);white-space:nowrap}
+.active-plan{font-family:var(--fb);font-size:12.5px;color:var(--t2);line-height:1.4}
+.pg-textarea{width:100%;font-family:var(--fb);font-size:13.5px;color:var(--t1);line-height:1.5;
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:11px;padding:11px 13px;resize:vertical;outline:none;
+  transition:border-color .16s ease}
+.pg-textarea:focus{border-color:rgba(157,139,250,0.5)}
+.pg-textarea::placeholder{color:var(--t4)}
+.intent-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+.src-chip{font-family:var(--fm);font-size:10px;letter-spacing:0.8px;text-transform:uppercase;color:var(--t3);
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:9px;padding:7px 12px;cursor:pointer;
+  transition:color .16s ease,background .16s ease,border-color .16s ease}
+.src-chip:hover{color:#fff;background:rgba(157,139,250,0.08);border-color:rgba(157,139,250,0.28)}
+.src-chip.on{color:#1b1233;background:linear-gradient(180deg,#f7d9a8,var(--gold));border-color:transparent;font-weight:700}
+.src-chip.ifthen{color:var(--accent);border-color:rgba(157,139,250,0.3)}
+.intent-hint{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
+.intent-hint-t{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t4)}
+.intent-dont{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t4);background:none;border:none;cursor:pointer;transition:color .16s ease}
+.intent-dont:hover{color:var(--loss)}
+.intent-cleared{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-family:var(--fb);font-size:13px;color:var(--t3)}
+
+/* MENTAL mood selector. */
+.mood-row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.mood-btn{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3);text-align:center;
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:11px;padding:12px 6px;cursor:pointer;
+  transition:color .16s ease,background .16s ease,border-color .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.mood-btn:hover{transform:translateY(-1px);color:#fff;border-color:rgba(157,139,250,0.28)}
+.mood-btn.on{color:#fff;border-color:transparent}
+.mood-btn.m1.on{background:rgba(243,163,168,0.22);border-color:rgba(243,163,168,0.5)}
+.mood-btn.m2.on{background:rgba(243,199,148,0.20);border-color:rgba(243,199,148,0.5)}
+.mood-btn.m3.on{background:rgba(157,139,250,0.20);border-color:rgba(157,139,250,0.5)}
+.mood-btn.m4.on{background:rgba(124,199,255,0.20);border-color:rgba(124,199,255,0.5)}
+.mood-btn.m5.on{background:rgba(142,231,186,0.22);border-color:rgba(142,231,186,0.5)}
+
+/* SESSION INTENTION chips. */
+.session-quick{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.sess-chip{font-family:var(--fm);font-size:10px;letter-spacing:0.6px;color:var(--t3);
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:9px;padding:7px 11px;cursor:pointer;transition:color .16s ease,border-color .16s ease}
+.sess-chip:hover{color:#fff;border-color:rgba(157,139,250,0.28)}
+
+/* OBJECTIVES mega-card. */
+.obj-priority-title{font-family:var(--fo);font-size:17px;font-weight:600;color:#fff;line-height:1.25}
+.obj-priority-crit{font-family:var(--fb);font-size:12.5px;color:var(--t3);margin-top:6px;line-height:1.45}
+.obj-row{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:11px 13px;border-radius:11px;background:var(--glass2);border:1px solid var(--gline2);margin-bottom:8px}
+.obj-row:last-child{margin-bottom:0}
+.obj-main{min-width:0}
+.obj-top{display:flex;align-items:center;gap:8px}
+.obj-title{font-family:var(--fb);font-size:13.5px;font-weight:500;color:var(--t1)}
+.obj-pri{font-family:var(--fm);font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#1b1233;background:var(--gold);border-radius:5px;padding:2px 5px;font-weight:700}
+.obj-crit{font-family:var(--fb);font-size:11.5px;color:var(--t4);margin-top:4px;line-height:1.4}
+.obj-toggle{font-family:var(--fm);font-size:10px;letter-spacing:0.8px;text-transform:uppercase;color:var(--t3);white-space:nowrap;
+  background:var(--glass2);border:1px solid var(--gline2);border-radius:9px;padding:8px 13px;cursor:pointer;transition:color .16s ease,background .16s ease,border-color .16s ease}
+.obj-toggle:hover{color:#fff;border-color:rgba(142,231,186,0.3)}
+.obj-toggle.on{color:#1b1233;background:linear-gradient(180deg,#a8eecb,var(--win));border-color:transparent;font-weight:700}
+
+/* PROMPT blocks. */
+.pb{--pb-accent:var(--gold);padding:13px 14px;border-radius:12px;background:var(--glass2);
+  border:1px solid var(--gline2);border-left:2px solid var(--pb-accent);margin-bottom:12px}
+.pb:last-child{margin-bottom:0}
+.pb-head{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.pb-eyebrow{font-family:var(--fm);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--gold)}
+.pb-title{font-family:var(--fo);font-size:14px;font-weight:600;color:#fff}
+.p-row{margin-bottom:11px}
+.p-row:last-child{margin-bottom:0}
+.p-label{font-family:var(--fb);font-size:12.5px;color:var(--t2);margin-bottom:7px;line-height:1.4}
+
+/* IN-GAME no-active card. */
+.noactive-p{font-family:var(--fb);font-size:13px;color:var(--t3);line-height:1.5}

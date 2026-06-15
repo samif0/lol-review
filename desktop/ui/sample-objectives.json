@@ -1,0 +1,313 @@
+{
+  "generatedAt": "2026-06-14T09:14:00",
+  "hasObjectives": true,
+  "hasActiveObjectives": true,
+  "hasCompletedObjectives": true,
+  "hasFocusObjectives": true,
+  "hasSpottedProblems": true,
+  "activeObjectives": [
+    {
+      "id": 7,
+      "title": "Plan every recall around an objective",
+      "skillArea": "Macro",
+      "type": "primary",
+      "phaseLabel": "Pre-Game",
+      "phasesSummary": "PRE",
+      "isMini": false,
+      "isMental": false,
+      "score": 40,
+      "gameCount": 8,
+      "targetGameCount": 0,
+      "progress": 0.8,
+      "levelName": "Ingraining",
+      "levelColorHex": "#D4A44E",
+      "levelDimColorHex": "#1E1810",
+      "isPriority": true,
+      "infoText": "Ingraining  •  40 pts  •  8 games",
+      "scoreHistory": [
+        1,
+        4,
+        7,
+        6,
+        9,
+        12,
+        15,
+        18,
+        21,
+        24,
+        27,
+        30,
+        33,
+        36,
+        38,
+        40
+      ],
+      "hasScoreHistory": true,
+      "champions": [
+        "Sivir",
+        "Jinx"
+      ],
+      "championsSummary": "SIVIR, JINX",
+      "metaText": "INGRAINING  ·  PRE-GAME  ·  40 PTS",
+      "focusProgressText": "",
+      "hasStructuredCriteria": true,
+      "criteriaHits": 6,
+      "criteriaEvaluated": 8,
+      "criteriaHitRateText": "HIT 6/8 GAMES",
+      "criteriaHitRateHex": "#8ee7ba",
+      "criteriaText": "Success: CS per minute ≥ 7",
+      "hasCriteriaText": true
+    },
+    {
+      "id": 11,
+      "title": "Reset mental after a lost fight",
+      "skillArea": "Mindset",
+      "type": "mental",
+      "phaseLabel": "In-Game",
+      "phasesSummary": "IN + POST",
+      "isMini": false,
+      "isMental": true,
+      "score": 22,
+      "gameCount": 5,
+      "targetGameCount": 0,
+      "progress": 0.44,
+      "levelName": "Drilling",
+      "levelColorHex": "#5EC4D4",
+      "levelDimColorHex": "#0E1A1E",
+      "isPriority": false,
+      "infoText": "Drilling  •  22 pts  •  5 games",
+      "scoreHistory": [
+        3,
+        2,
+        5,
+        8,
+        11,
+        14,
+        13,
+        16,
+        19,
+        22
+      ],
+      "hasScoreHistory": true,
+      "champions": [],
+      "championsSummary": "ALL CHAMPIONS",
+      "metaText": "DRILLING  ·  IN-GAME  ·  22 PTS",
+      "focusProgressText": "",
+      "hasStructuredCriteria": false,
+      "criteriaHits": 0,
+      "criteriaEvaluated": 0,
+      "criteriaHitRateText": "",
+      "criteriaHitRateHex": "#a79ec2",
+      "criteriaText": "Success: Take one slow breath before re-engaging.",
+      "hasCriteriaText": true
+    },
+    {
+      "id": 14,
+      "title": "Hold the wave when behind",
+      "skillArea": "Laning",
+      "type": "mini",
+      "phaseLabel": "In-Game",
+      "phasesSummary": "IN",
+      "isMini": true,
+      "isMental": false,
+      "score": 4,
+      "gameCount": 2,
+      "targetGameCount": 3,
+      "progress": 0.6666666666666666,
+      "levelName": "",
+      "levelColorHex": "#f3c794",
+      "levelDimColorHex": "rgba(255,255,255,0.13)",
+      "isPriority": false,
+      "infoText": "FOCUS DRILL  •  2 of 3 games",
+      "scoreHistory": [
+        1,
+        4
+      ],
+      "hasScoreHistory": true,
+      "champions": [
+        "Sivir"
+      ],
+      "championsSummary": "SIVIR",
+      "metaText": "FOCUS  ·  IN-GAME  ·  2/3 GAMES",
+      "focusProgressText": "2 of 3 games",
+      "hasStructuredCriteria": true,
+      "criteriaHits": 0,
+      "criteriaEvaluated": 0,
+      "criteriaHitRateText": "NOT MEASURED YET",
+      "criteriaHitRateHex": "#a79ec2",
+      "criteriaText": "Success: Deaths ≤ 4",
+      "hasCriteriaText": true
+    }
+  ],
+  "focusObjectives": [
+    {
+      "id": 14,
+      "title": "Hold the wave when behind",
+      "skillArea": "Laning",
+      "type": "mini",
+      "phaseLabel": "In-Game",
+      "phasesSummary": "IN",
+      "isMini": true,
+      "isMental": false,
+      "score": 4,
+      "gameCount": 2,
+      "targetGameCount": 3,
+      "progress": 0.6666666666666666,
+      "levelName": "",
+      "levelColorHex": "#f3c794",
+      "levelDimColorHex": "rgba(255,255,255,0.13)",
+      "isPriority": false,
+      "infoText": "FOCUS DRILL  •  2 of 3 games",
+      "scoreHistory": [
+        1,
+        4
+      ],
+      "hasScoreHistory": true,
+      "champions": [
+        "Sivir"
+      ],
+      "championsSummary": "SIVIR",
+      "metaText": "FOCUS  ·  IN-GAME  ·  2/3 GAMES",
+      "focusProgressText": "2 of 3 games",
+      "hasStructuredCriteria": true,
+      "criteriaHits": 0,
+      "criteriaEvaluated": 0,
+      "criteriaHitRateText": "NOT MEASURED YET",
+      "criteriaHitRateHex": "#a79ec2",
+      "criteriaText": "Success: Deaths ≤ 4",
+      "hasCriteriaText": true
+    }
+  ],
+  "completedObjectives": [
+    {
+      "id": 3,
+      "title": "Ward the river before scuttle",
+      "phaseLabel": "In-Game",
+      "score": 52,
+      "gameCount": 14,
+      "summaryText": "52 pts  •  14 games"
+    },
+    {
+      "id": 5,
+      "title": "Track enemy jungler at level 1",
+      "phaseLabel": "Pre-Game",
+      "score": 50,
+      "gameCount": 11,
+      "summaryText": "50 pts  •  11 games"
+    }
+  ],
+  "spottedProblems": [
+    {
+      "gameId": 5581701721,
+      "championName": "Sivir",
+      "enemyChampion": "Senna",
+      "datePlayed": "Jun 14",
+      "problemText": "Walked up without vision and got hooked twice mid-game.",
+      "win": true,
+      "resultText": "W",
+      "championDisplay": "Sivir vs Senna",
+      "resultColorHex": "#8ee7ba"
+    },
+    {
+      "gameId": 5581655110,
+      "championName": "Jinx",
+      "enemyChampion": "Caitlyn",
+      "datePlayed": "Jun 14",
+      "problemText": "Greedy positioning in the 28-minute fight, died first and lost baron.",
+      "win": false,
+      "resultText": "L",
+      "championDisplay": "Jinx vs Caitlyn",
+      "resultColorHex": "#f3a3a8"
+    },
+    {
+      "gameId": 5580991002,
+      "championName": "Sivir",
+      "enemyChampion": "",
+      "datePlayed": "Jun 13",
+      "problemText": "Recalled with no objective up; wasted a 1200 gold window.",
+      "win": false,
+      "resultText": "L",
+      "championDisplay": "Sivir",
+      "resultColorHex": "#f3a3a8"
+    }
+  ],
+  "createForm": {
+    "enabled": true
+  },
+  "playedChampions": [
+    "Ahri",
+    "Akali",
+    "Sylas",
+    "Orianna",
+    "Viktor",
+    "Azir"
+  ],
+  "criteriaMetrics": [
+    {
+      "index": 0,
+      "key": "",
+      "label": "Free text only",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 1,
+      "key": "cs_per_min",
+      "label": "CS per minute",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 2,
+      "key": "deaths",
+      "label": "Deaths",
+      "lowerIsBetter": true
+    },
+    {
+      "index": 3,
+      "key": "vision_score",
+      "label": "Vision score",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 4,
+      "key": "wards_placed",
+      "label": "Wards placed",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 5,
+      "key": "control_wards",
+      "label": "Control wards bought",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 6,
+      "key": "kda",
+      "label": "KDA",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 7,
+      "key": "kill_participation",
+      "label": "Kill participation (%)",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 8,
+      "key": "cs_total",
+      "label": "Total CS",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 9,
+      "key": "cs_at_10",
+      "label": "CS at 10 min",
+      "lowerIsBetter": false
+    },
+    {
+      "index": 10,
+      "key": "gold_diff_at_10",
+      "label": "Gold diff at 10 min",
+      "lowerIsBetter": false
+    }
+  ]
+}
