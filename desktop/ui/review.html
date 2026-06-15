@@ -139,11 +139,14 @@
           </div>
         </form>
 
-        <!-- COMMIT BAR — Save (commits) + Skip (mark reviewed) + Delete (un-review,
-             shown only when a prior review exists). -->
+        <!-- COMMIT BAR — Save (commits) + Skip (mark reviewed) + Copy/Export this
+             game's review as markdown + Delete (un-review, shown only when a prior
+             review exists). -->
         <div class="rv-commitbar" id="rv-commitbar">
           <button type="button" class="cta rv-savebtn" id="rv-savebtn" data-action="save_review">SAVE REVIEW</button>
           <button type="button" class="review rv-skipbtn" id="rv-skipbtn" data-action="skip_review">Skip</button>
+          <button type="button" class="review rv-copybtn" id="rv-copybtn" data-action="copy_review" title="Copy this game's review as markdown">Copy</button>
+          <button type="button" class="review rv-exportbtn" id="rv-exportbtn" data-action="export_review" title="Export this game's review as a markdown file">Export</button>
           <button type="button" class="rv-deletebtn" id="rv-deletebtn" data-action="delete_review" hidden>Delete review</button>
           <span class="rv-commit-msg" id="rv-commit-msg" hidden></span>
         </div>

@@ -189,10 +189,24 @@ body[data-sidebar-anim="off"] .nav.nav-ready::before{animation:none}
 .nav-i:hover .tip{opacity:1;transform:translateX(0)}
 .nav-i .badge{position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--loss);box-shadow:0 0 6px var(--loss)}
 
+/* Branded title strip — a 34px bar across the top of the content area (right of the
+   72px rail), inside the webview client area so it never collides with the OS window
+   controls. Accent top-rule (the ::before gradient line) + REVU brand + version,
+   mirroring the old WinUI title bar. Persistent (lives in the shell, never reloads). */
+.appbar{position:fixed;left:72px;top:0;right:0;height:34px;z-index:3;
+  display:flex;align-items:center;gap:9px;padding:0 16px;
+  background:rgba(16,12,34,0.62);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--gline2)}
+.appbar::before{content:'';position:absolute;left:0;right:0;top:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--accent) 18%,var(--accent) 82%,transparent);
+  opacity:0.75;pointer-events:none}
+.appbar-brand{font-family:var(--fo);font-weight:700;font-size:13px;letter-spacing:3px;color:var(--accent)}
+.appbar-ver{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t4)}
+
 /* The persistent shell's content iframe — fills everything right of the 72px rail,
-   full height, transparent (the shell paints the aurora/grain behind it). Only this
-   element reloads on navigation; the rail beside it never does. */
-.app-frame{position:fixed;left:72px;top:0;right:0;bottom:0;width:calc(100vw - 72px);height:100vh;
+   below the 34px title strip. Only this element reloads on navigation; the rail +
+   title strip beside/above it never do. */
+.app-frame{position:fixed;left:72px;top:34px;right:0;bottom:0;width:calc(100vw - 72px);height:calc(100vh - 34px);
   border:0;margin:0;padding:0;background:#0a0818;z-index:2;display:block;color-scheme:dark}
 
 /* Page content shifts right of the rail. */
@@ -1941,21 +1955,47 @@ html.framed .shell{padding-left:40px}
 .vp-ev-note::placeholder{color:var(--t4)}
 .vp-ev-obj:focus,.vp-ev-note:focus{outline:none;border-color:rgba(157,139,255,0.5);box-shadow:0 0 0 3px rgba(157,139,255,0.12)}
 
-/* ── Clip share (revu.lol) — per-row Share button + public link chip ── */
+/* ── Clip share (revu.lol) — per-row Share button + Copy-link button + link chip ── */
 .vp-bm-share{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding-right:34px}
-.vp-share-btn{font-family:var(--fm);font-size:9.5px;letter-spacing:0.6px;font-weight:700;color:var(--gold);
-  border:1px solid rgba(243,199,148,0.5);background:rgba(243,199,148,0.10);border-radius:8px;padding:6px 12px;cursor:pointer;
+/* Primary "Share clip" — a real icon-led button in the gold language of SAVE CLIP. */
+.vp-share-btn{display:inline-flex;align-items:center;gap:7px;font-family:var(--fm);font-size:11px;
+  letter-spacing:0.6px;font-weight:700;text-transform:uppercase;color:var(--gold);
+  border:1px solid rgba(243,199,148,0.55);background:linear-gradient(180deg,rgba(243,199,148,0.16),rgba(243,199,148,0.08));
+  border-radius:9px;padding:8px 14px;cursor:pointer;
   transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,color .16s ease,background .16s ease,filter .16s ease}
-.vp-share-btn:hover:not(:disabled){transform:translateY(-1px);color:#fff;border-color:rgba(243,199,148,0.75);background:rgba(243,199,148,0.18)}
+.vp-share-btn .vp-share-ic{flex-shrink:0}
+.vp-share-btn:hover:not(:disabled){transform:translateY(-1px);color:#fff;border-color:rgba(243,199,148,0.85);
+  background:linear-gradient(180deg,rgba(243,199,148,0.26),rgba(243,199,148,0.14));box-shadow:0 0 16px -6px rgba(243,199,148,0.8)}
 .vp-share-btn:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
-.vp-share-btn:disabled{opacity:0.55;cursor:default;transform:none}
+.vp-share-btn:disabled{opacity:0.6;cursor:default;transform:none}
+/* Shared state — calm green confirmation, no longer the loud gold CTA. */
+.vp-share-btn.is-shared{color:var(--win);border-color:rgba(142,231,186,0.45);
+  background:rgba(142,231,186,0.10);cursor:default;text-transform:none;letter-spacing:0.4px}
+.vp-share-btn.is-shared:hover{transform:none;color:var(--win);box-shadow:none;
+  background:rgba(142,231,186,0.10);border-color:rgba(142,231,186,0.45)}
+/* Dedicated Copy-link button (shown only once shared) — compact, neutral/accent. */
+.vp-copy-btn{display:inline-flex;align-items:center;gap:5px;font-family:var(--fm);font-size:10px;letter-spacing:0.5px;
+  font-weight:600;color:var(--t2);border:1px solid var(--gline2);background:rgba(255,255,255,0.04);border-radius:8px;
+  padding:7px 11px;cursor:pointer;transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease}
+.vp-copy-btn:hover{transform:translateY(-1px);color:#fff;border-color:rgba(157,139,255,0.45);background:rgba(157,139,255,0.10)}
+.vp-copy-btn:active{transform:translateY(0)}
 .vp-share-url{font-family:var(--fm);font-size:9.5px;letter-spacing:0.3px;color:var(--win);
   border:1px solid rgba(142,231,186,0.4);background:rgba(142,231,186,0.08);border-radius:6px;padding:4px 8px;
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;cursor:text}
 
-/* ── Inline login-to-share panel (email → OTP) inside the Clip card ── */
-.vp-sharelogin{margin-top:12px;padding:13px;border-radius:10px;border:1px solid rgba(157,139,255,0.35);
-  background:rgba(157,139,255,0.06);display:flex;flex-direction:column;gap:9px}
+/* ── Login-to-share panel (email → OTP) ──
+   Rendered as a CENTERED POPOVER (fixed, column-agnostic) so it appears in the
+   middle of the window regardless of which clip row's Share button opened it — the
+   old in-flow placement (nested in the left Clip card) scrolled the wrong column
+   when Share was clicked from a right-column clip row. A dimmed backdrop via
+   ::before. The element stays in the DOM where it is (ids preserved); only its
+   presentation changes when shown. */
+.vp-sharelogin{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:60;
+  width:min(360px,calc(100vw - 48px));margin:0;padding:18px;border-radius:14px;
+  border:1px solid rgba(157,139,255,0.5);background:rgba(20,16,40,0.98);backdrop-filter:blur(20px);
+  box-shadow:0 30px 80px -30px rgba(0,0,0,0.92),0 0 0 1px rgba(157,139,255,0.15),0 0 0 100vmax rgba(5,4,13,0.55);
+  display:flex;flex-direction:column;gap:10px}
+.vp-sharelogin[hidden]{display:none}
 .vp-sl-title{font-family:var(--fm);font-size:9px;letter-spacing:1.5px;font-weight:700;color:var(--accent);text-transform:uppercase}
 .vp-sl-msg{font-family:var(--fb);font-size:11.5px;color:var(--t2);line-height:1.45}
 .vp-sl-step{display:flex;flex-direction:column;gap:8px}
@@ -1971,7 +2011,7 @@ html.framed .shell{padding-left:40px}
 .vp-sl-err{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--loss);line-height:1.4}
 
 @media (prefers-reduced-motion: reduce){
-  .tbtn,.vp-rate-sel,.moment,.tab,#vp-bm-add,.vp-bm-del,.vp-share-btn,.evbar{transition:none !important}
+  .tbtn,.vp-rate-sel,.moment,.tab,#vp-bm-add,.vp-bm-del,.vp-share-btn,.vp-copy-btn,.evbar{transition:none !important}
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

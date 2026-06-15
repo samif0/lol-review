@@ -622,6 +622,21 @@ async fn get_export_markdown() -> Result<serde_json::Value, String> {
     sidecar::get_json("/api/settings/export").await
 }
 
+/// Builds the Markdown review export for a SINGLE game and returns
+/// { ok, found, markdown, fileName }. Used by the review page's Copy + Export.
+/// See Revu.Sidecar GET /api/review/export.
+#[tauri::command]
+async fn get_review_export_markdown(game_id: i64) -> Result<serde_json::Value, String> {
+    sidecar::get_json(&format!("/api/review/export?gameId={game_id}")).await
+}
+
+/// The app version (from tauri.conf.json), shown in the branded title-bar strip.
+/// Single-sources the version that used to come from ShellViewModel.AppVersion.
+#[tauri::command]
+fn app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 // ── Native ops (Tauri dialog / fs / shell plugins) ────────────────────────────
 // The app routes everything through invoke(), so these native interactions live
 // in Rust commands (using the plugins' Rust APIs) rather than the plugins' JS
@@ -819,6 +834,8 @@ pub fn run() {
             get_settings_status,
             scan_vods,
             get_export_markdown,
+            get_review_export_markdown,
+            app_version,
             pick_folder,
             save_export_file,
             open_log_folder,

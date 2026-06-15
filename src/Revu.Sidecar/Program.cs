@@ -586,6 +586,22 @@ app.MapGet("/api/settings/export", async (IReviewExportService export, ILogger<P
     return Results.Json(new { ok = true, markdown, fileName }, jsonOptions);
 });
 
+// GET /api/review/export?gameId=N — SINGLE-game review markdown (for the review
+// page's Copy + Export). Reuses ReviewExportService.ExportGameAsync (returns null
+// when the game doesn't exist). The review page copies the markdown to the
+// clipboard or saves it via the native dialog (save_export_file).
+app.MapGet("/api/review/export", async (long gameId, IReviewExportService export, ILogger<Program> log, CancellationToken ct) =>
+{
+    if (gameId <= 0)
+        return Results.BadRequest(new { error = "gameId required" });
+    var markdown = await export.ExportGameAsync(gameId, ct);
+    if (markdown is null)
+        return Results.Json(new { ok = true, found = false }, jsonOptions);
+    var fileName = $"revu-{gameId}-review.md";
+    log.LogInformation("Single-game review export built ({Chars} chars) -> {FileName}", markdown.Length, fileName);
+    return Results.Json(new { ok = true, found = true, markdown, fileName }, jsonOptions);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // WRITE endpoints (token-gated). Non-destructive daily-loop actions only.
 // Each takes a one-time safety backup before the first write of the session.

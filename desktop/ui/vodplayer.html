@@ -206,10 +206,18 @@
         <span class="b srcclip vp-bm-clip" hidden>Clip</span>
       </div>
       <div class="mtl vp-bm-note"></div>
-      <!-- Share — shown only for saved-clip rows. "Share" uploads the clip to
-           revu.lol and copies the link; once shared it flips to "Copy link". -->
+      <!-- Share — shown only for saved-clip rows. The primary "Share clip" button
+           uploads the clip to revu.lol; once shared, a "Shared" state + the link +
+           a dedicated Copy-link button appear. -->
       <div class="vp-bm-share" hidden>
-        <button class="vp-share-btn" data-action="share_clip" type="button">Share clip</button>
+        <button class="vp-share-btn" data-action="share_clip" type="button">
+          <svg class="vp-share-ic" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v13M7 8l5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="vp-share-lbl">Share clip</span>
+        </button>
+        <button class="vp-copy-btn" data-action="copy_clip_link" type="button" hidden title="Copy link">
+          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 9h10v10H9zM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Copy</span>
+        </button>
         <span class="vp-share-url" hidden></span>
       </div>
       <!-- Inline edit/delete — shown only for plain bookmark rows (carry an id).

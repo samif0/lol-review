@@ -30,6 +30,14 @@
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
 
+  <!-- Branded title strip (inside the webview client area; the OS keeps its own
+       window controls). Mirrors the old WinUI REVU brand mark + version. Lives in
+       the persistent shell so it never reloads on navigation. -->
+  <header class="appbar" id="appbar">
+    <span class="appbar-brand">REVU</span>
+    <span class="appbar-ver" id="appbar-ver"></span>
+  </header>
+
   <!-- The content viewport. Pages load here; only this reloads on navigation. The
        initial page is the dashboard; a #hash on the shell URL can deep-link a page
        (e.g. index.html#vodplayer.html?gameId=5) — see shell-outer.js. -->

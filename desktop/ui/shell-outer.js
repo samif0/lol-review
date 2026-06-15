@@ -97,6 +97,22 @@ async function applySidebarAnimGate() {
 }
 applySidebarAnimGate();
 
+// ── Title-bar version ─────────────────────────────────────────────────────────
+// Populate the branded strip's version (REVU <version>) from the app package info.
+// Best-effort: in browser preview (no Tauri) the version chip just stays blank.
+async function fillAppVersion() {
+  let invoke = null;
+  try {
+    const core = await import('@tauri-apps/api/core');
+    if (core && typeof core.invoke === 'function') invoke = core.invoke;
+  } catch (_) { /* fall through */ }
+  if (!invoke && window.__TAURI__?.core?.invoke) invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+  const el = document.getElementById('appbar-ver');
+  if (!invoke || !el) return;
+  try { const v = await invoke('app_version'); if (v) el.textContent = String(v); } catch (_) { /* leave blank */ }
+}
+fillAppVersion();
+
 // ── LCU live auto-show (retargeted at the iframe) ────────────────────────────
 // Same contract as the old per-page shell.js, but it navigates the CONTENT IFRAME
 // instead of the top document, and lives ONCE on the persistent shell (so there's

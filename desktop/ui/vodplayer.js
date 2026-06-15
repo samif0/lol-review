@@ -427,20 +427,30 @@ function renderMoments() {
       show(shareWrap, true);
       el.dataset.shareBmId = String(m.shareBookmarkId);
       const btn = shareWrap.querySelector('.vp-share-btn');
+      const copyBtn = shareWrap.querySelector('.vp-copy-btn');
+      const lbl = shareWrap.querySelector('.vp-share-lbl');
       const urlEl = shareWrap.querySelector('.vp-share-url');
       const shared = !!m.shareUrl;
       if (btn) {
         btn.dataset.shareBmId = String(m.shareBookmarkId);
         btn.dataset.shareUrl = m.shareUrl || '';
-        btn.textContent = shared ? 'Copy link' : 'Share clip';
-        // Don't let the button (or url chip) trigger the row's jump action.
-        btn.addEventListener('click', (e) => e.stopPropagation());
+        btn.classList.toggle('is-shared', shared);
+        // Set only the label span so the icon survives. Shared rows show "Shared"
+        // (the dedicated Copy button handles copying); unshared show "Share clip".
+        if (lbl) lbl.textContent = shared ? 'Shared' : 'Share clip';
+      }
+      if (copyBtn) {
+        copyBtn.dataset.shareBmId = String(m.shareBookmarkId);
+        copyBtn.dataset.shareUrl = m.shareUrl || '';
+        show(copyBtn, shared);
       }
       if (urlEl) {
         if (shared) { urlEl.textContent = m.shareUrl; show(urlEl, true); }
         else { urlEl.textContent = ''; show(urlEl, false); }
-        urlEl.addEventListener('click', (e) => e.stopPropagation());
       }
+      // No per-element click listeners here — rows re-render on every reload, which
+      // would leak handlers. The document-level delegated handler owns share_clip +
+      // copy_clip_link and stops propagation so the row's jump never fires.
     } else if (shareWrap) {
       shareWrap.remove();
     }
@@ -683,7 +693,8 @@ function openShareLogin(bmId, prefillEmail) {
   shareLoginMsg('Log in to publish this clip to revu.lol.');
   const box = $('vp-sl-emailbox');
   if (box) { box.value = prefillEmail || _shareEmail || ''; box.focus(); }
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // The panel renders as a centered popover (CSS .vp-sharelogin[ ... ]:not([hidden]))
+  // so it's column-agnostic — no scrollIntoView needed (it would chase the left card).
 }
 
 function cancelShareLogin() {
@@ -733,7 +744,8 @@ async function shareVerify() {
 }
 
 // The actual upload. Resolves clip path + champion server-side from the bookmark.
-// On 401/needsLogin (expired session) reopens the login panel.
+// On 401/needsLogin (expired session) reopens the login panel; other failures
+// (e.g. the 90s cap) surface the server's message on the button.
 async function uploadShare(bmId) {
   if (!_core || !bmId) return;
   const champ = (_vod && _vod.championName) ? _vod.championName : '';
@@ -742,6 +754,11 @@ async function uploadShare(bmId) {
     const res = await _core.invoke('share_clip', {
       payload: { gameId: _gameId, bookmarkId: Number(bmId), championName: champ },
     });
+    // A non-throwing failure (e.g. server returned ok:false with a reason).
+    if (res && res.ok === false) {
+      setShareBtnBusy(bmId, false, res.error ? String(res.error) : 'Share failed');
+      return;
+    }
     const url = res && res.shareUrl ? String(res.shareUrl) : '';
     if (url) {
       const copied = copyToClipboard(url);
@@ -753,44 +770,62 @@ async function uploadShare(bmId) {
     if (/401|needsLogin|logged in|log in/i.test(String(err))) {
       openShareLogin(bmId, _shareEmail);
     } else {
-      setShareBtnBusy(bmId, false, 'Share failed');
+      // Surface the real reason (e.g. the 90s-cap "trim and re-clip" message) on the
+      // button instead of a generic failure, then restore the label shortly after.
+      setShareBtnBusy(bmId, false, errText(err) || 'Share failed');
       console.error('[vodplayer] share_clip failed:', err);
     }
   }
 }
 
-// Entry from a row's Share button. If already shared (carries a url), just copy.
+// Entry from a row's Share button (unshared rows only — once shared the button is a
+// "Shared" indicator and the dedicated Copy button handles copying).
 async function shareClip(btn) {
   const bmId = Number(btn && btn.dataset && btn.dataset.shareBmId) || 0;
   if (!bmId) return;
-  const existingUrl = btn.dataset.shareUrl || '';
-  if (existingUrl) {
-    const copied = copyToClipboard(existingUrl);
-    btn.textContent = copied ? 'Copied ✓' : 'Copy link';
-    setTimeout(() => { if (btn) btn.textContent = 'Copy link'; }, 1600);
-    return;
-  }
+  if (btn.dataset.shareUrl) return; // already shared — Copy button owns copying
   if (!_core) return;
   await uploadShare(bmId);
 }
 
-// Find a share button by bookmark id (rows are re-rendered, so query each time).
+// Copy an already-shared clip's link from the dedicated Copy button.
+function copyClipLink(btn) {
+  const url = (btn && btn.dataset && btn.dataset.shareUrl) || '';
+  if (!url) return;
+  const copied = copyToClipboard(url);
+  const span = btn.querySelector('span');
+  if (span) {
+    const prev = span.textContent;
+    span.textContent = copied ? 'Copied' : 'Copy failed';
+    setTimeout(() => { if (span) span.textContent = prev || 'Copy'; }, 1600);
+  }
+}
+
+// Set the share button's LABEL span (so the icon survives). Rows re-render, so query.
 function shareBtnFor(bmId) {
   return document.querySelector(`.vp-share-btn[data-share-bm-id="${bmId}"]`);
+}
+function setShareLabel(btn, text) {
+  const span = btn && btn.querySelector('.vp-share-lbl');
+  if (span) span.textContent = text; else if (btn) btn.textContent = text;
 }
 function setShareBtnBusy(bmId, busy, label) {
   const btn = shareBtnFor(bmId);
   if (!btn) return;
   btn.disabled = !!busy;
-  if (label) btn.textContent = label;
+  if (label) setShareLabel(btn, label);
 }
 function setShareBtnDone(bmId, url, copied) {
   const btn = shareBtnFor(bmId);
   if (btn) {
     btn.disabled = false;
     btn.dataset.shareUrl = url;
-    btn.textContent = copied ? 'Link copied ✓' : 'Copy link';
+    btn.classList.add('is-shared');
+    setShareLabel(btn, 'Shared');
   }
+  // Reveal + arm the dedicated Copy-link button now that a URL exists.
+  const copyBtn = document.querySelector(`.vp-copy-btn[data-share-bm-id="${bmId}"]`);
+  if (copyBtn) { copyBtn.dataset.shareUrl = url; show(copyBtn, true); }
 }
 
 // Normalize a Tauri/sidecar error to a displayable string (strips the HTTP prefix).
@@ -832,6 +867,10 @@ document.addEventListener('click', async (ev) => {
     ev.preventDefault();
     ev.stopPropagation(); // don't let the row's jump fire
     await shareClip(t);
+  } else if (action === 'copy_clip_link') {
+    ev.preventDefault();
+    ev.stopPropagation(); // don't let the row's jump fire
+    copyClipLink(t);
   } else if (action === 'share_send_code') {
     ev.preventDefault();
     await shareSendCode();

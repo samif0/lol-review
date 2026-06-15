@@ -881,7 +881,7 @@ document.addEventListener('input', (ev) => {
 // review_vod  = VOD button on the hero card (→ vod viewer, deferred).
 // save_review = gather the editable form and COMMIT (no un-review), then refetch.
 // skip_review = mark the game reviewed without notes, then refetch.
-const ACTIONS = new Set(['review_vod', 'save_review', 'skip_review', 'delete_review']);
+const ACTIONS = new Set(['review_vod', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review']);
 
 document.addEventListener('click', async (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -923,6 +923,41 @@ document.addEventListener('click', async (ev) => {
       showCommit((err && err.message) ? err.message : 'Delete failed.', 'err');
       if (delBtn) delBtn.disabled = false;
       console.error('[review] delete_review failed:', err);
+    }
+    return;
+  }
+
+  // "Copy" / "Export" — this game's review as markdown. Both fetch the single-game
+  // markdown from the sidecar (get_review_export_markdown takes a plain {gameId}
+  // named arg — a READ command, NOT the {payload} write convention). Copy writes to
+  // the clipboard; Export opens the native save dialog via save_export_file (also
+  // plain named args, mirroring settings.js). Self-contained, no refetch.
+  if (action === 'copy_review' || action === 'export_review') {
+    const gid = Number((_subject && _subject.gameId) || target.dataset.gameId || 0);
+    if (!(gid > 0)) { showCommit('No game loaded.', 'err'); return; }
+    const invoke = await getInvoke();
+    if (!invoke) { showCommit(action === 'copy_review' ? 'Copied (preview, no backend).' : 'Export (preview, no backend).', 'ok'); return; }
+    const btn = target;
+    if ('disabled' in btn) btn.disabled = true;
+    showCommit(action === 'copy_review' ? 'Copying…' : 'Exporting…', null);
+    try {
+      const built = await invoke('get_review_export_markdown', { gameId: gid });
+      if (!built || built.found === false || typeof built.markdown !== 'string') {
+        showCommit('Could not build this review.', 'err');
+        return;
+      }
+      if (action === 'copy_review') {
+        await navigator.clipboard.writeText(built.markdown);
+        showCommit('Copied to clipboard.', 'ok');
+      } else {
+        const out = await invoke('save_export_file', { fileName: built.fileName || `revu-${gid}-review.md`, markdown: built.markdown });
+        showCommit(out && out.saved ? 'Export saved.' : 'Export canceled.', out && out.saved ? 'ok' : null);
+      }
+    } catch (err) {
+      showCommit(action === 'copy_review' ? 'Copy failed.' : 'Export failed.', 'err');
+      console.error(`[review] ${action} failed:`, err);
+    } finally {
+      if ('disabled' in btn) btn.disabled = false;
     }
     return;
   }
