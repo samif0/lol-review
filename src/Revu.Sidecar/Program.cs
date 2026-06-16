@@ -917,9 +917,12 @@ app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILo
     if (body.MinimizeDuringGame is not null) cfg.MinimizeDuringGame = body.MinimizeDuringGame.Value;
     if (body.AutoTimelineClippingEnabled is not null) cfg.AutoTimelineClippingEnabled = body.AutoTimelineClippingEnabled.Value;
     if (body.AutoTimelineClippingHintDismissed is not null) cfg.AutoTimelineClippingHintDismissed = body.AutoTimelineClippingHintDismissed.Value;
-    if (body.RiotId is not null) cfg.RiotId = body.RiotId.Trim();
+    // Riot identity: null/empty/whitespace = leave unchanged (same empty-overwrite
+    // guard the folders get — a pre-render save sending "" must not blank the linked
+    // account and break match-history sync). No clear affordance, so no sentinel.
+    if (ConfigSaveGuards.TryResolveIdentityWrite(body.RiotId, out var riotId)) cfg.RiotId = riotId;
     // Region is lower-cased on Save (mirror SettingsViewModel).
-    if (body.Region is not null) cfg.RiotRegion = body.Region.Trim().ToLowerInvariant();
+    if (ConfigSaveGuards.TryResolveIdentityWrite(body.Region, out var region)) cfg.RiotRegion = region.ToLowerInvariant();
     if (body.PrimaryRole is not null) cfg.PrimaryRole = body.PrimaryRole;
     // Onboarding ROLE-FINISH writes land here: the wizard's final step saves
     // PrimaryRole on both paths, and on the SKIP path also stamps

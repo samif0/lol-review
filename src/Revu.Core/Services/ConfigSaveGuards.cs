@@ -38,4 +38,24 @@ public static class ConfigSaveGuards
         resolved = trimmed;
         return true;
     }
+
+    /// <summary>
+    /// Decide how a Riot-identity field (riot_id / riot_region) from the config-save
+    /// body should be written. Same empty-overwrite hazard as the folders: a save
+    /// issued before the Settings page rendered sends "" and would blank the linked
+    /// account, breaking match-history sync (RiotProxyEnabled). Unlike folders there
+    /// is no "clear" affordance, so empty/whitespace ALWAYS means "leave unchanged" —
+    /// there is no sentinel and no explicit-clear path. Returns false (leave the saved
+    /// value unchanged) for null OR empty/whitespace; returns true with the trimmed
+    /// value otherwise. Identity-agnostic (case folding stays at the call site).
+    /// </summary>
+    public static bool TryResolveIdentityWrite(string? value, out string resolved)
+    {
+        resolved = "";
+        if (value is null) return false;
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0) return false;         // blank/empty → leave unchanged
+        resolved = trimmed;
+        return true;
+    }
 }

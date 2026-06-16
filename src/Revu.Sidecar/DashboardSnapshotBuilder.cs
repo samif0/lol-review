@@ -85,6 +85,16 @@ public sealed class DashboardSnapshotBuilder
         var now = DateTime.Now;
         var today = now.ToString("yyyy-MM-dd");
 
+        // Refresh the read-graph config cache before BuildGreeting reads RiotId /
+        // HasValidRiotSession off GetCached(). The auth endpoints write through a
+        // SEPARATE write-graph ConfigService, so without this reload the greeting can
+        // render the logged-out copy ("Lock in.") for one paint right after a
+        // successful login until the cache happens to refresh. Mirror ConfigSnapshot-
+        // Builder's LoadAsync try/catch: a transient failure degrades to the stale
+        // cache rather than blanking the whole dashboard.
+        try { await _configService.LoadAsync(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Dashboard: config LoadAsync failed; using cached config"); }
+
         // ── Today's session stats ───────────────────────────────────────────
         var stats = await _sessionLogRepo.GetStatsForDateAsync(today);
         var totalGames = stats.Games;

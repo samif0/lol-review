@@ -50,6 +50,10 @@ const TEXT_FIELDS = ['ascentFolder', 'clipsFolder', 'backupFolder', 'riotId', 'r
 // here. A field is removed from this set the moment it's re-picked or fresh config
 // is rendered.
 const FOLDER_FIELDS = new Set(['ascentFolder', 'clipsFolder', 'backupFolder']);
+// Riot identity text fields share the folder empty-overwrite hazard but with no
+// "clear" affordance: an empty input always means "leave unchanged" (omit the key),
+// never "blank the linked account". Guarded in collectPayload below.
+const IDENTITY_FIELDS = new Set(['riotId', 'region']);
 const _clearedFolders = new Set();
 // Sent verbatim to the sidecar for a DELIBERATE folder clear (P-023). Must match
 // Program.cs TryResolveFolderWrite's FolderClearSentinel byte-for-byte. The input
@@ -242,6 +246,12 @@ function collectPayload() {
       if (_clearedFolders.has(f)) p[f] = FOLDER_CLEAR_SENTINEL;
       continue;
     }
+    // Same empty-overwrite class for the Riot identity (riotId/region): a save
+    // fired before render() populates the inputs would otherwise send "" and blank
+    // the linked Riot account, detaching match-history sync (RiotProxyEnabled). The
+    // sidecar guards this too, but omit here at the source. There is no "clear Riot
+    // ID" affordance, so empty simply means "leave unchanged" — no sentinel needed.
+    if (IDENTITY_FIELDS.has(f) && v === '') continue;
     p[f] = v;
   }
   for (const f of NUM_FIELDS) {

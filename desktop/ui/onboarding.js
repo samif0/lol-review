@@ -418,8 +418,26 @@ async function chooseInitialState() {
     setState('welcome');
     return;
   }
+  // Retry on sidecar cold-start: opening Sign-in while the sidecar is still binding
+  // would otherwise swallow the not-ready throw to null and show a logged-OUT screen
+  // to a user whose persisted 30-day session is perfectly valid (a false logout that
+  // tempts them to re-enter an OTP they don't need). Mirror settings.js loadConfig:
+  // ~25 attempts at 400ms against the same transient predicate, then fall through to
+  // the logged-out cards as before. A non-transient throw also leaves status = null.
   let status = null;
-  try { status = await invoke(AUTH_CMD.status); } catch (_) { status = null; }
+  const maxAttempts = 25; // cold-start grace while the sidecar binds
+  for (let attempt = 1; ; attempt++) {
+    try { status = await invoke(AUTH_CMD.status); break; }
+    catch (err) {
+      const transient = /sidecar not ready|not ready|connection refused|failed to fetch/i.test(String(err));
+      if (transient && attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      status = null;
+      break;
+    }
+  }
 
   if (status && status.signedIn) {
     vm.acctEmail = status.email || '';
