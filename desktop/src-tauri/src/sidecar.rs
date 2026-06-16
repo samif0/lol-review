@@ -89,6 +89,14 @@ fn sidecar_exe_path() -> Option<PathBuf> {
     None
 }
 
+/// The spawned sidecar process, kept so we can KILL it on app exit / before an
+/// update applies. Critical for updates: the sidecar (a self-contained .NET exe)
+/// holds Revu.Sidecar.dll + LoLReview.Core.dll + the bundled runtime LOCKED. If it
+/// survives the app, Velopack's Update.exe can't swap those files → "partially
+/// installed". A dropped Child does NOT kill the process on Windows, so we must
+/// hold + kill it explicitly.
+static SIDECAR_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
 /// Spawn the sidecar process. We delete any stale handshake first so `wait_ready`
 /// only trusts a fresh one written by THIS launch.
 pub fn spawn() -> Result<(), String> {
@@ -113,9 +121,31 @@ pub fn spawn() -> Result<(), String> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    cmd.spawn()
+    let child = cmd
+        .spawn()
         .map_err(|e| format!("failed to spawn sidecar {exe:?}: {e}"))?;
+    // Keep the handle so stop() can kill it. Kill any prior one first (a relaunch
+    // path could spawn twice).
+    if let Ok(mut guard) = SIDECAR_CHILD.lock() {
+        if let Some(mut old) = guard.take() {
+            let _ = old.kill();
+        }
+        *guard = Some(child);
+    }
     Ok(())
+}
+
+/// Kill the sidecar and wait for it to exit, so it releases its file locks. Call
+/// before exiting the app for an update (and on normal shutdown). Best-effort:
+/// safe to call when there's no child. Returns once the process is gone (or the
+/// short wait elapses) so the caller can proceed to swap files / exit.
+pub fn stop() {
+    let child = SIDECAR_CHILD.lock().ok().and_then(|mut g| g.take());
+    if let Some(mut child) = child {
+        let _ = child.kill();
+        // Reap it so the OS releases the handle + file locks promptly.
+        let _ = child.wait();
+    }
 }
 
 /// Poll for the handshake file + /api/health=ready. Returns once ready or errors

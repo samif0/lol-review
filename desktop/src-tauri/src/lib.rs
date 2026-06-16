@@ -690,6 +690,12 @@ async fn apply_update(app: tauri::AppHandle) -> Result<(), String> {
     }
     cmd.spawn().map_err(|e| format!("failed to launch updater: {e}"))?;
 
+    // CRITICAL: kill the sidecar BEFORE exiting. It holds the install's DLLs +
+    // bundled runtime locked; if it survives, Update.exe can't swap those files and
+    // the update lands "partially installed". stop() kills + reaps it (unlocking the
+    // files), then we exit so the swap proceeds against an unlocked install dir.
+    sidecar::stop();
+
     // Give the updater a beat to start waiting on our PID, then exit so it can swap.
     std::thread::sleep(std::time::Duration::from_millis(400));
     app.exit(0);
@@ -946,6 +952,15 @@ pub fn run() {
             take_next_step,
             open_review
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app, event| {
+            // Kill the sidecar whenever the app is exiting so it never outlives the
+            // app and leaks (a stray sidecar also locks the install dir against the
+            // NEXT update). apply_update already calls stop() explicitly; this covers
+            // normal close + quit too.
+            if let tauri::RunEvent::Exit = event {
+                sidecar::stop();
+            }
+        });
 }
