@@ -104,6 +104,15 @@ pub fn spawn() -> Result<(), String> {
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
     }
+    // The sidecar is a .NET console-subsystem exe; spawned normally Windows gives
+    // it a visible console window. CREATE_NO_WINDOW suppresses it so no terminal
+    // flashes/stays open beside the app. (No-op on non-Windows.)
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd.spawn()
         .map_err(|e| format!("failed to spawn sidecar {exe:?}: {e}"))?;
     Ok(())

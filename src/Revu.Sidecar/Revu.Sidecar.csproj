@@ -2,6 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <!-- WinExe (windows subsystem, not console) so the sidecar never owns/allocates
+         a console window even if launched directly or if console handles are
+         inherited. The Tauri host also spawns it with CREATE_NO_WINDOW; this is the
+         belt-and-suspenders half. Kestrel + the minimal-API host run fine headless. -->
+    <OutputType>WinExe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Revu.Sidecar</RootNamespace>
