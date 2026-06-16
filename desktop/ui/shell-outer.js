@@ -109,10 +109,7 @@ async function fillAppVersion() {
   if (!invoke && window.__TAURI__?.core?.invoke) invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
   const el = document.getElementById('appbar-ver');
   if (!invoke || !el) return;
-  // The " ·auto-update test" suffix is a TEMPORARY visible marker shipped in v3.0.5
-  // to confirm an auto-update actually applied (you can SEE the new build in the
-  // title bar). Remove this suffix in the next release.
-  try { const v = await invoke('app_version'); if (v) el.textContent = `${String(v)} ·auto-update test`; } catch (_) { /* leave blank */ }
+  try { const v = await invoke('app_version'); if (v) el.textContent = String(v); } catch (_) { /* leave blank */ }
 }
 fillAppVersion();
 
