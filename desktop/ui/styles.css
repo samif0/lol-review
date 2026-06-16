@@ -481,6 +481,12 @@ html.framed .shell{padding-left:40px}
 .pill{display:inline-block;font-family:var(--fm);font-size:8px;letter-spacing:1.5px;color:var(--gold);border:1px solid rgba(243,199,148,0.45);border-radius:6px;padding:2px 8px;margin-bottom:6px;background:rgba(243,199,148,0.07)}
 .oname{font-size:17px;font-weight:600;color:#fff}
 .ometa{font-family:var(--fm);font-size:9px;letter-spacing:1px;color:var(--t3);margin-top:4px}
+/* Clickable objective card on the dashboard — opens its detail/games page. Calm
+   accent lift on hover/focus so it reads as actionable without being loud. */
+.card.obj-clickable{cursor:pointer;outline:none;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,box-shadow .16s ease}
+.card.obj-clickable:hover,.card.obj-clickable:focus-visible{transform:translateY(-2px);
+  border-color:rgba(157,139,255,0.4);box-shadow:0 16px 34px -20px rgba(0,0,0,0.75),0 0 0 1px rgba(157,139,255,0.18) inset}
 .objright{margin-left:auto;font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t3);text-align:right}
 
 /* ── MOTION ──────────────────────────────────────────────────────────────────

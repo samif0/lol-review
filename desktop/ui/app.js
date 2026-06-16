@@ -242,6 +242,22 @@ function renderObjectives(d) {
       o.metaText || [o.levelName, o.phaseLabel, o.score != null ? `${o.score} PTS` : null]
         .filter(Boolean).join(' · ').toUpperCase();
 
+    // Make the whole objective card a button into its detail page (games + stats
+    // + the per-objective notes/VOD flow). Keyboard-accessible; the shell's
+    // frame.load re-syncs the Objectives nav item once we land there. NOTE: tpl()
+    // returns the template's root, which IS the .card — so wire `el` itself, not a
+    // descendant query (the card is not a child of the clone).
+    if (o.id != null) {
+      el.classList.add('obj-clickable');
+      el.setAttribute('role', 'button');
+      el.tabIndex = 0;
+      const go = () => { window.location.href = `objectivegames.html?id=${encodeURIComponent(o.id)}`; };
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); }
+      });
+    }
+
     host.appendChild(el);
   }
 }
