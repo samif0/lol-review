@@ -306,7 +306,7 @@ function setSaveStatus(text, tone) { setStatusEl($('save-status'), text, tone, t
 const ACTIONS = new Set([
   'save_config', 'pick_ascent', 'pick_clips', 'pick_backup', 'clear_ascent',
   'scan_vods', 'refresh_backups', 'export_data', 'open_logs',
-  'restore_backup', 'reset_all_data',
+  'restore_backup', 'reset_all_data', 'check_update', 'install_update',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -340,6 +340,8 @@ document.addEventListener('click', async (ev) => {
     if (action === 'open_logs') return await invoke('open_log_folder');
     if (action === 'restore_backup') return await doRestore(invoke, target);
     if (action === 'reset_all_data') return await doReset(invoke, target);
+    if (action === 'check_update') return await doCheckUpdate(invoke);
+    if (action === 'install_update') return await doInstallUpdate(invoke, target);
   } catch (err) {
     console.error(`[settings] ${action} failed:`, err);
     renderError(err);
@@ -390,6 +392,65 @@ function errText(err) {
   const s = (err && err.message) ? err.message : String(err);
   const m = s.match(/sidecar HTTP \d+:\s*(.*)$/i);
   return m ? m[1] : s;
+}
+
+// ── App updates (Velopack) ───────────────────────────────────────────────────
+// Show the current version on load; Check queries the GitHub feed; Install
+// downloads + applies (the app relaunches). Mirrors the shell banner, here as an
+// explicit Settings control.
+let _updateInfo = null;
+async function loadAppVersion() {
+  const verEl = $('update-ver');
+  const invoke = await getInvoke();
+  if (!invoke) { if (verEl) verEl.textContent = 'Version: preview'; return; }
+  try {
+    const v = await invoke('app_version');
+    if (verEl) verEl.textContent = `Version: ${v || 'unknown'}`;
+  } catch (_) { if (verEl) verEl.textContent = 'Version: unknown'; }
+}
+
+async function doCheckUpdate(invoke) {
+  const btn = $('check-update-btn');
+  const installBtn = $('install-update-btn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  setStatusEl($('update-status'), 'Checking for updates…', null, false);
+  try {
+    const r = await invoke('check_update');
+    _updateInfo = r;
+    if (r && r.available) {
+      setStatusEl($('update-status'), r.message || `Update available: v${r.newVersion}`, 'good', false);
+      if (installBtn) installBtn.hidden = false;
+    } else {
+      setStatusEl($('update-status'), (r && r.message) || "You're on the latest version.", null, true);
+      if (installBtn) installBtn.hidden = true;
+    }
+  } catch (err) {
+    setStatusEl($('update-status'), 'Update check failed.', 'bad', false);
+    console.error('[settings] check_update failed:', err);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prev || 'Check for updates'; }
+  }
+}
+
+async function doInstallUpdate(invoke, target) {
+  if ('disabled' in target) target.disabled = true;
+  setStatusEl($('update-status'), 'Downloading update…', null, false);
+  try {
+    const d = await invoke('download_update');
+    if (!d || d.ok === false) {
+      setStatusEl($('update-status'), (d && d.message) || 'Download failed.', 'bad', false);
+      if ('disabled' in target) target.disabled = false;
+      return;
+    }
+    setStatusEl($('update-status'), 'Installing… the app will restart.', null, false);
+    // apply_update relaunches the app — this won't return on success.
+    await invoke('apply_update');
+  } catch (err) {
+    setStatusEl($('update-status'), 'Update failed. Try again later.', 'bad', false);
+    if ('disabled' in target) target.disabled = false;
+    console.error('[settings] install_update failed:', err);
+  }
 }
 
 // save_config = persist the editable surface; refetch after to reflect the
@@ -489,8 +550,9 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────
+function boot() { loadConfig(); loadAppVersion(); }
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', loadConfig);
+  document.addEventListener('DOMContentLoaded', boot);
 } else {
-  loadConfig();
+  boot();
 }

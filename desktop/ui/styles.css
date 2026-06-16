@@ -229,6 +229,33 @@ body[data-sidebar-anim="off"] .nav.nav-ready::before{animation:none}
 .winbtn:hover{background:rgba(255,255,255,0.08);color:#fff}
 .winbtn-close:hover{background:#e23b48;color:#fff}
 
+/* Update banner — fixed below the title bar, shown when a newer release is found.
+   Gold/accent toned so it reads as a friendly call to action, not an error. When
+   visible (body.has-updbar) the rail + iframe shift down by its 36px height. */
+.updbar{position:fixed;left:0;right:0;top:34px;height:36px;z-index:49;
+  display:flex;align-items:center;gap:11px;padding:0 14px;
+  background:rgba(30,22,52,0.96);backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(157,139,255,0.35);
+  box-shadow:0 6px 18px -10px rgba(0,0,0,0.6)}
+.updbar[hidden]{display:none}
+.updbar-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--accent);
+  box-shadow:0 0 8px rgba(157,139,255,0.9);animation:dot-pulse 2.4s ease-in-out infinite}
+.updbar-txt{flex:1;min-width:0;font-family:var(--fb);font-size:12.5px;color:var(--t2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.updbar-btn{flex-shrink:0;font-family:var(--fm);font-size:10px;letter-spacing:1px;
+  text-transform:uppercase;font-weight:700;color:#1b1233;cursor:pointer;border:none;
+  border-radius:8px;padding:6px 13px;background:linear-gradient(180deg,#bcacff,var(--accent));
+  box-shadow:0 6px 16px -8px rgba(157,139,255,0.7);transition:filter .14s ease,opacity .14s ease}
+.updbar-btn:hover:not(:disabled){filter:brightness(1.08)}
+.updbar-btn:disabled{opacity:0.6;cursor:default}
+.updbar-x{flex-shrink:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;
+  border:none;background:transparent;color:var(--t4);font-size:18px;line-height:1;cursor:pointer;
+  border-radius:7px;transition:color .14s ease,background .14s ease}
+.updbar-x:hover{color:var(--t1);background:rgba(255,255,255,0.08)}
+/* Shift the rail + content down when the banner is up so nothing is occluded. */
+body.has-updbar .nav{top:70px}
+body.has-updbar .app-frame{top:70px;height:calc(100vh - 70px)}
+
 /* The persistent shell's content iframe — fills everything right of the 72px rail,
    below the 34px title strip. Only this element reloads on navigation; the rail +
    title strip beside/above it never do. */
@@ -2156,6 +2183,10 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 /* Number input chrome reuse — strip spinner noise but keep .obj-input look. */
 .set-card input[type=number]{appearance:textfield}
 .set-card select.obj-input{cursor:pointer}
+
+/* App-updates row — version label on the left, check/install buttons on the right. */
+.set-update-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.set-update-ver{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3)}
 
 /* Account card. */
 .set-account{border-color:rgba(57,150,255,0.30)}

@@ -639,6 +639,63 @@ async fn scan_vods() -> Result<serde_json::Value, String> {
     sidecar::post_json("/api/settings/scan-vods", serde_json::json!({})).await
 }
 
+// ── Auto-update (Velopack) ───────────────────────────────────────────────────
+// The CHECK + DOWNLOAD run in the sidecar (Velopack UpdateManager). The APPLY runs
+// HERE, because Velopack's Update.exe must swap files under the main exe and then
+// relaunch it — which only works driven from the installed app, not the sidecar.
+
+/// Ask the sidecar whether a newer release exists. Returns the UpdateCheckResult
+/// shape { ok, installed, available, currentVersion, newVersion, message }.
+#[tauri::command]
+async fn check_update() -> Result<serde_json::Value, String> {
+    sidecar::get_json("/api/update/check").await
+}
+
+/// Stage the discovered update's package (sidecar → Velopack DownloadUpdatesAsync).
+/// Returns { ok, packagePath, version, message }. Apply is a separate step.
+#[tauri::command]
+async fn download_update() -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/update/download", serde_json::json!({})).await
+}
+
+/// Apply a previously-downloaded update and restart. Invokes the install's bundled
+/// Update.exe: `apply --silent --waitPid <our pid>` waits for THIS process to exit,
+/// swaps in the staged package, and relaunches the app. We spawn it detached, then
+/// the caller exits the app so the swap can proceed. No-op (returns an error the UI
+/// shows) when not a Velopack install (dev run) — Update.exe won't be present.
+#[tauri::command]
+async fn apply_update(app: tauri::AppHandle) -> Result<(), String> {
+    // Update.exe sits at the install ROOT, one level up from current/<app>.exe.
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    // current/ -> install root. Try parent.parent (current/ layout) then parent.
+    let root = exe
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf())
+        .or_else(|| exe.parent().map(|p| p.to_path_buf()))
+        .ok_or_else(|| "could not resolve install root".to_string())?;
+    let updater = root.join("Update.exe");
+    if !updater.exists() {
+        return Err("Update.exe not found — updates apply only in the installed app.".into());
+    }
+
+    let pid = std::process::id();
+    let mut cmd = std::process::Command::new(&updater);
+    cmd.arg("apply").arg("--silent").arg("--waitPid").arg(pid.to_string());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd.spawn().map_err(|e| format!("failed to launch updater: {e}"))?;
+
+    // Give the updater a beat to start waiting on our PID, then exit so it can swap.
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    app.exit(0);
+    Ok(())
+}
+
 /// Builds the Markdown review export and returns { ok, markdown, fileName }. The
 /// sidecar does NOT write a file — save_export_file (below) handles the native
 /// save dialog + disk write. See Revu.Sidecar GET /api/settings/export.
@@ -870,6 +927,9 @@ pub fn run() {
             run_backfill,
             get_settings_status,
             scan_vods,
+            check_update,
+            download_update,
+            apply_update,
             get_export_markdown,
             get_review_export_markdown,
             app_version,

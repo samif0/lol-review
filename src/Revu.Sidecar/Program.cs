@@ -134,6 +134,9 @@ services.AddSingleton<ConfigSnapshotBuilder>();
 // the filesystem for ffmpeg (no DB); IBackupService is already registered above.
 services.AddSingleton<IClipService, ClipService>();
 services.AddSingleton<SettingsStatusSnapshotBuilder>();
+// Update check + download (Velopack UpdateManager). Apply/restart is the Rust
+// host's job (it must run as the main exe); this only checks + stages.
+services.AddSingleton<UpdateService>();
 // Markdown export (GET /api/settings/export): IReviewExportService.ExportAllAsync
 // is a pure read over the history/objectives/tags/prompts/vod/matchup/evidence
 // repos already registered above. The sidecar returns the markdown string; the
@@ -571,6 +574,17 @@ app.MapGet("/api/config", async (ConfigSnapshotBuilder b, CancellationToken ct) 
 // Pairs with GET /api/config (the editable surface) to fully hydrate the page.
 app.MapGet("/api/settings/status", async (SettingsStatusSnapshotBuilder b, CancellationToken ct) =>
     Results.Json(await b.BuildAsync(ct), jsonOptions));
+
+// GET /api/update/check — ask the GitHub release feed whether a newer version
+// exists (Velopack UpdateManager). Read-only; never throws. The host polls this on
+// launch (banner) and Settings (manual check). Returns the UpdateCheckResult shape.
+app.MapGet("/api/update/check", async (UpdateService upd) =>
+    Results.Json(await upd.CheckAsync(), jsonOptions));
+
+// POST /api/update/download — stage the discovered update's package locally so the
+// Rust host can apply it via Update.exe. Returns { ok, packagePath, version }.
+app.MapPost("/api/update/download", async (UpdateService upd) =>
+    Results.Json(await upd.DownloadAsync(), jsonOptions));
 
 // ── GET /api/settings/export (token-gated): build the Markdown review export ──
 // Pure READ: IReviewExportService.ExportAllAsync bundles games/notes/prompts/

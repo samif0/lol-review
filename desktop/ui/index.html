@@ -57,6 +57,16 @@
     </div>
   </header>
 
+  <!-- Update banner. Hidden until shell-outer.js finds a newer release on launch
+       (or a manual Settings check). Sits just under the title bar. The button
+       downloads + applies the update (the app relaunches into the new version). -->
+  <div class="updbar" id="updbar" hidden>
+    <span class="updbar-dot"></span>
+    <span class="updbar-txt" id="updbar-txt">A new version of Revu is available.</span>
+    <button class="updbar-btn" id="updbar-btn" type="button">Update &amp; restart</button>
+    <button class="updbar-x" id="updbar-x" type="button" aria-label="Dismiss" title="Dismiss">&times;</button>
+  </div>
+
   <!-- The content viewport. Pages load here; only this reloads on navigation. The
        initial page is the dashboard; a #hash on the shell URL can deep-link a page
        (e.g. index.html#vodplayer.html?gameId=5) — see shell-outer.js. -->

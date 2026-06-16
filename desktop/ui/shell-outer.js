@@ -113,6 +113,80 @@ async function fillAppVersion() {
 }
 fillAppVersion();
 
+// ── Auto-update (Velopack) ───────────────────────────────────────────────────
+// On launch, ask the sidecar if a newer release exists; if so, show the banner.
+// The button downloads + applies (the app relaunches into the new version). The
+// check is best-effort: a dev run / offline / failed check just leaves it hidden.
+// Settings drives its own manual check via the same commands (settings.js).
+async function shellInvoke() {
+  try {
+    const core = await import('@tauri-apps/api/core');
+    if (core && typeof core.invoke === 'function') return core.invoke;
+  } catch (_) { /* fall through */ }
+  if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+  return null;
+}
+
+let _updateAvailable = false;
+function showUpdateBanner(version) {
+  const bar = document.getElementById('updbar');
+  const txt = document.getElementById('updbar-txt');
+  if (!bar) return;
+  if (txt) txt.textContent = version
+    ? `Revu ${version} is available.`
+    : 'A new version of Revu is available.';
+  bar.hidden = false;
+  document.body.classList.add('has-updbar');
+}
+function hideUpdateBanner() {
+  const bar = document.getElementById('updbar');
+  if (bar) bar.hidden = true;
+  document.body.classList.remove('has-updbar');
+}
+
+async function runUpdateAndRestart() {
+  const invoke = await shellInvoke();
+  if (!invoke) return;
+  const btn = document.getElementById('updbar-btn');
+  const txt = document.getElementById('updbar-txt');
+  if (btn) btn.disabled = true;
+  try {
+    if (txt) txt.textContent = 'Downloading update…';
+    const d = await invoke('download_update');
+    if (!d || d.ok === false) {
+      if (txt) txt.textContent = (d && d.message) ? d.message : 'Download failed.';
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (txt) txt.textContent = 'Installing… the app will restart.';
+    // apply_update relaunches the app — this call won't return on success.
+    await invoke('apply_update');
+  } catch (err) {
+    if (txt) txt.textContent = 'Update failed. Try again later.';
+    if (btn) btn.disabled = false;
+    console.error('[shell] update failed:', err);
+  }
+}
+
+async function checkForUpdateOnLaunch() {
+  const invoke = await shellInvoke();
+  if (!invoke) return; // preview / no backend
+  try {
+    const r = await invoke('check_update');
+    if (r && r.ok && r.available) {
+      _updateAvailable = true;
+      showUpdateBanner(r.newVersion);
+    }
+  } catch (_) { /* sidecar not ready / offline — silent, retried on next launch */ }
+}
+
+// Wire the banner buttons (delegated; the banner is static markup in the shell).
+document.getElementById('updbar-btn')?.addEventListener('click', runUpdateAndRestart);
+document.getElementById('updbar-x')?.addEventListener('click', hideUpdateBanner);
+
+// Defer the check a touch so the sidecar handshake is up first.
+setTimeout(checkForUpdateOnLaunch, 2500);
+
 // ── LCU (League Client) connection indicator ─────────────────────────────────
 // Toggles the appbar's LCU chip between connected (green dot) and not. Called from
 // the SSE listener below: seeded by the replayed liveState, updated live by the

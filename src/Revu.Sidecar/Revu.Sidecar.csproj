@@ -28,6 +28,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
+    <!-- Velopack client lib for the update CHECK + DOWNLOAD (UpdateManager). The
+         APPLY/restart is driven by the bundled Update.exe from the Rust host, since
+         that must run as the main exe. Version tracks the installed Update.exe (1.x). -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 
 </Project>

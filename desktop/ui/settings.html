@@ -223,9 +223,16 @@
 
     <div class="card set-card">
       <div class="seclabel">App Updates</div>
-      <div class="set-row-s">Updates are managed by the installer for the desktop shell; there's
-        nothing to check here. The app picks up new versions automatically.</div>
-      <div class="set-acct-note">Managed by installer.</div>
+      <div class="set-row-s">Revu checks for updates on launch. You can also check now. Installing
+        an update downloads it and restarts the app into the new version.</div>
+      <div class="set-update-row">
+        <div class="set-update-ver" id="update-ver">Version: …</div>
+        <div class="set-btnrow" style="margin:0">
+          <button class="rule-act" type="button" data-action="check_update" id="check-update-btn">Check for updates</button>
+          <button class="rule-act set-act-primary" type="button" data-action="install_update" id="install-update-btn" hidden>Update &amp; restart</button>
+        </div>
+      </div>
+      <div class="set-status" id="update-status" hidden></div>
     </div>
 
     <!-- GLOBAL SAVE -->
