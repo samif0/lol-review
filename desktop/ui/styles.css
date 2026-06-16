@@ -724,7 +724,7 @@ html.framed .shell{padding-left:40px}
 .obj-toggle:hover{color:var(--t1);background:rgba(157,139,255,0.07);border-color:rgba(157,139,255,0.28)}
 .obj-toggle .arr{font-size:10px}
 #completed-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
-.obj-done{margin-bottom:0;display:flex;align-items:center;gap:14px;opacity:0.88;padding:13px 18px}
+.obj-done{margin-bottom:0;display:flex;flex-wrap:wrap;align-items:center;gap:14px;opacity:0.88;padding:13px 18px}
 .obj-done-main{flex:1;min-width:0}
 .obj-done-name{font-size:14px;color:var(--t2)}
 .obj-done-phase{font-family:var(--fm);font-size:9px;letter-spacing:1px;color:var(--t4);margin-top:3px}
@@ -860,7 +860,7 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .obj-act-early:hover{color:var(--win);border-color:rgba(142,231,186,0.4);background:rgba(142,231,186,0.07)}
 
 /* Completed-row action strip — right-aligned, tighter top border. */
-.obj-done-actrow{justify-content:flex-end;width:100%;margin-top:12px;padding-top:11px}
+.obj-done-actrow{justify-content:flex-end;width:100%;flex-basis:100%;margin-top:12px;padding-top:11px}
 
 /* MILESTONE CELEBRATION OVERLAY — full-screen scrim + HUD card with corner
    brackets; entrance scale/opacity. */
