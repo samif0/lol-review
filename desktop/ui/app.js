@@ -470,7 +470,7 @@ function openEndBlockEditor(cta) {
   const confirm = document.createElement('button');
   confirm.type = 'button';
   confirm.className = 'cta cta-sm';
-  confirm.textContent = 'LOCK IN →';
+  confirm.textContent = 'FINISH →';
   const cancel = document.createElement('button');
   cancel.type = 'button';
   cancel.className = 'intent-cancel';

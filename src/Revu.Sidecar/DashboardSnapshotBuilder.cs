@@ -100,11 +100,12 @@ public sealed class DashboardSnapshotBuilder
         var adherenceSub = adherenceStreak > 0 ? "DAYS W/O RULE TRIPS" : "NO ACTIVE STREAK";
 
         // ── Start Block intent / End Block debrief ──────────────────────────
-        // Prefer today's session. But a block is "open" until it's ended, so if
-        // today has no open block, carry over the most recent UNENDED block from a
-        // prior day — otherwise End Block would vanish the next calendar day and the
-        // block could never be closed (the original bug). BlockDate tells the client
-        // which row End Block must target.
+        // Prefer today's session. A block is "open" until it's ended, so if today
+        // has no open block, carry over an unfinished one from YESTERDAY (only) so a
+        // block you forgot to close last night can still be ended — without letting
+        // ancient orphaned blocks trap the dashboard on End Block forever (older ones
+        // are treated as abandoned and you can Start Block fresh). BlockDate tells the
+        // client which row End Block must target.
         var sessionInfo = await _sessionLogRepo.GetSessionAsync(today);
         var todayIsOpen = sessionInfo != null
             && !string.IsNullOrWhiteSpace(sessionInfo.Intention)
@@ -115,8 +116,9 @@ public sealed class DashboardSnapshotBuilder
         if (!todayIsOpen
             && (sessionInfo == null || string.IsNullOrWhiteSpace(sessionInfo.Intention)))
         {
-            // Today hasn't started a block of its own — look for an unfinished one.
-            var openBlock = await _sessionLogRepo.GetOpenBlockAsync();
+            // Only carry over a block from yesterday onward — a just-missed close-out.
+            var yesterday = now.AddDays(-1).ToString("yyyy-MM-dd");
+            var openBlock = await _sessionLogRepo.GetOpenBlockAsync(yesterday);
             if (openBlock != null)
             {
                 sessionInfo = openBlock;

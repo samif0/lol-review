@@ -470,22 +470,26 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return await reader.ReadAsync() ? MapSessionInfo(reader) : null;
     }
 
-    public async Task<SessionInfo?> GetOpenBlockAsync()
+    public async Task<SessionInfo?> GetOpenBlockAsync(string minDate)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
 
         // An OPEN block has an intention but was never ended (no debrief / ended_at).
-        // Pick the most recent such row so a block left unfinished on a prior day can
-        // still be closed out today. debrief_rating defaults to 0 for an open block.
+        // Bounded to date >= minDate so only a just-missed block (e.g. yesterday's)
+        // is offered — older orphans stay abandoned and don't trap the dashboard on
+        // End Block forever. debrief_rating defaults to 0 for an open block. Dates are
+        // yyyy-MM-dd, so a lexical string compare is also a chronological one.
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
             SELECT * FROM sessions
             WHERE TRIM(COALESCE(intention, '')) <> ''
               AND ended_at IS NULL
               AND COALESCE(debrief_rating, 0) = 0
+              AND date >= @minDate
             ORDER BY date DESC
             LIMIT 1";
+        cmd.Parameters.AddWithValue("@minDate", minDate);
 
         await using var reader = await cmd.ExecuteReaderAsync();
         return await reader.ReadAsync() ? MapSessionInfo(reader) : null;

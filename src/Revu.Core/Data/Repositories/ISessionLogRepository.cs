@@ -155,12 +155,13 @@ public interface ISessionLogRepository
     Task<SessionInfo?> GetSessionAsync(string dateStr);
 
     /// <summary>
-    /// The most recent OPEN block: a session with an intention set but no debrief
-    /// recorded yet (started but never ended), regardless of calendar date. Null
-    /// when there is no open block. Lets End Block carry over across days so a block
-    /// left unfinished can still be closed out.
+    /// The most recent OPEN block on or after <paramref name="minDate"/>: a session
+    /// with an intention set but no debrief recorded yet (started but never ended).
+    /// Null when there's no such recent open block. minDate bounds the carry-over so
+    /// only a just-missed block (e.g. yesterday's) is offered for End Block — older
+    /// orphaned blocks are treated as abandoned and never reclaim the dashboard.
     /// </summary>
-    Task<SessionInfo?> GetOpenBlockAsync();
+    Task<SessionInfo?> GetOpenBlockAsync(string minDate);
 
     /// <summary>Check if a game already has a session_log entry.</summary>
     Task<bool> HasEntryAsync(long gameId);
