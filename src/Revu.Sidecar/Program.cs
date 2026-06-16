@@ -20,6 +20,7 @@ using Revu.Core.Data.Repositories;
 using Revu.Core.Lcu;
 using Revu.Core.Services;
 using Revu.Sidecar;
+using Velopack;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Revu localhost sidecar.
@@ -34,6 +35,22 @@ using Revu.Sidecar;
 // SqliteOpenMode.ReadOnly. The sidecar never creates, writes, or migrates the
 // database. This is a hard requirement for the migration phase.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// MUST be the first thing the process does. Velopack's UpdateManager refuses to
+// work until a VelopackLocator is initialised: `new UpdateManager(...)` throws
+// "No VelopackLocator has been set. Either call VelopackApp.Build().Run() or
+// provide IVelopackLocator..." — even inside a real install. Without this call
+// UpdateService.Mgr() swallowed that throw, reported IsInstalled=false /
+// CurrentVersion="dev", and NEVER queried the GitHub feed, so "Check for updates"
+// silently found nothing. Run() bootstraps the locator from this exe's install
+// layout (current/ + ../Update.exe), making the update check work.
+//
+// The Velopack *lifecycle hooks* (--veloapp-install/-updated/-obsolete/-uninstall,
+// -firstrun) are owned by the Rust host (revu-desktop.exe is the registered
+// mainExe; see desktop/src-tauri/src/main.rs). The sidecar is a child process and
+// never receives those args, so Run() here only initialises the locator and
+// returns immediately — it does not hijack the lifecycle.
+VelopackApp.Build().Run();
 
 var builder = WebApplication.CreateBuilder(args);
 
