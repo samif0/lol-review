@@ -489,6 +489,19 @@ function evidRow(item, objectiveOptions, isAttached) {
   const id = Number(item.id);
   el.dataset.evidId = String(Number.isFinite(id) ? id : 0);
 
+  // Make the moment card jump to the VOD at its start time. Only when we have a
+  // real seek point — moments without a timestamp aren't clickable. The click is
+  // routed through the delegated handler (data-action), which ignores clicks that
+  // land on the inner triage controls so Good/Bad/picker/Dismiss still work.
+  const seek = Number(item.startTimeSeconds);
+  if (Number.isFinite(seek) && seek > 0) {
+    el.dataset.action = 'view_moment';
+    el.dataset.seek = String(Math.floor(seek));
+    el.classList.add('rv-evid-clickable');
+    el.setAttribute('role', 'button');
+    el.tabIndex = 0;
+  }
+
   const dot = el.querySelector('.rv-evid-dot');
   if (item.polarityColorHex) dot.style.background = item.polarityColorHex;
 
@@ -837,11 +850,12 @@ document.addEventListener('click', (ev) => {
   }
 });
 
-// Keyboard activation (Enter/Space) for the role=button chips (death + tag).
+// Keyboard activation (Enter/Space) for the role=button chips (death + tag) and
+// the clickable evidence cards.
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
   const t = ev.target;
-  if (t && t.classList && (t.classList.contains('rv-dchip') || t.classList.contains('rv-tagcat-chip'))) {
+  if (t && t.classList && (t.classList.contains('rv-dchip') || t.classList.contains('rv-tagcat-chip') || t.classList.contains('rv-evid-clickable'))) {
     ev.preventDefault();
     t.click();
   }
@@ -881,9 +895,13 @@ document.addEventListener('input', (ev) => {
 // review_vod  = VOD button on the hero card (→ vod viewer, deferred).
 // save_review = gather the editable form and COMMIT (no un-review), then refetch.
 // skip_review = mark the game reviewed without notes, then refetch.
-const ACTIONS = new Set(['review_vod', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review']);
+const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review']);
 
 document.addEventListener('click', async (ev) => {
+  // An evidence card jump must NOT fire when the click landed on its inner triage
+  // controls (Good/Bad/Dismiss/objective picker) — those have their own handler.
+  if (ev.target.closest('.rv-evid-actions')) return;
+
   const target = ev.target.closest('[data-action]');
   if (!target) return;
   const action = target.dataset.action;
@@ -895,6 +913,18 @@ document.addEventListener('click', async (ev) => {
   if (action === 'review_vod') {
     const gid = (_subject && _subject.gameId) || target.dataset.gameId;
     if (gid) window.location.href = `vodplayer.html?gameId=${encodeURIComponent(gid)}`;
+    return;
+  }
+
+  // Clicking a moment/evidence card jumps to that game's VOD at the moment's start
+  // time (vodplayer reads ?t=seconds). gameId is the loaded subject's.
+  if (action === 'view_moment') {
+    const gid = (_subject && _subject.gameId) || target.dataset.gameId;
+    const t = Number(target.dataset.seek) || 0;
+    if (gid && t > 0) {
+      window.location.href =
+        `vodplayer.html?gameId=${encodeURIComponent(gid)}&t=${encodeURIComponent(t)}`;
+    }
     return;
   }
 

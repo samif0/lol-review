@@ -154,6 +154,14 @@ public interface ISessionLogRepository
     /// <summary>Get the full session record for a date, or null.</summary>
     Task<SessionInfo?> GetSessionAsync(string dateStr);
 
+    /// <summary>
+    /// The most recent OPEN block: a session with an intention set but no debrief
+    /// recorded yet (started but never ended), regardless of calendar date. Null
+    /// when there is no open block. Lets End Block carry over across days so a block
+    /// left unfinished can still be closed out.
+    /// </summary>
+    Task<SessionInfo?> GetOpenBlockAsync();
+
     /// <summary>Check if a game already has a session_log entry.</summary>
     Task<bool> HasEntryAsync(long gameId);
 

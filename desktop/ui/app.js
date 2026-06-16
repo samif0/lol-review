@@ -93,13 +93,22 @@ function renderNextStep(d) {
   const cta = $('nextstep-cta');
 
   if (blockActive) {
-    $('nextstep-k').textContent = 'In session · End Block';
-    $('nextstep-h').textContent = 'Wrap the block.';
-    $('nextstep-p').textContent = `Focus: ${intent.sessionIntention}. Rate how the block went and lock it in.`;
+    // A block carried over from a prior day (started, never ended) still gets End
+    // Block so it can be closed — nudge the user to wrap it. Stash the block's own
+    // date on the button so end_block targets the right row, not just today.
+    const carried = !!intent.carriedOver;
+    $('nextstep-k').textContent = carried ? 'Unfinished block · End Block' : 'In session · End Block';
+    $('nextstep-h').textContent = carried ? 'Wrap your last block.' : 'Wrap the block.';
+    $('nextstep-p').textContent = carried
+      ? `You left "${intent.sessionIntention}" open. Rate how it went and lock it in.`
+      : `Focus: ${intent.sessionIntention}. Rate how the block went and lock it in.`;
     cta.textContent = 'END BLOCK →';
     cta.dataset.action = 'end_block';
+    if (intent.blockDate) cta.dataset.blockDate = String(intent.blockDate);
+    else delete cta.dataset.blockDate;
     return;
   }
+  delete cta.dataset.blockDate;
 
   // Server may override the card copy; defaults match the mockup.
   $('nextstep-k').textContent = ns.kicker || 'Next step · Start Block';
@@ -489,7 +498,11 @@ function openEndBlockEditor(cta) {
     confirm.disabled = true;
     note.disabled = true;
     try {
-      await invoke('end_block', { payload: { rating: _rating, note: note.value.trim() } });
+      // Carry the open block's own date so a carried-over (prior-day) block closes
+      // the right row; omitted when it's just today's block.
+      const payload = { rating: _rating, note: note.value.trim() };
+      if (cta.dataset.blockDate) payload.date = cta.dataset.blockDate;
+      await invoke('end_block', { payload });
       close(false);
       await loadDashboard();
     } catch (err) {

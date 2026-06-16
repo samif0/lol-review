@@ -59,10 +59,18 @@ public sealed record NextStepDto(
     string CtaLabel,
     string Action);
 
-/// <summary>Today's Start Block intent + End Block debrief (null when unset).</summary>
+/// <summary>
+/// The active block's Start Block intent + End Block debrief (null when unset).
+/// BlockDate is the date the active/open block belongs to — usually today, but it
+/// can be an earlier day when a block was started and never ended (it carries over
+/// so End Block can still close it). CarriedOver marks that prior-day case so the UI
+/// can hint "wrap your last block". End Block must target BlockDate, not today.
+/// </summary>
 public sealed record IntentDto(
     string? SessionIntention,
-    int? DebriefRating);
+    int? DebriefRating,
+    string? BlockDate = null,
+    bool CarriedOver = false);
 
 /// <summary>
 /// 14-day classified death mix. <see cref="Text"/> is the ready-to-show

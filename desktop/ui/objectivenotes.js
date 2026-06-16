@@ -113,6 +113,14 @@ function renderClips(d) {
     const el = tpl('tpl-clip');
     if (b.gameId != null) el.dataset.gameId = String(b.gameId);
     el.dataset.seek = String(Number(b.gameTimeSeconds) || 0);
+    // The whole card jumps to the VOD at the bookmark time (same as the Play
+    // button), so clicking anywhere on it works — not just the small button.
+    if (b.gameId != null) {
+      el.dataset.action = 'play_clip';
+      el.classList.add('on-card-clickable');
+      el.setAttribute('role', 'button');
+      el.tabIndex = 0;
+    }
     el.querySelector('.on-clip-time').textContent = b.timeLabel || '';
     el.querySelector('.on-clip-game').textContent = b.gameLabel || '';
 
@@ -214,6 +222,16 @@ document.addEventListener('click', (ev) => {
     const t = row ? Number(row.dataset.seek) || 0 : 0;
     const seek = t > 0 ? `&t=${encodeURIComponent(t)}` : '';
     window.location.href = `vodplayer.html?gameId=${encodeURIComponent(gid)}${seek}`;
+  }
+});
+
+// Keyboard activation (Enter/Space) for the clickable clip cards (role=button).
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  const t = ev.target;
+  if (t && t.classList && t.classList.contains('on-card-clickable')) {
+    ev.preventDefault();
+    t.click();
   }
 });
 

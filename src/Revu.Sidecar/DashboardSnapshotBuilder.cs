@@ -100,14 +100,40 @@ public sealed class DashboardSnapshotBuilder
         var adherenceSub = adherenceStreak > 0 ? "DAYS W/O RULE TRIPS" : "NO ACTIVE STREAK";
 
         // ── Start Block intent / End Block debrief ──────────────────────────
+        // Prefer today's session. But a block is "open" until it's ended, so if
+        // today has no open block, carry over the most recent UNENDED block from a
+        // prior day — otherwise End Block would vanish the next calendar day and the
+        // block could never be closed (the original bug). BlockDate tells the client
+        // which row End Block must target.
         var sessionInfo = await _sessionLogRepo.GetSessionAsync(today);
+        var todayIsOpen = sessionInfo != null
+            && !string.IsNullOrWhiteSpace(sessionInfo.Intention)
+            && sessionInfo.DebriefRating <= 0
+            && sessionInfo.EndedAt == null;
+
+        var carriedOver = false;
+        if (!todayIsOpen
+            && (sessionInfo == null || string.IsNullOrWhiteSpace(sessionInfo.Intention)))
+        {
+            // Today hasn't started a block of its own — look for an unfinished one.
+            var openBlock = await _sessionLogRepo.GetOpenBlockAsync();
+            if (openBlock != null)
+            {
+                sessionInfo = openBlock;
+                carriedOver = openBlock.Date != today;
+            }
+        }
+
         var sessionIntentionRaw = sessionInfo?.Intention?.Trim() ?? "";
         var debriefRating = sessionInfo?.DebriefRating ?? 0;
-        // null in the contract = ritual not run today (matches sample JSON).
+        // null in the contract = ritual not run / block not open (matches sample JSON).
         string? sessionIntention = string.IsNullOrWhiteSpace(sessionIntentionRaw)
             ? null
             : sessionIntentionRaw;
         int? debriefRatingOut = debriefRating > 0 ? debriefRating : null;
+        // The date End Block must close out (the open block's own date), null when
+        // there's no active intention.
+        string? blockDate = sessionIntention != null ? sessionInfo?.Date : null;
 
         // ── Death mix (14d) — degrade to empty on failure ───────────────────
         var deathMix = await BuildDeathMixAsync();
@@ -150,7 +176,7 @@ public sealed class DashboardSnapshotBuilder
             Greeting: greeting,
             Stats: statsDto,
             NextStep: nextStep,
-            Intent: new IntentDto(sessionIntention, debriefRatingOut),
+            Intent: new IntentDto(sessionIntention, debriefRatingOut, blockDate, carriedOver),
             DeathMix: deathMix,
             VodPending: vodPending,
             Unreviewed: unreviewed,

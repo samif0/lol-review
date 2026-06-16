@@ -685,14 +685,25 @@ app.MapPost("/api/block/start", async (StartBlockBody body, WriteServices w, ILo
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
-// POST /api/block/end  { rating, note? }
+// POST /api/block/end  { rating, note?, date? }
+// date targets the open block's own row (it can be a prior day when a block carried
+// over unfinished). Only a well-formed yyyy-MM-dd is honored; anything else falls
+// back to today so a malformed value can't write to an arbitrary row.
 app.MapPost("/api/block/end", async (EndBlockBody body, WriteServices w, ILogger<Program> log) =>
 {
     if (body is null || body.Rating < 1 || body.Rating > 10)
         return Results.BadRequest(new { error = "rating must be 1-10" });
+    var targetDate = today();
+    if (!string.IsNullOrWhiteSpace(body.Date)
+        && DateTime.TryParseExact(body.Date, "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out _))
+    {
+        targetDate = body.Date;
+    }
     await w.BackupGuard.EnsureBackedUpAsync();
-    await w.SessionLog.SaveSessionDebriefAsync(today(), body.Rating, body.Note ?? "");
-    log.LogInformation("End block: debrief saved ({Rating}/10) for {Date}", body.Rating, today());
+    await w.SessionLog.SaveSessionDebriefAsync(targetDate, body.Rating, body.Note ?? "");
+    log.LogInformation("End block: debrief saved ({Rating}/10) for {Date}", body.Rating, targetDate);
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
@@ -2113,7 +2124,9 @@ static async Task PersistObjectiveSideTablesAsync(
 
 // ── Write-endpoint request bodies ────────────────────────────────────────────
 internal sealed record StartBlockBody(string Intention);
-internal sealed record EndBlockBody(int Rating, string? Note);
+// Date is the open block's own date (from IntentDto.BlockDate) so a carried-over
+// block from a prior day closes the right row. Null/empty falls back to today.
+internal sealed record EndBlockBody(int Rating, string? Note, string? Date = null);
 internal sealed record RestoreBackupBody(string BackupFilePath);
 internal sealed record GameIdBody(long GameId);
 internal sealed record ObjectiveIdBody(long Id);

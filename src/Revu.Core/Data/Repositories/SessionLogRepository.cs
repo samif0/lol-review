@@ -470,6 +470,27 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return await reader.ReadAsync() ? MapSessionInfo(reader) : null;
     }
 
+    public async Task<SessionInfo?> GetOpenBlockAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        await conn.OpenAsync();
+
+        // An OPEN block has an intention but was never ended (no debrief / ended_at).
+        // Pick the most recent such row so a block left unfinished on a prior day can
+        // still be closed out today. debrief_rating defaults to 0 for an open block.
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT * FROM sessions
+            WHERE TRIM(COALESCE(intention, '')) <> ''
+              AND ended_at IS NULL
+              AND COALESCE(debrief_rating, 0) = 0
+            ORDER BY date DESC
+            LIMIT 1";
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? MapSessionInfo(reader) : null;
+    }
+
     // ── List reads ───────────────────────────────────────────────────────
 
     public async Task<List<SessionLogEntry>> GetForDateAsync(string dateStr)

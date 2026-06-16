@@ -1084,6 +1084,16 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .rv-evidsec{margin-top:24px}
 #rv-evid-attached,#rv-evid-unassigned{display:flex;flex-direction:column;gap:8px}
 .rv-evid{display:flex;align-items:flex-start;gap:11px;padding:11px 14px}
+/* Clickable moment cards jump to the VOD at their timestamp — give them the
+   pointer + a subtle violet lift on hover/focus, and a "▶ VOD" cue on hover. */
+.rv-evid-clickable{cursor:pointer;transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,box-shadow .16s ease}
+.rv-evid-clickable:hover{transform:translateY(-1px);border-color:rgba(157,139,255,0.4);
+  box-shadow:0 6px 20px -12px rgba(157,139,255,0.5)}
+.rv-evid-clickable:focus-visible{outline:none;border-color:rgba(157,139,255,0.65);
+  box-shadow:0 0 0 3px rgba(157,139,255,0.22)}
+.rv-evid-clickable .rv-evid-title::after{content:'▶ VOD';margin-left:8px;font-family:var(--fm);
+  font-size:8px;letter-spacing:1px;color:var(--accent);opacity:0;transition:opacity .16s ease;vertical-align:middle}
+.rv-evid-clickable:hover .rv-evid-title::after{opacity:0.9}
 .rv-evid-dot{flex-shrink:0;width:7px;height:7px;border-radius:50%;margin-top:5px;
   background:var(--accent);box-shadow:0 0 7px rgba(157,139,255,0.5)}
 .rv-evid-body{min-width:0;flex:1}
