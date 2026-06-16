@@ -890,6 +890,13 @@ app.MapPost("/api/reset", async (ResetBody body, WriteServices w, ILogger<Progra
 // whole config, mutate ONLY the fields present in the body (so unrelated keys —
 // secrets, keybinds, puuid — are never clobbered), then SaveAsync. Every field
 // is nullable in the body; a null means "leave unchanged".
+//
+// P-023 defense-in-depth for the FOLDER paths: an empty/whitespace folder string
+// is treated as "leave unchanged" too — NOT as "blank the saved path". A save made
+// before the Settings page finished rendering (or any caller that sends "") would
+// otherwise zero ascent_folder/clips_folder/backup_folder over the real values,
+// which is exactly how all three got blanked while riot_* survived. A DELIBERATE
+// clear (the Clear button) sends the FolderClearSentinel, which maps to "".
 app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILogger<Program> log) =>
 {
     if (body is null) return Results.BadRequest(new { error = "body required" });
@@ -897,12 +904,13 @@ app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILo
 
     var cfg = await w.Config.LoadAsync();
 
-    if (body.AscentFolder is not null) cfg.AscentFolder = body.AscentFolder;
+    // Folder fields: null/empty = unchanged; sentinel = explicit clear; else set.
+    if (ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent)) cfg.AscentFolder = ascent;
     if (body.AscentReminderDismissed is not null) cfg.AscentReminderDismissed = body.AscentReminderDismissed.Value;
-    if (body.ClipsFolder is not null) cfg.ClipsFolder = body.ClipsFolder;
+    if (ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips)) cfg.ClipsFolder = clips;
     if (body.ClipsMaxSizeMb is not null) cfg.ClipsMaxSizeMb = body.ClipsMaxSizeMb.Value;
     if (body.BackupEnabled is not null) cfg.BackupEnabled = body.BackupEnabled.Value;
-    if (body.BackupFolder is not null) cfg.BackupFolder = body.BackupFolder;
+    if (ConfigSaveGuards.TryResolveFolderWrite(body.BackupFolder, out var backup)) cfg.BackupFolder = backup;
     if (body.TiltFixMode is not null) cfg.TiltFixMode = body.TiltFixMode.Value;
     if (body.RequireReviewNotes is not null) cfg.RequireReviewNotes = body.RequireReviewNotes.Value;
     if (body.SidebarAnimationEnabled is not null) cfg.SidebarAnimationEnabled = body.SidebarAnimationEnabled.Value;
@@ -1958,6 +1966,30 @@ lifetime.ApplicationStarted.Register(() =>
     {
         programLogger.LogError(ex, "Failed to publish sidecar handshake file");
     }
+
+    // P-022: auto-match Ascent recordings to unlinked games at startup, so a present
+    // recording attaches WITHOUT a manual Settings → Scan. In the WinUI→Tauri port the
+    // matcher was left wired only to the manual scan button, so a freshly-played game's
+    // VOD never showed until the user scanned by hand. Runs once, fire-and-forget,
+    // behind the session backup guard (same as POST /api/settings/scan-vods); fully
+    // idempotent (AutoMatchRecordingsAsync skips already-linked games + taken paths)
+    // and swallowed so it can never disturb startup. The per-game heal on game-end
+    // (SidecarGameFlowCoordinator) covers recordings that finalise after this runs.
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            var write = app.Services.GetRequiredService<WriteServices>();
+            await write.BackupGuard.EnsureBackedUpAsync();
+            var matched = await write.VodScan.AutoMatchRecordingsAsync();
+            if (matched > 0)
+                programLogger.LogInformation("Startup VOD auto-match linked {Matched} recording(s)", matched);
+        }
+        catch (Exception ex)
+        {
+            programLogger.LogDebug(ex, "Startup VOD auto-match skipped (non-fatal)");
+        }
+    });
 });
 
 app.Run();

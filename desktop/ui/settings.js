@@ -44,6 +44,18 @@ function clearEl(el) { while (el && el.firstChild) el.removeChild(el.firstChild)
 
 // Editable text/number/select inputs ↔ config field names (camelCase wire).
 const TEXT_FIELDS = ['ascentFolder', 'clipsFolder', 'backupFolder', 'riotId', 'region'];
+// Folder paths get special save handling (P-023): an EMPTY folder input means
+// "leave unchanged" (so a not-yet-rendered field on a fetch-race never blanks the
+// saved path) UNLESS the user explicitly cleared it via the Clear button, tracked
+// here. A field is removed from this set the moment it's re-picked or fresh config
+// is rendered.
+const FOLDER_FIELDS = new Set(['ascentFolder', 'clipsFolder', 'backupFolder']);
+const _clearedFolders = new Set();
+// Sent verbatim to the sidecar for a DELIBERATE folder clear (P-023). Must match
+// Program.cs TryResolveFolderWrite's FolderClearSentinel byte-for-byte. The input
+// stays visually empty; collectPayload substitutes this only for explicit clears, so
+// the sidecar can tell "user pressed Clear" from "field was empty" (which it ignores).
+const FOLDER_CLEAR_SENTINEL = ' __REVU_CLEAR__ ';
 const NUM_FIELDS = ['clipsMaxSizeMb'];
 // role=switch toggle buttons ↔ config bool field names.
 const TOGGLE_FIELDS = [
@@ -87,6 +99,10 @@ function toggleState(el) { return el ? el.getAttribute('aria-checked') === 'true
 function render(d) {
   _data = d;
   clearError();
+  // Fresh canonical config rendered → any pending "explicit clear" is moot (the
+  // fields now reflect the saved truth). Reset so an empty folder after this is
+  // "unchanged", not "cleared" (P-023).
+  _clearedFolders.clear();
 
   for (const f of TEXT_FIELDS) {
     const el = $(f);
@@ -214,7 +230,19 @@ function collectPayload() {
   const p = {};
   for (const f of TEXT_FIELDS) {
     const el = $(f);
-    if (el) p[f] = el.value.trim();
+    if (!el) continue;
+    const v = el.value.trim();
+    // P-023: never let an empty folder input OVERWRITE an already-saved path.
+    // Sending "" blanks the stored folder — which is what zeroed ascent_folder/
+    // clips_folder/backup_folder on a save made before the config finished
+    // rendering. For an empty folder field: send the explicit-clear SENTINEL if the
+    // user pressed Clear (the sidecar maps it to ""), otherwise OMIT the key so the
+    // server leaves the saved value untouched. Non-empty folders send normally.
+    if (FOLDER_FIELDS.has(f) && v === '') {
+      if (_clearedFolders.has(f)) p[f] = FOLDER_CLEAR_SENTINEL;
+      continue;
+    }
+    p[f] = v;
   }
   for (const f of NUM_FIELDS) {
     const el = $(f);
@@ -320,6 +348,10 @@ document.addEventListener('click', async (ev) => {
   if (action === 'clear_ascent') {
     const f = $('ascentFolder');
     if (f) f.value = '';
+    // Mark this as a DELIBERATE clear so the next Save actually blanks the stored
+    // folder (P-023): collectPayload otherwise omits empty folders to avoid the
+    // fetch-race overwrite. Persisted on the next Save, like Browse.
+    _clearedFolders.add('ascentFolder');
     applyStatusText($('ascent-status'), { text: 'Ascent VOD disabled', colorHex: '#8A80A8' });
     return;
   }
@@ -481,6 +513,8 @@ async function doPick(invoke, action) {
   if (picked) {
     const el = $(fieldId);
     if (el) el.value = String(picked);
+    // Picking a real path supersedes any pending "explicit clear" for this folder.
+    _clearedFolders.delete(fieldId);
   }
 }
 

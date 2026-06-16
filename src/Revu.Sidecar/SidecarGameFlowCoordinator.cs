@@ -219,6 +219,16 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                     saved = true,
                     isRecovered,
                 });
+
+                // P-022: link THIS game's Ascent recording as soon as it's available,
+                // so the freshly-played game's VOD shows without a manual Settings scan.
+                // The recording often finalises ~15s after EOG (P-007), so retry a few
+                // times; TryLinkRecordingAsync is idempotent (returns true and no-ops if
+                // already linked) and bounded (matches only against recordings spanning
+                // the game window). Fully best-effort — a miss is healed by the startup
+                // auto-match on next launch. Fire-and-forget so it never delays the save.
+                stats.GameId = gameId; // the persisted id; the matcher keys off it
+                _ = Task.Run(() => TryLinkRecordingWithRetryAsync(stats));
             }
             else
             {
@@ -238,6 +248,34 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         {
             _logger.LogError(ex, "Failed to persist live game end");
             _eventHub.Publish("gameEnded", new { saved = false, error = ex.Message });
+        }
+    }
+
+    // P-022: try to link the just-ended game's Ascent recording, retrying to absorb
+    // encode-finalisation lag (the recording's last-write time often lands ~15s after
+    // EOG — P-007 — so an immediate attempt can miss the file). Attempts at roughly
+    // +0s / +90s / +5min; stops as soon as a link succeeds (or the game already has
+    // one — TryLinkRecordingAsync is idempotent). Best-effort: every failure is
+    // swallowed, and the startup auto-match catches anything still unlinked next launch.
+    private async Task TryLinkRecordingWithRetryAsync(Revu.Core.Models.GameStats game)
+    {
+        var delaysSeconds = new[] { 0, 90, 300 };
+        foreach (var delay in delaysSeconds)
+        {
+            if (delay > 0)
+                await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
+            try
+            {
+                if (await _write.VodScan.TryLinkRecordingAsync(game).ConfigureAwait(false))
+                {
+                    _logger.LogInformation("Auto-linked recording to game {GameId} after EOG", game.GameId);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Post-game VOD link attempt failed for game {GameId} (will retry/heal)", game.GameId);
+            }
         }
     }
 

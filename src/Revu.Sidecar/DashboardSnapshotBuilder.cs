@@ -385,40 +385,17 @@ public sealed class DashboardSnapshotBuilder
         }
     }
 
-    private async Task<VodPendingDto> BuildVodPendingAsync()
+    private Task<VodPendingDto> BuildVodPendingAsync()
     {
-        try
-        {
-            var recent = await _gameHistory.GetRecentAsync(limit: 30, offset: 0);
-            var reviewed = recent.Where(HasPersistedReview).ToList();
-
-            var vodPaths = await _vodRepo.GetVodPathsAsync(reviewed.Select(g => g.GameId).ToArray());
-            var gamesWithAvailableVod = reviewed
-                .Where(game => vodPaths.TryGetValue(game.GameId, out var path)
-                               && !string.IsNullOrWhiteSpace(path)
-                               && File.Exists(path))
-                .ToList();
-
-            var candidateIds = gamesWithAvailableVod.Select(static game => game.GameId).ToArray();
-            var practicedIds = await _objectivesRepo.GetGamesWithPracticedObjectivesAsync(candidateIds);
-            var taggedBookmarkIds = await _vodRepo.GetGamesWithObjectiveTaggedBookmarksAsync(candidateIds);
-
-            foreach (var game in gamesWithAvailableVod)
-            {
-                if (!practicedIds.Contains(game.GameId)) continue;
-                if (taggedBookmarkIds.Contains(game.GameId)) continue;
-
-                return new VodPendingDto(
-                    Show: true,
-                    GameId: game.GameId,
-                    Text: $"{game.ChampionName} has VOD but no objective-tagged evidence yet.");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Dashboard: VOD evidence pending scan failed");
-        }
-        return new VodPendingDto(Show: false, GameId: 0, Text: "");
+        // P-021 (3) — digest 2026-06-16 P1, State B (suppress): the only games this
+        // surface ever considers are ones with a PERSISTED review (HasPersistedReview),
+        // so every "VOD has no objective-tagged evidence yet" nudge it can produce is a
+        // nag on a review the user already finished and saved. Attaching an objective
+        // clip is optional enrichment, not a completion step — so a saved review reads
+        // as done (mirrors P-012 "done feels done"). We therefore never surface this on
+        // the dashboard. Kept as a method (rather than deleted) so re-aiming it at
+        // *unreviewed* games — the place real work remains — is a one-spot change later.
+        return Task.FromResult(new VodPendingDto(Show: false, GameId: 0, Text: ""));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
