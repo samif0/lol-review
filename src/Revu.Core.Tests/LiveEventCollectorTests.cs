@@ -193,6 +193,157 @@ public sealed class LiveEventCollectorTests
         return doc.RootElement.Clone();
     }
 
+    // Active-player snapshot with championStats for HP/mana restore detection. Gold is
+    // held constant (500) so the gold detector never fires — isolating the restore path.
+    private static JsonElement CreatePlayerStats(double gameTime, string resourceType, double curHp, double maxHp, double curRes, double maxRes)
+    {
+        var json = $$"""
+            {
+              "gameTime": {{gameTime}},
+              "currentGold": 500.0,
+              "resourceType": "{{resourceType}}",
+              "summonerSpells": {
+                "summonerSpellOne": { "displayName": "Flash", "rawCooldown": 0.0 },
+                "summonerSpellTwo": { "displayName": "Ignite", "rawCooldown": 0.0 }
+              },
+              "championStats": {
+                "resourceType": "{{resourceType}}",
+                "currentHealth": {{curHp}}, "maxHealth": {{maxHp}},
+                "resourceValue": {{curRes}}, "resourceMax": {{maxRes}}
+              }
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
+    [Fact]
+    public async Task StopAsync_DerivesRecall_WhenManaChampHpAndManaBothRestoreToFull()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // Mana champ: HP 40%→100% AND mana 30%→100% at 408s ⇒ fountain restore ⇒ recall
+        // anchored at 400s. (Gold constant, so this can only be the restore detector.)
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(400.0, "MANA", curHp: 240, maxHp: 600, curRes: 90, maxRes: 300),
+            CreatePlayerStats(408.0, "MANA", curHp: 600, maxHp: 600, curRes: 300, maxRes: 300),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        var recall = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Recall);
+
+        Assert.NotNull(recall);
+        Assert.Equal(400, recall!.GameTimeS); // 408 − 8s channel
+        using var details = JsonDocument.Parse(recall.Details);
+        Assert.Equal("health_restore", details.RootElement.GetProperty("source").GetString());
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotDeriveRecall_WhenHpHealsToFullButManaIsNot()
+    {
+        // The Soraka-ult / Aatrox-lifesteal case: HP heals 30%→100% in combat, but mana
+        // stays low (40%). NOT a fountain restore ⇒ no recall. This is the soundness test.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(500.0, "MANA", curHp: 180, maxHp: 600, curRes: 120, maxRes: 300),
+            CreatePlayerStats(510.0, "MANA", curHp: 600, maxHp: 600, curRes: 120, maxRes: 300),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Recall);
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotDeriveRecall_ForManalessChampEvenWhenHpFull()
+    {
+        // Manaless champ (resourceType NONE): full HP is no signal at all ⇒ never fires
+        // the restore detector (gold-only for these). HP jumps 50%→100%, still nothing.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(300.0, "NONE", curHp: 300, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(310.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Recall);
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotDeriveRecall_ForEnergyChamp()
+    {
+        // Energy champ (Akali/Zed): energy is near-always full, so we treat it like
+        // manaless — gold-only, no restore detector. Even HP+energy both "full" → nothing.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(300.0, "ENERGY", curHp: 300, maxHp: 600, curRes: 100, maxRes: 200),
+            CreatePlayerStats(310.0, "ENERGY", curHp: 600, maxHp: 600, curRes: 200, maxRes: 200),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Recall);
+    }
+
+    [Fact]
+    public async Task StopAsync_EmitsOneRecall_WhenRestoreAndPurchaseHappenTogether()
+    {
+        // The realistic case: recall → fountain restores HP+mana → then buys items, all
+        // within the debounce window. The two detectors must NOT both fire — one recall.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStatsGold(400.0, "MANA", curHp: 240, maxHp: 600, curRes: 90, maxRes: 300, gold: 1400),
+            // restore fires here (HP+mana full); gold still high
+            CreatePlayerStatsGold(408.0, "MANA", curHp: 600, maxHp: 600, curRes: 300, maxRes: 300, gold: 1400),
+            // then a purchase a few seconds later — gold detector would fire, but debounced
+            CreatePlayerStatsGold(414.0, "MANA", curHp: 600, maxHp: 600, curRes: 300, maxRes: 300, gold: 200),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        Assert.Single(parsed, e => e.EventType == GameEvent.EventTypes.Recall);
+    }
+
+    // Like CreatePlayerStats but with explicit gold (to exercise both detectors together).
+    private static JsonElement CreatePlayerStatsGold(double gameTime, string resourceType, double curHp, double maxHp, double curRes, double maxRes, double gold)
+    {
+        var json = $$"""
+            {
+              "gameTime": {{gameTime}},
+              "currentGold": {{gold}},
+              "resourceType": "{{resourceType}}",
+              "summonerSpells": {
+                "summonerSpellOne": { "displayName": "Flash", "rawCooldown": 0.0 },
+                "summonerSpellTwo": { "displayName": "Ignite", "rawCooldown": 0.0 }
+              },
+              "championStats": {
+                "resourceType": "{{resourceType}}",
+                "currentHealth": {{curHp}}, "maxHealth": {{maxHp}},
+                "resourceValue": {{curRes}}, "resourceMax": {{maxRes}}
+              }
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
+    // Shared runner: start the collector over a snapshot queue, let it poll, stop, parse.
+    private static async Task<List<GameEvent>> RunCollector(List<JsonElement> events, Queue<JsonElement> snapshots)
+    {
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek());
+        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(60);
+        await cts.CancelAsync();
+        await runTask;
+        return await collector.StopAsync();
+    }
+
     [Fact]
     public async Task StopAsync_DerivesRecall_WhenGoldDropsLikeAShopPurchase()
     {

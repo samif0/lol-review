@@ -49,8 +49,25 @@ public sealed class LiveEventCollector
     // the recall itself started roughly this many seconds earlier.
     private const int RecallChannelSeconds = 8;
     // Don't emit another recall within this window — a single back often produces
-    // several fountain purchases across a few poll ticks.
+    // several fountain purchases across a few poll ticks. Shared by BOTH detectors
+    // (gold + health-restore) so a recall-then-buy never double-fires.
     private const int RecallDebounceSeconds = 25;
+
+    // v3.0.18: second recall signal — a FOUNTAIN HP+mana restore, to catch recalls
+    // with no purchase (recalled to defend, to TP back, or with no gold). The
+    // discriminator vs an in-combat heal: a fountain restores HP AND mana to 100%
+    // SIMULTANEOUSLY; a heal (Aatrox autos, Soraka ult, Mundo regen) restores HP but
+    // not mana. So we ONLY use this for MANA champs (resourceType == "MANA") and
+    // require BOTH at full, transitioning from below-full. Manaless / energy / rage /
+    // fury champs can't use the mana tell (their resource is near-always full or
+    // absent), so they stay gold-only — better to miss than to false-fire.
+    private double _lastHealthFrac = double.NaN; // last currentHealth/maxHealth
+    private double _lastManaFrac = double.NaN;   // last resourceValue/resourceMax (MANA only)
+    // "Full" threshold (fraction). Fountain pins to exactly 1.0; allow a hair of float noise.
+    private const double RestoreFullFrac = 0.99;
+    // The transition gate: only fire when at least one resource was MEANINGFULLY below
+    // full last tick (so we fire on the jump TO full, not every idle-at-full tick).
+    private const double RestoreWasLowFrac = 0.80;
 
     public LiveEventCollector(
         ILiveEventApi liveEventApi,
@@ -82,6 +99,8 @@ public sealed class LiveEventCollector
         _recallEvents.Clear();
         _lastGold = double.NaN;
         _lastRecallEmitS = int.MinValue;
+        _lastHealthFrac = double.NaN;
+        _lastManaFrac = double.NaN;
         _playerName = null;
         _logger.LogInformation("Live event collector started");
 
@@ -205,6 +224,7 @@ public sealed class LiveEventCollector
                 var t = ResolveGameTimeS(el);
                 CheckSummonerSpellCasts(el, t);
                 CheckRecall(el, t);
+                CheckRecallByRestore(el, t);
             }
         }
         catch (OperationCanceledException)
@@ -337,8 +357,75 @@ public sealed class LiveEventCollector
         // A meaningful gold drop = a shop purchase = the player is at fountain post-back.
         if (spent < RecallMinGoldSpend) return;
 
-        // Debounce: a single back usually means several fountain purchases over a few
-        // ticks. Only the first within the window counts as the recall. Guard the
+        TryEmitRecall(gameTimeS, source: "shop_purchase", goldSpent: (int)spent);
+    }
+
+    /// <summary>
+    /// Second recall signal — a FOUNTAIN HP+mana restore — to catch recalls with NO
+    /// purchase (recalled to defend / TP back / no gold to spend). The discriminator
+    /// vs an in-combat heal: a fountain restores HP AND mana to 100% simultaneously,
+    /// whereas a heal (Aatrox/Soraka/Mundo) restores HP but leaves mana where it was.
+    /// So we fire ONLY when:
+    ///   • the champ uses MANA (energy/rage/fury/manaless can't use the tell — their
+    ///     resource is near-always full or absent → gold-only for them), AND
+    ///   • BOTH HP and mana are now ≥ <see cref="RestoreFullFrac"/> (full), AND
+    ///   • at least one of them was meaningfully below full last tick (the jump TO
+    ///     full — not every idle-at-fountain tick).
+    /// Shares the gold detector's debounce so a recall-then-buy never double-fires.
+    /// </summary>
+    private void CheckRecallByRestore(JsonElement activePlayer, int gameTimeS)
+    {
+        if (activePlayer.ValueKind != JsonValueKind.Object) return;
+        if (!activePlayer.TryGetProperty("championStats", out var stats) || stats.ValueKind != JsonValueKind.Object) return;
+
+        // MANA-only gate. resourceType is on activePlayer (preferred) or championStats.
+        var resourceType = ReadStringProp(activePlayer, "resourceType");
+        if (string.IsNullOrEmpty(resourceType)) resourceType = ReadStringProp(stats, "resourceType");
+        if (!string.Equals(resourceType, "MANA", StringComparison.OrdinalIgnoreCase)) return;
+
+        var maxHealth = ReadDoubleProp(stats, "maxHealth");
+        var curHealth = ReadDoubleProp(stats, "currentHealth");
+        var maxMana = ReadDoubleProp(stats, "resourceMax");
+        var curMana = ReadDoubleProp(stats, "resourceValue");
+        // Need positive maxima to form fractions; dead/loading ticks (maxHealth 0) skip.
+        if (maxHealth <= 0 || maxMana <= 0) return;
+
+        var hpFrac = curHealth / maxHealth;
+        var manaFrac = curMana / maxMana;
+
+        // First sample establishes the baseline only.
+        if (double.IsNaN(_lastHealthFrac) || double.IsNaN(_lastManaFrac))
+        {
+            _lastHealthFrac = hpFrac;
+            _lastManaFrac = manaFrac;
+            return;
+        }
+
+        var prevHp = _lastHealthFrac;
+        var prevMana = _lastManaFrac;
+        _lastHealthFrac = hpFrac;
+        _lastManaFrac = manaFrac;
+
+        // Both must be full NOW…
+        if (hpFrac < RestoreFullFrac || manaFrac < RestoreFullFrac) return;
+        // …and at least one was meaningfully below full last tick (a real jump, not
+        // an idle-at-full tick). A heal-to-full would top HP but NOT mana, so the mana
+        // side of "both full now" is what makes this sound.
+        if (prevHp >= RestoreWasLowFrac && prevMana >= RestoreWasLowFrac) return;
+
+        TryEmitRecall(gameTimeS, source: "health_restore", goldSpent: 0);
+    }
+
+    /// <summary>
+    /// Emit a derived RECALL anchored ~<see cref="RecallChannelSeconds"/>s before the
+    /// detection tick (the back channel time), with the shared debounce so neither
+    /// detector — nor a recall-then-buy — double-fires. <paramref name="goldSpent"/>
+    /// is 0 for non-purchase signals.
+    /// </summary>
+    private void TryEmitRecall(int gameTimeS, string source, int goldSpent)
+    {
+        // Debounce: one back can mean several fountain purchases / a buy AND a restore
+        // across a few ticks. Only the first within the window counts. Guard the
         // "no recall yet" sentinel explicitly so the subtraction can't overflow.
         var recallAtS = Math.Max(0, gameTimeS - RecallChannelSeconds);
         if (_lastRecallEmitS != int.MinValue && recallAtS - _lastRecallEmitS < RecallDebounceSeconds) return;
@@ -351,12 +438,18 @@ public sealed class LiveEventCollector
             Details = JsonSerializer.Serialize(new
             {
                 detected = true,
-                source = "shop_purchase",
-                gold_spent = (int)spent,
-                purchase_game_time_s = gameTimeS,
+                source,
+                gold_spent = goldSpent,
+                detect_game_time_s = gameTimeS,
             }),
         });
     }
+
+    private static double ReadDoubleProp(JsonElement obj, string name) =>
+        obj.TryGetProperty(name, out var el) && el.TryGetDouble(out var v) ? v : 0.0;
+
+    private static string ReadStringProp(JsonElement obj, string name) =>
+        obj.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String ? el.GetString() ?? "" : "";
 
     internal static void AppendNewRawEvents(List<JsonElement> destination, IReadOnlyList<JsonElement> snapshot)
     {
