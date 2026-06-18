@@ -117,6 +117,21 @@ async function wireLiveAutoShow() {
   // Leave a live surface only if we're currently ON one (don't disturb other pages).
   const leaveLiveSurface = () => { if (here('pregame.html') || here('ingame.html')) goto('index.html'); };
 
+  // Pages where the user is actively ENTERING DATA — auto-show must NOT yank them
+  // off these mid-task (a champ-select/game LCU tick used to navigate away on Save,
+  // wiping the form — "the page refreshes on save review"). Auto-show to a live
+  // surface only happens from a passive page (dashboard/games/etc.). The live
+  // surfaces themselves are fine to switch BETWEEN (pregame↔ingame).
+  const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html'];
+  const onActiveWorkPage = () => ACTIVE_WORK_PAGES.some((p) => here(p));
+  // Auto-show to a live surface, but never interrupt an active-work page (unless
+  // we're already on a live surface, e.g. pregame→ingame, which we always honor).
+  const liveGoto = (file) => {
+    if (here('pregame.html') || here('ingame.html')) { goto(file); return; }
+    if (onActiveWorkPage()) return; // don't yank the user off a form mid-edit
+    goto(file);
+  };
+
   // One-shot: the first liveState (the connect replay) may indicate we joined the
   // stream mid-flow. Auto-show then, but only once, so later ticks don't re-yank.
   let sawFirstLiveState = false;
@@ -127,10 +142,10 @@ async function wireLiveAutoShow() {
     const p = msg.payload || {};
     switch (t) {
       case 'champSelectStarted':
-        goto('pregame.html');
+        liveGoto('pregame.html');
         break;
       case 'gameInProgress':
-        goto('ingame.html');
+        liveGoto('ingame.html');
         break;
       case 'gameEnded':
       case 'champSelectCancelled':
@@ -140,9 +155,10 @@ async function wireLiveAutoShow() {
         if (!sawFirstLiveState) {
           sawFirstLiveState = true;
           // Mid-flow join: in-game wins over champ select. Only auto-show from a
-          // non-live page so we never bounce a user who's already navigating.
-          if (p.isGameInProgress) goto('ingame.html');
-          else if (p.sessionKey) goto('pregame.html');
+          // non-live, non-active-work page so we never bounce a user who's already
+          // navigating OR actively filling out a review/objective form.
+          if (p.isGameInProgress) liveGoto('ingame.html');
+          else if (p.sessionKey) liveGoto('pregame.html');
         }
         break;
       default:

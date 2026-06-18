@@ -401,8 +401,11 @@ async function onFocusClick(btn) {
     btn.classList.add('on');
     payloadValue = value;
   }
-  const ok = await postWrite('set_focus_adherence', { gameId, value: payloadValue });
-  if (ok) await loadReview();
+  // Persist only — do NOT re-render. The buttons already reflect the new state
+  // above; a full loadReview() here would rebuild the debrief form and WIPE any
+  // text the user has typed but not yet saved (the "I typed in a field, clicked a
+  // focus button, and it didn't save" bug). The next natural load reconciles.
+  await postWrite('set_focus_adherence', { gameId, value: payloadValue });
 }
 
 // ── render: death audit (one-tap cause chips, immediate write) ──────────────
@@ -471,7 +474,8 @@ async function onDeathChipClick(chip) {
     }
     ok = await postWrite('classify_death', { gameId, timeS, key });
   }
-  if (ok) await loadReview();
+  // No re-render: the chip + cause label are already updated above. A loadReview()
+  // would rebuild the form and discard unsaved debrief/tag text (same bug as focus).
 }
 
 // ── render: evidence triage (immediate writes) ──────────────────────────────
@@ -584,19 +588,29 @@ async function onEvidenceAction(action, el) {
   if (!(evidenceId > 0)) return;
   const gameId = Number(_subject && _subject.gameId) || null;
 
-  let ok = false;
   if (action === 'good' || action === 'bad') {
-    ok = await postWrite('set_evidence_polarity', { evidenceId, polarity: action });
+    // Reflect the polarity choice on the row's buttons IN PLACE — no re-render
+    // (a full loadReview() would wipe unsaved debrief/tag text). Toggle off if the
+    // same polarity was re-tapped.
+    const goodBtn = row.querySelector('.rv-evid-good');
+    const badBtn = row.querySelector('.rv-evid-bad');
+    const btn = action === 'good' ? goodBtn : badBtn;
+    const other = action === 'good' ? badBtn : goodBtn;
+    const turningOff = btn && btn.classList.contains('on');
+    if (other) other.classList.remove('on');
+    if (btn) btn.classList.toggle('on', !turningOff);
+    await postWrite('set_evidence_polarity', { evidenceId, polarity: turningOff ? '' : action });
   } else if (action === 'dismiss') {
-    // Remove in place first (preserve scroll feel), then write + refetch.
+    // Remove the row in place; no re-render needed.
     row.remove();
-    ok = await postWrite('set_evidence_status', { evidenceId, status: 'dismissed' });
+    await postWrite('set_evidence_status', { evidenceId, status: 'dismissed' });
   } else if (action === 'objective') {
     const raw = el.value;
     const objectiveId = raw ? Number(raw) : null;
-    ok = await postWrite('set_evidence_objective', { evidenceId, objectiveId, gameId });
+    await postWrite('set_evidence_objective', { evidenceId, objectiveId, gameId });
+    // Objective attach moves the row between lists, but re-rendering here would wipe
+    // unsaved form text. The attach is persisted; the next natural load reorders.
   }
-  if (ok) await loadReview();
 }
 
 // ── render: concept-tag catalog (selectable grid → selectedTagIds) ──────────
@@ -682,12 +696,26 @@ function gatherForm() {
     objectivePractices.push({ objectiveId, practiced, executionNote });
   }
 
-  // Concept tags — the selected catalog chips, by tag id.
+  // Concept tags come from TWO UIs:
+  //  • the catalog grid — predefined tags toggled on, collected by tag id
+  //  • the free-text input — custom tags typed as chips in #rv-tags, collected by
+  //    NAME (the backend find-or-creates each, so typed tags actually save).
   const selectedTagIds = [];
   for (const chip of document.querySelectorAll('#rv-tagcat-grid .rv-tagcat-chip.on')) {
     const id = Number(chip.dataset.tagId);
     if (Number.isFinite(id) && id > 0) selectedTagIds.push(id);
   }
+  const freeTextTags = [];
+  for (const txt of document.querySelectorAll('#rv-tags .rv-tag-txt')) {
+    const name = (txt.textContent || '').trim();
+    if (name) freeTextTags.push(name);
+  }
+
+  // Focus adherence — the currently-lit Focus Check button (2/1/0), or null if none.
+  // MUST be included: save_review writes focus_adherence from this, so omitting it
+  // would clear the value the user set by clicking the button before saving.
+  const litFocus = document.querySelector('#rv-focus .rv-focus-btn.on');
+  const focusAdherence = litFocus ? Number(litFocus.dataset.focus) : null;
 
   return {
     gameId: Number(_subject.gameId),
@@ -701,7 +729,9 @@ function gatherForm() {
     attribution: fields.attribution || '',
     reviewNotes: fields.reviewNotes || '',
     selectedTagIds,
+    freeTextTags,
     objectivePractices,
+    focusAdherence,
   };
 }
 
@@ -860,6 +890,16 @@ document.addEventListener('keydown', (ev) => {
     t.click();
   }
 });
+
+// HARD GUARD: never let a form submit navigate/reload the page. The review form
+// holds a tag <input> and a range <input>; pressing Enter in either would otherwise
+// implicitly submit the form → the WebView reloads review.html, dropping the
+// ?gameId and ALL unsaved state (the "page refreshes before save" bug). Saving is
+// always done explicitly via the SAVE REVIEW button / per-control writes, so a
+// native submit is never wanted here.
+document.addEventListener('submit', (ev) => {
+  ev.preventDefault();
+}, true);
 
 // Objective attach picker (a <select>) fires on change, not click.
 document.addEventListener('change', (ev) => {
@@ -1030,12 +1070,15 @@ document.addEventListener('click', async (ev) => {
     // save_review / skip_review take a single `payload` arg in Rust — wrap the
     // gathered form/body so Tauri doesn't reject with "missing required key payload".
     await invoke(action, { payload: args });
-    if (action === 'save_review') showCommit('Review saved.', 'ok');
-    if (action === 'skip_review') showCommit('Game skipped.', 'ok');
     // RE-FETCH so the UI reflects the committed state (next subject / reviewed mark).
+    // The confirmation is shown AFTER the reload — renderForm() resets the commit
+    // line on every render, so setting it before loadReview() would be wiped instantly
+    // (why "Review saved." never appeared).
     if (action === 'save_review' || action === 'skip_review') {
       await loadReview();
     }
+    if (action === 'save_review') showCommit('Review saved.', 'ok');
+    if (action === 'skip_review') showCommit('Game skipped.', 'ok');
   } catch (err) {
     renderError(err);
     showCommit((err && err.message) ? err.message : 'Save failed.', 'err');

@@ -747,6 +747,25 @@ app.MapPost("/api/review/save", async (SaveReviewBody body, WriteServices w, ILo
         return Results.BadRequest(new { error = "gameId required" });
     await w.BackupGuard.EnsureBackedUpAsync();
 
+    // Resolve free-text tags (typed in the review tag input) to catalog ids —
+    // find-or-create each by name — then merge with the toggled catalog ids so a
+    // tag the user typed actually persists. Done only on explicit save (NOT draft
+    // autosave) so frequent drafts don't spawn catalog tags per keystroke.
+    var tagIds = new List<long>(body.SelectedTagIds ?? new List<long>());
+    if (body.FreeTextTags is { Count: > 0 })
+    {
+        var existing = await w.ConceptTags.GetAllAsync();
+        foreach (var raw in body.FreeTextTags)
+        {
+            var name = (raw ?? "").Trim();
+            if (name.Length == 0) continue;
+            var match = existing.FirstOrDefault(t =>
+                string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            var tagId = match is not null ? match.Id : await w.ConceptTags.CreateAsync(name);
+            if (tagId > 0 && !tagIds.Contains(tagId)) tagIds.Add(tagId);
+        }
+    }
+
     var snapshot = new Revu.Core.Services.ReviewSnapshot(
         MentalRating: body.MentalRating,
         WentWell: body.WentWell ?? "",
@@ -762,7 +781,7 @@ app.MapPost("/api/review/save", async (SaveReviewBody body, WriteServices w, ILo
         PersonalContribution: body.PersonalContribution ?? "",
         EnemyLaner: body.EnemyLaner ?? "",
         MatchupNote: body.MatchupNote ?? "",
-        SelectedTagIds: body.SelectedTagIds ?? new List<long>(),
+        SelectedTagIds: tagIds,
         ObjectivePractices: (body.ObjectivePractices ?? new List<ObjectivePracticeBody>())
             .Select(p => new Revu.Core.Services.SaveObjectivePracticeRequest(p.ObjectiveId, p.Practiced, p.ExecutionNote ?? ""))
             .ToList(),
@@ -2278,6 +2297,10 @@ internal sealed record SaveReviewBody(
     string? EnemyLaner,
     string? MatchupNote,
     List<long>? SelectedTagIds,
+    // Free-text concept tags typed in the review tag input. Resolved to catalog tag
+    // ids (find-or-create by name) at save time and merged into SelectedTagIds, so a
+    // tag the user typed actually persists (it had nowhere to go before).
+    List<string>? FreeTextTags,
     List<ObjectivePracticeBody>? ObjectivePractices,
     int? FocusAdherence);
 
@@ -2366,6 +2389,10 @@ internal sealed record SaveReviewDraftBody(
     string? EnemyLaner,
     string? MatchupNote,
     List<long>? SelectedTagIds,
+    // Free-text concept tags typed in the review tag input. Resolved to catalog tag
+    // ids (find-or-create by name) at save time and merged into SelectedTagIds, so a
+    // tag the user typed actually persists (it had nowhere to go before).
+    List<string>? FreeTextTags,
     List<ObjectivePracticeBody>? ObjectivePractices,
     int? FocusAdherence);
 

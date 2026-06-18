@@ -138,6 +138,8 @@ public sealed class WriteServices : IDisposable
     // attach, status (dismiss/evidence/highlight). Reused verbatim from the WinUI
     // app's IEvidenceRepository.
     public IEvidenceRepository Evidence => _provider.GetRequiredService<IEvidenceRepository>();
+    // Concept-tag catalog (find-or-create by name for free-text review tags).
+    public IConceptTagRepository ConceptTags => _provider.GetRequiredService<IConceptTagRepository>();
     // VOD bookmark CRUD (POST /api/bookmark/add, /note, /delete, /objective, /tag,
     // /quality). VodRepository is already registered above (it's a
     // ReviewWorkflowService dependency); this exposes the write slice for the VOD

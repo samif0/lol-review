@@ -457,6 +457,7 @@ public sealed class ReviewSnapshotBuilder
     private async Task<ReviewFormDto> BuildFormAsync(GameStats game)
     {
         var mentalRating = await ResolveMentalRatingAsync(game.GameId);
+        var focusAdherence = await ResolveFocusAdherenceAsync(game.GameId);
 
         return new ReviewFormDto(
             Editable: false,
@@ -472,7 +473,25 @@ public sealed class ReviewSnapshotBuilder
             PersonalContribution: game.PersonalContribution,
             OutsideControl: game.OutsideControl,
             WithinControl: game.WithinControl,
-            TagsJson: string.IsNullOrWhiteSpace(game.Tags) ? "[]" : game.Tags);
+            TagsJson: string.IsNullOrWhiteSpace(game.Tags) ? "[]" : game.Tags,
+            FocusAdherence: focusAdherence);
+    }
+
+    // Saved focus-adherence (2/1/0/null) for this game, so the Focus Check buttons
+    // preselect and the choice survives a re-render. Best-effort: any failure (e.g.
+    // a pre-v5 DB without the column) degrades to null (unset), never throws.
+    private async Task<int?> ResolveFocusAdherenceAsync(long gameId)
+    {
+        try
+        {
+            var entry = await _sessionLogRepo.GetEntryAsync(gameId);
+            return entry?.FocusAdherence;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Review: focus-adherence load failed for {GameId}", gameId);
+            return null;
+        }
     }
 
     private async Task<int> ResolveMentalRatingAsync(long gameId)

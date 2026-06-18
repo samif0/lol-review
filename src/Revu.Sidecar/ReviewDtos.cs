@@ -191,7 +191,11 @@ public sealed record ReviewFormDto(
     // The saved concept-tags JSON string off the game row (read-only passthrough;
     // the writable tag selector is DEFERRED). The structured catalog with
     // selection state ships on ReviewSubjectDto.TagCatalog.
-    string TagsJson);
+    string TagsJson,
+    // Saved focus-adherence for this game: 2=Yes / 1=Partly / 0=No / null=unset.
+    // The Focus Check buttons preselect from this; without it the selection never
+    // survives a re-render (set_focus_adherence writes it, this reads it back).
+    int? FocusAdherence = null);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Death audit
