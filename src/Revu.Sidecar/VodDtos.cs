@@ -62,7 +62,13 @@ public sealed record VodEventDto(
     string Label,            // "Kill" | "Death" | "Dragon" …
     string Summary,          // parsed from Details JSON (e.g. victim/killer), may be ""
     string Kind,             // "win" | "loss" | "gold" | "neutral" — marker color bucket
-    string ColorHex);        // exact per-type hex
+    string ColorHex,         // exact per-type hex
+    // Objective tie: set when this event's token (raw type, SPELL_*, or membership in
+    // a tracked TEAMFIGHT) matches an ACTIVE objective. Drives the timeline priority
+    // lane — tied events take position + label priority over untied markers.
+    long? ObjectiveId = null,
+    string ObjectiveTitle = "",
+    string ObjectiveColorHex = "");
 
 /// <summary>
 /// An evidence-inbox moment (auto-detected timeline region OR a saved clip) for

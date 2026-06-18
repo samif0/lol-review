@@ -429,6 +429,109 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         await tx.CommitAsync();
     }
 
+    // ── Objective event-token gating (objective_event_types) ──────────────────
+    // An objective tied to one or more trackable tokens (raw event types, SPELL_*,
+    // or TEAMFIGHT) lights those events up on the VOD timeline. Mirrors the champion
+    // gate's diff-save shape exactly.
+
+    public async Task<IReadOnlyList<string>> GetEventTokensForObjectiveAsync(long objectiveId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT event_token FROM objective_event_types
+            WHERE objective_id = @id
+            ORDER BY event_token ASC
+            """;
+        cmd.Parameters.AddWithValue("@id", objectiveId);
+        var results = new List<string>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(reader.GetString(0));
+        }
+        return results;
+    }
+
+    public async Task SetEventTokensForObjectiveAsync(long objectiveId, IReadOnlyList<string> tokens)
+    {
+        // Diff-save: add/remove only the delta (stable PKs, no churn).
+        using var conn = _factory.CreateConnection();
+        using var tx = conn.BeginTransaction();
+
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var readCmd = conn.CreateCommand())
+        {
+            readCmd.Transaction = tx;
+            readCmd.CommandText = "SELECT event_token FROM objective_event_types WHERE objective_id = @id";
+            readCmd.Parameters.AddWithValue("@id", objectiveId);
+            using var reader = await readCmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                existing.Add(reader.GetString(0));
+            }
+        }
+
+        // Only persist recognized tokens (guards against junk reaching the DB).
+        var desired = new HashSet<string>(
+            tokens.Where(t => Revu.Core.Models.GameEvent.TrackableTokens.IsValid(t))
+                  .Select(t => t.Trim().ToUpperInvariant()),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var token in existing)
+        {
+            if (desired.Contains(token)) continue;
+            using var delCmd = conn.CreateCommand();
+            delCmd.Transaction = tx;
+            delCmd.CommandText = """
+                DELETE FROM objective_event_types
+                WHERE objective_id = @id AND event_token = @token
+                """;
+            delCmd.Parameters.AddWithValue("@id", objectiveId);
+            delCmd.Parameters.AddWithValue("@token", token);
+            await delCmd.ExecuteNonQueryAsync();
+        }
+
+        foreach (var token in desired)
+        {
+            if (existing.Contains(token)) continue;
+            using var insCmd = conn.CreateCommand();
+            insCmd.Transaction = tx;
+            insCmd.CommandText = """
+                INSERT OR IGNORE INTO objective_event_types (objective_id, event_token)
+                VALUES (@id, @token)
+                """;
+            insCmd.Parameters.AddWithValue("@id", objectiveId);
+            insCmd.Parameters.AddWithValue("@token", token);
+            await insCmd.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
+    }
+
+    // For the VOD timeline matcher: every (token → objective) tie for ACTIVE
+    // objectives, so a snapshot can light up tied events. Returns one row per tie.
+    public async Task<IReadOnlyList<(string Token, long ObjectiveId, string Title)>> GetActiveObjectiveEventTokensAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        // Only active objectives gate the timeline (matches every other active-
+        // objective query in this repo, which all use status = 'active').
+        cmd.CommandText = """
+            SELECT et.event_token, o.id, o.title
+            FROM objective_event_types et
+            JOIN objectives o ON o.id = et.objective_id
+            WHERE o.status = 'active'
+            """;
+        var results = new List<(string, long, string)>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add((reader.GetString(0), reader.GetInt64(1), reader.IsDBNull(2) ? "" : reader.GetString(2)));
+        }
+        return results;
+    }
+
     public async Task<IReadOnlyList<string>> GetPlayedChampionsAsync(int limit = 30)
     {
         // Pulls distinct champion_name from games ordered by most recent use.
@@ -666,6 +769,15 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             cmdChamps.CommandText = "DELETE FROM objective_champions WHERE objective_id = @id";
             cmdChamps.Parameters.AddWithValue("@id", objectiveId);
             await cmdChamps.ExecuteNonQueryAsync();
+        }
+
+        // v3.0.15 event-token gating cleanup (FK is inert — foreign_keys is OFF — so
+        // delete these explicitly or they orphan permanently under AUTOINCREMENT ids).
+        using (var cmdEvents = conn.CreateCommand())
+        {
+            cmdEvents.CommandText = "DELETE FROM objective_event_types WHERE objective_id = @id";
+            cmdEvents.Parameters.AddWithValue("@id", objectiveId);
+            await cmdEvents.ExecuteNonQueryAsync();
         }
 
         using (var cmd2 = conn.CreateCommand())

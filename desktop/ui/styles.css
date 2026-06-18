@@ -806,6 +806,32 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .obj-check:has(input:checked){color:#fff;border-color:rgba(157,139,255,0.55);
   background:rgba(157,139,255,0.16);box-shadow:0 0 0 1px rgba(157,139,255,0.25) inset,0 0 14px -6px rgba(157,139,255,0.8)}
 .obj-check:has(input:focus-visible){box-shadow:0 0 0 3px rgba(157,139,255,0.25)}
+
+/* ── Tracked-events picker — grouped pill-toggles, each lighting up in its own
+   event color when selected. Aesthetic alternative to raw checkboxes. ── */
+.obj-evtpick{display:flex;flex-direction:column;gap:11px;margin-top:3px}
+.obj-evtgroup{display:flex;flex-direction:column;gap:7px}
+.obj-evtgroup-k{font-family:var(--fm);font-size:9px;letter-spacing:1.4px;text-transform:uppercase;
+  color:var(--t4);padding-left:2px}
+.obj-evtrow{display:flex;gap:7px;flex-wrap:wrap}
+/* A pill carries its event hue in --evt; resting state is quiet glass, selected
+   state floods the hue (tinted fill + colored ring + a leading dot). */
+.obj-evtpill{--evt:var(--accent);position:relative;display:inline-flex;align-items:center;gap:7px;
+  font-family:var(--fb);font-size:11.5px;font-weight:600;color:var(--t3);cursor:pointer;user-select:none;
+  padding:7px 13px 7px 11px;border-radius:999px;border:1px solid var(--gline2);background:rgba(255,255,255,0.03);
+  transition:color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s cubic-bezier(0.22,1,0.36,1)}
+.obj-evtpill::before{content:'';width:7px;height:7px;border-radius:50%;flex-shrink:0;
+  background:var(--evt);opacity:0.45;box-shadow:0 0 0 0 var(--evt);transition:opacity .16s ease,box-shadow .16s ease}
+.obj-evtpill:hover{color:var(--t1);transform:translateY(-1px);
+  border-color:color-mix(in srgb,var(--evt) 45%,transparent);background:color-mix(in srgb,var(--evt) 8%,transparent)}
+.obj-evtpill:active{transform:translateY(0);transition-duration:.06s}
+.obj-evtpill:focus-visible{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--evt) 35%,transparent)}
+.obj-evtpill.on{color:#fff;border-color:color-mix(in srgb,var(--evt) 70%,transparent);
+  background:color-mix(in srgb,var(--evt) 18%,transparent);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--evt) 35%,transparent) inset,0 0 16px -7px var(--evt)}
+.obj-evtpill.on::before{opacity:1;box-shadow:0 0 7px -1px var(--evt)}
+@media(prefers-reduced-motion:reduce){.obj-evtpill{transition:color .16s ease,background .16s ease,border-color .16s ease}}
+
 .obj-form-err{font-family:var(--fb);font-size:12px;color:var(--loss);line-height:1.45}
 .obj-form-act{display:flex;justify-content:flex-end;gap:9px;margin-top:4px}
 .obj-form-submit{margin-top:0;align-self:auto;font-size:11px;padding:11px 22px}
@@ -819,6 +845,7 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 /* Section-label accent on the two grouped editors (purple prompts / teal champs). */
 .obj-field-k-prompt{color:var(--accent)}
 .obj-field-k-champ{color:var(--win)}
+.obj-field-k-events{color:var(--gold)}
 
 /* MEASURED CRITERION — metric + comparator + value on one row; op/value reveal
    only once a metric is chosen (JS toggles [hidden]). */
@@ -1907,6 +1934,20 @@ select.obj-input option{background:#14102a;color:var(--t1)}
    the user can spot spell usage, but shorter than kills so they don't dominate. */
 .vp-timeline .evbar-summoner{--evh:17px}
 .vp-timeline .evbar-minor{--evh:12px;opacity:0.82}
+/* OBJECTIVE-TIED priority lane: the tallest bar, a thicker glowing stem in the
+   objective's color, an explicit z-index so it paints over every other marker, and
+   a tiny ◎ ring tab so tied events are unmistakable. Its label rides the highest
+   row (above major) and never suppresses. The bar reads as "this matters". */
+.vp-timeline .evbar-objective{--evh:42px;width:3px;z-index:3;opacity:1;
+  box-shadow:0 0 9px -1px var(--evc),0 0 0 1px color-mix(in srgb,var(--evc) 40%,transparent)}
+.vp-timeline .evbar-objective:hover{width:4px}
+/* A small ring cap at the top of the stem marks the objective tie. */
+.vp-timeline .evbar-objective::before{content:'';position:absolute;top:-5px;left:50%;
+  width:7px;height:7px;border-radius:50%;transform:translateX(-50%);
+  background:var(--evc);box-shadow:0 0 7px -1px var(--evc),0 0 0 2px rgba(8,6,18,0.85);pointer-events:none}
+.vp-timeline .evbar-objective .evbar-code{bottom:calc(var(--evh) + 9px);
+  color:#fff;background:color-mix(in srgb,var(--evc) 30%,rgba(8,6,18,0.92));
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--evc) 55%,transparent),0 2px 8px -3px var(--evc);font-weight:800}
 /* Color buckets. */
 .vp-timeline .evbar-win{--evc:var(--win)}
 .vp-timeline .evbar-loss{--evc:var(--loss)}

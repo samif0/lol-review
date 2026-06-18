@@ -803,7 +803,8 @@ app.MapPost("/api/objective/create", async (CreateObjectiveBody body, WriteServi
         targetGameCount);
 
     await PersistObjectiveSideTablesAsync(w, id, body.Prompts, body.Champions,
-        body.FocusPhaseIndex, body.CriteriaMetricIndex, body.CriteriaOpIndex, body.CriteriaValueText);
+        body.FocusPhaseIndex, body.CriteriaMetricIndex, body.CriteriaOpIndex, body.CriteriaValueText,
+        body.EventTypes);
 
     log.LogInformation("Objective created: {Id} '{Title}'", id, body.Title);
     return Results.Json(new { ok = true, id }, jsonOptions);
@@ -831,7 +832,8 @@ app.MapPost("/api/objective/update", async (UpdateObjectiveBody body, WriteServi
     await w.Objectives.UpdateTargetGameCountAsync(body.Id, targetGameCount);
 
     await PersistObjectiveSideTablesAsync(w, body.Id, body.Prompts, body.Champions,
-        body.FocusPhaseIndex, body.CriteriaMetricIndex, body.CriteriaOpIndex, body.CriteriaValueText);
+        body.FocusPhaseIndex, body.CriteriaMetricIndex, body.CriteriaOpIndex, body.CriteriaValueText,
+        body.EventTypes);
 
     log.LogInformation("Objective updated: {Id}", body.Id);
     return Results.Json(new { ok = true }, jsonOptions);
@@ -2073,7 +2075,8 @@ static async Task PersistObjectiveSideTablesAsync(
     int focusPhaseIndex,
     int criteriaMetricIndex,
     int criteriaOpIndex,
-    string? criteriaValueText)
+    string? criteriaValueText,
+    List<string>? eventTypes = null)
 {
     // ── Custom prompts: diff-save against the stored rows. Mirrors
     //    ObjectivesViewModel.SavePromptsForObjectiveAsync: blank labels never
@@ -2128,6 +2131,12 @@ static async Task PersistObjectiveSideTablesAsync(
         champs.Add(name);
     }
     await w.Objectives.SetChampionsForObjectiveAsync(objectiveId, champs);
+
+    // ── Event-token gate: replace wholesale (empty list = tracks no events). The
+    //    repo validates each token against the trackable vocabulary, so junk is
+    //    dropped silently; we just forward the submitted list.
+    await w.Objectives.SetEventTokensForObjectiveAsync(
+        objectiveId, eventTypes ?? new List<string>());
 
     // ── Auto-clip focus phase (0 Auto / 1 Laning / 2 Mid-late / 3 Teamfight / 4 Any).
     await w.Objectives.UpdateFocusPhaseAsync(
@@ -2248,7 +2257,9 @@ internal sealed record CreateObjectiveBody(
     int FocusPhaseIndex,
     int CriteriaMetricIndex,
     int CriteriaOpIndex,
-    string? CriteriaValueText);
+    string? CriteriaValueText,
+    // Trackable event tokens the objective is tied to (raw types, SPELL_*, TEAMFIGHT).
+    List<string>? EventTypes = null);
 
 // POST /api/objective/update body. Same editing surface as create, plus the id
 // and the explicit target-game-count (minis only; primary/mental force 0).
@@ -2262,7 +2273,8 @@ internal sealed record UpdateObjectiveBody(
     int FocusPhaseIndex,
     int CriteriaMetricIndex,
     int CriteriaOpIndex,
-    string? CriteriaValueText);
+    string? CriteriaValueText,
+    List<string>? EventTypes = null);
 
 internal sealed record ResetBody(
     string Emotion, int IntensityBefore, int? IntensityAfter,

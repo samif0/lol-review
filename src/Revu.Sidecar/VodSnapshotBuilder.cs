@@ -29,6 +29,7 @@ public sealed class VodSnapshotBuilder
     private readonly IVodRepository _vodRepo;
     private readonly IGameEventsRepository _eventsRepo;
     private readonly IEvidenceRepository _evidenceRepo;
+    private readonly IObjectivesRepository _objectivesRepo;
     private readonly ILogger<VodSnapshotBuilder> _logger;
 
     public VodSnapshotBuilder(
@@ -36,12 +37,14 @@ public sealed class VodSnapshotBuilder
         IVodRepository vodRepo,
         IGameEventsRepository eventsRepo,
         IEvidenceRepository evidenceRepo,
+        IObjectivesRepository objectivesRepo,
         ILogger<VodSnapshotBuilder> logger)
     {
         _gameRepo = gameRepo;
         _vodRepo = vodRepo;
         _eventsRepo = eventsRepo;
         _evidenceRepo = evidenceRepo;
+        _objectivesRepo = objectivesRepo;
         _logger = logger;
     }
 
@@ -98,14 +101,27 @@ public sealed class VodSnapshotBuilder
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: bookmarks load failed for {GameId}", gameId); }
 
-        // Live event timeline (kills/deaths/objectives) → colored markers.
+        // Active-objective event-token ties → which events light up the priority lane.
+        // token (UPPER) → (objectiveId, title, color). Built once per snapshot.
+        var objectiveTokenMap = await BuildObjectiveTokenMapAsync();
+
+        // Live event timeline (kills/deaths/objectives) → colored markers. Each event
+        // is tagged with its tied objective (if any) so the timeline can prioritize it.
         var gameEvents = new List<VodEventDto>();
         try
         {
-            var raw = await _eventsRepo.GetEventsAsync(gameId);
-            gameEvents.AddRange(raw
+            var raw = (await _eventsRepo.GetEventsAsync(gameId))
                 .OrderBy(e => e.GameTimeS)
-                .Select(MapEvent));
+                .ToList();
+
+            // Pre-compute which events belong to an objective-tracked TEAMFIGHT, so a
+            // member event can be tied even though no single row IS a teamfight.
+            var teamfightTie = ResolveTeamfightTies(raw, objectiveTokenMap);
+
+            foreach (var e in raw)
+            {
+                gameEvents.Add(MapEvent(e, objectiveTokenMap, teamfightTie));
+            }
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: game events load failed for {GameId}", gameId); }
 
@@ -159,9 +175,26 @@ public sealed class VodSnapshotBuilder
     }
 
     // ── event marker mapping (mirrors WinUI TimelineEvent) ────────────────────
-    private static VodEventDto MapEvent(GameEvent e)
+    private static VodEventDto MapEvent(
+        GameEvent e,
+        IReadOnlyDictionary<string, (long Id, string Title, string Color)> objectiveTokenMap,
+        IReadOnlyDictionary<long, (long Id, string Title, string Color)> teamfightTie)
     {
         var (kind, colorHex) = BucketEvent(e.EventType);
+
+        // Objective tie: first the event's own token (raw type or SPELL_*), then a
+        // teamfight membership (an event can belong to a tracked TEAMFIGHT cluster).
+        long? objId = null; var objTitle = ""; var objColor = "";
+        var token = EventToken(e);
+        if (token is not null && objectiveTokenMap.TryGetValue(token, out var tie))
+        {
+            (objId, objTitle, objColor) = (tie.Id, tie.Title, tie.Color);
+        }
+        else if (teamfightTie.TryGetValue(e.Id, out var tf))
+        {
+            (objId, objTitle, objColor) = (tf.Id, tf.Title, tf.Color);
+        }
+
         return new VodEventDto(
             Id: e.Id,
             EventType: e.EventType ?? "",
@@ -171,7 +204,99 @@ public sealed class VodSnapshotBuilder
             Label: EventLabel(e.EventType),
             Summary: EventSummary(e),
             Kind: kind,
-            ColorHex: colorHex);
+            ColorHex: colorHex,
+            ObjectiveId: objId,
+            ObjectiveTitle: objTitle,
+            ObjectiveColorHex: objColor);
+    }
+
+    // The trackable TOKEN for an event: per-spell (SPELL_FLASH/SPELL_SMITE/…) parsed
+    // from Details.spell for summoner casts, otherwise the raw event type. Returns
+    // null for types that have no token (none today, but defensive). UPPERCASE.
+    private static string? EventToken(GameEvent e)
+    {
+        var type = (e.EventType ?? "").ToUpperInvariant();
+        if (type is "FLASH" or "SUMMONER_SPELL")
+        {
+            var spell = ReadSpellName(e);
+            if (!string.IsNullOrWhiteSpace(spell))
+                return "SPELL_" + spell.Trim().ToUpperInvariant();
+            // Legacy rows with no Details.spell: FLASH still maps to its spell token.
+            return type == "FLASH" ? "SPELL_FLASH" : null;
+        }
+        return type.Length > 0 ? type : null;
+    }
+
+    // The specific summoner-spell name from Details.spell ("Flash"|"Ignite"|…), "" if absent.
+    private static string ReadSpellName(GameEvent e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Details) || e.Details == "{}") return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(e.Details);
+            return ReadJsonString(doc.RootElement, "spell");
+        }
+        catch { return ""; }
+    }
+
+    // Build token (UPPER) → tied active objective. When several objectives track the
+    // same token, the first wins (deterministic by query order).
+    private async Task<IReadOnlyDictionary<string, (long Id, string Title, string Color)>> BuildObjectiveTokenMapAsync()
+    {
+        var map = new Dictionary<string, (long, string, string)>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var ties = await _objectivesRepo.GetActiveObjectiveEventTokensAsync();
+            foreach (var (token, objId, title) in ties)
+            {
+                var key = (token ?? "").Trim().ToUpperInvariant();
+                if (key.Length == 0 || map.ContainsKey(key)) continue;
+                var color = Revu.Core.Models.GameEvent.TrackableTokens.ColorOf(key);
+                map[key] = (objId, title ?? "", color);
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "VOD: objective token map load failed"); }
+        return map;
+    }
+
+    // If any active objective tracks TEAMFIGHT, cluster the combat events (the same
+    // definition the client timeline uses: ≥3 combat events within 14s) and tie every
+    // member event to that objective. Returns eventId → tied objective. Empty when no
+    // objective tracks teamfights. Mirrors vodplayer.js teamfightZones + the
+    // "Teamfight" derived-event default (KILL/DEATH cluster).
+    private static IReadOnlyDictionary<long, (long Id, string Title, string Color)> ResolveTeamfightTies(
+        IReadOnlyList<GameEvent> events,
+        IReadOnlyDictionary<string, (long Id, string Title, string Color)> objectiveTokenMap)
+    {
+        var ties = new Dictionary<long, (long, string, string)>();
+        if (!objectiveTokenMap.TryGetValue(Revu.Core.Models.GameEvent.TrackableTokens.TeamfightToken, out var tf))
+            return ties;
+
+        const int GapSeconds = 14;
+        const int MinEvents = 3;
+        bool IsCombat(string? t) =>
+            (t ?? "").ToUpperInvariant() is "KILL" or "DEATH" or "ASSIST" or "MULTI_KILL" or "FIRST_BLOOD";
+
+        // GameTimeS > 0 mirrors the client teamfightZones() filter (vodplayer.js): a
+        // t=0 combat event (unresolved EventTime) is dropped client-side, so dropping
+        // it here too keeps the server ties aligned with the visible TF band.
+        var combat = events.Where(e => IsCombat(e.EventType) && e.GameTimeS > 0)
+            .OrderBy(e => e.GameTimeS).ToList();
+        var cluster = new List<GameEvent>();
+        void Flush()
+        {
+            if (cluster.Count >= MinEvents)
+                foreach (var m in cluster) ties[m.Id] = (tf.Id, tf.Title, tf.Color);
+            cluster = new List<GameEvent>();
+        }
+        foreach (var e in combat)
+        {
+            if (cluster.Count == 0 || e.GameTimeS - cluster[^1].GameTimeS <= GapSeconds)
+                cluster.Add(e);
+            else { Flush(); cluster.Add(e); }
+        }
+        Flush();
+        return ties;
     }
 
     // Bucket event types into the win/loss/gold/neutral marker language, with the

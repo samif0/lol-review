@@ -134,6 +134,14 @@
           <datalist id="f-champ-list"></datalist>
         </div>
 
+        <!-- TRACKED EVENTS — tie the objective to specific in-game events. Only the
+             selected events get highlighted on the VOD timeline (priority lane).
+             Rendered as grouped pill-toggles; populated from eventTypeOptions. -->
+        <div class="obj-field">
+          <span class="obj-field-k obj-field-k-events">Tracked events <i class="obj-field-hint">light up on the timeline</i></span>
+          <div class="obj-evtpick" id="f-events"></div>
+        </div>
+
         <div class="obj-form-err" id="form-err" hidden></div>
         <div class="obj-form-act">
           <button class="obj-ghost" data-action="cancel_form" type="button">Cancel</button>

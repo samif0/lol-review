@@ -126,6 +126,20 @@ public interface IObjectivesRepository
     /// </summary>
     Task SetChampionsForObjectiveAsync(long objectiveId, IReadOnlyList<string> champions);
 
+    // ── v3.0.15 event-token gating (objective_event_types) ──────────────
+
+    /// <summary>List the trackable event tokens this objective is tied to (raw event
+    /// types, SPELL_* spells, or TEAMFIGHT). Empty list = tracks no events.</summary>
+    Task<IReadOnlyList<string>> GetEventTokensForObjectiveAsync(long objectiveId);
+
+    /// <summary>Replace the objective's tied event tokens with the provided list
+    /// (empty clears). Only recognized tokens persist; diff-save under the hood.</summary>
+    Task SetEventTokensForObjectiveAsync(long objectiveId, IReadOnlyList<string> tokens);
+
+    /// <summary>Every (token, objectiveId, title) tie for ACTIVE objectives — the VOD
+    /// timeline reads this to light up objective-tied events on the priority lane.</summary>
+    Task<IReadOnlyList<(string Token, long ObjectiveId, string Title)>> GetActiveObjectiveEventTokensAsync();
+
     /// <summary>
     /// Distinct champion names from the user's captured games, newest first.
     /// Used to prime the champion picker UI with champs the user actually plays.

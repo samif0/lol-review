@@ -88,6 +88,7 @@ public sealed class ObjectiveEditSnapshotBuilder
         var prompts = await SafePromptsAsync(objectiveId);
         var champions = await SafeChampionsAsync(objectiveId);
         var playedChampions = await SafePlayedChampionsAsync();
+        var eventTypes = await SafeEventTypesAsync(objectiveId);
 
         return new ObjectiveEditDto(
             Id: obj.Id,
@@ -109,7 +110,29 @@ public sealed class ObjectiveEditSnapshotBuilder
             CriteriaValueText: criteriaValueText,
             Prompts: prompts,
             Champions: champions,
-            PlayedChampions: playedChampions);
+            PlayedChampions: playedChampions,
+            EventTypes: eventTypes,
+            EventTypeOptions: EventTokenCatalog);
+    }
+
+    // The selectable token catalog — built once from the Core vocabulary so the
+    // picker and the matcher share one source of truth.
+    private static readonly IReadOnlyList<EventTokenOptionDto> EventTokenCatalog =
+        Revu.Core.Models.GameEvent.TrackableTokens.Catalog
+            .Select(c => new EventTokenOptionDto(c.Token, c.Group, c.Label, c.Color))
+            .ToList();
+
+    private async Task<IReadOnlyList<string>> SafeEventTypesAsync(long objectiveId)
+    {
+        try
+        {
+            return await _objectivesRepo.GetEventTokensForObjectiveAsync(objectiveId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Objective edit: event-token gate load failed for {ObjectiveId}", objectiveId);
+            return Array.Empty<string>();
+        }
     }
 
     private async Task<IReadOnlyList<PromptDraftDto>> SafePromptsAsync(long objectiveId)

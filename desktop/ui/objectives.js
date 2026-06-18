@@ -71,6 +71,31 @@ const FALLBACK_METRICS = [
   { index: 10, key: 'gold_diff_at_10', label: 'Gold diff at 10 min', lowerIsBetter: false },
 ];
 
+// Trackable-event tokens fall back to this static catalog if the snapshot didn't
+// carry eventTypeOptions. MUST mirror Revu.Core.Models.GameEvent.TrackableTokens.Catalog.
+const FALLBACK_EVENT_TOKENS = [
+  { token: 'KILL', group: 'Combat', label: 'Kill', color: '#28c76f' },
+  { token: 'DEATH', group: 'Combat', label: 'Death', color: '#ea5455' },
+  { token: 'ASSIST', group: 'Combat', label: 'Assist', color: '#0099ff' },
+  { token: 'MULTI_KILL', group: 'Combat', label: 'Multikill', color: '#fbbf24' },
+  { token: 'FIRST_BLOOD', group: 'Combat', label: 'First Blood', color: '#ef4444' },
+  { token: 'DRAGON', group: 'Objectives', label: 'Dragon', color: '#c89b3c' },
+  { token: 'BARON', group: 'Objectives', label: 'Baron', color: '#8b5cf6' },
+  { token: 'HERALD', group: 'Objectives', label: 'Herald', color: '#06b6d4' },
+  { token: 'TURRET', group: 'Objectives', label: 'Turret', color: '#f97316' },
+  { token: 'INHIBITOR', group: 'Objectives', label: 'Inhibitor', color: '#ec4899' },
+  { token: 'SPELL_FLASH', group: 'Summoners', label: 'Flash', color: '#7fd4ff' },
+  { token: 'SPELL_IGNITE', group: 'Summoners', label: 'Ignite', color: '#ff7043' },
+  { token: 'SPELL_TELEPORT', group: 'Summoners', label: 'Teleport', color: '#5c8dff' },
+  { token: 'SPELL_SMITE', group: 'Summoners', label: 'Smite', color: '#9ccc65' },
+  { token: 'SPELL_EXHAUST', group: 'Summoners', label: 'Exhaust', color: '#ffca5f' },
+  { token: 'SPELL_HEAL', group: 'Summoners', label: 'Heal', color: '#7fe3c0' },
+  { token: 'SPELL_BARRIER', group: 'Summoners', label: 'Barrier', color: '#ffd54f' },
+  { token: 'SPELL_CLEANSE', group: 'Summoners', label: 'Cleanse', color: '#80deea' },
+  { token: 'SPELL_GHOST', group: 'Summoners', label: 'Ghost', color: '#b39ddb' },
+  { token: 'TEAMFIGHT', group: 'Fights', label: 'Teamfight', color: '#f3a3a8' },
+];
+
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchObjectives() {
   // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
@@ -452,6 +477,9 @@ let _champs = [];
 // objective hydration on edit). Defaulted to the static fallback.
 let _criteriaMetrics = FALLBACK_METRICS;
 let _playedChampions = [];
+// Tracked-event gate: the set of selected event tokens + the catalog to render.
+let _eventTypes = [];           // Set-like array of selected tokens (UPPERCASE)
+let _eventTypeOptions = FALLBACK_EVENT_TOKENS;
 
 function setChecked(id, on) { const el = $(id); if (el) el.checked = !!on; }
 function setVal(id, v) { const el = $(id); if (el) el.value = v == null ? '' : String(v); }
@@ -534,6 +562,55 @@ function removePromptRow(idx) {
   renderPromptRows();
 }
 
+// ── tracked-event gate ─────────────────────────────────────────────────────────
+// Render the event-token picker as grouped pill-toggles. Each pill toggles its
+// token in _eventTypes; a selected pill lights up in its own event color. Groups
+// (Combat / Objectives / Summoners / Fights) get a tiny eyebrow label.
+function renderEventPicker() {
+  const host = $('f-events');
+  if (!host) return;
+  clear(host);
+  const selected = new Set(_eventTypes.map((t) => String(t).toUpperCase()));
+  // Preserve catalog order; bucket into groups in first-seen order.
+  const groups = [];
+  const byGroup = new Map();
+  for (const opt of _eventTypeOptions) {
+    if (!byGroup.has(opt.group)) { byGroup.set(opt.group, []); groups.push(opt.group); }
+    byGroup.get(opt.group).push(opt);
+  }
+  for (const group of groups) {
+    const sec = document.createElement('div');
+    sec.className = 'obj-evtgroup';
+    const eyebrow = document.createElement('div');
+    eyebrow.className = 'obj-evtgroup-k';
+    eyebrow.textContent = group;
+    sec.appendChild(eyebrow);
+    const row = document.createElement('div');
+    row.className = 'obj-evtrow';
+    for (const opt of byGroup.get(group)) {
+      const token = String(opt.token).toUpperCase();
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'obj-evtpill' + (selected.has(token) ? ' on' : '');
+      pill.dataset.token = token;
+      pill.style.setProperty('--evt', opt.color || 'var(--accent)');
+      pill.textContent = opt.label || token;
+      pill.setAttribute('aria-pressed', selected.has(token) ? 'true' : 'false');
+      pill.addEventListener('click', (e) => { e.preventDefault(); toggleEventToken(token); });
+      row.appendChild(pill);
+    }
+    sec.appendChild(row);
+    host.appendChild(sec);
+  }
+}
+
+function toggleEventToken(token) {
+  const t = String(token).toUpperCase();
+  const i = _eventTypes.findIndex((x) => String(x).toUpperCase() === t);
+  if (i >= 0) _eventTypes.splice(i, 1); else _eventTypes.push(t);
+  renderEventPicker();
+}
+
 // ── champion gate ─────────────────────────────────────────────────────────────
 function renderChampChips() {
   const host = $('f-champs');
@@ -597,6 +674,8 @@ function resetFormFields() {
   _champs = [];
   setVal('f-champ-input', '');
   renderChampChips();
+  _eventTypes = [];
+  renderEventPicker();
 }
 
 function revealForm() {
@@ -616,6 +695,9 @@ function openCreateForm() {
       _criteriaMetrics = _lastData.criteriaMetrics;
     }
     _playedChampions = Array.isArray(_lastData.playedChampions) ? _lastData.playedChampions : [];
+    if (Array.isArray(_lastData.eventTypeOptions) && _lastData.eventTypeOptions.length) {
+      _eventTypeOptions = _lastData.eventTypeOptions;
+    }
   }
   $('form-title').textContent = 'New Objective';
   $('form-submit').textContent = 'Create';
@@ -642,6 +724,9 @@ async function openEditForm(id) {
   if (Array.isArray(hydrated && hydrated.criteriaMetrics) && hydrated.criteriaMetrics.length) {
     _criteriaMetrics = hydrated.criteriaMetrics;
     fillMetricOptions();
+  }
+  if (Array.isArray(hydrated && hydrated.eventTypeOptions) && hydrated.eventTypeOptions.length) {
+    _eventTypeOptions = hydrated.eventTypeOptions;
   }
 
   setVal('f-title', o.title || '');
@@ -674,6 +759,10 @@ async function openEditForm(id) {
   // Champion gate.
   _champs = Array.isArray(o.champions) ? o.champions.slice() : [];
   renderChampChips();
+
+  // Tracked-event gate.
+  _eventTypes = Array.isArray(o.eventTypes) ? o.eventTypes.map((t) => String(t).toUpperCase()) : [];
+  renderEventPicker();
 
   $('f-title').focus();
 }
@@ -759,6 +848,7 @@ function readFormPayload() {
     targetGameCount: (type === 'mini') ? (Number.isFinite(n) && n > 0 ? n : 3) : 0,
     prompts,
     champions: _champs.slice(),
+    eventTypes: _eventTypes.slice(),
     focusPhaseIndex: parseInt(getVal('f-focus'), 10) || 0,
     criteriaMetricIndex: parseInt(getVal('f-crit-metric'), 10) || 0,
     criteriaOpIndex: parseInt(getVal('f-crit-op'), 10) || 0,

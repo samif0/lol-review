@@ -203,37 +203,60 @@ function placeMarkers(dur) {
     .sort((a, b) => (a.gameTimeSeconds || 0) - (b.gameTimeSeconds || 0));
 
   // Track the last label x-position per tier so near-duplicates drop their label.
-  const lastLabelPctByTier = { major: -99, medium: -99, summoner: -99, minor: -99 };
+  const lastLabelPctByTier = { objective: -99, major: -99, medium: -99, summoner: -99, minor: -99 };
   // Wider than a bare code's width so labels get real breathing room and the
   // timeline never turns into a wall of text (the dense-text complaint).
   const MIN_LABEL_GAP_PCT = 5.5;
+  // Objective-tied labels reserve a wider exclusion so neighboring NON-objective
+  // labels yield around them (objective takes priority + no overlap).
+  const OBJ_RESERVE_PCT = 4.0;
+  // x-positions where an objective marker reserved space; non-objective labels
+  // within OBJ_RESERVE_PCT of any of these are suppressed so the objective wins.
+  const objectiveLabelXs = [];
 
-  for (const e of events) {
+  // TWO-PASS placement so objective-tied events take priority: tied events first
+  // (they always render their label + reserve their slot), untied events second
+  // (they yield to any objective marker they'd crowd).
+  const isObjective = (e) => e.objectiveId != null;
+  const ordered = events.filter(isObjective).concat(events.filter((e) => !isObjective(e)));
+
+  for (const e of ordered) {
     // Always a SHORT code on the track — never a long raw label. Even if the
     // server sends a verbose shortLabel for a new event type, clamp it so it
     // can't sprawl across the timeline (the "Lower Drag Objective Contest" leak).
     const code = shortCode(e.shortLabel || deriveShortLabel(e.eventType, e.label));
     const kind = e.kind || 'neutral';
-    const tier = eventTier(e.eventType, e.label);
+    const tied = isObjective(e);
+    // Tied events ride a dedicated 'objective' lane (tall, own row, distinct ring).
+    const tier = tied ? 'objective' : eventTier(e.eventType, e.label);
     const leftPct = pctOf(e.gameTimeSeconds);
 
     const bar = document.createElement('span');
-    bar.className = `evbar evbar-${kind} evbar-${tier}`;
+    bar.className = `evbar evbar-${kind} evbar-${tier}` + (tied ? ' evbar-objective' : '');
     bar.style.left = `${leftPct}%`;
-    if (e.colorHex) bar.style.setProperty('--evc', e.colorHex);
+    // Tied bars take the objective's color; otherwise the per-type color.
+    const ringColor = tied ? (e.objectiveColorHex || e.colorHex) : e.colorHex;
+    if (ringColor) bar.style.setProperty('--evc', ringColor);
     bar.style.pointerEvents = 'auto';
     bar.style.cursor = 'pointer';
-    bar.title = `${e.timeLabel} ${e.label}${e.summary ? ' · ' + e.summary : ''}`.trim();
+    const objSuffix = tied && e.objectiveTitle ? ` · ◎ ${e.objectiveTitle}` : '';
+    bar.title = `${e.timeLabel} ${e.label}${e.summary ? ' · ' + e.summary : ''}${objSuffix}`.trim();
     bar.dataset.action = 'jump';
     bar.dataset.seconds = String(e.gameTimeSeconds);
 
-    // Show the code label only when it won't crowd the previous one in its tier.
-    // Minor events stay label-less by default (their code shows on hover) to keep
-    // the timeline clean; major/medium/summoner always try to label so the user can
-    // SEE summoner usage (FLS/SUM) and key plays at a glance.
-    const wantsLabel = tier !== 'minor';
-    const clearOfNeighbor = leftPct - lastLabelPctByTier[tier] >= MIN_LABEL_GAP_PCT;
-    if (wantsLabel && clearOfNeighbor) {
+    // Label policy. Objective events ALWAYS label (never suppressed) and reserve a
+    // slot. Other events label only when clear of their tier neighbor AND clear of
+    // every objective reservation (so they yield around objective markers).
+    let showLabel;
+    if (tied) {
+      showLabel = true;
+      objectiveLabelXs.push(leftPct);
+    } else {
+      const clearOfTier = leftPct - lastLabelPctByTier[tier] >= MIN_LABEL_GAP_PCT;
+      const clearOfObjective = objectiveLabelXs.every((x) => Math.abs(leftPct - x) >= OBJ_RESERVE_PCT);
+      showLabel = tier !== 'minor' && clearOfTier && clearOfObjective;
+    }
+    if (showLabel) {
       const lbl = document.createElement('span');
       lbl.className = 'evbar-code';
       lbl.textContent = code;

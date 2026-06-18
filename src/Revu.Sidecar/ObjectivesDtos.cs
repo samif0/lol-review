@@ -182,7 +182,20 @@ public sealed record ObjectiveEditDto(
     // Champion gate (objective applies only to these; empty = all champions).
     IReadOnlyList<string> Champions,
     // Champions the user actually plays (newest first), for the picker typeahead.
-    IReadOnlyList<string> PlayedChampions);
+    IReadOnlyList<string> PlayedChampions,
+    // Event-token gate: the trackable tokens this objective is tied to (raw event
+    // types, SPELL_* spells, TEAMFIGHT). Empty = tracks no events.
+    IReadOnlyList<string> EventTypes,
+    // The full catalog of selectable tokens (token + group + label + color) so the
+    // edit UI can render the grouped picker without hardcoding the vocabulary.
+    IReadOnlyList<EventTokenOptionDto> EventTypeOptions);
+
+/// <summary>One selectable event token for the objective-edit picker.</summary>
+public sealed record EventTokenOptionDto(
+    string Token,
+    string Group,
+    string Label,
+    string Color);
 
 /// <summary>One custom-prompt row for the edit form (id + phase + label).</summary>
 public sealed record PromptDraftDto(

@@ -18,7 +18,10 @@ public static class Schema
     // v7 (2026-06): rules.replacement_plan — player-authored "then I will…"
     //               implementation-intention shown at the trip cue (P2c,
     //               digest 2026-06-14). Display-only, never scored.
-    public const int CurrentAppSchemaVersion = 7;
+    // v8 (2026-06): objective_event_types — objectives tie to trackable event
+    //               tokens (raw types, SPELL_*, TEAMFIGHT) that light up the VOD
+    //               timeline priority lane (v3.0.15).
+    public const int CurrentAppSchemaVersion = 8;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -412,6 +415,26 @@ public static class Schema
         ON objective_champions (champion_name);
         """;
 
+    // v3.0.15 (schema v8): event-type gating for objectives. An objective with rows
+    // here is "tied" to those trackable tokens (raw event types like KILL/DRAGON,
+    // per-spell tokens like SPELL_SMITE, or the synthetic TEAMFIGHT). On the VOD
+    // timeline, events whose token matches an active objective's tokens take the
+    // priority lane. Zero rows = the objective tracks no events (default). Mirrors
+    // objective_champions exactly (clean (objective_id, value) join).
+    public const string CreateObjectiveEventTypesTable = """
+        CREATE TABLE IF NOT EXISTS objective_event_types (
+            objective_id    INTEGER NOT NULL,
+            event_token     TEXT NOT NULL,
+            PRIMARY KEY (objective_id, event_token),
+            FOREIGN KEY (objective_id) REFERENCES objectives(id)
+        );
+        """;
+
+    public const string CreateObjectiveEventTypesIndex = """
+        CREATE INDEX IF NOT EXISTS idx_objective_event_types_token
+        ON objective_event_types (event_token);
+        """;
+
     public const string CreateObjectivePromptsIndex = """
         CREATE INDEX IF NOT EXISTS idx_objective_prompts_objective
         ON objective_prompts (objective_id, phase, sort_order);
@@ -710,6 +733,15 @@ public static class Schema
         "ALTER TABLE rules ADD COLUMN replacement_plan TEXT DEFAULT ''",
     ];
 
+    // v3.0.15 (schema v8): objective_event_types join table — objectives can be tied
+    // to trackable event tokens. Forward-only, additive (CREATE IF NOT EXISTS), so v7
+    // DBs gain the table without touching any existing data.
+    public static readonly string[] MigrateObjectiveEventTypes =
+    [
+        CreateObjectiveEventTypesTable,
+        CreateObjectiveEventTypesIndex,
+    ];
+
     public static readonly string[] MigrateBookmarksClipColumns =
     [
         "ALTER TABLE vod_bookmarks ADD COLUMN clip_start_s INTEGER",
@@ -938,6 +970,8 @@ public static class Schema
         CreatePreGameDraftPromptsTable,
         CreateObjectiveChampionsTable,
         CreateObjectiveChampionsIndex,
+        CreateObjectiveEventTypesTable,
+        CreateObjectiveEventTypesIndex,
         // v2.15.0 NOTE: CreateObjectivePromptsIndex + CreatePromptAnswersIndex
         // reference columns (phase, etc.) that only exist after
         // NormalizeObjectivePromptsTableAsync has run. They're applied
@@ -1017,6 +1051,8 @@ public static class Schema
         new(6, "intention-source", MigrateIntentionSource),
         // v2.18 (schema v7): rules.replacement_plan — P2c trip-cue plan.
         new(7, "rules-replacement-plan", MigrateRulesReplacementPlan),
+        // v3.0.15 (schema v8): objective_event_types — tie objectives to event tokens.
+        new(8, "objective-event-types", MigrateObjectiveEventTypes),
     ];
 
     // ── Default seed data ────────────────────────────────────────────
