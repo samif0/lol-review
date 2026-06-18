@@ -21,6 +21,9 @@ public sealed class VodSnapshotBuilder
     private const string LossHex = "#f3a3a8";
     private const string GoldHex = "#f3c794";
     private const string NeutralHex = "#9fb0c3";
+    // Summoner-spell casts (Flash + the rest) get their own readable cyan so the
+    // user can spot summoner usage at a glance on the timeline.
+    private const string SummonerHex = "#7fd4ff";
 
     private readonly IGameRepository _gameRepo;
     private readonly IVodRepository _vodRepo;
@@ -179,6 +182,7 @@ public sealed class VodSnapshotBuilder
             "KILL" or "ASSIST" or "MULTI_KILL" => ("win", WinHex),
             "DEATH" or "FIRST_BLOOD" => ("loss", LossHex),
             "DRAGON" or "BARON" or "HERALD" or "TURRET" or "INHIBITOR" => ("gold", GoldHex),
+            "FLASH" or "SUMMONER_SPELL" => ("summoner", SummonerHex),
             _ => ("neutral", NeutralHex),
         };
 
@@ -195,7 +199,7 @@ public sealed class VodSnapshotBuilder
         "FIRST_BLOOD" => "FB",
         "MULTI_KILL" => "MLT",
         "LEVEL_UP" => "LVL",
-        "FLASH" => "FLASH",
+        "FLASH" => "FLS",
         "SUMMONER_SPELL" => "SUM",
         _ => "EVT",
     };

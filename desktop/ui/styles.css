@@ -1903,12 +1903,27 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 /* Importance tiers → bar heights. Major objectives stand tallest. */
 .vp-timeline .evbar-major{--evh:34px}
 .vp-timeline .evbar-medium{--evh:22px}
+/* Summoner casts (flash/etc.) sit between medium and minor — visible + labeled so
+   the user can spot spell usage, but shorter than kills so they don't dominate. */
+.vp-timeline .evbar-summoner{--evh:17px}
 .vp-timeline .evbar-minor{--evh:12px;opacity:0.82}
 /* Color buckets. */
 .vp-timeline .evbar-win{--evc:var(--win)}
 .vp-timeline .evbar-loss{--evc:var(--loss)}
 .vp-timeline .evbar-gold{--evc:var(--gold)}
+.vp-timeline .evbar-summoner{--evc:#7fd4ff}
 .vp-timeline .evbar-neutral{--evc:var(--t3)}
+
+/* Teamfight zone — a soft band BEHIND the bars marking a cluster of combat events,
+   with a small "TF" tab so the fight windows read at a glance. Decorative, but
+   hoverable for the time-range title; never blocks the bars' click-to-seek. */
+.vp-timeline .evtf{position:absolute;top:8px;bottom:20px;border-radius:6px;
+  background:linear-gradient(180deg,rgba(243,163,168,0.14),rgba(243,163,168,0.05));
+  border:1px solid rgba(243,163,168,0.22);pointer-events:none;z-index:0}
+.vp-timeline .evtf-lbl{position:absolute;top:-1px;left:50%;transform:translateX(-50%);
+  font-family:var(--fm);font-size:8px;font-weight:700;letter-spacing:0.6px;line-height:1;
+  color:#f3a3a8;background:rgba(8,6,18,0.9);border-radius:0 0 4px 4px;padding:2px 5px;
+  box-shadow:0 0 0 1px rgba(243,163,168,0.3);white-space:nowrap;pointer-events:none}
 /* The code label rides just above the bar top (which differs by tier, so labels
    stack on different rows). A faint dark chip behind it keeps it legible even when
    two land near each other. */

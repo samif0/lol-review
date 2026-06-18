@@ -175,6 +175,23 @@ function placeMarkers(dur) {
 
   const pctOf = (s) => Math.max(0, Math.min(100, (s / dur) * 100));
 
+  // 0. Teamfight zones — derive clusters of combat events (kills/deaths/assists)
+  //    that bunch up in a short window and draw a soft band behind the bars so the
+  //    user can SEE where the teamfights happened (there's no discrete "teamfight"
+  //    event from the API — a fight IS a burst of combat events).
+  for (const tf of teamfightZones(_vod.gameEvents || [])) {
+    const band = document.createElement('span');
+    band.className = 'evtf';
+    band.style.left = `${pctOf(tf.startS)}%`;
+    band.style.width = `${Math.max(0.8, pctOf(tf.endS) - pctOf(tf.startS))}%`;
+    band.title = `Teamfight ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} events`;
+    const lbl = document.createElement('span');
+    lbl.className = 'evtf-lbl';
+    lbl.textContent = 'TF';
+    band.appendChild(lbl);
+    host.appendChild(band);
+  }
+
   // 1. Live events → coded bars with importance-tiered HEIGHTS so the timeline
   //    reads at a glance: major objectives (Baron/Dragon/Herald/Tower/Inhibitor)
   //    are tall, kills/deaths medium, everything else short. The tiering also
@@ -186,7 +203,7 @@ function placeMarkers(dur) {
     .sort((a, b) => (a.gameTimeSeconds || 0) - (b.gameTimeSeconds || 0));
 
   // Track the last label x-position per tier so near-duplicates drop their label.
-  const lastLabelPctByTier = { major: -99, medium: -99, minor: -99 };
+  const lastLabelPctByTier = { major: -99, medium: -99, summoner: -99, minor: -99 };
   // Wider than a bare code's width so labels get real breathing room and the
   // timeline never turns into a wall of text (the dense-text complaint).
   const MIN_LABEL_GAP_PCT = 5.5;
@@ -212,7 +229,8 @@ function placeMarkers(dur) {
 
     // Show the code label only when it won't crowd the previous one in its tier.
     // Minor events stay label-less by default (their code shows on hover) to keep
-    // the timeline clean; major/medium always try to label.
+    // the timeline clean; major/medium/summoner always try to label so the user can
+    // SEE summoner usage (FLS/SUM) and key plays at a glance.
     const wantsLabel = tier !== 'minor';
     const clearOfNeighbor = leftPct - lastLabelPctByTier[tier] >= MIN_LABEL_GAP_PCT;
     if (wantsLabel && clearOfNeighbor) {
@@ -245,13 +263,47 @@ function placeMarkers(dur) {
 }
 
 // Importance tier for an event → drives the bar height + label policy. Major =
-// map objectives (decisive), medium = kills/deaths (player-relevant), minor =
+// map objectives (decisive), medium = kills/deaths (player-relevant), summoner =
+// flash/summoner casts (always labeled so the user can spot spell usage), minor =
 // everything else. Keeps the busiest timelines readable.
 function eventTier(eventType, label) {
   const t = String(eventType || label || '').toUpperCase().replace(/[^A-Z]/g, '');
   if (/BARON|DRAGON|ELDER|HERALD|RIFT|TOWER|TURRET|INHIB|NEXUS|ACE|OBJECTIVE|CONTEST/.test(t)) return 'major';
   if (/KILL|DEATH|MULTIKILL|FIRSTBLOOD|PENTA|QUADRA|TRIPLE|DOUBLE|GANK|SKIRMISH/.test(t)) return 'medium';
+  if (/FLASH|SUMMONER|SPELL|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(t)) return 'summoner';
   return 'minor';
+}
+
+// Derive teamfight zones from the event stream. A teamfight = a cluster of combat
+// events (kills/deaths/assists/multikills/first-blood) where consecutive events are
+// within GAP seconds of each other and the cluster holds at least MIN_EVENTS. Each
+// zone is { startS, endS, count } spanning the first→last event of the cluster.
+function teamfightZones(events) {
+  const GAP = 14;        // seconds between consecutive combat events to stay one fight
+  const MIN_EVENTS = 3;  // a fight needs at least this many combat events
+  const combat = events
+    .filter((e) => /KILL|DEATH|ASSIST|MULTI|FIRST/.test(String(e.eventType || e.label || '').toUpperCase()))
+    .map((e) => e.gameTimeSeconds || 0)
+    .filter((s) => s > 0)
+    .sort((a, b) => a - b);
+  const zones = [];
+  let cluster = [];
+  const flush = () => {
+    if (cluster.length >= MIN_EVENTS) {
+      zones.push({ startS: cluster[0], endS: cluster[cluster.length - 1], count: cluster.length });
+    }
+    cluster = [];
+  };
+  for (const s of combat) {
+    if (cluster.length === 0 || s - cluster[cluster.length - 1] <= GAP) {
+      cluster.push(s);
+    } else {
+      flush();
+      cluster.push(s);
+    }
+  }
+  flush();
+  return zones;
 }
 
 // Clamp any label to a compact track code: strip to letters/digits, upper-case,
@@ -279,6 +331,7 @@ function deriveShortLabel(eventType, label) {
     DRAGON: 'DRG', BARON: 'BAR', HERALD: 'HLD', RIFTHERALD: 'HLD',
     TOWER: 'TWR', TURRET: 'TWR', INHIBITOR: 'INH', ELDER: 'ELD',
     FIRSTBLOOD: 'FB', ACE: 'ACE', GANK: 'GNK', WARD: 'WRD', RECALL: 'RCL',
+    FLASH: 'FLS', SUMMONERSPELL: 'SUM', LEVELUP: 'LVL',
   };
   if (map[t]) return map[t];
   // Generic: first three letters of the type, upper-cased.
