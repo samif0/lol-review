@@ -105,6 +105,50 @@ public sealed class DatabaseInitializer
         _logger.LogInformation("Database initialized at {Path}", _connectionFactory.DatabasePath);
     }
 
+    /// <summary>
+    /// Runs ONLY the additive, non-destructive schema steps: every
+    /// <c>CREATE TABLE/INDEX IF NOT EXISTS</c> and the versioned ALTER/CREATE
+    /// migrations gated by app_schema_version. It deliberately SKIPS the
+    /// normalize-rebuild, seed, and backfill phases of <see cref="InitializeAsync"/>
+    /// — those DROP/rewrite tables and are the data-loss vector this app guards
+    /// against. Idempotent and safe to call on every startup against an EXISTING DB.
+    ///
+    /// <para>This is the sidecar's migration entry point now that the WinUI app
+    /// (which used to own schema migration) is gone — without it, new versioned
+    /// migrations never run and write endpoints hit "no such table".</para>
+    /// </summary>
+    public async Task ApplyAdditiveSchemaAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+
+        // CREATE TABLE / INDEX IF NOT EXISTS — adds any table missing on this DB
+        // (e.g. a v8 table on a DB last migrated by the old WinUI app at v7).
+        foreach (var statement in Schema.AllCreateStatements)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = statement;
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Versioned additive migrations (ALTER ADD COLUMN / CREATE IF NOT EXISTS),
+        // gated by the recorded schema version — same logic as InitializeAsync step 2.
+        var appliedSchemaVersion = await GetAppliedSchemaVersionAsync(connection, cancellationToken);
+        foreach (var migrationSet in Schema.VersionedMigrations
+                     .Where(static migration => migration.Version > 0)
+                     .OrderBy(static migration => migration.Version))
+        {
+            if (migrationSet.Version <= appliedSchemaVersion) continue;
+            await ExecuteMigrationSetAsync(connection, migrationSet, cancellationToken);
+            await SetAppliedSchemaVersionAsync(connection, migrationSet.Version, cancellationToken);
+            appliedSchemaVersion = migrationSet.Version;
+        }
+
+        _logger.LogInformation(
+            "Additive schema applied (now at v{Version}) at {Path}",
+            appliedSchemaVersion, _connectionFactory.DatabasePath);
+    }
+
     // â”€â”€ Seeding helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async Task ExecuteMigrationSetAsync(

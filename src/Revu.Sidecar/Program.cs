@@ -241,6 +241,38 @@ var jsonOptions = new JsonSerializerOptions
 
 var app = builder.Build();
 
+// ── Additive schema upgrade (CRITICAL) ───────────────────────────────────────
+// The WinUI app used to own DB migration; it's gone, so the sidecar — the only
+// writer now — must apply new versioned migrations on startup or write endpoints
+// hit "no such table" the moment a migration adds one (e.g. v8 objective_event_types).
+// We run ONLY the additive, non-destructive subset (CREATE IF NOT EXISTS + ALTER
+// migrations), via the WRITE factory, NEVER the normalize-rebuild/seed phases. A
+// missing DB is a no-op (nothing to migrate yet); any failure is logged but does
+// not block the sidecar from starting (read endpoints still work).
+try
+{
+    var migrateLogger = app.Services.GetRequiredService<ILoggerFactory>();
+    var writeFactory = new WriteSqliteConnectionFactory(
+        migrateLogger.CreateLogger<WriteSqliteConnectionFactory>());
+    if (File.Exists(writeFactory.DatabasePath))
+    {
+        var migrator = new DatabaseInitializer(
+            writeFactory, migrateLogger.CreateLogger<DatabaseInitializer>());
+        await migrator.ApplyAdditiveSchemaAsync();
+    }
+    else
+    {
+        migrateLogger.CreateLogger("Startup").LogInformation(
+            "Schema upgrade skipped: no DB at {Path} yet.", writeFactory.DatabasePath);
+    }
+}
+catch (Exception ex)
+{
+    app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Startup")
+        .LogError(ex, "Additive schema upgrade failed at startup");
+}
+
 // ── Bearer-token middleware (constant-time compare; /api/health exempt) ──────
 var expectedTokenBytes = Encoding.UTF8.GetBytes(bearerToken);
 app.Use(async (context, next) =>
@@ -2134,9 +2166,20 @@ static async Task PersistObjectiveSideTablesAsync(
 
     // ── Event-token gate: replace wholesale (empty list = tracks no events). The
     //    repo validates each token against the trackable vocabulary, so junk is
-    //    dropped silently; we just forward the submitted list.
-    await w.Objectives.SetEventTokensForObjectiveAsync(
-        objectiveId, eventTypes ?? new List<string>());
+    //    dropped silently; we just forward the submitted list. Wrapped defensively
+    //    so a token-table problem (e.g. a DB that somehow missed the v8 migration)
+    //    never fails the whole objective save — the objective + its other side
+    //    tables still persist; only the event-token tie is skipped.
+    try
+    {
+        await w.Objectives.SetEventTokensForObjectiveAsync(
+            objectiveId, eventTypes ?? new List<string>());
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"[objective {objectiveId}] event-token persist failed (skipped): {ex.Message}");
+    }
 
     // ── Auto-clip focus phase (0 Auto / 1 Laning / 2 Mid-late / 3 Teamfight / 4 Any).
     await w.Objectives.UpdateFocusPhaseAsync(
