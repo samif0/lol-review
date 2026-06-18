@@ -24,6 +24,9 @@ public sealed class VodSnapshotBuilder
     // Summoner-spell casts (Flash + the rest) get their own readable cyan so the
     // user can spot summoner usage at a glance on the timeline.
     private const string SummonerHex = "#7fd4ff";
+    // Recall (derived from shop purchases) — a soft periwinkle, distinct from the
+    // cyan summoner hue. Matches GameEvent.TrackableTokens "Recall" catalog color.
+    private const string RecallHex = "#a9c8ff";
 
     private readonly IGameRepository _gameRepo;
     private readonly IVodRepository _vodRepo;
@@ -308,6 +311,7 @@ public sealed class VodSnapshotBuilder
             "DEATH" or "FIRST_BLOOD" => ("loss", LossHex),
             "DRAGON" or "BARON" or "HERALD" or "TURRET" or "INHIBITOR" => ("gold", GoldHex),
             "FLASH" or "SUMMONER_SPELL" => ("summoner", SummonerHex),
+            "RECALL" => ("recall", RecallHex),
             _ => ("neutral", NeutralHex),
         };
 
@@ -326,6 +330,7 @@ public sealed class VodSnapshotBuilder
         "LEVEL_UP" => "LVL",
         "FLASH" => "FLS",
         "SUMMONER_SPELL" => "SUM",
+        "RECALL" => "RCL",
         _ => "EVT",
     };
 
@@ -344,6 +349,7 @@ public sealed class VodSnapshotBuilder
         "LEVEL_UP" => "Level Up",
         "FLASH" => "Flash",
         "SUMMONER_SPELL" => "Summoner Spell",
+        "RECALL" => "Recall",
         _ => eventType ?? "",
     };
 
@@ -365,6 +371,9 @@ public sealed class VodSnapshotBuilder
                 "BARON" or "HERALD" or "TURRET" or "INHIBITOR" => ReadJsonString(root, "killer"),
                 "MULTI_KILL" => ReadJsonString(root, "label"),
                 "FLASH" or "SUMMONER_SPELL" => ReadJsonString(root, "spell"),
+                "RECALL" => root.TryGetProperty("gold_spent", out var g) && g.TryGetInt32(out var gs) && gs > 0
+                    ? $"spent {gs}g"
+                    : "detected",
                 _ => "",
             };
         }

@@ -93,6 +93,7 @@ const FALLBACK_EVENT_TOKENS = [
   { token: 'SPELL_BARRIER', group: 'Summoners', label: 'Barrier', color: '#ffd54f' },
   { token: 'SPELL_CLEANSE', group: 'Summoners', label: 'Cleanse', color: '#80deea' },
   { token: 'SPELL_GHOST', group: 'Summoners', label: 'Ghost', color: '#b39ddb' },
+  { token: 'RECALL', group: 'Macro', label: 'Recall', color: '#a9c8ff' },
   { token: 'TEAMFIGHT', group: 'Fights', label: 'Teamfight', color: '#f3a3a8' },
 ];
 

@@ -34,6 +34,11 @@ public class GameEvent
         // Barrier, Ghost — Details.spell carries the specific name).
         public const string Flash = "FLASH";
         public const string SummonerSpell = "SUMMONER_SPELL";
+        // v3.0.18: recall (back), DERIVED — Riot's API emits no recall event, so we
+        // infer it from a shop purchase (gold drops while alive ⇒ you're at fountain
+        // ⇒ you just recalled). The event is anchored ~8s before the purchase (the
+        // recall channel time). Details carries gold_spent + that it's detected.
+        public const string Recall = "RECALL";
     }
 
     /// <summary>Visual styling for each event type (color, symbol, label).</summary>
@@ -103,6 +108,8 @@ public class GameEvent
             ("SPELL_BARRIER",  "Summoners", "Barrier",  "#ffd54f"),
             ("SPELL_CLEANSE",  "Summoners", "Cleanse",  "#80deea"),
             ("SPELL_GHOST",    "Summoners", "Ghost",    "#b39ddb"),
+            // Macro (derived from shop purchases)
+            (EventTypes.Recall, "Macro",    "Recall",    "#a9c8ff"),
             // Fights (synthetic derived token)
             (TeamfightToken,   "Fights",    "Teamfight", "#f3a3a8"),
         ];

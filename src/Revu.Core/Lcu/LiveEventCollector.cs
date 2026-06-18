@@ -34,6 +34,24 @@ public sealed class LiveEventCollector
         public double LastCooldown { get; set; }
     }
 
+    // v3.0.18: recall (back) detection. Riot's API has no recall event, so we infer
+    // it from shop purchases: currentGold dropping (while alive) means you bought at
+    // the fountain, i.e. you just finished a recall. We anchor the RECALL event ~8s
+    // earlier (the recall channel time). State = last observed gold + the time of the
+    // last emitted recall (debounce so one back doesn't fire on every fountain buy).
+    private readonly List<GameEvent> _recallEvents = [];
+    private double _lastGold = double.NaN;       // NaN = no baseline sampled yet
+    private int _lastRecallEmitS = int.MinValue; // game-time of the last recall we emitted
+    // A drop ≥ this many gold reads as a real item purchase (filters trinket/ward
+    // micro-buys like a 75g control ward bought without backing).
+    private const int RecallMinGoldSpend = 250;
+    // Recall channel time (standard back). The purchase lands AFTER the channel, so
+    // the recall itself started roughly this many seconds earlier.
+    private const int RecallChannelSeconds = 8;
+    // Don't emit another recall within this window — a single back often produces
+    // several fountain purchases across a few poll ticks.
+    private const int RecallDebounceSeconds = 25;
+
     public LiveEventCollector(
         ILiveEventApi liveEventApi,
         ILogger logger,
@@ -61,6 +79,9 @@ public sealed class LiveEventCollector
         _rawEvents.Clear();
         _summonerSpellState.Clear();
         _summonerSpellEvents.Clear();
+        _recallEvents.Clear();
+        _lastGold = double.NaN;
+        _lastRecallEmitS = int.MinValue;
         _playerName = null;
         _logger.LogInformation("Live event collector started");
 
@@ -133,7 +154,7 @@ public sealed class LiveEventCollector
             // Ignored — best effort
         }
 
-        if (_rawEvents.Count == 0 && _summonerSpellEvents.Count == 0)
+        if (_rawEvents.Count == 0 && _summonerSpellEvents.Count == 0 && _recallEvents.Count == 0)
         {
             _logger.LogInformation("No live events collected");
             return [];
@@ -141,19 +162,20 @@ public sealed class LiveEventCollector
 
         var events = ParseLiveEvents(_rawEvents, _playerName ?? "");
 
-        // v2.17.7: merge the synthesised summoner-spell casts in chronological
-        // order alongside the parsed event-stream events. Both lists are
-        // already sorted by time-of-arrival; a single in-place sort by
-        // GameTimeS preserves that and produces a clean timeline ordering.
-        if (_summonerSpellEvents.Count > 0)
+        // v2.17.7 / v3.0.18: merge the synthesised summoner-spell casts and derived
+        // recall events in chronological order alongside the parsed event-stream
+        // events. All lists are already time-ordered; a single in-place sort by
+        // GameTimeS produces a clean unified timeline.
+        if (_summonerSpellEvents.Count > 0) events.AddRange(_summonerSpellEvents);
+        if (_recallEvents.Count > 0) events.AddRange(_recallEvents);
+        if (_summonerSpellEvents.Count > 0 || _recallEvents.Count > 0)
         {
-            events.AddRange(_summonerSpellEvents);
             events.Sort(static (a, b) => a.GameTimeS.CompareTo(b.GameTimeS));
         }
 
         _logger.LogInformation(
-            "Live event collector stopped -- {ParsedCount} events from {RawCount} raw events + {SpellCount} summoner-spell casts",
-            events.Count, _rawEvents.Count, _summonerSpellEvents.Count);
+            "Live event collector stopped -- {ParsedCount} events from {RawCount} raw events + {SpellCount} summoner-spell casts + {RecallCount} recalls",
+            events.Count, _rawEvents.Count, _summonerSpellEvents.Count, _recallEvents.Count);
 
         return events;
     }
@@ -180,7 +202,9 @@ public sealed class LiveEventCollector
             var active = await _liveEventApi.FetchActivePlayerAsync(ct).ConfigureAwait(false);
             if (active is JsonElement el)
             {
-                CheckSummonerSpellCasts(el, ResolveGameTimeS(el));
+                var t = ResolveGameTimeS(el);
+                CheckSummonerSpellCasts(el, t);
+                CheckRecall(el, t);
             }
         }
         catch (OperationCanceledException)
@@ -282,6 +306,56 @@ public sealed class LiveEventCollector
             prev.DisplayName = string.IsNullOrWhiteSpace(displayName) ? prev.DisplayName : displayName;
             prev.LastCooldown = cooldown;
         }
+    }
+
+    /// <summary>
+    /// Derive a RECALL event from a shop purchase. Riot's API has no recall event, so
+    /// we infer it: <c>currentGold</c> dropping by ≥ <see cref="RecallMinGoldSpend"/>
+    /// between ticks means the player bought items at the fountain — which only happens
+    /// after a completed recall (gold-on-hand is NOT lost on death, so a drop while in
+    /// a game is a purchase, not a death). We anchor the recall ~<see
+    /// cref="RecallChannelSeconds"/>s before the purchase (the back channel time) and
+    /// debounce so one back doesn't fire on every fountain buy. It's a heuristic, hence
+    /// Details.detected = true and a "recall" source note.
+    /// </summary>
+    private void CheckRecall(JsonElement activePlayer, int gameTimeS)
+    {
+        if (activePlayer.ValueKind != JsonValueKind.Object) return;
+        if (!activePlayer.TryGetProperty("currentGold", out var goldEl)) return;
+        if (!goldEl.TryGetDouble(out var gold)) return;
+
+        // First sample only establishes the baseline — no delta to compare yet.
+        if (double.IsNaN(_lastGold))
+        {
+            _lastGold = gold;
+            return;
+        }
+
+        var spent = _lastGold - gold;
+        _lastGold = gold;
+
+        // A meaningful gold drop = a shop purchase = the player is at fountain post-back.
+        if (spent < RecallMinGoldSpend) return;
+
+        // Debounce: a single back usually means several fountain purchases over a few
+        // ticks. Only the first within the window counts as the recall. Guard the
+        // "no recall yet" sentinel explicitly so the subtraction can't overflow.
+        var recallAtS = Math.Max(0, gameTimeS - RecallChannelSeconds);
+        if (_lastRecallEmitS != int.MinValue && recallAtS - _lastRecallEmitS < RecallDebounceSeconds) return;
+        _lastRecallEmitS = recallAtS;
+
+        _recallEvents.Add(new GameEvent
+        {
+            EventType = GameEvent.EventTypes.Recall,
+            GameTimeS = recallAtS,
+            Details = JsonSerializer.Serialize(new
+            {
+                detected = true,
+                source = "shop_purchase",
+                gold_spent = (int)spent,
+                purchase_game_time_s = gameTimeS,
+            }),
+        });
     }
 
     internal static void AppendNewRawEvents(List<JsonElement> destination, IReadOnlyList<JsonElement> snapshot)

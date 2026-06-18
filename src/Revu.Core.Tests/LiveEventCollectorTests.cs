@@ -177,11 +177,12 @@ public sealed class LiveEventCollectorTests
         Assert.Equal("spell2", details.RootElement.GetProperty("slot").GetString());
     }
 
-    private static JsonElement CreateActivePlayer(string spell1Name, double spell1Cd, string spell2Name, double spell2Cd, double gameTime)
+    private static JsonElement CreateActivePlayer(string spell1Name, double spell1Cd, string spell2Name, double spell2Cd, double gameTime, double currentGold = 500.0)
     {
         var json = $$"""
             {
               "gameTime": {{gameTime}},
+              "currentGold": {{currentGold}},
               "summonerSpells": {
                 "summonerSpellOne": { "displayName": "{{spell1Name}}", "rawCooldown": {{spell1Cd}} },
                 "summonerSpellTwo": { "displayName": "{{spell2Name}}", "rawCooldown": {{spell2Cd}} }
@@ -190,6 +191,97 @@ public sealed class LiveEventCollectorTests
             """;
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();
+    }
+
+    [Fact]
+    public async Task StopAsync_DerivesRecall_WhenGoldDropsLikeAShopPurchase()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // Gold goes 1300 → 200 (spent 1100) at game time 308s: a shop purchase ⇒ the
+        // player just recalled. The recall is anchored 8s before the purchase = 300s.
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 300.0, currentGold: 1300.0),
+            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 308.0, currentGold: 200.0),
+        ]);
+
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek());
+
+        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(60);
+        await cts.CancelAsync();
+        await runTask;
+
+        var parsed = await collector.StopAsync();
+        var recall = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Recall);
+
+        Assert.NotNull(recall);
+        Assert.Equal(300, recall!.GameTimeS); // 308 purchase − 8s channel
+        using var details = JsonDocument.Parse(recall.Details);
+        Assert.True(details.RootElement.GetProperty("detected").GetBoolean());
+        Assert.Equal(1100, details.RootElement.GetProperty("gold_spent").GetInt32());
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotDeriveRecall_ForSmallGoldDrops()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // Gold 400 → 325 (spent 75 — a control ward bought in lane, no recall). Below
+        // the 250g threshold, so no RECALL is emitted.
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 200.0, currentGold: 400.0),
+            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 210.0, currentGold: 325.0),
+        ]);
+
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek());
+
+        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(60);
+        await cts.CancelAsync();
+        await runTask;
+
+        var parsed = await collector.StopAsync();
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Recall);
+    }
+
+    [Fact]
+    public async Task StopAsync_DebouncesRecall_AcrossConsecutiveFountainBuys()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // Two big buys close together (one back, several purchases): 1500→300 at 300s,
+        // then 900→100 at 305s. Within the 25s debounce window ⇒ only ONE recall.
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 295.0, currentGold: 1500.0),
+            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 300.0, currentGold: 300.0),
+            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 305.0, currentGold: 100.0),
+        ]);
+
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek());
+
+        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(80);
+        await cts.CancelAsync();
+        await runTask;
+
+        var parsed = await collector.StopAsync();
+        Assert.Single(parsed, e => e.EventType == GameEvent.EventTypes.Recall);
     }
 
     [Fact]

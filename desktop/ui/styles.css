@@ -1933,6 +1933,8 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 /* Summoner casts (flash/etc.) sit between medium and minor — visible + labeled so
    the user can spot spell usage, but shorter than kills so they don't dominate. */
 .vp-timeline .evbar-summoner{--evh:17px}
+/* Recall (derived from shop buys) — same short height as summoner, labeled RCL. */
+.vp-timeline .evbar-recall{--evh:15px}
 .vp-timeline .evbar-minor{--evh:12px;opacity:0.82}
 /* OBJECTIVE-TIED priority lane: the tallest bar, a thicker glowing stem in the
    objective's color, an explicit z-index so it paints over every other marker, and
@@ -1953,6 +1955,7 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .vp-timeline .evbar-loss{--evc:var(--loss)}
 .vp-timeline .evbar-gold{--evc:var(--gold)}
 .vp-timeline .evbar-summoner{--evc:#7fd4ff}
+.vp-timeline .evbar-recall{--evc:#a9c8ff}
 .vp-timeline .evbar-neutral{--evc:var(--t3)}
 
 /* Teamfight zone — a soft band BEHIND the bars marking a cluster of combat events,

@@ -203,7 +203,7 @@ function placeMarkers(dur) {
     .sort((a, b) => (a.gameTimeSeconds || 0) - (b.gameTimeSeconds || 0));
 
   // Track the last label x-position per tier so near-duplicates drop their label.
-  const lastLabelPctByTier = { objective: -99, major: -99, medium: -99, summoner: -99, minor: -99 };
+  const lastLabelPctByTier = { objective: -99, major: -99, medium: -99, summoner: -99, recall: -99, minor: -99 };
   // Wider than a bare code's width so labels get real breathing room and the
   // timeline never turns into a wall of text (the dense-text complaint).
   const MIN_LABEL_GAP_PCT = 5.5;
@@ -294,6 +294,7 @@ function eventTier(eventType, label) {
   if (/BARON|DRAGON|ELDER|HERALD|RIFT|TOWER|TURRET|INHIB|NEXUS|ACE|OBJECTIVE|CONTEST/.test(t)) return 'major';
   if (/KILL|DEATH|MULTIKILL|FIRSTBLOOD|PENTA|QUADRA|TRIPLE|DOUBLE|GANK|SKIRMISH/.test(t)) return 'medium';
   if (/FLASH|SUMMONER|SPELL|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(t)) return 'summoner';
+  if (/RECALL|BACK/.test(t)) return 'recall';
   return 'minor';
 }
 
@@ -354,7 +355,7 @@ function deriveShortLabel(eventType, label) {
     DRAGON: 'DRG', BARON: 'BAR', HERALD: 'HLD', RIFTHERALD: 'HLD',
     TOWER: 'TWR', TURRET: 'TWR', INHIBITOR: 'INH', ELDER: 'ELD',
     FIRSTBLOOD: 'FB', ACE: 'ACE', GANK: 'GNK', WARD: 'WRD', RECALL: 'RCL',
-    FLASH: 'FLS', SUMMONERSPELL: 'SUM', LEVELUP: 'LVL',
+    FLASH: 'FLS', SUMMONERSPELL: 'SUM', LEVELUP: 'LVL', RECALL: 'RCL',
   };
   if (map[t]) return map[t];
   // Generic: first three letters of the type, upper-cased.
