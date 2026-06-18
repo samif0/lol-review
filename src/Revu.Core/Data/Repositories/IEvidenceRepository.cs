@@ -23,6 +23,13 @@ public interface IEvidenceRepository
 
     Task UpdateObjectiveAsync(long evidenceId, long? objectiveId);
 
+    /// <summary>
+    /// P-027: tag (or untag, when promptId is null) an evidence row to the custom
+    /// prompt it answers, so the post-game review can group clips under the prompt.
+    /// Independent of objective_id (both coexist); carries no score award.
+    /// </summary>
+    Task UpdatePromptAsync(long evidenceId, long? promptId);
+
     Task UpdateNoteAsync(long evidenceId, string note);
 
     /// <summary>

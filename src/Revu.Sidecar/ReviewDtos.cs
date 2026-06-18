@@ -76,7 +76,13 @@ public sealed record ReviewSubjectDto(
     // The full concept-tag catalog with per-tag selection state for THIS game.
     // Replaces the old TagsJson passthrough on the form (kept there too for the
     // legacy chip preview). The selectable toggle grid is a DEFERRED write.
-    IReadOnlyList<ReviewTagDto> TagCatalog);
+    IReadOnlyList<ReviewTagDto> TagCatalog,
+    // P-027 "To sort" strip: THIS game's evidence that is fully untagged — no
+    // objective AND no prompt (objective_id is null && prompt_id is null) and not
+    // dismissed. The review renders these as a top-level strip so the user can
+    // home each onto a prompt/objective. Always present (possibly empty), never
+    // null. Coexists with Evidence (attached/unassigned) — both shapes ship.
+    IReadOnlyList<ReviewPromptClipDto> UnsortedClips);
 
 /// <summary>
 /// Hero header for the reviewed game. Mirrors ReviewViewModel.ApplyGameData's
@@ -158,14 +164,50 @@ public sealed record ReviewObjectiveDto(
     // questions). Empty list when the objective has none. Each carries the
     // SAVED answer for this game (read-only display) — editable answer boxes are
     // a DEFERRED write.
-    IReadOnlyList<ReviewPromptDto> Prompts);
+    IReadOnlyList<ReviewPromptDto> Prompts,
+    // P-027 no-prompt homing: THIS game's evidence tagged to THIS objective but
+    // NOT to any prompt (objective_id == Id && prompt_id is null). The review
+    // renders these as an "Objective evidence (no prompt)" sub-block so they're
+    // not lost when a clip was attached to the objective but never bound to a
+    // specific prompt. Always present (possibly empty), never null.
+    IReadOnlyList<ReviewPromptClipDto> UnpromptedClips);
 
 /// <summary>
 /// A custom coaching prompt shown under an objective in the review, hydrated
 /// with the user's SAVED answer for this game (empty when unanswered). The
 /// editable answer box is a DEFERRED write — Answer is read-only display.
+///
+/// P-027: <see cref="Clips"/> carries THIS game's evidence rows tagged to this
+/// prompt (prompt_id == Id), so the review groups clips under the prompt they
+/// answer. Always present (possibly empty), never null.
 /// </summary>
-public sealed record ReviewPromptDto(long Id, string Phase, string Label, string Answer);
+public sealed record ReviewPromptDto(
+    long Id,
+    string Phase,
+    string Label,
+    string Answer,
+    IReadOnlyList<ReviewPromptClipDto> Clips);
+
+/// <summary>
+/// One clip/moment grouped under a prompt in the review (P-027). A flattened,
+/// prompt-render-friendly slice of an evidence row tagged to the prompt: the
+/// time text, note, jump-to start second, polarity accent, and the public share
+/// link (revu.lol/&lt;id&gt;) when the backing bookmark has been uploaded
+/// (empty otherwise). EvidenceId lets the frontend re-tag/untag the clip.
+/// </summary>
+public sealed record ReviewPromptClipDto(
+    long EvidenceId,
+    // "12:34" (or "12:34–13:02" range), empty when the row has no time.
+    string TimeText,
+    string Note,
+    // Game-time seconds to jump the VOD to (0 when the row has no start time).
+    int StartSeconds,
+    string Polarity,
+    // Polarity accent: bad → loss red, good → win green, else neutral accent.
+    string PolarityColorHex,
+    // Public share link (revu.lol/<id>) once the clip's bookmark was uploaded;
+    // "" until shared (or for non-clip moments that have no bookmark).
+    string ShareUrl);
 
 /// <summary>
 /// The review form's saved values, for READ-ONLY display. The frontend renders
@@ -191,7 +233,13 @@ public sealed record ReviewFormDto(
     // The saved concept-tags JSON string off the game row (read-only passthrough;
     // the writable tag selector is DEFERRED). The structured catalog with
     // selection state ships on ReviewSubjectDto.TagCatalog.
-    string TagsJson);
+    string TagsJson,
+    // The saved FOCUS CHECK answer for this game (2=Yes / 1=Partly / 0=No;
+    // null = unanswered) off session_log.focus_adherence. The write path persists
+    // it (set_focus_adherence) but the read snapshot never carried it back, so the
+    // gold selection vanished on re-render and never preselected on load
+    // (P-028). renderFocus reads f.focusAdherence.
+    int? FocusAdherence);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Death audit

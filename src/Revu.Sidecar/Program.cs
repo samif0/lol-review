@@ -103,6 +103,13 @@ services.AddSingleton<IRulesRepository, RulesRepository>();
 services.AddSingleton<IVodRepository, VodRepository>();
 services.AddSingleton<ISessionLogRepository, SessionLogRepository>();
 services.AddSingleton<IEvidenceRepository, EvidenceRepository>();
+// Derived-event instances (teamfights/skirmishes/tower dives…) → VOD timeline
+// layer (P2). GET /api/derived reads GetInstancesAsync — a pure read via the
+// connection factory, so it belongs in the web-host container like its peers
+// (it is ALSO registered in the WriteServices graph for the capture-time
+// compute path; both share the same singleton contract). Without this the
+// endpoint-injected IDerivedEventsRepository can't resolve and the route 500s.
+services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
 // VOD event timeline (kills/deaths/objectives → colored markers). Read-only.
 // Also feeds the Review death audit (DEATH events → cause-chip rows).
 services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
@@ -485,6 +492,30 @@ app.MapGet("/api/objective", async (long id, ObjectiveEditSnapshotBuilder builde
 // ── GET /api/vod?gameId=N (token-gated): VOD file path + bookmarks ───────────
 app.MapGet("/api/vod", async (long gameId, VodSnapshotBuilder builder, CancellationToken ct) =>
     Results.Json(await builder.BuildAsync(gameId, ct), jsonOptions));
+
+// ── GET /api/derived?gameId=N (token-gated): the BUILT derived-event instances
+// for one game, shaped for the VOD timeline. Reads the persisted instances via
+// IDerivedEventsRepository.GetInstancesAsync (computed/saved during game capture);
+// this endpoint never recomputes. sourceEventIds is intentionally dropped — the
+// timeline only needs id/definition/color/span/count/sourceTypes to draw + label
+// a region. Empty instances list (game never had derived events computed) is a
+// valid { ok:true, instances:[] }, not an error.
+app.MapGet("/api/derived", async (long gameId, IDerivedEventsRepository derived) =>
+{
+    var records = await derived.GetInstancesAsync(gameId);
+    var instances = records.Select(static r => new
+    {
+        id = r.Id,
+        definitionId = r.DefinitionId,
+        definitionName = r.DefinitionName,
+        color = r.Color,
+        startTimeSeconds = r.StartTimeSeconds,
+        endTimeSeconds = r.EndTimeSeconds,
+        eventCount = r.EventCount,
+        sourceTypes = r.SourceTypes,
+    });
+    return Results.Json(new { ok = true, instances }, jsonOptions);
+});
 
 // ── GET /api/review[?gameId=N] (token-gated): single-game review snapshot ────
 // With gameId, loads THAT game (clicking a game row); without, the sample subject.
@@ -1116,6 +1147,21 @@ app.MapPost("/api/evidence/objective", async (EvidenceObjectiveBody body, WriteS
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
+// POST /api/evidence/prompt  { evidenceId, promptId? }  (null/<=0 detaches)
+// P-027: tag an evidence row to the custom prompt it answers so the review can
+// group clips under that prompt. Independent of objective_id (both coexist) and
+// carries no score award — see IEvidenceRepository.UpdatePromptAsync.
+app.MapPost("/api/evidence/prompt", async (EvidencePromptBody body, WriteServices w, ILogger<Program> log) =>
+{
+    if (body is null || body.EvidenceId <= 0)
+        return Results.BadRequest(new { error = "evidenceId required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    long? promptId = (body.PromptId is > 0) ? body.PromptId : null;
+    await w.Evidence.UpdatePromptAsync(body.EvidenceId, promptId);
+    log.LogInformation("Evidence {Id} -> prompt {PromptId}", body.EvidenceId, promptId);
+    return Results.Json(new { ok = true }, jsonOptions);
+});
+
 // POST /api/evidence/status  { evidenceId, status }  (needs_review|evidence|dismissed|highlight)
 // Mirrors ReviewViewModel.SetEvidenceStatusAsync (dismiss is the common case).
 app.MapPost("/api/evidence/status", async (EvidenceStatusBody body, WriteServices w, ILogger<Program> log) =>
@@ -1351,6 +1397,10 @@ app.MapPost("/api/clip/extract", async (ExtractClipBody body, WriteServices w, I
         Title: note,
         Note: note,
         ObjectiveId: objectiveId,
+        // P-027: ride the prompt the clip was tagged to onto the evidence row so
+        // the review can group it under that prompt (same prompt_id the bookmark
+        // carries). NULL when the clip wasn't prompt-tagged.
+        PromptId: promptId,
         Polarity: string.IsNullOrWhiteSpace(quality)
             ? Revu.Core.Data.Repositories.EvidencePolarities.Neutral
             : Revu.Core.Data.Repositories.EvidencePolarities.Normalize(quality),
@@ -1492,15 +1542,37 @@ app.MapGet("/api/objectives/active", async (WriteServices w, ILogger<Program> lo
     try
     {
         var active = await w.Objectives.GetActiveAsync();
-        var rows = active
-            .Where(o => Revu.Core.Data.Repositories.ObjectivePhases.ShowsInPostGame(o.Phase))
-            .Select(o => new
+        var rows = new List<object>();
+        foreach (var o in active
+            .Where(o => Revu.Core.Data.Repositories.ObjectivePhases.ShowsInPostGame(o.Phase)))
+        {
+            // P-027: ship each objective's custom prompts for the VOD prompt-pickers.
+            // Per-objective failure degrades to an empty array, never the whole route.
+            var prompts = Array.Empty<object>();
+            try
+            {
+                prompts = (await w.Prompts.GetPromptsForObjectiveAsync(o.Id))
+                    .Select(p => (object)new
+                    {
+                        promptId = p.Id,
+                        label = p.Label,
+                        phase = p.Phase,
+                    })
+                    .ToArray();
+            }
+            catch (Exception px)
+            {
+                log.LogDebug(px, "Prompts load failed for objective {ObjectiveId} (degraded to empty)", o.Id);
+            }
+
+            rows.Add(new
             {
                 objectiveId = o.Id,
                 title = o.Title,
                 phaseLabel = Revu.Core.Data.Repositories.ObjectivePhases.ToDisplayLabel(o.Phase),
-            })
-            .ToList();
+                prompts,
+            });
+        }
         return Results.Json(new { ok = true, objectives = rows }, jsonOptions);
     }
     catch (Exception ex)
@@ -2194,6 +2266,9 @@ internal sealed record EvidencePolarityBody(long EvidenceId, string? Polarity);
 // ObjectiveId null/<=0 detaches; GameId (optional) lets attach also mark the
 // objective practiced for that game (mirrors the WinUI evidence-attach flow).
 internal sealed record EvidenceObjectiveBody(long EvidenceId, long? ObjectiveId, long? GameId);
+// P-027: PromptId null/<=0 detaches. Tags the evidence row to a custom prompt
+// (independent of objective_id) so the review groups clips under the prompt.
+internal sealed record EvidencePromptBody(long EvidenceId, long? PromptId);
 internal sealed record EvidenceStatusBody(long EvidenceId, string? Status);
 // Per-death cause classification, keyed on (gameId, timeS).
 internal sealed record DeathClassifyBody(long GameId, int TimeS, string Key);

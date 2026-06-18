@@ -136,6 +136,11 @@
                 <button class="key vp-iobtn vp-clipclear" id="vp-clip-clear" data-action="clip_clear" type="button" hidden>Clear</button>
               </div>
               <input class="inp" id="vp-clip-note" type="text" placeholder="What's happening?" autocomplete="off">
+              <!-- Dedicated objective/prompt picker for the clip (P-027). No longer
+                   borrows the Quick Bookmark picker; encodes obj:ID / prompt:OBJID:PID. -->
+              <select class="inp" id="vp-clip-obj" aria-label="Tag objective or prompt">
+                <option value="">No objective / No prompt</option>
+              </select>
               <div class="qual" id="vp-clip-qual">
                 <span class="q good" data-action="clip_qual" data-q="good">Good</span>
                 <span class="q" data-action="clip_qual" data-q="neutral">Neutral</span>
@@ -179,11 +184,19 @@
           <div class="card vp-moments-card">
             <div class="mhead">
               <div>
-                <div class="mtitle" style="margin-bottom:0">Moments to Review</div>
                 <div class="sub">Auto-picked moments, saved clips, and bookmarks.</div>
               </div>
               <span class="openbadge" id="vp-open-count">0 open</span>
             </div>
+
+            <!-- Fights/Events filter (P2): show/hide the derived-event layer (fights,
+                 skirmishes, objective windows) on the event timeline. Generalizes the
+                 17-10 'Fights filter'. Defaults ON; hidden when a game has no derived
+                 events computed (nothing to toggle). -->
+            <label class="vp-fights-toggle" id="vp-fights-toggle" hidden>
+              <input type="checkbox" id="vp-fights-chk" checked>
+              <span>Fights / Events on timeline</span>
+            </label>
 
             <!-- 3-way tab filter: Auto / Clips / Bookmarks -->
             <div class="tabs" id="vp-tabs">

@@ -103,6 +103,34 @@ function renderExec(d) {
   }
 }
 
+// ── render: custom-prompt answers (grouped by prompt) ───────────────────────
+// Each group is one prompt the user designed (label + phase); its answer cards
+// are per-game and jump back to that game's review (review.html?gameId=N).
+function renderPrompts(d) {
+  const groups = Array.isArray(d.promptAnswers) ? d.promptAnswers : [];
+  const host = $('prompt-list');
+  clear(host);
+  show($('prompt-sec'), !!d.hasPromptAnswers && groups.length > 0);
+  for (const g of groups) {
+    const groupEl = tpl('tpl-prompt-group');
+    groupEl.querySelector('.on-group-label').textContent = g.label || '';
+    const phaseEl = groupEl.querySelector('.on-group-phase');
+    show(phaseEl, !!g.phase);
+    if (g.phase) phaseEl.textContent = g.phase;
+
+    const answers = Array.isArray(g.answers) ? g.answers : [];
+    const answerHost = groupEl.querySelector('.on-group-answers');
+    for (const a of answers) {
+      const el = tpl('tpl-prompt-answer');
+      if (a.gameId != null) el.dataset.gameId = String(a.gameId);
+      el.querySelector('.on-card-header').textContent = a.header || '';
+      el.querySelector('.on-card-body').textContent = a.answer || '';
+      answerHost.appendChild(el);
+    }
+    host.appendChild(groupEl);
+  }
+}
+
 // ── render: clips & bookmarks ───────────────────────────────────────────────
 function renderClips(d) {
   const items = Array.isArray(d.bookmarks) ? d.bookmarks : [];
@@ -153,7 +181,7 @@ let _entranceDone = false;
 function playEntrance() {
   if (_entranceDone) return;
   _entranceDone = true;
-  const order = [$('review-sec'), $('exec-sec'), $('clip-sec')].filter((el) => el && !el.hidden);
+  const order = [$('review-sec'), $('exec-sec'), $('prompt-sec'), $('clip-sec')].filter((el) => el && !el.hidden);
   order.forEach((el, i) => {
     el.classList.add('anim-rise', `anim-d${Math.min(i + 1, 5)}`);
   });
@@ -165,6 +193,7 @@ function render(d) {
   renderHeader(d);
   renderReview(d);
   renderExec(d);
+  renderPrompts(d);
   renderClips(d);
   renderEmpty(d);
   playEntrance();

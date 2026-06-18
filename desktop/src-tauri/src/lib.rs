@@ -244,6 +244,13 @@ async fn get_vod(game_id: i64) -> Result<serde_json::Value, String> {
     sidecar::get_json(&format!("/api/vod?gameId={game_id}")).await
 }
 
+/// Returns the derived-event instances JSON for a game ({ ok, instances:[...] }),
+/// shaped for the VOD timeline. See Revu.Sidecar GET /api/derived.
+#[tauri::command]
+async fn get_derived_events(game_id: i64) -> Result<serde_json::Value, String> {
+    sidecar::get_json(&format!("/api/derived?gameId={game_id}")).await
+}
+
 /// Returns the app-config snapshot JSON (see Revu.Sidecar /api/config).
 /// Editable Settings fields + the cross-page reads (Ascent reminder, auto-clip
 /// hint). Secrets are excluded server-side.
@@ -382,6 +389,14 @@ async fn set_evidence_polarity(payload: serde_json::Value) -> Result<serde_json:
 #[tauri::command]
 async fn set_evidence_objective(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     sidecar::post_json("/api/evidence/objective", payload).await
+}
+
+/// P-027: tags/detaches an evidence row to the custom prompt it answers
+/// (promptId null/<=0 detaches). Independent of objective_id; no score award.
+/// See Revu.Sidecar POST /api/evidence/prompt.
+#[tauri::command]
+async fn set_evidence_prompt(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/evidence/prompt", payload).await
 }
 
 /// Sets an evidence row's status (needs_review|evidence|dismissed|highlight) —
@@ -891,6 +906,7 @@ pub fn run() {
             get_tiltcheck,
             get_patterns,
             get_vod,
+            get_derived_events,
             get_config,
             start_block,
             end_block,
@@ -910,6 +926,7 @@ pub fn run() {
             save_review_draft,
             set_evidence_polarity,
             set_evidence_objective,
+            set_evidence_prompt,
             set_evidence_status,
             classify_death,
             clear_death,

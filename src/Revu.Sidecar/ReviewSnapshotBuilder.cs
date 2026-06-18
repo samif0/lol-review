@@ -77,6 +77,7 @@ public sealed class ReviewSnapshotBuilder
     private readonly IDeathClassificationsRepository _deathClassRepo;
     private readonly IMatchupNotesRepository _matchupNotesRepo;
     private readonly IConceptTagRepository _conceptTagRepo;
+    private readonly IVodRepository _vodRepo;
     private readonly IConfigService _configService;
     private readonly ILogger<ReviewSnapshotBuilder> _logger;
 
@@ -91,6 +92,7 @@ public sealed class ReviewSnapshotBuilder
         IDeathClassificationsRepository deathClassRepo,
         IMatchupNotesRepository matchupNotesRepo,
         IConceptTagRepository conceptTagRepo,
+        IVodRepository vodRepo,
         IConfigService configService,
         ILogger<ReviewSnapshotBuilder> logger)
     {
@@ -104,6 +106,7 @@ public sealed class ReviewSnapshotBuilder
         _deathClassRepo = deathClassRepo;
         _matchupNotesRepo = matchupNotesRepo;
         _conceptTagRepo = conceptTagRepo;
+        _vodRepo = vodRepo;
         _configService = configService;
         _logger = logger;
     }
@@ -123,12 +126,25 @@ public sealed class ReviewSnapshotBuilder
 
         var header = BuildHeader(game);
         var stats = BuildStatStrip(game);
-        var objectives = await BuildObjectivesAsync(game.GameId);
+        // P-027: load THIS game's evidence + bookmark share-URLs once so the
+        // prompt-grouped clips (Prompts[].Clips / UnpromptedClips / UnsortedClips)
+        // and the legacy Evidence (attached/unassigned) split share one row set.
+        var promptClips = await BuildPromptClipContextAsync(game.GameId);
+        var objectives = await BuildObjectivesAsync(game.GameId, promptClips);
         var form = await BuildFormAsync(game);
         var deaths = await BuildDeathsAsync(game.GameId);
         var evidence = await BuildEvidenceAsync(game.GameId);
         var matchupHistory = await BuildMatchupHistoryAsync(game);
         var tagCatalog = await BuildTagCatalogAsync(game.GameId);
+
+        // P-027 reachability guard: a clip tagged to a prompt/objective is only
+        // RENDERED if that objective is active AND (for prompt clips) the prompt
+        // still exists. A clip tagged to an archived objective, or to a prompt
+        // that was later deleted, would otherwise vanish — the old "to sort"
+        // evidence lists that used to catch it are gone. Sweep every prompt/
+        // objective bucket that no rendered objective consumed into UnsortedClips
+        // so nothing becomes unreachable.
+        var unsortedClips = CollectUnreachableClips(objectives, promptClips);
 
         var subject = new ReviewSubjectDto(
             GameId: game.GameId,
@@ -142,7 +158,10 @@ public sealed class ReviewSnapshotBuilder
             Evidence: evidence,
             MatchupHistory: matchupHistory,
             HasMatchupHistory: matchupHistory.Count > 0,
-            TagCatalog: tagCatalog);
+            TagCatalog: tagCatalog,
+            // Fully-untagged moments PLUS any prompt/objective-tagged clip whose
+            // prompt/objective isn't rendered — the "To sort" strip catches all.
+            UnsortedClips: unsortedClips);
 
         return new ReviewDto(
             GeneratedAt: generatedAt,
@@ -329,7 +348,8 @@ public sealed class ReviewSnapshotBuilder
     // Mirrors DashboardSnapshotBuilder.BuildActiveObjectivesAsync.
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<IReadOnlyList<ReviewObjectiveDto>> BuildObjectivesAsync(long gameId)
+    private async Task<IReadOnlyList<ReviewObjectiveDto>> BuildObjectivesAsync(
+        long gameId, PromptClipContext promptClips)
     {
         var result = new List<ReviewObjectiveDto>();
 
@@ -386,23 +406,39 @@ public sealed class ReviewSnapshotBuilder
                 var metaText = BuildObjectiveMetaText(
                     isMini, obj.TargetGameCount, obj.GameCount, phaseLabel, levelName, obj.Score);
 
-                // Custom coaching prompts the user authored for this objective.
+                // Custom coaching prompts the user authored for this objective,
+                // each carrying THIS game's clips tagged to that prompt (P-027).
+                // Skip BLANK-LABEL prompts: the frontend (review.js renderObjectives:
+                // `if (!label) continue`) never renders them, so if we listed one here
+                // CollectUnreachableClips would treat it as "rendered" and skip its
+                // clips — orphaning a clip tagged to a blank-label prompt (reachable
+                // via the R-002 champ-select if-then authoring). Excluding it here
+                // keeps C# and JS in lockstep so its clips fall into "To sort".
                 var prompts = new List<ReviewPromptDto>();
                 try
                 {
                     var raw = await _promptsRepo.GetPromptsForObjectiveAsync(obj.Id);
                     prompts.AddRange(raw
+                        .Where(p => !string.IsNullOrWhiteSpace(p.Label))
                         .OrderBy(p => p.SortOrder)
                         .Select(p => new ReviewPromptDto(
                             p.Id,
                             p.Phase,
                             p.Label,
-                            answersByPromptId.TryGetValue(p.Id, out var ans) ? ans : "")));
+                            answersByPromptId.TryGetValue(p.Id, out var ans) ? ans : "",
+                            promptClips.ClipsByPromptId.TryGetValue(p.Id, out var clips)
+                                ? clips
+                                : Array.Empty<ReviewPromptClipDto>())));
                 }
                 catch (Exception ex)
                 {
                     _logger.LogDebug(ex, "Review: prompts load failed for objective {Id}", obj.Id);
                 }
+
+                // No-prompt homing: clips tagged to this objective but to no prompt.
+                var unpromptedClips = promptClips.UnpromptedByObjectiveId.TryGetValue(obj.Id, out var uc)
+                    ? uc
+                    : Array.Empty<ReviewPromptClipDto>();
 
                 result.Add(new ReviewObjectiveDto(
                     Id: obj.Id,
@@ -422,7 +458,8 @@ public sealed class ReviewSnapshotBuilder
                     MetaText: metaText,
                     Practiced: practiceByObjective.TryGetValue(obj.Id, out var pr) && pr.Practiced,
                     ExecutionNote: practiceByObjective.TryGetValue(obj.Id, out var pr2) ? pr2.ExecutionNote : "",
-                    Prompts: prompts));
+                    Prompts: prompts,
+                    UnpromptedClips: unpromptedClips));
             }
         }
         catch (Exception ex)
@@ -430,6 +467,158 @@ public sealed class ReviewSnapshotBuilder
             _logger.LogDebug(ex, "Review: active objectives load failed");
         }
         return result;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // P-027 prompt-clip grouping. Load THIS game's evidence once and bucket it:
+    //   • ClipsByPromptId        — prompt_id set → groups under each prompt
+    //   • UnpromptedByObjectiveId — objective set, prompt_id null → per-objective
+    //                                "Objective evidence (no prompt)" sub-block
+    //   • UnsortedClips          — neither objective nor prompt → "To sort" strip
+    // Share URLs come from the backing bookmark (clip rows' SourceId IS the
+    // bookmark id), mirroring VodSnapshotBuilder. Degrades to empty on failure so
+    // a bad evidence/bookmark read never blanks the objectives section. Dismissed
+    // rows are excluded everywhere (GetForGameAsync default).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private sealed record PromptClipContext(
+        IReadOnlyDictionary<long, IReadOnlyList<ReviewPromptClipDto>> ClipsByPromptId,
+        IReadOnlyDictionary<long, IReadOnlyList<ReviewPromptClipDto>> UnpromptedByObjectiveId,
+        IReadOnlyList<ReviewPromptClipDto> UnsortedClips);
+
+    private static readonly PromptClipContext EmptyPromptClips = new(
+        new Dictionary<long, IReadOnlyList<ReviewPromptClipDto>>(),
+        new Dictionary<long, IReadOnlyList<ReviewPromptClipDto>>(),
+        Array.Empty<ReviewPromptClipDto>());
+
+    private async Task<PromptClipContext> BuildPromptClipContextAsync(long gameId)
+    {
+        try
+        {
+            var rows = await _evidenceRepo.GetForGameAsync(gameId);
+
+            // bookmarkId → ShareUrl, so clip rows can carry their share state.
+            var shareUrlByBookmarkId = new Dictionary<long, string>();
+            try
+            {
+                foreach (var b in await _vodRepo.GetBookmarksAsync(gameId))
+                {
+                    if (!string.IsNullOrWhiteSpace(b.ShareUrl)) shareUrlByBookmarkId[b.Id] = b.ShareUrl;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Review: bookmark share-url load failed for game {GameId}", gameId);
+            }
+
+            var clipsByPromptId = new Dictionary<long, List<ReviewPromptClipDto>>();
+            var unpromptedByObjectiveId = new Dictionary<long, List<ReviewPromptClipDto>>();
+            var unsorted = new List<ReviewPromptClipDto>();
+
+            foreach (var row in rows
+                .OrderBy(r => r.StartTimeSeconds ?? int.MaxValue)
+                .ThenBy(r => r.Id))
+            {
+                var clip = MapPromptClip(row, shareUrlByBookmarkId);
+                if (row.PromptId is long pid)
+                {
+                    if (!clipsByPromptId.TryGetValue(pid, out var list))
+                        clipsByPromptId[pid] = list = new List<ReviewPromptClipDto>();
+                    list.Add(clip);
+                }
+                else if (row.ObjectiveId is long oid)
+                {
+                    if (!unpromptedByObjectiveId.TryGetValue(oid, out var list))
+                        unpromptedByObjectiveId[oid] = list = new List<ReviewPromptClipDto>();
+                    list.Add(clip);
+                }
+                else
+                {
+                    unsorted.Add(clip);
+                }
+            }
+
+            return new PromptClipContext(
+                clipsByPromptId.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<ReviewPromptClipDto>)kv.Value),
+                unpromptedByObjectiveId.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<ReviewPromptClipDto>)kv.Value),
+                unsorted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Review: prompt-clip context load failed for game {GameId}", gameId);
+            return EmptyPromptClips;
+        }
+    }
+
+    // Fold every prompt/objective clip bucket that NO rendered objective consumed
+    // into the "To sort" strip, so a clip tagged to an archived objective or a
+    // deleted prompt stays reachable. Starts from the genuinely-untagged
+    // UnsortedClips, then appends the orphaned buckets (de-duped by evidence id,
+    // ordered by start time) — mirrors the in-objective ordering.
+    private static IReadOnlyList<ReviewPromptClipDto> CollectUnreachableClips(
+        IReadOnlyList<ReviewObjectiveDto> objectives, PromptClipContext promptClips)
+    {
+        // Which prompt ids and objective ids actually got rendered.
+        var renderedPromptIds = new HashSet<long>();
+        var renderedObjectiveIds = new HashSet<long>();
+        foreach (var o in objectives)
+        {
+            renderedObjectiveIds.Add(o.Id);
+            foreach (var p in o.Prompts) renderedPromptIds.Add(p.Id);
+        }
+
+        var seen = new HashSet<long>();
+        var result = new List<ReviewPromptClipDto>();
+        void Add(ReviewPromptClipDto c) { if (seen.Add(c.EvidenceId)) result.Add(c); }
+
+        // Genuinely-untagged moments first (the original "To sort" set).
+        foreach (var c in promptClips.UnsortedClips) Add(c);
+        // Prompt-tagged clips whose prompt isn't rendered (objective archived /
+        // prompt deleted).
+        foreach (var kv in promptClips.ClipsByPromptId)
+            if (!renderedPromptIds.Contains(kv.Key))
+                foreach (var c in kv.Value) Add(c);
+        // Objective-tagged (no-prompt) clips whose objective isn't rendered.
+        foreach (var kv in promptClips.UnpromptedByObjectiveId)
+            if (!renderedObjectiveIds.Contains(kv.Key))
+                foreach (var c in kv.Value) Add(c);
+
+        return result
+            .OrderBy(c => c.StartSeconds <= 0 ? int.MaxValue : c.StartSeconds)
+            .ThenBy(c => c.EvidenceId)
+            .ToList();
+    }
+
+    private ReviewPromptClipDto MapPromptClip(
+        EvidenceItemRecord row, IReadOnlyDictionary<long, string> shareUrlByBookmarkId)
+    {
+        var timeText = "";
+        if (row.StartTimeSeconds is int start)
+        {
+            timeText = FormatGameTime(start);
+            if (row.EndTimeSeconds is int end && end > start)
+            {
+                timeText += $"–{FormatGameTime(end)}";
+            }
+        }
+
+        // A clip row's SourceId IS the bookmark id the Share button targets.
+        var shareUrl = "";
+        if (string.Equals(row.SourceKind, EvidenceKinds.Clip, StringComparison.OrdinalIgnoreCase)
+            && row.SourceId is long bmId && bmId > 0
+            && shareUrlByBookmarkId.TryGetValue(bmId, out var u))
+        {
+            shareUrl = u;
+        }
+
+        return new ReviewPromptClipDto(
+            EvidenceId: row.Id,
+            TimeText: timeText,
+            Note: string.IsNullOrWhiteSpace(row.Note) ? row.Title : row.Note,
+            StartSeconds: row.StartTimeSeconds ?? 0,
+            Polarity: row.Polarity,
+            PolarityColorHex: PolarityHex(row.Polarity),
+            ShareUrl: shareUrl);
     }
 
     /// <summary>Mirror of DashboardObjectiveItem.MetaText.</summary>
@@ -457,6 +646,7 @@ public sealed class ReviewSnapshotBuilder
     private async Task<ReviewFormDto> BuildFormAsync(GameStats game)
     {
         var mentalRating = await ResolveMentalRatingAsync(game.GameId);
+        var focusAdherence = await ResolveFocusAdherenceAsync(game.GameId);
 
         return new ReviewFormDto(
             Editable: false,
@@ -472,7 +662,27 @@ public sealed class ReviewSnapshotBuilder
             PersonalContribution: game.PersonalContribution,
             OutsideControl: game.OutsideControl,
             WithinControl: game.WithinControl,
-            TagsJson: string.IsNullOrWhiteSpace(game.Tags) ? "[]" : game.Tags);
+            TagsJson: string.IsNullOrWhiteSpace(game.Tags) ? "[]" : game.Tags,
+            FocusAdherence: focusAdherence);
+    }
+
+    // The saved FOCUS CHECK answer for this game off session_log.focus_adherence
+    // (2=Yes / 1=Partly / 0=No; null = unanswered). The write side persists it but
+    // the read snapshot never carried it back — so the gold selection vanished on
+    // every re-render and never preselected on load (P-028). Mirror the mental
+    // lookup: tolerate a missing/failed read by returning null (unanswered).
+    private async Task<int?> ResolveFocusAdherenceAsync(long gameId)
+    {
+        try
+        {
+            var entry = await _sessionLogRepo.GetEntryAsync(gameId);
+            return entry?.FocusAdherence;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Review: focus-adherence lookup failed for game {GameId}", gameId);
+            return null;
+        }
     }
 
     private async Task<int> ResolveMentalRatingAsync(long gameId)

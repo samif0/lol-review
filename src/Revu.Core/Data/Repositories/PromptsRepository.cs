@@ -72,6 +72,25 @@ public sealed class PromptsRepository : IPromptsRepository
             await deleteDrafts.ExecuteNonQueryAsync();
         }
 
+        // P-027: clips/auto-moments may be tagged to this prompt (evidence_items
+        // .prompt_id). Null those links when the prompt is deleted so the clip
+        // falls back to its objective's "no prompt" sub-block (or the "To sort"
+        // strip) instead of pointing at a prompt that no longer exists. The
+        // clip's objective_id is left intact — only the dangling prompt link is
+        // cleared. Tolerate a pre-migration DB (column absent) without failing
+        // the whole delete.
+        try
+        {
+            using var clearEvidence = conn.CreateCommand();
+            clearEvidence.CommandText = "UPDATE evidence_items SET prompt_id = NULL WHERE prompt_id = @id";
+            clearEvidence.Parameters.AddWithValue("@id", promptId);
+            await clearEvidence.ExecuteNonQueryAsync();
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            // evidence_items.prompt_id not present yet (pre-v8 DB) — nothing to clear.
+        }
+
         using (var deletePrompt = conn.CreateCommand())
         {
             deletePrompt.CommandText = "DELETE FROM objective_prompts WHERE id = @id";
@@ -228,6 +247,39 @@ public sealed class PromptsRepository : IPromptsRepository
                 Phase: reader.IsDBNull(4) ? ObjectivePhases.InGame : ObjectivePhases.Normalize(reader.GetString(4)),
                 Label: reader.IsDBNull(5) ? "" : reader.GetString(5),
                 AnswerText: reader.IsDBNull(6) ? "" : reader.GetString(6)));
+        }
+        return results;
+    }
+
+    public async Task<IReadOnlyList<ObjectivePromptAnswer>> GetAnswersForObjectiveAsync(long objectiveId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT pa.prompt_id, pa.game_id, op.label, op.phase, pa.answer_text,
+                   g.champion_name, g.win, g.timestamp
+            FROM prompt_answers pa
+            JOIN objective_prompts op ON op.id = pa.prompt_id
+            JOIN games g ON g.game_id = pa.game_id
+            WHERE op.objective_id = @objectiveId
+              AND COALESCE(g.is_hidden, 0) = 0
+            ORDER BY op.sort_order ASC, op.id ASC, g.timestamp DESC
+            """;
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+
+        var results = new List<ObjectivePromptAnswer>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(new ObjectivePromptAnswer(
+                PromptId: reader.GetInt64(0),
+                GameId: reader.GetInt64(1),
+                Label: reader.IsDBNull(2) ? "" : reader.GetString(2),
+                Phase: reader.IsDBNull(3) ? ObjectivePhases.InGame : ObjectivePhases.Normalize(reader.GetString(3)),
+                AnswerText: reader.IsDBNull(4) ? "" : reader.GetString(4),
+                ChampionName: reader.IsDBNull(5) ? "" : reader.GetString(5),
+                Win: !reader.IsDBNull(6) && reader.GetInt64(6) != 0,
+                Timestamp: reader.IsDBNull(7) ? 0 : reader.GetInt64(7)));
         }
         return results;
     }

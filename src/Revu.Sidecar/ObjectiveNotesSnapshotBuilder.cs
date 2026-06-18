@@ -33,15 +33,18 @@ public sealed class ObjectiveNotesSnapshotBuilder
 {
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IVodRepository _vodRepo;
+    private readonly IPromptsRepository _promptsRepo;
     private readonly ILogger<ObjectiveNotesSnapshotBuilder> _logger;
 
     public ObjectiveNotesSnapshotBuilder(
         IObjectivesRepository objectivesRepo,
         IVodRepository vodRepo,
+        IPromptsRepository promptsRepo,
         ILogger<ObjectiveNotesSnapshotBuilder> logger)
     {
         _objectivesRepo = objectivesRepo;
         _vodRepo = vodRepo;
+        _promptsRepo = promptsRepo;
         _logger = logger;
     }
 
@@ -131,9 +134,56 @@ public sealed class ObjectiveNotesSnapshotBuilder
             _logger.LogDebug(ex, "ObjectiveNotes: bookmarks load failed for {ObjectiveId}", objectiveId);
         }
 
+        // ── Custom-prompt answers (grouped by prompt) ───────────────────────
+        // Every answer the user typed under a custom prompt for this objective,
+        // across all games. Grouped under each prompt's label/phase; rows keep
+        // the repo's order (prompt sort_order, then game timestamp DESC).
+        var promptAnswers = new List<ObjectivePromptGroupDto>();
+        try
+        {
+            var rawAnswers = await _promptsRepo.GetAnswersForObjectiveAsync(objectiveId);
+            var groups = new Dictionary<long, (string Label, string Phase, List<ObjectivePromptAnswerRowDto> Rows)>();
+            var order = new List<long>();
+            foreach (var a in rawAnswers)
+            {
+                if (string.IsNullOrWhiteSpace(a.AnswerText)) continue;
+
+                if (!groups.TryGetValue(a.PromptId, out var group))
+                {
+                    group = (a.Label, ObjectivePhases.ToDisplayLabel(a.Phase), new List<ObjectivePromptAnswerRowDto>());
+                    groups[a.PromptId] = group;
+                    order.Add(a.PromptId);
+                }
+
+                var date = FormatDate(a.Timestamp);
+                var result = a.Win ? "W" : "L";
+                var header = $"{result} • {a.ChampionName} • {date}";
+                group.Rows.Add(new ObjectivePromptAnswerRowDto(
+                    GameId: a.GameId,
+                    Header: header,
+                    Answer: a.AnswerText.Trim()));
+            }
+
+            foreach (var promptId in order)
+            {
+                var g = groups[promptId];
+                if (g.Rows.Count == 0) continue;
+                promptAnswers.Add(new ObjectivePromptGroupDto(
+                    PromptId: promptId,
+                    Label: g.Label,
+                    Phase: g.Phase,
+                    Answers: g.Rows));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ObjectiveNotes: prompt answers load failed for {ObjectiveId}", objectiveId);
+        }
+
         var hasReviewNotes = reviewNotes.Count > 0;
         var hasExecutionNotes = executionNotes.Count > 0;
         var hasBookmarks = bookmarks.Count > 0;
+        var hasPromptAnswers = promptAnswers.Count > 0;
 
         return new ObjectiveNotesDto(
             GeneratedAt: generatedAt,
@@ -143,10 +193,12 @@ public sealed class ObjectiveNotesSnapshotBuilder
             HasReviewNotes: hasReviewNotes,
             HasExecutionNotes: hasExecutionNotes,
             HasBookmarks: hasBookmarks,
-            HasAnything: hasReviewNotes || hasExecutionNotes || hasBookmarks,
+            HasPromptAnswers: hasPromptAnswers,
+            HasAnything: hasReviewNotes || hasExecutionNotes || hasBookmarks || hasPromptAnswers,
             ReviewNotes: reviewNotes,
             ExecutionNotes: executionNotes,
-            Bookmarks: bookmarks);
+            Bookmarks: bookmarks,
+            PromptAnswers: promptAnswers);
     }
 
     private static string FormatDate(long unixSeconds) =>

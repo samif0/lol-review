@@ -57,8 +57,6 @@
   .og-act:active{transform:translateY(0);transition-duration:.06s}
   .og-act-vod{color:#a9c8ff;border:1px solid rgba(57,150,255,0.4);background:rgba(57,150,255,0.08)}
   .og-act-vod:hover{color:#fff;background:rgba(57,150,255,0.18);border-color:rgba(57,150,255,0.6)}
-  .og-act-review{color:var(--gold);border:1px solid rgba(243,199,148,0.4);background:rgba(243,199,148,0.07)}
-  .og-act-review:hover{color:#1b1233;background:linear-gradient(180deg,#f6cfa0,var(--gold));border-color:transparent}
 
   .og-empty{padding:34px 20px;text-align:center}
   .og-empty-h{font-family:var(--fo);font-size:16px;font-weight:600;color:var(--t2)}
@@ -145,9 +143,11 @@
     </div>
   </template>
 
-  <!-- One game row. W/L edge bar + matchup headline; Watch VOD / Review jumps. -->
+  <!-- One game row. W/L edge bar + matchup headline. The WHOLE card opens the -->
+  <!-- review (data-action=review_game, like every other game row in the app); -->
+  <!-- Watch VOD stays a real button and wins via innermost closest([data-action]). -->
   <template id="tpl-game">
-    <div class="card gamerow og-grow">
+    <div class="card gamerow og-grow" data-action="review_game" role="button" tabindex="0">
       <span class="gamerow-sweep" aria-hidden="true"></span>
       <span class="gamerow-edge" aria-hidden="true"></span>
       <div class="crow">
@@ -163,7 +163,7 @@
         </div>
         <div class="og-grow-acts">
           <button class="og-act og-act-vod" data-action="watch_vod" type="button">Watch VOD</button>
-          <button class="og-act og-act-review" data-action="review_game" type="button">Review</button>
+          <div class="gamerow-cue" aria-hidden="true">REVIEW <span class="arr">→</span></div>
         </div>
       </div>
     </div>

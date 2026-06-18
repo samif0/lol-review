@@ -6,6 +6,7 @@
   "hasReviewNotes": true,
   "hasExecutionNotes": true,
   "hasBookmarks": true,
+  "hasPromptAnswers": true,
   "hasAnything": true,
   "reviewNotes": [
     {
@@ -67,6 +68,37 @@
       "tags": "",
       "hasTags": false,
       "hasClip": true
+    }
+  ],
+  "promptAnswers": [
+    {
+      "promptId": 31,
+      "label": "What was my wave plan this game?",
+      "phase": "Pre-Game",
+      "answers": [
+        {
+          "gameId": 5581979143,
+          "header": "W • Aatrox • Jun 12, 2026",
+          "answer": "Slow push to set up the level-6 dive, then freeze after first recall."
+        },
+        {
+          "gameId": 5581970022,
+          "header": "L • Camille • Jun 11, 2026",
+          "answer": "Freeze near my tower until jungler shows top, deny the all-in."
+        }
+      ]
+    },
+    {
+      "promptId": 32,
+      "label": "Did I lose any plates I shouldn't have?",
+      "phase": "Post-Game",
+      "answers": [
+        {
+          "gameId": 5581970022,
+          "header": "L • Camille • Jun 11, 2026",
+          "answer": "Yes — two plates after shoving into a warded lane. Should have frozen."
+        }
+      ]
     }
   ]
 }

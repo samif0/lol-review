@@ -50,6 +50,16 @@ public interface IPromptsRepository
 
     Task<IReadOnlyList<PromptAnswer>> GetAnswersForGameAsync(long gameId);
 
+    /// <summary>
+    /// Every custom-prompt answer recorded against the given objective, across
+    /// all games. Joins <c>prompt_answers</c> → <c>objective_prompts</c> (scoped
+    /// to <paramref name="objectiveId"/>) → <c>games</c>, carrying each prompt's
+    /// label + phase, the answer text, and the game header (champion / win /
+    /// timestamp) so the Objective Notes page can group by prompt and jump to the
+    /// answering game's review. Read-only; hidden games are excluded.
+    /// </summary>
+    Task<IReadOnlyList<ObjectivePromptAnswer>> GetAnswersForObjectiveAsync(long objectiveId);
+
     // ── Pre-game draft answers (staged before the game row exists) ──
 
     /// <summary>

@@ -215,7 +215,14 @@ public static class TimelineInferenceService
                 .TakeWhile(e => e.GameTimeS - start <= 25)
                 .ToArray();
 
-            if (cluster.Length >= 6)
+            // Combat floor for a "Teamfight" is 5 combat events within 25s — a
+            // deliberate, documented one-step widening from 6 (brief 2026-06-17-10/12:
+            // ≥6 surfaced ~25 games, ≥5 surfaces ~65, roughly doubling coverage so
+            // more teamfights reach the timeline). This is the HARDCODED inference
+            // path; the user-customizable Teamfight derived-event default (≥3 combat
+            // events / 15s window, seeded in derived_event_definitions) is the path
+            // users can tune — keep the two in the same spirit but don't conflate them.
+            if (cluster.Length >= 5)
             {
                 yield return CreateCombatRegion("Teamfight", cluster, "#ff6b6b", priority: 80);
                 index += cluster.Length;

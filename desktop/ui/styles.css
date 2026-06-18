@@ -1088,9 +1088,11 @@ select.obj-input option{background:#14102a;color:var(--t1)}
   background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 6px 14px -8px rgba(243,199,148,0.6)}
 .rv-dchip.on:hover{color:#1b1233}
 
-/* EVIDENCE TRIAGE — moment rows: polarity dot + body (time/title/note/meta). */
+/* EVIDENCE / CLIP rows — polarity dot + body (time/title/note/meta). The To-sort
+   strip (#rv-tosort) and the prompt/objective clip lists (.rv-clips) share the row
+   look so clips read consistently wherever they're homed (P-027). */
 .rv-evidsec{margin-top:24px}
-#rv-evid-attached,#rv-evid-unassigned{display:flex;flex-direction:column;gap:8px}
+#rv-tosort,.rv-clips{display:flex;flex-direction:column;gap:8px}
 .rv-evid{display:flex;align-items:flex-start;gap:11px;padding:11px 14px}
 /* Clickable moment cards jump to the VOD at their timestamp — give them the
    pointer + a subtle violet lift on hover/focus, and a "▶ VOD" cue on hover. */
@@ -1128,6 +1130,28 @@ select.obj-input option{background:#14102a;color:var(--t1)}
   border:1px solid var(--gline2);border-radius:7px;padding:5px 9px;cursor:pointer;max-width:220px}
 .rv-evid-pick:focus{outline:none;border-color:rgba(157,139,255,0.6)}
 .rv-evid-pick option{background:#16121f;color:var(--t1)}
+
+/* ── REVIEW: prompt-centric clips (P-027) ─────────────────────────────────────
+   Clips render UNDER their prompt (.rv-prompt-clips), in an objective's "no
+   prompt" sub-block (.rv-obj-unprompted), or in the top-level To-sort strip
+   (#rv-tosort). The rows reuse .rv-evid; these rules cover the wrappers + the
+   clip-specific bits (the note-as-headline + the share link). */
+.rv-prompt-clips{margin:7px 0 0 14px}
+.rv-obj-unprompted{margin-top:12px;padding-top:11px;border-top:1px solid var(--gline2)}
+/* A quiet group label for the clip sub-blocks (matches the small-caps seclabel
+   voice without the full section weight). */
+.rv-clipgroup-lbl{font-family:var(--fm);font-size:9px;letter-spacing:1.4px;
+  text-transform:uppercase;color:var(--t4);margin-bottom:9px}
+.rv-clipgroup-lbl .n{font-family:var(--fb);font-size:9px;letter-spacing:0.4px;
+  text-transform:none;color:var(--t4);opacity:0.7;margin-left:6px}
+/* The clip's note IS its headline (clips carry no separate title). */
+.rv-clip-note{font-style:normal}
+/* Public share link (revu.lol/<id>) when the clip was uploaded. */
+.rv-clip-share{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--accent);text-decoration:none;border:1px solid rgba(157,139,255,0.35);
+  border-radius:6px;padding:2px 7px;background:rgba(157,139,255,0.08);
+  transition:border-color .16s,color .16s,background .16s}
+.rv-clip-share:hover{color:#fff;border-color:rgba(157,139,255,0.6);background:rgba(157,139,255,0.16)}
 
 /* FOCUS CHECK — did you play to the session intention? (immediate Yes/Partly/No) */
 .rv-focus{padding:14px 16px;margin-bottom:14px;border-left:2px solid rgba(243,199,148,0.5)}
@@ -1932,6 +1956,30 @@ select.obj-input option{background:#14102a;color:var(--t1)}
   padding:1px 3px;border-radius:3px;background:rgba(8,6,18,0.92);transition:opacity .12s ease;z-index:4}
 .vp-timeline .evbar-nolabel:hover::after{opacity:1}
 
+/* Derived-event LAYER (P2) — fights/skirmishes/objective windows as translucent
+   colored SPANS straddling the scrub track. Drawn BEHIND the coded event bars
+   (z-index:1 vs the bars' default stacking) so they read as background regions, not
+   foreground markers. --evsc carries the server color; a soft fill + edge keep them
+   legible without fighting the bars for attention. Click-to-seek to the region start. */
+.vp-timeline .evspan{position:absolute;top:calc(72% - 16px);height:32px;z-index:1;
+  --evsc:var(--accent);
+  background:color-mix(in srgb,var(--evsc) 16%,transparent);
+  border-left:1px solid color-mix(in srgb,var(--evsc) 60%,transparent);
+  border-right:1px solid color-mix(in srgb,var(--evsc) 60%,transparent);
+  border-radius:3px;transition:background .14s ease}
+.vp-timeline .evspan:hover{background:color-mix(in srgb,var(--evsc) 30%,transparent)}
+.vp-timeline .evspan-lbl{position:absolute;top:-12px;left:3px;
+  font-family:var(--fm);font-size:7.5px;font-weight:700;letter-spacing:0.4px;line-height:1;
+  color:var(--evsc);white-space:nowrap;pointer-events:none;
+  text-shadow:0 1px 3px rgba(8,6,18,0.9)}
+
+/* Fights/Events filter toggle in the Moments panel head — a compact checkbox row. */
+.vp-fights-toggle{display:flex;align-items:center;gap:7px;cursor:pointer;margin:2px 0 10px;
+  font-family:var(--fm);font-size:9px;letter-spacing:0.6px;text-transform:uppercase;color:var(--t3)}
+.vp-fights-toggle[hidden]{display:none}
+.vp-fights-toggle input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+.vp-fights-toggle:hover{color:var(--t2)}
+
 /* Bookmark markers — small diamonds BELOW the track so they never collide with
    the coded bars. clip → gold, plain → accent. */
 .vp-timeline .ev{position:absolute;top:calc(72% + 9px);width:8px;height:8px;border-radius:2px;
@@ -2043,6 +2091,10 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .b.src{color:var(--accent);border-color:rgba(157,139,255,0.5)}
 .b.srcclip{color:var(--gold);border-color:rgba(243,199,148,0.5)}
 .b.time{color:var(--t3)}
+/* P-027 prompt badge — the custom prompt a clip/bookmark answers. Distinct teal so
+   it reads apart from the objective tag (accent) it nests under. */
+.b.b-prompt{color:var(--win,#7fe3b0);border-color:color-mix(in srgb,var(--win,#7fe3b0) 45%,transparent);max-width:160px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mtl{font-size:13px;font-weight:600;color:#fff;line-height:1.35;padding-right:34px}
 
 .vp-moments-empty{font-family:var(--fb);font-size:12.5px;color:var(--t4);padding:18px 4px;line-height:1.5}

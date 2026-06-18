@@ -77,6 +77,10 @@ public sealed class EvidenceRepository : IEvidenceRepository
                         WHEN @objectiveId IS NULL THEN objective_id
                         ELSE @objectiveId
                     END,
+                    prompt_id = CASE
+                        WHEN @promptId IS NULL THEN prompt_id
+                        ELSE @promptId
+                    END,
                     concept_tag_id = CASE
                         WHEN @conceptTagId IS NULL THEN concept_tag_id
                         ELSE @conceptTagId
@@ -114,11 +118,11 @@ public sealed class EvidenceRepository : IEvidenceRepository
         insertCmd.CommandText = """
             INSERT INTO evidence_items
                 (game_id, source_kind, source_id, source_key, start_time_s, end_time_s,
-                 title, note, objective_id, concept_tag_id, matchup_note_id,
+                 title, note, objective_id, prompt_id, concept_tag_id, matchup_note_id,
                  polarity, status, created_at, updated_at)
             VALUES
                 (@gameId, @sourceKind, @sourceId, @sourceKey, @startTimeS, @endTimeS,
-                 @title, @note, @objectiveId, @conceptTagId, @matchupNoteId,
+                 @title, @note, @objectiveId, @promptId, @conceptTagId, @matchupNoteId,
                  @polarity, @status, @createdAt, @updatedAt)
             """;
         BindUpsert(insertCmd, item, sourceKind, sourceKey, polarity, status, now);
@@ -245,6 +249,28 @@ public sealed class EvidenceRepository : IEvidenceRepository
         {
             await AwardClipScoreAsync(conn, objectiveId.Value);
         }
+    }
+
+    /// <summary>
+    /// P-027: tag (or untag, when promptId is null) an evidence row to the custom
+    /// prompt it answers. Mirrors UpdateObjectiveAsync's shape but carries NO score
+    /// award — prompt grouping is purely organizational, the objective_id path
+    /// remains the (separate) score-bearing one. objective_id is left untouched.
+    /// </summary>
+    public async Task UpdatePromptAsync(long evidenceId, long? promptId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE evidence_items
+            SET prompt_id = @promptId,
+                updated_at = @updatedAt
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@promptId", promptId.HasValue ? promptId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("@id", evidenceId);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     /// <summary>
@@ -653,6 +679,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
         cmd.Parameters.AddWithValue("@title", item.Title ?? "");
         cmd.Parameters.AddWithValue("@note", item.Note ?? "");
         cmd.Parameters.AddWithValue("@objectiveId", item.ObjectiveId.HasValue ? item.ObjectiveId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@promptId", item.PromptId.HasValue ? item.PromptId.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@conceptTagId", item.ConceptTagId.HasValue ? item.ConceptTagId.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@matchupNoteId", item.MatchupNoteId.HasValue ? item.MatchupNoteId.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@polarity", polarity);
@@ -681,7 +708,8 @@ public sealed class EvidenceRepository : IEvidenceRepository
                e.updated_at,
                COALESCE(g.champion_name, ''),
                g.win,
-               g.timestamp
+               g.timestamp,
+               e.prompt_id
         FROM evidence_items e
         LEFT JOIN objectives o ON o.id = e.objective_id
         LEFT JOIN concept_tags c ON c.id = e.concept_tag_id
@@ -715,7 +743,8 @@ public sealed class EvidenceRepository : IEvidenceRepository
                 UpdatedAt: reader.IsDBNull(17) ? null : reader.GetInt64(17),
                 ChampionName: reader.GetString(18),
                 Win: reader.IsDBNull(19) ? null : reader.GetInt64(19) != 0,
-                GameTimestamp: reader.IsDBNull(20) ? null : reader.GetInt64(20)));
+                GameTimestamp: reader.IsDBNull(20) ? null : reader.GetInt64(20),
+                PromptId: reader.IsDBNull(21) ? null : reader.GetInt64(21)));
         }
 
         return rows;

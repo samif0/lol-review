@@ -90,6 +90,7 @@ public sealed class VodSnapshotBuilder
                     HasClip: !string.IsNullOrWhiteSpace(b.ClipPath) || b.ClipStartSeconds.HasValue,
                     ClipStartSeconds: b.ClipStartSeconds,
                     ClipEndSeconds: b.ClipEndSeconds,
+                    PromptId: b.PromptId,
                     ShareUrl: b.ShareUrl ?? "")));
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: bookmarks load failed for {GameId}", gameId); }

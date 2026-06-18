@@ -80,12 +80,14 @@
           <div id="rv-deaths"></div>
         </div>
 
-        <!-- EVIDENCE — attached moments + the "evidence to sort" inbox (read-only). -->
-        <div class="rv-evidsec" id="rv-evidsec" hidden>
-          <div class="seclabel" id="rv-evid-attached-label" hidden>Attached Evidence <span class="n">tagged moments</span></div>
-          <div id="rv-evid-attached"></div>
-          <div class="seclabel rv-seclabel-sub" id="rv-evid-unassigned-label" hidden>Evidence to sort <span class="n">unassigned moments</span></div>
-          <div id="rv-evid-unassigned"></div>
+        <!-- TO SORT — fully-untagged auto-moments (no objective AND no prompt) for
+             THIS game. The prompt/objective clips live under their prompts +
+             objective sub-blocks above; these are the leftovers, homed here so
+             nothing becomes unreachable (P-027). Each card jumps to the VOD and
+             carries the triage controls (Good/Bad/attach/dismiss). -->
+        <div class="rv-evidsec rv-tosortsec" id="rv-tosortsec" hidden>
+          <div class="seclabel">To Sort <span class="n">untagged moments</span></div>
+          <div id="rv-tosort"></div>
         </div>
       </div>
 
@@ -216,8 +218,15 @@
           <span class="rv-switch-lbl">Not practiced</span>
         </label>
       </div>
-      <!-- Custom coaching prompts — read-only guided questions (display-only). -->
+      <!-- Custom coaching prompts — editable guided questions, each grouping the
+           clips tagged to it (P-027). -->
       <div class="rv-prompts" hidden></div>
+      <!-- Objective evidence (no prompt) — clips tagged to THIS objective but not
+           bound to a specific prompt, so they aren't lost (P-027 homing). -->
+      <div class="rv-obj-unprompted" hidden>
+        <div class="rv-clipgroup-lbl">Objective evidence <span class="n">no prompt</span></div>
+        <div class="rv-clips rv-obj-unprompted-list"></div>
+      </div>
       <input type="text" class="rv-objnote" placeholder="How did it go? (optional)"
              autocomplete="off" hidden>
     </div>
@@ -234,6 +243,9 @@
       </div>
       <textarea class="rv-prompt-input" rows="1" autocomplete="off"
                 placeholder="Your answer (saved automatically)"></textarea>
+      <!-- Clips tagged to THIS prompt (P-027) — each jumps to the VOD + carries
+           triage controls. Rendered/populated in review.js. -->
+      <div class="rv-clips rv-prompt-clips" hidden></div>
     </div>
   </template>
 
@@ -253,12 +265,16 @@
     </span>
   </template>
 
-  <!-- One death-audit row — timestamp + saved cause + the six read-only chips. -->
+  <!-- One death-audit row — timestamp + saved cause + the six read-only chips,
+       plus a "watch" jump that opens this game's VOD at the death (P-006/P-010 /
+       brief 2026-06-17-15: you can finally see each death before tagging it). The
+       jump is hidden when the game has no VOD. -->
   <template id="tpl-death">
     <div class="card glass rv-death">
       <div class="rv-death-head">
         <span class="rv-death-time"></span>
         <span class="rv-death-cause" hidden></span>
+        <button type="button" class="rv-death-jump" data-action="view_moment" hidden>▶ Watch</button>
       </div>
       <div class="rv-death-chips"></div>
     </div>
@@ -269,22 +285,21 @@
     <span class="rv-dchip"><span class="rv-dchip-lbl"></span></span>
   </template>
 
-  <!-- One evidence/moment triage row: time + title + polarity dot + objective
-       tag + status, plus the triage controls (Good/Bad polarity, attach-to-
-       objective picker, Dismiss). Controls persist immediately; ATTACHED rows
-       hide the picker/Good/Bad (already triaged) and show only Dismiss. -->
-  <template id="tpl-evid">
-    <div class="card glass rv-evid">
+  <!-- One prompt/objective/to-sort CLIP card (P-027). A flattened evidence slice:
+       polarity dot + time + note + optional share link, jumping to the VOD at the
+       clip (vodplayer.html?gameId&t&clip=evidenceId). Carries the same triage
+       controls as the old evidence rows (Good/Bad/attach picker/dismiss) so triage
+       still works where clips now live. Populated in review.js (clipCard). -->
+  <template id="tpl-clip">
+    <div class="card glass rv-evid rv-clip">
       <span class="rv-evid-dot" aria-hidden="true"></span>
       <div class="rv-evid-body">
         <div class="rv-evid-line">
           <span class="rv-evid-time" hidden></span>
-          <span class="rv-evid-title"></span>
+          <span class="rv-evid-title rv-clip-note"></span>
         </div>
-        <div class="rv-evid-note" hidden></div>
         <div class="rv-evid-meta">
-          <span class="rv-evid-obj" hidden></span>
-          <span class="rv-evid-status"></span>
+          <a class="rv-clip-share" target="_blank" rel="noopener" hidden></a>
         </div>
         <!-- Triage controls — wired in review.js (data-evid-action). -->
         <div class="rv-evid-actions" hidden>

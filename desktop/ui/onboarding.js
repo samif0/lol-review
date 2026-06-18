@@ -411,11 +411,22 @@ async function signOut() {
 // "First boot" = the user has never gotten through onboarding: no primary role set
 // AND onboarding wasn't explicitly skipped. Everyone else who lands here logged-out
 // is a returning user choosing to sign in, so we skip the intro card for them.
+//
+// EXPLICIT SIGN-IN INTENT (?signin=1): the nav rail's "Sign in" item carries this
+// param. Clicking it means "I want to sign in", never "show me the first-launch
+// pitch", so it bypasses the first-boot heuristic entirely — signed-in users see
+// the confirmation card, everyone else lands straight on the email step. The
+// GET STARTED intro stays reserved for a genuine auto-show on first launch, where
+// onboarding is opened with NO param.
 async function chooseInitialState() {
+  const signinIntent = new URLSearchParams(window.location.search).get('signin') === '1';
+
   const invoke = await getInvoke();
   if (!invoke) {
-    // Preview (no backend): keep the standalone first-boot intro so the flow is browsable.
-    setState('welcome');
+    // Preview (no backend): with explicit sign-in intent show the email step;
+    // otherwise keep the standalone first-boot intro so the flow is browsable.
+    setState(signinIntent ? 'emailEntry' : 'welcome');
+    if (signinIntent) vm.chosenLoginPath = true;
     return;
   }
   // Retry on sidecar cold-start: opening Sign-in while the sidecar is still binding
@@ -447,15 +458,31 @@ async function chooseInitialState() {
     return;
   }
 
-  // Logged out. First boot vs returning.
-  const hasRole = !!(status && status.primaryRole);
+  // Logged out. Explicit sign-in intent skips the first-boot pitch entirely.
+  if (signinIntent) {
+    setState('emailEntry');
+    vm.chosenLoginPath = true; // returning user is on the login path
+    return;
+  }
+
+  // First boot vs returning. The 'welcome' intro is shown ONLY when first-boot is
+  // POSITIVELY established: the status read succeeded (status is non-null), it
+  // reports no primary role, AND onboarding wasn't explicitly skipped. If the status
+  // read failed (cold-start retry exhausted → status null) or get_config throws, we
+  // do NOT fall to the intro: a returning user with a valid 30-day session who hit a
+  // transient read shouldn't be greeted by the first-launch pitch — they get the
+  // email step. (The signedIn branch above still catches them once status reads.)
   let onboardingSkipped = false;
+  let configRead = false;
   try {
     const cfg = await invoke('get_config');
     onboardingSkipped = !!(cfg && cfg.onboardingSkipped);
-  } catch (_) { /* treat as not-skipped */ }
+    configRead = true;
+  } catch (_) { /* read failed — do NOT assume first boot */ }
 
-  const firstBoot = !hasRole && !onboardingSkipped;
+  const statusRead = status != null;
+  const hasRole = !!(status && status.primaryRole);
+  const firstBoot = statusRead && configRead && !hasRole && !onboardingSkipped;
   setState(firstBoot ? 'welcome' : 'emailEntry');
   if (!firstBoot) vm.chosenLoginPath = true; // returning user is on the login path
 }

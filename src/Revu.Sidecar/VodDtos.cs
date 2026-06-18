@@ -39,6 +39,10 @@ public sealed record VodBookmarkDto(
     bool HasClip,
     int? ClipStartSeconds,
     int? ClipEndSeconds,
+    // P-027: optional custom-prompt tag (from VodBookmarkRecord.PromptId). When set,
+    // the VOD player renders a small prompt badge on the bookmark/clip row; null when
+    // the bookmark answers no prompt. Surfaced so the picker's saved choice is visible.
+    long? PromptId = null,
     // Public share link (revu.lol/<id>) once the clip has been uploaded; "" until
     // shared. Drives the VOD player's Share-button label (Share vs Copy link).
     // The clip PATH itself stays server-side (resolved on POST /api/clip/upload).

@@ -21,7 +21,9 @@ function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s 
 let _vod = null;       // the loaded VOD snapshot
 let _core = null;      // cached Tauri core ({invoke, convertFileSrc}) or null
 let _gameId = 0;       // the game id from ?gameId=N
-let _objectives = [];  // active objectives for the Quick Bookmark objective picker
+let _objectives = [];  // active objectives (with prompts) for the objective/prompt pickers
+let _derived = [];     // P2: derived-event instances ({startTimeSeconds…} regions) for the timeline layer
+let _showDerived = true;// 'Fights/Events' filter toggle — show/hide the derived-event timeline layer
 let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarge)
 const video = () => $('vp-video');
 
@@ -48,11 +50,17 @@ async function fetchVod() {
   _core = core;
   if (core && gameId > 0) {
     const data = await core.invoke('get_vod', { gameId });
-    // Best-effort: active objectives feed the Quick Bookmark objective picker.
+    // Best-effort: active objectives (+ their prompts) feed the objective/prompt pickers.
     try {
       const r = await core.invoke('get_active_objectives');
       _objectives = Array.isArray(r && r.objectives) ? r.objectives : [];
     } catch (_) { _objectives = []; }
+    // P2: derived-event instances (fights/skirmishes/objective regions) feed the
+    // timeline LAYER + the 'Fights/Events' filter. Degrade to [] on failure.
+    try {
+      const d = await core.invoke('get_derived_events', { gameId });
+      _derived = Array.isArray(d && d.instances) ? d.instances : [];
+    } catch (_) { _derived = []; }
     return { data, core };
   }
   // Browser preview: no Tauri / no real file. Use the sample (no playable video).
@@ -109,6 +117,7 @@ function render(data, core) {
   // timeline (coded bars) and moments render even before (or without) a playable
   // video. onMeta re-places markers with the real duration once it loads.
   populateObjectivePicker();
+  refreshFightsToggle();
   placeMarkers(_vod.gameDurationSeconds || 0);
   renderMoments();
   renderClipState();
@@ -175,6 +184,11 @@ function placeMarkers(dur) {
 
   const pctOf = (s) => Math.max(0, Math.min(100, (s / dur) * 100));
 
+  // 0. Derived-event LAYER (P2) — fights/skirmishes/objective regions as colored
+  //    SPANS behind the coded event bars. Drawn first so the thin event bars + the
+  //    bookmark diamonds render on top. Gated by the 'Fights/Events' filter toggle.
+  if (_showDerived) placeDerivedSpans(host, pctOf);
+
   // 1. Live events → coded bars with importance-tiered HEIGHTS so the timeline
   //    reads at a glance: major objectives (Baron/Dragon/Herald/Tower/Inhibitor)
   //    are tall, kills/deaths medium, everything else short. The tiering also
@@ -239,6 +253,43 @@ function placeMarkers(dur) {
   }
 }
 
+// Derived-event LAYER (P2 / generalized 17-10 'Fights filter'): the built
+// derived-event instances (fights, skirmishes, objective windows…) rendered as
+// colored translucent SPANS along the timeline. Each span runs startTimeSeconds→
+// endTimeSeconds (a zero-length region falls back to a thin marker), tinted by the
+// instance's color, labeled by definitionName, and click-to-seek to its start.
+// Appended to the SAME #vp-markers host as the event bars but visually behind
+// them (CSS z-index), so it's purely additive over the existing markers.
+function placeDerivedSpans(host, pctOf) {
+  for (const d of (_derived || [])) {
+    const startS = d.startTimeSeconds != null ? d.startTimeSeconds : 0;
+    const endS = d.endTimeSeconds != null ? d.endTimeSeconds : startS;
+    const a = pctOf(startS);
+    const b = pctOf(Math.max(endS, startS));
+    const span = document.createElement('span');
+    span.className = 'evspan';
+    span.style.left = `${a}%`;
+    span.style.width = `${Math.max(0.4, b - a)}%`; // floor keeps a 0-length region clickable
+    if (d.color) span.style.setProperty('--evsc', d.color);
+    span.style.pointerEvents = 'auto';
+    span.style.cursor = 'pointer';
+    const name = d.definitionName || 'Event';
+    const cnt = d.eventCount ? ` · ${d.eventCount}` : '';
+    span.title = `${clock(startS)}–${clock(endS)} ${name}${cnt}`.trim();
+    span.dataset.action = 'jump';
+    span.dataset.seconds = String(startS);
+
+    // Label rides above the span (definitionName); kept terse so dense timelines
+    // stay readable. The full window + count live on the hover title above.
+    const lbl = document.createElement('span');
+    lbl.className = 'evspan-lbl';
+    lbl.textContent = name;
+    span.appendChild(lbl);
+
+    host.appendChild(span);
+  }
+}
+
 // Importance tier for an event → drives the bar height + label policy. Major =
 // map objectives (decisive), medium = kills/deaths (player-relevant), minor =
 // everything else. Keeps the busiest timelines readable.
@@ -300,6 +351,7 @@ function normMoment(m, srcLabel) {
     note: m.note || m.title || '',
     noteDisplay: m.note || m.title || '(no note)',
     objectiveId: m.objectiveId != null ? m.objectiveId : null,
+    promptId: m.promptId != null ? m.promptId : null, // evidence rows may carry a prompt tag (P-027)
     objectiveTitle: m.objectiveTitle || '',
     polarity: m.polarity || 'neutral',
     polarityColorHex: m.polarityColorHex || '',
@@ -328,6 +380,7 @@ function normBookmark(b, isClip) {
     note: b.note || '',
     noteDisplay: b.note || '(no note)',
     objectiveId: null,
+    promptId: b.promptId != null ? b.promptId : null, // P-027: bookmark/clip prompt tag (drives the row badge)
     objectiveTitle: '',
     polarity: '',
     polarityColorHex: '',
@@ -394,18 +447,9 @@ function renderMoments() {
       el.dataset.evId = String(m.evidenceId);
       const sel = evEdit.querySelector('.vp-ev-obj');
       if (sel) {
-        clear(sel);
-        const none = document.createElement('option');
-        none.value = '';
-        none.textContent = 'No objective';
-        sel.appendChild(none);
-        for (const o of _objectives) {
-          const opt = document.createElement('option');
-          opt.value = String(o.objectiveId);
-          opt.textContent = o.title;
-          if (m.objectiveId != null && Number(o.objectiveId) === Number(m.objectiveId)) opt.selected = true;
-          sel.appendChild(opt);
-        }
+        // Objective + prompt picker (optgroup per objective, prompt rows beneath).
+        // Pre-select the row's saved objective (and prompt, if the row carries one).
+        fillObjectivePromptPicker(sel, 'No objective / No prompt', m.objectiveId, m.promptId);
         sel.dataset.evId = String(m.evidenceId);
         sel.addEventListener('click', (e) => e.stopPropagation());
       }
@@ -469,6 +513,15 @@ function renderMoments() {
         tag.textContent = m.objectiveTitle;
         badges.appendChild(tag);
       }
+      // P-027: prompt badge when the row answers a custom prompt. Resolve the label
+      // from the loaded objectives' prompt lists; fall back to "Prompt" if unknown.
+      if (m.promptId != null) {
+        const pl = promptLabelFor(m.promptId);
+        const pb = document.createElement('span');
+        pb.className = 'b b-prompt';
+        pb.textContent = pl ? `↳ ${pl}` : '↳ Prompt';
+        badges.appendChild(pb);
+      }
       if (m.status && m.status !== 'needs_review') {
         const st = document.createElement('span');
         st.className = 'b';
@@ -484,6 +537,25 @@ function renderMoments() {
     }
     host.appendChild(el);
   }
+}
+
+// 'Fights/Events' filter (P2): toggles the derived-event timeline LAYER on/off and
+// re-places the markers. The toggle row is revealed only when the game actually has
+// derived events (nothing to filter otherwise). Generalizes the 17-10 Fights filter.
+function wireFightsToggle() {
+  const chk = $('vp-fights-chk');
+  if (!chk) return;
+  chk.checked = _showDerived;
+  chk.addEventListener('change', () => {
+    _showDerived = !!chk.checked;
+    const v = video();
+    placeMarkers((v && v.duration) || (_vod && _vod.gameDurationSeconds) || 0);
+  });
+}
+
+// Reveal the Fights/Events toggle only when the loaded game has derived events.
+function refreshFightsToggle() {
+  show($('vp-fights-toggle'), (_derived || []).length > 0);
 }
 
 // 3-way tab filter (Auto / Clips / Bookmarks) — client-side over the lanes.
@@ -533,22 +605,94 @@ document.addEventListener('click', (ev) => {
 // snapshot and re-renders markers/list without touching <video>). No-ops in
 // preview (no Tauri backend).
 
-// Fill the Quick Bookmark objective <select> from the active objectives loaded in
-// fetchVod(). Safe to call repeatedly.
-function populateObjectivePicker() {
-  const sel = $('vp-bm-obj');
+// ── Objective + prompt picker (P-027) ────────────────────────────────────────
+// One <select> presents BOTH objectives and their custom prompts. Each objective
+// becomes an <optgroup>; under it an objective-level row ('— whole objective —')
+// plus one row per prompt. The option VALUE encodes the choice so save paths can
+// recover both ids:
+//    ''                     → no objective / no prompt
+//    'obj:<OBJID>'          → the whole objective (no prompt)
+//    'prompt:<OBJID>:<PID>' → a specific prompt under that objective
+// Parse with parsePickerValue(); it always yields {objectiveId, promptId} (nulls
+// when unset). Selecting a prompt implies its parent objective.
+function parsePickerValue(value) {
+  const v = String(value || '');
+  if (v.startsWith('prompt:')) {
+    const parts = v.split(':');
+    const objectiveId = Number(parts[1]) || null;
+    const promptId = Number(parts[2]) || null;
+    return { objectiveId, promptId };
+  }
+  if (v.startsWith('obj:')) {
+    const objectiveId = Number(v.slice(4)) || null;
+    return { objectiveId, promptId: null };
+  }
+  return { objectiveId: null, promptId: null };
+}
+
+// Build the encoded value for an objective/prompt pair (for pre-selecting a row).
+function encodePickerValue(objectiveId, promptId) {
+  if (promptId != null && objectiveId != null) return `prompt:${objectiveId}:${promptId}`;
+  if (objectiveId != null) return `obj:${objectiveId}`;
+  return '';
+}
+
+// Fill an objective/prompt <select> from the active objectives (+ their prompts)
+// loaded in fetchVod(). noneLabel is the value-'' row text. selObjId/selPromptId
+// pre-select the matching row. Safe to call repeatedly.
+function fillObjectivePromptPicker(sel, noneLabel, selObjId, selPromptId) {
   if (!sel) return;
   clear(sel);
   const none = document.createElement('option');
   none.value = '';
-  none.textContent = 'No objective';
+  none.textContent = noneLabel || 'No objective / No prompt';
+  if (selObjId == null && selPromptId == null) none.selected = true;
   sel.appendChild(none);
+
   for (const o of _objectives) {
-    const opt = document.createElement('option');
-    opt.value = String(o.objectiveId);
-    opt.textContent = o.title;
-    sel.appendChild(opt);
+    const objId = Number(o.objectiveId);
+    const group = document.createElement('optgroup');
+    group.label = o.title || `Objective ${objId}`;
+
+    // Objective-level row — attach to the whole objective, no prompt.
+    const whole = document.createElement('option');
+    whole.value = `obj:${objId}`;
+    whole.textContent = '— whole objective —';
+    if (selPromptId == null && selObjId != null && Number(selObjId) === objId) whole.selected = true;
+    group.appendChild(whole);
+
+    // One row per prompt under this objective.
+    for (const p of (o.prompts || [])) {
+      const pid = Number(p.promptId);
+      const opt = document.createElement('option');
+      opt.value = `prompt:${objId}:${pid}`;
+      opt.textContent = p.label || `Prompt ${pid}`;
+      if (selPromptId != null && Number(selPromptId) === pid) opt.selected = true;
+      group.appendChild(opt);
+    }
+
+    sel.appendChild(group);
   }
+}
+
+// Resolve a promptId → its label (for the row badge). Scans the loaded objectives'
+// prompt lists. Returns '' when unknown (older snapshot / prompt since deleted).
+function promptLabelFor(promptId) {
+  if (promptId == null) return '';
+  const pid = Number(promptId);
+  for (const o of _objectives) {
+    for (const p of (o.prompts || [])) {
+      if (Number(p.promptId) === pid) return p.label || '';
+    }
+  }
+  return '';
+}
+
+// Fill the Quick Bookmark objective/prompt <select> from the active objectives
+// loaded in fetchVod(). Safe to call repeatedly.
+function populateObjectivePicker() {
+  fillObjectivePromptPicker($('vp-bm-obj'), 'No objective / No prompt', null, null);
+  fillObjectivePromptPicker($('vp-clip-obj'), 'No objective / No prompt', null, null);
 }
 
 function bmHint(msg, isErr) {
@@ -566,13 +710,15 @@ async function addBookmark() {
   const noteEl = $('vp-bm-note');
   const objEl = $('vp-bm-obj');
   const note = noteEl ? noteEl.value.trim() : '';
-  const objectiveId = objEl && objEl.value ? Number(objEl.value) : null;
+  // The picker value encodes objective + optional prompt; parse both out.
+  const { objectiveId, promptId } = parsePickerValue(objEl ? objEl.value : '');
 
   const addBtn = $('vp-bm-add');
   if (addBtn) addBtn.disabled = true;
   try {
     const payload = { gameId: _gameId, timeS, note };
     if (objectiveId) payload.objectiveId = objectiveId;
+    if (promptId) payload.promptId = promptId;
     await _core.invoke('add_bookmark', { payload });
     if (noteEl) noteEl.value = '';
     bmHint(`Bookmark added at ${clock(timeS)}.`, false);
@@ -612,15 +758,22 @@ async function saveBookmarkNote(bookmarkId, note) {
 // (UpdateNoteAsync) which, for an auto-moment with a VOD + first note, also clips
 // the window; alreadyClipped suppresses re-extraction once it's a clip.
 
-async function setEvidenceObjective(evidenceId, objectiveId) {
+async function setEvidenceObjective(evidenceId, objectiveId, promptId) {
   if (!_core || !evidenceId) return;
+  const evId = Number(evidenceId);
   try {
-    const payload = { evidenceId: Number(evidenceId), gameId: _gameId };
+    const payload = { evidenceId: evId, gameId: _gameId };
     payload.objectiveId = objectiveId ? Number(objectiveId) : null; // null detaches
     await _core.invoke('set_evidence_objective', { payload });
+    // P-027: when a prompt row was chosen, also tag the prompt (independent of the
+    // objective; both coexist). Detaches (promptId:null) when '— whole objective —'
+    // or 'No objective' was picked.
+    await _core.invoke('set_evidence_prompt', {
+      payload: { evidenceId: evId, promptId: promptId ? Number(promptId) : null },
+    });
     await reloadBookmarks();
   } catch (err) {
-    console.error('[vodplayer] set_evidence_objective failed:', err);
+    console.error('[vodplayer] set_evidence_objective/prompt failed:', err);
   }
 }
 
@@ -905,12 +1058,15 @@ document.addEventListener('blur', (ev) => {
   if (evNote) saveEvidenceNote(evNote);
 }, true);
 
-// Evidence objective tag picker: attach/detach on change.
+// Evidence objective/prompt tag picker: attach/detach on change. The encoded value
+// carries objective + optional prompt; route the objective to set_evidence_objective
+// and the prompt to set_evidence_prompt (independent tags that coexist).
 document.addEventListener('change', (ev) => {
   const sel = ev.target.closest && ev.target.closest('.vp-ev-obj');
   if (!sel) return;
   ev.stopPropagation();
-  setEvidenceObjective(sel.dataset.evId, sel.value || '');
+  const { objectiveId, promptId } = parsePickerValue(sel.value || '');
+  setEvidenceObjective(sel.dataset.evId, objectiveId, promptId);
 });
 
 // ── Clip tool (I/O in-out points, quality, ffmpeg extract via Save Clip) ──────
@@ -1009,6 +1165,8 @@ function clearClip() {
   _clipIn = -1; _clipOut = -1; _clipQuality = '';
   const note = $('vp-clip-note');
   if (note) note.value = '';
+  const obj = $('vp-clip-obj'); // reset the clip's objective/prompt picker to "none"
+  if (obj) obj.value = '';
   clipHint('');
   renderClipState();
 }
@@ -1027,9 +1185,9 @@ async function saveClip() {
   const startTimeS = Math.min(_clipIn, _clipOut);
   const endTimeS = Math.max(_clipIn, _clipOut);
   const noteEl = $('vp-clip-note');
-  const objEl = $('vp-bm-obj'); // reuse the Quick Bookmark objective picker selection
+  const objEl = $('vp-clip-obj'); // dedicated Clip objective/prompt picker (no longer borrows vp-bm-obj)
   const note = noteEl ? noteEl.value.trim() : '';
-  const objectiveId = objEl && objEl.value ? Number(objEl.value) : null;
+  const { objectiveId, promptId } = parsePickerValue(objEl ? objEl.value : '');
 
   _clipBusy = true;
   renderClipState();
@@ -1045,6 +1203,7 @@ async function saveClip() {
       quality: _clipQuality,
     };
     if (objectiveId) payload.objectiveId = objectiveId;
+    if (promptId) payload.promptId = promptId;
     const res = await _core.invoke('extract_clip', { payload });
     if (res && res.ok) {
       const qualMsg = _clipQuality ? ` as ${_clipQuality}` : '';
@@ -1186,6 +1345,7 @@ async function boot() {
 
   wireSeekBar();
   wireTabs();
+  wireFightsToggle();
   try {
     const { data, core } = await fetchVod();
     render(data, core);

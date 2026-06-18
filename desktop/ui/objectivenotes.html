@@ -26,7 +26,15 @@
   .on-eyebrow-gold{color:var(--gold)}
   .on-eyebrow-blue{color:#a9c8ff}
   .on-eyebrow-purple{color:var(--accent)}
+  .on-eyebrow-green{color:var(--win)}
   .on-list{display:flex;flex-direction:column;gap:8px}
+
+  /* A prompt-answers group: the prompt label/phase, then a stack of per-game
+     answer cards underneath. */
+  .on-group{margin-bottom:4px}
+  .on-group-head{display:flex;align-items:baseline;gap:8px;margin:0 0 8px 3px;flex-wrap:wrap}
+  .on-group-label{font-family:var(--fb);font-size:13px;font-weight:600;color:#fff;line-height:1.3}
+  .on-group-phase{font-family:var(--fm);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--t4)}
 
   /* A note card (shared shell). */
   .on-card{padding:14px 16px;border-radius:12px;background:var(--glass2);border:1px solid var(--gline2)}
@@ -110,6 +118,12 @@
       <div class="on-list" id="exec-list"></div>
     </div>
 
+    <!-- PROMPT ANSWERS (custom per-objective prompts the user answered per game) -->
+    <div class="on-sec" id="prompt-sec" hidden>
+      <div class="on-eyebrow on-eyebrow-green">Prompt Answers</div>
+      <div class="on-list" id="prompt-list"></div>
+    </div>
+
     <!-- CLIPS & BOOKMARKS -->
     <div class="on-sec" id="clip-sec" hidden>
       <div class="on-eyebrow on-eyebrow-purple">Clips &amp; Bookmarks</div>
@@ -152,6 +166,30 @@
     <div class="on-card">
       <div class="on-card-header"></div>
       <div class="on-card-body italic"></div>
+    </div>
+  </template>
+
+  <!-- A prompt-answers group: the prompt label + phase, then its answer cards. -->
+  <template id="tpl-prompt-group">
+    <div class="on-group">
+      <div class="on-group-head">
+        <span class="on-group-label"></span>
+        <span class="on-group-phase"></span>
+      </div>
+      <div class="on-list on-group-answers"></div>
+    </div>
+  </template>
+
+  <!-- One game's answer to a prompt: header + answer, with an Open → review jump. -->
+  <template id="tpl-prompt-answer">
+    <div class="on-card">
+      <div class="on-row">
+        <div class="on-card-main">
+          <div class="on-card-header"></div>
+          <div class="on-card-body"></div>
+        </div>
+        <button class="on-jump on-jump-open" data-action="open_review" type="button">Open</button>
+      </div>
     </div>
   </template>
 

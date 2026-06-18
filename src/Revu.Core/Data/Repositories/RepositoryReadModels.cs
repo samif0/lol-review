@@ -174,6 +174,23 @@ public sealed record PromptAnswer(
     string Label,
     string AnswerText);
 
+/// <summary>
+/// A custom-prompt answer for ONE objective, joined across every game it was
+/// answered in. Used by the Objective Notes page to surface what the user typed
+/// under each prompt (keyed (prompt_id, game_id)) — carries the prompt label +
+/// phase plus enough game header (champion / win / timestamp) to render a row
+/// header and jump to that game's review.
+/// </summary>
+public sealed record ObjectivePromptAnswer(
+    long PromptId,
+    long GameId,
+    string Label,
+    string Phase,
+    string AnswerText,
+    string ChampionName,
+    bool Win,
+    long Timestamp);
+
 public sealed record DerivedEventInstanceRecord(
     long Id,
     long GameId,
@@ -207,7 +224,10 @@ public sealed record EvidenceItemRecord(
     long? UpdatedAt,
     string ChampionName,
     bool? Win,
-    long? GameTimestamp);
+    long? GameTimestamp,
+    // P-027 (schema v8): the custom prompt this moment answers, NULL when untagged.
+    // Coexists with ObjectiveId — both can be set independently.
+    long? PromptId = null);
 
 public sealed record EvidenceUpsert(
     long GameId,
@@ -222,7 +242,11 @@ public sealed record EvidenceUpsert(
     long? ConceptTagId = null,
     long? MatchupNoteId = null,
     string Polarity = EvidencePolarities.Neutral,
-    string Status = EvidenceStatuses.NeedsReview);
+    string Status = EvidenceStatuses.NeedsReview,
+    // P-027 (schema v8): the custom prompt this clip/moment answers, NULL when
+    // untagged. Threaded into the INSERT/UPSERT alongside objective_id (both
+    // coexist). Mirrors how objective_id is bound in BindUpsert.
+    long? PromptId = null);
 
 public sealed record ObjectivePatternCard(
     string Kind,

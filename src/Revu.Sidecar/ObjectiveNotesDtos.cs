@@ -27,11 +27,14 @@ public sealed record ObjectiveNotesDto(
     bool HasReviewNotes,
     bool HasExecutionNotes,
     bool HasBookmarks,
-    // any of the three — drives the content-vs-empty switch.
+    bool HasPromptAnswers,
+    // any of the four — drives the content-vs-empty switch.
     bool HasAnything,
     IReadOnlyList<ObjectiveReviewNoteRowDto> ReviewNotes,
     IReadOnlyList<ObjectiveExecutionNoteRowDto> ExecutionNotes,
-    IReadOnlyList<ObjectiveBookmarkRowDto> Bookmarks);
+    IReadOnlyList<ObjectiveBookmarkRowDto> Bookmarks,
+    // custom-prompt answers grouped by prompt label/phase.
+    IReadOnlyList<ObjectivePromptGroupDto> PromptAnswers);
 
 /// <summary>A per-game review note. Mirrors ObjectiveReviewNoteRow.</summary>
 public sealed record ObjectiveReviewNoteRowDto(
@@ -62,3 +65,22 @@ public sealed record ObjectiveBookmarkRowDto(
     bool HasTags,
     // ClipPath non-empty. Latent/dead field at parity — no UI effect. Preserved.
     bool HasClip);
+
+/// <summary>
+/// All answers the user typed under ONE custom prompt, grouped under its label +
+/// phase. Each child row is a single game's answer (keyed (prompt_id, game_id)).
+/// </summary>
+public sealed record ObjectivePromptGroupDto(
+    long PromptId,
+    // the prompt the user designed, e.g. "What was my wave plan?".
+    string Label,
+    // "Pre-Game" / "In-Game" / "Post-Game" display label.
+    string Phase,
+    IReadOnlyList<ObjectivePromptAnswerRowDto> Answers);
+
+/// <summary>One game's answer to a prompt. Jumps back to that game's review.</summary>
+public sealed record ObjectivePromptAnswerRowDto(
+    long GameId,
+    // "W • Aatrox • Jun 3, 2026".
+    string Header,
+    string Answer);
