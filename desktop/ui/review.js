@@ -284,6 +284,19 @@ const FIELD_ORDER = [
   ['reviewNotes',     'Review notes',         'Anything else worth keeping…'],
 ];
 
+// R-001: the cognitive-reappraisal pair, rendered as ONE blame-vs-improvable unit
+// (not two stray fields). The "outside" box accepts the blame instinct; the
+// "within" box pulls the protective internal-control half — attribution retraining
+// WITH the blame instinct, not against it (Weiner/Dweck; brief 2026-06-16-03).
+// Both round-trip through the existing save_review payload (sidecar already carries
+// outsideControl/withinControl). Descriptive only — never scored or flagged.
+const REAPPRAISAL_PAIR = [
+  ['outsideControl', 'What was outside your control',
+    'Granting the game went sideways — what genuinely wasn’t on you?'],
+  ['withinControl', 'What you can still repeat',
+    'Whatever else happened, the ONE thing YOU could do again regardless…'],
+];
+
 function parseTags(tagsJson) {
   if (!tagsJson) return [];
   try {
@@ -331,7 +344,10 @@ function renderForm(subject) {
   // Editable debrief textareas, pre-filled with any saved value.
   const fieldHost = $('rv-fields');
   clear(fieldHost);
-  for (const [key, label, placeholder] of FIELD_ORDER) {
+  // Build one editable field card (reused by the main list + the reappraisal pair).
+  // The card keeps the standard .rv-field-in class so gatherForm() picks every box
+  // up by data-field automatically — no extra collection code for the new pair.
+  const buildField = ([key, label, placeholder]) => {
     const el = tpl('tpl-field');
     const ta = el.querySelector('.rv-field-in');
     const lbl = el.querySelector('.rv-field-k');
@@ -343,8 +359,20 @@ function renderForm(subject) {
     ta.placeholder = placeholder;
     const val = f[key];
     if (typeof val === 'string') ta.value = val;
-    fieldHost.appendChild(el);
-  }
+    return el;
+  };
+  for (const spec of FIELD_ORDER) fieldHost.appendChild(buildField(spec));
+
+  // R-001: the cognitive-reappraisal pair as ONE labelled unit (blame box +
+  // improvable box), set off from the main fields so the two read together.
+  const pairWrap = document.createElement('div');
+  pairWrap.className = 'rv-reappraisal';
+  const pairHd = document.createElement('div');
+  pairHd.className = 'rv-reappraisal-hd';
+  pairHd.textContent = 'Reframe the loss';
+  pairWrap.appendChild(pairHd);
+  for (const spec of REAPPRAISAL_PAIR) pairWrap.appendChild(buildField(spec));
+  fieldHost.appendChild(pairWrap);
 
   // Concept tags — seed editable chips from the saved tagsJson.
   const tagHost = $('rv-tags');
@@ -700,6 +728,9 @@ function gatherForm() {
     spottedProblems: fields.spottedProblems || '',
     attribution: fields.attribution || '',
     reviewNotes: fields.reviewNotes || '',
+    // R-001 reappraisal pair (round-trips to games.outside_control/within_control).
+    outsideControl: fields.outsideControl || '',
+    withinControl: fields.withinControl || '',
     selectedTagIds,
     objectivePractices,
   };

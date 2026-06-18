@@ -156,6 +156,10 @@ public sealed class ReviewWorkflowServiceTests
         Assert.Equal("Played waves well", savedGame.WentWell);
         Assert.Equal("Track jungle timers", savedGame.FocusNext);
         Assert.Equal("Syndra", savedGame.EnemyLaner);
+        // R-001: the reappraisal pair round-trips (the inputs are now rendered in
+        // review.js; this locks the save→read path the new UI depends on).
+        Assert.Equal("Enemy jungle pathing", savedGame.OutsideControl);
+        Assert.Equal("Wave state", savedGame.WithinControl);
 
         Assert.NotNull(sessionEntry);
         Assert.Equal(7, sessionEntry!.MentalRating);

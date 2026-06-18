@@ -552,6 +552,7 @@ document.addEventListener('click', (ev) => {
     case 'use_objective': { ev.preventDefault(); const c = $('intent-card'); applySeed(c.dataset.objSeed, c.dataset.objProv, 'objective', 'chip-objective'); break; }
     case 'use_adherence': { ev.preventDefault(); const c = $('intent-card'); applySeed(c.dataset.adhSeed, c.dataset.adhProv, 'objective', 'chip-adherence'); break; }
     case 'apply_ifthen': ev.preventDefault(); applyIfThen(); break;
+    case 'save_ifthen_plan': ev.preventDefault(); saveIfThenPlan(); break;
     case 'toggle_carry': ev.preventDefault(); toggleIntentCarry(); break;
     case 'toggle_practiced': ev.preventDefault(); togglePracticed(Number(target.dataset.objectiveId), target); break;
     case 'set_session_quick': { ev.preventDefault(); const b = $('session-input'); if (b) b.value = target.dataset.text || ''; break; }
@@ -570,6 +571,29 @@ function applyIfThen() {
   show($('intent-prov-row'), true);
   ['chip-carry', 'chip-objective', 'chip-adherence'].forEach((c) => $(c)?.classList.remove('on'));
   stageIntent();
+}
+
+// R-002: persist the box's if-then text as a DURABLE plan (tilt_checks.if_then_plan)
+// while still in champ-select, so it pre-dates the cue. This is distinct from staging
+// the per-game intent: it surfaces on the ACTIVE PLAN row next game(s) too (≤14d).
+// Optional + one tap + only on a plan the user composed — never forced/injected.
+async function saveIfThenPlan() {
+  const box = $('intent-input');
+  if (!box) return;
+  const plan = box.value.trim();
+  if (!plan) return;
+  const invoke = await getInvoke();
+  if (!invoke) return;
+  try {
+    await invoke('save_pregame_ifthen', { payload: { plan } });
+    // Reflect it immediately on the ACTIVE PLAN row (matches what the next snapshot
+    // would show via GetLatestPlanAsync) so the save feels real without a refetch.
+    setText('active-plan', plan);
+    show($('active-plan-row'), true);
+    const btn = $('intent-saveplan');
+    if (btn) { btn.textContent = 'Plan saved ✓'; btn.disabled = true;
+      setTimeout(() => { btn.textContent = 'Save as plan'; btn.disabled = false; }, 2200); }
+  } catch (err) { console.error('[pregame] save if-then plan failed:', err); }
 }
 function toggleIntentCarry() {
   _intentCleared = !_intentCleared;

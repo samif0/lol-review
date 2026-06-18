@@ -885,6 +885,28 @@ app.MapPost("/api/reset", async (ResetBody body, WriteServices w, ILogger<Progra
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
+// POST /api/pregame/ifthen  { plan } — R-002: author/confirm an if-then plan in the
+// PRE-CUE window (champ-select), so the plan PRE-DATES the trigger (Gollwitzer &
+// Sheeran / Schweiger Gallo 2009 — delegate the initiation decision to the planning
+// moment). Writes the plan to its existing home, tilt_checks.if_then_plan, as a
+// minimal row (emotion="pregame_plan") so GetLatestPlanAsync (≤14d) surfaces it on
+// the pregame intent card's ACTIVE PLAN row — closing the write-only/reactive-timing
+// gap (the plan was previously writable only from the post-loss Tilt reset ritual).
+// Descriptive, never scored. Backup-guarded like the other writes.
+app.MapPost("/api/pregame/ifthen", async (PreGameIfThenBody body, WriteServices w, ILogger<Program> log) =>
+{
+    var plan = body?.Plan?.Trim() ?? "";
+    if (plan.Length == 0)
+        return Results.BadRequest(new { error = "plan required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    await w.TiltChecks.SaveAsync(
+        emotion: "pregame_plan",
+        intensityBefore: 0,
+        ifThenPlan: plan);
+    log.LogInformation("Pre-queue if-then plan saved");
+    return Results.Json(new { ok = true }, jsonOptions);
+});
+
 // POST /api/config/save — read-modify-write the app config (Settings page +
 // dismiss-flag writers). Mirrors SettingsViewModel.SaveCommand EXACTLY: load the
 // whole config, mutate ONLY the fields present in the body (so unrelated keys —
@@ -2400,3 +2422,4 @@ internal sealed record PreGameMoodBody(int Mood);
 internal sealed record PreGameIntentBody(string? Intention, string? Source, bool Cleared);
 internal sealed record PreGamePracticedBody(List<long>? ObjectiveIds);
 internal sealed record PreGameDraftBody(long PromptId, string? Text);
+internal sealed record PreGameIfThenBody(string? Plan);

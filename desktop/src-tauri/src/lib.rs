@@ -126,6 +126,14 @@ async fn set_pregame_intent(payload: serde_json::Value) -> Result<serde_json::Va
     sidecar::post_json("/api/pregame/intent", payload).await
 }
 
+/// R-002: persists a PRE-QUEUE if-then plan ({ plan }) authored in champ-select to
+/// tilt_checks.if_then_plan, so it pre-dates the cue and shows on the intent card's
+/// ACTIVE PLAN row. See Revu.Sidecar POST /api/pregame/ifthen.
+#[tauri::command]
+async fn save_pregame_ifthen(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/pregame/ifthen", payload).await
+}
+
 /// Stages the set of PRACTICED objective ids ({ objectiveIds:[...] }) into the
 /// live state; recorded per-objective at game end. See Revu.Sidecar POST
 /// /api/pregame/practiced.
@@ -946,6 +954,7 @@ pub fn run() {
             start_lcu_events,
             set_pregame_mood,
             set_pregame_intent,
+            save_pregame_ifthen,
             set_pregame_practiced,
             save_pregame_draft,
             review_vod,

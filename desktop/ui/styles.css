@@ -938,6 +938,14 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .rv-field{position:relative}
 .rv-field+.rv-field{margin-top:14px}
 
+/* R-001 reappraisal pair — the two control boxes set off as one labelled unit
+   (blame box + improvable box), a quiet glass inset so they read together. */
+.rv-reappraisal{margin-top:16px;padding:12px 14px;border:1px solid var(--gline2);
+  border-radius:12px;background:rgba(157,139,255,0.04)}
+.rv-reappraisal-hd{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);
+  text-transform:uppercase;color:var(--label-bright);margin-bottom:10px}
+.rv-reappraisal .rv-field+.rv-field{margin-top:12px}
+
 /* Editable inputs — glass field, accent focus ring (matches the violet kit). */
 .rv-field-in,.rv-objnote,.rv-taginput{font-family:var(--fb);font-size:13px;color:var(--t1);
   width:100%;background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:10px;
