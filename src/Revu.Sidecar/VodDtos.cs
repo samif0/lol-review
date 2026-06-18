@@ -39,6 +39,9 @@ public sealed record VodBookmarkDto(
     bool HasClip,
     int? ClipStartSeconds,
     int? ClipEndSeconds,
+    // Objective this bookmark/clip is tagged to (null = untagged). Lets a clip-only
+    // bookmark row pre-select its objective in the VOD player's objective picker.
+    long? ObjectiveId = null,
     // Public share link (revu.lol/<id>) once the clip has been uploaded; "" until
     // shared. Drives the VOD player's Share-button label (Share vs Copy link).
     // The clip PATH itself stays server-side (resolved on POST /api/clip/upload).

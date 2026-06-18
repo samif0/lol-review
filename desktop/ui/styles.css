@@ -1912,16 +1912,18 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 /* The code label rides just above the bar top (which differs by tier, so labels
    stack on different rows). A faint dark chip behind it keeps it legible even when
    two land near each other. */
-.vp-timeline .evbar-code{position:absolute;bottom:calc(var(--evh) + 3px);left:50%;transform:translateX(-50%);
-  font-family:var(--fm);font-size:8px;font-weight:700;letter-spacing:0.4px;line-height:1;
+.vp-timeline .evbar-code{position:absolute;bottom:calc(var(--evh) + 4px);left:50%;transform:translateX(-50%);
+  font-family:var(--fb);font-size:9.5px;font-weight:700;letter-spacing:0.3px;line-height:1;
   color:var(--evc);white-space:nowrap;pointer-events:none;
-  padding:1px 3px;border-radius:3px;background:rgba(8,6,18,0.78);box-shadow:0 0 0 1px rgba(0,0,0,0.25)}
+  padding:2px 5px;border-radius:5px;background:rgba(8,6,18,0.92);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--evc) 22%,transparent),0 2px 6px -3px rgba(0,0,0,0.6)}
 /* Suppressed-label bars (too close to a neighbor): reveal the code on hover via
    the data-code attribute, with the same chip treatment. */
-.vp-timeline .evbar-nolabel::after{content:attr(data-code);position:absolute;bottom:calc(var(--evh) + 3px);left:50%;
-  transform:translateX(-50%);font-family:var(--fm);font-size:8px;font-weight:700;letter-spacing:0.4px;line-height:1;
+.vp-timeline .evbar-nolabel::after{content:attr(data-code);position:absolute;bottom:calc(var(--evh) + 4px);left:50%;
+  transform:translateX(-50%);font-family:var(--fb);font-size:9.5px;font-weight:700;letter-spacing:0.3px;line-height:1;
   color:var(--evc);white-space:nowrap;pointer-events:none;opacity:0;
-  padding:1px 3px;border-radius:3px;background:rgba(8,6,18,0.92);transition:opacity .12s ease;z-index:4}
+  padding:2px 5px;border-radius:5px;background:rgba(8,6,18,0.96);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--evc) 28%,transparent);transition:opacity .12s ease;z-index:4}
 .vp-timeline .evbar-nolabel:hover::after{opacity:1}
 
 /* Bookmark markers — small diamonds BELOW the track so they never collide with
@@ -1965,6 +1967,16 @@ select.obj-input option{background:#14102a;color:var(--t1)}
   background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:8px;padding:9px 11px;margin-bottom:9px}
 .inp::placeholder{color:var(--t4)}
 .inp:disabled{cursor:not-allowed}
+/* When an .inp is a <select>, the native dropdown menu must paint dark — without
+   this the OS renders the popup in default light-gray (unreadable on the glass UI).
+   Also restyle the control itself with a chevron so it reads as a select. */
+select.inp{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:30px;
+  background-image:linear-gradient(45deg,transparent 50%,var(--t3) 50%),linear-gradient(135deg,var(--t3) 50%,transparent 50%);
+  background-position:calc(100% - 16px) 52%,calc(100% - 11px) 52%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+select.inp:hover{border-color:rgba(157,139,255,0.45)}
+select.inp:focus{outline:none;border-color:rgba(157,139,255,0.55);box-shadow:0 0 0 3px rgba(157,139,255,0.12)}
+select.inp option{background:#161229;color:var(--t1)}
+select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-style:normal}
 .row{display:flex;align-items:center;gap:7px;position:relative;margin-bottom:9px;flex-wrap:wrap}
 .key{display:inline-flex;align-items:center;gap:6px;font-family:var(--fb);font-size:11px;color:var(--t2);
   background:var(--glass2);border:1px solid var(--gline2);border-radius:8px;padding:7px 9px}
@@ -2489,15 +2501,20 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .me-obj-head{min-width:0;flex:1}
 .me-obj-title{font-family:var(--fo);font-size:14px;font-weight:600;color:#fff;line-height:1.35}
 .me-obj-phase{font-family:var(--fm);font-size:9.5px;letter-spacing:1px;color:var(--accent);margin-top:3px}
-/* practiced toggle (checkbox styled as a switch) */
-.me-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0}
+/* practiced toggle (checkbox styled as a switch) — matches the .rv-switch polish:
+   gradient track when on, a white knob that slides with a subtle shadow. */
+.me-toggle{display:inline-flex;align-items:center;gap:9px;cursor:pointer;flex-shrink:0}
 .me-toggle input{position:absolute;opacity:0;width:0;height:0}
-.me-toggle-track{position:relative;width:38px;height:20px;border-radius:11px;background:rgba(255,255,255,0.12);
-  border:1px solid var(--gline2);transition:background .16s ease,border-color .16s ease}
-.me-toggle-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--t3);
-  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease}
-.me-toggle input:checked + .me-toggle-track{background:rgba(157,139,250,0.30);border-color:rgba(157,139,250,0.6)}
-.me-toggle input:checked + .me-toggle-track .me-toggle-knob{transform:translateX(18px);background:var(--accent)}
+.me-toggle-track{position:relative;width:40px;height:22px;border-radius:99px;background:rgba(255,255,255,0.10);
+  border:1px solid var(--gline2);transition:background .18s ease,border-color .18s ease;flex-shrink:0}
+.me-toggle-knob{position:absolute;top:50%;left:3px;width:16px;height:16px;border-radius:50%;
+  background:linear-gradient(180deg,#e9e4ff,var(--t3));transform:translateY(-50%);
+  box-shadow:0 2px 5px -1px rgba(0,0,0,0.45);
+  transition:left .18s cubic-bezier(0.22,1,0.36,1),background .18s ease}
+.me-toggle:hover .me-toggle-track{border-color:rgba(157,139,255,0.5)}
+.me-toggle input:focus-visible + .me-toggle-track{box-shadow:0 0 0 3px rgba(157,139,255,0.3)}
+.me-toggle input:checked + .me-toggle-track{background:linear-gradient(180deg,#bcacff,#9d8bff);border-color:rgba(157,139,250,0.65)}
+.me-toggle input:checked + .me-toggle-track .me-toggle-knob{left:21px;background:linear-gradient(180deg,#fff,#efeaff)}
 .me-toggle-lbl{font-family:var(--fm);font-size:9.5px;letter-spacing:0.8px;color:var(--t3);min-width:78px}
 
 /* ACTIONS */

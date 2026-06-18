@@ -187,10 +187,15 @@ function placeMarkers(dur) {
 
   // Track the last label x-position per tier so near-duplicates drop their label.
   const lastLabelPctByTier = { major: -99, medium: -99, minor: -99 };
-  const MIN_LABEL_GAP_PCT = 3.2; // ~ one 3-letter code's width on the timeline
+  // Wider than a bare code's width so labels get real breathing room and the
+  // timeline never turns into a wall of text (the dense-text complaint).
+  const MIN_LABEL_GAP_PCT = 5.5;
 
   for (const e of events) {
-    const code = e.shortLabel || deriveShortLabel(e.eventType, e.label);
+    // Always a SHORT code on the track — never a long raw label. Even if the
+    // server sends a verbose shortLabel for a new event type, clamp it so it
+    // can't sprawl across the timeline (the "Lower Drag Objective Contest" leak).
+    const code = shortCode(e.shortLabel || deriveShortLabel(e.eventType, e.label));
     const kind = e.kind || 'neutral';
     const tier = eventTier(e.eventType, e.label);
     const leftPct = pctOf(e.gameTimeSeconds);
@@ -244,9 +249,25 @@ function placeMarkers(dur) {
 // everything else. Keeps the busiest timelines readable.
 function eventTier(eventType, label) {
   const t = String(eventType || label || '').toUpperCase().replace(/[^A-Z]/g, '');
-  if (/BARON|DRAGON|ELDER|HERALD|RIFT|TOWER|TURRET|INHIB|NEXUS|ACE/.test(t)) return 'major';
-  if (/KILL|DEATH|MULTIKILL|FIRSTBLOOD|PENTA|QUADRA|TRIPLE|DOUBLE/.test(t)) return 'medium';
+  if (/BARON|DRAGON|ELDER|HERALD|RIFT|TOWER|TURRET|INHIB|NEXUS|ACE|OBJECTIVE|CONTEST/.test(t)) return 'major';
+  if (/KILL|DEATH|MULTIKILL|FIRSTBLOOD|PENTA|QUADRA|TRIPLE|DOUBLE|GANK|SKIRMISH/.test(t)) return 'medium';
   return 'minor';
+}
+
+// Clamp any label to a compact track code: strip to letters/digits, upper-case,
+// keep it short so the timeline stays legible no matter what the server sends.
+// Multi-word labels collapse to an acronym of their initials (e.g.
+// "Lower Drag Objective Contest" → "LDOC", then trimmed to 4).
+function shortCode(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return 'EVT';
+  // Already a tidy code (<= 5 chars, no spaces): use as-is, upper-cased.
+  if (!/\s/.test(s) && s.length <= 5) return s.toUpperCase();
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    return words.map((w) => w[0]).join('').toUpperCase().slice(0, 4);
+  }
+  return s.replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() || 'EVT';
 }
 
 // Fallback 3-letter code when the server didn't supply shortLabel (older
@@ -297,8 +318,12 @@ function normMoment(m, srcLabel) {
     timeLabel: m.timeLabel || clock(m.startTimeSeconds || 0),
     srcLabel: m.hasClip ? 'Saved clip' : srcLabel,
     isClip: !!m.hasClip,
-    note: m.note || m.title || '',
-    noteDisplay: m.note || m.title || '(no note)',
+    // Prefer the user's note, then the auto title; the editable buffer is the note
+    // (title is the auto-detected name and shouldn't overwrite a real note).
+    note: m.note || '',
+    // Card text never shows a bare placeholder for a clip — fall back title → time.
+    noteDisplay: m.note || m.title
+      || (m.hasClip ? `Clip @ ${m.timeLabel || clock(m.startTimeSeconds || 0)}` : '(no note)'),
     objectiveId: m.objectiveId != null ? m.objectiveId : null,
     objectiveTitle: m.objectiveTitle || '',
     polarity: m.polarity || 'neutral',
@@ -307,6 +332,9 @@ function normMoment(m, srcLabel) {
     editable: false,
     // Evidence rows (auto + clip) get the objective tag picker + editable note.
     evidenceEditable: m.id != null,
+    // Evidence-backed clips write via the evidence route, not the bookmark route.
+    bookmarkObjEditable: false,
+    bookmarkId: null,
     // Saved-clip rows carry the underlying bookmark id (= SourceId) + share state.
     shareBookmarkId: m.shareBookmarkId || 0,
     shareUrl: m.shareUrl || '',
@@ -326,14 +354,21 @@ function normBookmark(b, isClip) {
     srcLabel: isClip ? 'Saved clip' : 'Bookmark',
     isClip: !!isClip,
     note: b.note || '',
-    noteDisplay: b.note || '(no note)',
-    objectiveId: null,
-    objectiveTitle: '',
+    // A clip-bookmark with no note still reads meaningfully (time-stamped) instead
+    // of an empty "(no note)" — the "clips lost their text" complaint.
+    noteDisplay: b.note
+      || (isClip ? `Clip @ ${b.timeLabel || clock(b.gameTimeSeconds || 0)}` : '(no note)'),
+    objectiveId: b.objectiveId != null ? b.objectiveId : null,
+    objectiveTitle: b.objectiveTitle || '',
     polarity: '',
     polarityColorHex: '',
     status: '',
     editable: !isClip && b.id != null, // only plain bookmarks get edit/delete
     evidenceEditable: false,
+    // Clip-bookmarks carry a bookmark id → they CAN be objective-tagged via the
+    // bookmark route (set_bookmark_objective), so they get the objective picker too.
+    bookmarkObjEditable: !!isClip && b.id != null,
+    bookmarkId: b.id != null ? b.id : null,
     // Clip bookmarks can be shared; the bookmark id IS the share target.
     shareBookmarkId: isClip && b.id != null ? b.id : 0,
     shareUrl: b.shareUrl || '',
@@ -394,19 +429,9 @@ function renderMoments() {
       el.dataset.evId = String(m.evidenceId);
       const sel = evEdit.querySelector('.vp-ev-obj');
       if (sel) {
-        clear(sel);
-        const none = document.createElement('option');
-        none.value = '';
-        none.textContent = 'No objective';
-        sel.appendChild(none);
-        for (const o of _objectives) {
-          const opt = document.createElement('option');
-          opt.value = String(o.objectiveId);
-          opt.textContent = o.title;
-          if (m.objectiveId != null && Number(o.objectiveId) === Number(m.objectiveId)) opt.selected = true;
-          sel.appendChild(opt);
-        }
+        fillObjectiveSelect(sel, m.objectiveId);
         sel.dataset.evId = String(m.evidenceId);
+        sel.dataset.route = 'evidence';
         sel.addEventListener('click', (e) => e.stopPropagation());
       }
       const note = evEdit.querySelector('.vp-ev-note');
@@ -419,6 +444,20 @@ function renderMoments() {
         note.addEventListener('click', (e) => e.stopPropagation());
         note.addEventListener('keydown', (e) => e.stopPropagation());
       }
+    } else if (evEdit && m.bookmarkObjEditable && m.bookmarkId != null) {
+      // Clip-bookmark rows (no evidence id, but a bookmark id) still get an
+      // objective picker — it writes via the bookmark route, not the evidence one.
+      // No note field here (the bookmark note edits live in the plain-bookmark path).
+      show(evEdit, true);
+      const sel = evEdit.querySelector('.vp-ev-obj');
+      if (sel) {
+        fillObjectiveSelect(sel, m.objectiveId);
+        sel.dataset.bmId = String(m.bookmarkId);
+        sel.dataset.route = 'bookmark';
+        sel.addEventListener('click', (e) => e.stopPropagation());
+      }
+      const note = evEdit.querySelector('.vp-ev-note');
+      if (note) note.remove();
     } else if (evEdit) {
       evEdit.remove();
     }
@@ -538,15 +577,25 @@ document.addEventListener('click', (ev) => {
 function populateObjectivePicker() {
   const sel = $('vp-bm-obj');
   if (!sel) return;
+  fillObjectiveSelect(sel, null);
+}
+
+// Fill an objective <select> with "No objective" + every active objective, marking
+// the currently-attached one selected. Shared by the Quick Bookmark picker and the
+// per-moment evidence / bookmark pickers so they stay consistent.
+function fillObjectiveSelect(sel, selectedObjectiveId) {
+  if (!sel) return;
   clear(sel);
   const none = document.createElement('option');
   none.value = '';
   none.textContent = 'No objective';
   sel.appendChild(none);
+  const cur = selectedObjectiveId != null ? Number(selectedObjectiveId) : null;
   for (const o of _objectives) {
     const opt = document.createElement('option');
     opt.value = String(o.objectiveId);
     opt.textContent = o.title;
+    if (cur != null && Number(o.objectiveId) === cur) opt.selected = true;
     sel.appendChild(opt);
   }
 }
@@ -621,6 +670,20 @@ async function setEvidenceObjective(evidenceId, objectiveId) {
     await reloadBookmarks();
   } catch (err) {
     console.error('[vodplayer] set_evidence_objective failed:', err);
+  }
+}
+
+// Clip-bookmark objective tag: attach/detach on the bookmark row itself (no
+// evidence row exists for these). Mirrors POST /api/bookmark/objective.
+async function setBookmarkObjective(bookmarkId, objectiveId) {
+  if (!_core || !bookmarkId) return;
+  try {
+    const payload = { bookmarkId: Number(bookmarkId) };
+    payload.objectiveId = objectiveId ? Number(objectiveId) : null; // null detaches
+    await _core.invoke('set_bookmark_objective', { payload });
+    await reloadBookmarks();
+  } catch (err) {
+    console.error('[vodplayer] set_bookmark_objective failed:', err);
   }
 }
 
@@ -905,12 +968,18 @@ document.addEventListener('blur', (ev) => {
   if (evNote) saveEvidenceNote(evNote);
 }, true);
 
-// Evidence objective tag picker: attach/detach on change.
+// Objective tag picker: attach/detach on change. Two write routes — evidence rows
+// (auto-moments + evidence-backed clips) go through set_evidence_objective; plain
+// clip-bookmarks (no evidence id) go through set_bookmark_objective.
 document.addEventListener('change', (ev) => {
   const sel = ev.target.closest && ev.target.closest('.vp-ev-obj');
   if (!sel) return;
   ev.stopPropagation();
-  setEvidenceObjective(sel.dataset.evId, sel.value || '');
+  if (sel.dataset.route === 'bookmark') {
+    setBookmarkObjective(sel.dataset.bmId, sel.value || '');
+  } else {
+    setEvidenceObjective(sel.dataset.evId, sel.value || '');
+  }
 });
 
 // ── Clip tool (I/O in-out points, quality, ffmpeg extract via Save Clip) ──────
