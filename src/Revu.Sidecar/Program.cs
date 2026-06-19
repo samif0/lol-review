@@ -1582,17 +1582,41 @@ app.MapGet("/api/objectives/active", async (WriteServices w, ILogger<Program> lo
     try
     {
         var active = await w.Objectives.GetActiveAsync();
+        // Tracked event tokens per objective (raw types, SPELL_*, TEAMFIGHT). One query
+        // for all active objectives; grouped by id. Lets the VOD viewer (a) draw the
+        // token chips and (b) know whether an objective tracks TEAMFIGHT — so teamfight
+        // zones only stay loud when the focused objective actually tracks them.
+        var tokensByObjective = new Dictionary<long, List<string>>();
+        try
+        {
+            foreach (var (token, objId, _) in await w.Objectives.GetActiveObjectiveEventTokensAsync())
+            {
+                if (!tokensByObjective.TryGetValue(objId, out var list)) { list = new List<string>(); tokensByObjective[objId] = list; }
+                var t = (token ?? "").Trim().ToUpperInvariant();
+                if (t.Length > 0 && !list.Contains(t)) list.Add(t);
+            }
+        }
+        catch (Exception ex) { log.LogDebug(ex, "Active objectives: token map load failed (degraded)"); }
+
         var rows = active
             .Where(o => Revu.Core.Data.Repositories.ObjectivePhases.ShowsInPostGame(o.Phase))
-            .Select(o => new
+            .Select(o =>
             {
-                objectiveId = o.Id,
-                title = o.Title,
-                phaseLabel = Revu.Core.Data.Repositories.ObjectivePhases.ToDisplayLabel(o.Phase),
-                // Type drives the VOD objective-framed viewer's color-by-type chrome
-                // (primary/mental/mini). Additive, read-only — no schema change.
-                type = o.Type,
-                isMini = o.IsMini,
+                var toks = tokensByObjective.TryGetValue(o.Id, out var l) ? l : new List<string>();
+                return new
+                {
+                    objectiveId = o.Id,
+                    title = o.Title,
+                    phaseLabel = Revu.Core.Data.Repositories.ObjectivePhases.ToDisplayLabel(o.Phase),
+                    // Type drives the VOD objective-framed viewer's color-by-type chrome
+                    // (primary/mental/mini). Additive, read-only — no schema change.
+                    type = o.Type,
+                    isMini = o.IsMini,
+                    // Tracked tokens → viewer token chips; tracksTeamfight gates whether
+                    // teamfight zones stay loud when this objective is focused.
+                    trackedTokens = toks,
+                    tracksTeamfight = toks.Contains(Revu.Core.Models.GameEvent.TrackableTokens.TeamfightToken),
+                };
             })
             .ToList();
         return Results.Json(new { ok = true, objectives = rows }, jsonOptions);

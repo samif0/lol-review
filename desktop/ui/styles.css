@@ -1971,6 +1971,11 @@ select.obj-input option{background:#14102a;color:var(--t1)}
   font-family:var(--fm);font-size:8px;font-weight:700;letter-spacing:0.6px;line-height:1;
   color:#f3a3a8;background:rgba(8,6,18,0.9);border-radius:0 0 4px 4px;padding:2px 5px;
   box-shadow:0 0 0 1px rgba(243,163,168,0.3);white-space:nowrap;pointer-events:none}
+/* Dimmed teamfight zone — when FRAMED and the focused objective does NOT track
+   TEAMFIGHT, the fight bands recede with everything else instead of looking loud /
+   prioritized. Faint neutral band + a muted TF tab. */
+.vp-timeline .evtf-dim{background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.08);opacity:0.5}
+.vp-timeline .evtf-dim .evtf-lbl{color:var(--t4);box-shadow:0 0 0 1px rgba(255,255,255,0.1)}
 /* The code label rides just above the bar top (which differs by tier, so labels
    stack on different rows). A faint dark chip behind it keeps it legible even when
    two land near each other. */
@@ -2260,14 +2265,16 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .vp-objtab.is-empty{background:rgba(255,255,255,0.02);border-style:dashed;opacity:0.74}
 .vp-objtab.is-empty .vp-objtab-count{color:var(--t4);font-weight:700}
 .vp-objtab.is-empty .vp-objtab-name{color:var(--t3)}
-/* The FOCUSED (active) tab — grows WIDER (never taller; same 62px) and carries the
-   detail row. Its name clamps to one line so the chip/marks row fits the fixed height. */
-.vp-objtab.is-active{flex:2.3 0 230px;cursor:default;opacity:1;border-style:solid;justify-content:space-between;
+/* The FOCUSED (active) tab — grows WIDER (never taller; same 66px) and carries the
+   detail row. Three tight top-aligned rows (type/count · 1-line name · chips); a
+   slightly smaller name + generous line-height so the descenders never clip. */
+.vp-objtab.is-active{flex:2.3 0 230px;cursor:default;opacity:1;border-style:solid;justify-content:flex-start;gap:2px;
   background:linear-gradient(180deg,rgba(157,139,255,0.18),rgba(157,139,255,0.05));
   border-color:rgba(157,139,255,0.5);box-shadow:0 0 18px -8px rgba(157,139,255,0.7)}
-.vp-objtab.is-active .vp-objtab-name{font-family:var(--fo);font-size:14px;font-weight:600;color:#fff;
-  line-height:1.15;-webkit-line-clamp:1;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis}
+.vp-objtab.is-active .vp-objtab-name{font-family:var(--fo);font-size:13.5px;font-weight:600;color:#fff;
+  line-height:1.35;-webkit-line-clamp:1;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
 .vp-objtab.is-active .vp-objtab-count{font-size:18px;color:#fff}
+.vp-objtab.is-active .vp-objtab-detail{margin-top:0}
 /* Active-tab detail row: type chip + "markers this game" + tracked-token chips. */
 .vp-objtab-detail{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px}
 .vp-objtab-chip{font-family:var(--fm);font-size:7.5px;letter-spacing:1.1px;color:#cdb8ff;

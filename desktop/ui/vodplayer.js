@@ -64,6 +64,18 @@ function markerCountForObjective(objId) {
   return markersForObjective(objId).length;
 }
 
+// Does the currently-focused objective track the synthetic TEAMFIGHT token? Gates
+// whether teamfight zones stay loud under the frame. Reads tracksTeamfight (from the
+// active-objectives endpoint); falls back to scanning trackedTokens. Defaults false
+// when unknown (older snapshot) so TF zones dim rather than falsely prioritize.
+function focusedTracksTeamfight() {
+  const o = _objectives.find((x) => Number(x.objectiveId) === _focusedObjId);
+  if (!o) return false;
+  if (typeof o.tracksTeamfight === 'boolean') return o.tracksTeamfight;
+  const toks = o.trackedTokens || o.tokens || [];
+  return Array.isArray(toks) && toks.some((t) => String(t).toUpperCase() === 'TEAMFIGHT');
+}
+
 // Objective type → the timeline/chrome token-color family. primary=accent (default),
 // mental=teal (win), mini=gold — derived from objective.type, no color column needed.
 function objTypeClass(o) {
@@ -74,20 +86,26 @@ function objTypeClass(o) {
 }
 
 // The tracked-event TOKENS for an objective, as short codes with a color family, for
-// the active tab's chip row. Best-effort off whatever the objective exposes; degrades
-// to nothing if the field is absent (graceful — the design tolerates missing detail).
+// the active tab's chip row. Tokens are raw types (KILL/DEATH/DRAGON…), SPELL_* spells,
+// or TEAMFIGHT — each mapped to its proper 3-letter code (reusing the timeline's
+// deriveShortLabel) rather than blind-sliced. Degrades to nothing if absent (graceful).
 function objTokenChips(o) {
   const toks = (o && (o.trackedTokens || o.tokens || o.eventTokens)) || [];
   const arr = Array.isArray(toks) ? toks : [];
-  return arr.slice(0, 6).map((t) => {
-    const code = shortCode(String(t.code || t.label || t).toUpperCase()).slice(0, 4);
-    const u = code.toUpperCase();
-    let fam = '';
-    if (/DRG|DRA|HER|BAR|TWR|TUR|RIFT|ELD|INHIB/.test(u)) fam = 'tok-gold';
-    else if (/RCL|BACK/.test(u)) fam = 'tok-recall';
-    else if (/FLA|SUM|IGN|TP|SMI|EXH/.test(u)) fam = 'tok-summoner';
-    else if (/DTH|DEA/.test(u)) fam = 'tok-loss';
-    else if (/KIL/.test(u)) fam = 'tok-win';
+  return arr.slice(0, 6).map((raw) => {
+    const tok = String(raw && (raw.code || raw.label) || raw).toUpperCase();
+    let code, fam = '';
+    if (tok === 'TEAMFIGHT') { code = 'TF'; fam = 'tok-loss'; }
+    else if (tok.startsWith('SPELL_')) { code = tok.slice(6, 9); fam = 'tok-summoner'; }
+    else { code = deriveShortLabel(tok, tok); }
+    // Color family by the canonical token (so DRG/HLD/BAR read gold, DTH red, etc.).
+    if (!fam) {
+      if (/DRAGON|HERALD|BARON|TOWER|TURRET|RIFT|ELDER|INHIB/.test(tok)) fam = 'tok-gold';
+      else if (/RECALL|BACK/.test(tok)) fam = 'tok-recall';
+      else if (/FLASH|SUMMONER|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(tok)) fam = 'tok-summoner';
+      else if (/DEATH|FIRST/.test(tok)) fam = 'tok-loss';
+      else if (/KILL|ASSIST|MULTI/.test(tok)) fam = 'tok-win';
+    }
     return { code, fam };
   });
 }
@@ -416,13 +434,16 @@ function placeMarkers(dur) {
 
   const pctOf = (s) => Math.max(0, Math.min(100, (s / dur) * 100));
 
-  // 0. Teamfight zones — derive clusters of combat events (kills/deaths/assists)
-  //    that bunch up in a short window and draw a soft band behind the bars so the
-  //    user can SEE where the teamfights happened (there's no discrete "teamfight"
-  //    event from the API — a fight IS a burst of combat events).
+  // 0. Teamfight zones — clusters of combat events drawn as a soft band so the user
+  //    can SEE where fights happened. These are WHOLE-GAME context, not tied to a
+  //    specific objective — so when FRAMED they must respect the frame: stay loud
+  //    ONLY if the focused objective actually tracks TEAMFIGHT, otherwise dim like
+  //    every other non-focused element. (Bug: a 0-marker objective showed loud TF
+  //    bands, making teamfighting look prioritized when it wasn't tracked at all.)
+  const tfFocused = !_framed || focusedTracksTeamfight();
   for (const tf of teamfightZones(_vod.gameEvents || [])) {
     const band = document.createElement('span');
-    band.className = 'evtf';
+    band.className = 'evtf' + (tfFocused ? '' : ' evtf-dim');
     band.style.left = `${pctOf(tf.startS)}%`;
     band.style.width = `${Math.max(0.8, pctOf(tf.endS) - pctOf(tf.startS))}%`;
     band.title = `Teamfight ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} events`;
