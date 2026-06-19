@@ -119,19 +119,28 @@
           <div class="seclabel">Event timeline <span class="n" id="vp-tl-sub">bookmarks · clips</span></div>
           <div class="card">
            <div class="vp-tl-row">
-            <div class="vp-timeline" id="vp-seek" title="Click to scrub">
+            <!-- .vp-timeline is the fixed-width VIEWPORT (overflow:hidden). The inner
+                 .vp-tl-content is the scalable track: Ctrl+wheel widens it (--tl-zoom)
+                 and drag pans it (--tl-pan). Everything positioned by left:% lives in
+                 the content, so it scales for free. Phase labels stay pinned to the
+                 viewport. -->
+            <div class="vp-timeline" id="vp-seek" title="Click to scrub · Ctrl+wheel to zoom · drag to pan">
               <div class="ph" style="left:8px">EARLY</div>
               <div class="ph" style="left:42%">MID</div>
               <div class="ph" style="right:8px">LATE</div>
-              <div class="track"></div>
-              <div class="prog" id="vp-seek-fill"></div>
-              <div class="vp-markers" id="vp-markers"></div>
-              <!-- Clip range overlay: a highlighted band between the Start/End points
-                   plus a flag at each, so the in/out you set is visible on the timeline. -->
-              <div class="vp-clipband" id="vp-clip-band" hidden></div>
-              <div class="vp-clipflag vp-clipflag-in" id="vp-clip-flag-in" hidden><span>IN</span></div>
-              <div class="vp-clipflag vp-clipflag-out" id="vp-clip-flag-out" hidden><span>OUT</span></div>
-              <div class="play" id="vp-playhead" style="left:0%"></div>
+              <div class="vp-tl-content" id="vp-tl-content">
+                <div class="track"></div>
+                <div class="prog" id="vp-seek-fill"></div>
+                <div class="vp-markers" id="vp-markers"></div>
+                <!-- Clip range overlay: a highlighted band between the Start/End points
+                     plus a flag at each, so the in/out you set is visible on the timeline. -->
+                <div class="vp-clipband" id="vp-clip-band" hidden></div>
+                <div class="vp-clipflag vp-clipflag-in" id="vp-clip-flag-in" hidden><span>IN</span></div>
+                <div class="vp-clipflag vp-clipflag-out" id="vp-clip-flag-out" hidden><span>OUT</span></div>
+                <div class="play" id="vp-playhead" style="left:0%"></div>
+              </div>
+              <!-- Zoom indicator — shows current zoom level + a reset; hidden at 1x. -->
+              <button class="vp-tl-zoombadge" id="vp-tl-zoom" type="button" hidden title="Reset zoom">1.0×</button>
             </div>
             <!-- In-objective marker stepper — steps between the FOCUSED objective's
                  markers (◀ ▶ + "marker i/N"). Built/updated by JS; hidden when unframed. -->

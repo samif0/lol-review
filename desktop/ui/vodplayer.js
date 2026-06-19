@@ -1560,16 +1560,132 @@ async function saveClip() {
 }
 
 // Click the seek bar to scrub.
+// ── Timeline zoom + pan ───────────────────────────────────────────────────────
+// Ctrl+wheel zooms the event timeline centered on the cursor; the content track grows
+// wider than its viewport (--tl-zoom) and is panned with a pixel offset (--tl-pan).
+// Drag-to-pan moves it (with a threshold so a plain click still seeks). Zoom + pan
+// PERSIST across objective switches; reset only on reload. All event/playhead/clip
+// positions are left:% inside .vp-tl-content, so they scale automatically.
+const TL_ZOOM_MIN = 1;
+const TL_ZOOM_MAX = 12;
+let _tlZoom = 1;     // 1 = whole game fills the viewport
+let _tlPan = 0;      // px the content is shifted left (<= 0). 0 = start at left edge.
+
+// Clamp pan so the content can't be dragged past either edge of the viewport.
+function clampPan() {
+  const seek = $('vp-seek');
+  if (!seek) return;
+  const vw = seek.clientWidth;
+  const contentW = vw * _tlZoom;
+  const minPan = Math.min(0, vw - contentW); // most-negative (right edge flush)
+  if (_tlPan > 0) _tlPan = 0;
+  if (_tlPan < minPan) _tlPan = minPan;
+}
+
+// Write the zoom/pan to the DOM + badge. Called after any zoom/pan change.
+function applyTimelineZoom() {
+  const seek = $('vp-seek');
+  const content = $('vp-tl-content');
+  if (!seek || !content) return;
+  if (_tlZoom < TL_ZOOM_MIN) _tlZoom = TL_ZOOM_MIN;
+  if (_tlZoom > TL_ZOOM_MAX) _tlZoom = TL_ZOOM_MAX;
+  clampPan();
+  content.style.setProperty('--tl-zoom', String(_tlZoom));
+  content.style.setProperty('--tl-pan', `${_tlPan}px`);
+  const zoomed = _tlZoom > 1.001;
+  seek.classList.toggle('is-zoomed', zoomed);
+  // EARLY/MID/LATE are pinned to the viewport, so they'd lie once the content scrolls
+  // under them — hide them while zoomed (they're coarse orientation, not exact marks).
+  seek.querySelectorAll('.ph').forEach((el) => { el.style.opacity = zoomed ? '0' : ''; });
+  const badge = $('vp-tl-zoom');
+  if (badge) { badge.textContent = `${_tlZoom.toFixed(1)}×`; show(badge, zoomed); }
+}
+
+// Zoom by a factor, keeping the timeline-content point under `anchorClientX` fixed.
+function zoomTimelineAt(anchorClientX, factor) {
+  const seek = $('vp-seek');
+  if (!seek) return;
+  const rect = seek.getBoundingClientRect();
+  const x = anchorClientX - rect.left;                 // cursor x within the viewport
+  const contentXBefore = (x - _tlPan) / _tlZoom;       // game-fraction px under cursor
+  const prev = _tlZoom;
+  _tlZoom = Math.max(TL_ZOOM_MIN, Math.min(TL_ZOOM_MAX, _tlZoom * factor));
+  if (_tlZoom === prev) return;
+  // Solve new pan so the same content point stays under the cursor.
+  _tlPan = x - contentXBefore * _tlZoom;
+  if (_tlZoom <= 1.001) { _tlZoom = 1; _tlPan = 0; } // snapped back to whole game
+  applyTimelineZoom();
+}
+
+function resetTimelineZoom() { _tlZoom = 1; _tlPan = 0; applyTimelineZoom(); }
+
+// Map a click's clientX to a game fraction [0,1], accounting for zoom + pan.
+function timelineFractionFromClientX(clientX) {
+  const seek = $('vp-seek');
+  const rect = seek.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const contentX = x - _tlPan;                 // x within the (wider) content
+  return Math.max(0, Math.min(1, contentX / (rect.width * _tlZoom)));
+}
+
 function wireSeekBar() {
   const seek = $('vp-seek');
+
+  // Ctrl+wheel → zoom at cursor. Plain wheel is left alone (page scroll).
+  seek.addEventListener('wheel', (ev) => {
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    const factor = ev.deltaY < 0 ? 1.18 : 1 / 1.18;   // up = zoom in
+    zoomTimelineAt(ev.clientX, factor);
+  }, { passive: false });
+
+  // Drag-to-pan (only meaningful when zoomed). A movement threshold distinguishes a
+  // pan-drag from a click — under the threshold it falls through to click→seek.
+  const DRAG_PX = 4;
+  let down = null; // {x, pan, dragging}
+  seek.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    down = { x: ev.clientX, pan: _tlPan, dragging: false };
+  });
+  seek.addEventListener('pointermove', (ev) => {
+    if (!down) return;
+    const dx = ev.clientX - down.x;
+    if (!down.dragging && Math.abs(dx) < DRAG_PX) return;
+    if (_tlZoom <= 1.001) return;                 // nothing to pan at 1×
+    down.dragging = true;
+    seek.classList.add('is-panning');
+    try { seek.setPointerCapture(ev.pointerId); } catch (_) {}
+    _tlPan = down.pan + dx;
+    applyTimelineZoom();
+  });
+  const endDrag = (ev) => {
+    if (!down) return;
+    const wasDragging = down.dragging;
+    seek.classList.remove('is-panning');
+    try { seek.releasePointerCapture(ev.pointerId); } catch (_) {}
+    down = null;
+    // If we actually panned, swallow the trailing click so it doesn't seek.
+    if (wasDragging) { seek._suppressClick = true; setTimeout(() => { seek._suppressClick = false; }, 0); }
+  };
+  seek.addEventListener('pointerup', endDrag);
+  seek.addEventListener('pointercancel', endDrag);
+
+  // Click → seek (zoom/pan-aware). Suppressed right after a pan-drag.
   seek.addEventListener('click', (ev) => {
+    if (seek._suppressClick) return;
+    if (ev.target && ev.target.closest('#vp-tl-zoom')) return; // badge handles its own
     const v = video();
     const dur = v.duration || _vod?.gameDurationSeconds || 0;
     if (!dur) return;
-    const rect = seek.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-    seekTo(pct * dur);
+    seekTo(timelineFractionFromClientX(ev.clientX) * dur);
   });
+
+  // Zoom badge → reset to whole game.
+  const badge = $('vp-tl-zoom');
+  if (badge) badge.addEventListener('click', (ev) => { ev.stopPropagation(); resetTimelineZoom(); });
+
+  // Re-clamp pan if the window resizes (viewport width changed).
+  window.addEventListener('resize', () => { if (_tlZoom > 1.001) applyTimelineZoom(); });
 }
 
 // Keyboard: space = play/pause, arrows = seek, B = quick bookmark. Enter/Space on

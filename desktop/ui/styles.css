@@ -1908,7 +1908,23 @@ select.obj-input option{background:#14102a;color:var(--t1)}
    track and the bookmark markers have room below it. */
 .vp-timeline{position:relative;height:104px;border-radius:9px;background:rgba(0,0,0,0.35);
   border:1px solid var(--gline2);overflow:hidden;cursor:pointer}
-.vp-timeline .ph{position:absolute;bottom:7px;font-family:var(--fm);font-size:8px;letter-spacing:1px;color:var(--t4)}
+/* The scalable track content. Width = container × zoom; panned via translateX. The
+   transform-origin is the left edge so pan math is a simple pixel offset. All the
+   left:% children (track/markers/playhead/clip band) ride inside it and scale free. */
+.vp-tl-content{position:absolute;top:0;left:0;height:100%;
+  width:calc(100% * var(--tl-zoom, 1));transform:translateX(var(--tl-pan, 0px));
+  transform-origin:left center;will-change:transform,width}
+/* When zoomed (>1), the track reads as draggable. */
+.vp-timeline.is-zoomed{cursor:grab}
+.vp-timeline.is-panning{cursor:grabbing}
+.vp-timeline.is-panning .vp-tl-content{will-change:transform}
+.vp-timeline .ph{position:absolute;bottom:7px;font-family:var(--fm);font-size:8px;letter-spacing:1px;color:var(--t4);z-index:6;pointer-events:none}
+/* Zoom badge — bottom-right, shows level + acts as reset-to-1x. Hidden at 1x. */
+.vp-tl-zoombadge{position:absolute;top:6px;right:8px;z-index:7;font-family:var(--fm);font-size:8.5px;
+  letter-spacing:0.5px;color:var(--t3);background:rgba(8,6,18,0.85);border:1px solid rgba(157,139,255,0.4);
+  border-radius:6px;padding:3px 7px;cursor:pointer;transition:color .14s ease,border-color .14s ease,background .14s ease}
+.vp-tl-zoombadge:hover{color:#fff;border-color:rgba(157,139,255,0.7);background:rgba(157,139,255,0.16)}
+.vp-tl-zoombadge[hidden]{display:none}
 /* The scrub track sits low so bars rise above it (like the original Revu timeline). */
 .vp-timeline .track{position:absolute;left:0;right:0;top:72%;height:2px;transform:translateY(-50%);background:rgba(255,255,255,0.14)}
 .vp-timeline .prog{position:absolute;left:0;top:72%;height:2px;transform:translateY(-50%);width:0;
