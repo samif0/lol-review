@@ -166,4 +166,32 @@ public sealed class ObjectivesRepositoryChampionsTests
         // Yasuo is newer → first. Distinct: only one Yasuo entry.
         Assert.Equal(new[] { "Yasuo", "Ahri" }, played);
     }
+
+    [Fact]
+    public async Task GetPlayedChampionsAsync_CollapsesSpellingVariantsToCanonicalName()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        // History holds the same champion under both the apostrophe and the
+        // id spelling (the bug from brief 2026-06-19-10). The picker must offer
+        // it ONCE, under the canonical Data Dragon display name.
+        using (var conn = scope.OpenConnection())
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO games (game_id, champion_name, win, timestamp, is_hidden)
+                VALUES (10, 'Kaisa',  1, 1700000000, 0),
+                       (20, 'Sivir',  1, 1700001000, 0),
+                       (30, 'Kai''Sa', 0, 1700002000, 0)
+                """;
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var played = await scope.Objectives.GetPlayedChampionsAsync(10);
+
+        // One Kai'Sa entry (newest variant wins position → ahead of Sivir),
+        // under the canonical spelling, and no bare "Kaisa".
+        Assert.Equal(new[] { "Kai'Sa", "Sivir" }, played);
+    }
 }

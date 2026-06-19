@@ -368,6 +368,14 @@ public sealed class ReviewSnapshotBuilder
         try
         {
             var objectives = await _objectivesRepo.GetActiveAsync();
+
+            // Batch-load every active objective's custom prompts in one query
+            // (mirrors GamesSnapshotBuilder's array-batch reads) instead of
+            // re-querying per objective inside the loop below — that was an N+1
+            // that grew with objective count on every Review-page open.
+            var promptsByObjective = await _promptsRepo.GetPromptsForObjectivesAsync(
+                objectives.Select(o => o.Id).ToArray());
+
             foreach (var obj in objectives)
             {
                 var info = IObjectivesRepository.GetLevelInfo(obj.Score, obj.GameCount);
@@ -386,11 +394,15 @@ public sealed class ReviewSnapshotBuilder
                 var metaText = BuildObjectiveMetaText(
                     isMini, obj.TargetGameCount, obj.GameCount, phaseLabel, levelName, obj.Score);
 
-                // Custom coaching prompts the user authored for this objective.
+                // Custom coaching prompts the user authored for this objective,
+                // looked up from the batch read above (no per-objective query).
                 var prompts = new List<ReviewPromptDto>();
                 try
                 {
-                    var raw = await _promptsRepo.GetPromptsForObjectiveAsync(obj.Id);
+                    var raw = promptsByObjective.TryGetValue(obj.Id, out var objPrompts)
+                        ? objPrompts
+                        : (IReadOnlyList<Revu.Core.Data.Repositories.ObjectivePrompt>)
+                            Array.Empty<Revu.Core.Data.Repositories.ObjectivePrompt>();
                     prompts.AddRange(raw
                         .OrderBy(p => p.SortOrder)
                         .Select(p => new ReviewPromptDto(

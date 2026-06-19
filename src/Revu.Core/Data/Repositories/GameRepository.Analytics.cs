@@ -1,5 +1,6 @@
 ﻿#nullable enable
 
+using Revu.Core.Constants;
 using Revu.Core.Models;
 
 namespace Revu.Core.Data.Repositories;
@@ -10,44 +11,97 @@ public sealed partial class GameRepository
     {
         using var conn = _factory.CreateConnection();
 
+        // We aggregate per RAW champion_name in SQL, then collapse spelling
+        // variants of the same champion (e.g. "Kai'Sa" vs "Kaisa", which differ
+        // only by an apostrophe the LCU/EOG payloads aren't consistent about) in
+        // C# keyed on GameConstants.NormalizeChampionKey. SQLite has no built-in
+        // apostrophe-strip to do this in GROUP BY, and re-grouping here lets us
+        // emit one row per champion with the canonical Data Dragon display name
+        // and correctly games-weighted averages, without mutating stored rows.
+        // SUM(metric) is carried so the merge stays exact rather than averaging
+        // pre-rounded per-variant averages.
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $@"
             SELECT
                 champion_name,
                 COUNT(*) as games_played,
                 SUM(win) as wins,
-                ROUND(AVG(win) * 100, 1) as winrate,
-                ROUND(AVG(kills), 1) as avg_kills,
-                ROUND(AVG(deaths), 1) as avg_deaths,
-                ROUND(AVG(assists), 1) as avg_assists,
-                ROUND(AVG(kda_ratio), 2) as avg_kda,
-                ROUND(AVG(cs_per_min), 1) as avg_cs_min,
-                ROUND(AVG(vision_score), 1) as avg_vision,
-                ROUND(AVG(total_damage_to_champions), 0) as avg_damage
+                SUM(kills) as sum_kills,
+                SUM(deaths) as sum_deaths,
+                SUM(assists) as sum_assists,
+                SUM(kda_ratio) as sum_kda,
+                SUM(cs_per_min) as sum_cs_min,
+                SUM(vision_score) as sum_vision,
+                SUM(total_damage_to_champions) as sum_damage
             FROM games
             WHERE 1=1 {CasualFilter}
-            GROUP BY champion_name
-            ORDER BY games_played DESC";
+            GROUP BY champion_name";
 
-        var list = new List<ChampionStats>();
+        // Accumulate raw-spelling rows into one bucket per normalized champion.
+        var buckets = new Dictionary<string, ChampionAccumulator>(StringComparer.Ordinal);
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            list.Add(new ChampionStats(
-                ChampionName: reader.GetString(reader.GetOrdinal("champion_name")),
-                GamesPlayed: reader.GetInt32(reader.GetOrdinal("games_played")),
-                Wins: reader.IsDBNull(reader.GetOrdinal("wins")) ? 0 : reader.GetInt32(reader.GetOrdinal("wins")),
-                Winrate: reader.IsDBNull(reader.GetOrdinal("winrate")) ? 0 : reader.GetDouble(reader.GetOrdinal("winrate")),
-                AvgKills: reader.IsDBNull(reader.GetOrdinal("avg_kills")) ? 0 : reader.GetDouble(reader.GetOrdinal("avg_kills")),
-                AvgDeaths: reader.IsDBNull(reader.GetOrdinal("avg_deaths")) ? 0 : reader.GetDouble(reader.GetOrdinal("avg_deaths")),
-                AvgAssists: reader.IsDBNull(reader.GetOrdinal("avg_assists")) ? 0 : reader.GetDouble(reader.GetOrdinal("avg_assists")),
-                AvgKda: reader.IsDBNull(reader.GetOrdinal("avg_kda")) ? 0 : reader.GetDouble(reader.GetOrdinal("avg_kda")),
-                AvgCsMin: reader.IsDBNull(reader.GetOrdinal("avg_cs_min")) ? 0 : reader.GetDouble(reader.GetOrdinal("avg_cs_min")),
-                AvgVision: reader.IsDBNull(reader.GetOrdinal("avg_vision")) ? 0 : reader.GetDouble(reader.GetOrdinal("avg_vision")),
-                AvgDamage: reader.IsDBNull(reader.GetOrdinal("avg_damage")) ? 0 : reader.GetDouble(reader.GetOrdinal("avg_damage"))
-            ));
+            var rawName = reader.GetString(reader.GetOrdinal("champion_name"));
+            var key = GameConstants.NormalizeChampionKey(rawName);
+            if (key.Length == 0) continue;
+
+            if (!buckets.TryGetValue(key, out var acc))
+            {
+                acc = new ChampionAccumulator { DisplayName = GameConstants.CanonicalChampionName(rawName) };
+                buckets[key] = acc;
+            }
+
+            acc.Games += reader.GetInt32(reader.GetOrdinal("games_played"));
+            acc.Wins += reader.IsDBNull(reader.GetOrdinal("wins")) ? 0 : reader.GetInt32(reader.GetOrdinal("wins"));
+            acc.SumKills += ReadDouble(reader, "sum_kills");
+            acc.SumDeaths += ReadDouble(reader, "sum_deaths");
+            acc.SumAssists += ReadDouble(reader, "sum_assists");
+            acc.SumKda += ReadDouble(reader, "sum_kda");
+            acc.SumCsMin += ReadDouble(reader, "sum_cs_min");
+            acc.SumVision += ReadDouble(reader, "sum_vision");
+            acc.SumDamage += ReadDouble(reader, "sum_damage");
         }
-        return list;
+
+        return buckets.Values
+            .Select(acc =>
+            {
+                var n = Math.Max(acc.Games, 1);
+                return new ChampionStats(
+                    ChampionName: acc.DisplayName,
+                    GamesPlayed: acc.Games,
+                    Wins: acc.Wins,
+                    Winrate: Math.Round(100.0 * acc.Wins / n, 1),
+                    AvgKills: Math.Round(acc.SumKills / n, 1),
+                    AvgDeaths: Math.Round(acc.SumDeaths / n, 1),
+                    AvgAssists: Math.Round(acc.SumAssists / n, 1),
+                    AvgKda: Math.Round(acc.SumKda / n, 2),
+                    AvgCsMin: Math.Round(acc.SumCsMin / n, 1),
+                    AvgVision: Math.Round(acc.SumVision / n, 1),
+                    AvgDamage: Math.Round(acc.SumDamage / n, 0));
+            })
+            .OrderByDescending(c => c.GamesPlayed)
+            .ToList();
+    }
+
+    private static double ReadDouble(Microsoft.Data.Sqlite.SqliteDataReader reader, string column)
+    {
+        var ord = reader.GetOrdinal(column);
+        return reader.IsDBNull(ord) ? 0.0 : Convert.ToDouble(reader.GetValue(ord));
+    }
+
+    private sealed class ChampionAccumulator
+    {
+        public string DisplayName = "";
+        public int Games;
+        public int Wins;
+        public double SumKills;
+        public double SumDeaths;
+        public double SumAssists;
+        public double SumKda;
+        public double SumCsMin;
+        public double SumVision;
+        public double SumDamage;
     }
 
     public async Task<OverallStats> GetOverallStatsAsync()

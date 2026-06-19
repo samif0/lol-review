@@ -215,7 +215,12 @@ public static class StatsExtractor
                 GameMode = displayMode,
                 GameType = gameType,
                 QueueType = normalizedQueueType,
-                ChampionName = localPlayer.Value.GetPropertyOrDefault("championName", "Unknown"),
+                // Canonicalize the player's own champion name at capture so new
+                // rows don't reintroduce the "Kai'Sa"/"Kaisa" spelling split that
+                // per-champion analytics group on. History is left untouched —
+                // normalize-on-read in GetChampionStatsAsync covers existing rows.
+                ChampionName = GameConstants.CanonicalChampionName(
+                    localPlayer.Value.GetPropertyOrDefault("championName", "Unknown")),
                 ChampionId = localPlayer.Value.GetPropertyIntOrDefault("championId", 0),
                 TeamId = teamId,
                 Position = myPosition,
@@ -455,7 +460,9 @@ public static class StatsExtractor
                 GameMode = displayMode,
                 GameType = gameType,
                 QueueType = !string.IsNullOrWhiteSpace(queueLabel) ? queueLabel : queueId.ToString(),
-                ChampionName = championName,
+                // Canonicalize on capture (see ExtractFromEog) so recovered missed
+                // games join the same per-champion bucket as live-captured ones.
+                ChampionName = GameConstants.CanonicalChampionName(championName),
                 ChampionId = p.GetPropertyIntOrDefault("championId", 0),
                 TeamId = teamId,
                 Position = lane,

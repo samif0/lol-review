@@ -98,6 +98,97 @@ public sealed class ConfigServiceProtectedSecretsTests
         Assert.Equal("", sanitized.RiotSessionToken);
     }
 
+    [Fact]
+    public async Task SaveAsync_MirrorsRiotIdentityIntoProtectedStoreButKeepsPlaintextForUi()
+    {
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+        var service = CreateService(scope.ConfigPath, secrets);
+
+        await service.SaveAsync(new AppConfig
+        {
+            RiotSessionToken = "riot-session-secret",
+            RiotSessionExpiresAt = DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
+            RiotId = "Player#NA1",
+            RiotRegion = "na1",
+            RiotPuuid = "puuid-123",
+        });
+
+        // Mirrored into DPAPI...
+        Assert.Equal("Player#NA1", secrets.GetSecret("riot_id"));
+        Assert.Equal("na1", secrets.GetSecret("riot_region"));
+        Assert.Equal("puuid-123", secrets.GetSecret("riot_puuid"));
+
+        // ...but NOT blanked from plaintext config (the UI reads these for display).
+        var persisted = await File.ReadAllTextAsync(scope.ConfigPath);
+        var sanitized = JsonSerializer.Deserialize<AppConfig>(persisted, JsonOptions)!;
+        Assert.Equal("Player#NA1", sanitized.RiotId);
+        Assert.Equal("na1", sanitized.RiotRegion);
+        Assert.Equal("puuid-123", sanitized.RiotPuuid);
+        // The token IS sanitized (unchanged behavior).
+        Assert.Equal("", sanitized.RiotSessionToken);
+    }
+
+    [Fact]
+    public async Task LoadAsync_RecoversRiotIdentityFromProtectedStoreWhenConfigIsClobbered()
+    {
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+
+        // Simulate the P-020/P-023 clobber: a valid token + identity live in DPAPI,
+        // but config.json has had riot_id/region/puuid blanked by an empty-overwrite.
+        secrets.SetSecret("riot_session_token", "riot-session-secret");
+        secrets.SetSecret("riot_id", "Player#NA1");
+        secrets.SetSecret("riot_region", "na1");
+        secrets.SetSecret("riot_puuid", "puuid-123");
+        var clobbered = new AppConfig
+        {
+            RiotSessionExpiresAt = DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
+            RiotId = "",
+            RiotRegion = "",
+            RiotPuuid = "",
+        };
+        await File.WriteAllTextAsync(scope.ConfigPath, JsonSerializer.Serialize(clobbered, JsonOptions));
+
+        var service = CreateService(scope.ConfigPath, secrets);
+        var loaded = await service.LoadAsync();
+
+        // Identity self-heals from the store → login gate stays satisfied.
+        Assert.Equal("Player#NA1", loaded.RiotId);
+        Assert.Equal("na1", loaded.RiotRegion);
+        Assert.Equal("puuid-123", loaded.RiotPuuid);
+        Assert.True(service.HasValidRiotSession);
+        Assert.True(service.RiotProxyEnabled);
+    }
+
+    [Fact]
+    public async Task LoadAsync_PrefersPlaintextRiotIdentityWhenStoreIsEmpty()
+    {
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+
+        // Legacy config predating the mirror: identity only in plaintext, no store copy.
+        var legacy = new AppConfig
+        {
+            RiotSessionToken = "riot-session-secret",
+            RiotSessionExpiresAt = DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
+            RiotId = "Legacy#EUW",
+            RiotRegion = "euw1",
+            RiotPuuid = "legacy-puuid",
+        };
+        await File.WriteAllTextAsync(scope.ConfigPath, JsonSerializer.Serialize(legacy, JsonOptions));
+
+        var service = CreateService(scope.ConfigPath, secrets);
+        var loaded = await service.LoadAsync();
+
+        // Plaintext is used when the store is empty, AND the migrate path seeds the store.
+        Assert.Equal("Legacy#EUW", loaded.RiotId);
+        Assert.Equal("euw1", loaded.RiotRegion);
+        Assert.Equal("legacy-puuid", loaded.RiotPuuid);
+        Assert.Equal("Legacy#EUW", secrets.GetSecret("riot_id"));
+        Assert.True(service.RiotProxyEnabled);
+    }
+
     private static ConfigService CreateService(string configPath, IProtectedSecretStore secrets) =>
         new(NullLogger<ConfigService>.Instance, secrets, configPath);
 

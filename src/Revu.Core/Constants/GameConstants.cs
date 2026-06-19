@@ -308,6 +308,81 @@ public static class GameConstants
         };
     }
 
+    // ── Champion name normalization ──────────────────────────────────────
+
+    /// <summary>
+    /// Riot's Data Dragon ships champion <c>id</c>s without apostrophes/spaces
+    /// (e.g. "Kaisa", "MonkeyKing") but a separate display <c>name</c>
+    /// ("Kai'Sa", "Wukong"). The LCU and EOG payloads aren't consistent about
+    /// which one they hand us, so the same champion lands in champion_name under
+    /// two spellings. This map repairs the known apostrophe/casing divergences
+    /// to the Data Dragon DISPLAY name so per-champion grouping and labels agree.
+    /// Keyed by the normalized group key (see <see cref="NormalizeChampionKey"/>).
+    /// </summary>
+    private static readonly FrozenDictionary<string, string> ChampionDisplayNames =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["kaisa"]        = "Kai'Sa",
+            ["khazix"]       = "Kha'Zix",
+            ["chogath"]      = "Cho'Gath",
+            ["velkoz"]       = "Vel'Koz",
+            ["reksai"]       = "Rek'Sai",
+            ["kogmaw"]       = "Kog'Maw",
+            ["belveth"]      = "Bel'Veth",
+            ["nunuwillump"]  = "Nunu & Willump",
+            ["drmundo"]      = "Dr. Mundo",
+            ["leblanc"]      = "LeBlanc",
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Collapse a champion display name to a stable grouping key by stripping the
+    /// punctuation/whitespace that varies between sources (apostrophes, spaces,
+    /// periods, ampersands) and case-folding. "Kai'Sa" and "Kaisa" both become
+    /// "kaisa" so any per-champion aggregate counts them as one champion.
+    /// Returns "" for null/blank input.
+    /// </summary>
+    public static string NormalizeChampionKey(string? championName)
+    {
+        if (string.IsNullOrWhiteSpace(championName))
+        {
+            return "";
+        }
+
+        var span = championName.AsSpan().Trim();
+        var sb = new System.Text.StringBuilder(span.Length);
+        foreach (var ch in span)
+        {
+            // Keep only letters/digits; drop apostrophes (' ʼ ’), spaces, periods,
+            // ampersands, hyphens — exactly the characters that differ between the
+            // Data Dragon id form and the display form.
+            if (char.IsLetterOrDigit(ch))
+            {
+                sb.Append(char.ToLowerInvariant(ch));
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Resolve the canonical user-facing champion name. Repairs the known
+    /// id-vs-display divergences (e.g. "Kaisa" -&gt; "Kai'Sa") so aggregated rows
+    /// carry the proper display label; falls back to the trimmed input for
+    /// champions not in the repair map (their spelling is already canonical).
+    /// </summary>
+    public static string CanonicalChampionName(string? championName)
+    {
+        if (string.IsNullOrWhiteSpace(championName))
+        {
+            return "";
+        }
+
+        var key = NormalizeChampionKey(championName);
+        return ChampionDisplayNames.TryGetValue(key, out var display)
+            ? display
+            : championName.Trim();
+    }
+
     /// <summary>Resolve the best user-facing label for a game using queue info when available.</summary>
     public static string GetDisplayGameMode(string? gameMode, string? queueType)
     {

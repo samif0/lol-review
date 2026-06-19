@@ -15,6 +15,14 @@ public sealed class ConfigService : IConfigService
 {
     private const string GithubTokenSecretName = "github_token";
     private const string RiotSessionTokenSecretName = "riot_session_token";
+    // Login-unlock identity mirrored into DPAPI alongside the session token so a
+    // config.json clobber (the P-020/P-023 empty-string-overwrite class) can't
+    // silently log the user out: RiotProxyEnabled reads these store-first with the
+    // plaintext config as fallback. NOT blanked from the sanitized config — the
+    // settings/dashboard UI still reads the plaintext copy for display.
+    private const string RiotIdSecretName = "riot_id";
+    private const string RiotRegionSecretName = "riot_region";
+    private const string RiotPuuidSecretName = "riot_puuid";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -337,6 +345,24 @@ public sealed class ConfigService : IConfigService
                 migrated = true;
             }
 
+            // Seed the DPAPI identity mirror from a legacy plaintext config so the
+            // self-heal works on the very first load after upgrade (P1/19-02).
+            if (!string.IsNullOrWhiteSpace(config.RiotId))
+            {
+                _secrets.SetSecret(RiotIdSecretName, config.RiotId);
+                migrated = true;
+            }
+            if (!string.IsNullOrWhiteSpace(config.RiotRegion))
+            {
+                _secrets.SetSecret(RiotRegionSecretName, config.RiotRegion);
+                migrated = true;
+            }
+            if (!string.IsNullOrWhiteSpace(config.RiotPuuid))
+            {
+                _secrets.SetSecret(RiotPuuidSecretName, config.RiotPuuid);
+                migrated = true;
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -367,7 +393,23 @@ public sealed class ConfigService : IConfigService
             _secrets.SetSecret(RiotSessionTokenSecretName, config.RiotSessionToken);
         }
 
+        // Mirror the login-unlock identity into DPAPI next to the token (P1/19-02).
+        // This is a MIRROR, not a move: the plaintext copy stays for UI display
+        // (CreateSanitizedConfig does not blank these), but the protected copy lets
+        // RiotProxyEnabled survive a config.json clobber.
+        SetOrClearSecret(RiotIdSecretName, config.RiotId);
+        SetOrClearSecret(RiotRegionSecretName, config.RiotRegion);
+        SetOrClearSecret(RiotPuuidSecretName, config.RiotPuuid);
+
         return CreateSanitizedConfig(config);
+    }
+
+    private void SetOrClearSecret(string name, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            _secrets.ClearSecret(name);
+        else
+            _secrets.SetSecret(name, value);
     }
 
     private static AppConfig CreateSanitizedConfig(AppConfig config)
@@ -383,7 +425,20 @@ public sealed class ConfigService : IConfigService
         var copy = CloneConfig(config);
         copy.GithubToken = _secrets.GetSecret(GithubTokenSecretName) ?? "";
         copy.RiotSessionToken = _secrets.GetSecret(RiotSessionTokenSecretName) ?? "";
+        // Identity: store-first, plaintext-fallback. If config.json was clobbered
+        // (riot_id/region/puuid blanked) but the DPAPI mirror survives, recover from
+        // the store so the user stays logged in (P1/19-02). The plaintext value wins
+        // only when the store is empty (e.g. legacy config predating the mirror).
+        copy.RiotId = PreferSecret(RiotIdSecretName, copy.RiotId);
+        copy.RiotRegion = PreferSecret(RiotRegionSecretName, copy.RiotRegion);
+        copy.RiotPuuid = PreferSecret(RiotPuuidSecretName, copy.RiotPuuid);
         return copy;
+    }
+
+    private string PreferSecret(string name, string plaintext)
+    {
+        var stored = _secrets.GetSecret(name);
+        return !string.IsNullOrWhiteSpace(stored) ? stored : (plaintext ?? "");
     }
 
     private static AppConfig CloneConfig(AppConfig config)

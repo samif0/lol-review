@@ -107,6 +107,66 @@ public sealed class PromptsRepository : IPromptsRepository
         return results;
     }
 
+    public async Task<IReadOnlyDictionary<long, IReadOnlyList<ObjectivePrompt>>> GetPromptsForObjectivesAsync(
+        IReadOnlyCollection<long> objectiveIds)
+    {
+        if (objectiveIds.Count == 0)
+        {
+            return new Dictionary<long, IReadOnlyList<ObjectivePrompt>>();
+        }
+
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+
+        var placeholders = new List<string>(objectiveIds.Count);
+        var index = 0;
+        foreach (var objectiveId in objectiveIds.Distinct())
+        {
+            var parameterName = $"@objectiveId{index++}";
+            placeholders.Add(parameterName);
+            cmd.Parameters.AddWithValue(parameterName, objectiveId);
+        }
+
+        if (placeholders.Count == 0)
+        {
+            return new Dictionary<long, IReadOnlyList<ObjectivePrompt>>();
+        }
+
+        // ORDER BY mirrors GetPromptsForObjectiveAsync so each per-objective group
+        // arrives sort_order-then-id ordered; objective_id leads only to keep each
+        // group's rows contiguous (the grouping below doesn't depend on it).
+        cmd.CommandText = $"""
+            SELECT id, objective_id, phase, label, sort_order, created_at
+            FROM objective_prompts
+            WHERE objective_id IN ({string.Join(", ", placeholders)})
+            ORDER BY objective_id ASC, sort_order ASC, id ASC
+            """;
+
+        var grouped = new Dictionary<long, List<ObjectivePrompt>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var prompt = new ObjectivePrompt(
+                Id: reader.GetInt64(0),
+                ObjectiveId: reader.GetInt64(1),
+                Phase: reader.IsDBNull(2) ? ObjectivePhases.InGame : ObjectivePhases.Normalize(reader.GetString(2)),
+                Label: reader.IsDBNull(3) ? "" : reader.GetString(3),
+                SortOrder: reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                CreatedAt: reader.IsDBNull(5) ? null : reader.GetInt64(5));
+
+            if (!grouped.TryGetValue(prompt.ObjectiveId, out var list))
+            {
+                list = new List<ObjectivePrompt>();
+                grouped[prompt.ObjectiveId] = list;
+            }
+            list.Add(prompt);
+        }
+
+        return grouped.ToDictionary(
+            kvp => kvp.Key,
+            kvp => (IReadOnlyList<ObjectivePrompt>)kvp.Value);
+    }
+
     // ── Rendered views for pre/post-game UI ─────────────────────────
 
     public async Task<IReadOnlyList<ActivePrompt>> GetActivePromptsForPhaseAsync(string phase, string? championName = null)

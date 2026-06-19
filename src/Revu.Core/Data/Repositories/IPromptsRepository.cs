@@ -24,6 +24,17 @@ public interface IPromptsRepository
 
     Task<IReadOnlyList<ObjectivePrompt>> GetPromptsForObjectiveAsync(long objectiveId);
 
+    /// <summary>
+    /// Batched form of <see cref="GetPromptsForObjectiveAsync"/>: load the prompts
+    /// for every id in one query and return them grouped by objective id, each
+    /// group ordered by <c>sort_order</c> then <c>id</c> (same order as the
+    /// single-objective method). Objectives with no prompts are absent from the
+    /// dictionary. Mirrors the array-batch read pattern in the Games builder so
+    /// the Review snapshot avoids one query per objective (an N+1).
+    /// </summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<ObjectivePrompt>>> GetPromptsForObjectivesAsync(
+        IReadOnlyCollection<long> objectiveIds);
+
     // ── Rendered views for pre/post-game UI ─────────────────────────
 
     /// <summary>

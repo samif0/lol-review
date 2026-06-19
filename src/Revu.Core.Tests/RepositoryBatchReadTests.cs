@@ -88,4 +88,76 @@ public sealed class RepositoryBatchReadTests
         Assert.DoesNotContain(dismissedEvidenceGameId, taggedIds);
         Assert.DoesNotContain(noEvidenceGameId, taggedIds);
     }
+
+    /// <summary>
+    /// 2026-06-19 perf (brief 19-05): ReviewSnapshotBuilder used to re-query
+    /// prompts once per active objective (an N+1). GetPromptsForObjectivesAsync
+    /// is the batched replacement — assert it groups prompts by objective id,
+    /// keeps each group's sort_order-then-id ordering (identical to the
+    /// single-objective method), and only returns requested objectives.
+    /// </summary>
+    [Fact]
+    public async Task GetPromptsForObjectivesAsync_GroupsPromptsPerObjectiveIdInSortOrder()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var objWithPrompts = await scope.Objectives.CreateWithPhasesAsync(
+            "Wave management", "", "primary", "", "",
+            practicePre: false, practiceIn: true, practicePost: false);
+        var objSinglePrompt = await scope.Objectives.CreateWithPhasesAsync(
+            "Vision control", "", "primary", "", "",
+            practicePre: false, practiceIn: true, practicePost: false);
+        var objNoPrompts = await scope.Objectives.CreateWithPhasesAsync(
+            "Trading stance", "", "primary", "", "",
+            practicePre: false, practiceIn: true, practicePost: false);
+
+        // First-created has the highest sort_order so the result ordering can't
+        // accidentally match creation order.
+        var firstCreatedLastSort = await scope.Prompts.CreatePromptAsync(
+            objWithPrompts, ObjectivePhases.InGame, "last", 10);
+        var secondCreatedFirstSort = await scope.Prompts.CreatePromptAsync(
+            objWithPrompts, ObjectivePhases.InGame, "first", 0);
+        var thirdCreatedMidSort = await scope.Prompts.CreatePromptAsync(
+            objWithPrompts, ObjectivePhases.InGame, "mid", 5);
+        var singlePrompt = await scope.Prompts.CreatePromptAsync(
+            objSinglePrompt, ObjectivePhases.InGame, "only", 0);
+
+        // Includes an objective with no prompts; the batch must simply omit it.
+        var grouped = await scope.Prompts.GetPromptsForObjectivesAsync(
+            new[] { objWithPrompts, objSinglePrompt, objNoPrompts });
+
+        // Objectives with no prompts are absent from the dictionary.
+        Assert.Equal(2, grouped.Count);
+        Assert.DoesNotContain(objNoPrompts, grouped.Keys);
+
+        // Multi-prompt objective: grouped under its id, ordered by sort_order then id.
+        var promptsForObj = grouped[objWithPrompts];
+        Assert.Equal(3, promptsForObj.Count);
+        Assert.Equal(secondCreatedFirstSort, promptsForObj[0].Id); // sort_order 0
+        Assert.Equal(thirdCreatedMidSort, promptsForObj[1].Id);    // sort_order 5
+        Assert.Equal(firstCreatedLastSort, promptsForObj[2].Id);   // sort_order 10
+        Assert.All(promptsForObj, p => Assert.Equal(objWithPrompts, p.ObjectiveId));
+
+        // Single-prompt objective keeps its own bucket — no cross-contamination.
+        var singleBucket = Assert.Single(grouped[objSinglePrompt]);
+        Assert.Equal(singlePrompt, singleBucket.Id);
+
+        // Parity with the per-objective method the batch replaces.
+        var perObjective = await scope.Prompts.GetPromptsForObjectiveAsync(objWithPrompts);
+        Assert.Equal(
+            perObjective.Select(p => p.Id),
+            grouped[objWithPrompts].Select(p => p.Id));
+    }
+
+    [Fact]
+    public async Task GetPromptsForObjectivesAsync_EmptyInput_ReturnsEmpty()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var grouped = await scope.Prompts.GetPromptsForObjectivesAsync(Array.Empty<long>());
+
+        Assert.Empty(grouped);
+    }
 }

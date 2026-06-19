@@ -1,6 +1,7 @@
 #nullable enable
 
 using Microsoft.Data.Sqlite;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Data.Repositories;
 
@@ -537,6 +538,14 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         // Pulls distinct champion_name from games ordered by most recent use.
         // is_hidden excluded so soft-deleted games don't suggest champs the
         // user hasn't actually played.
+        //
+        // History still holds the "Kai'Sa"/"Kaisa" spelling split, so a raw
+        // GROUP BY would offer the same champion twice in the picker. We dedupe
+        // on the normalized key (newest spelling wins position) and surface the
+        // canonical Data Dragon display name — the same name capture now stamps,
+        // so a pick round-trips through objective_champions gating cleanly. The
+        // LIMIT is applied AFTER dedup so collapsing variants doesn't under-fill
+        // the list; we read an unbounded ordered set and cap in C#.
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -546,14 +555,25 @@ public sealed class ObjectivesRepository : IObjectivesRepository
               AND champion_name IS NOT NULL AND champion_name != ''
             GROUP BY champion_name
             ORDER BY MAX(COALESCE(timestamp, 0)) DESC
-            LIMIT @limit
             """;
-        cmd.Parameters.AddWithValue("@limit", limit);
+
         var results = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            results.Add(reader.GetString(0));
+            var rawName = reader.GetString(0);
+            var key = GameConstants.NormalizeChampionKey(rawName);
+            if (key.Length == 0 || !seen.Add(key))
+            {
+                continue;
+            }
+
+            results.Add(GameConstants.CanonicalChampionName(rawName));
+            if (results.Count >= limit)
+            {
+                break;
+            }
         }
         return results;
     }

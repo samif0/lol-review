@@ -1,5 +1,6 @@
 #nullable enable
 
+using Revu.Core.Constants;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -429,16 +430,20 @@ public sealed class AnalysisService : IAnalysisService
 
     private static List<Models.ChampionStats> ComputeChampionStats(IReadOnlyList<GameStats> games)
     {
+        // Group on the normalized champion key so spelling variants of the same
+        // champion ("Kai'Sa" vs "Kaisa") collapse into one row, then surface the
+        // canonical Data Dragon display name. OrdinalIgnoreCase alone wouldn't do
+        // it — the variants differ by an apostrophe, not just case.
         return games
             .Where(g => !string.IsNullOrEmpty(g.ChampionName))
-            .GroupBy(g => g.ChampionName, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(g => GameConstants.NormalizeChampionKey(g.ChampionName), StringComparer.Ordinal)
             .Select(grp =>
             {
                 var list = grp.ToList();
                 var wins = list.Count(g => g.Win);
                 return new Models.ChampionStats
                 {
-                    ChampionName = grp.Key,
+                    ChampionName = GameConstants.CanonicalChampionName(list[0].ChampionName),
                     Games = list.Count,
                     Wins = wins,
                     Winrate = Math.Round(100.0 * wins / list.Count, 1),
