@@ -685,13 +685,17 @@ function momentLanes() {
   clips = clips.concat(bookmarkClips);
   // Bookmarks lane = plain (non-clip) bookmarks.
   let bm = (v.bookmarks || []).filter((b) => !b.hasClip).map((b) => normBookmark(b, false));
-  // FRAMED → scope every lane to the focused objective (moments carry objectiveId).
+  // FRAMED → scope every lane to the focused objective, BUT keep UNTAGGED moments
+  // (objectiveId == null) visible in every frame. A clip/bookmark the user saved is a
+  // real moment regardless of whether it happens to be tagged to the objective now in
+  // focus; hiding an untagged clip just because you're framed is the "my clips don't
+  // show" bug (P-034). Only moments tagged to a DIFFERENT objective are scoped out.
   // Unframed (zero objectives) shows everything, as before.
   if (_framed && _focusedObjId != null) {
-    const ofFocus = (m) => m.objectiveId != null && Number(m.objectiveId) === _focusedObjId;
-    auto = auto.filter(ofFocus);
-    clips = clips.filter(ofFocus);
-    bm = bm.filter(ofFocus);
+    const inFrame = (m) => m.objectiveId == null || Number(m.objectiveId) === _focusedObjId;
+    auto = auto.filter(inFrame);
+    clips = clips.filter(inFrame);
+    bm = bm.filter(inFrame);
   }
   // Order every lane chronologically (by game time) so the moment list reads in the
   // same left-to-right order as the event timeline — a clip made out of sequence
