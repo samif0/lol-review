@@ -272,6 +272,13 @@ public static class StatsExtractor
             // Summoner name from EOG data
             gs.SummonerName = localPlayer.Value.GetPropertyOrDefault("summonerName", "Unknown");
 
+            // v3.1.2 (schema v9): stamp the stable Riot account id (PUUID) so
+            // analytics can be scoped to one account even across a rename. The
+            // LCU end-of-game localPlayer object carries "puuid" alongside the
+            // summoner name. Empty when absent — the lenient scope treats '' as
+            // the player's own history.
+            gs.Puuid = localPlayer.Value.GetPropertyOrDefault("puuid", "");
+
             // Store enemy info in raw stats
             gs.RawStats["_enemy_champions"] = enemyChampions;
             gs.RawStats["_enemy_by_position"] = enemyByPosition;
@@ -398,6 +405,33 @@ public static class StatsExtractor
             var stats = statsObj.Value;
             var teamId = p.GetPropertyIntOrDefault("teamId", 100);
 
+            // v3.1.2 (schema v9): resolve the player's stable Riot account id
+            // (PUUID) for account-scoped analytics. Newer LCU match-history
+            // payloads carry "puuid" directly on the participant; the legacy
+            // shape carries it under participantIdentities[].player.puuid keyed
+            // by participantId. Try the participant first, then the identity
+            // fallback. Empty when neither path resolves one — the lenient
+            // scope treats '' as the player's own history.
+            var matchPuuid = p.GetPropertyOrDefault("puuid", "");
+            if (string.IsNullOrEmpty(matchPuuid))
+            {
+                var participantId = p.GetPropertyIntOrDefault("participantId", -1);
+                if (participantId > 0
+                    && game.TryGetProperty("participantIdentities", out var puuidIdentities)
+                    && puuidIdentities.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var pi in puuidIdentities.EnumerateArray())
+                    {
+                        if (pi.GetPropertyIntOrDefault("participantId", -2) != participantId)
+                            continue;
+                        var playerInfo = pi.GetPropertyObjectOrDefault("player");
+                        if (playerInfo is not null)
+                            matchPuuid = playerInfo.Value.GetPropertyOrDefault("puuid", "");
+                        break;
+                    }
+                }
+            }
+
             var kills = stats.GetPropertyIntOrDefault("kills", 0);
             var deaths = stats.GetPropertyIntOrDefault("deaths", 0);
             var assists = stats.GetPropertyIntOrDefault("assists", 0);
@@ -515,6 +549,9 @@ public static class StatsExtractor
                 KillParticipation = Math.Round(kp, 1),
                 Items = ExtractItems(stats, "item"),
             };
+
+            // v3.1.2 (schema v9): stamp the resolved Riot account id for scoping.
+            gs.Puuid = matchPuuid;
 
             // v2.16.5: build the role->champion map for both teams from the
             // match-history payload so role-aware matchup pills work for

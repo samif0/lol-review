@@ -7,7 +7,17 @@ namespace Revu.Core.Data.Repositories;
 
 public sealed partial class GameRepository
 {
-    public async Task<List<ChampionStats>> GetChampionStatsAsync()
+    // LENIENT account scoping (schema v9 games.puuid). When a current puuid is
+    // supplied, aggregate queries keep the player's own rows PLUS all legacy
+    // rows (puuid NULL or '') and exclude only genuinely-foreign accounts. When
+    // currentPuuid is null/empty (not logged in, tests, un-wired callers) the
+    // clause is a no-op via the leading "@currentPuuid = ''" short-circuit, so
+    // every row is returned and behavior is identical to pre-scoping. This must
+    // NEVER hide legacy rows (puuid='').
+    private const string PuuidFilter =
+        "AND (@currentPuuid = '' OR puuid = @currentPuuid OR puuid IS NULL OR puuid = '')";
+
+    public async Task<List<ChampionStats>> GetChampionStatsAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
 
@@ -34,8 +44,9 @@ public sealed partial class GameRepository
                 SUM(vision_score) as sum_vision,
                 SUM(total_damage_to_champions) as sum_damage
             FROM games
-            WHERE 1=1 {CasualFilter}
+            WHERE 1=1 {CasualFilter} {PuuidFilter}
             GROUP BY champion_name";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         // Accumulate raw-spelling rows into one bucket per normalized champion.
         var buckets = new Dictionary<string, ChampionAccumulator>(StringComparer.Ordinal);
@@ -104,7 +115,7 @@ public sealed partial class GameRepository
         public double SumDamage;
     }
 
-    public async Task<OverallStats> GetOverallStatsAsync()
+    public async Task<OverallStats> GetOverallStatsAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
 
@@ -125,7 +136,8 @@ public sealed partial class GameRepository
                 MAX(kills) as max_kills,
                 MAX(kda_ratio) as best_kda
             FROM games
-            WHERE 1=1 {CasualFilter}";
+            WHERE 1=1 {CasualFilter} {PuuidFilter}";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         await using var reader = await cmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
@@ -150,7 +162,7 @@ public sealed partial class GameRepository
         return new OverallStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
-    public async Task<ReviewFocus?> GetLastReviewFocusAsync()
+    public async Task<ReviewFocus?> GetLastReviewFocusAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
 
@@ -159,9 +171,10 @@ public sealed partial class GameRepository
             SELECT focus_next, mistakes, went_well, champion_name, win, timestamp
             FROM games
             WHERE (focus_next != '' OR mistakes != '')
-                {CasualFilter}
+                {CasualFilter} {PuuidFilter}
             ORDER BY timestamp DESC
             LIMIT 1";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         await using var reader = await cmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
@@ -178,13 +191,14 @@ public sealed partial class GameRepository
         return null;
     }
 
-    public async Task<int> GetWinStreakAsync()
+    public async Task<int> GetWinStreakAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT win FROM games WHERE 1=1 {CasualFilter} ORDER BY timestamp DESC LIMIT 50";
+        cmd.CommandText = $"SELECT win FROM games WHERE 1=1 {CasualFilter} {PuuidFilter} ORDER BY timestamp DESC LIMIT 50";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var results = new List<int>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -209,7 +223,7 @@ public sealed partial class GameRepository
         return firstResult != 0 ? streak : -streak;
     }
 
-    public async Task<List<AttributionStat>> GetAttributionStatsAsync()
+    public async Task<List<AttributionStat>> GetAttributionStatsAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -223,9 +237,10 @@ public sealed partial class GameRepository
                 ROUND(AVG(win) * 100, 1) as winrate
             FROM games
             WHERE attribution IS NOT NULL AND attribution != ''
-              {CasualFilter}
+              {CasualFilter} {PuuidFilter}
             GROUP BY attribution
             ORDER BY games DESC";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<AttributionStat>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -242,7 +257,7 @@ public sealed partial class GameRepository
         return list;
     }
 
-    public async Task<List<SpottedProblem>> GetRecentSpottedProblemsAsync(int limit = 20)
+    public async Task<List<SpottedProblem>> GetRecentSpottedProblemsAsync(int limit = 20, string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -252,10 +267,11 @@ public sealed partial class GameRepository
             SELECT game_id, champion_name, spotted_problems, date_played, win, enemy_laner
             FROM games
             WHERE spotted_problems IS NOT NULL AND spotted_problems != ''
-              {CasualFilter}
+              {CasualFilter} {PuuidFilter}
             ORDER BY timestamp DESC
             LIMIT @limit";
         cmd.Parameters.AddWithValue("@limit", limit);
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<SpottedProblem>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -273,7 +289,7 @@ public sealed partial class GameRepository
         return list;
     }
 
-    public async Task<List<ChartDataPoint>> GetRecentForChartsAsync(int limit = 100)
+    public async Task<List<ChartDataPoint>> GetRecentForChartsAsync(int limit = 100, string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -282,10 +298,11 @@ public sealed partial class GameRepository
         cmd.CommandText = $@"
             SELECT game_id, win, deaths, timestamp, champion_name, kda_ratio
             FROM games
-            WHERE 1=1 {CasualFilter}
+            WHERE 1=1 {CasualFilter} {PuuidFilter}
             ORDER BY timestamp DESC
             LIMIT @limit";
         cmd.Parameters.AddWithValue("@limit", limit);
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<ChartDataPoint>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -306,7 +323,7 @@ public sealed partial class GameRepository
         return list;
     }
 
-    public async Task<List<MatchupStat>> GetMatchupStatsAsync()
+    public async Task<List<MatchupStat>> GetMatchupStatsAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -321,10 +338,11 @@ public sealed partial class GameRepository
                     ROUND(AVG(deaths), 1) as avg_deaths
                 FROM games
                 WHERE enemy_laner IS NOT NULL AND enemy_laner != ''
-                    {CasualFilter}
+                    {CasualFilter} {PuuidFilter}
                 GROUP BY champion_name, enemy_laner
                 HAVING COUNT(*) >= 2
                 ORDER BY COUNT(*) DESC";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<MatchupStat>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -343,7 +361,7 @@ public sealed partial class GameRepository
         return list;
     }
 
-    public async Task<List<PerformanceTrend>> GetPerformanceTrendsAsync(int limit = 50)
+    public async Task<List<PerformanceTrend>> GetPerformanceTrendsAsync(int limit = 50, string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -353,10 +371,11 @@ public sealed partial class GameRepository
             SELECT cs_per_min, vision_score, kda_ratio, deaths,
                     kill_participation, champion_name, timestamp, win
                 FROM games
-                WHERE 1=1 {CasualFilter}
+                WHERE 1=1 {CasualFilter} {PuuidFilter}
                 ORDER BY timestamp DESC
                 LIMIT @limit";
         cmd.Parameters.AddWithValue("@limit", limit);
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<PerformanceTrend>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -379,7 +398,7 @@ public sealed partial class GameRepository
         return list;
     }
 
-    public async Task<List<RoleStat>> GetRoleStatsAsync()
+    public async Task<List<RoleStat>> GetRoleStatsAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -393,9 +412,10 @@ public sealed partial class GameRepository
                     ROUND(AVG(kda_ratio), 2) as avg_kda
                 FROM games
                 WHERE position IS NOT NULL AND position != ''
-                    {CasualFilter}
+                    {CasualFilter} {PuuidFilter}
                 GROUP BY position
                 ORDER BY COUNT(*) DESC";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<RoleStat>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -412,7 +432,7 @@ public sealed partial class GameRepository
         return list;
     }
 
-    public async Task<List<DurationStat>> GetDurationStatsAsync()
+    public async Task<List<DurationStat>> GetDurationStatsAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -430,9 +450,10 @@ public sealed partial class GameRepository
                     SUM(win) as wins,
                     ROUND(100.0 * SUM(win) / COUNT(*), 1) as winrate
                 FROM games
-                WHERE game_duration > 0 {CasualFilter}
+                WHERE game_duration > 0 {CasualFilter} {PuuidFilter}
                 GROUP BY bucket
                 ORDER BY MIN(game_duration)";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<DurationStat>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -448,7 +469,7 @@ public sealed partial class GameRepository
         return list;
     }
 
-    public async Task<RecentStats> GetRecentStatsAsync(int limit = 20)
+    public async Task<RecentStats> GetRecentStatsAsync(int limit = 20, string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -465,11 +486,12 @@ public sealed partial class GameRepository
                     ROUND(AVG(kills), 1) as avg_kills
                 FROM (
                     SELECT * FROM games
-                    WHERE 1=1 {CasualFilter}
+                    WHERE 1=1 {CasualFilter} {PuuidFilter}
                     ORDER BY timestamp DESC
                     LIMIT @limit
                 )";
         cmd.Parameters.AddWithValue("@limit", limit);
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         await using var reader = await cmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())

@@ -18,6 +18,7 @@ public sealed class AnalysisService : IAnalysisService
     private readonly ISessionLogRepository _sessionLog;
     private readonly IConceptTagRepository _conceptTags;
     private readonly IObjectivesRepository _objectives;
+    private readonly IConfigService _config;
     private readonly ILogger<AnalysisService> _logger;
 
     public AnalysisService(
@@ -26,6 +27,7 @@ public sealed class AnalysisService : IAnalysisService
         ISessionLogRepository sessionLog,
         IConceptTagRepository conceptTags,
         IObjectivesRepository objectives,
+        IConfigService config,
         ILogger<AnalysisService> logger)
     {
         _analytics = analytics;
@@ -33,8 +35,14 @@ public sealed class AnalysisService : IAnalysisService
         _sessionLog = sessionLog;
         _conceptTags = conceptTags;
         _objectives = objectives;
+        _config = config;
         _logger = logger;
     }
+
+    // The PUUID of the currently logged-in Riot account, used to lenient-scope
+    // every aggregate the profile reads (own rows + all legacy '' rows, foreign
+    // accounts excluded). Empty when logged out → the scope is a no-op (all rows).
+    private string CurrentPuuid => _config.RiotPuuid ?? "";
 
     // ═══════════════════════════════════════════════════════════════════
     //  Profile generation
@@ -48,7 +56,7 @@ public sealed class AnalysisService : IAnalysisService
         // Overall stats (all-time)
         try
         {
-            var overall = await _analytics.GetOverallStatsAsync().ConfigureAwait(false);
+            var overall = await _analytics.GetOverallStatsAsync(CurrentPuuid).ConfigureAwait(false);
             profile.Overall = new Models.OverallStats
             {
                 TotalGames = overall.TotalGames,
@@ -68,7 +76,7 @@ public sealed class AnalysisService : IAnalysisService
         // Recent stats (last 20 games)
         try
         {
-            var recent = await _analytics.GetRecentStatsAsync(limit: 20).ConfigureAwait(false);
+            var recent = await _analytics.GetRecentStatsAsync(limit: 20, currentPuuid: CurrentPuuid).ConfigureAwait(false);
             profile.Recent = new Models.OverallStats
             {
                 TotalGames = recent.Games,
@@ -85,7 +93,7 @@ public sealed class AnalysisService : IAnalysisService
         // Per-champion performance
         try
         {
-            var champStats = await _analytics.GetChampionStatsAsync().ConfigureAwait(false);
+            var champStats = await _analytics.GetChampionStatsAsync(CurrentPuuid).ConfigureAwait(false);
             profile.Champions = champStats.Select(c => new Models.ChampionStats
             {
                 ChampionName = c.ChampionName,
@@ -102,7 +110,7 @@ public sealed class AnalysisService : IAnalysisService
         // Matchup stats
         try
         {
-            var matchups = await _analytics.GetMatchupStatsAsync().ConfigureAwait(false);
+            var matchups = await _analytics.GetMatchupStatsAsync(CurrentPuuid).ConfigureAwait(false);
             profile.Matchups = matchups.Select(m => new Models.MatchupStats
             {
                 ChampionName = m.ChampionName,
@@ -118,7 +126,7 @@ public sealed class AnalysisService : IAnalysisService
         // Mental state data
         try
         {
-            var correlation = await _sessionLog.GetMentalWinrateCorrelationAsync().ConfigureAwait(false);
+            var correlation = await _sessionLog.GetMentalWinrateCorrelationAsync(CurrentPuuid).ConfigureAwait(false);
             double lowWr = 0, midWr = 0, highWr = 0;
             foreach (var bracket in correlation)
             {
@@ -129,7 +137,7 @@ public sealed class AnalysisService : IAnalysisService
             }
 
             double avgRating = 5;
-            var trend = await _sessionLog.GetMentalTrendAsync(limit: 50).ConfigureAwait(false);
+            var trend = await _sessionLog.GetMentalTrendAsync(limit: 50, currentPuuid: CurrentPuuid).ConfigureAwait(false);
             if (trend.Count > 0)
             {
                 avgRating = Math.Round(trend.Average(t => t.MentalRating), 1);
@@ -194,7 +202,7 @@ public sealed class AnalysisService : IAnalysisService
         // Recent form
         try
         {
-            var recentCharts = await _analytics.GetRecentForChartsAsync(limit: 20).ConfigureAwait(false);
+            var recentCharts = await _analytics.GetRecentForChartsAsync(limit: 20, currentPuuid: CurrentPuuid).ConfigureAwait(false);
             if (recentCharts.Count > 0)
             {
                 var last10 = recentCharts.TakeLast(10).ToList();
@@ -203,7 +211,7 @@ public sealed class AnalysisService : IAnalysisService
                     ? Math.Round(100.0 * last10.Count(g => g.Win) / last10.Count, 1) : 0;
                 double l20Wr = last20.Count > 0
                     ? Math.Round(100.0 * last20.Count(g => g.Win) / last20.Count, 1) : 0;
-                var winStreak = await _analytics.GetWinStreakAsync().ConfigureAwait(false);
+                var winStreak = await _analytics.GetWinStreakAsync(CurrentPuuid).ConfigureAwait(false);
 
                 profile.RecentForm = new RecentFormStats
                 {
@@ -218,7 +226,7 @@ public sealed class AnalysisService : IAnalysisService
         // Spotted problems (group similar ones)
         try
         {
-            var problems = await _analytics.GetRecentSpottedProblemsAsync(limit: 50).ConfigureAwait(false);
+            var problems = await _analytics.GetRecentSpottedProblemsAsync(limit: 50, currentPuuid: CurrentPuuid).ConfigureAwait(false);
             var counter = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in problems)
             {
@@ -239,7 +247,7 @@ public sealed class AnalysisService : IAnalysisService
         // Role stats
         try
         {
-            var roles = await _analytics.GetRoleStatsAsync().ConfigureAwait(false);
+            var roles = await _analytics.GetRoleStatsAsync(CurrentPuuid).ConfigureAwait(false);
             profile.Roles = roles.Select(r => new Models.RoleStats
             {
                 Role = r.Position,
@@ -254,7 +262,7 @@ public sealed class AnalysisService : IAnalysisService
         // Duration buckets
         try
         {
-            var durations = await _analytics.GetDurationStatsAsync().ConfigureAwait(false);
+            var durations = await _analytics.GetDurationStatsAsync(CurrentPuuid).ConfigureAwait(false);
             profile.DurationBuckets = durations.Select(d => new DurationBucket
             {
                 Label = d.Bucket,

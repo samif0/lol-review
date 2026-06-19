@@ -172,11 +172,13 @@ public interface ISessionLogRepository
     /// </summary>
     Task<int> CleanupMismatchedEntriesAsync();
 
-    /// <summary>Get aggregate session stats for today.</summary>
-    Task<SessionDayStats> GetStatsTodayAsync();
+    /// <summary>Get aggregate session stats for today. <paramref name="currentPuuid"/>
+    /// lenient-scopes to the logged-in account (null/empty = all accounts).</summary>
+    Task<SessionDayStats> GetStatsTodayAsync(string? currentPuuid = null);
 
-    /// <summary>Get aggregate session stats for a specific date.</summary>
-    Task<SessionDayStats> GetStatsForDateAsync(string dateStr);
+    /// <summary>Get aggregate session stats for a specific date. <paramref name="currentPuuid"/>
+    /// lenient-scopes to the logged-in account (null/empty = all accounts).</summary>
+    Task<SessionDayStats> GetStatsForDateAsync(string dateStr, string? currentPuuid = null);
 
     /// <summary>Get all dates that have session log entries, newest first.</summary>
     Task<List<string>> GetDatesWithGamesAsync();
@@ -184,24 +186,30 @@ public interface ISessionLogRepository
     /// <summary>Get session log entries for the last N days.</summary>
     Task<List<SessionLogEntry>> GetRangeAsync(int days = 7);
 
-    /// <summary>Get per-day summary stats for the last N days.</summary>
-    Task<List<DailySummary>> GetDailySummariesAsync(int days = 7);
+    /// <summary>Get per-day summary stats for the last N days. <paramref name="currentPuuid"/>
+    /// lenient-scopes to the logged-in account (null/empty = all accounts).</summary>
+    Task<List<DailySummary>> GetDailySummariesAsync(int days = 7, string? currentPuuid = null);
 
-    /// <summary>Analyze winrate by mental rating bracket.</summary>
-    Task<List<MentalCorrelationPoint>> GetMentalWinrateCorrelationAsync();
+    /// <summary>Analyze winrate by mental rating bracket. <paramref name="currentPuuid"/>
+    /// lenient-scopes to the logged-in account (null/empty = all accounts).</summary>
+    Task<List<MentalCorrelationPoint>> GetMentalWinrateCorrelationAsync(string? currentPuuid = null);
 
-    /// <summary>Get recent mental ratings for trend charting (chronological).</summary>
-    Task<List<MentalTrendPoint>> GetMentalTrendAsync(int limit = 50);
+    /// <summary>Get recent mental ratings for trend charting (chronological).
+    /// <paramref name="currentPuuid"/> lenient-scopes to the logged-in account
+    /// (null/empty = all accounts).</summary>
+    Task<List<MentalTrendPoint>> GetMentalTrendAsync(int limit = 50, string? currentPuuid = null);
 
-    /// <summary>Analyze winrate by pre-game mood level (1-5).</summary>
-    Task<List<MoodCorrelationPoint>> GetMoodWinrateCorrelationAsync();
+    /// <summary>Analyze winrate by pre-game mood level (1-5). <paramref name="currentPuuid"/>
+    /// lenient-scopes to the logged-in account (null/empty = all accounts).</summary>
+    Task<List<MoodCorrelationPoint>> GetMoodWinrateCorrelationAsync(string? currentPuuid = null);
 
     /// <summary>
     /// Check for mental rating drops between consecutive games today.
     /// Returns a warning if mental dropped by >= 3 between adjacent games,
-    /// or null if no tilt detected.
+    /// or null if no tilt detected. <paramref name="currentPuuid"/> lenient-scopes
+    /// to the logged-in account (null/empty = all accounts).
     /// </summary>
-    Task<TiltWarning?> CheckTiltWarningAsync(string dateStr);
+    Task<TiltWarning?> CheckTiltWarningAsync(string dateStr, string? currentPuuid = null);
 
     /// <summary>Get aggregate session-level patterns for player profiling.</summary>
     Task<SessionPatterns> GetSessionPatternsAsync();

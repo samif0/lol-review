@@ -21,7 +21,11 @@ public static class Schema
     // v8 (2026-06): objective_event_types — objectives tie to trackable event
     //               tokens (raw types, SPELL_*, TEAMFIGHT) that light up the VOD
     //               timeline priority lane (v3.0.15).
-    public const int CurrentAppSchemaVersion = 8;
+    // v9 (2026-06): games.puuid — stable Riot account id stamped at capture so
+    //               analytics can be scoped to one account (P3a, v3.1.2).
+    //               Forward-only: existing rows keep '' and the lenient scope
+    //               treats '' as the player's own history.
+    public const int CurrentAppSchemaVersion = 9;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -931,6 +935,20 @@ public static class Schema
         "ALTER TABLE games ADD COLUMN cs_diff_at_10 REAL",
     ];
 
+    /// <summary>
+    /// v3.1.2 (schema v9): games.puuid — the stable Riot account id (PUUID)
+    /// stamped at capture so analytics can be scoped to a single account.
+    /// A Riot rename (e.g. chapy → bye) keeps the same PUUID, so scoping by
+    /// PUUID — not summoner_name — never splits one account's history.
+    /// Forward-only: legacy/unstamped rows keep '' (the column default); the
+    /// later lenient scope treats '' as the player's own history so no game
+    /// is ever hidden.
+    /// </summary>
+    public static readonly string[] MigrateGamesPuuid =
+    [
+        "ALTER TABLE games ADD COLUMN puuid TEXT NOT NULL DEFAULT ''",
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -1053,6 +1071,9 @@ public static class Schema
         new(7, "rules-replacement-plan", MigrateRulesReplacementPlan),
         // v3.0.15 (schema v8): objective_event_types — tie objectives to event tokens.
         new(8, "objective-event-types", MigrateObjectiveEventTypes),
+        // v3.1.2 (schema v9): games.puuid — stamp the stable Riot account id at
+        // capture for account-scoped analytics (P3a). Forward-only; '' = legacy.
+        new(9, "games-puuid", MigrateGamesPuuid),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

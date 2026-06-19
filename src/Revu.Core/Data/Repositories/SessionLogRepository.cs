@@ -28,6 +28,16 @@ public sealed class SessionLogRepository : ISessionLogRepository
     private const string VisibleGamesFilter =
         "COALESCE(vg.is_hidden, 0) = 0";
 
+    // schema v9: lenient account scope. Each aggregate that LEFT JOINs games as
+    // vg can drop a genuinely-foreign future account's rows while KEEPING the
+    // current player's own rows, all LEGACY rows (puuid = '' from the v9
+    // backfill default), and any manual/unmatched session_log row (no games row,
+    // so vg.puuid IS NULL via the LEFT JOIN). When @currentPuuid is '' (logged
+    // out / tests) the first OR makes the whole clause a NO-OP → all rows pass,
+    // so existing callers that don't thread a puuid behave exactly as before.
+    private const string CurrentAccountFilter =
+        "(@currentPuuid = '' OR vg.puuid = @currentPuuid OR vg.puuid IS NULL OR vg.puuid = '')";
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private static SessionLogEntry MapSessionLogEntry(SqliteDataReader reader)
@@ -586,12 +596,12 @@ public sealed class SessionLogRepository : ISessionLogRepository
 
     // ── Aggregation reads ────────────────────────────────────────────────
 
-    public async Task<SessionDayStats> GetStatsTodayAsync()
+    public async Task<SessionDayStats> GetStatsTodayAsync(string? currentPuuid = null)
     {
-        return await GetStatsForDateAsync(DateTime.Now.ToString("yyyy-MM-dd"));
+        return await GetStatsForDateAsync(DateTime.Now.ToString("yyyy-MM-dd"), currentPuuid);
     }
 
-    public async Task<SessionDayStats> GetStatsForDateAsync(string dateStr)
+    public async Task<SessionDayStats> GetStatsForDateAsync(string dateStr, string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -607,8 +617,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
             FROM session_log sl
             {VisibleGamesJoin}
             WHERE sl.date = @date
-              AND {VisibleGamesFilter}";
+              AND {VisibleGamesFilter}
+              AND {CurrentAccountFilter}";
         cmd.Parameters.AddWithValue("@date", dateStr);
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         await using var reader = await cmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
@@ -629,7 +641,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return new SessionDayStats(0, 0, 0, 0, 0);
     }
 
-    public async Task<List<DailySummary>> GetDailySummariesAsync(int days = 7)
+    public async Task<List<DailySummary>> GetDailySummariesAsync(int days = 7, string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -651,9 +663,11 @@ public sealed class SessionLogRepository : ISessionLogRepository
             {VisibleGamesJoin}
             WHERE sl.date >= @cutoff
               AND {VisibleGamesFilter}
+              AND {CurrentAccountFilter}
             GROUP BY sl.date
             ORDER BY sl.date DESC";
         cmd.Parameters.AddWithValue("@cutoff", cutoffStr);
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<DailySummary>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -672,7 +686,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return list;
     }
 
-    public async Task<List<MentalCorrelationPoint>> GetMentalWinrateCorrelationAsync()
+    public async Task<List<MentalCorrelationPoint>> GetMentalWinrateCorrelationAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -692,8 +706,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
             {VisibleGamesJoin}
             WHERE COALESCE(sl.is_skipped, 0) = 0
               AND {VisibleGamesFilter}
+              AND {CurrentAccountFilter}
             GROUP BY bracket
             ORDER BY bracket";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<MentalCorrelationPoint>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -709,7 +725,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return list;
     }
 
-    public async Task<List<MentalTrendPoint>> GetMentalTrendAsync(int limit = 50)
+    public async Task<List<MentalTrendPoint>> GetMentalTrendAsync(int limit = 50, string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -721,9 +737,11 @@ public sealed class SessionLogRepository : ISessionLogRepository
             {VisibleGamesJoin}
             WHERE COALESCE(sl.is_skipped, 0) = 0
               AND {VisibleGamesFilter}
+              AND {CurrentAccountFilter}
             ORDER BY sl.timestamp DESC
             LIMIT @limit";
         cmd.Parameters.AddWithValue("@limit", limit);
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<MentalTrendPoint>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -742,7 +760,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return list;
     }
 
-    public async Task<List<MoodCorrelationPoint>> GetMoodWinrateCorrelationAsync()
+    public async Task<List<MoodCorrelationPoint>> GetMoodWinrateCorrelationAsync(string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -757,8 +775,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
             {VisibleGamesJoin}
             WHERE sl.pre_game_mood > 0
               AND {VisibleGamesFilter}
+              AND {CurrentAccountFilter}
             GROUP BY sl.pre_game_mood
             ORDER BY sl.pre_game_mood";
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var list = new List<MoodCorrelationPoint>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -774,7 +794,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return list;
     }
 
-    public async Task<TiltWarning?> CheckTiltWarningAsync(string dateStr)
+    public async Task<TiltWarning?> CheckTiltWarningAsync(string dateStr, string? currentPuuid = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
@@ -787,8 +807,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
             WHERE sl.date = @date
               AND COALESCE(sl.is_skipped, 0) = 0
               AND {VisibleGamesFilter}
+              AND {CurrentAccountFilter}
             ORDER BY sl.timestamp ASC";
         cmd.Parameters.AddWithValue("@date", dateStr);
+        cmd.Parameters.AddWithValue("@currentPuuid", currentPuuid ?? "");
 
         var entries = new List<(int MentalRating, string ChampionName, long? GameId)>();
         await using var reader = await cmd.ExecuteReaderAsync();

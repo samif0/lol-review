@@ -23,6 +23,16 @@ public class GameStats
     // ── Player info ──────────────────────────────────────────────────
 
     public string SummonerName { get; set; } = "";
+
+    /// <summary>
+    /// v3.1.2 (schema v9): the stable Riot account id (PUUID) of the player this
+    /// row belongs to, stamped at capture for account-scoped analytics (P3a).
+    /// Unlike <see cref="SummonerName"/> it survives a Riot rename, so it can
+    /// distinguish accounts without splitting one renamed account's history.
+    /// Empty when the capture path couldn't resolve a PUUID (and on all legacy
+    /// rows captured before v9); the lenient scope treats '' as the user's own.
+    /// </summary>
+    public string Puuid { get; set; } = "";
     public string ChampionName { get; set; } = "";
     public int ChampionId { get; set; }
     /// <summary>100 = blue, 200 = red.</summary>

@@ -98,7 +98,9 @@ public sealed class PreGameSnapshotBuilder
         var carryProvenance = "";
         try
         {
-            var lastReview = await _gameRepo.GetLastReviewFocusAsync().ConfigureAwait(false);
+            // Lenient account-scope the carried focus to the logged-in PUUID
+            // (own + legacy '' rows; foreign accounts excluded). Empty = no-op.
+            var lastReview = await _gameRepo.GetLastReviewFocusAsync(_configService.RiotPuuid).ConfigureAwait(false);
             if (lastReview is not null && !string.IsNullOrWhiteSpace(lastReview.FocusNext))
             {
                 carrySeed = lastReview.FocusNext.Trim();

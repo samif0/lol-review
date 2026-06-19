@@ -2,6 +2,7 @@
 
 using Microsoft.Extensions.Logging;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Services;
 
 namespace Revu.Sidecar;
 
@@ -64,15 +65,18 @@ public sealed class ObjectivesSnapshotBuilder
 
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IGameAnalyticsQuery _gameAnalytics;
+    private readonly IConfigService _config;
     private readonly ILogger<ObjectivesSnapshotBuilder> _logger;
 
     public ObjectivesSnapshotBuilder(
         IObjectivesRepository objectivesRepo,
         IGameAnalyticsQuery gameAnalytics,
+        IConfigService config,
         ILogger<ObjectivesSnapshotBuilder> logger)
     {
         _objectivesRepo = objectivesRepo;
         _gameAnalytics = gameAnalytics;
+        _config = config;
         _logger = logger;
     }
 
@@ -342,7 +346,10 @@ public sealed class ObjectivesSnapshotBuilder
     {
         try
         {
-            var problems = await _gameAnalytics.GetRecentSpottedProblemsAsync(SpottedProblemsTake);
+            // Lenient account-scope the spotted-problems suggestions to the
+            // logged-in PUUID (own + legacy '' rows; foreign accounts excluded).
+            // Empty puuid = no-op (all rows).
+            var problems = await _gameAnalytics.GetRecentSpottedProblemsAsync(SpottedProblemsTake, _config.RiotPuuid);
             return problems.Select(p =>
             {
                 var championDisplay = string.IsNullOrWhiteSpace(p.EnemyChampion)

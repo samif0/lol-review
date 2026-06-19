@@ -234,46 +234,46 @@ public interface IGameHistoryQuery
     Task<List<string>> GetUniqueChampionsAsync(bool lossesOnly = false);
 
     /// <summary>Get the focus_next and mistakes from the most recent reviewed game.</summary>
-    Task<ReviewFocus?> GetLastReviewFocusAsync();
+    Task<ReviewFocus?> GetLastReviewFocusAsync(string? currentPuuid = null);
 }
 
 /// <summary>Read model for aggregate analytics and trend views.</summary>
 public interface IGameAnalyticsQuery
 {
     /// <summary>Aggregate stats grouped by champion (excludes casual modes).</summary>
-    Task<List<ChampionStats>> GetChampionStatsAsync();
+    Task<List<ChampionStats>> GetChampionStatsAsync(string? currentPuuid = null);
 
     /// <summary>Get aggregate stats across all ranked/normal games.</summary>
-    Task<OverallStats> GetOverallStatsAsync();
+    Task<OverallStats> GetOverallStatsAsync(string? currentPuuid = null);
 
     /// <summary>
     /// Get current win/loss streak. Positive = wins, negative = losses.
     /// </summary>
-    Task<int> GetWinStreakAsync();
+    Task<int> GetWinStreakAsync(string? currentPuuid = null);
 
     /// <summary>Get win/loss breakdown by attribution value.</summary>
-    Task<List<AttributionStat>> GetAttributionStatsAsync();
+    Task<List<AttributionStat>> GetAttributionStatsAsync(string? currentPuuid = null);
 
     /// <summary>Get recent games that have spotted_problems notes.</summary>
-    Task<List<SpottedProblem>> GetRecentSpottedProblemsAsync(int limit = 20);
+    Task<List<SpottedProblem>> GetRecentSpottedProblemsAsync(int limit = 20, string? currentPuuid = null);
 
     /// <summary>Get recent game data for trend charts (returned in chronological order).</summary>
-    Task<List<ChartDataPoint>> GetRecentForChartsAsync(int limit = 100);
+    Task<List<ChartDataPoint>> GetRecentForChartsAsync(int limit = 100, string? currentPuuid = null);
 
     /// <summary>Get win rates grouped by champion vs enemy laner matchup.</summary>
-    Task<List<MatchupStat>> GetMatchupStatsAsync();
+    Task<List<MatchupStat>> GetMatchupStatsAsync(string? currentPuuid = null);
 
     /// <summary>Get per-game performance metrics for trend charting (chronological).</summary>
-    Task<List<PerformanceTrend>> GetPerformanceTrendsAsync(int limit = 50);
+    Task<List<PerformanceTrend>> GetPerformanceTrendsAsync(int limit = 50, string? currentPuuid = null);
 
     /// <summary>Get performance stats grouped by role/position.</summary>
-    Task<List<RoleStat>> GetRoleStatsAsync();
+    Task<List<RoleStat>> GetRoleStatsAsync(string? currentPuuid = null);
 
     /// <summary>Get win rates bucketed by game duration.</summary>
-    Task<List<DurationStat>> GetDurationStatsAsync();
+    Task<List<DurationStat>> GetDurationStatsAsync(string? currentPuuid = null);
 
     /// <summary>Get aggregate stats over the last N games for suggestion thresholds.</summary>
-    Task<RecentStats> GetRecentStatsAsync(int limit = 20);
+    Task<RecentStats> GetRecentStatsAsync(int limit = 20, string? currentPuuid = null);
 }
 
 /// <summary>Destructive and visibility-changing game operations.</summary>

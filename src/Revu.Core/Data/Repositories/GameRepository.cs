@@ -41,6 +41,9 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             GameType = GetStringOrDefault(reader, "game_type"),
             QueueType = GetStringOrDefault(reader, "queue_type"),
             SummonerName = GetStringOrDefault(reader, "summoner_name"),
+            // v3.1.2 (schema v9): stable Riot account id; '' on legacy/unstamped
+            // rows. GetStringOrDefault swallows GetOrdinal on pre-v9 DBs.
+            Puuid = GetStringOrDefault(reader, "puuid"),
             ChampionName = GetStringOrDefault(reader, "champion_name"),
             ChampionId = GetIntOrDefault(reader, "champion_id"),
             TeamId = GetIntOrDefault(reader, "team_id"),
@@ -282,7 +285,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
                 spell1_casts, spell2_casts, spell3_casts, spell4_casts,
                 summoner1_id, summoner2_id, items,
                 champ_level, team_kills, kill_participation,
-                raw_stats, enemy_laner, participant_map
+                raw_stats, enemy_laner, participant_map, puuid
             ) VALUES (
                 @game_id, @timestamp, @date_played, @game_duration, @game_mode,
                 @game_type, @queue_type, @summoner_name, @champion_name, @champion_id,
@@ -305,7 +308,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
                 @spell1_casts, @spell2_casts, @spell3_casts, @spell4_casts,
                 @summoner1_id, @summoner2_id, @items,
                 @champ_level, @team_kills, @kill_participation,
-                @raw_stats, @enemy_laner, @participant_map
+                @raw_stats, @enemy_laner, @participant_map, @puuid
             )";
 
         cmd.Parameters.AddWithValue("@game_id", stats.GameId);
@@ -377,6 +380,12 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         // 2v2 pairing can render before any backfill; dropping it here was why
         // the pairing only appeared after EnemyLanerBackfillService re-ran.
         cmd.Parameters.AddWithValue("@participant_map", stats.ParticipantMap);
+        // v3.1.2 (schema v9): stamp the stable Riot account id at capture for
+        // account-scoped analytics. SaveAsync is a plain insert guarded by a
+        // prior game_id existence check (it returns the existing id before
+        // reaching here), so there is no ON CONFLICT path that could wipe a
+        // good puuid with a later empty re-capture.
+        cmd.Parameters.AddWithValue("@puuid", stats.Puuid ?? "");
 
         await cmd.ExecuteNonQueryAsync();
 

@@ -86,7 +86,9 @@ public sealed class DashboardSnapshotBuilder
         var today = now.ToString("yyyy-MM-dd");
 
         // ── Today's session stats ───────────────────────────────────────────
-        var stats = await _sessionLogRepo.GetStatsForDateAsync(today);
+        // Lenient account-scope to the logged-in PUUID (own + legacy '' rows;
+        // foreign accounts excluded). Empty puuid = no-op (all rows).
+        var stats = await _sessionLogRepo.GetStatsForDateAsync(today, _configService.RiotPuuid);
         var totalGames = stats.Games;
         var wins = stats.Wins;
         var losses = stats.Losses;
@@ -228,7 +230,7 @@ public sealed class DashboardSnapshotBuilder
     {
         try
         {
-            var last30 = await _sessionLogRepo.GetDailySummariesAsync(days: 30);
+            var last30 = await _sessionLogRepo.GetDailySummariesAsync(days: 30, currentPuuid: _configService.RiotPuuid);
             var baselineGames = last30.Sum(s => s.Games);
             var baselineWins = last30.Sum(s => s.Wins);
 
