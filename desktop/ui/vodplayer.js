@@ -30,36 +30,39 @@ let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarg
 // viewer then falls back to the full-game timeline + a "set an objective" nudge).
 let _focusedObjId = null;   // currently focused objective id (number) or null
 let _framed = false;        // true when ≥1 objective and we're framing
+// True once the user manually changes the corresponding objective picker. While false,
+// that picker FOLLOWS the focused objective (so a clip/bookmark made under a frame ties
+// to it — P-034); once the user overrides, we stop auto-syncing it. One flag per picker:
+// the Quick Bookmark picker (vp-bm-obj) and the Clip picker (vp-clip-obj) move
+// independently, so the user can aim a clip at a different objective than a bookmark.
+let _bmObjUserSet = false;
+let _clipObjUserSet = false;
 const video = () => $('vp-video');
 
-// All this game's markers (events + bookmarks) tied to a given objective id, sorted
-// by time. Drives the per-tab marker COUNT and the in-objective marker stepper.
-// Derived entirely client-side from objectiveId already on each row (no backend).
+// This game's MARKERS for an objective: the AUTOMATED extractions only (game events —
+// deaths, flashes, recalls, objectives, etc.), sorted by time. Manually-made clips and
+// bookmarks are NOT markers — they're "moments" the user chose to save, counted in the
+// Moments panel instead. Keeping the two separate means the per-objective marker count
+// measures what the game produced for that objective, not how diligently the user clipped
+// (a count that would otherwise climb every time you save a clip). Shared-token aware: a
+// DEATH event counts for every objective tracking DEATH (objectiveIds list); falls back
+// to the single objectiveId for older snapshots.
 function markersForObjective(objId) {
   if (objId == null) return [];
   const id = Number(objId);
   const v = _vod || {};
   const out = [];
-  // Events: tracked when the objective is among the event's objectiveIds (shared-token
-  // aware — a DEATH event counts for every objective tracking DEATH). Falls back to the
-  // single objectiveId for older snapshots.
   for (const e of (v.gameEvents || [])) {
     const hit = Array.isArray(e.objectiveIds)
       ? e.objectiveIds.some((x) => Number(x) === id)
       : (e.objectiveId != null && Number(e.objectiveId) === id);
     if (hit) out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '' });
   }
-  // Bookmarks/clips are directly tagged to one objective (no shared-token ambiguity).
-  for (const b of (v.bookmarks || [])) {
-    if (b.objectiveId != null && Number(b.objectiveId) === id) {
-      out.push({ seconds: b.gameTimeSeconds || 0, label: b.note || '' });
-    }
-  }
   return out.sort((a, b) => a.seconds - b.seconds);
 }
 
-// Count of this game's markers for an objective (events + bookmarks). 0 = "empty
-// this game" (the objective was tracked but nothing happened for it — still a lesson).
+// Count of this game's automated markers for an objective. 0 = "empty this game" (the
+// objective was tracked but no automated event fired for it — still a lesson).
 function markerCountForObjective(objId) {
   return markersForObjective(objId).length;
 }
@@ -361,6 +364,10 @@ function setFocusedObjective(objId) {
   placeMarkers((v && v.duration) || _vod.gameDurationSeconds || 0);
   renderMoments();
   renderMarkerStepper();
+  // Keep the Quick Bookmark + Clip pickers tracking the frame so the next bookmark/clip
+  // ties to the objective now in focus. populateObjectivePicker() skips whichever picker
+  // the user has overridden, so this never clobbers a deliberate pick.
+  populateObjectivePicker();
 }
 
 // The 1-based ordinal of the marker nearest the current playhead (the one the user
@@ -661,11 +668,21 @@ let _bmFilter = 'auto';
 function momentLanes() {
   const v = _vod || {};
   let auto = (v.autoMoments || []).map((m) => normMoment(m, 'Auto moment'));
-  // Saved clips: prefer the evidence-inbox clip rows; fall back to bookmark clips.
+  // Saved clips: the evidence-inbox clip rows PLUS any bookmark-backed clip that has
+  // no evidence row of its own. A clip saved as a bookmark-with-clip (e.g. via Quick
+  // Bookmark, or before an evidence row was minted) would otherwise be invisible the
+  // moment ANY evidence clip exists — the old `if (clips.length === 0)` fallback only
+  // showed bookmark clips when there were zero evidence clips, silently dropping the
+  // odd one out. Merge instead, de-duped on the underlying bookmark id so a clip with
+  // both an evidence row and a bookmark row isn't listed twice.
   let clips = (v.savedClips || []).map((m) => normMoment(m, 'Saved clip'));
-  if (clips.length === 0) {
-    clips = (v.bookmarks || []).filter((b) => b.hasClip).map((b) => normBookmark(b, true));
-  }
+  const evidenceBmIds = new Set(
+    clips.map((c) => c.shareBookmarkId).filter((id) => id)
+  );
+  const bookmarkClips = (v.bookmarks || [])
+    .filter((b) => b.hasClip && !evidenceBmIds.has(b.id))
+    .map((b) => normBookmark(b, true));
+  clips = clips.concat(bookmarkClips);
   // Bookmarks lane = plain (non-clip) bookmarks.
   let bm = (v.bookmarks || []).filter((b) => !b.hasClip).map((b) => normBookmark(b, false));
   // FRAMED → scope every lane to the focused objective (moments carry objectiveId).
@@ -676,6 +693,14 @@ function momentLanes() {
     clips = clips.filter(ofFocus);
     bm = bm.filter(ofFocus);
   }
+  // Order every lane chronologically (by game time) so the moment list reads in the
+  // same left-to-right order as the event timeline — a clip made out of sequence
+  // (e.g. an early-game moment tagged last) sits where it belongs on the clock, not
+  // at the bottom by insertion order. Stable numeric sort on the shared `seconds`.
+  const byTime = (a, b) => (a.seconds || 0) - (b.seconds || 0);
+  auto.sort(byTime);
+  clips.sort(byTime);
+  bm.sort(byTime);
   return { auto, clips, bm };
 }
 
@@ -770,7 +795,7 @@ function renderMoments() {
     if (_framed && _focusedObjId != null) {
       const marks = markerCountForObjective(_focusedObjId);
       emptyEl.textContent = marks > 0
-        ? `No moments tagged for this objective yet. Its ${marks} timeline marker${marks === 1 ? '' : 's'} are on the track — clip or bookmark one to add it here.`
+        ? `No moments tagged for this objective yet. Its ${marks} automated marker${marks === 1 ? '' : 's'} (deaths, flashes, recalls…) are on the track — clip or bookmark one to add it here.`
         : 'No moments for this objective this game.';
     } else {
       emptyEl.textContent = 'No moments tagged for this game yet.';
@@ -995,11 +1020,32 @@ document.addEventListener('click', (ev) => {
 // preview (no Tauri backend).
 
 // Fill the Quick Bookmark objective <select> from the active objectives loaded in
-// fetchVod(). Safe to call repeatedly.
+// fetchVod(). When the viewer is FRAMED on an objective, default the picker to THAT
+// objective so a clip/bookmark made under the frame is tagged to what the user is
+// reviewing (the moment then shows in the focused panel instead of silently vanishing
+// — P-034). The user can still override to "No objective" or another objective. Safe
+// to call repeatedly; re-synced on objective switch. Fills BOTH the Quick Bookmark
+// (vp-bm-obj) and the Clip (vp-clip-obj) pickers, but each only while the user hasn't
+// overridden it — so re-syncing on a frame switch never clobbers a deliberate pick.
 function populateObjectivePicker() {
-  const sel = $('vp-bm-obj');
-  if (!sel) return;
-  fillObjectiveSelect(sel, null);
+  const frameSel = _framed ? _focusedObjId : null;
+  const bm = $('vp-bm-obj');
+  if (bm && !_bmObjUserSet) fillObjectiveSelect(bm, frameSel);
+  const clip = $('vp-clip-obj');
+  if (clip && !_clipObjUserSet) fillObjectiveSelect(clip, frameSel);
+}
+
+// The objective id a NEW clip / quick bookmark should be tagged with. The picker's own
+// dropdown wins when it holds an explicit value; otherwise, when framed, fall back to
+// the focused objective so framed work is never saved untagged (and then hidden by the
+// focused-panel filter — P-034). `pickerId` selects which dropdown to read (the clip
+// card and the quick-bookmark card each have their own). Returns null when nothing
+// applies (unframed + no explicit pick).
+function resolveSaveObjectiveId(pickerId) {
+  const objEl = $(pickerId);
+  if (objEl && objEl.value) return Number(objEl.value);
+  if (_framed && _focusedObjId != null) return Number(_focusedObjId);
+  return null;
 }
 
 // Fill an objective <select> with "No objective" + every active objective, marking
@@ -1035,9 +1081,10 @@ async function addBookmark() {
   const v = video();
   const timeS = Math.max(0, Math.floor(v.currentTime || 0));
   const noteEl = $('vp-bm-note');
-  const objEl = $('vp-bm-obj');
   const note = noteEl ? noteEl.value.trim() : '';
-  const objectiveId = objEl && objEl.value ? Number(objEl.value) : null;
+  // Tag the bookmark to the Quick Bookmark picker's pick, or (when framed, no explicit
+  // pick) the focused objective — so it shows in the focused panel, not vanishing (P-034).
+  const objectiveId = resolveSaveObjectiveId('vp-bm-obj');
 
   const addBtn = $('vp-bm-add');
   if (addBtn) addBtn.disabled = true;
@@ -1394,6 +1441,14 @@ document.addEventListener('blur', (ev) => {
 // (auto-moments + evidence-backed clips) go through set_evidence_objective; plain
 // clip-bookmarks (no evidence id) go through set_bookmark_objective.
 document.addEventListener('change', (ev) => {
+  // Quick Bookmark / Clip pickers: no write here — they just set the objective the NEXT
+  // bookmark/clip inherits. Mark the picker user-controlled so frame switches stop
+  // auto-syncing it (the user has made an explicit choice — P-034). The two pickers track
+  // their override state independently.
+  const bmSel = ev.target.closest && ev.target.closest('#vp-bm-obj');
+  if (bmSel) { _bmObjUserSet = true; return; }
+  const clipSel = ev.target.closest && ev.target.closest('#vp-clip-obj');
+  if (clipSel) { _clipObjUserSet = true; return; }
   const sel = ev.target.closest && ev.target.closest('.vp-ev-obj');
   if (!sel) return;
   ev.stopPropagation();
@@ -1501,6 +1556,10 @@ function clearClip() {
   const note = $('vp-clip-note');
   if (note) note.value = '';
   clipHint('');
+  // A fresh clip starts over: drop any per-clip objective override so the picker
+  // re-follows the focused objective (the next clip auto-ties to what's in focus).
+  _clipObjUserSet = false;
+  populateObjectivePicker();
   renderClipState();
 }
 function setClipQuality(q) {
@@ -1518,9 +1577,11 @@ async function saveClip() {
   const startTimeS = Math.min(_clipIn, _clipOut);
   const endTimeS = Math.max(_clipIn, _clipOut);
   const noteEl = $('vp-clip-note');
-  const objEl = $('vp-bm-obj'); // reuse the Quick Bookmark objective picker selection
   const note = noteEl ? noteEl.value.trim() : '';
-  const objectiveId = objEl && objEl.value ? Number(objEl.value) : null;
+  // Tag the clip to the Clip card's own picker, or (when framed, no explicit pick) the
+  // focused objective — otherwise a framed clip saves untagged and the focused-panel
+  // filter hides it, so it "doesn't show" (P-034).
+  const objectiveId = resolveSaveObjectiveId('vp-clip-obj');
 
   _clipBusy = true;
   renderClipState();

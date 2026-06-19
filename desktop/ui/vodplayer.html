@@ -177,6 +177,12 @@
                 <button class="key vp-iobtn vp-clipclear" id="vp-clip-clear" data-action="clip_clear" type="button" hidden>Clear</button>
               </div>
               <input class="inp" id="vp-clip-note" type="text" placeholder="What's happening?" autocomplete="off">
+              <!-- Objective the clip is tied to. Auto-set to the objective in focus when
+                   you save (so a clip made under a frame is tagged to it), but editable
+                   here first if this clip belongs to a different objective. -->
+              <select class="inp" id="vp-clip-obj" style="margin-bottom:0" aria-label="Tie clip to objective">
+                <option value="">No objective</option>
+              </select>
               <div class="qual" id="vp-clip-qual">
                 <span class="q good" data-action="clip_qual" data-q="good">Good</span>
                 <span class="q" data-action="clip_qual" data-q="neutral">Neutral</span>
