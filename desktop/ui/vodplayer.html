@@ -29,9 +29,34 @@
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
   <div class="shell">
-    <div class="eyebrow">VOD Analysis</div>
-    <div class="hero"><h1 id="vp-title">Loading recording…</h1></div>
+    <!-- Thin context line — replaces the old eyebrow/hero/statusline header. Shows
+         the game identity + "reviewing by objective", plus the OPEN REVIEW link and
+         the CINEMA (enlarge) toggle. The framed objective tab bar carries the rest. -->
+    <div class="vp-context" id="vp-context" hidden>
+      <div class="vp-ctx-meta" id="vp-ctx-meta"><b id="vp-title">Loading recording…</b></div>
+      <div style="display:flex;gap:7px;align-items:center">
+        <a class="vp-open-review-link" id="vp-open-review" href="#">OPEN REVIEW →</a>
+        <button class="vp-cinema-btn" id="vp-cinema" type="button" data-action="fullscreen">⛶ CINEMA</button>
+      </div>
+    </div>
+    <!-- Loading shim (pre-render) — kept minimal; the context line takes over on render. -->
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- Objective tab bar — the permanent framed-viewer header. Built by JS from the
+         active objectives; the focused one is expanded. Hidden until ≥1 objective. -->
+    <div class="vp-objbar" id="vp-objbar" hidden></div>
+
+    <!-- Zero-objective nudge — shown only when the user has no active objectives. The
+         viewer falls back to the full-game timeline; this prompts setting one. -->
+    <div class="vp-nudge" id="vp-nudge" hidden>
+      <span class="vp-nudge-ico">◎</span>
+      <div class="vp-nudge-body">
+        <div class="vp-nudge-title">Reviewing the whole game. Set an objective to frame it.</div>
+        <div class="vp-nudge-sub">Objectives turn this VOD into focused chapters — your events loud, everything else quiet.</div>
+      </div>
+      <a class="vp-nudge-cta" id="vp-nudge-cta" href="objectives.html">SET OBJECTIVE →</a>
+      <button class="vp-nudge-x" id="vp-nudge-x" type="button" aria-label="Dismiss">✕</button>
+    </div>
 
     <!-- Sign-in hint: sharing clips to revu.lol needs a signed-in account. Shown
          only when signed out (the JS checks get_auth_status on load). -->
@@ -50,15 +75,8 @@
     <!-- Player -->
     <div class="vp-wrap" id="vp-wrap" hidden>
 
-      <!-- PRIMARY: open review (the one loud element) -->
-      <div class="glass primary vp-primary">
-        <div class="body">
-          <div class="k">Next step · Open review</div>
-          <h2>Done tagging? Take these moments into the review.</h2>
-          <p>Auto-picked moments, saved clips, and bookmarks flow straight into the structured review on the other side.</p>
-        </div>
-        <button class="cta" id="vp-open-review" type="button">OPEN REVIEW →</button>
-      </div>
+      <!-- (The old OPEN REVIEW primary card now lives as a link in the context line
+           above; its nav target is wired identically in render().) -->
 
       <!-- 2-col: video + transport + timeline (left) · moments (right) -->
       <div class="cols">
@@ -95,9 +113,12 @@
             </div>
           </div>
 
-          <!-- event timeline (click-to-scrub + bookmark markers) -->
-          <div class="seclabel">Event timeline <span class="n">bookmarks · clips</span></div>
+          <!-- event timeline (click-to-scrub + bookmark markers). In framed mode the
+               in-objective marker stepper sits to its right (steps between THIS
+               objective's markers — distinct from the tab bar that switches objectives). -->
+          <div class="seclabel">Event timeline <span class="n" id="vp-tl-sub">bookmarks · clips</span></div>
           <div class="card">
+           <div class="vp-tl-row">
             <div class="vp-timeline" id="vp-seek" title="Click to scrub">
               <div class="ph" style="left:8px">EARLY</div>
               <div class="ph" style="left:42%">MID</div>
@@ -112,6 +133,17 @@
               <div class="vp-clipflag vp-clipflag-out" id="vp-clip-flag-out" hidden><span>OUT</span></div>
               <div class="play" id="vp-playhead" style="left:0%"></div>
             </div>
+            <!-- In-objective marker stepper — steps between the FOCUSED objective's
+                 markers (◀ ▶ + "marker i/N"). Built/updated by JS; hidden when unframed. -->
+            <div class="vp-mkstep" id="vp-mkstep" hidden>
+              <span class="vp-mkstep-lbl">in objective</span>
+              <div class="vp-mkstep-row">
+                <button class="vp-mkstep-btn" id="vp-mk-prev" type="button" aria-label="Previous marker">◀</button>
+                <button class="vp-mkstep-btn" id="vp-mk-next" type="button" aria-label="Next marker">▶</button>
+              </div>
+              <span class="vp-mkstep-count" id="vp-mk-count">marker <b>0</b> / 0</span>
+            </div>
+           </div>
           </div>
 
           <!-- quick bookmark (live write) + clip tools (clips deferred to Batch 3) -->

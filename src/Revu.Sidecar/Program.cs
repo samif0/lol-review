@@ -1589,6 +1589,10 @@ app.MapGet("/api/objectives/active", async (WriteServices w, ILogger<Program> lo
                 objectiveId = o.Id,
                 title = o.Title,
                 phaseLabel = Revu.Core.Data.Repositories.ObjectivePhases.ToDisplayLabel(o.Phase),
+                // Type drives the VOD objective-framed viewer's color-by-type chrome
+                // (primary/mental/mini). Additive, read-only — no schema change.
+                type = o.Type,
+                isMini = o.IsMini,
             })
             .ToList();
         return Results.Json(new { ok = true, objectives = rows }, jsonOptions);
