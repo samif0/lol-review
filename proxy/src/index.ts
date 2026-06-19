@@ -12,6 +12,7 @@
 import { handleLogin, handleLogout, handleSignup, handleVerify } from "./auth";
 import { findSession, deleteExpiredSessions } from "./db";
 import { Env } from "./types";
+import { GlobalRateLimiter } from "./ratelimit";
 import { sha256Hex, sha256Prefix } from "./crypto";
 import { badRequest, jsonResponse } from "./http";
 import {
@@ -56,7 +57,6 @@ function regionalFor(platform: string): string | null {
 
 type Bucket = { count: number; windowStartMs: number };
 const perTokenBuckets = new Map<string, Bucket>();
-const aggregateBucket: Bucket = { count: 0, windowStartMs: 0 };
 
 // Bucket maps live for the isolate's lifetime and are keyed by
 // attacker-influenced values (token hashes, IPs). Cap them so a key-churn
@@ -83,11 +83,44 @@ function bump(bucket: Bucket, limit: number, nowMs: number): boolean {
   return true;
 }
 
-function rateLimitOrDeny(tokenHash: string, env: Env): Response | null {
+// Ask the GlobalRateLimiter Durable Object whether one more request fits under
+// the aggregate cap. The DO is a single, globally-singleton counter, so this is
+// the TRUE cross-isolate aggregate (unlike the old per-isolate bucket).
+//
+// FAIL OPEN: if the DO is unbound, errors, or times out we ALLOW the request. A
+// limiter outage must never take down all traffic to Riot — the per-token gate
+// (still per-isolate, applied before this) plus Riot's own 429s remain as
+// backstops. We log the failure so a persistent outage is visible.
+async function aggregateAllowedByDO(env: Env, aggRps: number): Promise<boolean> {
+  const ns = env.RATE_LIMITER;
+  if (!ns) return true; // not configured (e.g. tests) → fail open
+  try {
+    const id = ns.idFromName("global");
+    const stub = ns.get(id);
+    const res = await stub.fetch(
+      `https://rate-limiter.internal/?limit=${aggRps}`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      console.error(JSON.stringify({ scope: "ratelimit.do", status: res.status }));
+      return true; // fail open
+    }
+    const data = (await res.json()) as { allowed?: boolean };
+    return data.allowed !== false; // anything but an explicit deny → allow
+  } catch (err) {
+    console.error(JSON.stringify({ scope: "ratelimit.do", error: (err as Error).message }));
+    return true; // fail open
+  }
+}
+
+async function rateLimitOrDeny(tokenHash: string, env: Env): Promise<Response | null> {
   const now = Date.now();
   const aggRps = parseInt(env.AGGREGATE_RPS || "18", 10);
   const perRps = parseInt(env.PER_TOKEN_RPS || "2", 10);
 
+  // Per-token gate stays per-isolate: it's a cheap synchronous first filter and
+  // only the AGGREGATE must be globally accurate. Apply it BEFORE the DO call so
+  // an abusive single token is rejected without a DO round-trip.
   pruneBuckets(perTokenBuckets, now, 1000);
   let b = perTokenBuckets.get(tokenHash);
   if (!b) {
@@ -97,8 +130,11 @@ function rateLimitOrDeny(tokenHash: string, env: Env): Response | null {
   if (!bump(b, perRps, now)) {
     return jsonResponse({ error: "rate_limit_per_token" }, 429, { "Retry-After": "1" });
   }
-  if (!bump(aggregateBucket, aggRps, now)) {
-    b.count = Math.max(0, b.count - 1);
+
+  // Global aggregate gate via the Durable Object (fail-open on any trouble).
+  const allowed = await aggregateAllowedByDO(env, aggRps);
+  if (!allowed) {
+    b.count = Math.max(0, b.count - 1); // refund the per-token slot we consumed
     return jsonResponse({ error: "rate_limit_aggregate" }, 429, { "Retry-After": "1" });
   }
   return null;
@@ -151,6 +187,49 @@ async function riotGet(url: string, env: Env): Promise<Response> {
   return new Response(body, { status: r.status, headers });
 }
 
+// ── Edge cache for IMMUTABLE upstream resources ─────────────────────────────
+//
+// A finished game never changes, so match detail (/match/{id}) and timeline
+// (/timeline/{id}) are perfectly cacheable forever. Caching them at the
+// Cloudflare edge is the single biggest lever against Riot's shared-key rate
+// limit: two users opening the same match share one upstream call, and a
+// re-open is served entirely from cache (zero Riot traffic).
+//
+// The cache key is the *regional Riot URL* — it deliberately does NOT include
+// the X-Riot-Token (that's a request header, not part of the URL), so all
+// callers share a single cached entry. matches-list / account / rank are NOT
+// immutable (accounts/ranks change, the matches list rotates) and must never
+// flow through here.
+async function riotGetCached(
+  url: string,
+  env: Env,
+  ctx: ExecutionContext | undefined,
+): Promise<Response> {
+  // `caches` may be absent in non-Worker test runtimes; fall back to a plain
+  // passthrough so the cache is a pure optimization, never a hard dependency.
+  const cache = (globalThis as { caches?: CacheStorage }).caches?.default;
+  if (!cache) return riotGet(url, env);
+
+  // Stable, token-free cache key built from the upstream Riot URL.
+  const cacheKey = new Request(url);
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+
+  const fresh = await riotGet(url, env);
+  // Only cache a genuine success. Errors (404/429/5xx) must stay uncached so a
+  // transient Riot hiccup isn't pinned for a year.
+  if (fresh.status !== 200) return fresh;
+
+  const headers = new Headers(fresh.headers);
+  headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  const cacheable = new Response(fresh.body, { status: fresh.status, headers });
+
+  const put = cache.put(cacheKey, cacheable.clone());
+  if (ctx) ctx.waitUntil(put);
+  else await put; // no ctx (e.g. tests) — still populate, just inline.
+  return cacheable;
+}
+
 async function handleAccount(url: URL, env: Env): Promise<Response> {
   const riotId = url.searchParams.get("riotId");
   const platform = url.searchParams.get("region");
@@ -183,7 +262,12 @@ async function handleMatches(url: URL, env: Env): Promise<Response> {
   return riotGet(u, env);
 }
 
-async function handleMatch(matchId: string, url: URL, env: Env): Promise<Response> {
+async function handleMatch(
+  matchId: string,
+  url: URL,
+  env: Env,
+  ctx: ExecutionContext | undefined,
+): Promise<Response> {
   const platform = url.searchParams.get("region");
   if (!platform) return badRequest("region required");
   const regional = regionalFor(platform);
@@ -192,7 +276,8 @@ async function handleMatch(matchId: string, url: URL, env: Env): Promise<Respons
     return badRequest("invalid matchId shape");
   }
   const u = `https://${regional}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}`;
-  return riotGet(u, env);
+  // Match detail is immutable — serve from / populate the edge cache.
+  return riotGetCached(u, env, ctx);
 }
 
 // v2.18: League-V4 ranked entries by PUUID. Platform-routed (na1, euw1, ...)
@@ -210,7 +295,12 @@ async function handleRank(url: URL, env: Env): Promise<Response> {
 // v2.18: Match-V5 timeline — per-minute participant frames (gold, CS, XP,
 // positions) and positioned events. Powers the desktop app's laning-at-10
 // backfill (CS@10 / gold-diff@10).
-async function handleTimeline(matchId: string, url: URL, env: Env): Promise<Response> {
+async function handleTimeline(
+  matchId: string,
+  url: URL,
+  env: Env,
+  ctx: ExecutionContext | undefined,
+): Promise<Response> {
   const platform = url.searchParams.get("region");
   if (!platform) return badRequest("region required");
   const regional = regionalFor(platform);
@@ -219,7 +309,8 @@ async function handleTimeline(matchId: string, url: URL, env: Env): Promise<Resp
     return badRequest("invalid matchId shape");
   }
   const u = `https://${regional}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}/timeline`;
-  return riotGet(u, env);
+  // Timeline is immutable for a finished game — serve from / populate the cache.
+  return riotGetCached(u, env, ctx);
 }
 
 // ── Rate limit by IP (auth endpoints) ───────────────────────────────────
@@ -476,7 +567,7 @@ async function dispatchClips(
   if (path === "/clips" && request.method === "POST") {
     const auth = await authOrDeny(request, env);
     if (auth instanceof Response) return withCors(auth, cors);
-    const limited = rateLimitOrDeny(auth.tokenHash, env);
+    const limited = await rateLimitOrDeny(auth.tokenHash, env);
     if (limited) return withCors(limited, cors);
     return withCors(await handleUploadClip(request, env, auth.userId), cors);
   }
@@ -496,6 +587,10 @@ async function dispatchClips(
 
 // ── Dispatch ────────────────────────────────────────────────────────────
 
+// Workers requires Durable Object classes to be exported from the main module
+// (the entry referenced by wrangler.toml `main`). Re-export it here.
+export { GlobalRateLimiter };
+
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Daily housekeeping: purge expired clips (R2 + D1) and stale sessions.
@@ -512,7 +607,7 @@ export default {
     );
   },
 
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
     const cors = corsHeadersFor(origin, env);
@@ -593,7 +688,7 @@ export default {
       const auth = await authWebJwtOrDeny(request, env);
       if (auth instanceof Response) return withCors(auth, cors);
 
-      const limited = rateLimitOrDeny(auth.tokenHash, env);
+      const limited = await rateLimitOrDeny(auth.tokenHash, env);
       if (limited) return withCors(limited, cors);
 
       const t0 = Date.now();
@@ -607,10 +702,10 @@ export default {
           response = await handleRank(url, env);
         } else if (url.pathname.startsWith("/web/timeline/")) {
           const matchId = url.pathname.slice("/web/timeline/".length);
-          response = await handleTimeline(matchId, url, env);
+          response = await handleTimeline(matchId, url, env, ctx);
         } else if (url.pathname.startsWith("/web/match/")) {
           const matchId = url.pathname.slice("/web/match/".length);
-          response = await handleMatch(matchId, url, env);
+          response = await handleMatch(matchId, url, env, ctx);
         } else {
           response = jsonResponse({ error: "not_found" }, 404);
         }
@@ -643,7 +738,7 @@ export default {
     const auth = await authOrDeny(request, env);
     if (auth instanceof Response) return withCors(auth, cors);
 
-    const limited = rateLimitOrDeny(auth.tokenHash, env);
+    const limited = await rateLimitOrDeny(auth.tokenHash, env);
     if (limited) return withCors(limited, cors);
 
     const t0 = Date.now();
@@ -657,10 +752,10 @@ export default {
         response = await handleRank(url, env);
       } else if (url.pathname.startsWith("/timeline/")) {
         const matchId = url.pathname.slice("/timeline/".length);
-        response = await handleTimeline(matchId, url, env);
+        response = await handleTimeline(matchId, url, env, ctx);
       } else if (url.pathname.startsWith("/match/")) {
         const matchId = url.pathname.slice("/match/".length);
-        response = await handleMatch(matchId, url, env);
+        response = await handleMatch(matchId, url, env, ctx);
       } else {
         response = jsonResponse({ error: "not_found" }, 404);
       }

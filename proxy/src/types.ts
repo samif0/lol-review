@@ -20,4 +20,9 @@ export interface Env {
   // Bindings
   DB: D1Database;
   CLIPS: R2Bucket;
+  // Durable Object namespace backing the GlobalRateLimiter — a single
+  // ("global") instance enforces the TRUE aggregate RPS cap across all
+  // isolates (see src/ratelimit.ts). Optional so test envs that don't exercise
+  // the limiter (and the per-isolate fail-open path) can omit it.
+  RATE_LIMITER?: DurableObjectNamespace;
 }

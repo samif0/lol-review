@@ -13,8 +13,22 @@ compatibility_date = "2025-01-10"
 #
 # Non-secret vars can go here:
 [vars]
-# Aggregate hard cap across all users, as a safety margin under Riot's 20/s
-# app-rate-limit. If you upgrade to a higher-tier key, bump this.
+# Aggregate hard cap across ALL users + ALL isolates, as a safety margin under
+# Riot's app-rate-limit. This is now a TRUE global cap: it is enforced by the
+# GlobalRateLimiter Durable Object (one singleton counter for the whole Worker),
+# not the old per-isolate bucket, so the real rate hitting Riot no longer scales
+# with the number of Worker isolates.
+#
+# CONFIRM THE KEY TIER before setting this — AGGREGATE_RPS MUST stay under the
+# REAL app-rate-limit of the key in RIOT_API_KEY, or the shared key gets
+# throttled/banned (a GLOBAL outage):
+#   - Development key  → ~20 req/s (and 100 req / 2 min). Default 18 fits here.
+#   - Personal key     → typically 20 req/s / 100 per 2 min (same ballpark).
+#   - Production key    → much higher (e.g. 500/10s, 30000/10min); negotiated.
+# Confirm the live limit on the Riot Developer Portal app page (the key's
+# "Rate Limits" panel) or read the X-App-Rate-Limit response header Riot returns
+# on any call. If you upgrade tiers, bump this value AND re-confirm — do not
+# guess. Leave headroom (we run 18 under a 20/s dev cap).
 AGGREGATE_RPS = "18"
 # Per-token cap in requests/second. Session-token (Path B) users share this;
 # static-token (Path A) operators use the same limit.
@@ -49,6 +63,26 @@ database_id = "cfdaaa55-8443-480f-96e5-04eb3eb8c6ff"
 [[r2_buckets]]
 binding = "CLIPS"
 bucket_name = "revu-clips"
+
+# Global rate limiter. A single Durable Object instance (addressed by the fixed
+# name "global") holds the TRUE aggregate request counter across every Worker
+# isolate, fixing the per-isolate N×AGGREGATE_RPS overshoot. The Worker fails
+# OPEN if this DO is unreachable, so a limiter outage degrades to per-isolate
+# limiting rather than blocking all traffic.
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "GlobalRateLimiter"
+
+# Durable Object migration. Required the first time a DO class is introduced:
+# `wrangler deploy` reads this to register GlobalRateLimiter. Bump the tag and
+# add a new [[migrations]] block for future DO class renames/deletes.
+# NOTE: new_sqlite_classes (not new_classes) — the free plan only allows
+# SQLite-backed Durable Objects. GlobalRateLimiter keeps its 1s window in
+# in-memory instance fields (no storage API used), so the backing class is
+# immaterial to behavior; this just satisfies the free-tier requirement.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GlobalRateLimiter"]
 
 # Daily cleanup of expired clips (30-day retention). Purges R2 objects + D1 rows.
 [triggers]
