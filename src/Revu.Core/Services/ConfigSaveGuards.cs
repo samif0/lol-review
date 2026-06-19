@@ -38,4 +38,24 @@ public static class ConfigSaveGuards
         resolved = trimmed;
         return true;
     }
+
+    /// <summary>
+    /// Like <see cref="TryResolveFolderWrite"/> but for the IDENTITY text fields
+    /// (Riot ID / region): null OR empty/whitespace = leave the saved value
+    /// unchanged. This closes the P-020-class clobber where a Save issued before the
+    /// Settings page finished hydrating sends riotId="" / region="" (the <select>'s
+    /// pre-render default) and blanks a configured account. There is no explicit-clear
+    /// sentinel here — clearing the Riot account is owned by sign-out, never by an
+    /// empty Settings save. Returns the trimmed value when it is a real (non-blank)
+    /// string; the caller applies any further normalization (e.g. region lower-casing).
+    /// </summary>
+    public static bool TryResolveTextWrite(string? value, out string resolved)
+    {
+        resolved = "";
+        if (value is null) return false;
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0) return false; // blank → leave unchanged
+        resolved = trimmed;
+        return true;
+    }
 }

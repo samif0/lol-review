@@ -242,14 +242,28 @@ async function wireLiveAutoShow() {
   const goto = (file) => { if (!frameHas(file)) frameGoto(file); };
   const leaveLiveSurface = () => { if (frameHas('pregame.html') || frameHas('ingame.html')) frameGoto('dashboard.html'); };
 
+  // Pages where the user is actively ENTERING DATA — auto-show must NOT yank them
+  // off these mid-task (an LCU champ-select/game tick reloading the iframe wipes the
+  // unsaved form, the P-035 regression). Mirrors shell.js:125-133; this is the path
+  // that actually runs in-app (shell.js's copy is gated !FRAMED, off for the iframe).
+  const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html'];
+  const onActiveWorkPage = () => ACTIVE_WORK_PAGES.some((f) => frameHas(f));
+  // Auto-show to a live surface, but never interrupt an active-work page — UNLESS
+  // we're already on a live surface (pregame↔ingame switches are always honored).
+  const liveGoto = (file) => {
+    if (frameHas('pregame.html') || frameHas('ingame.html')) { goto(file); return; }
+    if (onActiveWorkPage()) return; // don't yank the user off a form mid-edit
+    goto(file);
+  };
+
   let sawFirstLiveState = false;
   await listen('lcu-event', (event) => {
     const msg = event.payload || {};
     const t = msg.type;
     const p = msg.payload || {};
     switch (t) {
-      case 'champSelectStarted': goto('pregame.html'); break;
-      case 'gameInProgress': goto('ingame.html'); break;
+      case 'champSelectStarted': liveGoto('pregame.html'); break;
+      case 'gameInProgress': liveGoto('ingame.html'); break;
       case 'gameEnded':
       case 'champSelectCancelled': leaveLiveSurface(); break;
       case 'liveState':
@@ -258,8 +272,8 @@ async function wireLiveAutoShow() {
         setLcuIndicator(!!p.lcuConnected);
         if (!sawFirstLiveState) {
           sawFirstLiveState = true;
-          if (p.isGameInProgress) goto('ingame.html');
-          else if (p.sessionKey) goto('pregame.html');
+          if (p.isGameInProgress) liveGoto('ingame.html');
+          else if (p.sessionKey) liveGoto('pregame.html');
         }
         break;
       case 'lcuConnection': setLcuIndicator(!!p.connected); break;

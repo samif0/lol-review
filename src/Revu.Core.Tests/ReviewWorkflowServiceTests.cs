@@ -340,6 +340,110 @@ public sealed class ReviewWorkflowServiceTests
         Assert.False(savedState.PracticedFromEvidence);
     }
 
+    [Fact]
+    public async Task SaveAsync_NullFields_LeavePersistedReviewDataUnchanged()
+    {
+        // Regression for the Tauri review-form clobber: gatherForm() omits
+        // outside/within/personal-contribution, improvement-note, mental-handled,
+        // enemy-laner and matchup-note, so they arrive NULL. Null must mean "leave
+        // unchanged" — a debrief-only save must NOT zero migrated/pre-existing data
+        // (it used to wipe all of these on a single save).
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 6001;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Sivir", win: true));
+
+        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
+
+        // 1) A FULL save (as the WinUI app / a complete form would write) populates
+        //    every field, including the ones the Tauri form doesn't render.
+        var fullSave = await workflow.SaveAsync(new SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: "Sivir",
+            Win: true,
+            RequireReviewNotes: false,
+            Snapshot: EmptySnapshot with
+            {
+                MentalRating = 6,
+                OutsideControl = "karma griefing the dive",
+                WithinControl = "held flash too long",
+                PersonalContribution = "overstayed the wave",
+                ImprovementNote = "ward the dive path",
+                MentalHandled = "reset after the int",
+                EnemyLaner = "Ezreal",
+                MatchupNote = "block E for his Q",
+            }));
+        Assert.True(fullSave.Success);
+
+        // 2) A debrief-only re-save from the Tauri form: the seven omitted fields are
+        //    NULL, only the rendered fields carry values.
+        var partialSave = await workflow.SaveAsync(new SaveReviewRequest(
+            GameId: gameId,
+            ChampionName: "Sivir",
+            Win: true,
+            RequireReviewNotes: false,
+            Snapshot: EmptySnapshot with
+            {
+                MentalRating = 6,
+                WentWell = "good early trades",          // a rendered field DOES update
+                OutsideControl = null,                   // omitted by the Tauri form
+                WithinControl = null,
+                PersonalContribution = null,
+                ImprovementNote = null,
+                MentalHandled = null,
+                EnemyLaner = null,
+                MatchupNote = null,
+            }));
+        Assert.True(partialSave.Success);
+        // Enemy laner is reported back unchanged, not blanked.
+        Assert.Equal("Ezreal", partialSave.SavedEnemyLaner);
+
+        // 3) Everything the form omitted survived; the rendered field updated.
+        var game = await scope.Games.GetAsync(gameId);
+        Assert.NotNull(game);
+        Assert.Equal("karma griefing the dive", game!.OutsideControl);
+        Assert.Equal("held flash too long", game.WithinControl);
+        Assert.Equal("overstayed the wave", game.PersonalContribution);
+        Assert.Equal("Ezreal", game.EnemyLaner);
+        Assert.Equal("good early trades", game.WentWell);
+
+        var entry = await scope.SessionLog.GetEntryAsync(gameId);
+        Assert.NotNull(entry);
+        Assert.Equal("ward the dive path", entry!.ImprovementNote);
+        Assert.Equal("reset after the int", entry.MentalHandled);
+
+        var matchupNote = await scope.MatchupNotes.GetForGameAsync(gameId);
+        Assert.NotNull(matchupNote);
+        Assert.Equal("block E for his Q", matchupNote!.Note);
+    }
+
+    [Fact]
+    public async Task SaveAsync_ExplicitEmptyString_StillOverwrites()
+    {
+        // The flip side: a NON-null empty string is an explicit clear (a cleared
+        // textarea the form DID submit) and must still overwrite. Guards against
+        // over-correcting the null=unchanged fix into "empty never writes".
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 6002;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Sivir", win: true));
+        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
+
+        await workflow.SaveAsync(new SaveReviewRequest(gameId, "Sivir", true, false,
+            EmptySnapshot with { OutsideControl = "something", WithinControl = "else" }));
+
+        // Now explicitly clear OutsideControl (empty string, not null).
+        var clear = await workflow.SaveAsync(new SaveReviewRequest(gameId, "Sivir", true, false,
+            EmptySnapshot with { OutsideControl = "", WithinControl = null }));
+        Assert.True(clear.Success);
+
+        var game = await scope.Games.GetAsync(gameId);
+        Assert.Equal("", game!.OutsideControl);   // explicit "" overwrote
+        Assert.Equal("else", game.WithinControl); // null left it unchanged
+    }
+
     private static ReviewWorkflowService CreateWorkflow(TestDatabaseScope scope, bool requireReviewNotes)
     {
         return new ReviewWorkflowService(

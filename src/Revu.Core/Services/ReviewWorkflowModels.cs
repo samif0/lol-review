@@ -46,15 +46,22 @@ public sealed record ReviewSnapshot(
     string Mistakes,
     string FocusNext,
     string ReviewNotes,
-    string ImprovementNote,
+    // NULL = "leave the persisted value unchanged" for the fields below. The Tauri
+    // review form does NOT render these (improvement/mental-handled/the three
+    // attribution texts/enemy-laner/matchup-note), so its save payload omits them
+    // and they arrive null — which must NOT overwrite migrated/pre-existing data
+    // (the save path used to coerce null→"" and blind-UPDATE, wiping it). Callers
+    // that DO own these fields (the read snapshot + draft builders) still pass a
+    // concrete string. See ReviewWorkflowService.SaveAsync for the skip-on-null.
+    string? ImprovementNote,
     string Attribution,
-    string MentalHandled,
+    string? MentalHandled,
     string SpottedProblems,
-    string OutsideControl,
-    string WithinControl,
-    string PersonalContribution,
-    string EnemyLaner,
-    string MatchupNote,
+    string? OutsideControl,
+    string? WithinControl,
+    string? PersonalContribution,
+    string? EnemyLaner,
+    string? MatchupNote,
     IReadOnlyList<long> SelectedTagIds,
     IReadOnlyList<SaveObjectivePracticeRequest> ObjectivePractices,
     // v2.18 (schema v5): one-tap focus adherence. null = unanswered,

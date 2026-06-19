@@ -382,19 +382,39 @@ pub async fn post_json_timeout(
             .await
         {
             Ok(resp) => {
+                // STATUS FIRST, then read the body as TEXT (mirror get_json's safe
+                // ordering). Reading the body as JSON before checking the status used
+                // to mask EVERY non-JSON error body — an unhandled-exception empty 500
+                // or the bearer middleware's plain-text "Unauthorized" 401 — as the
+                // cryptic "sidecar JSON parse failed", losing the real status. Now a
+                // failure surfaces the actual HTTP status + whatever message we can
+                // extract (the route's JSON {error}, else the raw body text).
                 let status = resp.status();
-                let value = resp
-                    .json::<serde_json::Value>()
+                let body = resp
+                    .text()
                     .await
-                    .map_err(|e| format!("sidecar JSON parse failed: {e}"))?;
+                    .map_err(|e| format!("sidecar response read failed: {e}"))?;
+
                 if !status.is_success() {
-                    let msg = value
-                        .get("error")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("write failed");
+                    // Prefer a structured {error} field when the body IS JSON; fall
+                    // back to the raw body text (e.g. plain "Unauthorized") so a 401 /
+                    // 500 reads as itself instead of a parse error.
+                    let msg = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|v| {
+                            v.get("error").and_then(|e| e.as_str()).map(str::to_string)
+                        })
+                        .unwrap_or_else(|| {
+                            let t = body.trim();
+                            if t.is_empty() { "write failed".to_string() } else { t.to_string() }
+                        });
                     return Err(format!("sidecar HTTP {status}: {msg}"));
                 }
-                return Ok(value);
+
+                // 2xx: now the body should be JSON. A parse error here is a real
+                // protocol bug (success status but non-JSON body), reported as such.
+                return serde_json::from_str::<serde_json::Value>(&body)
+                    .map_err(|e| format!("sidecar JSON parse failed: {e}"));
             }
             Err(e) if attempt == 0 && e.is_connect() => continue,
             Err(e) => return Err(format!("sidecar request failed: {e}")),

@@ -124,7 +124,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             .ToList();
 
         var objectiveStates = BuildObjectiveStates(activeObjectives, priorityObjective, savedObjectives, snapshot.ObjectivePractices, game, evidenceObjectiveIds);
-        var matchupHistory = await GetMatchupHistoryAsync(game.ChampionName, snapshot.EnemyLaner, gameId, cancellationToken);
+        var matchupHistory = await GetMatchupHistoryAsync(game.ChampionName, snapshot.EnemyLaner ?? "", gameId, cancellationToken);
         var bookmarkCount = vod is null ? 0 : await _vodRepository.GetBookmarkCountAsync(gameId);
 
         // v2.18 (schema v5): the intent declared at Start Block on the day this
@@ -201,8 +201,14 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
 
         try
         {
-            var trimmedEnemy = request.Snapshot.EnemyLaner.Trim();
-            var trimmedMatchupNote = request.Snapshot.MatchupNote.Trim();
+            // NULL = "leave the persisted value unchanged" for the fields the Tauri
+            // review form doesn't render (it omits them, so they arrive null). We
+            // load the current rows first and COALESCE nulls back to what's stored,
+            // so the (blind) UPDATEs re-write the existing value instead of zeroing
+            // migrated/pre-existing data. A non-null value (incl. "") is an explicit
+            // edit and overwrites as before.
+            var existingGame = await _gameRepository.GetAsync(request.GameId);
+            var existingEntry = await _sessionLogRepository.GetEntryAsync(request.GameId);
 
             var review = new GameReview
             {
@@ -212,20 +218,28 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 WentWell = request.Snapshot.WentWell.Trim(),
                 FocusNext = request.Snapshot.FocusNext.Trim(),
                 SpottedProblems = request.Snapshot.SpottedProblems.Trim(),
-                OutsideControl = request.Snapshot.OutsideControl.Trim(),
-                WithinControl = request.Snapshot.WithinControl.Trim(),
+                OutsideControl = request.Snapshot.OutsideControl?.Trim() ?? existingGame?.OutsideControl ?? "",
+                WithinControl = request.Snapshot.WithinControl?.Trim() ?? existingGame?.WithinControl ?? "",
                 Attribution = request.Snapshot.Attribution.Trim(),
-                PersonalContribution = request.Snapshot.PersonalContribution.Trim(),
+                PersonalContribution = request.Snapshot.PersonalContribution?.Trim() ?? existingGame?.PersonalContribution ?? "",
             };
 
             await _gameRepository.UpdateReviewAsync(request.GameId, review);
+            // improvement_note: null → keep the stored note (LogGameAsync writes it
+            // unconditionally, so pass the existing value through rather than "").
+            var improvementNote = request.Snapshot.ImprovementNote?.Trim()
+                ?? existingEntry?.ImprovementNote ?? "";
             await _sessionLogRepository.LogGameAsync(
                 request.GameId,
                 request.ChampionName,
                 request.Win,
                 request.Snapshot.MentalRating,
-                request.Snapshot.ImprovementNote.Trim());
-            await _sessionLogRepository.UpdateMentalHandledAsync(request.GameId, request.Snapshot.MentalHandled.Trim());
+                improvementNote);
+            // mental_handled: null → don't touch it (skip the UPDATE entirely).
+            if (request.Snapshot.MentalHandled is not null)
+            {
+                await _sessionLogRepository.UpdateMentalHandledAsync(request.GameId, request.Snapshot.MentalHandled.Trim());
+            }
             // v2.18 (schema v5): persist the one-tap focus-adherence answer.
             // Runs after LogGameAsync so the session_log row is guaranteed.
             await _sessionLogRepository.UpdateFocusAdherenceAsync(request.GameId, request.Snapshot.FocusAdherence);
@@ -233,19 +247,30 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             // skip-save, they re-stamp is_skipped after this returns.
             await _sessionLogRepository.ClearSkippedAsync(request.GameId);
 
-            var existingGame = await _gameRepository.GetAsync(request.GameId);
-            if (!string.Equals(existingGame?.EnemyLaner ?? "", trimmedEnemy, StringComparison.Ordinal))
+            // enemy_laner / matchup_notes: when the form omits BOTH (both null) leave
+            // the stored enemy laner and matchup note untouched — never blank the
+            // enemy or hit the DeleteForGameAsync branch on a debrief-only save. Only
+            // when at least one was explicitly sent do we run the upsert/delete logic.
+            var savedEnemyLaner = existingGame?.EnemyLaner ?? "";
+            if (request.Snapshot.EnemyLaner is not null || request.Snapshot.MatchupNote is not null)
             {
-                await _gameRepository.UpdateEnemyLanerAsync(request.GameId, trimmedEnemy);
-            }
+                var trimmedEnemy = (request.Snapshot.EnemyLaner ?? existingGame?.EnemyLaner ?? "").Trim();
+                var trimmedMatchupNote = (request.Snapshot.MatchupNote ?? "").Trim();
+                savedEnemyLaner = trimmedEnemy;
 
-            if (!string.IsNullOrWhiteSpace(trimmedEnemy) || !string.IsNullOrWhiteSpace(trimmedMatchupNote))
-            {
-                await _matchupNotesRepository.UpsertForGameAsync(request.GameId, request.ChampionName, trimmedEnemy, trimmedMatchupNote);
-            }
-            else
-            {
-                await _matchupNotesRepository.DeleteForGameAsync(request.GameId);
+                if (!string.Equals(existingGame?.EnemyLaner ?? "", trimmedEnemy, StringComparison.Ordinal))
+                {
+                    await _gameRepository.UpdateEnemyLanerAsync(request.GameId, trimmedEnemy);
+                }
+
+                if (!string.IsNullOrWhiteSpace(trimmedEnemy) || !string.IsNullOrWhiteSpace(trimmedMatchupNote))
+                {
+                    await _matchupNotesRepository.UpsertForGameAsync(request.GameId, request.ChampionName, trimmedEnemy, trimmedMatchupNote);
+                }
+                else
+                {
+                    await _matchupNotesRepository.DeleteForGameAsync(request.GameId);
+                }
             }
 
             foreach (var objective in request.Snapshot.ObjectivePractices)
@@ -277,7 +302,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 $"coach review-saved notify {request.GameId}",
                 cancellationToken);
 
-            return ReviewSaveResult.Ok(trimmedEnemy);
+            return ReviewSaveResult.Ok(savedEnemyLaner);
         }
         catch (Exception ex)
         {
@@ -382,15 +407,18 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 Mistakes = request.Snapshot.Mistakes.Trim(),
                 FocusNext = request.Snapshot.FocusNext.Trim(),
                 ReviewNotes = request.Snapshot.ReviewNotes.Trim(),
-                ImprovementNote = request.Snapshot.ImprovementNote.Trim(),
+                // Draft is the autosave safety net — it writes the WHOLE snapshot
+                // every time, so null (an omitted field) is just stored as "". The
+                // null=unchanged convention lives on the FINAL save path, not here.
+                ImprovementNote = (request.Snapshot.ImprovementNote ?? "").Trim(),
                 Attribution = request.Snapshot.Attribution.Trim(),
-                MentalHandled = request.Snapshot.MentalHandled.Trim(),
+                MentalHandled = (request.Snapshot.MentalHandled ?? "").Trim(),
                 SpottedProblems = request.Snapshot.SpottedProblems.Trim(),
-                OutsideControl = request.Snapshot.OutsideControl.Trim(),
-                WithinControl = request.Snapshot.WithinControl.Trim(),
-                PersonalContribution = request.Snapshot.PersonalContribution.Trim(),
-                EnemyLaner = request.Snapshot.EnemyLaner.Trim(),
-                MatchupNote = request.Snapshot.MatchupNote.Trim(),
+                OutsideControl = (request.Snapshot.OutsideControl ?? "").Trim(),
+                WithinControl = (request.Snapshot.WithinControl ?? "").Trim(),
+                PersonalContribution = (request.Snapshot.PersonalContribution ?? "").Trim(),
+                EnemyLaner = (request.Snapshot.EnemyLaner ?? "").Trim(),
+                MatchupNote = (request.Snapshot.MatchupNote ?? "").Trim(),
                 SelectedTagIdsJson = JsonSerializer.Serialize(request.Snapshot.SelectedTagIds),
                 ObjectiveAssessmentsJson = JsonSerializer.Serialize(request.Snapshot.ObjectivePractices),
                 UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()

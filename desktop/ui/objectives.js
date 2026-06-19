@@ -711,15 +711,29 @@ function openCreateForm() {
 // champions / criterion / focus phase aren't on the list snapshot).
 async function openEditForm(id) {
   if (id == null) return;
+
+  // Hydrate FIRST, before opening the form. The Edit form's submit replaces the
+  // objective's side tables (prompts, tied events, structured criterion, focus
+  // phase) WHOLESALE. The list snapshot (objectiveById) does NOT carry those
+  // fields, so opening the form from it and saving would silently delete them.
+  // If full hydration fails (transient 404 / locked DB / sidecar restart), refuse
+  // to open a lossy edit form — show a retry message instead of destroying data.
+  const hydrated = await fetchObjectiveForEdit(id);
+  if (!hydrated) {
+    // Surface on the always-visible statusline (the form is still closed, so its
+    // own #form-err wouldn't show). Non-destructive: the objective is left intact.
+    const statusB = document.querySelector('#statusline b');
+    if (statusB) statusB.textContent = "Couldn't load that objective to edit — try again.";
+    return;
+  }
+
   _editId = Number(id);
   $('form-title').textContent = 'Edit Objective';
   $('form-submit').textContent = 'Save Changes';
   resetFormFields();
   revealForm();
 
-  const hydrated = await fetchObjectiveForEdit(id);
-  const o = hydrated || objectiveById(id);
-  if (!o) return; // form stays open with defaults; submit still works as an edit
+  const o = hydrated;
 
   if (Array.isArray(hydrated && hydrated.playedChampions)) _playedChampions = hydrated.playedChampions;
   if (Array.isArray(hydrated && hydrated.criteriaMetrics) && hydrated.criteriaMetrics.length) {

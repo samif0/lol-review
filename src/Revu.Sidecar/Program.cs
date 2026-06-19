@@ -241,19 +241,30 @@ var jsonOptions = new JsonSerializerOptions
 
 var app = builder.Build();
 
-// ── Additive schema upgrade (CRITICAL) ───────────────────────────────────────
-// The WinUI app used to own DB migration; it's gone, so the sidecar — the only
-// writer now — must apply new versioned migrations on startup or write endpoints
-// hit "no such table" the moment a migration adds one (e.g. v8 objective_event_types).
-// We run ONLY the additive, non-destructive subset (CREATE IF NOT EXISTS + ALTER
-// migrations), via the WRITE factory, NEVER the normalize-rebuild/seed phases. A
-// missing DB is a no-op (nothing to migrate yet); any failure is logged but does
-// not block the sidecar from starting (read endpoints still work).
+// ── First-run DB creation + additive schema upgrade (CRITICAL) ───────────────
+// The WinUI app used to own DB creation AND migration; it's gone, so the sidecar —
+// the only writer now — must do both on startup:
+//   1. FRESH INSTALL: if NO DB exists at all, create an empty one. Without this a
+//      brand-new (Tauri-only) user has no DB, every write throws SQLITE_CANTOPEN,
+//      and the whole app is dead. CreateFreshDatabaseIfMissing is missing-only and
+//      NEVER opens/recreates an existing DB — so it cannot wipe data.
+//   2. ANY DB (created above OR pre-existing/migrated): apply ONLY the additive,
+//      non-destructive subset (CREATE IF NOT EXISTS + versioned ALTER migrations),
+//      NEVER the normalize-rebuild/seed phases. This both builds the full schema on
+//      the just-created empty DB and brings an old WinUI-era DB up to the current
+//      version (e.g. v8 objective_event_types) so write endpoints don't hit
+//      "no such table". Idempotent and safe to run on every startup.
+// Any failure is logged but does not block the sidecar from starting.
 try
 {
     var migrateLogger = app.Services.GetRequiredService<ILoggerFactory>();
     var writeFactory = new WriteSqliteConnectionFactory(
         migrateLogger.CreateLogger<WriteSqliteConnectionFactory>());
+
+    // Missing-only: returns true only on a genuinely fresh install (no canonical
+    // AND no legacy DB). On an existing DB this is a no-op — no recreation, no wipe.
+    writeFactory.CreateFreshDatabaseIfMissing();
+
     if (File.Exists(writeFactory.DatabasePath))
     {
         var migrator = new DatabaseInitializer(
@@ -262,16 +273,55 @@ try
     }
     else
     {
-        migrateLogger.CreateLogger("Startup").LogInformation(
-            "Schema upgrade skipped: no DB at {Path} yet.", writeFactory.DatabasePath);
+        // The factory may have resolved to the legacy path (lol_review.db); in that
+        // case CreateFreshDatabaseIfMissing was a no-op and DatabasePath points at a
+        // file that does exist. If neither exists here, creation failed — log it.
+        migrateLogger.CreateLogger("Startup").LogWarning(
+            "Schema upgrade skipped: no DB at {Path} after first-run check.",
+            writeFactory.DatabasePath);
     }
 }
 catch (Exception ex)
 {
     app.Services.GetRequiredService<ILoggerFactory>()
         .CreateLogger("Startup")
-        .LogError(ex, "Additive schema upgrade failed at startup");
+        .LogError(ex, "First-run DB creation / additive schema upgrade failed at startup");
 }
+
+// ── Global exception handler (OUTERMOST middleware) ──────────────────────────
+// Without this, an unhandled throw in any route handler returns — in the default
+// Production environment — a bare HTTP 500 with an EMPTY body. The Rust transport
+// then failed to parse the empty body as JSON and surfaced the cryptic
+// "sidecar JSON parse failed", losing the real cause (locked DB, constraint, disk,
+// missing column). We catch everything here and return a JSON {error} body so the
+// failure is legible end-to-end. Registered first so it wraps the bearer middleware
+// and every endpoint. (Write routes still SHOULD validate + return 4xx for expected
+// failures; this is the safety net for the unexpected ones.)
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        app.Services.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("UnhandledRequest")
+            .LogError(ex, "Unhandled exception serving {Method} {Path}",
+                context.Request.Method, context.Request.Path);
+        if (!context.Response.HasStarted)
+        {
+            context.Response.Clear();
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                ok = false,
+                error = "The app hit an unexpected error saving. Please try again.",
+            });
+        }
+    }
+});
 
 // ── Bearer-token middleware (constant-time compare; /api/health exempt) ──────
 var expectedTokenBytes = Encoding.UTF8.GetBytes(bearerToken);
@@ -287,8 +337,13 @@ app.Use(async (context, next) =>
     if (!TryGetBearer(context.Request.Headers.Authorization.ToString(), out var presented)
         || !FixedTimeTokenEquals(expectedTokenBytes, presented))
     {
+        // JSON body (not plain text) so the Rust transport's {error} extractor can
+        // surface a clean "sidecar HTTP 401: Unauthorized" instead of choking on a
+        // non-JSON body. The status-first ordering in sidecar.rs already handles the
+        // plain-text case, but emitting JSON keeps the contract consistent.
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await context.Response.WriteAsync("Unauthorized");
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
         return;
     }
 
@@ -766,21 +821,25 @@ app.MapPost("/api/review/save", async (SaveReviewBody body, WriteServices w, ILo
         }
     }
 
+    // NULL passthrough (NOT ?? "") for the fields the Tauri form doesn't render, so
+    // an omitted field leaves the persisted value unchanged instead of zeroing it
+    // (SaveAsync skips the write when the value is null). The fields the form DOES
+    // submit keep ?? "" — an empty string from a cleared textarea is a real value.
     var snapshot = new Revu.Core.Services.ReviewSnapshot(
         MentalRating: body.MentalRating,
         WentWell: body.WentWell ?? "",
         Mistakes: body.Mistakes ?? "",
         FocusNext: body.FocusNext ?? "",
         ReviewNotes: body.ReviewNotes ?? "",
-        ImprovementNote: body.ImprovementNote ?? "",
+        ImprovementNote: body.ImprovementNote,
         Attribution: body.Attribution ?? "",
-        MentalHandled: body.MentalHandled ?? "",
+        MentalHandled: body.MentalHandled,
         SpottedProblems: body.SpottedProblems ?? "",
-        OutsideControl: body.OutsideControl ?? "",
-        WithinControl: body.WithinControl ?? "",
-        PersonalContribution: body.PersonalContribution ?? "",
-        EnemyLaner: body.EnemyLaner ?? "",
-        MatchupNote: body.MatchupNote ?? "",
+        OutsideControl: body.OutsideControl,
+        WithinControl: body.WithinControl,
+        PersonalContribution: body.PersonalContribution,
+        EnemyLaner: body.EnemyLaner,
+        MatchupNote: body.MatchupNote,
         SelectedTagIds: tagIds,
         ObjectivePractices: (body.ObjectivePractices ?? new List<ObjectivePracticeBody>())
             .Select(p => new Revu.Core.Services.SaveObjectivePracticeRequest(p.ObjectiveId, p.Practiced, p.ExecutionNote ?? ""))
@@ -970,9 +1029,12 @@ app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILo
     if (body.MinimizeDuringGame is not null) cfg.MinimizeDuringGame = body.MinimizeDuringGame.Value;
     if (body.AutoTimelineClippingEnabled is not null) cfg.AutoTimelineClippingEnabled = body.AutoTimelineClippingEnabled.Value;
     if (body.AutoTimelineClippingHintDismissed is not null) cfg.AutoTimelineClippingHintDismissed = body.AutoTimelineClippingHintDismissed.Value;
-    if (body.RiotId is not null) cfg.RiotId = body.RiotId.Trim();
+    // RiotId / Region: null OR empty = leave unchanged (P-020 clobber guard) — a save
+    // before the page hydrates sends "" / the select default and must NOT blank a
+    // configured account. Sign-out, not an empty Save, clears these.
+    if (ConfigSaveGuards.TryResolveTextWrite(body.RiotId, out var riotId)) cfg.RiotId = riotId;
     // Region is lower-cased on Save (mirror SettingsViewModel).
-    if (body.Region is not null) cfg.RiotRegion = body.Region.Trim().ToLowerInvariant();
+    if (ConfigSaveGuards.TryResolveTextWrite(body.Region, out var region)) cfg.RiotRegion = region.ToLowerInvariant();
     if (body.PrimaryRole is not null) cfg.PrimaryRole = body.PrimaryRole;
     // Onboarding ROLE-FINISH writes land here: the wizard's final step saves
     // PrimaryRole on both paths, and on the SKIP path also stamps

@@ -235,11 +235,24 @@ function renderMatchupHistory(mh) {
 }
 
 // ── PROMPT BLOCKS (per-objective pre-game answer boxes; auto-saved drafts) ────
+// True when the user is actively typing inside `host` — used to skip a re-render
+// that would tear down the focused field and discard in-flight keystrokes (the
+// champSelectUpdated input-eating bug). A champ lock-in fires a refresh every few
+// hundred ms; without this guard it clobbers the textarea the user is mid-sentence in.
+function isEditingWithin(host) {
+  const a = document.activeElement;
+  return !!(host && a && host.contains(a)
+    && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT'));
+}
+
 function renderPromptBlocks(blocks) {
   const card = $('prompts-card');
   if (!card) return;
   show(card, blocks.length > 0);
   const host = $('prompts-list');
+  // Don't blow away a prompt textarea the user is typing in. Their keystrokes are
+  // autosaved on a debounce and re-seeded on the next refresh once focus leaves.
+  if (isEditingWithin(host)) return;
   clear(host);
   blocks.forEach((b) => {
     const block = tpl('tpl-prompt-block');
@@ -296,7 +309,10 @@ function renderIntent(intent, activePlan) {
   show($('active-plan-row'), !!activePlan);
 
   const box = $('intent-input');
-  if (box) box.value = intent.seedText || '';
+  // Don't overwrite the box (or re-stage the seed over it) while the user is typing
+  // their own intent — a champSelectUpdated tick would otherwise revert it to the seed.
+  const editingIntent = isEditingWithin(card);
+  if (box && !editingIntent) box.value = intent.seedText || '';
 
   // Source chips — visible only when their seed exists.
   setupChip('chip-carry', intent.hasCarrySource, _intentSource === 'carry');
@@ -311,8 +327,10 @@ function renderIntent(intent, activePlan) {
   card.dataset.adhProv = intent.adherenceProvenance || '';
 
   applyIntentClearedUi();
-  // Stage the zero-tap default so a do-nothing game still carries it.
-  stageIntent();
+  // Stage the zero-tap default so a do-nothing game still carries it — but NOT while
+  // the user is editing, or we'd POST the seed over their just-typed (and already
+  // separately-staged) custom intent.
+  if (!editingIntent) stageIntent();
 }
 function setupChip(id, has, selected) {
   const el = $(id);

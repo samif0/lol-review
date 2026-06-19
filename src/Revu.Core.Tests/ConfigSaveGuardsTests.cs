@@ -105,4 +105,50 @@ public sealed class ConfigSaveGuardsTests
         if (ConfigSaveGuards.TryResolveFolderWrite(clips, out var c)) cfg.ClipsFolder = c;
         if (ConfigSaveGuards.TryResolveFolderWrite(backup, out var b)) cfg.BackupFolder = b;
     }
+
+    // ── TryResolveTextWrite (riot_id / region) — P-020 identity-clobber guard ─────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void TextWrite_NullOrBlank_LeavesUnchanged(string? value)
+    {
+        // The P-020 fingerprint: a Save before the Settings page hydrated sends
+        // riotId="" / region="" (the <select> default). That must NOT blank a
+        // configured account.
+        Assert.False(ConfigSaveGuards.TryResolveTextWrite(value, out var resolved));
+        Assert.Equal("", resolved);
+    }
+
+    [Fact]
+    public void TextWrite_RealValue_ResolvesTrimmed()
+    {
+        Assert.True(ConfigSaveGuards.TryResolveTextWrite("  hello#world  ", out var resolved));
+        Assert.Equal("hello#world", resolved);
+    }
+
+    [Fact]
+    public void EmptyRiotIdAndRegion_DoNotBlankConfiguredAccount()
+    {
+        // The exact recurrence guard: an unhydrated/empty Settings save must leave
+        // a configured Riot ID + region intact (the dashboard greeting + Riot-proxy
+        // features depend on them).
+        var cfg = new AppConfig { RiotId = "chapy#na1", RiotRegion = "na1" };
+
+        // Mirror POST /api/config/save's riot branch with empty inputs.
+        if (ConfigSaveGuards.TryResolveTextWrite("", out var rid)) cfg.RiotId = rid;
+        if (ConfigSaveGuards.TryResolveTextWrite("", out var reg)) cfg.RiotRegion = reg.ToLowerInvariant();
+
+        Assert.Equal("chapy#na1", cfg.RiotId);
+        Assert.Equal("na1", cfg.RiotRegion);
+    }
+
+    [Fact]
+    public void RealRegion_IsLowerCasedLikeTheHandler()
+    {
+        var cfg = new AppConfig { RiotRegion = "na1" };
+        if (ConfigSaveGuards.TryResolveTextWrite("EUW1", out var reg)) cfg.RiotRegion = reg.ToLowerInvariant();
+        Assert.Equal("euw1", cfg.RiotRegion);
+    }
 }
