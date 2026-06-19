@@ -66,9 +66,16 @@ public sealed record VodEventDto(
     // Objective tie: set when this event's token (raw type, SPELL_*, or membership in
     // a tracked TEAMFIGHT) matches an ACTIVE objective. Drives the timeline priority
     // lane — tied events take position + label priority over untied markers.
+    // ObjectiveId is the FIRST matching objective (back-compat / priority-lane color).
     long? ObjectiveId = null,
     string ObjectiveTitle = "",
-    string ObjectiveColorHex = "");
+    string ObjectiveColorHex = "",
+    // ALL active objectives whose token matches this event. An event's token (e.g.
+    // DEATH) can be tracked by several objectives at once; the objective-framed VOD
+    // viewer lights an event up when the FOCUSED objective is in this list — so a
+    // shared token (DEATH, SPELL_FLASH) shows for every objective that tracks it, not
+    // just the first-wins winner. Empty = untied. Additive; ObjectiveId still set.
+    IReadOnlyList<long>? ObjectiveIds = null);
 
 /// <summary>
 /// An evidence-inbox moment (auto-detected timeline region OR a saved clip) for

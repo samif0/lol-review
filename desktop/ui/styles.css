@@ -1908,7 +1908,23 @@ select.obj-input option{background:#14102a;color:var(--t1)}
    track and the bookmark markers have room below it. */
 .vp-timeline{position:relative;height:104px;border-radius:9px;background:rgba(0,0,0,0.35);
   border:1px solid var(--gline2);overflow:hidden;cursor:pointer}
-.vp-timeline .ph{position:absolute;bottom:7px;font-family:var(--fm);font-size:8px;letter-spacing:1px;color:var(--t4)}
+/* The scalable track content. Width = container × zoom; panned via translateX. The
+   transform-origin is the left edge so pan math is a simple pixel offset. All the
+   left:% children (track/markers/playhead/clip band) ride inside it and scale free. */
+.vp-tl-content{position:absolute;top:0;left:0;height:100%;
+  width:calc(100% * var(--tl-zoom, 1));transform:translateX(var(--tl-pan, 0px));
+  transform-origin:left center;will-change:transform,width}
+/* When zoomed (>1), the track reads as draggable. */
+.vp-timeline.is-zoomed{cursor:grab}
+.vp-timeline.is-panning{cursor:grabbing}
+.vp-timeline.is-panning .vp-tl-content{will-change:transform}
+.vp-timeline .ph{position:absolute;bottom:7px;font-family:var(--fm);font-size:8px;letter-spacing:1px;color:var(--t4);z-index:6;pointer-events:none}
+/* Zoom badge — bottom-right, shows level + acts as reset-to-1x. Hidden at 1x. */
+.vp-tl-zoombadge{position:absolute;top:6px;right:8px;z-index:7;font-family:var(--fm);font-size:8.5px;
+  letter-spacing:0.5px;color:var(--t3);background:rgba(8,6,18,0.85);border:1px solid rgba(157,139,255,0.4);
+  border-radius:6px;padding:3px 7px;cursor:pointer;transition:color .14s ease,border-color .14s ease,background .14s ease}
+.vp-tl-zoombadge:hover{color:#fff;border-color:rgba(157,139,255,0.7);background:rgba(157,139,255,0.16)}
+.vp-tl-zoombadge[hidden]{display:none}
 /* The scrub track sits low so bars rise above it (like the original Revu timeline). */
 .vp-timeline .track{position:absolute;left:0;right:0;top:72%;height:2px;transform:translateY(-50%);background:rgba(255,255,255,0.14)}
 .vp-timeline .prog{position:absolute;left:0;top:72%;height:2px;transform:translateY(-50%);width:0;
@@ -1933,8 +1949,11 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 /* Summoner casts (flash/etc.) sit between medium and minor — visible + labeled so
    the user can spot spell usage, but shorter than kills so they don't dominate. */
 .vp-timeline .evbar-summoner{--evh:17px}
-/* Recall (derived from shop buys) — same short height as summoner, labeled RCL. */
-.vp-timeline .evbar-recall{--evh:15px}
+/* Recall (derived from backs) — frequent + low-signal, so it reads as a faint short
+   tick (label-less; RCL shows on hover). Visible enough to spot WHERE you backed,
+   quiet enough not to bury kills/deaths/objectives. */
+.vp-timeline .evbar-recall{--evh:10px;opacity:0.5}
+.vp-timeline .evbar-recall:hover{opacity:0.95}
 .vp-timeline .evbar-minor{--evh:12px;opacity:0.82}
 /* OBJECTIVE-TIED priority lane: the tallest bar, a thicker glowing stem in the
    objective's color, an explicit z-index so it paints over every other marker, and
@@ -1968,6 +1987,11 @@ select.obj-input option{background:#14102a;color:var(--t1)}
   font-family:var(--fm);font-size:8px;font-weight:700;letter-spacing:0.6px;line-height:1;
   color:#f3a3a8;background:rgba(8,6,18,0.9);border-radius:0 0 4px 4px;padding:2px 5px;
   box-shadow:0 0 0 1px rgba(243,163,168,0.3);white-space:nowrap;pointer-events:none}
+/* Dimmed teamfight zone — when FRAMED and the focused objective does NOT track
+   TEAMFIGHT, the fight bands recede with everything else instead of looking loud /
+   prioritized. Faint neutral band + a muted TF tab. */
+.vp-timeline .evtf-dim{background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.08);opacity:0.5}
+.vp-timeline .evtf-dim .evtf-lbl{color:var(--t4);box-shadow:0 0 0 1px rgba(255,255,255,0.1)}
 /* The code label rides just above the bar top (which differs by tier, so labels
    stack on different rows). A faint dark chip behind it keeps it legible even when
    two land near each other. */
@@ -2197,8 +2221,138 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .vp-sharelogin .addbtn:hover{transform:translateY(-1px);filter:brightness(1.06)}
 .vp-sl-err{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--loss);line-height:1.4}
 
+/* ════════════════════════════════════════════════════════════════════════════
+   OBJECTIVE-FRAMED VIEWER — the VOD page opens framed on ONE objective at a time
+   (the default, not a mode). A permanent tab bar (#vp-objbar) replaces the old
+   eyebrow/hero/OPEN-REVIEW header; the active tab is expanded and carries the
+   focused objective's type·phase + title + tracked tokens + "markers this game".
+   The timeline + moments scope to the focused objective; everything else dims to
+   faint clickable ticks (.evbar-dim). Color-by-TYPE: primary=accent, mental=teal,
+   mini=gold (derived from objective.type — no backend/color column needed).
+   ════════════════════════════════════════════════════════════════════════════ */
+/* Thin context line above the tab bar: champ · result · "reviewing by objective"
+   on the left, CINEMA (reuses .vp-expanded) on the right. Replaces the old hero. */
+.vp-context{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}
+.vp-context .vp-ctx-meta{font-family:var(--fm);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--t4)}
+.vp-context .vp-ctx-meta b{color:var(--t2);font-weight:600}
+.vp-context .vp-ctx-meta .vp-ctx-frame{color:var(--accent)}
+.vp-cinema-btn{font-family:var(--fm);font-size:8.5px;letter-spacing:0.8px;color:var(--t3);
+  border:1px solid var(--gline);background:rgba(255,255,255,0.04);border-radius:8px;padding:6px 11px;cursor:pointer;
+  transition:color .16s ease,border-color .16s ease,background .16s ease}
+.vp-cinema-btn:hover{color:#fff;border-color:rgba(157,139,255,0.45);background:rgba(157,139,255,0.10)}
+.vp-open-review-link{font-family:var(--fm);font-size:8.5px;letter-spacing:0.8px;color:var(--t3);text-decoration:none;
+  border:1px solid var(--gline);background:rgba(255,255,255,0.04);border-radius:8px;padding:6px 11px;cursor:pointer;
+  transition:color .16s ease,border-color .16s ease,background .16s ease}
+.vp-open-review-link:hover{color:#fff;border-color:rgba(157,139,255,0.45);background:rgba(157,139,255,0.10)}
+
+/* The tab bar — permanent header. A horizontal row of objective tabs; the focused
+   one is expanded (flex 2.3) and carries full detail, the rest are compact. Scrolls
+   horizontally past ~5 (v1; overflow chip is a follow-up). */
+/* Vertical padding gives the hover lift (translateY -1px) + the active tab's glow
+   room to breathe — without it, overflow-x:auto forces overflow-y to clip the top
+   of a lifted/glowing tab. align-items:stretch keeps every tab the same height. */
+.vp-objbar{display:flex;gap:7px;align-items:stretch;margin:0 0 14px;padding:4px 1px 6px;
+  overflow-x:auto;overflow-y:visible;scrollbar-width:thin}
+.vp-objbar::-webkit-scrollbar{height:5px}
+.vp-objbar::-webkit-scrollbar-thumb{background:rgba(157,139,255,0.3);border-radius:3px}
+/* All tabs share a fixed height so the bar is a clean uniform row — a long title
+   no longer makes one tab taller (which made clicking between tabs feel jumpy).
+   The name clamps to 2 lines WITH an ellipsis; the active tab grows WIDER, never
+   taller. Height is tuned so 2 name lines + the top row fit without mid-word clip. */
+.vp-objtab{flex:1 0 132px;min-width:0;height:66px;box-sizing:border-box;border-radius:10px;padding:7px 11px;
+  cursor:pointer;text-align:left;
+  background:rgba(255,255,255,0.04);border:1px solid var(--gline2);border-bottom:2px solid transparent;
+  display:flex;flex-direction:column;justify-content:flex-start;gap:3px;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,background .16s ease}
+.vp-objtab:hover{transform:translateY(-1px);background:rgba(157,139,255,0.06)}
+.vp-objtab-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}
+.vp-objtab-type{font-family:var(--fm);font-size:7px;letter-spacing:1.1px;color:var(--t4)}
+.vp-objtab-count{font-family:var(--fo);font-size:13px;font-weight:800;color:var(--t2);line-height:1}
+.vp-objtab-name{font-family:var(--fb);font-size:11.5px;font-weight:500;color:var(--t2);line-height:1.15;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis}
+/* Per-TYPE accent on the bottom border (color-by-type). */
+.vp-objtab.t-primary{border-bottom-color:rgba(157,139,255,0.55)}
+.vp-objtab.t-primary .vp-objtab-type{color:#cdb8ff}
+.vp-objtab.t-mental{border-bottom-color:rgba(93,202,165,0.6)}
+.vp-objtab.t-mental .vp-objtab-type{color:#8fe7c6}
+.vp-objtab.t-mini{border-bottom-color:rgba(243,199,148,0.6)}
+.vp-objtab.t-mini .vp-objtab-type{color:var(--gold)}
+/* Empty objective (no markers this game) — dashed, dimmed, still selectable. */
+.vp-objtab.is-empty{background:rgba(255,255,255,0.02);border-style:dashed;opacity:0.74}
+.vp-objtab.is-empty .vp-objtab-count{color:var(--t4);font-weight:700}
+.vp-objtab.is-empty .vp-objtab-name{color:var(--t3)}
+/* The FOCUSED (active) tab — grows WIDER (never taller; same 66px) and carries the
+   detail row. Three tight top-aligned rows (type/count · 1-line name · chips); a
+   slightly smaller name + generous line-height so the descenders never clip. */
+.vp-objtab.is-active{flex:2.3 0 230px;cursor:default;opacity:1;border-style:solid;justify-content:flex-start;gap:2px;
+  background:linear-gradient(180deg,rgba(157,139,255,0.18),rgba(157,139,255,0.05));
+  border-color:rgba(157,139,255,0.5);box-shadow:0 0 18px -8px rgba(157,139,255,0.7)}
+.vp-objtab.is-active .vp-objtab-name{font-family:var(--fo);font-size:13.5px;font-weight:600;color:#fff;
+  line-height:1.35;-webkit-line-clamp:1;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.vp-objtab.is-active .vp-objtab-count{font-size:18px;color:#fff}
+.vp-objtab.is-active .vp-objtab-detail{margin-top:0}
+/* Active-tab detail row: type chip + "markers this game" + tracked-token chips. */
+.vp-objtab-detail{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px}
+.vp-objtab-chip{font-family:var(--fm);font-size:7.5px;letter-spacing:1.1px;color:#cdb8ff;
+  background:rgba(157,139,255,0.18);border:1px solid rgba(157,139,255,0.4);border-radius:4px;padding:2px 6px}
+.vp-objtab-marks{font-family:var(--fb);font-size:8.5px;color:var(--t4)}
+.vp-objtab-marks b{font-family:var(--fo);color:#fff;font-weight:700}
+.vp-objtab-tokens{display:flex;gap:4px}
+.vp-objtok{font-family:var(--fb);font-size:7.5px;font-weight:700;border-radius:3px;padding:1px 5px;
+  border:1px solid var(--gline2);color:var(--t3)}
+.vp-objtok.tok-gold{color:var(--gold);border-color:rgba(243,199,148,0.5)}
+.vp-objtok.tok-summoner{color:#7fd4ff;border-color:rgba(127,212,255,0.5)}
+.vp-objtok.tok-recall{color:#a9c8ff;border-color:rgba(169,200,255,0.5)}
+.vp-objtok.tok-loss{color:var(--loss);border-color:rgba(243,163,168,0.5)}
+.vp-objtok.tok-win{color:var(--win);border-color:rgba(142,231,186,0.5)}
+
+/* Dimmed timeline ticks — every event NOT tied to the focused objective collapses
+   to a faint short tick (still click-to-seek; code shows on hover via .evbar-nolabel).
+   This is the "everything else quiets down" rule that makes one objective the frame. */
+.vp-timeline .evbar-dim{--evh:9px;opacity:0.3;box-shadow:none;background:rgba(255,255,255,0.3);width:2px}
+.vp-timeline .evbar-dim:hover{opacity:0.85;width:3px;background:rgba(255,255,255,0.55)}
+
+/* In-objective marker stepper — small glass keys (like the I/O transport) that step
+   between THIS objective's markers. Lives beside the timeline. Visually distinct from
+   the objective tab bar (which switches objectives) — two nav levels, never confused. */
+.vp-mkstep{display:flex;flex-direction:column;align-items:center;gap:5px;flex-shrink:0;padding:0 2px}
+.vp-mkstep-lbl{font-family:var(--fm);font-size:7px;letter-spacing:1px;color:var(--t4);text-transform:uppercase}
+.vp-mkstep-row{display:flex;gap:6px}
+.vp-mkstep-btn{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,0.05);
+  border:1px solid rgba(157,139,255,0.42);color:#cdb8ff;font-size:11px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,color .16s ease,background .16s ease}
+.vp-mkstep-btn:hover{transform:translateY(-1px);color:#fff;border-color:rgba(157,139,255,0.6);background:rgba(157,139,255,0.10)}
+.vp-mkstep-btn:active{transform:translateY(0);transition-duration:.06s}
+.vp-mkstep-btn:disabled{opacity:0.4;cursor:default;transform:none}
+.vp-mkstep-count{font-family:var(--fo);font-size:9px;letter-spacing:0.5px;color:#cdb8ff}
+.vp-mkstep-count b{color:#fff}
+/* Wrap the timeline + stepper in a row so the stepper sits to the right of the track. */
+.vp-tl-row{display:flex;align-items:center;gap:10px}
+.vp-tl-row .vp-timeline{flex:1}
+
+/* Zero-objective nudge banner — shown ONLY when the user has no active objectives.
+   The viewer falls back to the full-game timeline (no dimming) + this dismissible
+   prompt where the tab bar would be. The only un-framed path. */
+.vp-nudge{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:10px 14px;border-radius:11px;
+  background:linear-gradient(180deg,rgba(157,139,255,0.10),rgba(157,139,255,0.03));border:1px solid rgba(157,139,255,0.32)}
+.vp-nudge[hidden]{display:none}
+.vp-nudge-ico{width:30px;height:30px;flex-shrink:0;border-radius:50%;border:1px solid rgba(157,139,255,0.4);
+  display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:13px;
+  box-shadow:0 0 14px -6px rgba(157,139,255,0.7)}
+.vp-nudge-body{flex:1;min-width:0}
+.vp-nudge-title{font-family:var(--fb);font-size:12px;font-weight:600;color:#fff}
+.vp-nudge-sub{font-family:var(--fb);font-size:10.5px;color:var(--t4);margin-top:2px;line-height:1.4}
+.vp-nudge-cta{font-family:var(--fm);font-size:9.5px;font-weight:700;letter-spacing:0.5px;color:#1b1233;flex-shrink:0;
+  background:linear-gradient(180deg,#bcacff,var(--accent));border:none;border-radius:8px;padding:8px 14px;cursor:pointer;text-decoration:none;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),filter .16s ease}
+.vp-nudge-cta:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.vp-nudge-x{flex-shrink:0;color:var(--t4);font-size:14px;cursor:pointer;background:none;border:none;line-height:1}
+.vp-nudge-x:hover{color:var(--t2)}
+
 @media (prefers-reduced-motion: reduce){
-  .tbtn,.vp-rate-sel,.moment,.tab,#vp-bm-add,.vp-bm-del,.vp-share-btn,.vp-copy-btn,.evbar{transition:none !important}
+  .tbtn,.vp-rate-sel,.moment,.tab,#vp-bm-add,.vp-bm-del,.vp-share-btn,.vp-copy-btn,.evbar,
+  .vp-objtab,.vp-mkstep-btn,.vp-nudge-cta{transition:none !important}
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

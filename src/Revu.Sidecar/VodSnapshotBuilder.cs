@@ -180,23 +180,29 @@ public sealed class VodSnapshotBuilder
     // ── event marker mapping (mirrors WinUI TimelineEvent) ────────────────────
     private static VodEventDto MapEvent(
         GameEvent e,
-        IReadOnlyDictionary<string, (long Id, string Title, string Color)> objectiveTokenMap,
-        IReadOnlyDictionary<long, (long Id, string Title, string Color)> teamfightTie)
+        IReadOnlyDictionary<string, IReadOnlyList<(long Id, string Title, string Color)>> objectiveTokenMap,
+        IReadOnlyDictionary<long, IReadOnlyList<(long Id, string Title, string Color)>> teamfightTie)
     {
         var (kind, colorHex) = BucketEvent(e.EventType);
 
-        // Objective tie: first the event's own token (raw type or SPELL_*), then a
-        // teamfight membership (an event can belong to a tracked TEAMFIGHT cluster).
-        long? objId = null; var objTitle = ""; var objColor = "";
+        // Objective tie: collect EVERY active objective whose token matches — both the
+        // event's own token (raw type or SPELL_*) AND teamfight membership (an event can
+        // belong to a tracked TEAMFIGHT cluster). An event can match several objectives
+        // (e.g. a DEATH inside a teamfight, tracked by both a death- and a fight-
+        // objective). The framed viewer lights an event up when its FOCUSED objective is
+        // among these. ObjectiveId/Title/Color keep the FIRST match (priority-lane color).
+        var matches = new List<(long Id, string Title, string Color)>();
         var token = EventToken(e);
-        if (token is not null && objectiveTokenMap.TryGetValue(token, out var tie))
-        {
-            (objId, objTitle, objColor) = (tie.Id, tie.Title, tie.Color);
-        }
-        else if (teamfightTie.TryGetValue(e.Id, out var tf))
-        {
-            (objId, objTitle, objColor) = (tf.Id, tf.Title, tf.Color);
-        }
+        if (token is not null && objectiveTokenMap.TryGetValue(token, out var tokenObjs))
+            matches.AddRange(tokenObjs);
+        if (teamfightTie.TryGetValue(e.Id, out var tfObjs))
+            foreach (var t in tfObjs)
+                if (!matches.Any(m => m.Id == t.Id)) matches.Add(t);
+
+        long? objId = matches.Count > 0 ? matches[0].Id : null;
+        var objTitle = matches.Count > 0 ? matches[0].Title : "";
+        var objColor = matches.Count > 0 ? matches[0].Color : "";
+        var objIds = matches.Count > 0 ? matches.Select(m => m.Id).ToList() : null;
 
         return new VodEventDto(
             Id: e.Id,
@@ -210,7 +216,8 @@ public sealed class VodSnapshotBuilder
             ColorHex: colorHex,
             ObjectiveId: objId,
             ObjectiveTitle: objTitle,
-            ObjectiveColorHex: objColor);
+            ObjectiveColorHex: objColor,
+            ObjectiveIds: objIds);
     }
 
     // The trackable TOKEN for an event: per-spell (SPELL_FLASH/SPELL_SMITE/…) parsed
@@ -242,24 +249,28 @@ public sealed class VodSnapshotBuilder
         catch { return ""; }
     }
 
-    // Build token (UPPER) → tied active objective. When several objectives track the
-    // same token, the first wins (deterministic by query order).
-    private async Task<IReadOnlyDictionary<string, (long Id, string Title, string Color)>> BuildObjectiveTokenMapAsync()
+    // Build token (UPPER) → ALL active objectives that track it. A token can be tracked
+    // by several objectives at once (e.g. both "Review every death" and "Wave before
+    // play" tracking DEATH); each gets the event in the framed viewer. The FIRST entry
+    // (query order) is the back-compat priority-lane winner used for ObjectiveId/color.
+    private async Task<IReadOnlyDictionary<string, IReadOnlyList<(long Id, string Title, string Color)>>> BuildObjectiveTokenMapAsync()
     {
-        var map = new Dictionary<string, (long, string, string)>(StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, List<(long, string, string)>>(StringComparer.OrdinalIgnoreCase);
         try
         {
             var ties = await _objectivesRepo.GetActiveObjectiveEventTokensAsync();
             foreach (var (token, objId, title) in ties)
             {
                 var key = (token ?? "").Trim().ToUpperInvariant();
-                if (key.Length == 0 || map.ContainsKey(key)) continue;
+                if (key.Length == 0) continue;
+                if (!map.TryGetValue(key, out var list)) { list = new List<(long, string, string)>(); map[key] = list; }
+                if (list.Any(t => t.Item1 == objId)) continue; // de-dupe per objective
                 var color = Revu.Core.Models.GameEvent.TrackableTokens.ColorOf(key);
-                map[key] = (objId, title ?? "", color);
+                list.Add((objId, title ?? "", color));
             }
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: objective token map load failed"); }
-        return map;
+        return map.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<(long, string, string)>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
 
     // If any active objective tracks TEAMFIGHT, cluster the combat events (the same
@@ -267,12 +278,14 @@ public sealed class VodSnapshotBuilder
     // member event to that objective. Returns eventId → tied objective. Empty when no
     // objective tracks teamfights. Mirrors vodplayer.js teamfightZones + the
     // "Teamfight" derived-event default (KILL/DEATH cluster).
-    private static IReadOnlyDictionary<long, (long Id, string Title, string Color)> ResolveTeamfightTies(
+    private static IReadOnlyDictionary<long, IReadOnlyList<(long Id, string Title, string Color)>> ResolveTeamfightTies(
         IReadOnlyList<GameEvent> events,
-        IReadOnlyDictionary<string, (long Id, string Title, string Color)> objectiveTokenMap)
+        IReadOnlyDictionary<string, IReadOnlyList<(long Id, string Title, string Color)>> objectiveTokenMap)
     {
-        var ties = new Dictionary<long, (long, string, string)>();
-        if (!objectiveTokenMap.TryGetValue(Revu.Core.Models.GameEvent.TrackableTokens.TeamfightToken, out var tf))
+        var ties = new Dictionary<long, IReadOnlyList<(long, string, string)>>();
+        // Every objective that tracks TEAMFIGHT ties to each member event (not just one).
+        if (!objectiveTokenMap.TryGetValue(Revu.Core.Models.GameEvent.TrackableTokens.TeamfightToken, out var tfObjs)
+            || tfObjs.Count == 0)
             return ties;
 
         const int GapSeconds = 14;
@@ -289,7 +302,7 @@ public sealed class VodSnapshotBuilder
         void Flush()
         {
             if (cluster.Count >= MinEvents)
-                foreach (var m in cluster) ties[m.Id] = (tf.Id, tf.Title, tf.Color);
+                foreach (var m in cluster) ties[m.Id] = tfObjs;
             cluster = new List<GameEvent>();
         }
         foreach (var e in combat)

@@ -23,7 +23,92 @@ let _core = null;      // cached Tauri core ({invoke, convertFileSrc}) or null
 let _gameId = 0;       // the game id from ?gameId=N
 let _objectives = [];  // active objectives for the Quick Bookmark objective picker
 let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarge)
+// ── Objective-framed viewer state ────────────────────────────────────────────
+// The VOD page opens framed on ONE objective at a time (the default, not a mode).
+// _focusedObjId is the currently-framed objective id; its events/moments are loud,
+// everything else dims. null only when the user has zero active objectives (the
+// viewer then falls back to the full-game timeline + a "set an objective" nudge).
+let _focusedObjId = null;   // currently focused objective id (number) or null
+let _framed = false;        // true when ≥1 objective and we're framing
 const video = () => $('vp-video');
+
+// All this game's markers (events + bookmarks) tied to a given objective id, sorted
+// by time. Drives the per-tab marker COUNT and the in-objective marker stepper.
+// Derived entirely client-side from objectiveId already on each row (no backend).
+function markersForObjective(objId) {
+  if (objId == null) return [];
+  const id = Number(objId);
+  const v = _vod || {};
+  const out = [];
+  // Events: tracked when the objective is among the event's objectiveIds (shared-token
+  // aware — a DEATH event counts for every objective tracking DEATH). Falls back to the
+  // single objectiveId for older snapshots.
+  for (const e of (v.gameEvents || [])) {
+    const hit = Array.isArray(e.objectiveIds)
+      ? e.objectiveIds.some((x) => Number(x) === id)
+      : (e.objectiveId != null && Number(e.objectiveId) === id);
+    if (hit) out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '' });
+  }
+  // Bookmarks/clips are directly tagged to one objective (no shared-token ambiguity).
+  for (const b of (v.bookmarks || [])) {
+    if (b.objectiveId != null && Number(b.objectiveId) === id) {
+      out.push({ seconds: b.gameTimeSeconds || 0, label: b.note || '' });
+    }
+  }
+  return out.sort((a, b) => a.seconds - b.seconds);
+}
+
+// Count of this game's markers for an objective (events + bookmarks). 0 = "empty
+// this game" (the objective was tracked but nothing happened for it — still a lesson).
+function markerCountForObjective(objId) {
+  return markersForObjective(objId).length;
+}
+
+// Does the currently-focused objective track the synthetic TEAMFIGHT token? Gates
+// whether teamfight zones stay loud under the frame. Reads tracksTeamfight (from the
+// active-objectives endpoint); falls back to scanning trackedTokens. Defaults false
+// when unknown (older snapshot) so TF zones dim rather than falsely prioritize.
+function focusedTracksTeamfight() {
+  const o = _objectives.find((x) => Number(x.objectiveId) === _focusedObjId);
+  if (!o) return false;
+  if (typeof o.tracksTeamfight === 'boolean') return o.tracksTeamfight;
+  const toks = o.trackedTokens || o.tokens || [];
+  return Array.isArray(toks) && toks.some((t) => String(t).toUpperCase() === 'TEAMFIGHT');
+}
+
+// Objective type → the timeline/chrome token-color family. primary=accent (default),
+// mental=teal (win), mini=gold — derived from objective.type, no color column needed.
+function objTypeClass(o) {
+  if (!o) return 't-primary';
+  if (o.isMini || o.type === 'mini') return 't-mini';
+  if (o.isMental || o.type === 'mental') return 't-mental';
+  return 't-primary';
+}
+
+// The tracked-event TOKENS for an objective, as short codes with a color family, for
+// the active tab's chip row. Tokens are raw types (KILL/DEATH/DRAGON…), SPELL_* spells,
+// or TEAMFIGHT — each mapped to its proper 3-letter code (reusing the timeline's
+// deriveShortLabel) rather than blind-sliced. Degrades to nothing if absent (graceful).
+function objTokenChips(o) {
+  const toks = (o && (o.trackedTokens || o.tokens || o.eventTokens)) || [];
+  const arr = Array.isArray(toks) ? toks : [];
+  return arr.slice(0, 6).map((raw) => {
+    const tok = String(raw && (raw.code || raw.label) || raw).toUpperCase();
+    let code, fam = '';
+    if (tok === 'TEAMFIGHT') { code = 'TF'; fam = 'tok-loss'; }
+    else if (tok.startsWith('SPELL_')) { code = tok.slice(6, 9); fam = 'tok-summoner'; }
+    else { code = deriveShortLabel(tok, tok); }
+    // Color family by the canonical token (so DRG/HLD/BAR read gold, DTH red, etc.).
+    if (!fam) {
+      if (/DRAGON|HERALD|BARON|TOWER|TURRET|RIFT|ELDER|INHIB/.test(tok)) fam = 'tok-gold';
+      else if (/RECALL|BACK/.test(tok)) fam = 'tok-recall';
+      else if (/FLASH|SUMMONER|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(tok)) fam = 'tok-summoner';
+      else if (/DEATH|FIRST/.test(tok)) fam = 'tok-loss';
+      else if (/KILL|ASSIST|MULTI/.test(tok)) fam = 'tok-win';
+    }
+    return { code, fam };
+  });
+}
 
 // ── Clip-tool state (in/out points, quality) ────────────────────────────────
 // Mirrors the WinUI VodPlayerViewModel clip range: -1 = unset. HasClipRange is a
@@ -72,6 +157,10 @@ async function reloadBookmarks() {
     const v = video();
     placeMarkers(v.duration || _vod.gameDurationSeconds || 0);
     renderMoments();
+    // Marker counts per objective may have changed (a write can add/retag a marker),
+    // so refresh the tab-bar counts + the in-objective stepper too.
+    renderObjBar();
+    renderMarkerStepper();
   } catch (err) {
     console.error('[vodplayer] reload after write failed:', err);
   }
@@ -94,23 +183,37 @@ function render(data, core) {
   show($('vp-novod'), false);
   show($('vp-wrap'), true);
 
-  // OPEN REVIEW → the structured review for this game (this nav IS wired).
+  // Context line takes over from the loading statusline (the old eyebrow/hero are gone).
+  show($('statusline'), false);
+  show($('vp-context'), true);
+  const ctx = $('vp-ctx-meta');
+  if (ctx) {
+    const bits = [matchup, data.resultText, data.gameMode].filter(Boolean).join(' · ');
+    ctx.innerHTML = '<b>' + bits + '</b> &nbsp;·&nbsp; <span class="vp-ctx-frame">reviewing by objective</span>';
+  }
+
+  // OPEN REVIEW → the structured review for this game (this nav IS wired). Now a link
+  // in the context line (was the big primary card). Keep both href + onclick robust.
   const openBtn = $('vp-open-review');
   if (openBtn) {
-    openBtn.onclick = () => {
-      const gid = data.gameId;
-      window.location.href = gid
-        ? `review.html?gameId=${encodeURIComponent(gid)}`
-        : 'review.html';
-    };
+    const gid = data.gameId;
+    const href = gid ? `review.html?gameId=${encodeURIComponent(gid)}` : 'review.html';
+    openBtn.setAttribute('href', href);
+    openBtn.onclick = (e) => { e.preventDefault(); window.location.href = href; };
   }
+
+  // Establish the objective frame BEFORE first paint: pick the focused objective and
+  // decide framed vs. the zero-objective full-game fallback.
+  initObjectiveFrame();
 
   // Populate the timeline + moments + tools FIRST, off the snapshot, so the event
   // timeline (coded bars) and moments render even before (or without) a playable
   // video. onMeta re-places markers with the real duration once it loads.
   populateObjectivePicker();
+  renderObjBar();
   placeMarkers(_vod.gameDurationSeconds || 0);
   renderMoments();
+  renderMarkerStepper();
   renderClipState();
 
   // The key step: convert the absolute file path → an asset URL the webview can
@@ -161,6 +264,160 @@ function onMeta() {
 }
 
 
+// ── OBJECTIVE FRAMING ─────────────────────────────────────────────────────────
+// Decide the initial focused objective + whether we frame at all. Framed when ≥1
+// active objective. Pick: highest-priority objective WITH markers this game, else
+// the first objective with markers, else the first active objective. When zero
+// objectives, _framed=false → full-game fallback + nudge banner.
+function initObjectiveFrame() {
+  if (!_objectives.length) {
+    _framed = false; _focusedObjId = null;
+    const nudge = $('vp-nudge');
+    if (nudge && !nudge.dataset.dismissed) show(nudge, true);
+    show($('vp-objbar'), false);
+    return;
+  }
+  _framed = true;
+  show($('vp-nudge'), false);
+  const withMarks = _objectives.filter((o) => markerCountForObjective(o.objectiveId) > 0);
+  const pool = withMarks.length ? withMarks : _objectives;
+  const priority = pool.find((o) => o.isPriority) || pool[0];
+  _focusedObjId = priority != null ? Number(priority.objectiveId) : null;
+}
+
+// Build the objective tab bar (the permanent framed-viewer header). One tab per
+// active objective, color-by-type, with this game's marker count; the focused one
+// is expanded and carries type·phase + title + tokens + "markers this game".
+function renderObjBar() {
+  const bar = $('vp-objbar');
+  if (!bar) return;
+  if (!_framed) { show(bar, false); clear(bar); return; }
+  show(bar, true);
+  clear(bar);
+  for (const o of _objectives) {
+    const id = Number(o.objectiveId);
+    const count = markerCountForObjective(id);
+    const active = id === _focusedObjId;
+    const tab = document.createElement('div');
+    tab.className = `vp-objtab ${objTypeClass(o)}` + (active ? ' is-active' : '') + (count === 0 ? ' is-empty' : '');
+    tab.dataset.objId = String(id);
+    tab.setAttribute('role', 'button');
+    tab.tabIndex = 0;
+
+    const typeLabel = (o.type || (o.isMini ? 'mini' : o.isMental ? 'mental' : 'primary')).toUpperCase();
+    const phase = (o.phaseLabel || '').toUpperCase();
+
+    const top = document.createElement('div');
+    top.className = 'vp-objtab-top';
+    const typeEl = document.createElement('span');
+    typeEl.className = 'vp-objtab-type';
+    typeEl.textContent = active && phase ? `${typeLabel} · ${phase}` : typeLabel;
+    const countEl = document.createElement('span');
+    countEl.className = 'vp-objtab-count';
+    countEl.textContent = String(count);
+    top.appendChild(typeEl); top.appendChild(countEl);
+    tab.appendChild(top);
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'vp-objtab-name';
+    nameEl.textContent = o.title || '(untitled objective)';
+    tab.appendChild(nameEl);
+
+    if (active) {
+      const detail = document.createElement('div');
+      detail.className = 'vp-objtab-detail';
+      const marks = document.createElement('span');
+      marks.className = 'vp-objtab-marks';
+      marks.innerHTML = `<b>${count}</b> markers this game`;
+      detail.appendChild(marks);
+      const chips = objTokenChips(o);
+      if (chips.length) {
+        const wrap = document.createElement('span');
+        wrap.className = 'vp-objtab-tokens';
+        for (const c of chips) {
+          const t = document.createElement('span');
+          t.className = `vp-objtok ${c.fam}`;
+          t.textContent = c.code;
+          wrap.appendChild(t);
+        }
+        detail.appendChild(wrap);
+      }
+      tab.appendChild(detail);
+    }
+    bar.appendChild(tab);
+  }
+}
+
+// Switch the focused objective. Reframes the timeline + moments + marker stepper
+// IN PLACE — no video reload, so playback position is preserved (mirrors the
+// reloadBookmarks philosophy). No writes; pure client-side re-render.
+function setFocusedObjective(objId) {
+  if (!_framed || objId == null) return;
+  const id = Number(objId);
+  if (id === _focusedObjId) return;
+  _focusedObjId = id;
+  const v = video();
+  renderObjBar();
+  placeMarkers((v && v.duration) || _vod.gameDurationSeconds || 0);
+  renderMoments();
+  renderMarkerStepper();
+}
+
+// The 1-based ordinal of the marker nearest the current playhead (the one the user
+// is "on" or just passed). Position-aware so the readout tracks where you ARE as the
+// video scrubs, not a stale click index — that off-by-one was bug #2.
+function currentMarkerOrdinal(marks) {
+  if (!marks.length) return 0;
+  const v = video();
+  const t = (v && v.currentTime) || 0;
+  // The last marker at/<= the playhead (with a small tolerance), else the first one.
+  let idx = -1;
+  for (let i = 0; i < marks.length; i++) { if (marks[i].seconds <= t + 0.25) idx = i; else break; }
+  return (idx < 0 ? 0 : idx) + 1;
+}
+
+// In-objective marker stepper: ◀ ▶ jump between THIS objective's markers (distinct
+// from the tab bar that switches objectives — two nav levels). Hidden when unframed
+// or when the focused objective has no markers this game. The "i / N" readout is
+// derived from the PLAYHEAD each render, so it stays honest as the video scrubs.
+function renderMarkerStepper() {
+  const wrap = $('vp-mkstep');
+  if (!wrap) return;
+  const marks = _framed ? markersForObjective(_focusedObjId) : [];
+  if (!marks.length) { show(wrap, false); return; }
+  show(wrap, true);
+  const ord = currentMarkerOrdinal(marks);
+  const cnt = $('vp-mk-count');
+  if (cnt) cnt.innerHTML = `marker <b>${ord}</b> / ${marks.length}`;
+  const v = video();
+  const t = (v && v.currentTime) || 0;
+  const prev = $('vp-mk-prev'); const next = $('vp-mk-next');
+  // Disable based on whether a marker exists strictly before / after the playhead.
+  if (prev) prev.disabled = !marks.some((m) => m.seconds < t - 0.25);
+  if (next) next.disabled = !marks.some((m) => m.seconds > t + 0.25);
+}
+
+// Step to the next (delta +1) or previous (delta -1) marker RELATIVE TO THE PLAYHEAD,
+// not a stored index. ▶ = first marker after the current time, ◀ = first before. This
+// fixes the off-by-one where ▶ from the start jumped to the 2nd marker (bug #2).
+function stepMarker(delta) {
+  const marks = markersForObjective(_focusedObjId);
+  if (!marks.length) return;
+  const v = video();
+  const t = (v && v.currentTime) || 0;
+  let target = null;
+  if (delta > 0) {
+    target = marks.find((m) => m.seconds > t + 0.25);          // first strictly after
+  } else {
+    for (const m of marks) { if (m.seconds < t - 0.25) target = m; else break; } // last before
+  }
+  if (target && _T) {
+    _T.seekTo(target.seconds);
+    if (v && v.paused) v.play().catch(() => {});
+  }
+  renderMarkerStepper();
+}
+
 // Markers on the EVENT TIMELINE. Two layers:
 //  1. Live game events (kills/deaths/objectives) rendered as the original Revu
 //     "3-letter code + bar" markers: a vertical bar at the event time topped with
@@ -168,6 +425,8 @@ function onMeta() {
 //     server-supplied kind + colorHex. Click-to-seek.
 //  2. Bookmark markers (clip = gold, plain = accent) below the track so saved
 //     moments stay visible. Click-to-seek.
+// When FRAMED, only events tied to the focused objective render loud (the objective
+// lane); every other event dims to a faint clickable tick (evbar-dim).
 function placeMarkers(dur) {
   const host = $('vp-markers');
   clear(host);
@@ -175,13 +434,16 @@ function placeMarkers(dur) {
 
   const pctOf = (s) => Math.max(0, Math.min(100, (s / dur) * 100));
 
-  // 0. Teamfight zones — derive clusters of combat events (kills/deaths/assists)
-  //    that bunch up in a short window and draw a soft band behind the bars so the
-  //    user can SEE where the teamfights happened (there's no discrete "teamfight"
-  //    event from the API — a fight IS a burst of combat events).
+  // 0. Teamfight zones — clusters of combat events drawn as a soft band so the user
+  //    can SEE where fights happened. These are WHOLE-GAME context, not tied to a
+  //    specific objective — so when FRAMED they must respect the frame: stay loud
+  //    ONLY if the focused objective actually tracks TEAMFIGHT, otherwise dim like
+  //    every other non-focused element. (Bug: a 0-marker objective showed loud TF
+  //    bands, making teamfighting look prioritized when it wasn't tracked at all.)
+  const tfFocused = !_framed || focusedTracksTeamfight();
   for (const tf of teamfightZones(_vod.gameEvents || [])) {
     const band = document.createElement('span');
-    band.className = 'evtf';
+    band.className = 'evtf' + (tfFocused ? '' : ' evtf-dim');
     band.style.left = `${pctOf(tf.startS)}%`;
     band.style.width = `${Math.max(0.8, pctOf(tf.endS) - pctOf(tf.startS))}%`;
     band.title = `Teamfight ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} events`;
@@ -214,11 +476,20 @@ function placeMarkers(dur) {
   // within OBJ_RESERVE_PCT of any of these are suppressed so the objective wins.
   const objectiveLabelXs = [];
 
-  // TWO-PASS placement so objective-tied events take priority: tied events first
-  // (they always render their label + reserve their slot), untied events second
-  // (they yield to any objective marker they'd crowd).
-  const isObjective = (e) => e.objectiveId != null;
-  const ordered = events.filter(isObjective).concat(events.filter((e) => !isObjective(e)));
+  // What counts as "focused" (loud) depends on framing:
+  //  • FRAMED → an event is loud when the FOCUSED objective is among the objectives
+  //    that track its token (objectiveIds — a list, because a shared token like DEATH
+  //    or SPELL_FLASH can be tracked by several objectives at once). Falls back to the
+  //    single objectiveId for older snapshots. Everything else dims to a tick.
+  //  • UNFRAMED (zero objectives) → original behavior: any objective-tied event loud.
+  const matchesFocus = (e) => Array.isArray(e.objectiveIds)
+    ? e.objectiveIds.some((id) => Number(id) === _focusedObjId)
+    : (e.objectiveId != null && Number(e.objectiveId) === _focusedObjId);
+  const isFocused = (e) => _framed ? matchesFocus(e) : (e.objectiveId != null);
+
+  // TWO-PASS placement so FOCUSED events take priority: focused first (they always
+  // render their label + reserve their slot), the rest second (they yield + dim).
+  const ordered = events.filter(isFocused).concat(events.filter((e) => !isFocused(e)));
 
   for (const e of ordered) {
     // Always a SHORT code on the track — never a long raw label. Even if the
@@ -226,35 +497,51 @@ function placeMarkers(dur) {
     // can't sprawl across the timeline (the "Lower Drag Objective Contest" leak).
     const code = shortCode(e.shortLabel || deriveShortLabel(e.eventType, e.label));
     const kind = e.kind || 'neutral';
-    const tied = isObjective(e);
-    // Tied events ride a dedicated 'objective' lane (tall, own row, distinct ring).
-    const tier = tied ? 'objective' : eventTier(e.eventType, e.label);
+    const focused = isFocused(e);
+    // FRAMED + not focused → a faint dim tick (still clickable, code on hover).
+    const dimmed = _framed && !focused;
+    // Focused events ride a dedicated 'objective' lane (tall, own row, distinct ring).
+    const tier = focused ? 'objective' : eventTier(e.eventType, e.label);
     const leftPct = pctOf(e.gameTimeSeconds);
 
     const bar = document.createElement('span');
-    bar.className = `evbar evbar-${kind} evbar-${tier}` + (tied ? ' evbar-objective' : '');
+    // Focused events ride the objective lane (its own color + height), so DON'T also
+    // stamp the per-kind class. Dimmed events get the faint tick. Otherwise (unframed
+    // untied) the per-kind color + tier height as before.
+    bar.className = focused
+      ? 'evbar evbar-objective'
+      : dimmed
+        ? 'evbar evbar-dim'
+        : `evbar evbar-${kind} evbar-${tier}`;
     bar.style.left = `${leftPct}%`;
-    // Tied bars take the objective's color; otherwise the per-type color.
-    const ringColor = tied ? (e.objectiveColorHex || e.colorHex) : e.colorHex;
-    if (ringColor) bar.style.setProperty('--evc', ringColor);
+    // Focused bars take the objective's color; dim ticks stay neutral (class-driven);
+    // unframed untied events keep the per-type color.
+    if (!dimmed) {
+      const ringColor = focused ? (e.objectiveColorHex || e.colorHex) : e.colorHex;
+      if (ringColor) bar.style.setProperty('--evc', ringColor);
+    }
     bar.style.pointerEvents = 'auto';
     bar.style.cursor = 'pointer';
-    const objSuffix = tied && e.objectiveTitle ? ` · ◎ ${e.objectiveTitle}` : '';
+    const objSuffix = e.objectiveId != null && e.objectiveTitle ? ` · ◎ ${e.objectiveTitle}` : '';
     bar.title = `${e.timeLabel} ${e.label}${e.summary ? ' · ' + e.summary : ''}${objSuffix}`.trim();
     bar.dataset.action = 'jump';
     bar.dataset.seconds = String(e.gameTimeSeconds);
 
-    // Label policy. Objective events ALWAYS label (never suppressed) and reserve a
-    // slot. Other events label only when clear of their tier neighbor AND clear of
-    // every objective reservation (so they yield around objective markers).
+    // Label policy. Focused events ALWAYS label (never suppressed) and reserve a
+    // slot. Dimmed ticks NEVER show a static label (code on hover only — that's the
+    // point of dimming). Unframed untied events label when clear of their tier
+    // neighbor AND clear of every focused reservation.
+    const labellessTier = tier === 'minor' || tier === 'recall';
     let showLabel;
-    if (tied) {
+    if (focused) {
       showLabel = true;
       objectiveLabelXs.push(leftPct);
+    } else if (dimmed) {
+      showLabel = false;
     } else {
       const clearOfTier = leftPct - lastLabelPctByTier[tier] >= MIN_LABEL_GAP_PCT;
       const clearOfObjective = objectiveLabelXs.every((x) => Math.abs(leftPct - x) >= OBJ_RESERVE_PCT);
-      showLabel = tier !== 'minor' && clearOfTier && clearOfObjective;
+      showLabel = !labellessTier && clearOfTier && clearOfObjective;
     }
     if (showLabel) {
       const lbl = document.createElement('span');
@@ -373,14 +660,22 @@ let _bmFilter = 'auto';
 // still render bookmarks/clips from the bookmarks list).
 function momentLanes() {
   const v = _vod || {};
-  const auto = (v.autoMoments || []).map((m) => normMoment(m, 'Auto moment'));
+  let auto = (v.autoMoments || []).map((m) => normMoment(m, 'Auto moment'));
   // Saved clips: prefer the evidence-inbox clip rows; fall back to bookmark clips.
   let clips = (v.savedClips || []).map((m) => normMoment(m, 'Saved clip'));
   if (clips.length === 0) {
     clips = (v.bookmarks || []).filter((b) => b.hasClip).map((b) => normBookmark(b, true));
   }
   // Bookmarks lane = plain (non-clip) bookmarks.
-  const bm = (v.bookmarks || []).filter((b) => !b.hasClip).map((b) => normBookmark(b, false));
+  let bm = (v.bookmarks || []).filter((b) => !b.hasClip).map((b) => normBookmark(b, false));
+  // FRAMED → scope every lane to the focused objective (moments carry objectiveId).
+  // Unframed (zero objectives) shows everything, as before.
+  if (_framed && _focusedObjId != null) {
+    const ofFocus = (m) => m.objectiveId != null && Number(m.objectiveId) === _focusedObjId;
+    auto = auto.filter(ofFocus);
+    clips = clips.filter(ofFocus);
+    bm = bm.filter(ofFocus);
+  }
   return { auto, clips, bm };
 }
 
@@ -467,6 +762,20 @@ function renderMoments() {
 
   const host = $('vp-bookmarks');
   clear(host);
+  // Empty-state copy. When FRAMED, clarify that "moments" (tagged clips/bookmarks)
+  // are distinct from the timeline "markers" the objective tab counts — otherwise
+  // "36 markers this game" next to "no moments" reads as a contradiction.
+  const emptyEl = $('vp-moments-empty');
+  if (emptyEl) {
+    if (_framed && _focusedObjId != null) {
+      const marks = markerCountForObjective(_focusedObjId);
+      emptyEl.textContent = marks > 0
+        ? `No moments tagged for this objective yet. Its ${marks} timeline marker${marks === 1 ? '' : 's'} are on the track — clip or bookmark one to add it here.`
+        : 'No moments for this objective this game.';
+    } else {
+      emptyEl.textContent = 'No moments tagged for this game yet.';
+    }
+  }
   show($('vp-moments-empty'), shown.length === 0);
   for (const m of shown) {
     const el = tpl('tpl-bookmark');
@@ -612,6 +921,42 @@ function wireTabs() {
     _bmFilter = tab.dataset.filter || 'auto';
     tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t === tab));
     renderMoments();
+  });
+}
+
+// Wire the framed-viewer controls: objective tab bar (switch objective), the
+// in-objective marker stepper (◀ ▶), and the zero-objective nudge dismiss. All
+// client-side; no writes. Delegated so it survives renderObjBar() rebuilds.
+function wireFraming() {
+  const bar = $('vp-objbar');
+  if (bar) {
+    const pick = (target) => {
+      const tab = target.closest('.vp-objtab');
+      if (tab && tab.dataset.objId) setFocusedObjective(Number(tab.dataset.objId));
+    };
+    bar.addEventListener('click', (ev) => pick(ev.target));
+    bar.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(ev.target); }
+    });
+  }
+  const prev = $('vp-mk-prev'); if (prev) prev.addEventListener('click', () => stepMarker(-1));
+  const next = $('vp-mk-next'); if (next) next.addEventListener('click', () => stepMarker(1));
+  // Keep the "marker i / N" readout + prev/next disabled-state honest as the video
+  // scrubs (the ordinal is playhead-derived). Throttled to ~once/sec; only when framed.
+  const v = video();
+  if (v) {
+    let last = 0;
+    v.addEventListener('timeupdate', () => {
+      if (!_framed) return;
+      const now = Math.floor(v.currentTime);
+      if (now === last) return;
+      last = now;
+      renderMarkerStepper();
+    });
+  }
+  const nx = $('vp-nudge-x');
+  if (nx) nx.addEventListener('click', () => {
+    const n = $('vp-nudge'); if (n) { n.dataset.dismissed = '1'; show(n, false); }
   });
 }
 
@@ -1215,16 +1560,132 @@ async function saveClip() {
 }
 
 // Click the seek bar to scrub.
+// ── Timeline zoom + pan ───────────────────────────────────────────────────────
+// Ctrl+wheel zooms the event timeline centered on the cursor; the content track grows
+// wider than its viewport (--tl-zoom) and is panned with a pixel offset (--tl-pan).
+// Drag-to-pan moves it (with a threshold so a plain click still seeks). Zoom + pan
+// PERSIST across objective switches; reset only on reload. All event/playhead/clip
+// positions are left:% inside .vp-tl-content, so they scale automatically.
+const TL_ZOOM_MIN = 1;
+const TL_ZOOM_MAX = 12;
+let _tlZoom = 1;     // 1 = whole game fills the viewport
+let _tlPan = 0;      // px the content is shifted left (<= 0). 0 = start at left edge.
+
+// Clamp pan so the content can't be dragged past either edge of the viewport.
+function clampPan() {
+  const seek = $('vp-seek');
+  if (!seek) return;
+  const vw = seek.clientWidth;
+  const contentW = vw * _tlZoom;
+  const minPan = Math.min(0, vw - contentW); // most-negative (right edge flush)
+  if (_tlPan > 0) _tlPan = 0;
+  if (_tlPan < minPan) _tlPan = minPan;
+}
+
+// Write the zoom/pan to the DOM + badge. Called after any zoom/pan change.
+function applyTimelineZoom() {
+  const seek = $('vp-seek');
+  const content = $('vp-tl-content');
+  if (!seek || !content) return;
+  if (_tlZoom < TL_ZOOM_MIN) _tlZoom = TL_ZOOM_MIN;
+  if (_tlZoom > TL_ZOOM_MAX) _tlZoom = TL_ZOOM_MAX;
+  clampPan();
+  content.style.setProperty('--tl-zoom', String(_tlZoom));
+  content.style.setProperty('--tl-pan', `${_tlPan}px`);
+  const zoomed = _tlZoom > 1.001;
+  seek.classList.toggle('is-zoomed', zoomed);
+  // EARLY/MID/LATE are pinned to the viewport, so they'd lie once the content scrolls
+  // under them — hide them while zoomed (they're coarse orientation, not exact marks).
+  seek.querySelectorAll('.ph').forEach((el) => { el.style.opacity = zoomed ? '0' : ''; });
+  const badge = $('vp-tl-zoom');
+  if (badge) { badge.textContent = `${_tlZoom.toFixed(1)}×`; show(badge, zoomed); }
+}
+
+// Zoom by a factor, keeping the timeline-content point under `anchorClientX` fixed.
+function zoomTimelineAt(anchorClientX, factor) {
+  const seek = $('vp-seek');
+  if (!seek) return;
+  const rect = seek.getBoundingClientRect();
+  const x = anchorClientX - rect.left;                 // cursor x within the viewport
+  const contentXBefore = (x - _tlPan) / _tlZoom;       // game-fraction px under cursor
+  const prev = _tlZoom;
+  _tlZoom = Math.max(TL_ZOOM_MIN, Math.min(TL_ZOOM_MAX, _tlZoom * factor));
+  if (_tlZoom === prev) return;
+  // Solve new pan so the same content point stays under the cursor.
+  _tlPan = x - contentXBefore * _tlZoom;
+  if (_tlZoom <= 1.001) { _tlZoom = 1; _tlPan = 0; } // snapped back to whole game
+  applyTimelineZoom();
+}
+
+function resetTimelineZoom() { _tlZoom = 1; _tlPan = 0; applyTimelineZoom(); }
+
+// Map a click's clientX to a game fraction [0,1], accounting for zoom + pan.
+function timelineFractionFromClientX(clientX) {
+  const seek = $('vp-seek');
+  const rect = seek.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const contentX = x - _tlPan;                 // x within the (wider) content
+  return Math.max(0, Math.min(1, contentX / (rect.width * _tlZoom)));
+}
+
 function wireSeekBar() {
   const seek = $('vp-seek');
+
+  // Ctrl+wheel → zoom at cursor. Plain wheel is left alone (page scroll).
+  seek.addEventListener('wheel', (ev) => {
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    const factor = ev.deltaY < 0 ? 1.18 : 1 / 1.18;   // up = zoom in
+    zoomTimelineAt(ev.clientX, factor);
+  }, { passive: false });
+
+  // Drag-to-pan (only meaningful when zoomed). A movement threshold distinguishes a
+  // pan-drag from a click — under the threshold it falls through to click→seek.
+  const DRAG_PX = 4;
+  let down = null; // {x, pan, dragging}
+  seek.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    down = { x: ev.clientX, pan: _tlPan, dragging: false };
+  });
+  seek.addEventListener('pointermove', (ev) => {
+    if (!down) return;
+    const dx = ev.clientX - down.x;
+    if (!down.dragging && Math.abs(dx) < DRAG_PX) return;
+    if (_tlZoom <= 1.001) return;                 // nothing to pan at 1×
+    down.dragging = true;
+    seek.classList.add('is-panning');
+    try { seek.setPointerCapture(ev.pointerId); } catch (_) {}
+    _tlPan = down.pan + dx;
+    applyTimelineZoom();
+  });
+  const endDrag = (ev) => {
+    if (!down) return;
+    const wasDragging = down.dragging;
+    seek.classList.remove('is-panning');
+    try { seek.releasePointerCapture(ev.pointerId); } catch (_) {}
+    down = null;
+    // If we actually panned, swallow the trailing click so it doesn't seek.
+    if (wasDragging) { seek._suppressClick = true; setTimeout(() => { seek._suppressClick = false; }, 0); }
+  };
+  seek.addEventListener('pointerup', endDrag);
+  seek.addEventListener('pointercancel', endDrag);
+
+  // Click → seek (zoom/pan-aware). Suppressed right after a pan-drag.
   seek.addEventListener('click', (ev) => {
+    if (seek._suppressClick) return;
+    if (ev.target && ev.target.closest('#vp-tl-zoom')) return; // badge handles its own
     const v = video();
     const dur = v.duration || _vod?.gameDurationSeconds || 0;
     if (!dur) return;
-    const rect = seek.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-    seekTo(pct * dur);
+    seekTo(timelineFractionFromClientX(ev.clientX) * dur);
   });
+
+  // Zoom badge → reset to whole game.
+  const badge = $('vp-tl-zoom');
+  if (badge) badge.addEventListener('click', (ev) => { ev.stopPropagation(); resetTimelineZoom(); });
+
+  // Re-clamp pan if the window resizes (viewport width changed).
+  window.addEventListener('resize', () => { if (_tlZoom > 1.001) applyTimelineZoom(); });
 }
 
 // Keyboard: space = play/pause, arrows = seek, B = quick bookmark. Enter/Space on
@@ -1332,6 +1793,7 @@ async function boot() {
 
   wireSeekBar();
   wireTabs();
+  wireFraming();
   try {
     const { data, core } = await fetchVod();
     render(data, core);
