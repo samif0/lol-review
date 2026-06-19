@@ -29,8 +29,11 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Run critical tests
+      - name: Run critical tests (Core)
         run: dotnet test src/Revu.Core.Tests/Revu.Core.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
+
+      - name: Run sidecar write-contract tests
+        run: dotnet test src/Revu.Sidecar.Tests/Revu.Sidecar.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
 
   build:
     runs-on: windows-latest

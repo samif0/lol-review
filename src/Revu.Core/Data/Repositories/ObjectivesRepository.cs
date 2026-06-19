@@ -900,14 +900,22 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
+        // has_review keys off session_log.mental_rating (a reviewed game has one),
+        // NOT g.mental_rating: the current schema's games table has no mental_rating
+        // column (it lives on session_log — Schema.cs CreateSessionLogTable). The
+        // legacy/main DB carries a stray games.mental_rating from the Python era, but
+        // a fresh-install games table does not, so the old query threw
+        // "no such column: g.mental_rating" for every NEW user (caught by
+        // Revu.Sidecar.Tests). LEFT JOIN matches RulesRepository's canonical pattern.
         cmd.CommandText = """
             SELECT go.game_id, go.objective_id, go.practiced, go.execution_note,
                    g.champion_name, g.win, g.timestamp,
                    g.kills, g.deaths, g.assists, g.kda_ratio,
                    COALESCE(g.review_notes, '') AS review_notes,
-                   CASE WHEN g.mental_rating IS NOT NULL THEN 1 ELSE 0 END AS has_review
+                   CASE WHEN sl.mental_rating IS NOT NULL THEN 1 ELSE 0 END AS has_review
             FROM game_objectives go
             JOIN games g ON g.game_id = go.game_id
+            LEFT JOIN session_log sl ON sl.game_id = g.game_id
             WHERE go.objective_id = @objectiveId
               AND COALESCE(g.is_hidden, 0) = 0
             ORDER BY g.timestamp DESC
