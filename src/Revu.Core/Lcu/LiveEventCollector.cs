@@ -19,12 +19,37 @@ public sealed class LiveEventCollector
     private readonly List<JsonElement> _rawEvents = [];
     private string? _playerName;
 
-    // v2.17.7: summoner-spell cast detection. Riot's event stream doesn't emit
-    // SummonerSpellCast events, so we synthesise them by watching the active
-    // player's spell cooldowns: prev <= 0 + new > 0 means the spell was just
-    // cast. Each entry maps spell slot ("spell1"|"spell2") → (display name,
-    // last observed cooldown). _summonerSpellEvents holds the synthesised
-    // casts so StopAsync can return them alongside the raw event-stream events.
+    // v2.17.7 (BROKEN) / v3.0.22 (disabled): summoner-spell cast detection.
+    //
+    // The original design synthesised casts by watching the active player's spell
+    // cooldowns (prev ~0 → new >0 == just cast). That can NEVER fire against the
+    // real Live Client Data API, because the cooldown signal it depends on does not
+    // exist in ANY local endpoint:
+    //   • /liveclientdata/activeplayer carries NO `summonerSpells` block at all
+    //     (verified against Riot's documented schema). The old code read
+    //     activePlayer.summonerSpells, so TryGetProperty returned false and the
+    //     method bailed every tick — zero events, always.
+    //   • /liveclientdata/playerlist DOES expose per-player summonerSpells, but only
+    //     { displayName, rawDescription, rawDisplayName } — NO cooldown / no timing.
+    //   • /liveclientdata/eventdata has no summoner-spell cast events.
+    //   • Match-V5 / EOG only expose aggregate SPELL1_CAST..SPELL4_CAST COUNTS
+    //     (already captured in StatsExtractor / GameStats.Spell{1..4}Casts), with no
+    //     per-cast timestamps.
+    // So timestamped FLASH/SUMMONER_SPELL game_events cannot be produced from any
+    // available data source. The unit test that "passed" fabricated a `rawCooldown`
+    // field the endpoint omits — green test, dead production. See .audit (capture
+    // harness + decision note) and LiveEventCollectorTests for the honest coverage.
+    //
+    // We keep the synthesis plumbing (StopAsync still merges _summonerSpellEvents)
+    // so a future source — an EOG count-only fallback, a replay parser, or a client
+    // version that genuinely starts emitting cooldowns (re-confirm via the capture
+    // harness) — can populate it without re-threading the merge. But the cooldown
+    // detector is OFF by default: enabling it requires a real captured payload that
+    // actually carries a usable cooldown on summonerSpells. Until then it stays a
+    // no-op rather than masquerading as working.
+    // static readonly (not const) on purpose: a const false would make the guarded
+    // body unreachable and trip CS0162. This keeps the gate honest without the warning.
+    private static readonly bool CooldownCastDetectionEnabled = false;
     private readonly Dictionary<string, SummonerSpellState> _summonerSpellState = new();
     private readonly List<GameEvent> _summonerSpellEvents = [];
 
@@ -265,11 +290,25 @@ public sealed class LiveEventCollector
     }
 
     /// <summary>
-    /// v2.17.7: diff the latest summoner-spell cooldowns against the previous
-    /// snapshot. A 0→positive transition means the spell was just cast.
+    /// v2.17.7 (now disabled): diff the latest summoner-spell cooldowns against the
+    /// previous snapshot — a 0→positive transition would mean the spell was just cast.
+    /// This is a NO-OP unless <see cref="CooldownCastDetectionEnabled"/> is flipped on,
+    /// because the cooldown field this depends on does not exist in the real Live
+    /// Client Data API (see the field-level comment on <c>_summonerSpellState</c>).
+    /// Kept (rather than deleted) so the shape is documented in one place and a future
+    /// client version that genuinely emits a cooldown can re-enable it AFTER a real
+    /// capture confirms the field — never on the strength of the old fabricated mock.
     /// </summary>
     private void CheckSummonerSpellCasts(JsonElement activePlayer, int gameTimeS)
     {
+        // Off by default — no available endpoint carries the cooldown signal this
+        // detector needs. Do not flip without a real captured payload that proves a
+        // usable cooldown on summonerSpells (run .audit/capture-live-spells.js in a
+        // live game first). NOTE: the real summonerSpells block lives on
+        // /liveclientdata/playerlist, NOT on /activeplayer — so even if a cooldown
+        // ever appears, the fetch source would need to change too.
+        if (!CooldownCastDetectionEnabled) return;
+
         if (activePlayer.ValueKind != JsonValueKind.Object) return;
         if (!activePlayer.TryGetProperty("summonerSpells", out var spells)) return;
         if (spells.ValueKind != JsonValueKind.Object) return;

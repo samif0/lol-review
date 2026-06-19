@@ -103,10 +103,22 @@ public sealed class LiveEventCollectorTests
             });
     }
 
+    // REGRESSION GUARD for the Flash-ingestion bug (v3.0.22). The previous version of
+    // this test fabricated a `rawCooldown` field and asserted a FLASH event WAS
+    // synthesised — but the real Live Client Data API exposes NO cooldown anywhere
+    // (and /activeplayer carries no summonerSpells block at all; that's only on
+    // /playerlist, names-only). So cooldown-transition detection can never fire in
+    // production. These two tests now feed the collector a REALISTIC /activeplayer
+    // snapshot (currentGold present, NO summonerSpells cooldown) and assert the
+    // honest outcome: zero summoner-spell events. If someone re-enables cooldown
+    // detection against a real captured payload, these are the tests to revisit.
     [Fact]
-    public async Task StopAsync_SynthesisesFlashCast_WhenSpell1CooldownGoesFromReadyToOnCooldown()
+    public async Task StopAsync_ProducesNoFlashCast_FromRealisticActivePlayerWithoutCooldown()
     {
-        // Single growing event stream so the collector's clock has a non-zero reading.
+        // A growing event stream so the collector has a non-zero clock, exactly as in
+        // a real game — but the active-player snapshots carry the REAL shape (no
+        // cooldown on summonerSpells). The cooldown detector is disabled, so even a
+        // "Flash then later" sequence yields nothing.
         var events = CreateEvents(
             """
             [
@@ -115,77 +127,50 @@ public sealed class LiveEventCollectorTests
             ]
             """);
 
-        // Sequence of active-player snapshots: first one establishes ready state,
-        // second one shows Flash on cooldown — i.e. it was just cast.
         var snapshots = new Queue<JsonElement>(
         [
-            CreateActivePlayer(spell1Name: "Flash", spell1Cd: 0.0, spell2Name: "Ignite", spell2Cd: 0.0, gameTime: 120.0),
-            CreateActivePlayer(spell1Name: "Flash", spell1Cd: 290.0, spell2Name: "Ignite", spell2Cd: 0.0, gameTime: 130.0),
+            CreateActivePlayer(spell1Name: "Flash", spell2Name: "Ignite", gameTime: 120.0),
+            CreateActivePlayer(spell1Name: "Flash", spell2Name: "Ignite", gameTime: 130.0),
         ]);
 
-        var api = new FakeLiveEventApi(
-            fetchEventsAsync: () => events,
-            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek());
+        var parsed = await RunCollector(events, snapshots);
 
-        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
-
-        using var cts = new CancellationTokenSource();
-        var runTask = collector.StartAsync(cts.Token);
-        await Task.Delay(60);
-        await cts.CancelAsync();
-        await runTask;
-
-        var parsed = await collector.StopAsync();
-        var flashCast = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Flash);
-
-        Assert.NotNull(flashCast);
-        Assert.True(flashCast!.GameTimeS > 0, $"Expected non-zero game time, got {flashCast.GameTimeS}");
-        using var details = JsonDocument.Parse(flashCast.Details);
-        Assert.Equal("Flash", details.RootElement.GetProperty("spell").GetString());
-        Assert.Equal("spell1", details.RootElement.GetProperty("slot").GetString());
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Flash);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.SummonerSpell);
     }
 
     [Fact]
-    public async Task StopAsync_SynthesisesGenericSummonerSpell_WhenNonFlashCastsRecorded()
+    public async Task StopAsync_ProducesNoSummonerSpellCast_FromRealisticActivePlayerWithoutCooldown()
     {
         var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
 
         var snapshots = new Queue<JsonElement>(
         [
-            CreateActivePlayer(spell1Name: "Flash", spell1Cd: 0.0, spell2Name: "Ignite", spell2Cd: 0.0, gameTime: 80.0),
-            CreateActivePlayer(spell1Name: "Flash", spell1Cd: 0.0, spell2Name: "Ignite", spell2Cd: 180.0, gameTime: 95.0),
+            CreateActivePlayer(spell1Name: "Flash", spell2Name: "Ignite", gameTime: 80.0),
+            CreateActivePlayer(spell1Name: "Flash", spell2Name: "Ignite", gameTime: 95.0),
         ]);
 
-        var api = new FakeLiveEventApi(
-            fetchEventsAsync: () => events,
-            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek());
+        var parsed = await RunCollector(events, snapshots);
 
-        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
-
-        using var cts = new CancellationTokenSource();
-        var runTask = collector.StartAsync(cts.Token);
-        await Task.Delay(60);
-        await cts.CancelAsync();
-        await runTask;
-
-        var parsed = await collector.StopAsync();
-        var igniteCast = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.SummonerSpell);
-
-        Assert.NotNull(igniteCast);
-        using var details = JsonDocument.Parse(igniteCast!.Details);
-        Assert.Equal("Ignite", details.RootElement.GetProperty("spell").GetString());
-        Assert.Equal("spell2", details.RootElement.GetProperty("slot").GetString());
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.SummonerSpell);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Flash);
     }
 
-    private static JsonElement CreateActivePlayer(string spell1Name, double spell1Cd, string spell2Name, double spell2Cd, double gameTime, double currentGold = 500.0)
+    // Realistic /liveclientdata/activeplayer snapshot. summonerSpells uses the REAL
+    // field shape — { displayName, rawDescription, rawDisplayName }, NO cooldown — and
+    // matches what the live endpoint returns (note: the real /activeplayer doesn't even
+    // include summonerSpells; we include it here only to prove the detector ignores it
+    // even when present, since the field it actually keyed on, rawCooldown, is absent).
+    // currentGold/resourceType are genuinely on /activeplayer and drive the recall tests.
+    private static JsonElement CreateActivePlayer(string spell1Name, string spell2Name, double gameTime, double currentGold = 500.0)
     {
         var json = $$"""
             {
               "gameTime": {{gameTime}},
               "currentGold": {{currentGold}},
               "summonerSpells": {
-                "summonerSpellOne": { "displayName": "{{spell1Name}}", "rawCooldown": {{spell1Cd}} },
-                "summonerSpellTwo": { "displayName": "{{spell2Name}}", "rawCooldown": {{spell2Cd}} }
+                "summonerSpellOne": { "displayName": "{{spell1Name}}", "rawDescription": "GeneratedTip_SummonerSpell_{{spell1Name}}_Description", "rawDisplayName": "GeneratedTip_SummonerSpell_{{spell1Name}}_DisplayName" },
+                "summonerSpellTwo": { "displayName": "{{spell2Name}}", "rawDescription": "GeneratedTip_SummonerSpell_{{spell2Name}}_Description", "rawDisplayName": "GeneratedTip_SummonerSpell_{{spell2Name}}_DisplayName" }
               }
             }
             """;
@@ -203,8 +188,8 @@ public sealed class LiveEventCollectorTests
               "currentGold": 500.0,
               "resourceType": "{{resourceType}}",
               "summonerSpells": {
-                "summonerSpellOne": { "displayName": "Flash", "rawCooldown": 0.0 },
-                "summonerSpellTwo": { "displayName": "Ignite", "rawCooldown": 0.0 }
+                "summonerSpellOne": { "displayName": "Flash", "rawDescription": "GeneratedTip_SummonerSpell_Flash_Description", "rawDisplayName": "GeneratedTip_SummonerSpell_Flash_DisplayName" },
+                "summonerSpellTwo": { "displayName": "Ignite", "rawDescription": "GeneratedTip_SummonerSpell_Ignite_Description", "rawDisplayName": "GeneratedTip_SummonerSpell_Ignite_DisplayName" }
               },
               "championStats": {
                 "resourceType": "{{resourceType}}",
@@ -315,8 +300,8 @@ public sealed class LiveEventCollectorTests
               "currentGold": {{gold}},
               "resourceType": "{{resourceType}}",
               "summonerSpells": {
-                "summonerSpellOne": { "displayName": "Flash", "rawCooldown": 0.0 },
-                "summonerSpellTwo": { "displayName": "Ignite", "rawCooldown": 0.0 }
+                "summonerSpellOne": { "displayName": "Flash", "rawDescription": "GeneratedTip_SummonerSpell_Flash_Description", "rawDisplayName": "GeneratedTip_SummonerSpell_Flash_DisplayName" },
+                "summonerSpellTwo": { "displayName": "Ignite", "rawDescription": "GeneratedTip_SummonerSpell_Ignite_Description", "rawDisplayName": "GeneratedTip_SummonerSpell_Ignite_DisplayName" }
               },
               "championStats": {
                 "resourceType": "{{resourceType}}",
@@ -353,8 +338,8 @@ public sealed class LiveEventCollectorTests
         // player just recalled. The recall is anchored 8s before the purchase = 300s.
         var snapshots = new Queue<JsonElement>(
         [
-            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 300.0, currentGold: 1300.0),
-            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 308.0, currentGold: 200.0),
+            CreateActivePlayer("Flash", "Ignite", gameTime: 300.0, currentGold: 1300.0),
+            CreateActivePlayer("Flash", "Ignite", gameTime: 308.0, currentGold: 200.0),
         ]);
 
         var api = new FakeLiveEventApi(
@@ -387,8 +372,8 @@ public sealed class LiveEventCollectorTests
         // the 250g threshold, so no RECALL is emitted.
         var snapshots = new Queue<JsonElement>(
         [
-            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 200.0, currentGold: 400.0),
-            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 210.0, currentGold: 325.0),
+            CreateActivePlayer("Flash", "Ignite", gameTime: 200.0, currentGold: 400.0),
+            CreateActivePlayer("Flash", "Ignite", gameTime: 210.0, currentGold: 325.0),
         ]);
 
         var api = new FakeLiveEventApi(
@@ -415,9 +400,9 @@ public sealed class LiveEventCollectorTests
         // then 900→100 at 305s. Within the 25s debounce window ⇒ only ONE recall.
         var snapshots = new Queue<JsonElement>(
         [
-            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 295.0, currentGold: 1500.0),
-            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 300.0, currentGold: 300.0),
-            CreateActivePlayer("Flash", 0.0, "Ignite", 0.0, gameTime: 305.0, currentGold: 100.0),
+            CreateActivePlayer("Flash", "Ignite", gameTime: 295.0, currentGold: 1500.0),
+            CreateActivePlayer("Flash", "Ignite", gameTime: 300.0, currentGold: 300.0),
+            CreateActivePlayer("Flash", "Ignite", gameTime: 305.0, currentGold: 100.0),
         ]);
 
         var api = new FakeLiveEventApi(
