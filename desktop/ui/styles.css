@@ -2230,16 +2230,20 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .vp-objbar{display:flex;gap:7px;align-items:stretch;margin:0 0 14px;overflow-x:auto;scrollbar-width:thin}
 .vp-objbar::-webkit-scrollbar{height:5px}
 .vp-objbar::-webkit-scrollbar-thumb{background:rgba(157,139,255,0.3);border-radius:3px}
-.vp-objtab{flex:1 0 132px;min-width:0;border-radius:10px;padding:8px 11px;cursor:pointer;text-align:left;
+/* All tabs share a fixed height so the bar is a clean uniform row — a long title
+   no longer makes one tab taller (which made clicking between tabs feel jumpy).
+   The name clamps to 2 lines; the active tab grows WIDER, never taller. */
+.vp-objtab{flex:1 0 132px;min-width:0;height:62px;box-sizing:border-box;border-radius:10px;padding:8px 11px;
+  cursor:pointer;text-align:left;
   background:rgba(255,255,255,0.04);border:1px solid var(--gline2);border-bottom:2px solid transparent;
-  display:flex;flex-direction:column;justify-content:space-between;gap:5px;
+  display:flex;flex-direction:column;justify-content:flex-start;gap:4px;
   transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,background .16s ease}
 .vp-objtab:hover{transform:translateY(-1px);background:rgba(157,139,255,0.06)}
-.vp-objtab-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.vp-objtab-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}
 .vp-objtab-type{font-family:var(--fm);font-size:7px;letter-spacing:1.1px;color:var(--t4)}
 .vp-objtab-count{font-family:var(--fo);font-size:13px;font-weight:800;color:var(--t2)}
 .vp-objtab-name{font-family:var(--fb);font-size:11.5px;font-weight:500;color:var(--t2);line-height:1.2;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis}
 /* Per-TYPE accent on the bottom border (color-by-type). */
 .vp-objtab.t-primary{border-bottom-color:rgba(157,139,255,0.55)}
 .vp-objtab.t-primary .vp-objtab-type{color:#cdb8ff}
@@ -2251,12 +2255,13 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .vp-objtab.is-empty{background:rgba(255,255,255,0.02);border-style:dashed;opacity:0.74}
 .vp-objtab.is-empty .vp-objtab-count{color:var(--t4);font-weight:700}
 .vp-objtab.is-empty .vp-objtab-name{color:var(--t3)}
-/* The FOCUSED (active) tab — expanded, lit in its type color, carries detail. */
-.vp-objtab.is-active{flex:2.3 0 230px;cursor:default;opacity:1;border-style:solid;
+/* The FOCUSED (active) tab — grows WIDER (never taller; same 62px) and carries the
+   detail row. Its name clamps to one line so the chip/marks row fits the fixed height. */
+.vp-objtab.is-active{flex:2.3 0 230px;cursor:default;opacity:1;border-style:solid;justify-content:space-between;
   background:linear-gradient(180deg,rgba(157,139,255,0.18),rgba(157,139,255,0.05));
   border-color:rgba(157,139,255,0.5);box-shadow:0 0 18px -8px rgba(157,139,255,0.7)}
-.vp-objtab.is-active .vp-objtab-name{font-family:var(--fo);font-size:15px;font-weight:600;color:#fff;
-  white-space:normal;line-height:1.15}
+.vp-objtab.is-active .vp-objtab-name{font-family:var(--fo);font-size:14px;font-weight:600;color:#fff;
+  line-height:1.15;-webkit-line-clamp:1;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis}
 .vp-objtab.is-active .vp-objtab-count{font-size:18px;color:#fff}
 /* Active-tab detail row: type chip + "markers this game" + tracked-token chips. */
 .vp-objtab-detail{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px}

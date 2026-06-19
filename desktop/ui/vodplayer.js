@@ -30,7 +30,6 @@ let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarg
 // viewer then falls back to the full-game timeline + a "set an objective" nudge).
 let _focusedObjId = null;   // currently focused objective id (number) or null
 let _framed = false;        // true when ≥1 objective and we're framing
-let _mkIndex = 0;           // current marker index within the focused objective
 const video = () => $('vp-video');
 
 // All this game's markers (events + bookmarks) tied to a given objective id, sorted
@@ -38,15 +37,21 @@ const video = () => $('vp-video');
 // Derived entirely client-side from objectiveId already on each row (no backend).
 function markersForObjective(objId) {
   if (objId == null) return [];
+  const id = Number(objId);
   const v = _vod || {};
   const out = [];
+  // Events: tracked when the objective is among the event's objectiveIds (shared-token
+  // aware — a DEATH event counts for every objective tracking DEATH). Falls back to the
+  // single objectiveId for older snapshots.
   for (const e of (v.gameEvents || [])) {
-    if (e.objectiveId != null && Number(e.objectiveId) === Number(objId)) {
-      out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '' });
-    }
+    const hit = Array.isArray(e.objectiveIds)
+      ? e.objectiveIds.some((x) => Number(x) === id)
+      : (e.objectiveId != null && Number(e.objectiveId) === id);
+    if (hit) out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '' });
   }
+  // Bookmarks/clips are directly tagged to one objective (no shared-token ambiguity).
   for (const b of (v.bookmarks || [])) {
-    if (b.objectiveId != null && Number(b.objectiveId) === Number(objId)) {
+    if (b.objectiveId != null && Number(b.objectiveId) === id) {
       out.push({ seconds: b.gameTimeSeconds || 0, label: b.note || '' });
     }
   }
@@ -260,7 +265,6 @@ function initObjectiveFrame() {
   const pool = withMarks.length ? withMarks : _objectives;
   const priority = pool.find((o) => o.isPriority) || pool[0];
   _focusedObjId = priority != null ? Number(priority.objectiveId) : null;
-  _mkIndex = 0;
 }
 
 // Build the objective tab bar (the permanent framed-viewer header). One tab per
@@ -334,7 +338,6 @@ function setFocusedObjective(objId) {
   const id = Number(objId);
   if (id === _focusedObjId) return;
   _focusedObjId = id;
-  _mkIndex = 0;
   const v = video();
   renderObjBar();
   placeMarkers((v && v.duration) || _vod.gameDurationSeconds || 0);
@@ -342,32 +345,58 @@ function setFocusedObjective(objId) {
   renderMarkerStepper();
 }
 
+// The 1-based ordinal of the marker nearest the current playhead (the one the user
+// is "on" or just passed). Position-aware so the readout tracks where you ARE as the
+// video scrubs, not a stale click index — that off-by-one was bug #2.
+function currentMarkerOrdinal(marks) {
+  if (!marks.length) return 0;
+  const v = video();
+  const t = (v && v.currentTime) || 0;
+  // The last marker at/<= the playhead (with a small tolerance), else the first one.
+  let idx = -1;
+  for (let i = 0; i < marks.length; i++) { if (marks[i].seconds <= t + 0.25) idx = i; else break; }
+  return (idx < 0 ? 0 : idx) + 1;
+}
+
 // In-objective marker stepper: ◀ ▶ jump between THIS objective's markers (distinct
 // from the tab bar that switches objectives — two nav levels). Hidden when unframed
-// or when the focused objective has no markers this game.
+// or when the focused objective has no markers this game. The "i / N" readout is
+// derived from the PLAYHEAD each render, so it stays honest as the video scrubs.
 function renderMarkerStepper() {
   const wrap = $('vp-mkstep');
   if (!wrap) return;
   const marks = _framed ? markersForObjective(_focusedObjId) : [];
   if (!marks.length) { show(wrap, false); return; }
   show(wrap, true);
-  if (_mkIndex >= marks.length) _mkIndex = marks.length - 1;
-  if (_mkIndex < 0) _mkIndex = 0;
+  const ord = currentMarkerOrdinal(marks);
   const cnt = $('vp-mk-count');
-  if (cnt) cnt.innerHTML = `marker <b>${_mkIndex + 1}</b> / ${marks.length}`;
+  if (cnt) cnt.innerHTML = `marker <b>${ord}</b> / ${marks.length}`;
+  const v = video();
+  const t = (v && v.currentTime) || 0;
   const prev = $('vp-mk-prev'); const next = $('vp-mk-next');
-  if (prev) prev.disabled = _mkIndex <= 0;
-  if (next) next.disabled = _mkIndex >= marks.length - 1;
+  // Disable based on whether a marker exists strictly before / after the playhead.
+  if (prev) prev.disabled = !marks.some((m) => m.seconds < t - 0.25);
+  if (next) next.disabled = !marks.some((m) => m.seconds > t + 0.25);
 }
 
-// Step to a marker (delta -1 / +1) within the focused objective and seek the video
-// there. Keeps the readout in sync via renderMarkerStepper.
+// Step to the next (delta +1) or previous (delta -1) marker RELATIVE TO THE PLAYHEAD,
+// not a stored index. ▶ = first marker after the current time, ◀ = first before. This
+// fixes the off-by-one where ▶ from the start jumped to the 2nd marker (bug #2).
 function stepMarker(delta) {
   const marks = markersForObjective(_focusedObjId);
   if (!marks.length) return;
-  _mkIndex = Math.max(0, Math.min(marks.length - 1, _mkIndex + delta));
-  const m = marks[_mkIndex];
-  if (m && _T) { _T.seekTo(m.seconds); const v = video(); if (v && v.paused) v.play().catch(() => {}); }
+  const v = video();
+  const t = (v && v.currentTime) || 0;
+  let target = null;
+  if (delta > 0) {
+    target = marks.find((m) => m.seconds > t + 0.25);          // first strictly after
+  } else {
+    for (const m of marks) { if (m.seconds < t - 0.25) target = m; else break; } // last before
+  }
+  if (target && _T) {
+    _T.seekTo(target.seconds);
+    if (v && v.paused) v.play().catch(() => {});
+  }
   renderMarkerStepper();
 }
 
@@ -427,13 +456,15 @@ function placeMarkers(dur) {
   const objectiveLabelXs = [];
 
   // What counts as "focused" (loud) depends on framing:
-  //  • FRAMED → only events tied to the CURRENT objective (_focusedObjId) are loud;
-  //    every other event (untied OR tied to a DIFFERENT objective) dims to a tick.
-  //  • UNFRAMED (zero objectives) → fall back to the original behavior: any
-  //    objective-tied event is loud (preserves the full-game timeline look).
-  const isFocused = (e) => _framed
-    ? (e.objectiveId != null && Number(e.objectiveId) === _focusedObjId)
-    : (e.objectiveId != null);
+  //  • FRAMED → an event is loud when the FOCUSED objective is among the objectives
+  //    that track its token (objectiveIds — a list, because a shared token like DEATH
+  //    or SPELL_FLASH can be tracked by several objectives at once). Falls back to the
+  //    single objectiveId for older snapshots. Everything else dims to a tick.
+  //  • UNFRAMED (zero objectives) → original behavior: any objective-tied event loud.
+  const matchesFocus = (e) => Array.isArray(e.objectiveIds)
+    ? e.objectiveIds.some((id) => Number(id) === _focusedObjId)
+    : (e.objectiveId != null && Number(e.objectiveId) === _focusedObjId);
+  const isFocused = (e) => _framed ? matchesFocus(e) : (e.objectiveId != null);
 
   // TWO-PASS placement so FOCUSED events take priority: focused first (they always
   // render their label + reserve their slot), the rest second (they yield + dim).
@@ -889,6 +920,19 @@ function wireFraming() {
   }
   const prev = $('vp-mk-prev'); if (prev) prev.addEventListener('click', () => stepMarker(-1));
   const next = $('vp-mk-next'); if (next) next.addEventListener('click', () => stepMarker(1));
+  // Keep the "marker i / N" readout + prev/next disabled-state honest as the video
+  // scrubs (the ordinal is playhead-derived). Throttled to ~once/sec; only when framed.
+  const v = video();
+  if (v) {
+    let last = 0;
+    v.addEventListener('timeupdate', () => {
+      if (!_framed) return;
+      const now = Math.floor(v.currentTime);
+      if (now === last) return;
+      last = now;
+      renderMarkerStepper();
+    });
+  }
   const nx = $('vp-nudge-x');
   if (nx) nx.addEventListener('click', () => {
     const n = $('vp-nudge'); if (n) { n.dataset.dismissed = '1'; show(n, false); }
