@@ -219,6 +219,14 @@ public sealed class TestConfigService : IConfigService
         return Task.CompletedTask;
     }
 
+    public Task ClearSessionAsync()
+    {
+        Current.RiotSessionToken = "";
+        Current.RiotSessionEmail = "";
+        Current.RiotSessionExpiresAt = 0;
+        return Task.CompletedTask;
+    }
+
     public Dictionary<string, string> GetKeybinds()
     {
         var merged = new Dictionary<string, string>(AppConfig.DefaultKeybinds);
