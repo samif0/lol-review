@@ -1058,11 +1058,15 @@ function resolveSaveObjectiveId(pickerId) {
 function fillObjectiveSelect(sel, selectedObjectiveId) {
   if (!sel) return;
   clear(sel);
+  const cur = selectedObjectiveId != null ? Number(selectedObjectiveId) : null;
   const none = document.createElement('option');
   none.value = '';
-  none.textContent = 'No objective';
+  // When nothing is pre-selected, "No objective" IS the default and reads plainly.
+  // When an objective is pre-selected (framed), this option is the explicit opt-out
+  // so it's clear the clip auto-tags unless you pick this — you never have to hunt
+  // for the right objective in the list; it's already chosen.
+  none.textContent = cur != null ? 'No objective (untag)' : 'No objective';
   sel.appendChild(none);
-  const cur = selectedObjectiveId != null ? Number(selectedObjectiveId) : null;
   for (const o of _objectives) {
     const opt = document.createElement('option');
     opt.value = String(o.objectiveId);

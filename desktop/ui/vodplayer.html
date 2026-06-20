@@ -177,9 +177,11 @@
                 <button class="key vp-iobtn vp-clipclear" id="vp-clip-clear" data-action="clip_clear" type="button" hidden>Clear</button>
               </div>
               <input class="inp" id="vp-clip-note" type="text" placeholder="What's happening?" autocomplete="off">
-              <!-- Objective the clip is tied to. Auto-set to the objective in focus when
-                   you save (so a clip made under a frame is tagged to it), but editable
-                   here first if this clip belongs to a different objective. -->
+              <!-- Objective the clip is tied to. Auto-selected to the objective you're
+                   framed on, so saving needs NO manual pick — the dropdown already shows
+                   it. Change it here only if this clip belongs to a different objective,
+                   or pick "No objective (untag)" to save it unassigned. Populated +
+                   pre-selected by populateObjectivePicker() once objectives load. -->
               <select class="inp" id="vp-clip-obj" style="margin-bottom:0" aria-label="Tie clip to objective">
                 <option value="">No objective</option>
               </select>
