@@ -216,6 +216,31 @@ describe("clip sharing", () => {
     expect((await json(res)).error).toBe("login_required");
   });
 
+  it("a token in BOTH sessions AND ALLOWED_TOKENS resolves to the SESSION (can own clips)", async () => {
+    // Regression: authOrDeny used to check the static ALLOWED_TOKENS allowlist BEFORE
+    // the sessions table, so a user's session token that was ALSO present in
+    // ALLOWED_TOKENS short-circuited to Path A (no userId) and clip upload 403'd
+    // "login_required" despite a valid account session. Session must win.
+    const dualToken = "static-op-token"; // also the configured ALLOWED_TOKENS value
+    const tokenHash = await sha256Hex(dualToken);
+    const db = makeFakeDb([], { [tokenHash]: 42 }); // same token ALSO has a session row
+    const { bucket } = makeFakeR2();
+
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clips?title=x&champion=Lux&duration=3", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dualToken}`, "Content-Type": "video/mp4" },
+        body: mp4Bytes(),
+      }),
+      env({ DB: db, CLIPS: bucket }),
+    );
+
+    // Must NOT be 403 login_required — the session identity wins, upload succeeds.
+    expect(res.status).toBe(201);
+    const out = await json(res);
+    expect(typeof out.id).toBe("string");
+  });
+
   it("rejects a non-video content type", async () => {
     const db = makeFakeDb([], { ["hash-sess"]: 7 });
     // sha256("sess-token") must map in the fake; we instead seed by token hash.

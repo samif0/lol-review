@@ -158,19 +158,32 @@ async function authOrDeny(
 
   const tokenHash = await sha256Hex(token);
 
-  // Path A — static token allowlist. The raw token is what's in ALLOWED_TOKENS.
+  // Path B (session) is checked BEFORE Path A (static allowlist). A token that maps to
+  // a real user session MUST keep its user identity — otherwise, if the same raw value
+  // is ALSO present in ALLOWED_TOKENS (e.g. a user's session token that was also added
+  // as a dev/operator token), the static path would short-circuit FIRST and return no
+  // userId, which makes user-scoped routes like POST /clips fail with 403 login_required
+  // even though the caller has a perfectly valid account session. Session wins; static
+  // is the fallback for identity-less operator tokens that have no session row.
+  // Wrapped: a DB hiccup (or a static-token-only deployment with no usable DB) must
+  // fall through to the static allowlist, never hard-fail an otherwise-valid request.
+  try {
+    const session = await findSession(env.DB, tokenHash);
+    if (session) {
+      return { tokenHash: tokenHash.slice(0, 16), userId: session.user_id };
+    }
+  } catch {
+    // fall through to the static allowlist
+  }
+
+  // Path A — static token allowlist (identity-less operator tokens). The raw token is
+  // what's in ALLOWED_TOKENS. These can call the Riot-data proxy but NOT own clips.
   const allowed = (env.ALLOWED_TOKENS || "")
     .split(",")
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
   if (allowed.includes(token)) {
     return { tokenHash: tokenHash.slice(0, 16) };
-  }
-
-  // Path B — session token. We stored sha256(token); look it up.
-  const session = await findSession(env.DB, tokenHash);
-  if (session) {
-    return { tokenHash: tokenHash.slice(0, 16), userId: session.user_id };
   }
 
   return jsonResponse({ error: "invalid_token" }, 401);
