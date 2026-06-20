@@ -9,7 +9,12 @@ compatibility_date = "2025-01-10"
 
 # Secrets (set via `wrangler secret put <NAME>`; never commit):
 #   RIOT_API_KEY    — your permanent Riot API key
-#   ALLOWED_TOKENS  — comma-separated list of user tokens
+#   ALLOWED_TOKENS  — DELETED 2026-06-19. Legacy static operator-token allowlist from
+#                     before email-OTP sessions existed. All proxy auth now goes through
+#                     user sessions (D1 sessions table). authOrDeny still has a static
+#                     fallback for an empty/unset value (harmless dead path). Do NOT
+#                     re-add a user's session token here — it collides with the session
+#                     lookup and 403s clip uploads (see authOrDeny precedence note).
 #
 # Non-secret vars can go here:
 [vars]
