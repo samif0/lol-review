@@ -1847,18 +1847,36 @@ app.MapPost("/api/auth/logout", async (WriteServices w, ILogger<Program> log, Ca
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
-// POST /api/auth/clear-partial — blank a half-saved session (token saved but no
-// RiotId) to avoid jamming the onboarding gate. Mirrors OnboardingViewModel.
-// ClearPartialSessionAsync EXACTLY: no-op early-return when token+email empty AND
-// expiresAt==0; otherwise blank all three and save. Called by the onboarding Back
-// buttons. Wrapped so a failure is non-fatal (mirror the VM try/catch).
+// POST /api/auth/clear-partial — blank a HALF-SAVED session (token saved but the
+// account never got resolved) so backing out of onboarding doesn't jam the gate.
+// Called by the onboarding Back buttons (onboarding.js backToWelcome/backToEmail).
+//
+// CRITICAL GUARD (config-clobber fix): only clear a session that is genuinely
+// PARTIAL — a token with NO resolved account (no RiotId AND no PUUID). A COMPLETE,
+// logged-in session (account resolved) must NEVER be cleared here: a stray Back hop
+// or a re-entered onboarding flow would otherwise wipe a valid user's session token,
+// leaving them "shown as logged in" (email/RiotId persist) but unable to share
+// (token blank -> proxy 401). The old guard only skipped when token+email+expiry were
+// ALL empty, so any user whose RiotSessionEmail was set got their live token wiped.
+// Sign-out (POST /api/auth/logout) is the ONLY path that clears a complete session.
 app.MapPost("/api/auth/clear-partial", async (WriteServices w, ILogger<Program> log) =>
 {
     try
     {
         var cfg = await w.Config.LoadAsync();
+
+        // Nothing to clear: no session at all.
         if (string.IsNullOrEmpty(cfg.RiotSessionToken) && string.IsNullOrEmpty(cfg.RiotSessionEmail) && cfg.RiotSessionExpiresAt == 0)
             return Results.Json(new { ok = true, cleared = false }, jsonOptions);
+
+        // Session is COMPLETE (account resolved) -> this is NOT a partial session;
+        // leave it untouched. This is the clobber guard.
+        var accountResolved = !string.IsNullOrWhiteSpace(cfg.RiotId) || !string.IsNullOrWhiteSpace(cfg.RiotPuuid);
+        if (accountResolved)
+        {
+            log.LogInformation("Auth: clear-partial skipped — session is complete (account resolved), not partial.");
+            return Results.Json(new { ok = true, cleared = false, reason = "complete_session" }, jsonOptions);
+        }
 
         await w.BackupGuard.EnsureBackedUpAsync();
         cfg.RiotSessionToken = "";
@@ -1992,14 +2010,16 @@ app.MapPost("/api/clip/upload", async (ShareClipBody body, WriteServices w, ILog
     {
         if (ex.Unauthorized)
         {
-            // Expired/invalid session: clear it so the frontend re-prompts login.
-            try
-            {
-                cfg.RiotSessionToken = "";
-                cfg.RiotSessionExpiresAt = 0;
-                await w.Config.SaveAsync(cfg);
-            }
-            catch (Exception clearEx) { log.LogDebug(clearEx, "Share: failed to clear rejected session"); }
+            // Proxy rejected the token (401/403). Do NOT wipe the local session here:
+            // a SINGLE share 401 — which can be transient (a proxy hiccup, a 5xx that
+            // surfaced as unauthorized, brief clock skew on the expiry check) — used to
+            // blank RiotSessionToken + RiotSessionExpiresAt, destroying an otherwise
+            // valid multi-week session and locking the user out of sharing entirely
+            // (every retry then sent an empty token -> guaranteed 401 -> re-wipe loop).
+            // Tell the frontend to re-prompt login, but leave the stored session intact
+            // so a retry (or a genuine re-login) can succeed. Deliberate sign-out
+            // (POST /api/auth/logout) remains the only path that clears the session.
+            log.LogInformation("Share: proxy returned unauthorized; prompting re-login WITHOUT clearing the stored session.");
             return Results.Json(new { ok = false, error = ex.Message, needsLogin = true }, jsonOptions, statusCode: 401);
         }
         return Results.Json(new { ok = false, error = ex.Message }, jsonOptions, statusCode: 422);
