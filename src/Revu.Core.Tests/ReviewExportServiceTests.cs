@@ -125,6 +125,54 @@ public sealed class ReviewExportServiceTests
         Assert.DoesNotContain(@"C:\clips\tf.mp4", markdown);
     }
 
+    [Fact]
+    public async Task ExportGameAsync_ClipWithBookmarkAndEvidence_AppearsOnceUnderObjective()
+    {
+        // A clip is saved as BOTH a vod_bookmark (often untagged, note "Clip") AND an
+        // evidence_item (real note + objective tag, SourceId = bookmark id). The export
+        // must collapse them into ONE moment under the objective — not list it twice
+        // (once tagged, once under "Unassigned").
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 8_060;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Sivir", win: false));
+        var objectiveId = await scope.Objectives.CreateAsync("Review every single death", completionCriteria: "x");
+        await scope.Objectives.RecordGameAsync(gameId, objectiveId, practiced: true);
+        await scope.Vod.LinkVodAsync(gameId, @"C:\vods\g.mp4", 1000, 1800);
+
+        // Bookmark: untagged, generic note (how a fresh clip saves).
+        var bmId = await scope.Vod.AddBookmarkAsync(
+            gameId, 251, "Clip", clipStartSeconds: 251, clipEndSeconds: 312, clipPath: @"C:\clips\d.mp4");
+        await scope.Vod.SetBookmarkShareUrlAsync(bmId, "https://clips.revu.lol/Dup123");
+        // Evidence row for the SAME clip: real note + objective tag.
+        await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.Clip,
+            SourceId: bmId,
+            SourceKey: $"clip:{bmId}",
+            StartTimeSeconds: 251,
+            EndTimeSeconds: 312,
+            Title: "Clip",
+            Note: "i dont think its that bad of a death",
+            ObjectiveId: objectiveId,
+            Polarity: EvidencePolarities.Neutral,
+            Status: EvidenceStatuses.Evidence));
+
+        var service = CreateService(scope);
+        var markdown = await service.ExportGameAsync(gameId);
+        Assert.NotNull(markdown);
+
+        // The real note appears; the generic "Clip" placeholder does NOT leak into Moments.
+        Assert.Contains("i dont think its that bad of a death", markdown!);
+        // The share link appears exactly ONCE (not duplicated across objective + Unassigned).
+        var occurrences = markdown!.Split("https://clips.revu.lol/Dup123").Length - 1;
+        Assert.Equal(1, occurrences);
+        // No "Unassigned" duplicate of this clip.
+        var momentsSection = markdown.Substring(markdown.IndexOf("## Moments", StringComparison.Ordinal));
+        Assert.DoesNotContain("Unassigned", momentsSection);
+    }
+
     private static ReviewExportService CreateService(TestDatabaseScope scope) =>
         new(
             scope.Games,

@@ -263,7 +263,9 @@ public sealed class ReviewExportService : IReviewExportService
                 EndSeconds: bookmark.ClipEndSeconds,
                 Text: string.IsNullOrWhiteSpace(bookmark.Note) ? "Saved moment" : bookmark.Note.Trim(),
                 Objective: bookmark.ObjectiveId is { } objectiveId && objectiveNames.TryGetValue(objectiveId, out var title) ? title : "",
-                ShareUrl: bookmark.ShareUrl ?? ""));
+                ShareUrl: bookmark.ShareUrl ?? "",
+                BookmarkId: bookmark.Id,
+                FromEvidence: false));
         }
 
         foreach (var item in evidence)
@@ -277,17 +279,33 @@ public sealed class ReviewExportService : IReviewExportService
                 EndSeconds: item.EndTimeSeconds,
                 Text: string.IsNullOrWhiteSpace(note) ? item.Title ?? "Timeline moment" : note.Trim(),
                 Objective: item.ObjectiveTitle,
-                ShareUrl: shareUrl));
+                ShareUrl: shareUrl,
+                // A clip evidence row's SourceId IS the bookmark it was clipped from, so
+                // it dedupes against that bookmark. Timeline-only evidence has no bookmark.
+                BookmarkId: string.Equals(item.SourceKind, EvidenceKinds.Clip, StringComparison.OrdinalIgnoreCase) ? (item.SourceId ?? 0) : 0,
+                FromEvidence: true));
         }
 
-        var deduped = moments
+        // First collapse bookmark↔evidence duplicates by their shared clip identity
+        // (BookmarkId). A clip is saved as BOTH a vod_bookmark (often untagged, note
+        // "Clip") AND an evidence_item (real note + objective tag); without this they
+        // appear twice — once under the objective, once under "Unassigned". When both
+        // exist for one BookmarkId, the EVIDENCE row wins (real note + objective). Rows
+        // with BookmarkId==0 (timeline-only evidence, plain bookmarks) are untouched here.
+        var byBookmark = moments
+            .Where(m => m.BookmarkId != 0)
+            .GroupBy(m => m.BookmarkId)
+            .Select(g => g.FirstOrDefault(m => m.FromEvidence) ?? g.First());
+        var collapsed = moments.Where(m => m.BookmarkId == 0).Concat(byBookmark).ToList();
+
+        var deduped = collapsed
             .GroupBy(static item => (
                 item.StartSeconds,
                 item.EndSeconds,
                 Text: OneLine(item.Text).ToLowerInvariant(),
                 Objective: OneLine(item.Objective).ToLowerInvariant()))
-            // Prefer the duplicate that carries a share link (a bookmark and its
-            // evidence row dedupe to one moment; keep the one with the public URL).
+            // Prefer the duplicate that carries a share link (content-identical rows
+            // dedupe to one moment; keep the one with the public URL).
             .Select(static group => group.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.ShareUrl)) ?? group.First())
             .OrderBy(static item => string.IsNullOrWhiteSpace(item.Objective) ? 1 : 0)
             .ThenBy(static item => item.Objective, StringComparer.OrdinalIgnoreCase)
@@ -526,5 +544,13 @@ public sealed class ReviewExportService : IReviewExportService
         int? EndSeconds,
         string Text,
         string Objective,
-        string ShareUrl = "");
+        string ShareUrl = "",
+        // The underlying clip-bookmark id (a bookmark's own Id, or an evidence clip's
+        // SourceId). Two rows that share this id are the SAME moment — used to dedupe a
+        // bookmark against its evidence row. 0 = no bookmark identity (timeline-only
+        // evidence), which dedupes by content instead.
+        long BookmarkId = 0,
+        // True for the evidence-row variant: when a bookmark + its evidence collide on
+        // BookmarkId, the evidence wins (it carries the real note + the objective tag).
+        bool FromEvidence = false);
 }
