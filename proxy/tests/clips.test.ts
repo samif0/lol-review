@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { Env } from "../src/types";
+import { MAX_ACTIVE_CLIPS_PER_USER } from "../src/clips";
 
 // ── In-memory fakes for D1 + R2 ─────────────────────────────────────────────
 //
@@ -363,7 +364,7 @@ describe("clip sharing", () => {
   it("rejects an upload once the per-user active-clip quota is reached", async () => {
     const sessionToken = "session-quota";
     const tokenHash = await sha256Hex(sessionToken);
-    const seeded = Array.from({ length: 50 }, (_, i) =>
+    const seeded = Array.from({ length: MAX_ACTIVE_CLIPS_PER_USER }, (_, i) =>
       clip({ id: `seed${String(i).padStart(3, "0")}`, user_id: 9 }),
     );
     const db = makeFakeDb(seeded, { [tokenHash]: 9 });
@@ -427,10 +428,10 @@ describe("clip sharing", () => {
             if (sql.includes("COALESCE(SUM(size_bytes)")) {
               quotaReads += 1;
               // 1st read (pre-insert): under cap. 2nd read (post-insert): over
-              // the 50-clip cap (51), forcing the rollback path.
+              // the active-clip cap, forcing the rollback path.
               return (quotaReads === 1
                 ? { n: 10, total: 0 }
-                : { n: 51, total: 0 }) as unknown as T;
+                : { n: MAX_ACTIVE_CLIPS_PER_USER + 1, total: 0 }) as unknown as T;
             }
             return inner.first<T>();
           },

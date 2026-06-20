@@ -4,8 +4,8 @@
  * A logged-in user uploads a local clip file (POST /clips). We store the video
  * bytes in R2 and the metadata in D1, mint a short public slug, and hand back
  * revu.lol/<slug>. Anyone can watch via the slug — no auth to view, auth to
- * upload/delete. Clips auto-expire after 30 days (see purgeExpiredClips, run
- * from the Worker's scheduled handler).
+ * upload/delete. Clips auto-expire after 3 days (see CLIP_TTL_SECONDS +
+ * purgeExpiredClips, run from the Worker's scheduled handler).
  *
  * Privacy: only the uploader-typed title/champion ever surface publicly. No
  * account, Riot ID, or match data is stored or returned here.
@@ -14,8 +14,12 @@
 import { Env } from "./types";
 import { jsonResponse, badRequest } from "./http";
 
-// 30-day retention. Kept here so the upload path and the purge job agree.
-export const CLIP_TTL_SECONDS = 30 * 24 * 60 * 60;
+// 3-day retention (changed from 30d 2026-06-19). Kept here so the upload path and
+// the daily purge job agree. TRADE-OFF: a shared link only lives 3 days, after which
+// the clip is purged from R2/D1 and the link 404s — keeps storage churn low and frees
+// per-user quota fast. Applies to NEW uploads; clips uploaded before this keep the
+// expires_at stamped at their upload time (they are NOT retroactively shortened).
+export const CLIP_TTL_SECONDS = 3 * 24 * 60 * 60;
 
 // Absolute server-side ceiling on an uploaded file. The desktop app enforces a
 // 90-second duration limit (Revu can't downscale source resolution), but a
@@ -32,10 +36,12 @@ export const MAX_CLIP_BYTES = 100 * 1024 * 1024;
 const ALLOWED_CONTENT_TYPES = new Set(["video/mp4", "video/webm"]);
 
 // Per-user ceilings on *active* (unexpired) clips. Uploads are authed, but
-// without a quota a single account could park unbounded R2 storage (200 MB
-// per request) on our bill.
-export const MAX_ACTIVE_CLIPS_PER_USER = 50;
-export const MAX_ACTIVE_CLIP_BYTES_PER_USER = 2 * 1024 * 1024 * 1024; // 2 GB
+// without a quota a single account could park unbounded R2 storage (100 MB
+// per request) on our bill. Raised 50 -> 150 (2026-06-19) for heavy reviewers
+// who share most of a game's clips; the byte ceiling scales with it (~22 MB
+// avg observed, so 150 fits comfortably under 6 GB).
+export const MAX_ACTIVE_CLIPS_PER_USER = 150;
+export const MAX_ACTIVE_CLIP_BYTES_PER_USER = 6 * 1024 * 1024 * 1024; // 6 GB
 
 /**
  * Cheap container sniff so the stored object is at least shaped like the

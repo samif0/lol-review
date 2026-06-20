@@ -153,18 +153,36 @@ public sealed class ClipUploadService : IClipUploadService
     {
         if (res.IsSuccessStatusCode) return;
 
+        // Read the machine-readable error CODE and the human MESSAGE separately. The
+        // code disambiguates 403s that the status alone conflates: the proxy returns
+        // 403 for BOTH "login_required" (no account) AND "quota_exceeded" (active-clip
+        // cap reached) — mapping every 403 to "you need to be logged in" sent a heavy
+        // user (50/50 clips) chasing a phantom auth bug. Branch on the code first.
         string? code = null;
+        string? serverMessage = null;
         try
         {
             var err = await res.Content.ReadFromJsonAsync<ErrorDto>(cancellationToken: ct).ConfigureAwait(false);
-            code = err?.error ?? err?.message;
+            code = err?.error;
+            serverMessage = err?.message;
         }
         catch
         {
             // body wasn't JSON
         }
 
-        var unauthorized = res.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
+        // A quota rejection is NOT an auth problem — surface the real reason.
+        if (string.Equals(code, "quota_exceeded", StringComparison.OrdinalIgnoreCase))
+        {
+            var msg = !string.IsNullOrWhiteSpace(serverMessage)
+                ? serverMessage!
+                : "Clip-share limit reached (50 active clips). Delete old shared clips, or let them expire.";
+            throw new ClipUploadException(msg, unauthorized: false);
+        }
+
+        var unauthorized = string.Equals(code, "login_required", StringComparison.OrdinalIgnoreCase)
+            || res.StatusCode == HttpStatusCode.Unauthorized
+            || (res.StatusCode == HttpStatusCode.Forbidden && !string.Equals(code, "quota_exceeded", StringComparison.OrdinalIgnoreCase));
         var friendly = res.StatusCode switch
         {
             HttpStatusCode.Unauthorized => "Your login expired. Log in again to share.",
