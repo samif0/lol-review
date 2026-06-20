@@ -257,6 +257,34 @@ describe("clip sharing", () => {
     expect(store.size).toBe(1);
   });
 
+  it("converts an R2 failure into a clean 502 clip_error (not an escaped 503)", async () => {
+    // If R2.put throws, the exception used to escape the worker entirely and
+    // Cloudflare returned a raw 503 — surfaced to the desktop as the unhelpful
+    // "UPLOAD FAILED (503)". The clip dispatch is now wrapped, so the throw
+    // becomes a clean, retryable 502 {clip_error}.
+    const sessionToken = "session-r2-down";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 7 });
+    const throwingBucket = {
+      async put() { throw new Error("R2 unavailable"); },
+      async get() { return null; },
+      async delete() { /* noop */ },
+    } as unknown as R2Bucket;
+
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clips", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
+        body: mp4Bytes(),
+      }),
+      env({ DB: db, CLIPS: throwingBucket }),
+    );
+
+    expect(res.status).toBe(502);
+    const out = await json(res);
+    expect(out.error).toBe("clip_error");
+  });
+
   it("rejects an oversized upload via Content-Length", async () => {
     const sessionToken = "session-big";
     const tokenHash = await sha256Hex(sessionToken);

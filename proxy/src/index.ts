@@ -644,8 +644,33 @@ export default {
     // Placed before the Riot-key check and the GET-only guard so clip uploads
     // (POST) and deletes (DELETE) aren't blocked, and clip viewing works even
     // if the Riot key is momentarily absent.
-    const clipResponse = await dispatchClips(request, url, env, cors);
-    if (clipResponse) return clipResponse;
+    //
+    // Wrapped in a try/catch: the upload path streams to R2 + writes D1, and an
+    // unhandled throw there (R2 put failure, D1 hiccup, oversized stream) would
+    // otherwise escape the worker entirely and surface as a RAW CLOUDFLARE 503 —
+    // which the desktop reports as "UPLOAD FAILED (503)" with no actionable cause.
+    // Converting it to a clean 502 {clip_error} keeps the desktop's retry logic
+    // working and logs the real exception for `wrangler tail`.
+    try {
+      const clipResponse = await dispatchClips(request, url, env, cors);
+      if (clipResponse) return clipResponse;
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          scope: "clips.dispatch",
+          path: url.pathname,
+          method: request.method,
+          error: (err as Error)?.message ?? String(err),
+        }),
+      );
+      return withCors(
+        jsonResponse(
+          { error: "clip_error", message: "Clip service hit a temporary error. Try again." },
+          502,
+        ),
+        cors,
+      );
+    }
 
     if (!env.RIOT_API_KEY) {
       return withCors(jsonResponse({ error: "server_misconfigured_no_riot_key" }, 500), cors);

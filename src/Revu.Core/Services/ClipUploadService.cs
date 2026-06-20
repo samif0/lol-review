@@ -172,6 +172,10 @@ public sealed class ClipUploadService : IClipUploadService
             HttpStatusCode.RequestEntityTooLarge => "Clip is too large to share (200 MB max).",
             (HttpStatusCode)415 => "Only MP4 and WebM clips can be shared.",
             HttpStatusCode.TooManyRequests => "Too many uploads — wait a moment and try again.",
+            // 5xx (incl. the proxy's clip_error and a raw Cloudflare 503) are transient
+            // server-side failures — tell the user to retry rather than showing a bare code.
+            HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout
+                => "Sharing is temporarily unavailable. Try again in a moment.",
             _ => code is not null ? $"Upload failed ({code})." : $"Upload failed ({(int)res.StatusCode}).",
         };
         throw new ClipUploadException(friendly, unauthorized);
