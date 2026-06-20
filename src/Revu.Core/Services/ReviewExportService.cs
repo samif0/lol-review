@@ -248,6 +248,13 @@ public sealed class ReviewExportService : IReviewExportService
     {
         var moments = new List<ExportMoment>();
         var objectiveNames = objectives.ToDictionary(o => o.ObjectiveId, o => o.Title);
+        // Public share links live on the bookmark row (set when a clip is shared to
+        // revu.lol). Evidence-backed clips reference their bookmark via SourceId, so a
+        // bookmarkId → ShareUrl lookup lets BOTH moment sources carry the link.
+        var shareUrlByBookmarkId = bookmarks
+            .Where(b => !string.IsNullOrWhiteSpace(b.ShareUrl))
+            .GroupBy(b => b.Id)
+            .ToDictionary(g => g.Key, g => g.First().ShareUrl);
 
         foreach (var bookmark in bookmarks)
         {
@@ -255,7 +262,8 @@ public sealed class ReviewExportService : IReviewExportService
                 StartSeconds: bookmark.ClipStartSeconds ?? bookmark.GameTimeSeconds,
                 EndSeconds: bookmark.ClipEndSeconds,
                 Text: string.IsNullOrWhiteSpace(bookmark.Note) ? "Saved moment" : bookmark.Note.Trim(),
-                Objective: bookmark.ObjectiveId is { } objectiveId && objectiveNames.TryGetValue(objectiveId, out var title) ? title : ""));
+                Objective: bookmark.ObjectiveId is { } objectiveId && objectiveNames.TryGetValue(objectiveId, out var title) ? title : "",
+                ShareUrl: bookmark.ShareUrl ?? ""));
         }
 
         foreach (var item in evidence)
@@ -263,11 +271,13 @@ public sealed class ReviewExportService : IReviewExportService
             var note = string.Equals(item.Note?.Trim(), item.Title?.Trim(), StringComparison.OrdinalIgnoreCase)
                 ? ""
                 : item.Note ?? "";
+            var shareUrl = item.SourceId is { } srcId && shareUrlByBookmarkId.TryGetValue(srcId, out var u) ? u : "";
             moments.Add(new ExportMoment(
                 StartSeconds: item.StartTimeSeconds ?? 0,
                 EndSeconds: item.EndTimeSeconds,
                 Text: string.IsNullOrWhiteSpace(note) ? item.Title ?? "Timeline moment" : note.Trim(),
-                Objective: item.ObjectiveTitle));
+                Objective: item.ObjectiveTitle,
+                ShareUrl: shareUrl));
         }
 
         var deduped = moments
@@ -276,7 +286,9 @@ public sealed class ReviewExportService : IReviewExportService
                 item.EndSeconds,
                 Text: OneLine(item.Text).ToLowerInvariant(),
                 Objective: OneLine(item.Objective).ToLowerInvariant()))
-            .Select(static group => group.First())
+            // Prefer the duplicate that carries a share link (a bookmark and its
+            // evidence row dedupe to one moment; keep the one with the public URL).
+            .Select(static group => group.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.ShareUrl)) ?? group.First())
             .OrderBy(static item => string.IsNullOrWhiteSpace(item.Objective) ? 1 : 0)
             .ThenBy(static item => item.Objective, StringComparer.OrdinalIgnoreCase)
             .ThenBy(static item => item.StartSeconds)
@@ -307,7 +319,10 @@ public sealed class ReviewExportService : IReviewExportService
                 var range = moment.EndSeconds is int end && end > moment.StartSeconds
                     ? $"{FormatSeconds(moment.StartSeconds)} - {FormatSeconds(end)}"
                     : FormatSeconds(moment.StartSeconds);
-                sb.AppendLine($"- {range}: {OneLine(moment.Text)}");
+                var link = string.IsNullOrWhiteSpace(moment.ShareUrl)
+                    ? ""
+                    : $" ([clip]({moment.ShareUrl.Trim()}))";
+                sb.AppendLine($"- {range}: {OneLine(moment.Text)}{link}");
             }
         }
 
@@ -386,6 +401,7 @@ public sealed class ReviewExportService : IReviewExportService
             AppendNestedField(sb, "Note", bookmark.Note);
             AppendNestedField(sb, "Quality", bookmark.Quality);
             AppendNestedField(sb, "Clip", bookmark.ClipPath);
+            AppendNestedField(sb, "Share link", bookmark.ShareUrl);
             if (bookmark.ClipStartSeconds is not null || bookmark.ClipEndSeconds is not null)
             {
                 AppendNestedField(
@@ -509,5 +525,6 @@ public sealed class ReviewExportService : IReviewExportService
         int StartSeconds,
         int? EndSeconds,
         string Text,
-        string Objective);
+        string Objective,
+        string ShareUrl = "");
 }

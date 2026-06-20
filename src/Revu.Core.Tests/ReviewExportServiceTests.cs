@@ -100,6 +100,31 @@ public sealed class ReviewExportServiceTests
         Assert.Contains("Lux", markdown);
     }
 
+    [Fact]
+    public async Task ExportGameAsync_IncludesSharedClipPublicLink()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 8_050;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Sivir", win: true));
+        await scope.Vod.LinkVodAsync(gameId, @"C:\vods\sivir.mp4", 1000, 1800);
+        var bmId = await scope.Vod.AddBookmarkAsync(
+            gameId, 520, "Great teamfight",
+            clipStartSeconds: 515, clipEndSeconds: 540, clipPath: @"C:\clips\tf.mp4", quality: "good");
+        // Simulate a successful share (sidecar SetBookmarkShareUrlAsync after upload).
+        await scope.Vod.SetBookmarkShareUrlAsync(bmId, "https://clips.revu.lol/AbCd123");
+
+        var service = CreateService(scope);
+        var markdown = await service.ExportGameAsync(gameId);
+
+        Assert.NotNull(markdown);
+        // The PUBLIC link must be exported (it was previously dropped entirely).
+        Assert.Contains("https://clips.revu.lol/AbCd123", markdown!);
+        // ...but the LOCAL file path must still be hidden.
+        Assert.DoesNotContain(@"C:\clips\tf.mp4", markdown);
+    }
+
     private static ReviewExportService CreateService(TestDatabaseScope scope) =>
         new(
             scope.Games,
