@@ -1832,11 +1832,16 @@ app.MapPost("/api/auth/logout", async (WriteServices w, ILogger<Program> log, Ca
     await w.BackupGuard.EnsureBackedUpAsync();
     var cfg = await w.Config.LoadAsync();
     var token = cfg.RiotSessionToken;
-    cfg.RiotSessionToken = "";
-    cfg.RiotSessionEmail = "";
-    cfg.RiotSessionExpiresAt = 0;
-    cfg.OnboardingSkipped = false;
-    await w.Config.SaveAsync(cfg);
+    // Deliberate sign-out: clear the session via the dedicated path (a normal
+    // SaveAsync now PRESERVES an empty token / zero expiry, so the manual blank-and-
+    // save no longer clears anything). Reset OnboardingSkipped separately.
+    await w.Config.ClearSessionAsync();
+    if (cfg.OnboardingSkipped)
+    {
+        var fresh = await w.Config.LoadAsync();
+        fresh.OnboardingSkipped = false;
+        await w.Config.SaveAsync(fresh);
+    }
 
     if (!string.IsNullOrWhiteSpace(token))
     {
@@ -1879,10 +1884,9 @@ app.MapPost("/api/auth/clear-partial", async (WriteServices w, ILogger<Program> 
         }
 
         await w.BackupGuard.EnsureBackedUpAsync();
-        cfg.RiotSessionToken = "";
-        cfg.RiotSessionEmail = "";
-        cfg.RiotSessionExpiresAt = 0;
-        await w.Config.SaveAsync(cfg);
+        // Use the dedicated clear path — a normal SaveAsync now preserves an empty
+        // token / zero expiry, so this is the only way to actually wipe a session.
+        await w.Config.ClearSessionAsync();
         log.LogInformation("Auth: partial session cleared.");
         return Results.Json(new { ok = true, cleared = true }, jsonOptions);
     }

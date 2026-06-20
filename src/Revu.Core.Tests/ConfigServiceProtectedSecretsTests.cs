@@ -72,8 +72,13 @@ public sealed class ConfigServiceProtectedSecretsTests
     }
 
     [Fact]
-    public async Task SaveAsync_ClearsProtectedSecretsWhenConfigTokensAreCleared()
+    public async Task SaveAsync_WithEmptyRiotToken_PRESERVESStoredSession()
     {
+        // Clobber-fix behavior: a NORMAL save whose RiotSessionToken is empty must NOT
+        // delete the stored session token — it means "this writer didn't touch the
+        // session". (GithubToken keeps the old clear-on-empty behavior; only the Riot
+        // session is protected, because only `verify` ever sets it in-memory and every
+        // other read-modify-write handler carries an empty token.)
         using var scope = new TempConfigScope();
         var secrets = new FakeProtectedSecretStore();
         var service = CreateService(scope.ConfigPath, secrets);
@@ -82,20 +87,45 @@ public sealed class ConfigServiceProtectedSecretsTests
         {
             GithubToken = "github-secret",
             RiotSessionToken = "riot-session-secret",
+            RiotSessionExpiresAt = DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
         });
 
         var loaded = await service.LoadAsync();
         loaded.GithubToken = "";
-        loaded.RiotSessionToken = "";
+        loaded.RiotSessionToken = "";          // a stale/non-session writer
+        loaded.RiotSessionExpiresAt = 0;       // and a zeroed expiry
         await service.SaveAsync(loaded);
 
+        // GitHub token still clears on empty (unchanged behavior).
         Assert.Null(secrets.GetSecret("github_token"));
-        Assert.Null(secrets.GetSecret("riot_session_token"));
+        // Riot session token + expiry are PRESERVED, not wiped.
+        Assert.Equal("riot-session-secret", secrets.GetSecret("riot_session_token"));
+        var reloaded = await service.LoadAsync();
+        Assert.Equal("riot-session-secret", reloaded.RiotSessionToken);
+        Assert.True(reloaded.RiotSessionExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+    }
 
-        var persisted = await File.ReadAllTextAsync(scope.ConfigPath);
-        var sanitized = JsonSerializer.Deserialize<AppConfig>(persisted, JsonOptions)!;
-        Assert.Equal("", sanitized.GithubToken);
-        Assert.Equal("", sanitized.RiotSessionToken);
+    [Fact]
+    public async Task ClearSessionAsync_ActuallyWipesTheSession()
+    {
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+        var service = CreateService(scope.ConfigPath, secrets);
+
+        await service.SaveAsync(new AppConfig
+        {
+            RiotSessionToken = "riot-session-secret",
+            RiotSessionEmail = "user@example.com",
+            RiotSessionExpiresAt = DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
+        });
+
+        await service.ClearSessionAsync();
+
+        Assert.Null(secrets.GetSecret("riot_session_token"));
+        var reloaded = await service.LoadAsync();
+        Assert.Equal("", reloaded.RiotSessionToken);
+        Assert.Equal("", reloaded.RiotSessionEmail);
+        Assert.Equal(0, reloaded.RiotSessionExpiresAt);
     }
 
     [Fact]

@@ -16,6 +16,15 @@ public interface IConfigService
     /// <summary>Persist the full config to disk.</summary>
     Task SaveAsync(AppConfig config);
 
+    /// <summary>
+    /// Explicitly clear the Riot session (token + email + expiry) — the ONLY path
+    /// that wipes the stored session. A normal <see cref="SaveAsync"/> with an empty
+    /// token / zero expiry now PRESERVES the stored session (it treats "empty" as
+    /// "this writer didn't touch the session"), so deliberate sign-out goes through
+    /// here. Used by POST /api/auth/logout and the guarded clear-partial path.
+    /// </summary>
+    Task ClearSessionAsync();
+
     // ── Convenience properties ──────────────────────────────────────
 
     string GithubToken { get; }

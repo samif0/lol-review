@@ -114,11 +114,29 @@ public sealed class ConfigService : IConfigService
         }
     }
 
+    // When true, the current SaveAsync is a DELIBERATE session clear (sign-out): the
+    // empty-token / zero-expiry preservation guards are bypassed so the session is
+    // actually wiped. Set only inside ClearSessionAsync, under the lock.
+    private bool _clearingSession;
+
     public async Task SaveAsync(AppConfig config)
     {
         await _lock.WaitAsync().ConfigureAwait(false);
         try
         {
+            // Expiry-clobber guard (P-020/P-023 class): RiotSessionExpiresAt lives only
+            // in plaintext config.json (no DPAPI mirror). A read-modify-write handler
+            // that didn't touch the session carries expiry=0; persisting that 0 would
+            // log the user out even though the token is valid. Treat a 0/absent expiry
+            // on a normal save as "leave the stored expiry unchanged" by carrying the
+            // current on-disk value forward. A real sign-out goes through
+            // ClearSessionAsync (which sets _clearingSession to bypass this).
+            if (!_clearingSession && config.RiotSessionExpiresAt <= 0)
+            {
+                var priorExpiry = ReadPersistedExpiry();
+                if (priorExpiry > 0) config.RiotSessionExpiresAt = priorExpiry;
+            }
+
             var persistable = PersistSecretsAndCreateSanitizedConfig(config);
             Directory.CreateDirectory(_configDir);
             var json = JsonSerializer.Serialize(persistable, JsonOptions);
@@ -128,6 +146,57 @@ public sealed class ConfigService : IConfigService
         finally
         {
             _lock.Release();
+        }
+    }
+
+    public async Task ClearSessionAsync()
+    {
+        await _lock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var cfg = await LoadFromDiskAsync().ConfigureAwait(false);
+            cfg.RiotSessionToken = "";
+            cfg.RiotSessionEmail = "";
+            cfg.RiotSessionExpiresAt = 0;
+            // Force the wipe past the preservation guards in SaveAsync + the
+            // ClearSecret in PersistSecretsAndCreateSanitizedConfig.
+            _clearingSession = true;
+            try
+            {
+                _secrets.ClearSecret(RiotSessionTokenSecretName);
+                var persistable = PersistSecretsAndCreateSanitizedConfig(cfg);
+                Directory.CreateDirectory(_configDir);
+                var json = JsonSerializer.Serialize(persistable, JsonOptions);
+                await WriteFileAtomicAsync(_configFile, json).ConfigureAwait(false);
+                _cached = HydrateSecrets(persistable);
+            }
+            finally
+            {
+                _clearingSession = false;
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    // Read just the persisted RiotSessionExpiresAt from config.json on disk, without
+    // mutating _cached or taking the lock (callers already hold it). Returns 0 if the
+    // file is missing/unreadable/absent-field.
+    private long ReadPersistedExpiry()
+    {
+        try
+        {
+            if (!File.Exists(_configFile)) return 0;
+            var json = File.ReadAllText(_configFile);
+            var onDisk = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
+            return onDisk?.RiotSessionExpiresAt ?? 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read persisted session expiry; treating as 0.");
+            return 0;
         }
     }
 
@@ -384,11 +453,18 @@ public sealed class ConfigService : IConfigService
             _secrets.SetSecret(GithubTokenSecretName, config.GithubToken);
         }
 
-        if (string.IsNullOrWhiteSpace(config.RiotSessionToken))
-        {
-            _secrets.ClearSecret(RiotSessionTokenSecretName);
-        }
-        else
+        // Session token: an empty token on a NORMAL save means "this writer didn't
+        // touch the session — leave the stored token alone", NOT "clear it". Only the
+        // sole writer that legitimately owns the session (verify, which sets a real
+        // token) updates it; every other read-modify-write handler (resolve,
+        // config/save, dismiss-flag writers) carries an in-memory config whose
+        // RiotSessionToken is "" unless HydrateSecrets happened to repopulate it, and
+        // must NEVER ClearSecret it. ClearSecret is reserved for an explicit sign-out
+        // (ClearSessionAsync). This is the destructive-clobber fix: previously ANY save
+        // with an empty token deleted the token from DPAPI, logging the user out and
+        // making clip-share fail. (Mirrors the P-020/P-023 "empty = leave unchanged"
+        // guard already applied to riot_id/region/folder fields.)
+        if (!string.IsNullOrWhiteSpace(config.RiotSessionToken))
         {
             _secrets.SetSecret(RiotSessionTokenSecretName, config.RiotSessionToken);
         }
