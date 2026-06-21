@@ -512,7 +512,15 @@
       container.classList.remove('is-interactive');
       const widgetId = window.turnstile.render(container, {
         sitekey: TURNSTILE_SITE_KEY,
-        size: 'invisible',
+        // Cloudflare removed the legacy size: 'invisible' value (the API now
+        // throws "expected compact, flexible, or normal"). The modern way to
+        // get the same hidden-unless-challenged behavior is a real size plus
+        // appearance: 'interaction-only' (widget stays invisible until a
+        // challenge is actually needed) and execution: 'execute' so the
+        // challenge runs on our explicit execute() call below, not on render.
+        size: 'flexible',
+        appearance: 'interaction-only',
+        execution: 'execute',
         callback: (token) => {
           container.classList.remove('is-interactive');
           resolve(token);
