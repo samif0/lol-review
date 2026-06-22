@@ -248,11 +248,20 @@ async function wireLiveAutoShow() {
   // that actually runs in-app (shell.js's copy is gated !FRAMED, off for the iframe).
   const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html'];
   const onActiveWorkPage = () => ACTIVE_WORK_PAGES.some((f) => frameHas(f));
-  // Auto-show to a live surface, but never interrupt an active-work page — UNLESS
-  // we're already on a live surface (pregame↔ingame switches are always honored).
+  // Some pages aren't whole-page forms but still have a transient mid-edit state —
+  // the dashboard's inline Start/End-Block editors. Those set window.__revuActiveWork
+  // on the framed document while open; reloading the iframe then would wipe the
+  // half-typed focus (the "Start Block refreshed the page and didn't save" report).
+  const inActiveEdit = () => {
+    try { return !!frame?.contentWindow?.__revuActiveWork; }
+    catch (_) { return false; } // cross-origin (shouldn't happen in-app) — treat as idle
+  };
+  // Auto-show to a live surface, but never interrupt an active-work page or an
+  // open inline editor — UNLESS we're already on a live surface (pregame↔ingame
+  // switches are always honored).
   const liveGoto = (file) => {
     if (frameHas('pregame.html') || frameHas('ingame.html')) { goto(file); return; }
-    if (onActiveWorkPage()) return; // don't yank the user off a form mid-edit
+    if (onActiveWorkPage() || inActiveEdit()) return; // don't yank the user off a form / open editor
     goto(file);
   };
 

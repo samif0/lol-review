@@ -79,10 +79,33 @@ public sealed class GameService : IGameService
             return null;
         }
 
-        // 3. Save game via IGameRepository
+        // 3. Reconcile the captured account id to the SIGNED-IN Riot PUUID before
+        // saving. The LCU end-of-game localPlayer.puuid is the local (logged-in)
+        // player, so a captured game is always the current user's — but the LCU
+        // reports a UUID-shaped id (e.g. 07f45763-…) that does NOT equal the
+        // encrypted Riot PUUID our login stores in config. Account scoping
+        // string-compares the two (SessionLogRepository.CurrentAccountFilter), so
+        // leaving the LCU id strands every captured game behind the filter (the
+        // "GAMES 0 even though I played" dashboard bug). Stamp the config PUUID
+        // when we have one; logged out ('') keeps whatever the LCU gave (the
+        // lenient '' scope still treats it as the user's own). This is the single
+        // save chokepoint for every path — live capture, recovered, and
+        // batch-ingested missed reviews — so reconcile here, once.
+        var riotPuuid = _config.RiotPuuid;
+        if (!string.IsNullOrWhiteSpace(riotPuuid)
+            && !string.Equals(stats.Puuid, riotPuuid, StringComparison.Ordinal))
+        {
+            _logger.LogInformation(
+                "Reconciling captured PUUID '{Lcu}' -> signed-in Riot PUUID for game {GameId}",
+                string.IsNullOrEmpty(stats.Puuid) ? "(empty)" : stats.Puuid,
+                stats.GameId);
+            stats.Puuid = riotPuuid;
+        }
+
+        // 4. Save game via IGameRepository
         await _games.SaveAsync(stats).ConfigureAwait(false);
 
-        // 4. Check user-defined rule violations, then log the session
+        // 5. Check user-defined rule violations, then log the session
         var ruleBroken = false;
         try
         {
@@ -117,7 +140,7 @@ public sealed class GameService : IGameService
             pregameIntention: request.PregameIntention,
             intentionSource: request.IntentionSource).ConfigureAwait(false);
 
-        // 5. Save live events via IGameEventsRepository
+        // 6. Save live events via IGameEventsRepository
         if (stats.LiveEvents is { Count: > 0 })
         {
             try
@@ -132,7 +155,7 @@ public sealed class GameService : IGameService
                 _logger.LogWarning(ex, "Failed to save live events for game {GameId}", stats.GameId);
             }
 
-            // 6. Compute derived events via IDerivedEventsRepository
+            // 7. Compute derived events via IDerivedEventsRepository
             try
             {
                 var gameEvents = await _gameEvents.GetEventsAsync(stats.GameId).ConfigureAwait(false);
@@ -152,7 +175,7 @@ public sealed class GameService : IGameService
             }
         }
 
-        // 7. Auto-match VOD via IVodService (if Ascent is enabled)
+        // 8. Auto-match VOD via IVodService (if Ascent is enabled)
         if (_config.IsAscentEnabled)
         {
             try
@@ -172,7 +195,7 @@ public sealed class GameService : IGameService
             }
         }
 
-        // 8. Return game id
+        // 9. Return game id
         return stats.GameId;
     }
 

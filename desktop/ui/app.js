@@ -341,6 +341,17 @@ async function loadDashboard() {
   }
 }
 
+// ── active-work flag (P-035 guard for the dashboard's inline editors) ─────────
+// The Start/End-Block editors are active-work surfaces: while one is open the
+// user is mid-edit and an LCU auto-show that reloads the content iframe would
+// wipe the half-typed focus (looks like "the page refreshed and nothing saved").
+// dashboard.html isn't in shell-outer.js's ACTIVE_WORK_PAGES list (those are
+// whole-page forms), so we expose a per-editor flag the shell reads before it
+// reloads us. Mirrors the ACTIVE_WORK_PAGES intent at editor granularity.
+function setActiveWork(on) {
+  try { window.__revuActiveWork = !!on; } catch (_) { /* non-window host — ignore */ }
+}
+
 // ── inline intention editor (START BLOCK) ───────────────────────────────────
 // Clicking START BLOCK swaps the button for a glass text field in place. The
 // user names one focus, then we invoke('start_block',{intention}) and reload —
@@ -350,6 +361,7 @@ let _intentOpen = false;
 function openIntentEditor(cta) {
   if (_intentOpen) return;
   _intentOpen = true;
+  setActiveWork(true);
   const body = cta.closest('.body') || cta.parentElement;
 
   const wrap = document.createElement('div');
@@ -385,6 +397,7 @@ function openIntentEditor(cta) {
 
   function close(restoreButton) {
     _intentOpen = false;
+    setActiveWork(false);
     wrap.remove();
     // If the backend write succeeded, loadDashboard() re-renders the card and a
     // fresh button arrives; only restore the original when we abort locally.
@@ -431,6 +444,7 @@ let _endBlockOpen = false;
 function openEndBlockEditor(cta) {
   if (_endBlockOpen) return;
   _endBlockOpen = true;
+  setActiveWork(true);
   const body = cta.closest('.body') || cta.parentElement;
 
   const wrap = document.createElement('div');
@@ -483,6 +497,7 @@ function openEndBlockEditor(cta) {
 
   function close(restoreButton) {
     _endBlockOpen = false;
+    setActiveWork(false);
     wrap.remove();
     if (restoreButton) cta.hidden = false;
   }
