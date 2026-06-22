@@ -101,7 +101,21 @@ public sealed record ObjectiveCardDto(
     // The criterion sentence ("Success: CS per minute ≥ 7" or free-text). Empty
     // when the objective has neither a structured criterion nor free text.
     string CriteriaText,
-    bool HasCriteriaText);
+    bool HasCriteriaText,
+    // ── P-037 MASTERY meter (separate from the EFFORT score above) ───────────
+    // Rolling per-game success rate over the horizon, 0–100 (integer percent).
+    int MasteryPct,
+    // True once mastery gates READY/complete (≥80% held over the horizon). The
+    // UI keys "complete" off this, not score>=50. Forward-only: already-complete
+    // objectives report Met=true so nothing un-completes.
+    bool MasteryMet,
+    // Gate sub-text, e.g. "80% OVER 8+ GAMES & 5+ DAYS" — drives the meter caption.
+    string MasteryGateText,
+    // Ready-to-show meter caption, e.g. "MASTERY 55%  •  LOCKED" / "MASTERED".
+    string MasteryText,
+    // How many qualifying games have been seen (evaluated for structured,
+    // linked for free-text) — for the "n games" sub-label.
+    int MasteryQualifyingGames);
 
 /// <summary>One completed objective (collapsed row).</summary>
 public sealed record CompletedObjectiveDto(

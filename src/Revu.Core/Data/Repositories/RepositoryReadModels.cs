@@ -44,6 +44,36 @@ public sealed record ObjectiveSummary(
     public bool HasStructuredCriteria => !string.IsNullOrWhiteSpace(CriteriaMetric);
 }
 
+/// <summary>
+/// P-037 mastery signal — separate from the EFFORT score (which is attendance +
+/// clipping). Measures whether the objective's per-game success held over a
+/// horizon, so READY/complete tracks skill learned, not games reviewed.
+///
+/// The per-game "success" is the criterion (criteria_met=1) for structured
+/// objectives, or the practiced flag for free-text-only ones (the only per-game
+/// signal there). Gate (forward-only, one-way ratchet — never un-fills):
+///   * ≥80% of the qualifying games met success, AND
+///   * recency: the last 3 qualifying games all met success, OR ≥8 of the last
+///     10 did, AND
+///   * the qualifying games span at least MinHorizonDays elapsed days
+/// </summary>
+public sealed record ObjectiveMastery(
+    // Rolling hit-rate over the qualifying-game window, 0.0–1.0. 0 when no game qualifies.
+    double Pct,
+    // Qualifying games seen (criteria_met not null for structured, all linked for free-text).
+    int QualifyingGames,
+    // Elapsed days between the first and last qualifying game.
+    int SpanDays,
+    // True once the gate is satisfied. Read-side; callers OR this with the
+    // already-complete state so nothing already-READY regresses (one-way ratchet).
+    bool Met,
+    // The threshold the gate used, for display (e.g. 0.80).
+    double Threshold,
+    // Min games required by the recency rule, for the gate sub-text.
+    int MinGames,
+    // Min elapsed days required, for the gate sub-text.
+    int MinHorizonDays);
+
 public sealed record GameObjectiveRecord(
     long GameId,
     long ObjectiveId,

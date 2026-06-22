@@ -657,6 +657,23 @@ html.framed .shell{padding-left:40px}
 .ladder span{font-family:var(--fm);font-size:9.5px;letter-spacing:1px;color:var(--t4);text-shadow:var(--tsh);white-space:nowrap}
 .ladder span.on{color:var(--accent);font-weight:600}
 
+/* P-037 MASTERY METER — the gate that unlocks "complete" (skill held over a
+   horizon). Violet while locked, green once mastered. The ladder above is EFFORT. */
+.obj-mastery{margin-top:13px;padding-top:12px;border-top:1px solid var(--gline2)}
+.obj-mastery[hidden]{display:none}
+.obj-mastery-bar{height:5px;border-radius:3px;background:var(--gline2);overflow:hidden}
+.obj-mastery-fill{height:100%;width:0;border-radius:3px;background:var(--accent);
+  transition:width .35s ease}
+.obj-mastery-fill.is-met{background:var(--win)}
+.obj-mastery-cap{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;margin-top:7px}
+.obj-mastery-text{font-family:var(--fm);font-size:9.5px;letter-spacing:1px;font-weight:700;
+  color:var(--accent)}
+.obj-mastery.is-met .obj-mastery-text{color:var(--win)}
+.obj-mastery-gate{font-family:var(--fm);font-size:9px;letter-spacing:1px;color:var(--t4);
+  white-space:nowrap}
+.obj-mastery-gate[hidden]{display:none}
+
 /* CHAMPION GATE — only shown for champion-scoped objectives. */
 .obj-gate{display:flex;align-items:center;gap:9px;margin-top:13px;padding-top:12px;border-top:1px solid var(--gline2)}
 .obj-gate-k{font-family:var(--fm);font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:var(--t4)}

@@ -169,6 +169,105 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         return (0, 0);
     }
 
+    // ── P-037 mastery gate (gate=0.80, recency=last-3-consec OR 8-of-last-10,
+    //    min horizon=5 days, one-way ratchet) ────────────────────────────────
+    private const double MasteryThreshold = 0.80;
+    private const int MasteryMinGames = 3;
+    private const int MasteryRecencyWindow = 10;
+    private const int MasteryRecencyHits = 8;
+    private const int MasteryMinHorizonDays = 5;
+
+    /// <summary>
+    /// P-037: compute the mastery signal for an objective — whether per-game
+    /// success held over a horizon, distinct from the attendance/clipping score.
+    /// Success per game = criteria_met=1 (structured) or practiced=1 (free-text).
+    /// Forward-only: callers OR <c>Met</c> with the already-complete state so an
+    /// objective that is already READY never regresses (one-way ratchet).
+    /// </summary>
+    public async Task<ObjectiveMastery> GetMasteryAsync(long objectiveId, bool hasStructuredCriteria)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        // For structured objectives only evaluated games qualify (criteria_met not
+        // null); for free-text every linked visible game qualifies, success=practiced.
+        cmd.CommandText = hasStructuredCriteria
+            ? """
+                SELECT (CASE WHEN go.criteria_met = 1 THEN 1 ELSE 0 END) AS success, g.timestamp
+                FROM game_objectives go
+                JOIN games g ON g.game_id = go.game_id
+                WHERE go.objective_id = @objectiveId
+                  AND go.criteria_met IS NOT NULL
+                  AND COALESCE(g.is_hidden, 0) = 0
+                ORDER BY g.timestamp ASC
+                """
+            : """
+                SELECT (CASE WHEN COALESCE(go.practiced, 1) = 1 THEN 1 ELSE 0 END) AS success, g.timestamp
+                FROM game_objectives go
+                JOIN games g ON g.game_id = go.game_id
+                WHERE go.objective_id = @objectiveId
+                  AND COALESCE(g.is_hidden, 0) = 0
+                ORDER BY g.timestamp ASC
+                """;
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+
+        var successes = new List<bool>();
+        long? firstTs = null, lastTs = null;
+        using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                successes.Add(reader.GetInt32(0) == 1);
+                if (!reader.IsDBNull(1))
+                {
+                    var ts = reader.GetInt64(1);
+                    firstTs ??= ts;
+                    lastTs = ts;
+                }
+            }
+        }
+
+        return ComputeMastery(successes, firstTs, lastTs);
+    }
+
+    /// <summary>Pure gate logic over an oldest→newest success list. Testable.</summary>
+    internal static ObjectiveMastery ComputeMastery(IReadOnlyList<bool> successesOldestFirst, long? firstTs, long? lastTs)
+    {
+        var n = successesOldestFirst.Count;
+        var threshold = MasteryThreshold;
+        if (n == 0)
+        {
+            return new ObjectiveMastery(0.0, 0, 0, false, threshold, MasteryMinGames, MasteryMinHorizonDays);
+        }
+
+        var hits = 0;
+        for (var i = 0; i < n; i++) if (successesOldestFirst[i]) hits++;
+        var pct = (double)hits / n;
+
+        var spanDays = firstTs is long f && lastTs is long l && l >= f
+            ? (int)((l - f) / 86400L)
+            : 0;
+
+        // Recency: last MasteryMinGames all success, OR ≥MasteryRecencyHits of the
+        // last MasteryRecencyWindow. (Newest entries are at the end of the list.)
+        var lastK = Math.Min(MasteryMinGames, n);
+        var lastKAllHit = true;
+        for (var i = n - lastK; i < n; i++) if (!successesOldestFirst[i]) { lastKAllHit = false; break; }
+        lastKAllHit = lastKAllHit && n >= MasteryMinGames;
+
+        var windowStart = Math.Max(0, n - MasteryRecencyWindow);
+        var windowHits = 0;
+        for (var i = windowStart; i < n; i++) if (successesOldestFirst[i]) windowHits++;
+        var nOfMHit = windowHits >= MasteryRecencyHits;
+
+        var recencyMet = lastKAllHit || nOfMHit;
+        var met = pct >= threshold
+                  && recencyMet
+                  && n >= MasteryMinGames
+                  && spanDays >= MasteryMinHorizonDays;
+
+        return new ObjectiveMastery(pct, n, spanDays, met, threshold, MasteryMinGames, MasteryMinHorizonDays);
+    }
+
     /// <summary>
     /// v2.18 (schema v6 build): lowest criteria hit rate among active
     /// objectives, for the pre-game intent card. Null until the data gate is

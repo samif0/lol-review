@@ -82,6 +82,14 @@ public interface IObjectivesRepository
     Task<(int Hits, int Evaluated)> GetCriteriaHitRateAsync(long objectiveId);
 
     /// <summary>
+    /// P-037: mastery signal for an objective — whether per-game success held
+    /// over a horizon (distinct from the attendance/clipping score). Success =
+    /// criteria_met=1 (structured) or practiced=1 (free-text). One-way ratchet:
+    /// callers OR the result's Met with the already-complete state.
+    /// </summary>
+    Task<ObjectiveMastery> GetMasteryAsync(long objectiveId, bool hasStructuredCriteria);
+
+    /// <summary>
     /// v2.18 (schema v6 build): the active objective with the lowest criteria
     /// hit rate, for the intent card's LOWEST ADHERENCE chip. Data-gated:
     /// returns null until at least <paramref name="minEvaluatedTotal"/>

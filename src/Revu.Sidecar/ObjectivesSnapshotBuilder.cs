@@ -206,6 +206,24 @@ public sealed class ObjectivesSnapshotBuilder
             : (string.IsNullOrWhiteSpace(obj.CompletionCriteria) ? "" : $"Success: {obj.CompletionCriteria}");
         var hasCriteriaText = !string.IsNullOrWhiteSpace(criteriaText);
 
+        // ── P-037 mastery gate (the NEW READY gate; the score above is EFFORT) ──
+        // Minis keep their target-game completion model; mastery applies to
+        // primary/mental objectives. Forward-only: OR with the old score≥50 gate
+        // so an objective already READY never regresses to locked.
+        var mastery = isMini
+            ? new ObjectiveMastery(0, 0, 0, false, 0.80, 3, 5)
+            : await SafeMasteryAsync(obj.Id, hasStructuredCriteria);
+        var masteryMet = mastery.Met || obj.Score >= 50;
+        var masteryPct = (int)Math.Round(mastery.Pct * 100);
+        var masteryGateText = $"{(int)Math.Round(mastery.Threshold * 100)}% OVER {mastery.MinGames}+ GAMES & {mastery.MinHorizonDays}+ DAYS";
+        var masteryText = isMini
+            ? ""
+            : masteryMet
+                ? "MASTERED"
+                : mastery.QualifyingGames == 0
+                    ? "MASTERY — NO DATA YET"
+                    : $"MASTERY {masteryPct}%  •  LOCKED";
+
         // Minis fill by games done; mastery/mental objectives by score arc
         // (mirror ObjectiveDisplayItem.DisplayProgress).
         var progress = isMini && obj.TargetGameCount > 0
@@ -265,7 +283,25 @@ public sealed class ObjectivesSnapshotBuilder
             CriteriaHitRateText: criteriaHitRateText,
             CriteriaHitRateHex: criteriaHitRateHex,
             CriteriaText: criteriaText,
-            HasCriteriaText: hasCriteriaText);
+            HasCriteriaText: hasCriteriaText,
+            MasteryPct: masteryPct,
+            MasteryMet: masteryMet,
+            MasteryGateText: masteryGateText,
+            MasteryText: masteryText,
+            MasteryQualifyingGames: mastery.QualifyingGames);
+    }
+
+    private async Task<ObjectiveMastery> SafeMasteryAsync(long objectiveId, bool hasStructuredCriteria)
+    {
+        try
+        {
+            return await _objectivesRepo.GetMasteryAsync(objectiveId, hasStructuredCriteria);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Objectives: mastery load failed for {ObjectiveId}", objectiveId);
+            return new ObjectiveMastery(0.0, 0, 0, false, 0.80, 3, 5);
+        }
     }
 
     private async Task<(int Hits, int Evaluated)> SafeCriteriaHitRateAsync(long objectiveId)

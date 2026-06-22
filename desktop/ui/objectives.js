@@ -310,6 +310,7 @@ function renderObjectives(d) {
     fillSpark(el.querySelector('.obj-card-spark'), o);
 
     buildLadder(el.querySelector('.obj-card-ladder'), Number(o.score) || 0, o.levelColorHex);
+    fillMastery(el, o);
     fillGate(el.querySelector('.obj-card-gate'), el.querySelector('.obj-card-gate .obj-gate-v'), o);
 
     // The priority objective can't be "made priority" — drop that button.
@@ -318,18 +319,48 @@ function renderObjectives(d) {
       if (mk) mk.remove();
     }
 
-    // Completion buttons are mutually exclusive: green "Mark Complete" once the
-    // objective has reached Ready (score>=50), else the quiet "Complete Early".
-    toggleCompleteButtons(el, Number(o.score) || 0);
+    // P-037: completion is gated by MASTERY (skill held over a horizon), not the
+    // EFFORT score. The server OR's masteryMet with the legacy score>=50 so an
+    // objective already Ready never regresses (forward-only).
+    toggleCompleteButtons(el, o);
 
     host.appendChild(el);
   }
 }
 
+// P-037 mastery meter: fill the bar to masteryPct and caption it. Hidden for
+// minis and when the server reports no mastery text (e.g. mini drills).
+function fillMastery(card, o) {
+  const wrap = card.querySelector('.obj-card-mastery');
+  if (!wrap) return;
+  const showMeter = !o.isMini && !!o.masteryText;
+  show(wrap, showMeter);
+  if (!showMeter) return;
+
+  const pct = Math.max(0, Math.min(100, Number(o.masteryPct) || 0));
+  wrap.classList.toggle('is-met', !!o.masteryMet);
+  const fill = wrap.querySelector('.obj-mastery-fill');
+  if (fill) {
+    fill.style.width = pct + '%';
+    fill.classList.toggle('is-met', !!o.masteryMet);
+  }
+  const textEl = wrap.querySelector('.obj-mastery-text');
+  if (textEl) textEl.textContent = o.masteryText || '';
+  const gateEl = wrap.querySelector('.obj-mastery-gate');
+  if (gateEl) {
+    gateEl.textContent = o.masteryMet ? '' : (o.masteryGateText || '');
+    show(gateEl, !o.masteryMet && !!o.masteryGateText);
+  }
+}
+
 // Show exactly one of the two completion buttons on a card based on readiness.
-// canComplete (score>=50) → green Mark Complete; else → quiet Complete Early.
-function toggleCompleteButtons(card, score) {
-  const ready = score >= READY_SCORE;
+// P-037: readiness = masteryMet (skill held over the horizon), NOT score>=50.
+// The green "Mark Complete" shows when mastered; else the quiet "Complete Early".
+function toggleCompleteButtons(card, o) {
+  // Back-compat: a bare number still works (legacy callers / tests).
+  const ready = typeof o === 'number'
+    ? o >= READY_SCORE
+    : !!o.masteryMet;
   const win = card.querySelector('.obj-act-win');
   const early = card.querySelector('.obj-act-early');
   if (win) win.hidden = !ready;
