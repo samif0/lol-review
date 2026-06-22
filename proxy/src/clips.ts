@@ -303,37 +303,23 @@ export async function handleUploadClip(
     return jsonResponse({ error: "payload_too_large", message: tooLargeMessage }, 413);
   }
 
-  // Read the body through a byte-counting guard that ABORTS once the cap is
-  // exceeded, so a missing/lying Content-Length can't stream an oversized body
-  // fully into the isolate (memory-DoS). We never buffer more than
-  // MAX_CLIP_BYTES + one chunk.
-  let body: ArrayBuffer;
-  try {
-    body = await readBodyCapped(request, MAX_CLIP_BYTES);
-  } catch (err) {
-    if (err instanceof PayloadTooLargeError) {
-      return jsonResponse({ error: "payload_too_large", message: tooLargeMessage }, 413);
-    }
-    throw err;
-  }
-  if (body.byteLength === 0) {
+  if (!request.body) {
     return badRequest("empty body");
-  }
-  if (!hasVideoMagicBytes(new Uint8Array(body, 0, Math.min(body.byteLength, 16)), contentType)) {
-    return jsonResponse(
-      { error: "unsupported_media_type", message: "file content does not match the declared video type" },
-      415,
-    );
   }
 
   const now = Math.floor(Date.now() / 1000);
 
-  // Quota check (active clips only — expired ones purge daily and stop counting).
+  // Pre-upload quota check on what we know UP FRONT: the active-clip COUNT (which
+  // doesn't depend on this file's size) and, when the client declares a length,
+  // the byte total. The honest desktop always sends Content-Length, so the byte
+  // ceiling is enforced here before a single byte is streamed; a missing length
+  // still gets the COUNT gate now and the precise byte recount after the stream.
   const usage = await env.DB
     .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND expires_at > ?2")
     .bind(userId, now)
     .first<{ n: number; total: number }>();
-  if (usage && (usage.n >= MAX_ACTIVE_CLIPS_PER_USER || usage.total + body.byteLength > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
+  const declaredAddsBytes = Number.isFinite(declaredLen) ? declaredLen : 0;
+  if (usage && (usage.n >= MAX_ACTIVE_CLIPS_PER_USER || usage.total + declaredAddsBytes > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
     return jsonResponse(
       { error: "quota_exceeded", message: "active clip quota reached — delete old clips or let them expire" },
       403,
@@ -351,9 +337,40 @@ export async function handleUploadClip(
   const ext = contentType === "video/webm" ? "webm" : "mp4";
   const r2Key = `clips/${id}.${ext}`;
 
-  await env.CLIPS.put(r2Key, body, {
-    httpMetadata: { contentType },
-  });
+  // STREAM the body straight into R2 instead of buffering the whole file in the
+  // isolate and re-copying it into one contiguous ArrayBuffer. That buffer+recopy
+  // is O(file size) CPU per request, and several concurrent uploads sharing one
+  // isolate's CPU budget tripped the Workers CPU limit ("exceededCpu" → a raw 5xx
+  // the desktop showed as "sharing temporarily unavailable"). The guard tee'd into
+  // the stream keeps the memory-DoS cap (abort past MAX_CLIP_BYTES, even when
+  // Content-Length is absent/lying) and the magic-byte sniff (validate the leading
+  // bytes), so nothing about the safety contract changes — only the buffering does.
+  const guard = new ClipUploadGuard(MAX_CLIP_BYTES, contentType);
+  let uploadedBytes = 0;
+  try {
+    await env.CLIPS.put(r2Key, request.body.pipeThrough(guard.transform), {
+      httpMetadata: { contentType },
+    });
+    uploadedBytes = guard.bytesSeen;
+  } catch (err) {
+    // The guard signals oversize / bad-magic / empty by erroring the stream, which
+    // rejects put(); map those to the same client errors the buffered path returned.
+    // Best-effort delete any partial object R2 may have started.
+    try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
+    if (err instanceof PayloadTooLargeError) {
+      return jsonResponse({ error: "payload_too_large", message: tooLargeMessage }, 413);
+    }
+    if (err instanceof BadMagicError) {
+      return jsonResponse(
+        { error: "unsupported_media_type", message: "file content does not match the declared video type" },
+        415,
+      );
+    }
+    if (err instanceof EmptyBodyError) {
+      return badRequest("empty body");
+    }
+    throw err; // genuine R2 failure → bubbles to the dispatch catch (clean 502)
+  }
 
   const expiresAt = now + CLIP_TTL_SECONDS;
   try {
@@ -362,7 +379,7 @@ export async function handleUploadClip(
       user_id: userId,
       r2_key: r2Key,
       content_type: contentType,
-      size_bytes: body.byteLength,
+      size_bytes: uploadedBytes,
       duration_s: duration,
       title,
       champion,
@@ -534,50 +551,83 @@ export async function purgeExpiredClips(env: Env): Promise<number> {
 
 // ── small utils ────────────────────────────────────────────────────────────
 
-/** Thrown by readBodyCapped when the streamed body exceeds the byte cap. */
+/** Stream errored because the body exceeded the byte cap. */
 class PayloadTooLargeError extends Error {}
+/** Stream errored because the leading bytes aren't the declared video type. */
+class BadMagicError extends Error {}
+/** Stream errored because the body had zero bytes. */
+class EmptyBodyError extends Error {}
+
+// Magic-byte sniff needs the first 12 bytes (mp4 "ftyp" box check reads [4..8)).
+const MAGIC_PREFIX_BYTES = 16;
 
 /**
- * Read a request body into an ArrayBuffer, aborting as soon as the running
- * total exceeds `maxBytes`. Unlike `request.arrayBuffer()`, this never holds
- * more than the cap (plus one in-flight chunk) in memory, so an oversized or
- * Content-Length-spoofing upload can't OOM the Worker isolate. Falls back to a
- * bounded `arrayBuffer()` read if the body isn't a readable stream.
+ * A pass-through guard for the clip upload stream. Sits between the request body
+ * and R2.put: it counts bytes and ERRORS the stream past `maxBytes` (memory-DoS
+ * cap, enforced even when Content-Length is absent/lying), validates the leading
+ * bytes against the declared content type (magic-byte sniff), and rejects an
+ * empty body — all WITHOUT buffering the whole file. Only a tiny header slice
+ * (<= MAGIC_PREFIX_BYTES) is ever held; the rest flows straight through to R2.
+ *
+ * On any violation the underlying TransformStream is errored with the matching
+ * typed error, which rejects the awaiting R2.put so the caller can map it to the
+ * right HTTP status (same contract the old buffered path returned).
  */
-async function readBodyCapped(request: Request, maxBytes: number): Promise<ArrayBuffer> {
-  const stream = request.body;
-  if (!stream) {
-    const buf = await request.arrayBuffer();
-    if (buf.byteLength > maxBytes) throw new PayloadTooLargeError();
-    return buf;
-  }
+class ClipUploadGuard {
+  readonly transform: TransformStream<Uint8Array, Uint8Array>;
+  bytesSeen = 0;
 
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        try { await reader.cancel(); } catch { /* best effort */ }
-        throw new PayloadTooLargeError();
+  constructor(maxBytes: number, contentType: string) {
+    let header: Uint8Array | null = null; // accumulates up to MAGIC_PREFIX_BYTES
+    let validated = false;
+
+    const validateMagic = (controller: TransformStreamDefaultController<Uint8Array>): boolean => {
+      if (validated || header === null) return true;
+      if (!hasVideoMagicBytes(header, contentType)) {
+        controller.error(new BadMagicError());
+        return false;
       }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
+      validated = true;
+      return true;
+    };
 
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
+    this.transform = new TransformStream<Uint8Array, Uint8Array>({
+      transform: (chunk, controller) => {
+        if (chunk.byteLength === 0) return;
+        this.bytesSeen += chunk.byteLength;
+        if (this.bytesSeen > maxBytes) {
+          controller.error(new PayloadTooLargeError());
+          return;
+        }
+
+        // Collect the header slice for the magic-byte sniff. Once we have enough
+        // (or the body ends), validate before passing anything further downstream.
+        if (!validated) {
+          if (header === null) {
+            header = chunk.slice(0, Math.min(chunk.byteLength, MAGIC_PREFIX_BYTES));
+          } else if (header.length < MAGIC_PREFIX_BYTES) {
+            const need = MAGIC_PREFIX_BYTES - header.length;
+            const merged = new Uint8Array(header.length + Math.min(need, chunk.byteLength));
+            merged.set(header, 0);
+            merged.set(chunk.slice(0, Math.min(need, chunk.byteLength)), header.length);
+            header = merged;
+          }
+          if (header.length >= MAGIC_PREFIX_BYTES && !validateMagic(controller)) return;
+        }
+
+        controller.enqueue(chunk);
+      },
+      flush: (controller) => {
+        if (this.bytesSeen === 0) {
+          controller.error(new EmptyBodyError());
+          return;
+        }
+        // A body shorter than MAGIC_PREFIX_BYTES never tripped the mid-stream
+        // validation — validate the short header now (and reject if it's bogus).
+        validateMagic(controller);
+      },
+    });
   }
-  return out.buffer;
 }
 
 function clampText(value: string | null, max: number): string | null {

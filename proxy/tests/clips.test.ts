@@ -122,7 +122,25 @@ function makeFakeDb(seedClips: FakeClip[] = [], sessions: Record<string, number>
 function makeFakeR2() {
   const store = new Map<string, Uint8Array>();
   const bucket = {
-    async put(key: string, value: ArrayBuffer | ArrayBufferView) {
+    async put(key: string, value: ArrayBuffer | ArrayBufferView | ReadableStream<Uint8Array>) {
+      // Real R2 consumes a piped ReadableStream — DRAIN it here so the upload
+      // guard's TransformStream (byte cap, magic-byte sniff) actually runs. A
+      // stream error (oversize/bad-magic/empty) rejects this put, mirroring R2.
+      if (value instanceof ReadableStream) {
+        const reader = value.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        for (;;) {
+          const { done, value: chunk } = await reader.read();
+          if (done) break;
+          if (chunk) { chunks.push(chunk); total += chunk.byteLength; }
+        }
+        const merged = new Uint8Array(total);
+        let off = 0;
+        for (const c of chunks) { merged.set(c, off); off += c.byteLength; }
+        store.set(key, merged);
+        return {};
+      }
       const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array((value as ArrayBufferView).buffer);
       store.set(key, bytes);
       return {};
