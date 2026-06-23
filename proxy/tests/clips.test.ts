@@ -3,6 +3,30 @@ import worker from "../src/index";
 import { Env } from "../src/types";
 import { MAX_ACTIVE_CLIPS_PER_USER } from "../src/clips";
 
+// ── FixedLengthStream shim ──────────────────────────────────────────────────
+//
+// The Workers runtime requires R2.put to receive a stream with a KNOWN length
+// (a request/response body or the readable half of a FixedLengthStream); a bare
+// ReadableStream is rejected. The upload handler wraps the guarded stream in
+// FixedLengthStream(len) for exactly that reason — but plain Node (where these
+// tests run) has no FixedLengthStream, so we shim it: an identity transform
+// whose readable is TAGGED with the declared length. makeFakeR2().put checks for
+// that tag and rejects an untagged (unknown-length) stream, so the
+// "must have a known length" production failure is reproducible under test.
+const KNOWN_LENGTH = Symbol.for("revu.test.knownLength");
+if (typeof (globalThis as Record<string, unknown>).FixedLengthStream === "undefined") {
+  (globalThis as Record<string, unknown>).FixedLengthStream = class {
+    readable: ReadableStream<Uint8Array>;
+    writable: WritableStream<Uint8Array>;
+    constructor(length: number) {
+      const ts = new TransformStream<Uint8Array, Uint8Array>();
+      this.writable = ts.writable;
+      this.readable = ts.readable;
+      (this.readable as unknown as Record<symbol, unknown>)[KNOWN_LENGTH] = length;
+    }
+  };
+}
+
 // ── In-memory fakes for D1 + R2 ─────────────────────────────────────────────
 //
 // The clip handlers actually read/write D1 and R2 (unlike the Riot passthrough
@@ -127,6 +151,12 @@ function makeFakeR2() {
       // guard's TransformStream (byte cap, magic-byte sniff) actually runs. A
       // stream error (oversize/bad-magic/empty) rejects this put, mirroring R2.
       if (value instanceof ReadableStream) {
+        // Real R2 REJECTS an unknown-length stream; only a FixedLengthStream's
+        // readable (tagged by the shim) is accepted. Enforce that here so the
+        // "must have a known length" production bug can't regress silently.
+        if (!(KNOWN_LENGTH in (value as unknown as Record<symbol, unknown>))) {
+          throw new Error("Provided readable stream must have a known length (request/response body or readable half of FixedLengthStream)");
+        }
         const reader = value.getReader();
         const chunks: Uint8Array[] = [];
         let total = 0;
@@ -299,6 +329,38 @@ describe("clip sharing", () => {
     expect(typeof out.expires_at).toBe("number");
     // bytes actually landed in R2
     expect(store.size).toBe(1);
+  });
+
+  it("streams to R2 via FixedLengthStream when Content-Length is present (known-length path)", async () => {
+    // Regression: R2.put rejects an unknown-length ReadableStream ("must have a
+    // known length"). With Content-Length set (the honest desktop always sends it)
+    // the handler must wrap the guarded stream in FixedLengthStream so R2 accepts
+    // it. The fake R2 rejects an untagged stream, so a 201 here proves the
+    // FixedLengthStream path is taken — not the buffered fallback.
+    const sessionToken = "session-fixedlen";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 77 });
+    const { bucket, store } = makeFakeR2();
+    const body = mp4Bytes(64);
+
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clips?title=streamed&champion=Sett&duration=8", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          "Content-Type": "video/mp4",
+          "Content-Length": String(body.byteLength),
+        },
+        body,
+      }),
+      env({ DB: db, CLIPS: bucket }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(store.size).toBe(1);
+    // The whole file landed (length came through the FixedLengthStream).
+    const stored = [...store.values()][0];
+    expect(stored.byteLength).toBe(body.byteLength);
   });
 
   it("converts an R2 failure into a clean 502 clip_error (not an escaped 503)", async () => {

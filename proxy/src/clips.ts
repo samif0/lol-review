@@ -337,25 +337,41 @@ export async function handleUploadClip(
   const ext = contentType === "video/webm" ? "webm" : "mp4";
   const r2Key = `clips/${id}.${ext}`;
 
-  // STREAM the body straight into R2 instead of buffering the whole file in the
-  // isolate and re-copying it into one contiguous ArrayBuffer. That buffer+recopy
-  // is O(file size) CPU per request, and several concurrent uploads sharing one
-  // isolate's CPU budget tripped the Workers CPU limit ("exceededCpu" → a raw 5xx
-  // the desktop showed as "sharing temporarily unavailable"). The guard tee'd into
-  // the stream keeps the memory-DoS cap (abort past MAX_CLIP_BYTES, even when
-  // Content-Length is absent/lying) and the magic-byte sniff (validate the leading
-  // bytes), so nothing about the safety contract changes — only the buffering does.
+  // STREAM the body into R2 instead of buffering the whole file in the isolate and
+  // re-copying it into one contiguous ArrayBuffer. That buffer+recopy is O(file
+  // size) CPU per request, and several concurrent uploads sharing one isolate's CPU
+  // budget tripped the Workers CPU limit ("exceededCpu" → a raw 5xx the desktop
+  // showed as "sharing temporarily unavailable"). The guard piped into the stream
+  // keeps the memory-DoS cap (abort past MAX_CLIP_BYTES) and the magic-byte sniff.
+  //
+  // R2.put() rejects a plain ReadableStream of UNKNOWN length ("Provided readable
+  // stream must have a known length"). The honest client always sends Content-Length,
+  // so wrap the guarded stream in a FixedLengthStream(declaredLen) to give R2 the
+  // length — the common, CPU-cheap path. When Content-Length is absent (a misbehaving
+  // client / the abuse case the DoS cap exists for), there is no length to declare, so
+  // fall back to the bounded buffered read: it still enforces the cap and never holds
+  // more than MAX_CLIP_BYTES, it just isn't the streaming fast path.
   const guard = new ClipUploadGuard(MAX_CLIP_BYTES, contentType);
   let uploadedBytes = 0;
   try {
-    await env.CLIPS.put(r2Key, request.body.pipeThrough(guard.transform), {
-      httpMetadata: { contentType },
-    });
-    uploadedBytes = guard.bytesSeen;
+    const guarded = request.body.pipeThrough(guard.transform);
+    if (Number.isFinite(declaredLen) && declaredLen > 0) {
+      // Known length → stream straight to R2 via FixedLengthStream (no full buffer).
+      const fixed = new FixedLengthStream(declaredLen);
+      const pumped = guarded.pipeTo(fixed.writable); // propagates guard errors
+      await env.CLIPS.put(r2Key, fixed.readable, { httpMetadata: { contentType } });
+      await pumped; // surface a guard/length error that R2 didn't already throw
+      uploadedBytes = guard.bytesSeen;
+    } else {
+      // Unknown length → bounded buffered read (rare path; still cap-enforced).
+      const buf = await readGuardedToBuffer(guarded);
+      uploadedBytes = buf.byteLength;
+      await env.CLIPS.put(r2Key, buf, { httpMetadata: { contentType } });
+    }
   } catch (err) {
     // The guard signals oversize / bad-magic / empty by erroring the stream, which
-    // rejects put(); map those to the same client errors the buffered path returned.
-    // Best-effort delete any partial object R2 may have started.
+    // rejects the put/pipe; map those to the same client errors the buffered path
+    // returned. Best-effort delete any partial object R2 may have started.
     try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
     if (err instanceof PayloadTooLargeError) {
       return jsonResponse({ error: "payload_too_large", message: tooLargeMessage }, 413);
@@ -628,6 +644,31 @@ class ClipUploadGuard {
       },
     });
   }
+}
+
+/**
+ * Drain an already-guarded stream into one ArrayBuffer. Used only on the no-
+ * Content-Length fallback (R2 needs a known length to stream; without one we have
+ * to materialize). The guard upstream already capped bytes + sniffed magic and
+ * propagates a typed error here, so this never holds more than the cap.
+ */
+async function readGuardedToBuffer(stream: ReadableStream<Uint8Array>): Promise<ArrayBuffer> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) { chunks.push(value); total += value.byteLength; }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
+  return out.buffer;
 }
 
 function clampText(value: string | null, max: number): string | null {
