@@ -262,8 +262,12 @@ body.has-updbar .app-frame{top:70px;height:calc(100vh - 70px)}
 .app-frame{position:fixed;left:72px;top:34px;right:0;bottom:0;width:calc(100vw - 72px);height:calc(100vh - 34px);
   border:0;margin:0;padding:0;background:#0a0818;z-index:2;display:block;color-scheme:dark}
 
-/* Page content shifts right of the rail. */
-.shell{position:relative;z-index:2;max-width:1180px;margin:0 auto;padding:26px 40px 0 112px}
+/* Page content shifts right of the rail. The cap was 1180px, which centered the
+   content and pooled large dead margins on wide/maximized windows. Widen it to
+   1600px so every page uses the extra horizontal space; content still centers
+   (margin:auto) so it never glues to the rail, and dense pages don't stretch
+   unbounded on ultrawide monitors. */
+.shell{position:relative;z-index:2;max-width:1600px;margin:0 auto;padding:26px 40px 0 112px}
 
 /* ── FRAMED MODE: this page is loaded inside the persistent app shell's <iframe> ──
    The shell (index.html) owns the ONE persistent nav rail that never reloads, so a
@@ -1883,7 +1887,7 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .vp-video{transform:translateZ(0);backface-visibility:hidden}
 .vp-stage{position:relative;border-radius:11px;overflow:hidden;background:#020405;
   display:flex;align-items:center;justify-content:center;border:1px solid var(--gline2);min-height:240px}
-.vp-video{width:100%;max-height:62vh;display:block;background:#000;border-radius:11px;cursor:pointer}
+.vp-video{width:100%;max-height:72vh;display:block;background:#000;border-radius:11px;cursor:pointer}
 
 /* ── ENLARGE MODE (.vp-expanded on .vp-wrap) ──────────────────────────────────
    Expand the video within the page (not OS fullscreen): hide the OPEN REVIEW

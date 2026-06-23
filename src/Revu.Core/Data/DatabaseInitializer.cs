@@ -149,6 +149,77 @@ public sealed class DatabaseInitializer
             appliedSchemaVersion, _connectionFactory.DatabasePath);
     }
 
+    /// <summary>
+    /// One-time, idempotent back-catalog account-scope repair: re-stamp the
+    /// signed-in Riot PUUID onto every game row that was captured with a
+    /// DIFFERENT non-empty account id — i.e. the UUID-shaped LCU
+    /// <c>localPlayer.puuid</c> (e.g. 07f45763-…) that the pre-3.1.6 capture path
+    /// saved instead of the encrypted Riot PUUID our login stores.
+    ///
+    /// <para>This is the history-sweep counterpart to
+    /// <c>GameService.ProcessGameEndAsync</c>'s per-game reconcile (which only
+    /// fixes games captured AFTER 3.1.6). Account scoping string-compares
+    /// games.puuid to the configured PUUID
+    /// (<c>SessionLogRepository.CurrentAccountFilter</c> / <c>GameRepository</c>),
+    /// so a stale LCU id strands every such game behind the filter — the
+    /// "GAMES 0 even though I played N" dashboard bug. Without a sweep, those rows
+    /// stay hidden forever even after the user updates.</para>
+    ///
+    /// <para>Scope is deliberately NARROW (decided 2026-06-22): we touch rows
+    /// where <c>puuid &lt;&gt; '' AND puuid &lt;&gt; @riotPuuid</c> only. Legacy
+    /// <c>puuid = ''</c> rows are LEFT ALONE — the read filter's <c>= ''</c> leg
+    /// already treats them as the current user's own, and claiming them risks
+    /// re-tagging genuinely-foreign legacy imports. No-op when logged out
+    /// (<paramref name="riotPuuid"/> empty), so it can run unconditionally on
+    /// every startup. The WHERE guard makes it a no-op once reconciled, so it's
+    /// safe to call repeatedly.</para>
+    ///
+    /// <para>Only <c>games.puuid</c> is rewritten — session_log / game_objectives
+    /// / evidence join to games by <c>game_id</c>, so the account filter (which
+    /// reads through the games row) sees the corrected value with no further
+    /// writes.</para>
+    /// </summary>
+    /// <returns>The number of game rows re-stamped.</returns>
+    public async Task<int> ReconcileGamePuuidAsync(
+        string? riotPuuid,
+        CancellationToken cancellationToken = default)
+    {
+        // Logged out / no resolved account: nothing to reconcile against.
+        if (string.IsNullOrWhiteSpace(riotPuuid))
+        {
+            return 0;
+        }
+
+        using var connection = _connectionFactory.CreateConnection();
+
+        // The puuid column was added by an ALTER TABLE migration; on a DB that
+        // somehow predates it, skip rather than throw.
+        var gameCols = await GetTableColumnsAsync(connection, "games", cancellationToken);
+        if (!gameCols.Contains("puuid"))
+        {
+            return 0;
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE games
+            SET puuid = $riotPuuid
+            WHERE COALESCE(puuid, '') <> ''
+              AND puuid <> $riotPuuid
+            """;
+        cmd.Parameters.AddWithValue("$riotPuuid", riotPuuid);
+        var updated = await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        if (updated > 0)
+        {
+            _logger.LogInformation(
+                "Reconciled {Count} stranded game row(s) to the signed-in Riot PUUID (account-scope back-catalog repair)",
+                updated);
+        }
+
+        return updated;
+    }
+
     // â”€â”€ Seeding helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async Task ExecuteMigrationSetAsync(

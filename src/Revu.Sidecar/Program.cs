@@ -270,6 +270,25 @@ try
         var migrator = new DatabaseInitializer(
             writeFactory, migrateLogger.CreateLogger<DatabaseInitializer>());
         await migrator.ApplyAdditiveSchemaAsync();
+
+        // Back-catalog account-scope repair: games captured before 3.1.6 (or by a
+        // stale sidecar) carry the UUID-shaped LCU localPlayer.puuid instead of the
+        // encrypted Riot PUUID our login stores, so the dashboard's account filter
+        // hides them ("GAMES 0 even though I played N"). GameService now reconciles
+        // this per-game at capture, but already-saved rows need a one-time sweep.
+        // Idempotent + scoped to non-empty mismatched rows + no-op when logged out,
+        // so it's safe to run on every startup. Resolved from the read graph's
+        // IConfigService (same config.json the write graph owns).
+        try
+        {
+            var cfg = await app.Services.GetRequiredService<IConfigService>().LoadAsync();
+            await migrator.ReconcileGamePuuidAsync(cfg.RiotPuuid);
+        }
+        catch (Exception reconcileEx)
+        {
+            migrateLogger.CreateLogger("Startup").LogWarning(
+                reconcileEx, "Back-catalog PUUID reconcile skipped (non-fatal)");
+        }
     }
     else
     {
