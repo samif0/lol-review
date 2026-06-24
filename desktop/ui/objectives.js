@@ -908,6 +908,35 @@ function phaseFromIndex(idx) {
   return idx === 0 ? 'pregame' : idx === 2 ? 'postgame' : 'ingame';
 }
 
+function applyFirstReviewTutorialDefaults() {
+  openCreateForm();
+  setVal('f-title', 'Review every death');
+  setVal('f-skill', 'Deaths / decision review');
+  $('f-type').value = 'primary';
+  syncTargetVisibility();
+  setChecked('f-pre', true);
+  setChecked('f-in', true);
+  setChecked('f-post', true);
+  $('f-focus').value = '4';
+  $('f-crit-metric').value = '0';
+  $('f-crit-op').value = '0';
+  setVal('f-crit-val', '');
+  syncCriteriaVisibility(false);
+  setVal('f-criteria', 'Review at least one death clip and write why it happened.');
+  setVal('f-desc', 'First review tutorial objective. Track deaths, clip them after the game, and write the cause.');
+  _promptRows = [
+    { id: 0, phaseIndex: 0, label: 'Before queue: what death pattern do I want to watch for?' },
+    { id: 0, phaseIndex: 1, label: 'In game: if I die, what information did I miss?' },
+    { id: 0, phaseIndex: 2, label: 'After game: why did I die and what was the preventable choice?' },
+  ];
+  renderPromptRows();
+  _champs = [];
+  renderChampChips();
+  _eventTypes = ['DEATH'];
+  renderEventPicker();
+  $('f-title')?.focus();
+}
+
 // Submit the form → create_objective or update_objective, then reload.
 async function submitForm(submitBtn) {
   const payload = readFormPayload();
@@ -925,9 +954,14 @@ async function submitForm(submitBtn) {
 
   if (submitBtn) submitBtn.disabled = true;
   try {
-    await invoke(cmd, { payload });
+    const res = await invoke(cmd, { payload });
     closeForm();
     await loadObjectives();
+    if (cmd === 'create_objective' && res && res.id != null) {
+      window.dispatchEvent(new CustomEvent('revu:first-review-objective-created', {
+        detail: { id: Number(res.id) },
+      }));
+    }
   } catch (err) {
     setFormError((err && err.message) ? err.message : String(err));
     console.error(`[objectives] ${cmd} failed:`, err);
@@ -1122,6 +1156,8 @@ document.addEventListener('click', async (ev) => {
 
 // Form change wiring: type→target visibility, metric→op/value visibility, and
 // practice-phase toggles re-default new prompt rows' phase.
+window.addEventListener('revu:first-review-prefill-objective', applyFirstReviewTutorialDefaults);
+
 document.addEventListener('change', (ev) => {
   const id = ev.target && ev.target.id;
   if (id === 'f-type') syncTargetVisibility();

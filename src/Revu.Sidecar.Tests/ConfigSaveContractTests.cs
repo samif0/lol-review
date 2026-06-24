@@ -266,6 +266,32 @@ public sealed class ConfigSaveContractTests
         Assert.Equal(4096, reloaded.ClipsMaxSizeMb); // the one field that changed
     }
 
+    [Fact]
+    public async Task SaveConfig_TutorialProgress_RoundTripsAndSurvivesPartialSave()
+    {
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+        var service = CreateService(scope.ConfigPath, secrets);
+
+        await ApplySaveConfig(
+            service,
+            firstReviewTutorialStep: "vod",
+            firstReviewTutorialCompleted: false,
+            firstReviewTutorialDismissed: false,
+            firstReviewTutorialObjectiveId: 123,
+            firstReviewTutorialGameId: 456);
+
+        await ApplySaveConfig(service, clipsMaxSizeMb: 4096);
+
+        var reloaded = await service.LoadAsync();
+        Assert.Equal("vod", reloaded.FirstReviewTutorialStep);
+        Assert.False(reloaded.FirstReviewTutorialCompleted);
+        Assert.False(reloaded.FirstReviewTutorialDismissed);
+        Assert.Equal(123, reloaded.FirstReviewTutorialObjectiveId);
+        Assert.Equal(456, reloaded.FirstReviewTutorialGameId);
+        Assert.Equal(4096, reloaded.ClipsMaxSizeMb);
+    }
+
     // ── Test infrastructure ───────────────────────────────────────────────────
 
     private static readonly System.Text.Json.JsonSerializerOptions SnakeCaseJson = new()
@@ -296,7 +322,12 @@ public sealed class ConfigSaveContractTests
         string? riotPuuid = null,
         string? riotSessionToken = null,
         long? riotSessionExpiresAt = null,
-        string? primaryRole = null)
+        string? primaryRole = null,
+        string? firstReviewTutorialStep = null,
+        bool? firstReviewTutorialCompleted = null,
+        bool? firstReviewTutorialDismissed = null,
+        long? firstReviewTutorialObjectiveId = null,
+        long? firstReviewTutorialGameId = null)
     {
         var cfg = await service.LoadAsync();
 
@@ -319,6 +350,11 @@ public sealed class ConfigSaveContractTests
         if (riotSessionToken is not null) cfg.RiotSessionToken = riotSessionToken;
         if (riotSessionExpiresAt is not null) cfg.RiotSessionExpiresAt = riotSessionExpiresAt.Value;
         if (primaryRole is not null) cfg.PrimaryRole = primaryRole;
+        if (firstReviewTutorialStep is not null) cfg.FirstReviewTutorialStep = firstReviewTutorialStep.Trim();
+        if (firstReviewTutorialCompleted is not null) cfg.FirstReviewTutorialCompleted = firstReviewTutorialCompleted.Value;
+        if (firstReviewTutorialDismissed is not null) cfg.FirstReviewTutorialDismissed = firstReviewTutorialDismissed.Value;
+        if (firstReviewTutorialObjectiveId is not null) cfg.FirstReviewTutorialObjectiveId = Math.Max(0, firstReviewTutorialObjectiveId.Value);
+        if (firstReviewTutorialGameId is not null) cfg.FirstReviewTutorialGameId = Math.Max(0, firstReviewTutorialGameId.Value);
 
         await service.SaveAsync(cfg);
     }

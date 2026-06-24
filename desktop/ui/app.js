@@ -417,6 +417,9 @@ function openIntentEditor(cta) {
     confirm.disabled = true;
     try {
       await invoke('start_block', { payload: { intention } });
+      window.dispatchEvent(new CustomEvent('revu:first-review-block-started', {
+        detail: { intention },
+      }));
       close(false);
       await loadDashboard();
     } catch (err) {

@@ -11,6 +11,15 @@
 const frame = document.getElementById('app-frame');
 const nav = document.querySelector('.nav');
 
+async function getShellInvoke() {
+  try {
+    const core = await import('@tauri-apps/api/core');
+    if (core && typeof core.invoke === 'function') return core.invoke;
+  } catch (_) { /* fall through */ }
+  if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+  return null;
+}
+
 // Map an iframe URL → the nav item id to light up. Pages share data-page with the
 // rail's data-nav; the three objective sub-pages map to 'objectives'; manual entry
 // is reached from Games (and is no longer a rail item) so it keeps Games lit;
@@ -82,12 +91,7 @@ if ((location.hash || '').length > 1) openFromHash();
 
 // ── Sidebar energy-trail gate (mirrors SidebarEnergyDrainAnimator.Enabled) ────
 async function applySidebarAnimGate() {
-  let invoke = null;
-  try {
-    const core = await import('@tauri-apps/api/core');
-    if (core && typeof core.invoke === 'function') invoke = core.invoke;
-  } catch (_) { /* fall through */ }
-  if (!invoke && window.__TAURI__?.core?.invoke) invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+  const invoke = await getShellInvoke();
   if (!invoke) return; // browser preview — leave trails on
   try {
     const cfg = await invoke('get_config');
@@ -241,6 +245,28 @@ async function wireLiveAutoShow() {
 
   const goto = (file) => { if (!frameHas(file)) frameGoto(file); };
   const leaveLiveSurface = () => { if (frameHas('pregame.html') || frameHas('ingame.html')) frameGoto('dashboard.html'); };
+  const handleTutorialGameEnded = async (payload) => {
+    if (!payload || !payload.saved || !(Number(payload.gameId) > 0)) return false;
+    try {
+      const cfg = await invoke('get_config');
+      const activeTutorial = cfg
+        && cfg.firstReviewTutorialStep
+        && !cfg.firstReviewTutorialCompleted
+        && !cfg.firstReviewTutorialDismissed;
+      if (!activeTutorial) return false;
+      await invoke('save_config', {
+        payload: {
+          firstReviewTutorialStep: 'wait_vod',
+          firstReviewTutorialGameId: Number(payload.gameId),
+        },
+      });
+      frameGoto(`vodplayer.html?gameId=${encodeURIComponent(payload.gameId)}`);
+      return true;
+    } catch (err) {
+      console.warn('[shell] first review tutorial game-ended handoff failed:', err);
+      return false;
+    }
+  };
 
   // Pages where the user is actively ENTERING DATA — auto-show must NOT yank them
   // off these mid-task (an LCU champ-select/game tick reloading the iframe wipes the
@@ -274,6 +300,10 @@ async function wireLiveAutoShow() {
       case 'champSelectStarted': liveGoto('pregame.html'); break;
       case 'gameInProgress': liveGoto('ingame.html'); break;
       case 'gameEnded':
+        handleTutorialGameEnded(p).then((handled) => {
+          if (!handled) leaveLiveSurface();
+        });
+        break;
       case 'champSelectCancelled': leaveLiveSurface(); break;
       case 'liveState':
         // The replayed snapshot carries the current client state — seed the LCU

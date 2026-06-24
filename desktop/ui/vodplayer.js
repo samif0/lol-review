@@ -1016,6 +1016,7 @@ function renderMoments() {
         if (shared) { urlEl.textContent = m.shareUrl; show(urlEl, true); }
         else { urlEl.textContent = ''; show(urlEl, false); }
       }
+      renderShareJobForRow(m.shareBookmarkId, shared);
       // No per-element click listeners here — rows re-render on every reload, which
       // would leak handlers. The document-level delegated handler owns share_clip +
       // copy_clip_link and stops propagation so the row's jump never fires.
@@ -1313,6 +1314,12 @@ async function saveEvidenceNote(noteEl) {
 
 let _pendingShareBmId = 0;   // clip awaiting upload after a login completes
 let _shareEmail = '';        // email entered in the login panel (carried to verify)
+const SHARE_RETRY_DELAYS_MS = [1200, 2600, 5200];
+const _shareJobs = new Map(); // bookmark id -> queued/uploading/error state
+let _shareQueue = [];
+let _shareQueueActive = false;
+let _shareQueuePaused = false;
+let _shareReloadNeeded = false;
 
 function copyToClipboard(text) {
   try {
@@ -1354,12 +1361,23 @@ function openShareLogin(bmId, prefillEmail) {
   // so it's column-agnostic — no scrollIntoView needed (it would chase the left card).
 }
 
-function cancelShareLogin() {
+function cancelShareLogin(preserveQueue = false) {
+  const bmId = _pendingShareBmId;
   _pendingShareBmId = 0;
   show($('vp-sharelogin'), false);
   shareLoginErr('');
   const code = $('vp-sl-codebox');
   if (code) code.value = '';
+  if (!preserveQueue && _shareQueuePaused) {
+    _shareQueuePaused = false;
+    const current = _shareJobs.get(Number(bmId));
+    if (current && current.status === 'needs_login') failShareJob(current, 'Log in to share clips.');
+    const queued = _shareQueue.splice(0);
+    for (const id of queued) {
+      const job = _shareJobs.get(Number(id));
+      if (job && job.status !== 'done') failShareJob(job, 'Log in to share queued clips.');
+    }
+  }
 }
 
 async function shareSendCode() {
@@ -1393,60 +1411,180 @@ async function shareVerify() {
     await _core.invoke('auth_verify', { payload: { code, email: _shareEmail } });
     // Session persisted server-side — now upload the clip we stashed at Share time.
     const bmId = _pendingShareBmId;
-    cancelShareLogin();
+    cancelShareLogin(true);
     refreshSignInHint(); // now signed in — drop the banner
-    if (bmId) await uploadShare(bmId);
+    if (bmId) {
+      _shareQueuePaused = false;
+      enqueueShare(bmId, { front: true, resetAttempts: true });
+    }
   } catch (err) {
     shareLoginErr(errText(err));
   }
 }
 
-// The actual upload. Resolves clip path + champion server-side from the bookmark.
-// On 401/needsLogin (expired session) reopens the login panel; other failures
-// (e.g. the 90s cap) surface the server's message on the button.
-async function uploadShare(bmId) {
-  if (!_core || !bmId) return;
-  const champ = (_vod && _vod.championName) ? _vod.championName : '';
-  setShareBtnBusy(bmId, true, 'Sharing…');
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shareJob(bmId) {
+  const id = Number(bmId) || 0;
+  if (!id) return null;
+  let job = _shareJobs.get(id);
+  if (!job) {
+    job = { bmId: id, status: 'idle', attempts: 0, url: '', message: '', copied: false };
+    _shareJobs.set(id, job);
+  }
+  return job;
+}
+
+function queueIndex(bmId) {
+  return _shareQueue.indexOf(Number(bmId));
+}
+
+function queueContains(bmId) {
+  return queueIndex(bmId) >= 0;
+}
+
+function enqueueShare(bmId, opts = {}) {
+  const job = shareJob(bmId);
+  if (!job || !_core) return;
+  if (job.status === 'done' && job.url) return;
+  if (opts.resetAttempts) job.attempts = 0;
+  job.status = 'queued';
+  job.message = '';
+  if (!queueContains(job.bmId)) {
+    if (opts.front) _shareQueue.unshift(job.bmId);
+    else _shareQueue.push(job.bmId);
+  }
+  renderShareJob(job);
+  processShareQueue();
+}
+
+async function processShareQueue() {
+  if (_shareQueueActive || _shareQueuePaused) return;
+  _shareQueueActive = true;
   try {
-    const res = await _core.invoke('share_clip', {
-      payload: { gameId: _gameId, bookmarkId: Number(bmId), championName: champ },
-    });
-    // A non-throwing failure (e.g. server returned ok:false with a reason).
-    if (res && res.ok === false) {
-      setShareBtnBusy(bmId, false, res.error ? String(res.error) : 'Share failed');
-      return;
+    while (_shareQueue.length > 0 && !_shareQueuePaused) {
+      const bmId = _shareQueue.shift();
+      const job = _shareJobs.get(Number(bmId));
+      if (!job || job.status === 'done') continue;
+      const result = await uploadShareJob(job);
+      if (result === 'needs_login') break;
     }
-    const url = res && res.shareUrl ? String(res.shareUrl) : '';
-    if (url) {
-      const copied = copyToClipboard(url);
-      setShareBtnDone(bmId, url, copied);
-    }
+  } finally {
+    _shareQueueActive = false;
+  }
+
+  if (!_shareQueuePaused && _shareReloadNeeded) {
+    _shareReloadNeeded = false;
     await reloadBookmarks();
-  } catch (err) {
-    // The Tauri layer surfaces "sidecar HTTP 401: …" for an expired session.
-    if (/401|needsLogin|logged in|log in/i.test(String(err))) {
-      // Reset the button out of its "Sharing…" state — otherwise it sticks on
-      // "SHARING…" forever while the login panel is up (or after it's dismissed).
-      setShareBtnBusy(bmId, false, 'Share clip');
-      openShareLogin(bmId, _shareEmail);
-    } else {
-      // Surface the real reason (e.g. the 90s-cap "trim and re-clip" message) on the
-      // button instead of a generic failure, then restore the label shortly after.
-      setShareBtnBusy(bmId, false, errText(err) || 'Share failed');
+  }
+
+  if (!_shareQueuePaused && _shareQueue.length > 0) {
+    processShareQueue();
+  }
+}
+
+// The actual upload. Resolves clip path + champion server-side from the bookmark.
+// Called only by the queue runner, so rapid clicks never overlap uploads.
+async function uploadShareJob(job) {
+  if (!_core || !job || !job.bmId) return 'failed';
+  const champ = (_vod && _vod.championName) ? _vod.championName : '';
+  for (;;) {
+    job.status = 'uploading';
+    job.message = '';
+    renderShareJob(job);
+    try {
+      const res = await _core.invoke('share_clip', {
+        payload: { gameId: _gameId, bookmarkId: Number(job.bmId), championName: champ },
+      });
+      if (res && res.ok === false) {
+        const message = res.error ? String(res.error) : 'Share failed.';
+        if (res.needsLogin) return pauseShareQueueForLogin(job, message);
+        if (await retryShareJob(job, message)) continue;
+        failShareJob(job, message);
+        return 'failed';
+      }
+      const url = res && res.shareUrl ? String(res.shareUrl) : '';
+      if (!url) {
+        failShareJob(job, 'Share finished, but no link came back.');
+        return 'failed';
+      }
+      const copied = copyToClipboard(url);
+      job.status = 'done';
+      job.url = url;
+      job.copied = copied;
+      job.message = copied ? 'Link copied.' : 'Shared. Use Copy to copy the link.';
+      renderShareJob(job);
+      window.dispatchEvent(new CustomEvent('revu:first-review-share-done', {
+        detail: { gameId: _gameId, bookmarkId: job.bmId, shareUrl: url },
+      }));
+      _shareReloadNeeded = true;
+      return 'done';
+    } catch (err) {
+      const raw = (err && err.message) ? err.message : String(err);
+      const message = errText(err) || 'Share failed.';
+      if (/401|needsLogin|logged in|log in/i.test(raw)) {
+        return pauseShareQueueForLogin(job, message);
+      }
+      if (await retryShareJob(job, message, raw)) continue;
+      failShareJob(job, message);
       console.error('[vodplayer] share_clip failed:', err);
+      return 'failed';
     }
   }
 }
 
+function pauseShareQueueForLogin(job, message) {
+  _shareQueuePaused = true;
+  _pendingShareBmId = Number(job.bmId) || 0;
+  job.status = 'needs_login';
+  job.message = message || 'Log in to share clips.';
+  renderShareJob(job);
+  openShareLogin(job.bmId, _shareEmail);
+  return 'needs_login';
+}
+
+function isRetryableShareError(message, raw) {
+  const s = `${message || ''} ${raw || ''}`;
+  if (/clip file not found|too large|90s|90 seconds|only mp4|only webm|not found|log in|logged in|unauthorized/i.test(s)) {
+    return false;
+  }
+  return /temporarily unavailable|try again|too many uploads|wait a moment|timeout|timed out|request failed|couldn'?t reach|502|503|504|429/i.test(s);
+}
+
+async function retryShareJob(job, message, raw) {
+  if (!isRetryableShareError(message, raw) || job.attempts >= SHARE_RETRY_DELAYS_MS.length) {
+    return false;
+  }
+  const delay = SHARE_RETRY_DELAYS_MS[job.attempts];
+  job.attempts += 1;
+  job.status = 'retry_wait';
+  job.message = `Temporary share issue. Retrying ${job.attempts}/${SHARE_RETRY_DELAYS_MS.length} in ${Math.ceil(delay / 1000)}s.`;
+  renderShareJob(job);
+  await sleep(delay);
+  return true;
+}
+
+function failShareJob(job, message) {
+  job.status = 'error';
+  job.message = message || 'Share failed.';
+  renderShareJob(job);
+}
+
 // Entry from a row's Share button (unshared rows only — once shared the button is a
 // "Shared" indicator and the dedicated Copy button handles copying).
-async function shareClip(btn) {
+function shareClip(btn) {
   const bmId = Number(btn && btn.dataset && btn.dataset.shareBmId) || 0;
   if (!bmId) return;
   if (btn.dataset.shareUrl) return; // already shared — Copy button owns copying
   if (!_core) return;
-  await uploadShare(bmId);
+  const existing = _shareJobs.get(bmId);
+  if (existing && existing.status === 'needs_login') {
+    openShareLogin(bmId, _shareEmail);
+    return;
+  }
+  enqueueShare(bmId, { resetAttempts: existing && existing.status === 'error' });
 }
 
 // Copy an already-shared clip's link from the dedicated Copy button.
@@ -1466,15 +1604,78 @@ function copyClipLink(btn) {
 function shareBtnFor(bmId) {
   return document.querySelector(`.vp-share-btn[data-share-bm-id="${bmId}"]`);
 }
+function shareWrapFor(bmId) {
+  const btn = shareBtnFor(bmId);
+  return btn ? btn.closest('.vp-bm-share') : null;
+}
 function setShareLabel(btn, text) {
   const span = btn && btn.querySelector('.vp-share-lbl');
   if (span) span.textContent = text; else if (btn) btn.textContent = text;
 }
-function setShareBtnBusy(bmId, busy, label) {
+function setShareBtnState(bmId, label, opts = {}) {
   const btn = shareBtnFor(bmId);
   if (!btn) return;
-  btn.disabled = !!busy;
+  btn.disabled = !!opts.disabled;
+  btn.title = opts.title || '';
+  btn.classList.toggle('is-queued', opts.state === 'queued');
+  btn.classList.toggle('is-uploading', opts.state === 'uploading');
+  btn.classList.toggle('is-error', opts.state === 'error');
+  btn.classList.toggle('is-shared', opts.state === 'shared');
   if (label) setShareLabel(btn, label);
+}
+function setShareStatusChip(bmId, text, isErr) {
+  const wrap = shareWrapFor(bmId);
+  const urlEl = wrap ? wrap.querySelector('.vp-share-url') : null;
+  if (!urlEl) return;
+  urlEl.textContent = text || '';
+  urlEl.classList.toggle('is-status', !!text && !/^https?:\/\//i.test(text));
+  urlEl.classList.toggle('err', !!isErr);
+  show(urlEl, !!text);
+}
+function setShareCopyVisible(bmId, url, visible) {
+  const wrap = shareWrapFor(bmId);
+  const copyBtn = wrap ? wrap.querySelector('.vp-copy-btn') : null;
+  if (!copyBtn) return;
+  copyBtn.dataset.shareUrl = url || '';
+  show(copyBtn, !!visible);
+}
+function renderShareJobForRow(bmId, alreadyShared) {
+  const job = _shareJobs.get(Number(bmId));
+  if (!job) return;
+  if (alreadyShared && job.status !== 'queued' && job.status !== 'uploading' && job.status !== 'retry_wait') {
+    _shareJobs.delete(Number(bmId));
+    return;
+  }
+  renderShareJob(job);
+}
+function renderShareJob(job) {
+  if (!job) return;
+  const bmId = Number(job.bmId);
+  const pos = queueIndex(bmId) + 1;
+  if (job.status === 'queued') {
+    setShareBtnState(bmId, pos > 0 ? `Queued #${pos}` : 'Queued', { disabled: true, state: 'queued' });
+    setShareStatusChip(bmId, 'Uploads run one at a time.', false);
+    setShareCopyVisible(bmId, '', false);
+  } else if (job.status === 'uploading') {
+    setShareBtnState(bmId, 'Uploading…', { disabled: true, state: 'uploading' });
+    setShareStatusChip(bmId, 'Uploading now. Other shares will wait.', false);
+    setShareCopyVisible(bmId, '', false);
+  } else if (job.status === 'retry_wait') {
+    setShareBtnState(bmId, 'Retrying…', { disabled: true, state: 'uploading', title: job.message });
+    setShareStatusChip(bmId, job.message, false);
+    setShareCopyVisible(bmId, '', false);
+  } else if (job.status === 'needs_login') {
+    setShareBtnState(bmId, 'Log in to share', { disabled: false, state: 'error', title: job.message });
+    setShareStatusChip(bmId, job.message || 'Log in to share clips.', true);
+    setShareCopyVisible(bmId, '', false);
+  } else if (job.status === 'error') {
+    setShareBtnState(bmId, 'Retry share', { disabled: false, state: 'error', title: job.message });
+    setShareStatusChip(bmId, job.message || 'Share failed.', true);
+    setShareCopyVisible(bmId, '', false);
+  } else if (job.status === 'done' && job.url) {
+    setShareBtnDone(bmId, job.url, job.copied);
+    setShareStatusChip(bmId, job.url, false);
+  }
 }
 function setShareBtnDone(bmId, url, copied) {
   const btn = shareBtnFor(bmId);
@@ -1482,17 +1683,17 @@ function setShareBtnDone(bmId, url, copied) {
     btn.disabled = false;
     btn.dataset.shareUrl = url;
     btn.classList.add('is-shared');
+    btn.classList.remove('is-queued', 'is-uploading', 'is-error');
     setShareLabel(btn, 'Shared');
   }
   // Reveal + arm the dedicated Copy-link button now that a URL exists.
-  const copyBtn = document.querySelector(`.vp-copy-btn[data-share-bm-id="${bmId}"]`);
-  if (copyBtn) { copyBtn.dataset.shareUrl = url; show(copyBtn, true); }
+  setShareCopyVisible(bmId, url, true);
 }
 
 // Normalize a Tauri/sidecar error to a displayable string (strips the HTTP prefix).
 function errText(err) {
   const s = (err && err.message) ? err.message : String(err);
-  const m = s.match(/sidecar HTTP \d+:\s*(.*)$/i);
+  const m = s.match(/sidecar HTTP \d+(?:\s+[^:]+)?:\s*(.*)$/i);
   return m ? m[1] : s;
 }
 
@@ -1801,6 +2002,9 @@ async function runAutoClipForObjective(objId) {
         _bmFilter = 'clips';          // surface the new clips in the Clips lane
         document.querySelectorAll('#vp-tabs .tab').forEach((tb) => tb.classList.toggle('on', tb.dataset.filter === 'clips'));
         renderMoments();
+        window.dispatchEvent(new CustomEvent('revu:first-review-autoclip-done', {
+          detail: { gameId: _gameId, objectiveId: oid || null, created, skipped },
+        }));
       } else if (res.reason === 'disabled') {
         setAutoClipHint('Turn on "Auto-clip objective events" in Settings first.', true);
       } else if (res.reason === 'no_vod') {

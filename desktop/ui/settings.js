@@ -532,6 +532,9 @@ async function doScan(invoke, target) {
     const text = res && res.text ? String(res.text) : 'Scan complete.';
     setStatusEl($('scan-result'), text, res && res.ok === false ? 'bad' : 'good', false);
     await loadStatus();
+    window.dispatchEvent(new CustomEvent('revu:first-review-vod-scan-done', {
+      detail: { ok: !(res && res.ok === false), text },
+    }));
   } catch (err) {
     setStatusEl($('scan-result'), `Scan failed: ${err && err.message ? err.message : err}`, 'bad', false);
   } finally {

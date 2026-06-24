@@ -33,6 +33,12 @@
     <div class="hero"><h1 id="hero-title">Good morning. Lock in.</h1></div>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
+    <!-- Hidden by default; tutorial.js (syncLaunchButton) reveals it only when the
+         first-review tutorial is still available (not completed, not dismissed). -->
+    <div class="frt-launch" hidden>
+      <button class="hint-link" type="button" data-action="start_first_review_tutorial">Start first review tutorial</button>
+    </div>
+
     <!-- TOP ROW: Intent (40%) + Active objectives (60%) side by side -->
     <div class="toprow">
       <div class="glass primary" id="nextstep">
@@ -122,5 +128,6 @@
   </template>
 
   <script type="module" src="./app.js"></script>
+  <script type="module" src="./tutorial.js"></script>
 </body>
 </html>

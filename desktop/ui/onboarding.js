@@ -379,7 +379,32 @@ function onComplete() {
   // Small beat so the user sees the role lock in before the page flips. Target
   // dashboard.html (the dashboard CONTENT page) — index.html is the persistent shell
   // now, so navigating there inside the iframe would nest the shell.
-  setTimeout(() => { window.location.href = 'dashboard.html'; }, 250);
+  setTimeout(async () => {
+    let target = 'dashboard.html';
+    try {
+      const invoke = await getInvoke();
+      if (invoke) {
+        const cfg = await invoke('get_config');
+        const completed = !!(cfg && cfg.firstReviewTutorialCompleted);
+        const dismissed = !!(cfg && cfg.firstReviewTutorialDismissed);
+        if (!completed && !dismissed) {
+          await invoke('save_config', {
+            payload: {
+              firstReviewTutorialStep: 'objective',
+              firstReviewTutorialCompleted: false,
+              firstReviewTutorialDismissed: false,
+              firstReviewTutorialObjectiveId: 0,
+              firstReviewTutorialGameId: 0,
+            },
+          });
+          target = 'objectives.html?tutorial=first-review';
+        }
+      }
+    } catch (err) {
+      console.warn('[onboarding] first review tutorial start skipped:', err);
+    }
+    window.location.href = target;
+  }, 250);
 }
 
 // ── signed-in card actions ────────────────────────────────────────────────────

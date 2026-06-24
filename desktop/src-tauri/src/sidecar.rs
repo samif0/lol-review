@@ -408,7 +408,7 @@ pub async fn post_json_timeout(
                             let t = body.trim();
                             if t.is_empty() { "write failed".to_string() } else { t.to_string() }
                         });
-                    return Err(format!("sidecar HTTP {status}: {msg}"));
+                    return Err(format!("sidecar HTTP {}: {msg}", status.as_u16()));
                 }
 
                 // 2xx: now the body should be JSON. A parse error here is a real

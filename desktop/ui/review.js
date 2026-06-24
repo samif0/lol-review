@@ -1077,7 +1077,12 @@ document.addEventListener('click', async (ev) => {
     if (action === 'save_review' || action === 'skip_review') {
       await loadReview();
     }
-    if (action === 'save_review') showCommit('Review saved.', 'ok');
+    if (action === 'save_review') {
+      showCommit('Review saved.', 'ok');
+      window.dispatchEvent(new CustomEvent('revu:first-review-review-saved', {
+        detail: { gameId: args.gameId },
+      }));
+    }
     if (action === 'skip_review') showCommit('Game skipped.', 'ok');
   } catch (err) {
     renderError(err);

@@ -2208,6 +2208,12 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
   background:linear-gradient(180deg,rgba(243,199,148,0.26),rgba(243,199,148,0.14));box-shadow:0 0 16px -6px rgba(243,199,148,0.8)}
 .vp-share-btn:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
 .vp-share-btn:disabled{opacity:0.6;cursor:default;transform:none}
+.vp-share-btn.is-queued{color:var(--t2);border-color:rgba(157,139,255,0.42);
+  background:rgba(157,139,255,0.10)}
+.vp-share-btn.is-uploading{color:#1b1233;border-color:rgba(243,199,148,0.7);
+  background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 8px 18px -10px rgba(243,199,148,0.8)}
+.vp-share-btn.is-error{color:var(--loss);border-color:rgba(243,163,168,0.58);
+  background:rgba(243,163,168,0.10)}
 /* Shared state — calm green confirmation, no longer the loud gold CTA. */
 .vp-share-btn.is-shared{color:var(--win);border-color:rgba(142,231,186,0.45);
   background:rgba(142,231,186,0.10);cursor:default;text-transform:none;letter-spacing:0.4px}
@@ -2222,6 +2228,9 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .vp-share-url{font-family:var(--fm);font-size:9.5px;letter-spacing:0.3px;color:var(--win);
   border:1px solid rgba(142,231,186,0.4);background:rgba(142,231,186,0.08);border-radius:6px;padding:4px 8px;
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;cursor:text}
+.vp-share-url.is-status{color:var(--t3);border-color:var(--gline2);background:rgba(255,255,255,0.04);
+  cursor:default;user-select:none}
+.vp-share-url.err{color:var(--loss);border-color:rgba(243,163,168,0.48);background:rgba(243,163,168,0.10)}
 
 /* ── Login-to-share panel (email → OTP) ──
    Rendered as a CENTERED POPOVER (fixed, column-agnostic) so it appears in the
@@ -2947,6 +2956,29 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .src-chip.ifthen{color:var(--accent);border-color:rgba(157,139,250,0.3)}
 .intent-hint{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
 .intent-hint-t{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t4)}
+
+/* First Review Tutorial */
+.frt-panel{position:fixed;right:22px;bottom:22px;z-index:80;width:min(380px,calc(100vw - 108px));padding:18px 18px 16px;
+  border:1px solid rgba(243,199,148,0.42);border-radius:14px;background:rgba(16,12,32,0.94);
+  box-shadow:0 18px 50px -24px rgba(0,0,0,0.9),0 0 0 1px rgba(255,255,255,0.05) inset;
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.frt-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.frt-step{font-family:var(--fm);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold)}
+.frt-skip{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t4);background:none;border:0;cursor:pointer;padding:4px}
+.frt-skip:hover{color:var(--loss)}
+.frt-panel h2{font-family:var(--fo);font-size:19px;line-height:1.2;color:#fff;margin:0 0 8px}
+.frt-panel p{font-family:var(--fb);font-size:13px;line-height:1.5;color:var(--t3);margin:0}
+.frt-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:15px}
+.frt-btn{font-family:var(--fm);font-size:11px;letter-spacing:0.9px;text-transform:uppercase;color:#1b1233;font-weight:700;
+  border:1px solid transparent;border-radius:10px;background:linear-gradient(180deg,#f7d9a8,var(--gold));padding:10px 13px;cursor:pointer}
+.frt-btn.ghost{color:var(--t2);background:rgba(255,255,255,0.06);border-color:var(--gline2);font-weight:600}
+.frt-btn:hover{filter:brightness(1.08)}
+.frt-highlight{position:relative;z-index:3;outline:2px solid rgba(243,199,148,0.85);outline-offset:4px;
+  box-shadow:0 0 0 6px rgba(243,199,148,0.13),0 0 34px -14px rgba(243,199,148,0.9)!important}
+.frt-launch{margin-top:10px}
+@media (max-width:720px){
+  .frt-panel{left:86px;right:12px;bottom:12px;width:auto}
+}
 .intent-dont{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--t4);background:none;border:none;cursor:pointer;transition:color .16s ease}
 .intent-dont:hover{color:var(--loss)}
 .intent-cleared{display:flex;align-items:center;justify-content:space-between;gap:12px;

@@ -1049,6 +1049,11 @@ app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILo
     if (body.AutoTimelineClippingEnabled is not null) cfg.AutoTimelineClippingEnabled = body.AutoTimelineClippingEnabled.Value;
     if (body.AutoTimelineClippingHintDismissed is not null) cfg.AutoTimelineClippingHintDismissed = body.AutoTimelineClippingHintDismissed.Value;
     if (body.AutoClipObjectivesEnabled is not null) cfg.AutoClipObjectivesEnabled = body.AutoClipObjectivesEnabled.Value;
+    if (body.FirstReviewTutorialStep is not null) cfg.FirstReviewTutorialStep = body.FirstReviewTutorialStep.Trim();
+    if (body.FirstReviewTutorialCompleted is not null) cfg.FirstReviewTutorialCompleted = body.FirstReviewTutorialCompleted.Value;
+    if (body.FirstReviewTutorialDismissed is not null) cfg.FirstReviewTutorialDismissed = body.FirstReviewTutorialDismissed.Value;
+    if (body.FirstReviewTutorialObjectiveId is not null) cfg.FirstReviewTutorialObjectiveId = Math.Max(0, body.FirstReviewTutorialObjectiveId.Value);
+    if (body.FirstReviewTutorialGameId is not null) cfg.FirstReviewTutorialGameId = Math.Max(0, body.FirstReviewTutorialGameId.Value);
     // RiotId / Region: null OR empty = leave unchanged (P-020 clobber guard) — a save
     // before the page hydrates sends "" / the select default and must NOT blank a
     // configured account. Sign-out, not an empty Save, clears these.
@@ -1634,6 +1639,7 @@ app.MapGet("/api/objectives/active", async (WriteServices w, ILogger<Program> lo
                     // Type drives the VOD objective-framed viewer's color-by-type chrome
                     // (primary/mental/mini). Additive, read-only — no schema change.
                     type = o.Type,
+                    isPriority = o.IsPriority,
                     isMini = o.IsMini,
                     // Tracked tokens → viewer token chips; tracksTeamfight gates whether
                     // teamfight zones stay loud when this objective is focused.
@@ -2500,6 +2506,11 @@ internal sealed record SaveConfigBody(
     bool? AutoTimelineClippingEnabled,
     bool? AutoTimelineClippingHintDismissed,
     bool? AutoClipObjectivesEnabled,
+    string? FirstReviewTutorialStep,
+    bool? FirstReviewTutorialCompleted,
+    bool? FirstReviewTutorialDismissed,
+    long? FirstReviewTutorialObjectiveId,
+    long? FirstReviewTutorialGameId,
     string? RiotId,
     string? Region,
     string? PrimaryRole,

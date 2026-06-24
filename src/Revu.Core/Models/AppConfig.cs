@@ -113,6 +113,20 @@ public class AppConfig
     public bool AutoClipObjectivesEnabled { get; set; }
 
     /// <summary>
+    /// First-review tutorial progress. Empty step means it has not been started.
+    /// Stored in config so the guided flow survives app restarts and real game waits.
+    /// </summary>
+    public string FirstReviewTutorialStep { get; set; } = "";
+
+    public bool FirstReviewTutorialCompleted { get; set; }
+
+    public bool FirstReviewTutorialDismissed { get; set; }
+
+    public long FirstReviewTutorialObjectiveId { get; set; }
+
+    public long FirstReviewTutorialGameId { get; set; }
+
+    /// <summary>
     /// Default keybind map — each action maps to a key-event string.
     /// Users can remap these in Settings.
     /// </summary>
