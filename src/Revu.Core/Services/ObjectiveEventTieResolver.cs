@@ -96,9 +96,15 @@ public sealed class ObjectiveEventTieResolver
         IReadOnlyDictionary<int, IReadOnlyList<ObjectiveTie>> teamfightTies)
     {
         var matches = new List<ObjectiveTie>();
-        var token = EventToken(e);
-        if (token is not null && _tokenMap.TryGetValue(token, out var tokenObjs))
-            matches.AddRange(tokenObjs);
+        // An event can match more than one trackable token (a trade matches both the
+        // generic TRADE and its kind-specific token); add every tracking objective,
+        // de-duped per objective so a card double-tracking the same event lists once.
+        foreach (var token in EventTokens(e))
+        {
+            if (_tokenMap.TryGetValue(token, out var tokenObjs))
+                foreach (var t in tokenObjs)
+                    if (!matches.Any(m => m.ObjectiveId == t.ObjectiveId)) matches.Add(t);
+        }
         if (teamfightTies.TryGetValue(e.Id, out var tfObjs))
             foreach (var t in tfObjs)
                 if (!matches.Any(m => m.ObjectiveId == t.ObjectiveId)) matches.Add(t);
@@ -106,22 +112,50 @@ public sealed class ObjectiveEventTieResolver
     }
 
     /// <summary>
-    /// The trackable TOKEN for an event: per-spell (SPELL_FLASH/SPELL_SMITE/…) parsed
-    /// from Details.spell for summoner casts, otherwise the raw event type (UPPER).
-    /// Returns null only for an empty type.
+    /// The PRIMARY trackable token for an event (the priority-lane winner): per-spell
+    /// (SPELL_FLASH/SPELL_SMITE/…) for summoner casts, the kind-specific trade token
+    /// for a TRADE, otherwise the raw event type (UPPER). Null only for an empty type.
+    /// Use <see cref="EventTokens"/> when you need every token an event matches.
     /// </summary>
-    public static string? EventToken(GameEvent e)
+    public static string? EventToken(GameEvent e) => EventTokens(e).FirstOrDefault();
+
+    /// <summary>
+    /// EVERY trackable token an event matches, most-specific first. Most events match
+    /// exactly one token (their raw type, or per-spell SPELL_* for summoner casts).
+    /// A TRADE matches two — its kind-specific token (SHORT_TRADE / EXTENDED_TRADE,
+    /// from Details.kind) AND the generic TRADE — so an objective can track all trades
+    /// or just one severity. Empty only for an empty event type.
+    /// </summary>
+    public static IReadOnlyList<string> EventTokens(GameEvent e)
     {
         var type = (e.EventType ?? "").ToUpperInvariant();
         if (type is "FLASH" or "SUMMONER_SPELL")
         {
             var spell = ReadSpellName(e);
             if (!string.IsNullOrWhiteSpace(spell))
-                return GameEvent.TrackableTokens.SpellPrefix + spell.Trim().ToUpperInvariant();
+                return [GameEvent.TrackableTokens.SpellPrefix + spell.Trim().ToUpperInvariant()];
             // Legacy rows with no Details.spell: FLASH still maps to its spell token.
-            return type == "FLASH" ? "SPELL_FLASH" : null;
+            return type == "FLASH" ? ["SPELL_FLASH"] : [];
         }
-        return type.Length > 0 ? type : null;
+        if (type == GameEvent.EventTypes.Trade)
+        {
+            var kind = ReadDetailsString(e, "kind").Trim().ToUpperInvariant();
+            // Kind-specific token first (priority-lane winner), generic TRADE second.
+            // An unknown / missing kind still matches the generic TRADE.
+            return kind switch
+            {
+                "SHORT"    => [GameEvent.TrackableTokens.ShortTradeToken, GameEvent.TrackableTokens.TradeToken],
+                "EXTENDED" => [GameEvent.TrackableTokens.ExtendedTradeToken, GameEvent.TrackableTokens.TradeToken],
+                _          => [GameEvent.TrackableTokens.TradeToken],
+            };
+        }
+        if (type == GameEvent.EventTypes.Death && ReadDetailsBool(e, "jungle_gank"))
+        {
+            // A jungle-ganked death matches the specific JUNGLE_GANK token (priority-lane
+            // winner) AND the plain DEATH token, so an objective tracking either fires.
+            return [GameEvent.TrackableTokens.JungleGankToken, GameEvent.EventTypes.Death];
+        }
+        return type.Length > 0 ? [type] : [];
     }
 
     // If any active objective tracks TEAMFIGHT, cluster the combat events (≥3 combat
@@ -160,19 +194,35 @@ public sealed class ObjectiveEventTieResolver
     }
 
     // The specific summoner-spell name from Details.spell ("Flash"|"Ignite"|…), "" if absent.
-    private static string ReadSpellName(GameEvent e)
+    private static string ReadSpellName(GameEvent e) => ReadDetailsString(e, "spell");
+
+    // A string property out of an event's Details JSON, "" if absent / not a string.
+    private static string ReadDetailsString(GameEvent e, string property)
     {
         if (string.IsNullOrWhiteSpace(e.Details) || e.Details == "{}") return "";
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(e.Details);
             var root = doc.RootElement;
-            if (root.TryGetProperty("spell", out var value)
+            if (root.TryGetProperty(property, out var value)
                 && value.ValueKind == System.Text.Json.JsonValueKind.String)
                 return value.GetString() ?? "";
             return "";
         }
         catch { return ""; }
+    }
+
+    // A bool property out of an event's Details JSON, false if absent / not a bool.
+    private static bool ReadDetailsBool(GameEvent e, string property)
+    {
+        if (string.IsNullOrWhiteSpace(e.Details) || e.Details == "{}") return false;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(e.Details);
+            return doc.RootElement.TryGetProperty(property, out var value)
+                && value.ValueKind == System.Text.Json.JsonValueKind.True;
+        }
+        catch { return false; }
     }
 }
 

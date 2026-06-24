@@ -94,6 +94,37 @@ public sealed class LiveEventCollector
     // full last tick (so we fire on the jump TO full, not every idle-at-full tick).
     private const double RestoreWasLowFrac = 0.80;
 
+    // v3.1.8: trade detection — you took damage and lived. The Live Client API exposes
+    // only YOUR championStats HP per tick (never the enemy's), so a "trade" is inferred
+    // from your own HP dropping while alive. We track HP across ticks: while it's
+    // dropping we accumulate the dip; when it stops dropping (recovered / stabilized)
+    // we emit ONE trade for the whole dip — anchored at where the dip started — if the
+    // total drop cleared the threshold. Severity comes from how long the dip ran: a
+    // single dropping tick reads "short", two-or-more consecutive dropping ticks read
+    // "extended" (sustained damage). A death is NOT a trade: guarded both by the dip
+    // bottom (a sampled 0-HP frame) AND — the load-bearing check, since a death+respawn
+    // often fits between two 10s polls so the 0-HP frame is never seen — by cross-checking
+    // the dip window against the authoritative kill-feed (PlayerDiedBetween). Heuristic,
+    // hence Details.detected = true.
+    private readonly List<GameEvent> _tradeEvents = [];
+    private double _lastTradeHpFrac = double.NaN; // last currentHealth/maxHealth (all champs)
+    private double _tradeDipStartFrac = double.NaN; // HP frac when the current dip began
+    private double _tradeDipBottomFrac = double.NaN; // lowest HP frac seen during the dip
+    private int _tradeDipStartS = -1;               // game-time the current dip began
+    private int _tradeDipTicks = 0;                 // consecutive dropping ticks in this dip
+    private int _lastTradeGameTimeS = 0;            // last game-time CheckTrade saw (flush anchor)
+    // A dip must lose at least this fraction of max HP to count as a trade (filters
+    // minion/turret chip + small DoT ticks; a real trade is a meaningful chunk).
+    private const double TradeMinDropFrac = 0.12;
+    // Per-tick noise floor: a drop smaller than this doesn't extend a dip (passive
+    // regen jitter / rounding). Keeps a slow heal-then-poke from looking sustained.
+    private const double TradeTickDropEps = 0.03;
+    // Slack (each side of a dip window) when cross-checking the kill-feed for a death:
+    // the heuristic's HP-tick clock and the kill-feed EventTime aren't perfectly aligned,
+    // and the killing blow lands after the dip's last sampled HP. Wide enough to catch a
+    // between-poll death, tight enough not to swallow an unrelated death two polls away.
+    private const int TradeDeathSlackSeconds = 12;
+
     public LiveEventCollector(
         ILiveEventApi liveEventApi,
         ILogger logger,
@@ -122,10 +153,17 @@ public sealed class LiveEventCollector
         _summonerSpellState.Clear();
         _summonerSpellEvents.Clear();
         _recallEvents.Clear();
+        _tradeEvents.Clear();
         _lastGold = double.NaN;
         _lastRecallEmitS = int.MinValue;
         _lastHealthFrac = double.NaN;
         _lastManaFrac = double.NaN;
+        _lastTradeHpFrac = double.NaN;
+        _tradeDipStartFrac = double.NaN;
+        _tradeDipBottomFrac = double.NaN;
+        _tradeDipStartS = -1;
+        _tradeDipTicks = 0;
+        _lastTradeGameTimeS = 0;
         _playerName = null;
         _logger.LogInformation("Live event collector started");
 
@@ -198,7 +236,12 @@ public sealed class LiveEventCollector
             // Ignored — best effort
         }
 
-        if (_rawEvents.Count == 0 && _summonerSpellEvents.Count == 0 && _recallEvents.Count == 0)
+        // A dip still open at game end (HP never recovered before the last poll, e.g.
+        // game ended mid-fight) still emits if it cleared the threshold.
+        FlushOpenTrade();
+
+        if (_rawEvents.Count == 0 && _summonerSpellEvents.Count == 0
+            && _recallEvents.Count == 0 && _tradeEvents.Count == 0)
         {
             _logger.LogInformation("No live events collected");
             return [];
@@ -206,20 +249,21 @@ public sealed class LiveEventCollector
 
         var events = ParseLiveEvents(_rawEvents, _playerName ?? "");
 
-        // v2.17.7 / v3.0.18: merge the synthesised summoner-spell casts and derived
-        // recall events in chronological order alongside the parsed event-stream
-        // events. All lists are already time-ordered; a single in-place sort by
-        // GameTimeS produces a clean unified timeline.
+        // v2.17.7 / v3.0.18 / v3.1.8: merge the synthesised summoner-spell casts and
+        // derived recall + trade events in chronological order alongside the parsed
+        // event-stream events. All lists are already time-ordered; a single in-place
+        // sort by GameTimeS produces a clean unified timeline.
         if (_summonerSpellEvents.Count > 0) events.AddRange(_summonerSpellEvents);
         if (_recallEvents.Count > 0) events.AddRange(_recallEvents);
-        if (_summonerSpellEvents.Count > 0 || _recallEvents.Count > 0)
+        if (_tradeEvents.Count > 0) events.AddRange(_tradeEvents);
+        if (_summonerSpellEvents.Count > 0 || _recallEvents.Count > 0 || _tradeEvents.Count > 0)
         {
             events.Sort(static (a, b) => a.GameTimeS.CompareTo(b.GameTimeS));
         }
 
         _logger.LogInformation(
-            "Live event collector stopped -- {ParsedCount} events from {RawCount} raw events + {SpellCount} summoner-spell casts + {RecallCount} recalls",
-            events.Count, _rawEvents.Count, _summonerSpellEvents.Count, _recallEvents.Count);
+            "Live event collector stopped -- {ParsedCount} events from {RawCount} raw events + {SpellCount} summoner-spell casts + {RecallCount} recalls + {TradeCount} trades",
+            events.Count, _rawEvents.Count, _summonerSpellEvents.Count, _recallEvents.Count, _tradeEvents.Count);
 
         return events;
     }
@@ -250,6 +294,7 @@ public sealed class LiveEventCollector
                 CheckSummonerSpellCasts(el, t);
                 CheckRecall(el, t);
                 CheckRecallByRestore(el, t);
+                CheckTrade(el, t);
             }
         }
         catch (OperationCanceledException)
@@ -484,6 +529,157 @@ public sealed class LiveEventCollector
         });
     }
 
+    /// <summary>
+    /// Derive a TRADE from your own HP. The Live Client API never exposes the enemy's
+    /// HP, so a trade is inferred from YOUR <c>championStats.currentHealth</c> falling
+    /// while you stay alive. We follow the HP across ticks: a falling tick (≥ <see
+    /// cref="TradeTickDropEps"/> below the last) opens or extends a "dip"; a non-falling
+    /// tick CLOSES it, and if the dip's total loss cleared <see cref="TradeMinDropFrac"/>
+    /// we emit one trade anchored where the dip began. Severity is the dip length: one
+    /// dropping tick → "short", two-or-more consecutive → "extended".
+    ///
+    /// <para>A death is NOT a trade. Two guards enforce that: (1) if the heuristic
+    /// sampled the 0-HP frame the dip bottom is 0; (2) — the load-bearing one at a 10s
+    /// poll, since a death+respawn often fits ENTIRELY between two ticks so the 0-HP
+    /// frame is never seen and HP appears to dip then bounce back to full — the dip
+    /// window is cross-checked against the authoritative kill-feed: if the player has a
+    /// ChampionKill-victim death inside the dip's time span, the dip is that death, not
+    /// a trade. Without (2) a between-tick death emits a phantom "survived" trade.</para>
+    /// </summary>
+    private void CheckTrade(JsonElement activePlayer, int gameTimeS)
+    {
+        if (activePlayer.ValueKind != JsonValueKind.Object) return;
+        if (!activePlayer.TryGetProperty("championStats", out var stats) || stats.ValueKind != JsonValueKind.Object) return;
+
+        var maxHealth = ReadDoubleProp(stats, "maxHealth");
+        var curHealth = ReadDoubleProp(stats, "currentHealth");
+        if (maxHealth <= 0) return; // loading / dead tick — no usable fraction
+        var hpFrac = curHealth / maxHealth;
+        _lastTradeGameTimeS = gameTimeS; // remembered so an end-of-game flush can anchor its window
+
+        // First sample establishes the baseline only.
+        if (double.IsNaN(_lastTradeHpFrac))
+        {
+            _lastTradeHpFrac = hpFrac;
+            return;
+        }
+
+        var prevFrac = _lastTradeHpFrac;
+        _lastTradeHpFrac = hpFrac;
+
+        var falling = hpFrac < prevFrac - TradeTickDropEps;
+        if (falling)
+        {
+            // Open a new dip at the PRE-drop level, or extend the running one. Track the
+            // lowest point so the trade's reported loss reflects the deepest dip, not
+            // wherever HP happened to be when the dip closed (you may already be regen-ing).
+            if (_tradeDipTicks == 0)
+            {
+                _tradeDipStartFrac = prevFrac;
+                _tradeDipBottomFrac = prevFrac;
+                _tradeDipStartS = gameTimeS;
+            }
+            if (hpFrac < _tradeDipBottomFrac) _tradeDipBottomFrac = hpFrac;
+            _tradeDipTicks++;
+            return;
+        }
+
+        // Not falling → the dip (if any) is over. Close it against this tick's time so
+        // the kill-feed cross-check spans the whole window the player was losing HP.
+        if (_tradeDipTicks > 0)
+        {
+            EmitTradeIfBigEnough(closingTimeS: gameTimeS);
+        }
+    }
+
+    /// <summary>Flush a dip still open at game end (no recovery tick arrived).</summary>
+    private void FlushOpenTrade()
+    {
+        if (_tradeDipTicks > 0) EmitTradeIfBigEnough(closingTimeS: _lastTradeGameTimeS);
+    }
+
+    /// <summary>
+    /// Close the current dip: emit a TRADE if its deepest loss (start − bottom) cleared
+    /// <see cref="TradeMinDropFrac"/>, the player didn't bottom out at death, AND the
+    /// kill-feed shows no player death inside the dip window. Then reset the dip state.
+    /// Severity = dip length (1 tick short / 2+ extended).
+    /// </summary>
+    private void EmitTradeIfBigEnough(int closingTimeS)
+    {
+        var lostFrac = _tradeDipStartFrac - _tradeDipBottomFrac;
+        var bottomFrac = _tradeDipBottomFrac;
+        var ticks = _tradeDipTicks;
+        var startS = _tradeDipStartS;
+
+        // Reset the dip BEFORE any early return so a sub-threshold dip doesn't linger.
+        _tradeDipTicks = 0;
+        _tradeDipStartFrac = double.NaN;
+        _tradeDipBottomFrac = double.NaN;
+        _tradeDipStartS = -1;
+
+        if (bottomFrac <= 0.0) return;               // sampled a 0-HP frame → it was a death
+        if (lostFrac < TradeMinDropFrac) return;     // not a meaningful chunk
+        if (startS < 0) return;                      // defensive: no anchor recorded
+        // The load-bearing death guard: a death+respawn can fit between two 10s polls,
+        // so the 0-HP frame is often never sampled and the dip just looks like a big
+        // drop that bounced back. The kill-feed is authoritative — if the player died
+        // inside the dip window, this dip is that death, not a survived trade. Pad the
+        // window a touch on each side (the heuristic's tick clock and the kill-feed's
+        // EventTime aren't perfectly aligned, and the killing blow lands after the dip's
+        // last sampled HP).
+        if (PlayerDiedBetween(startS - TradeDeathSlackSeconds, closingTimeS + TradeDeathSlackSeconds)) return;
+
+        var kind = ticks >= 2 ? "extended" : "short";
+        _tradeEvents.Add(new GameEvent
+        {
+            EventType = GameEvent.EventTypes.Trade,
+            GameTimeS = Math.Max(0, startS),
+            Details = JsonSerializer.Serialize(new
+            {
+                detected = true,
+                kind,
+                hp_lost_pct = (int)Math.Round(lostFrac * 100),
+                ticks,
+            }),
+        });
+    }
+
+    /// <summary>
+    /// True if the player has a kill-feed death (a ChampionKill with VictimName == the
+    /// active player) whose EventTime falls in [<paramref name="fromS"/>, <paramref
+    /// name="toS"/>]. Scans the raw event stream — the authoritative death source — so a
+    /// death+respawn that slipped entirely between two HP polls is still caught. With no
+    /// known player name we can't attribute deaths, so we DON'T suppress (return false):
+    /// better an occasional phantom trade than dropping every real one.
+    /// </summary>
+    private bool PlayerDiedBetween(int fromS, int toS)
+    {
+        if (string.IsNullOrEmpty(_playerName)) return false;
+        foreach (var raw in _rawEvents)
+        {
+            if (raw.ValueKind != JsonValueKind.Object) continue;
+            if (!string.Equals(raw.GetPropertyOrDefault("EventName", ""), "ChampionKill", StringComparison.Ordinal)) continue;
+            if (!raw.GetPropertyOrDefault("VictimName", "").Equals(_playerName, StringComparison.OrdinalIgnoreCase)) continue;
+            var t = (int)raw.GetPropertyDoubleOrDefault("EventTime", -1.0);
+            if (t >= fromS && t <= toS) return true;
+        }
+        return false;
+    }
+
+    // Read a JSON string-array property into a string[] ("" / non-array → empty).
+    private static string[] ReadNameArray(JsonElement obj, string name)
+    {
+        if (!obj.TryGetProperty(name, out var arr) || arr.ValueKind != JsonValueKind.Array)
+            return [];
+        var list = new List<string>();
+        foreach (var item in arr.EnumerateArray())
+        {
+            var s = item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+            if (!string.IsNullOrWhiteSpace(s)) list.Add(s);
+        }
+        return [.. list];
+    }
+
     private static double ReadDoubleProp(JsonElement obj, string name) =>
         obj.TryGetProperty(name, out var el) && el.TryGetDouble(out var v) ? v : 0.0;
 
@@ -539,11 +735,15 @@ public sealed class LiveEventCollector
                     // Player died
                     if (victim.Equals(playerName, StringComparison.OrdinalIgnoreCase))
                     {
+                        // Capture the assisters too (the enemies who helped kill me), so a
+                        // post-game pass can tell whether the enemy JUNGLER was on the kill
+                        // (killer OR assister) — the signal for a jungle gank.
+                        var deathAssisters = ReadNameArray(raw, "Assisters");
                         events.Add(new GameEvent
                         {
                             EventType = GameEvent.EventTypes.Death,
                             GameTimeS = gameTimeS,
-                            Details = JsonSerializer.Serialize(new { killer }),
+                            Details = JsonSerializer.Serialize(new { killer, assisters = deathAssisters }),
                         });
                     }
 

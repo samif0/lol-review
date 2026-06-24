@@ -124,8 +124,9 @@ function objTokenChips(o) {
     if (!fam) {
       if (/DRAGON|HERALD|BARON|TOWER|TURRET|RIFT|ELDER|INHIB/.test(tok)) fam = 'tok-gold';
       else if (/RECALL|BACK/.test(tok)) fam = 'tok-recall';
+      else if (/TRADE/.test(tok)) fam = 'tok-trade';
       else if (/FLASH|SUMMONER|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(tok)) fam = 'tok-summoner';
-      else if (/DEATH|FIRST/.test(tok)) fam = 'tok-loss';
+      else if (/GANK|DEATH|FIRST/.test(tok)) fam = 'tok-loss';
       else if (/KILL|ASSIST|MULTI/.test(tok)) fam = 'tok-win';
     }
     return { code, fam };
@@ -697,9 +698,10 @@ function placeMarkers(dur) {
 function eventTier(eventType, label) {
   const t = String(eventType || label || '').toUpperCase().replace(/[^A-Z]/g, '');
   if (/BARON|DRAGON|ELDER|HERALD|RIFT|TOWER|TURRET|INHIB|NEXUS|ACE|OBJECTIVE|CONTEST/.test(t)) return 'major';
-  if (/KILL|DEATH|MULTIKILL|FIRSTBLOOD|PENTA|QUADRA|TRIPLE|DOUBLE|GANK|SKIRMISH/.test(t)) return 'medium';
+  if (/KILL|DEATH|MULTIKILL|FIRSTBLOOD|PENTA|QUADRA|TRIPLE|DOUBLE|GANK|JUNGLEGANK|SKIRMISH/.test(t)) return 'medium';
   if (/FLASH|SUMMONER|SPELL|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(t)) return 'summoner';
   if (/RECALL|BACK/.test(t)) return 'recall';
+  if (/TRADE/.test(t)) return 'trade';
   return 'minor';
 }
 
@@ -760,7 +762,9 @@ function deriveShortLabel(eventType, label) {
     DRAGON: 'DRG', BARON: 'BAR', HERALD: 'HLD', RIFTHERALD: 'HLD',
     TOWER: 'TWR', TURRET: 'TWR', INHIBITOR: 'INH', ELDER: 'ELD',
     FIRSTBLOOD: 'FB', ACE: 'ACE', GANK: 'GNK', WARD: 'WRD', RECALL: 'RCL',
-    FLASH: 'FLS', SUMMONERSPELL: 'SUM', LEVELUP: 'LVL', RECALL: 'RCL',
+    FLASH: 'FLS', SUMMONERSPELL: 'SUM', LEVELUP: 'LVL',
+    TRADE: 'TRD', SHORT_TRADE: 'STR', EXTENDED_TRADE: 'XTR',
+    JUNGLE_GANK: 'GNK',
   };
   if (map[t]) return map[t];
   // Generic: first three letters of the type, upper-cased.

@@ -80,6 +80,83 @@ public sealed class ObjectiveEventTieResolverTests
     }
 
     [Fact]
+    public void EventTokens_Trade_YieldsKindSpecificThenGeneric()
+    {
+        // A short trade matches SHORT_TRADE (priority) AND the generic TRADE.
+        Assert.Equal(
+            new[] { "SHORT_TRADE", "TRADE" },
+            ObjectiveEventTieResolver.EventTokens(Ev(1, "TRADE", 1, "{\"kind\":\"short\"}")).ToArray());
+        // An extended trade matches EXTENDED_TRADE AND the generic TRADE.
+        Assert.Equal(
+            new[] { "EXTENDED_TRADE", "TRADE" },
+            ObjectiveEventTieResolver.EventTokens(Ev(2, "TRADE", 1, "{\"kind\":\"extended\"}")).ToArray());
+        // A trade with no/unknown kind still matches the generic TRADE.
+        Assert.Equal(
+            new[] { "TRADE" },
+            ObjectiveEventTieResolver.EventTokens(Ev(3, "TRADE", 1)).ToArray());
+    }
+
+    [Fact]
+    public void EventTokens_JungleGankedDeath_YieldsGankThenDeath()
+    {
+        // A DEATH flagged jungle_gank matches the specific JUNGLE_GANK token (first) AND
+        // the plain DEATH token.
+        Assert.Equal(
+            new[] { "JUNGLE_GANK", "DEATH" },
+            ObjectiveEventTieResolver.EventTokens(Ev(1, "DEATH", 300, "{\"jungle_gank\":true}")).ToArray());
+        // A plain death matches only DEATH.
+        Assert.Equal(
+            new[] { "DEATH" },
+            ObjectiveEventTieResolver.EventTokens(Ev(2, "DEATH", 300, "{\"killer\":\"X\"}")).ToArray());
+    }
+
+    [Fact]
+    public void JungleGankToken_TiesGenericDeathAndGankObjectives()
+    {
+        // One objective tracks any DEATH, another only JUNGLE_GANK.
+        var resolver = ObjectiveEventTieResolver.FromTies(new[]
+        {
+            ("DEATH", 1L, "Review every death"),
+            ("JUNGLE_GANK", 2L, "Stop dying to ganks"),
+        });
+        var plainDeath = Ev(1, "DEATH", 300, "{\"killer\":\"X\"}");
+        var gankDeath = Ev(2, "DEATH", 320, "{\"jungle_gank\":true}");
+
+        var ties = resolver.ResolveForGame(new[] { plainDeath, gankDeath });
+
+        // Plain death → only the death objective.
+        Assert.Single(ties[1]);
+        Assert.Equal(1L, ties[1][0].ObjectiveId);
+        // Gank death → BOTH (death + gank), de-duped per objective.
+        Assert.Equal(2, ties[2].Count);
+        Assert.Contains(ties[2], t => t.ObjectiveId == 1L);
+        Assert.Contains(ties[2], t => t.ObjectiveId == 2L);
+    }
+
+    [Fact]
+    public void TradeKindToken_TiesGenericAndSpecificObjectives()
+    {
+        // One objective tracks any TRADE, another only EXTENDED_TRADE.
+        var resolver = ObjectiveEventTieResolver.FromTies(new[]
+        {
+            ("TRADE", 1L, "Track all trades"),
+            ("EXTENDED_TRADE", 2L, "Stop dragging out trades"),
+        });
+        var shortTrade = Ev(1, "TRADE", 300, "{\"kind\":\"short\"}");
+        var extTrade = Ev(2, "TRADE", 600, "{\"kind\":\"extended\"}");
+
+        var ties = resolver.ResolveForGame(new[] { shortTrade, extTrade });
+
+        // Short trade → only the generic-trade objective.
+        Assert.Single(ties[1]);
+        Assert.Equal(1L, ties[1][0].ObjectiveId);
+        // Extended trade → BOTH (generic + extended-specific), de-duped per objective.
+        Assert.Equal(2, ties[2].Count);
+        Assert.Contains(ties[2], t => t.ObjectiveId == 1L);
+        Assert.Contains(ties[2], t => t.ObjectiveId == 2L);
+    }
+
+    [Fact]
     public void DeDupesObjectivePerEvent_WhenTokenAndTeamfightBothMatch()
     {
         // One objective tracks both DEATH and TEAMFIGHT; a death inside a cluster must

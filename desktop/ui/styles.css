@@ -1975,6 +1975,9 @@ select.obj-input option{background:#14102a;color:var(--t1)}
    quiet enough not to bury kills/deaths/objectives. */
 .vp-timeline .evbar-recall{--evh:10px;opacity:0.5}
 .vp-timeline .evbar-recall:hover{opacity:0.95}
+/* Trade (derived from your HP dropping while you live) — a meaningful lane moment, so
+   it stands a touch taller than a summoner tick but stays under kills/deaths. */
+.vp-timeline .evbar-trade{--evh:18px}
 .vp-timeline .evbar-minor{--evh:12px;opacity:0.82}
 /* OBJECTIVE-TIED priority lane: the tallest bar, a thicker glowing stem in the
    objective's color, an explicit z-index so it paints over every other marker, and
@@ -1996,6 +1999,7 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .vp-timeline .evbar-gold{--evc:var(--gold)}
 .vp-timeline .evbar-summoner{--evc:#7fd4ff}
 .vp-timeline .evbar-recall{--evc:#a9c8ff}
+.vp-timeline .evbar-trade{--evc:#ffb86b}
 .vp-timeline .evbar-neutral{--evc:var(--t3)}
 
 /* Teamfight zone — a soft band BEHIND the bars marking a cluster of combat events,
@@ -2341,6 +2345,7 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .vp-objtok.tok-gold{color:var(--gold);border-color:rgba(243,199,148,0.5)}
 .vp-objtok.tok-summoner{color:#7fd4ff;border-color:rgba(127,212,255,0.5)}
 .vp-objtok.tok-recall{color:#a9c8ff;border-color:rgba(169,200,255,0.5)}
+.vp-objtok.tok-trade{color:#ffb86b;border-color:rgba(255,184,107,0.5)}
 .vp-objtok.tok-loss{color:var(--loss);border-color:rgba(243,163,168,0.5)}
 .vp-objtok.tok-win{color:var(--win);border-color:rgba(142,231,186,0.5)}
 

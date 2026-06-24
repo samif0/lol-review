@@ -39,6 +39,30 @@ public sealed class LiveEventCollectorTests
     }
 
     [Fact]
+    public void ParseLiveEvents_CapturesKillerAndAssistersOnDeath()
+    {
+        // A ChampionKill where the player is the victim, with two assisters. The DEATH
+        // event must carry both killer and the assisters array (the jungle-gank signal).
+        var raw = CreateEvents(
+            """
+            [
+              { "EventID": 0, "EventName": "ChampionKill", "EventTime": 300.0,
+                "KillerName": "EnemyMid", "VictimName": "Tester",
+                "Assisters": ["EnemyJungler", "EnemySupport"] }
+            ]
+            """);
+
+        var parsed = LiveEventCollector.ParseLiveEvents(raw, "Tester");
+        var death = parsed.Single(e => e.EventType == GameEvent.EventTypes.Death);
+
+        using var details = JsonDocument.Parse(death.Details);
+        Assert.Equal("EnemyMid", details.RootElement.GetProperty("killer").GetString());
+        var assisters = details.RootElement.GetProperty("assisters").EnumerateArray()
+            .Select(a => a.GetString()).ToArray();
+        Assert.Equal(new[] { "EnemyJungler", "EnemySupport" }, assisters);
+    }
+
+    [Fact]
     public async Task StopAsync_CollectsObjectiveAndPlayerEvents_WhenSnapshotsGrow()
     {
         var snapshots = new Queue<List<JsonElement>>(
@@ -418,6 +442,153 @@ public sealed class LiveEventCollectorTests
 
         var parsed = await collector.StopAsync();
         Assert.Single(parsed, e => e.EventType == GameEvent.EventTypes.Recall);
+    }
+
+    // ── trade detection (HP drop while alive) ────────────────────────────────────
+    // CreatePlayerStats holds gold constant (500) and we use resourceType NONE so
+    // neither recall detector can fire — isolating the trade path. gameTime is used
+    // only as the dip anchor; pollInterval is fake-fast so each queued snapshot = a tick.
+
+    [Fact]
+    public async Task StopAsync_DerivesShortTrade_WhenHpDropsOneTickThenRecovers()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // HP 100% → 55% (one big poke, lost 45% — a clear trade) → regen back to 70%.
+        // One dropping tick ⇒ SHORT. Dip opens at 300s (where the drop was seen).
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(290.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(300.0, "NONE", curHp: 330, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(310.0, "NONE", curHp: 420, maxHp: 600, curRes: 0, maxRes: 0),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        var trade = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Trade);
+
+        Assert.NotNull(trade);
+        Assert.Equal(300, trade!.GameTimeS);
+        using var details = JsonDocument.Parse(trade.Details);
+        Assert.Equal("short", details.RootElement.GetProperty("kind").GetString());
+        Assert.True(details.RootElement.GetProperty("detected").GetBoolean());
+        Assert.Equal(45, details.RootElement.GetProperty("hp_lost_pct").GetInt32());
+    }
+
+    [Fact]
+    public async Task StopAsync_DerivesExtendedTrade_WhenHpDropsAcrossConsecutiveTicks()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // HP 100% → 70% → 40% (damage sustained across TWO ticks) → recovers to 55%.
+        // Two consecutive dropping ticks ⇒ EXTENDED. Deepest loss = 100%−40% = 60%.
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(490.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(500.0, "NONE", curHp: 420, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(510.0, "NONE", curHp: 240, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(520.0, "NONE", curHp: 330, maxHp: 600, curRes: 0, maxRes: 0),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        var trade = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Trade);
+
+        Assert.NotNull(trade);
+        Assert.Equal(500, trade!.GameTimeS); // anchored where the dip began
+        using var details = JsonDocument.Parse(trade.Details);
+        Assert.Equal("extended", details.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(60, details.RootElement.GetProperty("hp_lost_pct").GetInt32());
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotDeriveTrade_ForSmallChipDamage()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // HP 100% → 92% (a minion auto / small DoT, 8% — below the 12% trade floor) →
+        // recovers. No trade.
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(200.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(210.0, "NONE", curHp: 552, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(220.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Trade);
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotDeriveTrade_WhenHpDropToZeroIsADeath()
+    {
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // HP 80% → 0% (died) → 100% (respawn). The dip bottoms at 0 ⇒ NOT a trade, even
+        // though the respawn rise closes the dip. (A death already has its own DEATH row
+        // from the kill-feed; a trade is specifically surviving the damage.)
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(600.0, "NONE", curHp: 480, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(610.0, "NONE", curHp: 0, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(620.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Trade);
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotDeriveTrade_WhenDeathHappensBetweenPolls()
+    {
+        // The between-tick death: a death+respawn fits ENTIRELY between two 10s polls, so
+        // the 0-HP frame is NEVER sampled. HP looks like 80% → 30% (dip) → 100% (bounce
+        // back), which without the kill-feed cross-check would emit a phantom "survived"
+        // trade. The kill-feed (ChampionKill victim=Tester at 612s, inside the dip window)
+        // is authoritative ⇒ this dip is that death, not a trade.
+        var events = CreateEvents(
+            """
+            [
+              { "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 },
+              { "EventID": 1, "EventName": "ChampionKill", "EventTime": 612.0, "KillerName": "Enemy", "VictimName": "Tester", "Assisters": [] }
+            ]
+            """);
+
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(600.0, "NONE", curHp: 480, maxHp: 600, curRes: 0, maxRes: 0), // 80%
+            CreatePlayerStats(610.0, "NONE", curHp: 180, maxHp: 600, curRes: 0, maxRes: 0), // 30% — dip; 0-HP frame at ~612 unsampled
+            CreatePlayerStats(620.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0), // respawned full — closes the dip
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+
+        // The DEATH from the kill-feed is present; the phantom TRADE is suppressed.
+        Assert.Contains(parsed, e => e.EventType == GameEvent.EventTypes.Death);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Trade);
+    }
+
+    [Fact]
+    public async Task StopAsync_StillDerivesTrade_WhenAnUnrelatedDeathIsFarFromTheDip()
+    {
+        // A real survived trade early, and an unrelated death much later (outside the dip
+        // window + slack). The kill-feed guard must NOT swallow the trade just because the
+        // player died at some OTHER point in the game.
+        var events = CreateEvents(
+            """
+            [
+              { "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 },
+              { "EventID": 1, "EventName": "ChampionKill", "EventTime": 900.0, "KillerName": "Enemy", "VictimName": "Tester", "Assisters": [] }
+            ]
+            """);
+
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(290.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(300.0, "NONE", curHp: 330, maxHp: 600, curRes: 0, maxRes: 0), // -45% survived trade at 300s
+            CreatePlayerStats(310.0, "NONE", curHp: 420, maxHp: 600, curRes: 0, maxRes: 0), // recovers (death at 900 is far away)
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        Assert.Single(parsed, e => e.EventType == GameEvent.EventTypes.Trade);
     }
 
     [Fact]

@@ -76,6 +76,7 @@ const FALLBACK_METRICS = [
 const FALLBACK_EVENT_TOKENS = [
   { token: 'KILL', group: 'Combat', label: 'Kill', color: '#28c76f' },
   { token: 'DEATH', group: 'Combat', label: 'Death', color: '#ea5455' },
+  { token: 'JUNGLE_GANK', group: 'Combat', label: 'Died to Gank', color: '#d6455e' },
   { token: 'ASSIST', group: 'Combat', label: 'Assist', color: '#0099ff' },
   { token: 'MULTI_KILL', group: 'Combat', label: 'Multikill', color: '#fbbf24' },
   { token: 'FIRST_BLOOD', group: 'Combat', label: 'First Blood', color: '#ef4444' },
@@ -84,16 +85,10 @@ const FALLBACK_EVENT_TOKENS = [
   { token: 'HERALD', group: 'Objectives', label: 'Herald', color: '#06b6d4' },
   { token: 'TURRET', group: 'Objectives', label: 'Turret', color: '#f97316' },
   { token: 'INHIBITOR', group: 'Objectives', label: 'Inhibitor', color: '#ec4899' },
-  { token: 'SPELL_FLASH', group: 'Summoners', label: 'Flash', color: '#7fd4ff' },
-  { token: 'SPELL_IGNITE', group: 'Summoners', label: 'Ignite', color: '#ff7043' },
-  { token: 'SPELL_TELEPORT', group: 'Summoners', label: 'Teleport', color: '#5c8dff' },
-  { token: 'SPELL_SMITE', group: 'Summoners', label: 'Smite', color: '#9ccc65' },
-  { token: 'SPELL_EXHAUST', group: 'Summoners', label: 'Exhaust', color: '#ffca5f' },
-  { token: 'SPELL_HEAL', group: 'Summoners', label: 'Heal', color: '#7fe3c0' },
-  { token: 'SPELL_BARRIER', group: 'Summoners', label: 'Barrier', color: '#ffd54f' },
-  { token: 'SPELL_CLEANSE', group: 'Summoners', label: 'Cleanse', color: '#80deea' },
-  { token: 'SPELL_GHOST', group: 'Summoners', label: 'Ghost', color: '#b39ddb' },
-  { token: 'RECALL', group: 'Macro', label: 'Recall', color: '#a9c8ff' },
+  { token: 'RECALL', group: 'Lane', label: 'Recall', color: '#a9c8ff' },
+  { token: 'TRADE', group: 'Lane', label: 'Trade', color: '#ffb86b' },
+  { token: 'SHORT_TRADE', group: 'Lane', label: 'Short Trade', color: '#ffd9a3' },
+  { token: 'EXTENDED_TRADE', group: 'Lane', label: 'Extended Trade', color: '#ff9248' },
   { token: 'TEAMFIGHT', group: 'Fights', label: 'Teamfight', color: '#f3a3a8' },
 ];
 
@@ -597,7 +592,7 @@ function removePromptRow(idx) {
 // ── tracked-event gate ─────────────────────────────────────────────────────────
 // Render the event-token picker as grouped pill-toggles. Each pill toggles its
 // token in _eventTypes; a selected pill lights up in its own event color. Groups
-// (Combat / Objectives / Summoners / Fights) get a tiny eyebrow label.
+// (Combat / Objectives / Lane / Fights) get a tiny eyebrow label.
 function renderEventPicker() {
   const host = $('f-events');
   if (!host) return;

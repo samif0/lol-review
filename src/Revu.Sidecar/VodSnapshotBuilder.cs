@@ -28,6 +28,12 @@ public sealed class VodSnapshotBuilder
     // Recall (derived from shop purchases) — a soft periwinkle, distinct from the
     // cyan summoner hue. Matches GameEvent.TrackableTokens "Recall" catalog color.
     private const string RecallHex = "#a9c8ff";
+    // Trade (derived from your HP dropping while alive) — a warm amber, distinct from
+    // both recall periwinkle and loss red. Matches the "Trade" catalog color.
+    private const string TradeHex = "#ffb86b";
+    // Jungle-ganked death — a deeper, more saturated red than a plain death so a gank
+    // stands out from a normal loss marker. Matches the JUNGLE_GANK catalog color.
+    private const string JungleGankHex = "#d6455e";
 
     private readonly IGameRepository _gameRepo;
     private readonly IVodRepository _vodRepo;
@@ -191,6 +197,13 @@ public sealed class VodSnapshotBuilder
     {
         var (kind, colorHex) = BucketEvent(e.EventType);
 
+        // A jungle-ganked DEATH (Details.jungle_gank) reads distinctly on the timeline —
+        // a "GNK" marker in a deeper red — while staying in the loss family (it IS a
+        // death, just attributed). Type stays DEATH so consumers that switch on type are
+        // unaffected; only the human-facing labels + hue change.
+        var isJungleGank = IsDeathEvent(e.EventType) && ReadJsonBool(e, "jungle_gank");
+        if (isJungleGank) colorHex = JungleGankHex;
+
         long? objId = matches.Count > 0 ? matches[0].ObjectiveId : null;
         var objTitle = matches.Count > 0 ? matches[0].Title : "";
         var objColor = matches.Count > 0 ? matches[0].Color : "";
@@ -201,15 +214,43 @@ public sealed class VodSnapshotBuilder
             EventType: e.EventType ?? "",
             GameTimeSeconds: e.GameTimeS,
             TimeLabel: FormatClock(e.GameTimeS),
-            ShortLabel: ShortLabel(e.EventType),
-            Label: EventLabel(e.EventType),
-            Summary: EventSummary(e),
+            ShortLabel: isJungleGank ? "GNK" : ShortLabel(e.EventType),
+            Label: isJungleGank ? "Jungle Gank" : EventLabel(e.EventType),
+            Summary: isJungleGank ? JungleGankSummary(e) : EventSummary(e),
             Kind: kind,
             ColorHex: colorHex,
             ObjectiveId: objId,
             ObjectiveTitle: objTitle,
             ObjectiveColorHex: objColor,
             ObjectiveIds: objIds);
+    }
+
+    private static bool IsDeathEvent(string? eventType) =>
+        string.Equals(eventType, "DEATH", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ReadJsonBool(GameEvent e, string property)
+    {
+        if (string.IsNullOrWhiteSpace(e.Details) || e.Details == "{}") return false;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(e.Details);
+            return doc.RootElement.TryGetProperty(property, out var v)
+                && v.ValueKind == System.Text.Json.JsonValueKind.True;
+        }
+        catch { return false; }
+    }
+
+    // "jungle gank — killed by Khazix" / "jungle gank" when no killer name.
+    private static string JungleGankSummary(GameEvent e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Details) || e.Details == "{}") return "jungle gank";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(e.Details);
+            var killer = ReadJsonString(doc.RootElement, "killer");
+            return killer.Length > 0 ? $"jungle gank — {killer}" : "jungle gank";
+        }
+        catch { return "jungle gank"; }
     }
 
     // Bucket event types into the win/loss/gold/neutral marker language, with the
@@ -222,6 +263,7 @@ public sealed class VodSnapshotBuilder
             "DRAGON" or "BARON" or "HERALD" or "TURRET" or "INHIBITOR" => ("gold", GoldHex),
             "FLASH" or "SUMMONER_SPELL" => ("summoner", SummonerHex),
             "RECALL" => ("recall", RecallHex),
+            "TRADE" => ("trade", TradeHex),
             _ => ("neutral", NeutralHex),
         };
 
@@ -241,6 +283,7 @@ public sealed class VodSnapshotBuilder
         "FLASH" => "FLS",
         "SUMMONER_SPELL" => "SUM",
         "RECALL" => "RCL",
+        "TRADE" => "TRD",
         _ => "EVT",
     };
 
@@ -260,6 +303,7 @@ public sealed class VodSnapshotBuilder
         "FLASH" => "Flash",
         "SUMMONER_SPELL" => "Summoner Spell",
         "RECALL" => "Recall",
+        "TRADE" => "Trade",
         _ => eventType ?? "",
     };
 
@@ -284,6 +328,7 @@ public sealed class VodSnapshotBuilder
                 "RECALL" => root.TryGetProperty("gold_spent", out var g) && g.TryGetInt32(out var gs) && gs > 0
                     ? $"spent {gs}g"
                     : "detected",
+                "TRADE" => TradeSummary(root),
                 _ => "",
             };
         }
@@ -294,6 +339,16 @@ public sealed class VodSnapshotBuilder
     {
         if (!root.TryGetProperty(property, out var value)) return "";
         return value.ValueKind == System.Text.Json.JsonValueKind.String ? value.GetString() ?? "" : "";
+    }
+
+    // "short trade -34% hp" / "extended trade" — best-effort from the derived Details.
+    private static string TradeSummary(System.Text.Json.JsonElement root)
+    {
+        var kind = ReadJsonString(root, "kind");
+        var label = kind.Length > 0 ? $"{kind} trade" : "trade";
+        if (root.TryGetProperty("hp_lost_pct", out var p) && p.TryGetInt32(out var pct) && pct > 0)
+            return $"{label} -{pct}% hp";
+        return label;
     }
 
     // ── evidence inbox mapping ────────────────────────────────────────────────
