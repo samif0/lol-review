@@ -1048,6 +1048,7 @@ app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILo
     if (body.MinimizeDuringGame is not null) cfg.MinimizeDuringGame = body.MinimizeDuringGame.Value;
     if (body.AutoTimelineClippingEnabled is not null) cfg.AutoTimelineClippingEnabled = body.AutoTimelineClippingEnabled.Value;
     if (body.AutoTimelineClippingHintDismissed is not null) cfg.AutoTimelineClippingHintDismissed = body.AutoTimelineClippingHintDismissed.Value;
+    if (body.AutoClipObjectivesEnabled is not null) cfg.AutoClipObjectivesEnabled = body.AutoClipObjectivesEnabled.Value;
     // RiotId / Region: null OR empty = leave unchanged (P-020 clobber guard) — a save
     // before the page hydrates sends "" / the select default and must NOT blank a
     // configured account. Sign-out, not an empty Save, clears these.
@@ -1428,47 +1429,50 @@ app.MapPost("/api/clip/extract", async (ExtractClipBody body, WriteServices w, I
         return Results.Json(new { ok = false, error = "Clip save failed (is ffmpeg installed?)." }, jsonOptions, statusCode: 422);
     }
 
-    var bookmarkId = await w.Vod.AddBookmarkAsync(
+    // Bookmark + objective-practiced + evidence row — the SAME tail the auto-clipper
+    // runs (Revu.Core ClipPersistence). sourceKey null → the default clip:{bookmarkId}.
+    var bookmarkId = await Revu.Core.Services.ClipPersistence.PersistAsync(
+        w.Vod, w.Objectives, w.Evidence,
         gameId: body.GameId,
-        gameTimeSeconds: startS,
-        note: note,
-        clipStartSeconds: startS,
-        clipEndSeconds: endS,
+        startS: startS,
+        endS: endS,
         clipPath: clipPath,
-        objectiveId: objectiveId,
+        note: note,
         quality: quality,
+        objectiveId: objectiveId,
         promptId: promptId);
-
-    // Tagging the clip to an objective marks it practiced for this game (preserve
-    // any existing execution note — only flip practiced->true, never clobber).
-    if (objectiveId is long oid)
-    {
-        var existing = await w.Objectives.GetGameObjectivesAsync(body.GameId);
-        var exNote = existing.FirstOrDefault(r => r.ObjectiveId == oid)?.ExecutionNote ?? "";
-        await w.Objectives.RecordGameAsync(body.GameId, oid, practiced: true, executionNote: exNote);
-    }
-
-    // Evidence row (mirror VM): polarity = quality or neutral; a quality-tagged
-    // clip is already a judgement (status=evidence), an untagged one needs review.
-    await w.Evidence.UpsertAsync(new Revu.Core.Data.Repositories.EvidenceUpsert(
-        GameId: body.GameId,
-        SourceKind: Revu.Core.Data.Repositories.EvidenceKinds.Clip,
-        SourceId: bookmarkId,
-        SourceKey: $"clip:{bookmarkId}",
-        StartTimeSeconds: startS,
-        EndTimeSeconds: endS,
-        Title: note,
-        Note: note,
-        ObjectiveId: objectiveId,
-        Polarity: string.IsNullOrWhiteSpace(quality)
-            ? Revu.Core.Data.Repositories.EvidencePolarities.Neutral
-            : Revu.Core.Data.Repositories.EvidencePolarities.Normalize(quality),
-        Status: string.IsNullOrWhiteSpace(quality)
-            ? Revu.Core.Data.Repositories.EvidenceStatuses.NeedsReview
-            : Revu.Core.Data.Repositories.EvidenceStatuses.Evidence));
 
     log.LogInformation("Clip extracted: game {GameId} {StartS}-{EndS}s -> {Path} (bookmark {Id})", body.GameId, startS, endS, clipPath, bookmarkId);
     return Results.Json(new { ok = true, clipPath, bookmarkId }, jsonOptions);
+});
+
+// POST /api/clip/auto-objectives  { gameId, objectiveId? }
+// On-demand batch clip of every event tied to the user's active learning objectives
+// (when objectiveId is set, only that objective's events). Buffers each to ~45s
+// (30s before to 15s after), reusing the manual clip ffmpeg + persistence path via
+// IAutoClipService. Gated by config.AutoClipObjectivesEnabled (returns reason
+// "disabled" when off). Sequential ffmpeg at BelowNormal priority; idempotent
+// (re-running creates no duplicates). Token-gated + backup-guarded.
+app.MapPost("/api/clip/auto-objectives", async (AutoObjectiveClipsBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
+{
+    if (body is null || body.GameId <= 0)
+        return Results.BadRequest(new { error = "gameId required" });
+
+    await w.BackupGuard.EnsureBackedUpAsync();
+
+    try
+    {
+        var objectiveId = (body.ObjectiveId is > 0) ? body.ObjectiveId : null;
+        var result = await w.AutoClip.ClipObjectiveEventsAsync(body.GameId, objectiveId, ct);
+        log.LogInformation("Auto-clip objectives: game {GameId} created {Created} skipped {Skipped} ({Reason})",
+            body.GameId, result.Created, result.Skipped, result.Reason);
+        return Results.Json(new { ok = true, created = result.Created, skipped = result.Skipped, reason = result.Reason }, jsonOptions);
+    }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Auto-clip objectives failed for game {GameId}", body.GameId);
+        return Results.Json(new { ok = false, error = "Auto-clip failed (is ffmpeg installed?)." }, jsonOptions, statusCode: 422);
+    }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2495,6 +2499,7 @@ internal sealed record SaveConfigBody(
     bool? MinimizeDuringGame,
     bool? AutoTimelineClippingEnabled,
     bool? AutoTimelineClippingHintDismissed,
+    bool? AutoClipObjectivesEnabled,
     string? RiotId,
     string? Region,
     string? PrimaryRole,
@@ -2566,6 +2571,12 @@ internal sealed record ExtractClipBody(
     string? Quality,
     long? ObjectiveId,
     long? PromptId);
+
+// POST /api/clip/auto-objectives body. GameId is required; ObjectiveId (optional)
+// restricts to the framed objective's events (null = all active-objective-tied).
+internal sealed record AutoObjectiveClipsBody(
+    long GameId,
+    long? ObjectiveId);
 
 // ── Pattern review bodies (Batch 3) ───────────────────────────────────────────
 // Mark a cross-game pattern reviewed. Kind + MomentCount come from the loaded

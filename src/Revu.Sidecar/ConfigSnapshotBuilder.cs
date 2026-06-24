@@ -70,6 +70,7 @@ public sealed class ConfigSnapshotBuilder
             MinimizeDuringGame: cfg.MinimizeDuringGame,
             AutoTimelineClippingEnabled: cfg.AutoTimelineClippingEnabled,
             AutoTimelineClippingHintDismissed: cfg.AutoTimelineClippingHintDismissed,
+            AutoClipObjectivesEnabled: cfg.AutoClipObjectivesEnabled,
             RiotId: cfg.RiotId ?? "",
             Region: cfg.RiotRegion ?? "",
             PrimaryRole: cfg.PrimaryRole ?? "",
@@ -101,6 +102,7 @@ public sealed record ConfigDto(
     bool MinimizeDuringGame,
     bool AutoTimelineClippingEnabled,
     bool AutoTimelineClippingHintDismissed,
+    bool AutoClipObjectivesEnabled,
     string RiotId,
     // config.RiotRegion, surfaced as "region" on the wire (Batch-0 spec name).
     string Region,

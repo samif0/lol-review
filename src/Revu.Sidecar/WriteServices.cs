@@ -75,6 +75,9 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IClipService, ClipService>();
         services.AddSingleton<IVodService, VodService>();
         services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
+        // On-demand objective auto-clipper (POST /api/clip/auto-objectives). Reuses
+        // the ClipService + the objective/event/evidence repos registered here.
+        services.AddSingleton<IAutoClipService, AutoClipService>();
 
         // The review save — the big transactional multi-table write.
         services.AddSingleton<IReviewWorkflowService, ReviewWorkflowService>();
@@ -162,6 +165,10 @@ public sealed class WriteServices : IDisposable
     // player's ExtractClipCommand verbatim. Its ctor needs IConfigService + logger
     // (the read-the-ffmpeg-path + folder-size deps), both registered above.
     public IClipService Clips => _provider.GetRequiredService<IClipService>();
+    // On-demand objective auto-clip (POST /api/clip/auto-objectives). Batch-extracts
+    // ~45s clips around objective-tied timeline events, reusing Clips + the shared
+    // ClipPersistence tail. Gated by config.AutoClipObjectivesEnabled.
+    public IAutoClipService AutoClip => _provider.GetRequiredService<IAutoClipService>();
     // App-config READ (ClipsFolder for the clip output dir). The Config property
     // above is the same singleton; alias kept explicit for the clip endpoints.
 

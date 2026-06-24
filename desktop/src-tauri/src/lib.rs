@@ -499,6 +499,15 @@ async fn extract_clip(payload: serde_json::Value) -> Result<serde_json::Value, S
     sidecar::post_json("/api/clip/extract", payload).await
 }
 
+/// On-demand batch clip of every objective-tied timeline event ({gameId,
+/// objectiveId?}). Buffers each event to ~45s (30s before to 15s after). Returns
+/// {ok, created, skipped, reason}. Gated by config.AutoClipObjectivesEnabled. See
+/// Revu.Sidecar POST /api/clip/auto-objectives.
+#[tauri::command]
+async fn auto_clip_objectives(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/clip/auto-objectives", payload).await
+}
+
 // ── Pattern review writes (Batch 3) ───────────────────────────────────────────
 
 /// Marks a cross-game pattern reviewed ({patternKey, kind?, momentCount?}); ticks
@@ -918,6 +927,7 @@ pub fn run() {
             set_bookmark_tag,
             set_bookmark_quality,
             extract_clip,
+            auto_clip_objectives,
             mark_pattern_reviewed,
             save_pattern_moment_note,
             get_active_objectives,

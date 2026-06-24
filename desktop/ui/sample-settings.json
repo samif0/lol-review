@@ -12,6 +12,7 @@
   "minimizeDuringGame": true,
   "autoTimelineClippingEnabled": true,
   "autoTimelineClippingHintDismissed": false,
+  "autoClipObjectivesEnabled": false,
   "riotId": "chapy#NA1",
   "region": "na1",
   "primaryRole": "BOTTOM",

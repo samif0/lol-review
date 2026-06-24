@@ -2117,6 +2117,14 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 #vp-clip-save:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.06)}
 #vp-clip-save:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
 #vp-clip-save:disabled{opacity:0.5;cursor:default;transform:none;filter:none}
+.vp-autoclip-tools{display:grid;gap:6px;margin-top:8px}
+.vp-autoclip-tools[hidden]{display:none}
+.vp-autoclip-btn{padding:9px 10px;background:linear-gradient(180deg,#ffe0b8,#f3c794)}
+.vp-autoclip-btn:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.06)}
+.vp-autoclip-btn:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
+.vp-autoclip-btn:disabled{opacity:0.62;cursor:default;transform:none;filter:none}
+.vp-autoclip-meta{font-family:var(--fm);font-size:9.5px;letter-spacing:0.25px;color:var(--t3);line-height:1.35}
+.vp-autoclip-meta.err{color:var(--loss)}
 .vp-clip-hint{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--win);margin-top:7px;line-height:1.4}
 .vp-clip-hint.err{color:var(--loss)}
 
@@ -2326,6 +2334,18 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .vp-objtok.tok-recall{color:#a9c8ff;border-color:rgba(169,200,255,0.5)}
 .vp-objtok.tok-loss{color:var(--loss);border-color:rgba(243,163,168,0.5)}
 .vp-objtok.tok-win{color:var(--win);border-color:rgba(142,231,186,0.5)}
+
+/* Per-objective auto-clip: a button in the active tab's detail block that batch-clips
+   THIS objective's events (~45s each). Sized down from the main .savebtn for the tab. */
+.vp-objtab-autoclip{margin-top:8px}
+.vp-objclip-btn{width:100%;text-align:center;font-family:var(--fm);font-size:9px;letter-spacing:1px;
+  color:#1b1233;font-weight:700;border:1px solid rgba(243,199,148,0.5);border-radius:8px;padding:7px 8px;cursor:pointer;
+  background:linear-gradient(180deg,#f6cfa0,var(--gold));box-shadow:0 6px 14px -8px rgba(243,199,148,0.6);
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),box-shadow .16s ease}
+.vp-objclip-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 18px -8px rgba(243,199,148,0.7)}
+.vp-objclip-btn:disabled{opacity:0.6;cursor:wait}
+.vp-objclip-hint{font-family:var(--fb);font-size:8.5px;color:var(--t4);margin-top:5px;text-align:center}
+.vp-objclip-hint.err{color:var(--loss)}
 
 /* Dimmed timeline ticks — every event NOT tied to the focused objective collapses
    to a faint short tick (still click-to-seek; code shows on hover via .evbar-nolabel).

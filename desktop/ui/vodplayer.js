@@ -22,6 +22,10 @@ let _vod = null;       // the loaded VOD snapshot
 let _core = null;      // cached Tauri core ({invoke, convertFileSrc}) or null
 let _gameId = 0;       // the game id from ?gameId=N
 let _objectives = [];  // active objectives for the Quick Bookmark objective picker
+let _autoClipEnabled = false; // config.autoClipObjectivesEnabled — gates the auto-clip button
+let _autoClipBusy = false;    // true while an auto-clip run is in flight
+let _autoClipHintMsg = '';    // last auto-clip result message (survives objbar re-render)
+let _autoClipHintErr = false; // whether _autoClipHintMsg is an error
 let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarge)
 // ── Objective-framed viewer state ────────────────────────────────────────────
 // The VOD page opens framed on ONE objective at a time (the default, not a mode).
@@ -65,6 +69,21 @@ function markersForObjective(objId) {
 // objective was tracked but no automated event fired for it — still a lesson).
 function markerCountForObjective(objId) {
   return markersForObjective(objId).length;
+}
+
+function hasObjectiveTie(e) {
+  return (Array.isArray(e.objectiveIds) && e.objectiveIds.length > 0) || e.objectiveId != null;
+}
+
+function objectiveTiedEventCount() {
+  const v = _vod || {};
+  return (v.gameEvents || []).filter(hasObjectiveTie).length;
+}
+
+function objectiveTitle(objId) {
+  const id = Number(objId);
+  const o = _objectives.find((x) => Number(x.objectiveId) === id);
+  return (o && o.title) ? o.title : 'focused objective';
 }
 
 // Does the currently-focused objective track the synthetic TEAMFIGHT token? Gates
@@ -141,6 +160,11 @@ async function fetchVod() {
       const r = await core.invoke('get_active_objectives');
       _objectives = Array.isArray(r && r.objectives) ? r.objectives : [];
     } catch (_) { _objectives = []; }
+    // Best-effort: the auto-clip toggle gates the Auto-clip objectives button.
+    try {
+      const cfg = await core.invoke('get_config');
+      _autoClipEnabled = !!(cfg && cfg.autoClipObjectivesEnabled);
+    } catch (_) { _autoClipEnabled = false; }
     return { data, core };
   }
   // Browser preview: no Tauri / no real file. Use the sample (no playable video).
@@ -163,6 +187,7 @@ async function reloadBookmarks() {
     // Marker counts per objective may have changed (a write can add/retag a marker),
     // so refresh the tab-bar counts + the in-objective stepper too.
     renderObjBar();
+    renderAutoClipPanel();
     renderMarkerStepper();
   } catch (err) {
     console.error('[vodplayer] reload after write failed:', err);
@@ -214,6 +239,7 @@ function render(data, core) {
   // video. onMeta re-places markers with the real duration once it loads.
   populateObjectivePicker();
   renderObjBar();
+  renderAutoClipPanel();
   placeMarkers(_vod.gameDurationSeconds || 0);
   renderMoments();
   renderMarkerStepper();
@@ -346,8 +372,91 @@ function renderObjBar() {
         detail.appendChild(wrap);
       }
       tab.appendChild(detail);
+
+      // Auto-clip button for THIS objective. Shown only when the Settings toggle is on,
+      // there's a recording on disk, and this objective has markers this game. One click
+      // saves a ~45s clip (30s before to 15s after) around each of its events. Idempotent.
+      if (_autoClipEnabled && _vod && _vod.hasVod && _vod.filePath && count > 0) {
+        const acRow = document.createElement('div');
+        acRow.className = 'vp-objtab-autoclip';
+        const acBtn = document.createElement('button');
+        acBtn.type = 'button';
+        acBtn.className = 'vp-objclip-btn';
+        acBtn.dataset.action = 'autoclip_objective';
+        acBtn.dataset.objId = String(id);
+        acBtn.disabled = _autoClipBusy;
+        acBtn.textContent = _autoClipBusy ? 'Auto-clipping…' : `⬇ Auto-clip ${count} event${count === 1 ? '' : 's'}`;
+        acRow.appendChild(acBtn);
+        const acHint = document.createElement('div');
+        acHint.className = 'vp-objclip-hint';
+        acHint.id = 'vp-objclip-hint';
+        if (_autoClipHintMsg) { acHint.textContent = _autoClipHintMsg; acHint.classList.toggle('err', _autoClipHintErr); }
+        else { acHint.hidden = true; }
+        acRow.appendChild(acHint);
+        tab.appendChild(acRow);
+      }
     }
     bar.appendChild(tab);
+  }
+}
+
+function renderAutoClipPanel() {
+  const host = $('vp-autoclip-tools');
+  const btn = $('vp-autoclip-btn');
+  const meta = $('vp-autoclip-meta');
+  if (!host || !btn) return;
+
+  const hasRecording = !!(_vod && _vod.hasVod && _vod.filePath);
+  show(host, hasRecording);
+  if (!hasRecording) return;
+
+  const scoped = _framed && _focusedObjId != null;
+  const objId = scoped ? Number(_focusedObjId) : null;
+  const count = scoped ? markerCountForObjective(objId) : objectiveTiedEventCount();
+  const eventWord = count === 1 ? 'event' : 'events';
+  const title = scoped ? objectiveTitle(objId) : '';
+
+  btn.dataset.objId = objId != null ? String(objId) : '';
+  btn.disabled = true;
+
+  let label = 'Auto-clip objective events';
+  let detail = '';
+  let isErr = false;
+
+  if (!_autoClipEnabled) {
+    label = 'Auto-clip off in Settings';
+    detail = 'Turn on Auto-clip objective events in Settings to batch-save clips.';
+  } else if (count <= 0) {
+    label = 'No objective events to auto-clip';
+    detail = scoped
+      ? `The focused objective (${title}) has no tied timeline events in this game.`
+      : 'No objective-tied timeline events were detected for this game.';
+  } else if (_autoClipBusy) {
+    label = 'Auto-clipping...';
+    detail = _autoClipHintMsg || (scoped
+      ? `Saving clips for ${title}.`
+      : 'Saving clips for all objective-tied events.');
+    isErr = _autoClipHintErr;
+  } else {
+    btn.disabled = false;
+    label = scoped
+      ? `Auto-clip ${count} focused ${eventWord}`
+      : `Auto-clip ${count} objective ${eventWord}`;
+    detail = scoped
+      ? `Clips events tied to ${title}.`
+      : 'Clips every objective-tied event in this game.';
+  }
+
+  if (_autoClipHintMsg && !_autoClipBusy) {
+    detail = _autoClipHintMsg;
+    isErr = _autoClipHintErr;
+  }
+
+  btn.textContent = label;
+  if (meta) {
+    meta.textContent = detail;
+    meta.classList.toggle('err', isErr);
+    show(meta, !!detail);
   }
 }
 
@@ -359,8 +468,10 @@ function setFocusedObjective(objId) {
   const id = Number(objId);
   if (id === _focusedObjId) return;
   _focusedObjId = id;
+  _autoClipHintMsg = ''; _autoClipHintErr = false; // clear stale auto-clip status from the prior objective
   const v = video();
   renderObjBar();
+  renderAutoClipPanel();
   placeMarkers((v && v.duration) || _vod.gameDurationSeconds || 0);
   renderMoments();
   renderMarkerStepper();
@@ -960,6 +1071,9 @@ function wireFraming() {
   const bar = $('vp-objbar');
   if (bar) {
     const pick = (target) => {
+      // The per-objective auto-clip button lives inside the active tab; its own action
+      // handler owns the click, so don't also treat it as a frame switch.
+      if (target.closest('[data-action="autoclip_objective"]')) return;
       const tab = target.closest('.vp-objtab');
       if (tab && tab.dataset.objId) setFocusedObjective(Number(tab.dataset.objId));
     };
@@ -1410,6 +1524,13 @@ document.addEventListener('click', async (ev) => {
   } else if (action === 'clip_save') {
     ev.preventDefault();
     await saveClip();
+  } else if (action === 'autoclip_current') {
+    ev.preventDefault();
+    await runAutoClipForObjective(t.dataset.objId || null);
+  } else if (action === 'autoclip_objective') {
+    ev.preventDefault();
+    ev.stopPropagation(); // don't let the objective tab's switch-frame click fire
+    await runAutoClipForObjective(t.dataset.objId);
   } else if (action === 'share_clip') {
     ev.preventDefault();
     ev.stopPropagation(); // don't let the row's jump fire
@@ -1625,6 +1746,79 @@ async function saveClip() {
   } finally {
     _clipBusy = false;
     renderClipState();
+  }
+}
+
+// ── Auto-clip objectives (focused/all objective events, on-demand) ───────────
+// The Clip panel always carries the discoverable control when a recording is loaded.
+// Framed clicks target the focused objective; unframed clicks omit objectiveId so the
+// sidecar clips all objective-tied events. The active objective tab keeps its compact
+// shortcut for the same per-objective path. Idempotent server-side.
+
+// Set the auto-clip status line (persisted in state so it survives objbar re-renders).
+function setAutoClipHint(msg, isErr) {
+  _autoClipHintMsg = msg || '';
+  _autoClipHintErr = !!isErr;
+  const h = $('vp-objclip-hint');
+  if (h) {
+    h.textContent = _autoClipHintMsg;
+    h.classList.toggle('err', _autoClipHintErr);
+    h.hidden = !_autoClipHintMsg;
+  }
+  renderAutoClipPanel();
+}
+
+async function runAutoClipForObjective(objId) {
+  if (_autoClipBusy) return;
+  const hasObjId = objId != null && objId !== '';
+  const oid = hasObjId ? Number(objId) : null;
+  if (hasObjId && !oid) return;
+  if (!_core || _gameId <= 0) { setAutoClipHint('Preview only; no backend to clip to.', false); return; }
+  if (!_vod || !_vod.filePath) { setAutoClipHint('No recording on disk to clip from.', true); return; }
+  if (!_autoClipEnabled) { setAutoClipHint('Turn on "Auto-clip objective events" in Settings first.', true); return; }
+
+  const count = oid ? markerCountForObjective(oid) : objectiveTiedEventCount();
+  if (count <= 0) {
+    setAutoClipHint(oid ? 'No tied events for the focused objective in this game.' : 'No objective-tied events in this game.', false);
+    return;
+  }
+
+  _autoClipBusy = true;
+  setAutoClipHint('Auto-clipping… this can take a moment.', false);
+  renderObjBar();   // reflect the disabled/busy button label
+  renderAutoClipPanel();
+  try {
+    const payload = { gameId: _gameId };
+    if (oid) payload.objectiveId = oid;
+    const res = await _core.invoke('auto_clip_objectives', { payload });
+    if (res && res.ok) {
+      const created = Number(res.created || 0);
+      const skipped = Number(res.skipped || 0);
+      if (created > 0) {
+        const extra = skipped > 0 ? ` (${skipped} skipped)` : '';
+        setAutoClipHint(`Saved ${created} clip${created === 1 ? '' : 's'}${extra}.`, false);
+        await reloadBookmarks();
+        _bmFilter = 'clips';          // surface the new clips in the Clips lane
+        document.querySelectorAll('#vp-tabs .tab').forEach((tb) => tb.classList.toggle('on', tb.dataset.filter === 'clips'));
+        renderMoments();
+      } else if (res.reason === 'disabled') {
+        setAutoClipHint('Turn on "Auto-clip objective events" in Settings first.', true);
+      } else if (res.reason === 'no_vod') {
+        setAutoClipHint('No recording on disk to clip from.', true);
+      } else {
+        setAutoClipHint('Nothing new to clip — these events are already clipped.', false);
+      }
+    } else {
+      setAutoClipHint((res && res.error) || 'Auto-clip failed.', true);
+    }
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    setAutoClipHint(/ffmpeg/i.test(msg) ? 'Auto-clip failed; is ffmpeg installed?' : 'Auto-clip failed.', true);
+    console.error('[vodplayer] auto_clip_objectives failed:', err);
+  } finally {
+    _autoClipBusy = false;
+    renderObjBar();   // restore the button + show the persisted hint
+    renderAutoClipPanel();
   }
 }
 

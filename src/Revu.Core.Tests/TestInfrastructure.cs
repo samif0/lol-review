@@ -120,6 +120,7 @@ internal sealed class TestConfigService : IConfigService
     public bool MinimizeDuringGame => Current.MinimizeDuringGame;
     public bool AutoTimelineClippingEnabled => Current.AutoTimelineClippingEnabled;
     public bool AutoTimelineClippingHintDismissed => Current.AutoTimelineClippingHintDismissed;
+    public bool AutoClipObjectivesEnabled => Current.AutoClipObjectivesEnabled;
 
     public bool IsAscentEnabled => !string.IsNullOrWhiteSpace(AscentFolder);
 

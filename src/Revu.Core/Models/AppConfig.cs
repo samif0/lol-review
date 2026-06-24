@@ -101,6 +101,18 @@ public class AppConfig
     public bool AutoTimelineClippingHintDismissed { get; set; }
 
     /// <summary>
+    /// When true, the VOD player shows an "Auto-clip objectives" button that
+    /// batch-extracts a ~45s clip (30s before to 15s after) around every event
+    /// tied to the user's active learning objectives. OPT-IN (default false):
+    /// generating clips is ffmpeg + disk heavy, so the user turns it on
+    /// deliberately. The toggle only GATES the button — nothing fires
+    /// automatically. The button itself is on-demand.
+    /// (Distinct from the orphaned <see cref="AutoTimelineClippingEnabled"/>,
+    /// which referenced a now-deleted WinUI inbox-fill path.)
+    /// </summary>
+    public bool AutoClipObjectivesEnabled { get; set; }
+
+    /// <summary>
     /// Default keybind map — each action maps to a key-event string.
     /// Users can remap these in Settings.
     /// </summary>

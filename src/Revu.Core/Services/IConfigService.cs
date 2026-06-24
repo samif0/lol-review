@@ -60,6 +60,9 @@ public interface IConfigService
     /// <summary>v2.17.8: user permanently hid the VOD-viewer hint about the toggle.</summary>
     bool AutoTimelineClippingHintDismissed { get; }
 
+    /// <summary>When true, the VOD player offers the on-demand "Auto-clip objectives" button.</summary>
+    bool AutoClipObjectivesEnabled { get; }
+
     // ── Derived helpers ─────────────────────────────────────────────
 
     /// <summary>True if onboarding should NOT be shown at startup.</summary>

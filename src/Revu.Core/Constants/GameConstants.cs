@@ -235,6 +235,31 @@ public static class GameConstants
     /// <summary>Timeout for re-encode fallback (seconds).</summary>
     public const int FfmpegReEncodeTimeoutS = 180;
 
+    // ── Auto-clip objective events ────────────────────────────────────────
+    // The VOD player's "Auto-clip objectives" button buffers each objective-tied
+    // event into a ~45s clip: PreRoll before the event, PostRoll after.
+
+    /// <summary>Seconds of lead-in before an objective event (clip start = event - this).</summary>
+    public const int AutoClipPreRollS = 30;
+
+    /// <summary>Seconds of trail after an objective event (clip end = event + this).</summary>
+    public const int AutoClipPostRollS = 15;
+
+    /// <summary>
+    /// Minimum gap (seconds) between the START of two consecutive auto-clips. Events
+    /// whose buffered start falls within this of the previous kept clip's start are
+    /// skipped, collapsing heavily-overlapping windows (two events seconds apart would
+    /// otherwise yield two near-identical 45s clips).
+    /// </summary>
+    public const int AutoClipMinGapS = 20;
+
+    /// <summary>
+    /// Hard cap on clips created per auto-clip invocation. Protects the clips folder
+    /// size cap (oldest-first eviction would otherwise trim the user's manual clips)
+    /// and bounds ffmpeg CPU. Excess events are reported as skipped.
+    /// </summary>
+    public const int AutoClipMaxPerCall = 12;
+
     // ── Updater ───────────────────────────────────────────────────────────
 
     /// <summary>Timeout for checking for updates (seconds).</summary>

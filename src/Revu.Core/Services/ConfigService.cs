@@ -77,6 +77,7 @@ public sealed class ConfigService : IConfigService
     public bool MinimizeDuringGame => GetCached().MinimizeDuringGame;
     public bool AutoTimelineClippingEnabled => GetCached().AutoTimelineClippingEnabled;
     public bool AutoTimelineClippingHintDismissed => GetCached().AutoTimelineClippingHintDismissed;
+    public bool AutoClipObjectivesEnabled => GetCached().AutoClipObjectivesEnabled;
 
     public bool IsAscentEnabled => AscentFolder is not null;
 

@@ -61,6 +61,7 @@ const NUM_FIELDS = ['clipsMaxSizeMb'];
 const TOGGLE_FIELDS = [
   'backupEnabled', 'tiltFixMode', 'requireReviewNotes',
   'autoTimelineClippingEnabled', 'minimizeDuringGame', 'sidebarAnimationEnabled',
+  'autoClipObjectivesEnabled',
 ];
 // Browse buttons ↔ the text field they fill.
 const PICK_TARGETS = { pick_ascent: 'ascentFolder', pick_clips: 'clipsFolder', pick_backup: 'backupFolder' };
