@@ -115,6 +115,12 @@ public sealed class LiveEventApi : ILiveEventApi
         return await GetAsync("/liveclientdata/activeplayer", ct).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task<JsonElement?> FetchGameStatsAsync(CancellationToken ct = default)
+    {
+        return await GetAsync("/liveclientdata/gamestats", ct).ConfigureAwait(false);
+    }
+
     // ── Internal helper ─────────────────────────────────────────────────
 
     private async Task<JsonElement?> GetAsync(string endpoint, CancellationToken ct)

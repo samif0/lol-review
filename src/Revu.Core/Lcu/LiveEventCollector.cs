@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Text.Json;
+using Revu.Core.Constants;
 using Revu.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -14,7 +15,8 @@ public sealed class LiveEventCollector
 {
     private readonly ILiveEventApi _liveEventApi;
     private readonly ILogger _logger;
-    private readonly TimeSpan _pollInterval;
+    private readonly TimeSpan _pollInterval;       // fast HP-sample cadence (~1s)
+    private readonly TimeSpan _eventPollInterval;  // slow kill-feed event-stream cadence (~10s)
 
     private readonly List<JsonElement> _rawEvents = [];
     private string? _playerName;
@@ -95,30 +97,67 @@ public sealed class LiveEventCollector
     private const double RestoreWasLowFrac = 0.80;
 
     // v3.1.8: trade detection — you took damage and lived. The Live Client API exposes
-    // only YOUR championStats HP per tick (never the enemy's), so a "trade" is inferred
-    // from your own HP dropping while alive. We track HP across ticks: while it's
-    // dropping we accumulate the dip; when it stops dropping (recovered / stabilized)
-    // we emit ONE trade for the whole dip — anchored at where the dip started — if the
-    // total drop cleared the threshold. Severity comes from how long the dip ran: a
-    // single dropping tick reads "short", two-or-more consecutive dropping ticks read
-    // "extended" (sustained damage). A death is NOT a trade: guarded both by the dip
-    // bottom (a sampled 0-HP frame) AND — the load-bearing check, since a death+respawn
-    // often fits between two 10s polls so the 0-HP frame is never seen — by cross-checking
-    // the dip window against the authoritative kill-feed (PlayerDiedBetween). Heuristic,
-    // hence Details.detected = true.
+    // only YOUR championStats HP per tick (never the enemy's, no ally HP, no per-ability
+    // damage), so a "trade" is inferred ONLY from your own HP dropping while alive.
+    //
+    // HARD SCOPE LIMIT (be honest about it): this detector can ONLY see trades where YOU
+    // took meaningful damage. It is BLIND to:
+    //   • a trade you initiated cleanly (you poke them, take little back) — enemy HP
+    //     isn't exposed, so "I damaged them" is unobservable;
+    //   • a trade your support/ally took while you were nearby — no ally HP is exposed;
+    //   • the difference between trade poke and minion/turret/jungle-camp damage — none
+    //     of those damage SOURCES are in any Live API feed, so a non-trade HP drop (e.g.
+    //     shoving under the enemy turret) can still look like a trade. We can't fix that
+    //     here without seeing the screen (VOD-vision territory) — the magnitude floor
+    //     just trims the smallest chip.
+    //
+    // We track HP across ticks: while it's dropping we accumulate the dip; when it stops
+    // dropping (recovered / stabilized) we emit ONE trade for the whole dip — anchored at
+    // where the dip started — if the deepest drop cleared the threshold. Severity = dip
+    // length: one dropping tick "short", two-or-more consecutive "extended". A death is
+    // NOT a trade: guarded both by the dip bottom (a sampled 0-HP frame) AND — the
+    // load-bearing check, since a death+respawn often fits between two 10s polls so the
+    // 0-HP frame is never seen — by cross-checking the dip window against the
+    // authoritative kill-feed (PlayerDiedBetween). Heuristic, hence Details.detected.
     private readonly List<GameEvent> _tradeEvents = [];
     private double _lastTradeHpFrac = double.NaN; // last currentHealth/maxHealth (all champs)
     private double _tradeDipStartFrac = double.NaN; // HP frac when the current dip began
     private double _tradeDipBottomFrac = double.NaN; // lowest HP frac seen during the dip
     private int _tradeDipStartS = -1;               // game-time the current dip began
-    private int _tradeDipTicks = 0;                 // consecutive dropping ticks in this dip
+    private int _tradeDipBottomS = -1;              // game-time of the lowest-HP sample (anchor)
+    private int _tradeDipLastFallS = -1;            // game-time of the last falling sample
     private int _lastTradeGameTimeS = 0;            // last game-time CheckTrade saw (flush anchor)
-    // A dip must lose at least this fraction of max HP to count as a trade (filters
-    // minion/turret chip + small DoT ticks; a real trade is a meaningful chunk).
-    private const double TradeMinDropFrac = 0.12;
-    // Per-tick noise floor: a drop smaller than this doesn't extend a dip (passive
+    // When a dip closes, CheckTrade does NOT emit immediately — it stages the close here.
+    // The caller then refreshes the kill-feed and calls FinalizePendingTradeAsync, so the
+    // death guard (PlayerDiedBetween) sees the up-to-date /eventdata. Without this, a dip
+    // closing on the fast (~1s) cadence would run the guard against a kill-feed up to ~10s
+    // stale, letting a between-sample death emit a phantom "survived" trade. -1 = none.
+    private int _tradeCloseClosingTimeS = -1;
+    // A dip must lose at least this fraction of max HP to count as a trade. Set at 15%:
+    // big enough to trim minion/turret chip + DoT noise (a couple minion autos early are
+    // ~3-5% each), low enough that a real lane trade (typically 15%+) still registers.
+    // This is the only lever against non-trade damage — we can't see the damage SOURCE.
+    private const double TradeMinDropFrac = 0.15;
+    // Per-sample noise floor: a drop smaller than this doesn't extend a dip (passive
     // regen jitter / rounding). Keeps a slow heal-then-poke from looking sustained.
     private const double TradeTickDropEps = 0.03;
+    // A dip stays open across this many seconds of non-falling samples before it closes.
+    // At ~1s sampling a real exchange isn't strictly monotonic (a 1s lull mid-trade is
+    // common), so without a grace one trade would split into several. ~2s merges the
+    // stutter while still closing promptly once the exchange is actually over.
+    private const int TradeCloseGraceSeconds = 2;
+    // …but a recovery to at least this HP fraction closes the dip IMMEDIATELY (no grace):
+    // a near-full heal means the trade genuinely ended, so a later poke is a new trade,
+    // not a continuation. Guards against merging two distinct trades across a quick heal.
+    private const double TradeRecoveredFrac = 0.90;
+    // Severity by DURATION, not sample count (so it's independent of the poll rate): a
+    // dip whose damage spanned <= this many seconds is a "short" trade (a quick burst);
+    // longer is "extended" (a drawn-out exchange).
+    private const int TradeShortMaxSeconds = 3;
+    // Trades are a LANING-PHASE signal. Past this cutoff a solo-HP dip is far more likely
+    // a teamfight/skirmish than a lane trade, so we don't emit one. Shared cutoff with
+    // jungle-gank classification (JungleGankClassifier.LaningPhaseEndSeconds = 14*60).
+    private const int TradeLaningPhaseEndSeconds = 14 * 60;
     // Slack (each side of a dip window) when cross-checking the kill-feed for a death:
     // the heuristic's HP-tick clock and the kill-feed EventTime aren't perfectly aligned,
     // and the killing blow lands after the dip's last sampled HP. Wide enough to catch a
@@ -128,11 +167,16 @@ public sealed class LiveEventCollector
     public LiveEventCollector(
         ILiveEventApi liveEventApi,
         ILogger logger,
-        TimeSpan? pollInterval = null)
+        TimeSpan? pollInterval = null,
+        TimeSpan? eventPollInterval = null)
     {
         _liveEventApi = liveEventApi;
         _logger = logger;
-        _pollInterval = pollInterval ?? TimeSpan.FromSeconds(10);
+        // pollInterval is the fast HP-SAMPLE cadence (default 1s) — it drives trade/recall
+        // timing precision. The kill-feed event stream is polled on the slower
+        // eventPollInterval (default 10s); the HP loop triggers it when due.
+        _pollInterval = pollInterval ?? TimeSpan.FromSeconds(GameConstants.HpSamplePollIntervalS);
+        _eventPollInterval = eventPollInterval ?? TimeSpan.FromSeconds(GameConstants.LiveEventPollIntervalS);
     }
 
     /// <summary>Current player name discovered from the live API.</summary>
@@ -162,7 +206,9 @@ public sealed class LiveEventCollector
         _tradeDipStartFrac = double.NaN;
         _tradeDipBottomFrac = double.NaN;
         _tradeDipStartS = -1;
-        _tradeDipTicks = 0;
+        _tradeDipBottomS = -1;
+        _tradeDipLastFallS = -1;
+        _tradeCloseClosingTimeS = -1;
         _lastTradeGameTimeS = 0;
         _playerName = null;
         _logger.LogInformation("Live event collector started");
@@ -190,12 +236,22 @@ public sealed class LiveEventCollector
         _playerName = await _liveEventApi.GetActivePlayerNameAsync(ct).ConfigureAwait(false);
         _logger.LogInformation("Live API active -- player: {PlayerName}", _playerName);
 
-        // Poll for events until cancelled
+        // Two cadences, one loop. Every tick (_pollInterval, ~1s) we SAMPLE HP — that's
+        // what gives trade/recall anchors ~1s precision. The kill-feed event stream
+        // changes coarsely, so we only fetch it every _eventPollInterval (~10s); the
+        // first iteration fetches it immediately. nextEventPoll tracks the next due time.
+        var elapsed = TimeSpan.Zero;
+        var nextEventPoll = TimeSpan.Zero; // due immediately on the first iteration
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                await PollAsync(ct).ConfigureAwait(false);
+                if (elapsed >= nextEventPoll)
+                {
+                    await PollEventStreamAsync(ct).ConfigureAwait(false);
+                    nextEventPoll = elapsed + _eventPollInterval;
+                }
+                await SampleHpAsync(ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -211,6 +267,7 @@ public sealed class LiveEventCollector
             try
             {
                 await Task.Delay(_pollInterval, ct).ConfigureAwait(false);
+                elapsed += _pollInterval;
             }
             catch (OperationCanceledException)
             {
@@ -225,11 +282,12 @@ public sealed class LiveEventCollector
     /// </summary>
     public async Task<List<GameEvent>> StopAsync()
     {
-        // Final poll to get any remaining events (use a short timeout)
+        // Final poll to get any remaining events + one last HP sample (short timeout).
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            await PollAsync(cts.Token).ConfigureAwait(false);
+            await PollEventStreamAsync(cts.Token).ConfigureAwait(false);
+            await SampleHpAsync(cts.Token).ConfigureAwait(false);
         }
         catch
         {
@@ -269,32 +327,43 @@ public sealed class LiveEventCollector
     }
 
     /// <summary>
-    /// Fetch new events since last poll.
+    /// Fetch the kill-feed event stream (/eventdata) and append any new raw events.
+    /// Polled on the slow (~10s) cadence — the stream changes coarsely.
     /// </summary>
-    private async Task PollAsync(CancellationToken ct)
+    private async Task PollEventStreamAsync(CancellationToken ct)
     {
         var raw = await _liveEventApi.FetchEventsAsync(ct).ConfigureAwait(false);
         if (raw is not null)
         {
             AppendNewRawEvents(_rawEvents, raw);
         }
+    }
 
-        // v2.17.7: poll the active-player snapshot for summoner-spell cast detection.
-        // Fetched every tick alongside events. (A throttled "every Nth tick" variant
-        // was tried to save a loopback request, but it made first-cast detection
-        // timing-dependent — the baseline cooldown state must be sampled densely so
-        // the ready→cooldown transition we detect is never missed. The saving is a
-        // single localhost request per tick, which isn't worth that risk.)
+    /// <summary>
+    /// Sample YOUR champion HP (/activeplayer) against the authoritative game clock
+    /// (/gamestats) and run the HP-transition detectors (summoner casts, recall, trade).
+    /// Runs on the FAST (~1s) cadence so a trade/recall anchors to within ~1s of when it
+    /// actually happened instead of being smeared across the 10s event-poll window. All
+    /// requests are localhost, so the extra cadence is cheap.
+    /// </summary>
+    private async Task SampleHpAsync(CancellationToken ct)
+    {
         try
         {
+            // The authoritative game clock anchors derived events; /activeplayer does NOT
+            // reliably carry gameTime (see ResolveGameTimeS).
+            var gameStats = await _liveEventApi.FetchGameStatsAsync(ct).ConfigureAwait(false);
             var active = await _liveEventApi.FetchActivePlayerAsync(ct).ConfigureAwait(false);
             if (active is JsonElement el)
             {
-                var t = ResolveGameTimeS(el);
+                var t = ResolveGameTimeS(el, gameStats);
                 CheckSummonerSpellCasts(el, t);
                 CheckRecall(el, t);
                 CheckRecallByRestore(el, t);
                 CheckTrade(el, t);
+                // If CheckTrade staged a dip close, finalize it now — this refreshes the
+                // kill-feed first so the death guard isn't fooled by a stale buffer.
+                await FinalizePendingTradeAsync(ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -308,30 +377,50 @@ public sealed class LiveEventCollector
     }
 
     /// <summary>
-    /// v2.17.7: pull a usable game-time-in-seconds from the active-player JSON.
-    /// The live API exposes "gameTime" on /liveclientdata/gamestats but
-    /// not consistently on /activeplayer. We fall back to the latest known
-    /// EventTime from the raw event stream when activeplayer doesn't carry it.
+    /// Resolve the current game-time-in-seconds for anchoring a derived event.
+    /// Precedence, most authoritative first:
+    ///   1. <c>/liveclientdata/gamestats</c> <c>gameTime</c> — the real game clock.
+    ///   2. <c>/activeplayer</c> <c>gameTime</c> — present on some client versions.
+    ///   3. The latest kill-feed <c>EventTime</c> — LAST resort only.
+    ///
+    /// <para>Why this order matters: the old code read only (2) and fell straight to (3).
+    /// But <c>/activeplayer</c> usually does NOT carry <c>gameTime</c>, so early game —
+    /// before any kill happens — (3) returns a stale near-zero timestamp (e.g. the
+    /// GameStart event at t=0), and a real 1:08 trade gets stamped at ~0:30. Reading the
+    /// authoritative <c>/gamestats</c> clock fixes the mis-anchoring.</para>
     /// </summary>
-    private int ResolveGameTimeS(JsonElement activePlayer)
+    private int ResolveGameTimeS(JsonElement activePlayer, JsonElement? gameStats)
     {
-        if (activePlayer.ValueKind == JsonValueKind.Object
-            && activePlayer.TryGetProperty("gameTime", out var gt)
-            && gt.TryGetDouble(out var seconds))
-        {
-            return (int)seconds;
-        }
+        if (gameStats is JsonElement gs && TryReadGameTime(gs, out var gsTime))
+            return gsTime;
 
-        // Fall back to the most recent EventTime we've seen.
+        if (TryReadGameTime(activePlayer, out var apTime))
+            return apTime;
+
+        // Last resort: the most recent EventTime we've seen. Only reached when NEITHER
+        // real clock is available — kept so a client that exposes no gameTime at all
+        // still produces monotonic-ish anchors rather than 0.
         for (var i = _rawEvents.Count - 1; i >= 0; i--)
         {
             if (_rawEvents[i].TryGetProperty("EventTime", out var et) && et.TryGetDouble(out var s))
-            {
                 return (int)s;
-            }
         }
 
         return 0;
+    }
+
+    private static bool TryReadGameTime(JsonElement el, out int seconds)
+    {
+        if (el.ValueKind == JsonValueKind.Object
+            && el.TryGetProperty("gameTime", out var gt)
+            && gt.TryGetDouble(out var v)
+            && v >= 0)
+        {
+            seconds = (int)v;
+            return true;
+        }
+        seconds = 0;
+        return false;
     }
 
     /// <summary>
@@ -532,19 +621,22 @@ public sealed class LiveEventCollector
     /// <summary>
     /// Derive a TRADE from your own HP. The Live Client API never exposes the enemy's
     /// HP, so a trade is inferred from YOUR <c>championStats.currentHealth</c> falling
-    /// while you stay alive. We follow the HP across ticks: a falling tick (≥ <see
-    /// cref="TradeTickDropEps"/> below the last) opens or extends a "dip"; a non-falling
-    /// tick CLOSES it, and if the dip's total loss cleared <see cref="TradeMinDropFrac"/>
-    /// we emit one trade anchored where the dip began. Severity is the dip length: one
-    /// dropping tick → "short", two-or-more consecutive → "extended".
+    /// while you stay alive. We follow the HP across the fast (~1s) HP-sample cadence: a
+    /// falling sample (≥ <see cref="TradeTickDropEps"/> below the last) opens or extends a
+    /// "dip"; once HP stops falling for <see cref="TradeCloseGraceSeconds"/> (a brief lull
+    /// mid-exchange doesn't split it) the dip CLOSES, and if the deepest drop cleared
+    /// <see cref="TradeMinDropFrac"/> we emit one trade. It's anchored at the dip BOTTOM
+    /// (the lowest-HP sample — closest to when the damage actually landed), and its
+    /// severity is the dip's DURATION: ≤ <see cref="TradeShortMaxSeconds"/> reads "short"
+    /// (a quick burst), longer reads "extended". Duration-based severity is independent of
+    /// the sample rate. Trades past <see cref="TradeLaningPhaseEndSeconds"/> are dropped —
+    /// a solo-HP dip late game is far more likely a teamfight than a lane trade.
     ///
-    /// <para>A death is NOT a trade. Two guards enforce that: (1) if the heuristic
-    /// sampled the 0-HP frame the dip bottom is 0; (2) — the load-bearing one at a 10s
-    /// poll, since a death+respawn often fits ENTIRELY between two ticks so the 0-HP
-    /// frame is never seen and HP appears to dip then bounce back to full — the dip
-    /// window is cross-checked against the authoritative kill-feed: if the player has a
-    /// ChampionKill-victim death inside the dip's time span, the dip is that death, not
-    /// a trade. Without (2) a between-tick death emits a phantom "survived" trade.</para>
+    /// <para>A death is NOT a trade. Two guards: (1) if a 0-HP sample was seen the dip
+    /// bottom is 0; (2) — load-bearing — the dip window is cross-checked against the
+    /// authoritative kill-feed: a death+respawn can fit entirely between samples so the
+    /// 0-HP frame is never seen and HP appears to dip then bounce back; if the player has
+    /// a ChampionKill-victim death inside the dip span, the dip is that death.</para>
     /// </summary>
     private void CheckTrade(JsonElement activePlayer, int gameTimeS)
     {
@@ -567,79 +659,134 @@ public sealed class LiveEventCollector
         var prevFrac = _lastTradeHpFrac;
         _lastTradeHpFrac = hpFrac;
 
+        var dipOpen = _tradeDipStartS >= 0;
         var falling = hpFrac < prevFrac - TradeTickDropEps;
         if (falling)
         {
             // Open a new dip at the PRE-drop level, or extend the running one. Track the
-            // lowest point so the trade's reported loss reflects the deepest dip, not
-            // wherever HP happened to be when the dip closed (you may already be regen-ing).
-            if (_tradeDipTicks == 0)
+            // lowest point + its time so the trade reports the deepest loss and anchors
+            // where the damage actually bottomed out (not where HP happened to recover).
+            if (!dipOpen)
             {
                 _tradeDipStartFrac = prevFrac;
                 _tradeDipBottomFrac = prevFrac;
                 _tradeDipStartS = gameTimeS;
+                _tradeDipBottomS = gameTimeS;
             }
-            if (hpFrac < _tradeDipBottomFrac) _tradeDipBottomFrac = hpFrac;
-            _tradeDipTicks++;
+            if (hpFrac < _tradeDipBottomFrac)
+            {
+                _tradeDipBottomFrac = hpFrac;
+                _tradeDipBottomS = gameTimeS;
+            }
+            _tradeDipLastFallS = gameTimeS;
             return;
         }
 
-        // Not falling → the dip (if any) is over. Close it against this tick's time so
-        // the kill-feed cross-check spans the whole window the player was losing HP.
-        if (_tradeDipTicks > 0)
+        // Not falling. Hold the dip open across a brief lull (a real exchange isn't
+        // strictly monotonic at 1s sampling) UNLESS HP has recovered to near-full — a
+        // genuine recovery means the trade is over, so a second poke after it is a NEW
+        // trade, not a continuation. Without the recovery check, two distinct trades
+        // separated by a sub-grace full heal would merge into one mis-anchored event.
+        if (dipOpen)
         {
-            EmitTradeIfBigEnough(closingTimeS: gameTimeS);
+            var recovered = hpFrac >= TradeRecoveredFrac;
+            var graceElapsed = gameTimeS - _tradeDipLastFallS >= TradeCloseGraceSeconds;
+            if (recovered || graceElapsed)
+            {
+                // Stage the close; the caller refreshes the kill-feed before the death
+                // guard runs (FinalizePendingTradeAsync), so PlayerDiedBetween isn't
+                // evaluated against a stale /eventdata.
+                _tradeCloseClosingTimeS = _tradeDipLastFallS;
+            }
         }
     }
 
-    /// <summary>Flush a dip still open at game end (no recovery tick arrived).</summary>
+    /// <summary>
+    /// If <see cref="CheckTrade"/> staged a dip close this tick, refresh the kill-feed
+    /// (so the death guard sees current /eventdata, not a buffer up to ~10s stale) and
+    /// then emit/guard the trade. Called by the HP-sample step right after CheckTrade and
+    /// by the game-end flush. The kill-feed refresh is one extra /eventdata fetch only
+    /// when a trade is actually closing — rare and localhost-cheap.
+    /// </summary>
+    private async Task FinalizePendingTradeAsync(CancellationToken ct)
+    {
+        if (_tradeCloseClosingTimeS < 0) return;
+        var closingTimeS = _tradeCloseClosingTimeS;
+        _tradeCloseClosingTimeS = -1;
+
+        // Pull the latest kill-feed before the death cross-check. A death that closed
+        // this dip (HP dipped then a respawn bounced it back) may not be in _rawEvents
+        // yet on the fast cadence; fetching now closes that race.
+        try { await PollEventStreamAsync(ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { _logger.LogDebug(ex, "Kill-feed refresh before trade close failed"); }
+
+        EmitTradeIfBigEnough(closingTimeS);
+    }
+
+    /// <summary>Flush a dip still open at game end (HP never recovered before stop). The
+    /// caller has already refreshed the kill-feed, so emit directly.</summary>
     private void FlushOpenTrade()
     {
-        if (_tradeDipTicks > 0) EmitTradeIfBigEnough(closingTimeS: _lastTradeGameTimeS);
+        // A staged-but-not-yet-finalized close also counts as open work to flush.
+        if (_tradeCloseClosingTimeS >= 0)
+        {
+            var t = _tradeCloseClosingTimeS;
+            _tradeCloseClosingTimeS = -1;
+            EmitTradeIfBigEnough(t);
+            return;
+        }
+        if (_tradeDipStartS >= 0) EmitTradeIfBigEnough(closingTimeS: _lastTradeGameTimeS);
     }
 
     /// <summary>
     /// Close the current dip: emit a TRADE if its deepest loss (start − bottom) cleared
-    /// <see cref="TradeMinDropFrac"/>, the player didn't bottom out at death, AND the
-    /// kill-feed shows no player death inside the dip window. Then reset the dip state.
-    /// Severity = dip length (1 tick short / 2+ extended).
+    /// <see cref="TradeMinDropFrac"/>, it was in laning phase, the player didn't bottom out
+    /// at death, AND the kill-feed shows no player death inside the dip window. Anchored at
+    /// the dip bottom; severity from the dip duration. Resets the dip state.
     /// </summary>
     private void EmitTradeIfBigEnough(int closingTimeS)
     {
         var lostFrac = _tradeDipStartFrac - _tradeDipBottomFrac;
         var bottomFrac = _tradeDipBottomFrac;
-        var ticks = _tradeDipTicks;
         var startS = _tradeDipStartS;
+        var bottomS = _tradeDipBottomS;
+        // Duration spans the first falling sample to the last falling sample (the lull
+        // that closed the dip isn't part of the damage window).
+        var durationS = Math.Max(0, _tradeDipLastFallS - startS);
 
         // Reset the dip BEFORE any early return so a sub-threshold dip doesn't linger.
-        _tradeDipTicks = 0;
         _tradeDipStartFrac = double.NaN;
         _tradeDipBottomFrac = double.NaN;
         _tradeDipStartS = -1;
+        _tradeDipBottomS = -1;
+        _tradeDipLastFallS = -1;
 
         if (bottomFrac <= 0.0) return;               // sampled a 0-HP frame → it was a death
         if (lostFrac < TradeMinDropFrac) return;     // not a meaningful chunk
         if (startS < 0) return;                      // defensive: no anchor recorded
-        // The load-bearing death guard: a death+respawn can fit between two 10s polls,
-        // so the 0-HP frame is often never sampled and the dip just looks like a big
-        // drop that bounced back. The kill-feed is authoritative — if the player died
-        // inside the dip window, this dip is that death, not a survived trade. Pad the
-        // window a touch on each side (the heuristic's tick clock and the kill-feed's
-        // EventTime aren't perfectly aligned, and the killing blow lands after the dip's
-        // last sampled HP).
+        // Laning-phase only — gate on bottomS (the time we STAMP the event at), so a dip
+        // that opened ≤14:00 but bottomed out after isn't emitted past the cutoff.
+        if (bottomS > TradeLaningPhaseEndSeconds) return;
+        // The load-bearing death guard: a death+respawn can fit between samples, so the
+        // 0-HP frame is often never seen and the dip just looks like a big drop that
+        // bounced back. The kill-feed is authoritative — if the player died inside the
+        // dip window, this dip is that death, not a survived trade. Pad each side (the
+        // HP-sample clock and the kill-feed EventTime aren't perfectly aligned, and the
+        // killing blow lands after the dip's last sampled HP).
         if (PlayerDiedBetween(startS - TradeDeathSlackSeconds, closingTimeS + TradeDeathSlackSeconds)) return;
 
-        var kind = ticks >= 2 ? "extended" : "short";
+        var kind = durationS <= TradeShortMaxSeconds ? "short" : "extended";
         _tradeEvents.Add(new GameEvent
         {
             EventType = GameEvent.EventTypes.Trade,
-            GameTimeS = Math.Max(0, startS),
+            GameTimeS = Math.Max(0, bottomS),
             Details = JsonSerializer.Serialize(new
             {
                 detected = true,
                 kind,
                 hp_lost_pct = (int)Math.Round(lostFrac * 100),
-                ticks,
+                duration_s = durationS,
             }),
         });
     }

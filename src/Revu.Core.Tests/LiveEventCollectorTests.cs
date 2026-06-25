@@ -353,6 +353,70 @@ public sealed class LiveEventCollectorTests
         return await collector.StopAsync();
     }
 
+    // Runner with a SEPARATE /gamestats clock queue (advances per tick in lock-step with
+    // the activeplayer queue), to exercise the authoritative game-clock anchoring.
+    private static async Task<List<GameEvent>> RunCollectorWithGameStats(
+        List<JsonElement> events, Queue<JsonElement> snapshots, Queue<JsonElement> gameStats)
+    {
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek(),
+            fetchGameStatsAsync: () => gameStats.Count > 1 ? gameStats.Dequeue() : gameStats.Peek());
+        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        // Long enough to consume a ~9-snapshot queue at the 10ms fake cadence.
+        await Task.Delay(160);
+        await cts.CancelAsync();
+        await runTask;
+        return await collector.StopAsync();
+    }
+
+    // Runner where the kill-feed is provided PER-FETCH (so a test can model the ~10s
+    // fetch latency the real client has: the death's ChampionKill appears only after a
+    // delay, not on every poll). HP + gamestats advance per tick from their queues.
+    private static async Task<List<GameEvent>> RunCollectorWithDelayedEvents(
+        Func<List<JsonElement>> eventsProvider, Queue<JsonElement> snapshots, Queue<JsonElement> gameStats)
+    {
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: eventsProvider,
+            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek(),
+            fetchGameStatsAsync: () => gameStats.Count > 1 ? gameStats.Dequeue() : gameStats.Peek());
+        var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(160);
+        await cts.CancelAsync();
+        await runTask;
+        return await collector.StopAsync();
+    }
+
+    // A /gamestats element carrying just the authoritative gameTime.
+    private static JsonElement GameStats(double gameTime)
+    {
+        using var doc = JsonDocument.Parse($$"""{ "gameTime": {{gameTime}} }""");
+        return doc.RootElement.Clone();
+    }
+
+    // championStats HP snapshot WITHOUT a gameTime field (the realistic /activeplayer
+    // shape) — forces the clock to come from /gamestats, not the snapshot.
+    private static JsonElement PlayerStatsNoGameTime(string resourceType, double curHp, double maxHp)
+    {
+        var json = $$"""
+            {
+              "currentGold": 500.0,
+              "resourceType": "{{resourceType}}",
+              "championStats": {
+                "resourceType": "{{resourceType}}",
+                "currentHealth": {{curHp}}, "maxHealth": {{maxHp}},
+                "resourceValue": 0, "resourceMax": 0
+              }
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
     [Fact]
     public async Task StopAsync_DerivesRecall_WhenGoldDropsLikeAShopPurchase()
     {
@@ -479,8 +543,9 @@ public sealed class LiveEventCollectorTests
     {
         var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
 
-        // HP 100% → 70% → 40% (damage sustained across TWO ticks) → recovers to 55%.
-        // Two consecutive dropping ticks ⇒ EXTENDED. Deepest loss = 100%−40% = 60%.
+        // HP 100% → 70% → 40% (damage sustained, falls at 500s and 510s) → recovers.
+        // Damage window = 510−500 = 10s > 3s ⇒ EXTENDED. Deepest loss = 100%−40% = 60%,
+        // bottoming at 510s.
         var snapshots = new Queue<JsonElement>(
         [
             CreatePlayerStats(490.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
@@ -493,10 +558,185 @@ public sealed class LiveEventCollectorTests
         var trade = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Trade);
 
         Assert.NotNull(trade);
-        Assert.Equal(500, trade!.GameTimeS); // anchored where the dip began
+        Assert.Equal(510, trade!.GameTimeS); // anchored at the dip BOTTOM (lowest HP)
         using var details = JsonDocument.Parse(trade.Details);
         Assert.Equal("extended", details.RootElement.GetProperty("kind").GetString());
         Assert.Equal(60, details.RootElement.GetProperty("hp_lost_pct").GetInt32());
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotDeriveTrade_PastLaningPhase()
+    {
+        // A clean HP dip but at 15:00 (past the 14:00 laning cutoff) — trades aren't a
+        // mid/late-game signal, so it's dropped even though the magnitude would qualify.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var snapshots = new Queue<JsonElement>(
+        [
+            CreatePlayerStats(890.0, "NONE", curHp: 600, maxHp: 600, curRes: 0, maxRes: 0),
+            CreatePlayerStats(900.0, "NONE", curHp: 330, maxHp: 600, curRes: 0, maxRes: 0), // 15:00, -45%
+            CreatePlayerStats(910.0, "NONE", curHp: 420, maxHp: 600, curRes: 0, maxRes: 0),
+        ]);
+
+        var parsed = await RunCollector(events, snapshots);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Trade);
+    }
+
+    [Fact]
+    public async Task StopAsync_ClassifiesShortVsExtended_ByDuration_AtPerSecondSampling()
+    {
+        // Per-second sampling: a SHORT burst (HP drops over ~2s, within the 3s window)
+        // and an EXTENDED exchange (drops over ~6s) using the real /gamestats clock. Each
+        // dip must yield exactly ONE trade (not one per fast tick), classified by duration.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // HP-only snapshots (no gameTime); the clock comes from /gamestats per tick.
+        var snapshots = new Queue<JsonElement>(
+        [
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 200: baseline
+            PlayerStatsNoGameTime("NONE", curHp: 480, maxHp: 600), // 201: fall
+            PlayerStatsNoGameTime("NONE", curHp: 360, maxHp: 600), // 202: fall (bottom, -40%); burst over 201-202 = 1s
+            PlayerStatsNoGameTime("NONE", curHp: 420, maxHp: 600), // 203: recover (lull 1s)
+            PlayerStatsNoGameTime("NONE", curHp: 480, maxHp: 600), // 204: recover (lull 2s → close SHORT)
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 205: full
+        ]);
+        var gameStats = new Queue<JsonElement>(
+        [
+            GameStats(200), GameStats(201), GameStats(202),
+            GameStats(203), GameStats(204), GameStats(205),
+        ]);
+
+        var parsed = await RunCollectorWithGameStats(events, snapshots, gameStats);
+        var trades = parsed.Where(e => e.EventType == GameEvent.EventTypes.Trade).ToList();
+
+        Assert.Single(trades); // one dip → one trade, not one per fast tick
+        using var d = JsonDocument.Parse(trades[0].Details);
+        Assert.Equal("short", d.RootElement.GetProperty("kind").GetString()); // 1s damage window ≤ 3s
+        Assert.Equal(202, trades[0].GameTimeS); // anchored at the dip bottom
+        Assert.Equal(40, d.RootElement.GetProperty("hp_lost_pct").GetInt32());
+    }
+
+    [Fact]
+    public async Task StopAsync_ClassifiesExtended_WhenDamageWindowExceedsShortMax()
+    {
+        // Damage sustained across 5 seconds (201→206) ⇒ duration 5s > 3s ⇒ EXTENDED.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var snapshots = new Queue<JsonElement>(
+        [
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 200 baseline
+            PlayerStatsNoGameTime("NONE", curHp: 540, maxHp: 600), // 201 fall
+            PlayerStatsNoGameTime("NONE", curHp: 480, maxHp: 600), // 202 fall
+            PlayerStatsNoGameTime("NONE", curHp: 420, maxHp: 600), // 203 fall
+            PlayerStatsNoGameTime("NONE", curHp: 360, maxHp: 600), // 204 fall
+            PlayerStatsNoGameTime("NONE", curHp: 300, maxHp: 600), // 205 fall
+            PlayerStatsNoGameTime("NONE", curHp: 240, maxHp: 600), // 206 fall (bottom, -60%)
+            PlayerStatsNoGameTime("NONE", curHp: 300, maxHp: 600), // 207 recover
+            PlayerStatsNoGameTime("NONE", curHp: 420, maxHp: 600), // 208 recover (lull 2s → close)
+        ]);
+        var gameStats = new Queue<JsonElement>(
+        [
+            GameStats(200), GameStats(201), GameStats(202), GameStats(203), GameStats(204),
+            GameStats(205), GameStats(206), GameStats(207), GameStats(208),
+        ]);
+
+        var parsed = await RunCollectorWithGameStats(events, snapshots, gameStats);
+        var trade = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Trade);
+
+        Assert.NotNull(trade);
+        using var d = JsonDocument.Parse(trade!.Details);
+        Assert.Equal("extended", d.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(206, trade.GameTimeS); // dip bottom
+    }
+
+    [Fact]
+    public async Task StopAsync_SuppressesPhantomTrade_WhenKillFeedIsStaleAtDipClose()
+    {
+        // RACE GUARD: at 1s HP sampling but a slower kill-feed, a between-sample death
+        // (HP dips then a respawn bounces it back, 0-HP frame unsampled) closes a dip
+        // BEFORE the ChampionKill row has been fetched. The dip-close path must refresh
+        // the kill-feed before the death guard runs, or it emits a phantom "survived"
+        // trade. Here the death ChampionKill@305 is withheld until later fetches.
+        var startOnly = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var withDeath = CreateEvents("""
+            [
+              { "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 },
+              { "EventID": 1, "EventName": "ChampionKill", "EventTime": 305.0, "KillerName": "Enemy", "VictimName": "Tester", "Assisters": [] }
+            ]
+            """);
+
+        // Model fetch latency: the FIRST kill-feed fetch (loop start) predates the death
+        // and sees GameStart only; by the time the dip closes and the close-path REFRESHES
+        // the kill-feed (a later fetch), the ChampionKill is present. If the fix didn't
+        // refresh before the guard, the dip would close against the stale first fetch and
+        // emit a phantom trade.
+        var fetchCount = 0;
+        Func<List<JsonElement>> eventsProvider = () =>
+        {
+            fetchCount++;
+            return fetchCount <= 1 ? startOnly : withDeath;
+        };
+
+        // HP 80% → 30% (dip; the 0-HP death frame at ~305 is never sampled) → 100% bounce.
+        var snapshots = new Queue<JsonElement>(
+        [
+            PlayerStatsNoGameTime("NONE", curHp: 480, maxHp: 600), // 300 baseline
+            PlayerStatsNoGameTime("NONE", curHp: 180, maxHp: 600), // 304 dip (real death ~305 unsampled)
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 307 respawn full → recovery closes dip
+        ]);
+        var gameStats = new Queue<JsonElement>([GameStats(300), GameStats(304), GameStats(307)]);
+
+        var parsed = await RunCollectorWithDelayedEvents(eventsProvider, snapshots, gameStats);
+
+        // The refresh-before-guard pulls in ChampionKill@305, so the dip is recognized as
+        // a death (inside [304-12, 304+12]) and NO phantom trade is emitted.
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Trade);
+    }
+
+    [Fact]
+    public async Task StopAsync_TwoDistinctTrades_NotMerged_WhenHpFullyRecoversBetween()
+    {
+        // A full recovery to ~full HP closes a dip immediately (no grace), so two pokes
+        // separated by a heal-to-full are TWO trades, not one merged event.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var snapshots = new Queue<JsonElement>(
+        [
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 100 baseline
+            PlayerStatsNoGameTime("NONE", curHp: 360, maxHp: 600), // 101 poke 1 (-40%, bottom)
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 102 full recovery → close trade 1
+            PlayerStatsNoGameTime("NONE", curHp: 360, maxHp: 600), // 103 poke 2 (-40%, new dip)
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 104 full recovery → close trade 2
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 105 full
+        ]);
+        var gameStats = new Queue<JsonElement>(
+        [
+            GameStats(100), GameStats(101), GameStats(102), GameStats(103), GameStats(104), GameStats(105),
+        ]);
+
+        var parsed = await RunCollectorWithGameStats(events, snapshots, gameStats);
+        var trades = parsed.Where(e => e.EventType == GameEvent.EventTypes.Trade).ToList();
+
+        Assert.Equal(2, trades.Count); // distinct trades, not merged
+        Assert.Equal(101, trades[0].GameTimeS);
+        Assert.Equal(103, trades[1].GameTimeS);
+    }
+
+    [Fact]
+    public async Task StopAsync_DropsTrade_WhenDipBottomsPastLaningCutoff()
+    {
+        // A dip that OPENS at 839 (≤14:00) but BOTTOMS at 841 (>14:00). The event would
+        // be stamped at the bottom (841, past the cutoff), so the laning gate — which
+        // checks the stamped time (bottom) — must drop it.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+        var snapshots = new Queue<JsonElement>(
+        [
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 838 baseline
+            PlayerStatsNoGameTime("NONE", curHp: 420, maxHp: 600), // 839 fall (start)
+            PlayerStatsNoGameTime("NONE", curHp: 240, maxHp: 600), // 841 fall (bottom, past 14:00)
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600), // 843 recover → close
+        ]);
+        var gameStats = new Queue<JsonElement>([GameStats(838), GameStats(839), GameStats(841), GameStats(843)]);
+
+        var parsed = await RunCollectorWithGameStats(events, snapshots, gameStats);
+        Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Trade);
     }
 
     [Fact]
@@ -534,6 +774,40 @@ public sealed class LiveEventCollectorTests
 
         var parsed = await RunCollector(events, snapshots);
         Assert.DoesNotContain(parsed, e => e.EventType == GameEvent.EventTypes.Trade);
+    }
+
+    [Fact]
+    public async Task StopAsync_AnchorsTradeToGameStatsClock_NotStaleEventTime()
+    {
+        // REGRESSION: a real trade early in the game was stamped at ~0:30 instead of its
+        // true time because /activeplayer carried no gameTime and the clock fell back to
+        // the latest kill-feed EventTime — which, before any kill, is the GameStart at
+        // t=0. Here the only raw event is GameStart@0 (stale), the activeplayer snapshots
+        // have NO gameTime, and the authoritative /gamestats clock reads ~1:08. The trade
+        // must anchor to the /gamestats time, not 0.
+        var events = CreateEvents("""[{ "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 }]""");
+
+        // HP 100% → 55% (a 45% poke trade) → recovers. No gameTime on these snapshots.
+        var snapshots = new Queue<JsonElement>(
+        [
+            PlayerStatsNoGameTime("NONE", curHp: 600, maxHp: 600),
+            PlayerStatsNoGameTime("NONE", curHp: 330, maxHp: 600), // dip opens here (real t≈68s)
+            PlayerStatsNoGameTime("NONE", curHp: 420, maxHp: 600), // recovers → dip closes
+        ]);
+        // The real game clock advances 60 → 68 → 78 across the three ticks.
+        var gameStats = new Queue<JsonElement>(
+        [
+            GameStats(60.0),
+            GameStats(68.0),
+            GameStats(78.0),
+        ]);
+
+        var parsed = await RunCollectorWithGameStats(events, snapshots, gameStats);
+        var trade = parsed.SingleOrDefault(e => e.EventType == GameEvent.EventTypes.Trade);
+
+        Assert.NotNull(trade);
+        // Anchored at the dip-open tick's REAL game time (68s), not the stale 0.
+        Assert.Equal(68, trade!.GameTimeS);
     }
 
     [Fact]
@@ -649,13 +923,16 @@ public sealed class LiveEventCollectorTests
     {
         private readonly Func<List<JsonElement>> _fetchEventsAsync;
         private readonly Func<JsonElement?>? _fetchActivePlayerAsync;
+        private readonly Func<JsonElement?>? _fetchGameStatsAsync;
 
         public FakeLiveEventApi(
             Func<List<JsonElement>> fetchEventsAsync,
-            Func<JsonElement?>? fetchActivePlayerAsync = null)
+            Func<JsonElement?>? fetchActivePlayerAsync = null,
+            Func<JsonElement?>? fetchGameStatsAsync = null)
         {
             _fetchEventsAsync = fetchEventsAsync;
             _fetchActivePlayerAsync = fetchActivePlayerAsync;
+            _fetchGameStatsAsync = fetchGameStatsAsync;
         }
 
         public Task<string?> GetActivePlayerNameAsync(CancellationToken ct = default) =>
@@ -668,6 +945,9 @@ public sealed class LiveEventCollectorTests
 
         public Task<JsonElement?> FetchActivePlayerAsync(CancellationToken ct = default) =>
             Task.FromResult(_fetchActivePlayerAsync?.Invoke());
+
+        public Task<JsonElement?> FetchGameStatsAsync(CancellationToken ct = default) =>
+            Task.FromResult(_fetchGameStatsAsync?.Invoke());
     }
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler

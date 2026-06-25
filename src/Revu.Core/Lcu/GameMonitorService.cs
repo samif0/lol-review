@@ -426,7 +426,13 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _eventCollector = new LiveEventCollector(
             _liveEventApi,
             _logger,
-            TimeSpan.FromSeconds(GameConstants.LiveEventPollIntervalS));
+            // Sample HP fast (~1s) so trade/recall timers anchor within ~1s; poll the
+            // kill-feed event stream on the slower (~10s) cadence. These are DISTINCT
+            // ctor params — passing one positional value binds it to pollInterval (the
+            // fast HP cadence), so both must be named/positional-correct or the fast
+            // sampling is silently nullified.
+            pollInterval: TimeSpan.FromSeconds(GameConstants.HpSamplePollIntervalS),
+            eventPollInterval: TimeSpan.FromSeconds(GameConstants.LiveEventPollIntervalS));
         _collectorTask = _eventCollector.StartAsync(_collectorCts.Token);
 
         // Tear down the OLD collector using the snapshotted locals (never the fields,

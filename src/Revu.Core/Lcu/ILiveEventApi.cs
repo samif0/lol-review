@@ -35,4 +35,16 @@ public interface ILiveEventApi
     /// </summary>
     Task<JsonElement?> FetchActivePlayerAsync(CancellationToken ct = default) =>
         Task.FromResult<JsonElement?>(null);
+
+    /// <summary>
+    /// v3.1.9: snapshot of <c>/liveclientdata/gamestats</c>, which carries the
+    /// AUTHORITATIVE <c>gameTime</c> (seconds since game start). This is the correct
+    /// clock for anchoring derived events (trades, recalls) — <c>/activeplayer</c> does
+    /// NOT reliably expose <c>gameTime</c>, and falling back to the latest kill-feed
+    /// <c>EventTime</c> mis-stamps early events (a 1:08 trade landing at ~0:30 when the
+    /// only prior event was GameStart). Returns null if unavailable; default returns
+    /// null so legacy fakes don't have to opt in.
+    /// </summary>
+    Task<JsonElement?> FetchGameStatsAsync(CancellationToken ct = default) =>
+        Task.FromResult<JsonElement?>(null);
 }

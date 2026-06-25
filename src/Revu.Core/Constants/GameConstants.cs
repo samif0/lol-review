@@ -61,8 +61,15 @@ public static class GameConstants
     /// <summary>How often the LCU monitor polls for game state (seconds).</summary>
     public const double GameMonitorPollIntervalS = 5.0;
 
-    /// <summary>How often live events are polled during a game (seconds).</summary>
+    /// <summary>How often the kill-feed event stream (/eventdata) is polled during a
+    /// game (seconds). The event stream changes coarsely, so 10s is plenty.</summary>
     public const double LiveEventPollIntervalS = 10.0;
+
+    /// <summary>How often YOUR champion HP is sampled (/activeplayer + /gamestats) during
+    /// a game (seconds). Decoupled from — and much faster than — the event-stream poll so
+    /// derived events that key off HP transitions (trades, recalls) anchor to within ~1s
+    /// of when they happened, instead of smeared across a 10s window. All localhost.</summary>
+    public const double HpSamplePollIntervalS = 1.0;
 
     /// <summary>Thread join timeout when stopping the monitor (seconds).</summary>
     public const int MonitorStopTimeoutS = 5;
