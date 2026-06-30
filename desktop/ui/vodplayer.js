@@ -90,12 +90,15 @@ function objectiveTitle(objId) {
 // whether teamfight zones stay loud under the frame. Reads tracksTeamfight (from the
 // active-objectives endpoint); falls back to scanning trackedTokens. Defaults false
 // when unknown (older snapshot) so TF zones dim rather than falsely prioritize.
-function focusedTracksTeamfight() {
-  const o = _objectives.find((x) => Number(x.objectiveId) === _focusedObjId);
+function objTracksTeamfight(o) {
   if (!o) return false;
   if (typeof o.tracksTeamfight === 'boolean') return o.tracksTeamfight;
   const toks = o.trackedTokens || o.tokens || [];
   return Array.isArray(toks) && toks.some((t) => String(t).toUpperCase() === 'TEAMFIGHT');
+}
+
+function focusedTracksTeamfight() {
+  return objTracksTeamfight(_objectives.find((x) => Number(x.objectiveId) === _focusedObjId));
 }
 
 // Objective type → the timeline/chrome token-color family. primary=accent (default),
@@ -386,7 +389,13 @@ function renderObjBar() {
         acBtn.dataset.action = 'autoclip_objective';
         acBtn.dataset.objId = String(id);
         acBtn.disabled = _autoClipBusy;
-        acBtn.textContent = _autoClipBusy ? 'Auto-clipping…' : `⬇ Auto-clip ${count} event${count === 1 ? '' : 's'}`;
+        // A teamfight objective's markers are now ONE synthetic event per fight (not one
+        // per kill/death/assist), so the count is accurate AND matches the clip count —
+        // label it as fights. Other objectives keep the per-event wording.
+        const tfLabel = objTracksTeamfight(o);
+        acBtn.textContent = _autoClipBusy ? 'Auto-clipping…'
+          : (tfLabel ? `⬇ Auto-clip ${count} fight${count === 1 ? '' : 's'}`
+                     : `⬇ Auto-clip ${count} event${count === 1 ? '' : 's'}`);
         acRow.appendChild(acBtn);
         const acHint = document.createElement('div');
         acHint.className = 'vp-objclip-hint';
@@ -566,10 +575,10 @@ function placeMarkers(dur) {
     band.style.left = `${pctOf(tf.startS)}%`;
     band.style.width = `${Math.max(0.8, pctOf(tf.endS) - pctOf(tf.startS))}%`;
     band.title = `Teamfight ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} events`;
-    const lbl = document.createElement('span');
-    lbl.className = 'evtf-lbl';
-    lbl.textContent = 'TF';
-    band.appendChild(lbl);
+    // The band is the soft BACKDROP spanning the fight. The labeled "TF" pin is now a
+    // real synthetic TEAMFIGHT event (rendered in the events pass below) so it's
+    // countable/steppable/clickable; the band no longer draws its own TF text, which
+    // would double up with that pin. The faint band still shows WHERE the fight spans.
     host.appendChild(band);
   }
 
@@ -697,6 +706,7 @@ function placeMarkers(dur) {
 // everything else. Keeps the busiest timelines readable.
 function eventTier(eventType, label) {
   const t = String(eventType || label || '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (/TEAMFIGHT/.test(t)) return 'major'; // the synthetic per-fight TF pin reads as a major moment
   if (/BARON|DRAGON|ELDER|HERALD|RIFT|TOWER|TURRET|INHIB|NEXUS|ACE|OBJECTIVE|CONTEST/.test(t)) return 'major';
   if (/KILL|DEATH|MULTIKILL|FIRSTBLOOD|PENTA|QUADRA|TRIPLE|DOUBLE|GANK|JUNGLEGANK|SKIRMISH/.test(t)) return 'medium';
   if (/FLASH|SUMMONER|SPELL|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(t)) return 'summoner';
@@ -1000,9 +1010,11 @@ function renderMoments() {
       el.dataset.shareBmId = String(m.shareBookmarkId);
       const btn = shareWrap.querySelector('.vp-share-btn');
       const copyBtn = shareWrap.querySelector('.vp-copy-btn');
+      const delBtn = shareWrap.querySelector('.vp-clipdel-btn');
       const lbl = shareWrap.querySelector('.vp-share-lbl');
       const urlEl = shareWrap.querySelector('.vp-share-url');
       const shared = !!m.shareUrl;
+      if (delBtn) delBtn.dataset.shareBmId = String(m.shareBookmarkId);
       if (btn) {
         btn.dataset.shareBmId = String(m.shareBookmarkId);
         btn.dataset.shareUrl = m.shareUrl || '';
@@ -1106,6 +1118,8 @@ function wireFraming() {
   if (nx) nx.addEventListener('click', () => {
     const n = $('vp-nudge'); if (n) { n.dataset.dismissed = '1'; show(n, false); }
   });
+  const sbRetry = $('vp-sharebar-retry');
+  if (sbRetry) sbRetry.addEventListener('click', retryAllFailedShares);
 }
 
 // ── transport ───────────────────────────────────────────────────────────────
@@ -1240,6 +1254,32 @@ async function deleteBookmark(bookmarkId) {
   }
 }
 
+// TRUE clip delete: the video file, the DB entry, and (if shared) the public copy.
+// Destructive + irreversible, so gate behind an explicit confirm. The button carries
+// the bookmark id (shareBmId = the clip's vod_bookmarks id). On success, reload the
+// snapshot so the row disappears.
+async function deleteClip(btn) {
+  const bmId = btn && btn.dataset ? Number(btn.dataset.shareBmId) : 0;
+  if (!_core || !bmId) return;
+  if (!window.confirm(
+    'Delete this clip? This permanently removes the video file, its entry, and any shared link. This can’t be undone.')) {
+    return;
+  }
+  if ('disabled' in btn) btn.disabled = true;
+  try {
+    const res = await _core.invoke('delete_clip', {
+      payload: { gameId: _gameId, bookmarkId: bmId },
+    });
+    if (res && res.ok === false) {
+      console.error('[vodplayer] delete_clip rejected:', res.error);
+    }
+    await reloadBookmarks();
+  } catch (err) {
+    console.error('[vodplayer] delete_clip failed:', err);
+    if ('disabled' in btn) btn.disabled = false; // re-enable so the user can retry
+  }
+}
+
 async function saveBookmarkNote(bookmarkId, note) {
   if (!_core || !bookmarkId) return;
   try {
@@ -1318,7 +1358,10 @@ async function saveEvidenceNote(noteEl) {
 
 let _pendingShareBmId = 0;   // clip awaiting upload after a login completes
 let _shareEmail = '';        // email entered in the login panel (carried to verify)
-const SHARE_RETRY_DELAYS_MS = [1200, 2600, 5200];
+// Backoff for transient share failures (R2/Worker CPU spikes during big concurrent
+// uploads). 5 attempts ~= 31s total so a passing storm self-heals before the user
+// ever sees the "temporarily unavailable" error chip. See bug_clip_share_concurrent_exceededcpu.
+const SHARE_RETRY_DELAYS_MS = [1500, 3000, 6000, 9000, 12000];
 const _shareJobs = new Map(); // bookmark id -> queued/uploading/error state
 let _shareQueue = [];
 let _shareQueueActive = false;
@@ -1652,7 +1695,62 @@ function renderShareJobForRow(bmId, alreadyShared) {
   }
   renderShareJob(job);
 }
+// The global, tab-agnostic share-queue summary. The per-row chips (renderShareJob)
+// only exist for the focused objective's moments, so they vanish when you switch
+// tabs; this banner is the one place the whole queue stays visible. Summarizes
+// every NON-done job in _shareJobs (done jobs are pruned by renderShareJobForRow).
+function renderShareBanner() {
+  const bar = $('vp-sharebar');
+  if (!bar) return;
+  const txtEl = $('vp-sharebar-txt');
+  const retryBtn = $('vp-sharebar-retry');
+
+  let uploading = 0, queued = 0, retrying = 0, failed = 0, needsLogin = 0;
+  for (const job of _shareJobs.values()) {
+    switch (job.status) {
+      case 'uploading': uploading++; break;
+      case 'queued': queued++; break;
+      case 'retry_wait': retrying++; break;
+      case 'error': failed++; break;
+      case 'needs_login': needsLogin++; break;
+      default: break; // 'done'/'idle' don't keep the banner up
+    }
+  }
+  const active = uploading + queued + retrying;
+
+  // Nothing pending and nothing to report — hide.
+  if (active === 0 && failed === 0 && needsLogin === 0) { show(bar, false); return; }
+
+  bar.classList.toggle('is-error', active === 0 && (failed > 0 || needsLogin > 0));
+  bar.classList.remove('is-done');
+  if (retryBtn) show(retryBtn, failed > 0);
+
+  const parts = [];
+  if (uploading) parts.push(`${uploading} uploading`);
+  if (retrying) parts.push(`${retrying} retrying`);
+  if (queued) parts.push(`${queued} queued`);
+  let msg;
+  if (active > 0) {
+    msg = `Sharing clips — ${parts.join(', ')}. Uploads run one at a time and keep going if you switch objectives.`;
+  } else {
+    const bits = [];
+    if (failed) bits.push(`${failed} share${failed === 1 ? '' : 's'} failed`);
+    if (needsLogin) bits.push(`${needsLogin} need${needsLogin === 1 ? 's' : ''} sign-in`);
+    msg = bits.join(' · ') + '.';
+  }
+  if (txtEl) txtEl.textContent = msg;
+  show(bar, true);
+}
+
+// Re-enqueue every job sitting in the error state (the banner's "Retry failed").
+function retryAllFailedShares() {
+  for (const job of _shareJobs.values()) {
+    if (job.status === 'error') enqueueShare(job.bmId, { resetAttempts: true });
+  }
+}
+
 function renderShareJob(job) {
+  renderShareBanner();
   if (!job) return;
   const bmId = Number(job.bmId);
   const pos = queueIndex(bmId) + 1;
@@ -1744,6 +1842,10 @@ document.addEventListener('click', async (ev) => {
     ev.preventDefault();
     ev.stopPropagation(); // don't let the row's jump fire
     copyClipLink(t);
+  } else if (action === 'delete_clip') {
+    ev.preventDefault();
+    ev.stopPropagation(); // don't let the row's jump fire
+    await deleteClip(t);
   } else if (action === 'share_send_code') {
     ev.preventDefault();
     await shareSendCode();

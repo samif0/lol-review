@@ -50,6 +50,16 @@ public interface IVodRepository
 
     Task DeleteBookmarkAsync(long bookmarkId);
 
+    /// <summary>
+    /// Fully delete a saved clip: in one transaction, remove the clip bookmark row AND
+    /// any evidence_items row that referenced it (source_kind='clip', source_id=bookmark),
+    /// so the clip vanishes from both the timeline and the objective ledger. Returns the
+    /// clip's on-disk path + share URL (read before deletion) so the caller can finish the
+    /// cleanup — delete the file and the uploaded copy — which live outside the DB layer.
+    /// Returns null when the bookmark doesn't exist.
+    /// </summary>
+    Task<ClipDeletionInfo?> DeleteClipFullAsync(long bookmarkId);
+
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId);
 
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksForObjectiveAsync(long objectiveId);

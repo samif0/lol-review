@@ -128,6 +128,11 @@ public sealed record VodBookmarkRecord(
     // until shared. Late-added column; tolerated as missing on older DBs.
     string ShareUrl = "");
 
+/// <summary>The on-disk + remote handles of a clip, captured before its DB rows are
+/// deleted, so the caller can finish cleanup (delete the file, delete the uploaded
+/// copy). <see cref="ClipPath"/> / <see cref="ShareUrl"/> are empty when absent.</summary>
+public sealed record ClipDeletionInfo(string ClipPath, string ShareUrl);
+
 public sealed record RuleRecord(
     long Id,
     string Name,

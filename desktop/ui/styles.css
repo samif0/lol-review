@@ -1864,6 +1864,28 @@ select.obj-input option{background:#14102a;color:var(--t1)}
   text-transform:uppercase;font-weight:700;color:#1b1233;background:linear-gradient(180deg,#f6cfa0,var(--gold));
   border-radius:8px;padding:7px 13px;box-shadow:0 6px 16px -8px rgba(243,199,148,0.6)}
 
+/* Share-progress banner — global (tab-agnostic) summary of the share queue, so
+   uploads kicked off on one objective tab stay visible after you switch frames. */
+.vp-sharebar{display:flex;align-items:center;gap:11px;margin-top:14px;
+  padding:10px 15px;border-radius:12px;
+  border:1px solid rgba(124,156,255,0.32);background:rgba(124,156,255,0.08)}
+.vp-sharebar[hidden]{display:none}
+.vp-sharebar.is-error{border-color:rgba(255,120,120,0.42);background:rgba(255,120,120,0.10)}
+.vp-sharebar.is-done{border-color:rgba(120,224,170,0.42);background:rgba(120,224,170,0.10)}
+.vp-sharebar-spin{width:13px;height:13px;flex-shrink:0;border-radius:50%;
+  border:2px solid rgba(124,156,255,0.30);border-top-color:#7c9cff;
+  animation:vp-sharebar-spin 0.8s linear infinite}
+.vp-sharebar.is-done .vp-sharebar-spin,.vp-sharebar.is-error .vp-sharebar-spin{
+  animation:none;border:none;width:auto;height:auto}
+@keyframes vp-sharebar-spin{to{transform:rotate(360deg)}}
+.vp-sharebar-txt{flex:1;min-width:0;font-family:var(--fb);font-size:12.5px;line-height:1.45;color:var(--t2)}
+.vp-sharebar-retry{flex-shrink:0;font-family:var(--fm);font-size:10px;letter-spacing:1px;
+  text-transform:uppercase;font-weight:700;color:#fff;cursor:pointer;
+  border:1px solid rgba(255,120,120,0.5);background:rgba(255,120,120,0.18);
+  border-radius:8px;padding:6px 12px;transition:background .15s ease}
+.vp-sharebar-retry[hidden]{display:none}
+.vp-sharebar-retry:hover{background:rgba(255,120,120,0.30)}
+
 /* OPEN REVIEW primary card — the one loud element (accent rim/glow + CTA). */
 .vp-primary{display:flex;flex-direction:row;align-items:center;gap:22px;margin:0 0 22px;padding:20px 24px}
 .vp-primary .body{flex:1}
@@ -2000,6 +2022,7 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .vp-timeline .evbar-summoner{--evc:#7fd4ff}
 .vp-timeline .evbar-recall{--evc:#a9c8ff}
 .vp-timeline .evbar-trade{--evc:#ffb86b}
+.vp-timeline .evbar-teamfight{--evc:#f3a3a8}
 .vp-timeline .evbar-neutral{--evc:var(--t3)}
 
 /* Teamfight zone — a soft band BEHIND the bars marking a cluster of combat events,
@@ -2229,6 +2252,13 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
   padding:7px 11px;cursor:pointer;transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease}
 .vp-copy-btn:hover{transform:translateY(-1px);color:#fff;border-color:rgba(157,139,255,0.45);background:rgba(157,139,255,0.10)}
 .vp-copy-btn:active{transform:translateY(0)}
+/* Destructive clip delete — quiet by default, loss-red on hover so it reads as dangerous. */
+.vp-clipdel-btn{display:inline-flex;align-items:center;gap:5px;font-family:var(--fm);font-size:10px;letter-spacing:0.5px;
+  font-weight:600;color:var(--t3);border:1px solid var(--gline2);background:rgba(255,255,255,0.04);border-radius:8px;
+  padding:7px 11px;cursor:pointer;transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease}
+.vp-clipdel-btn:hover:not(:disabled){transform:translateY(-1px);color:var(--loss);border-color:rgba(243,163,168,0.55);background:rgba(243,163,168,0.10)}
+.vp-clipdel-btn:active:not(:disabled){transform:translateY(0)}
+.vp-clipdel-btn:disabled{opacity:0.6;cursor:default;transform:none}
 .vp-share-url{font-family:var(--fm);font-size:9.5px;letter-spacing:0.3px;color:var(--win);
   border:1px solid rgba(142,231,186,0.4);background:rgba(142,231,186,0.08);border-radius:6px;padding:4px 8px;
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;cursor:text}

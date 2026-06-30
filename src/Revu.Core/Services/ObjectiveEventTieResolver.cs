@@ -112,6 +112,23 @@ public sealed class ObjectiveEventTieResolver
     }
 
     /// <summary>
+    /// The objectives an event ties to by its OWN TOKEN (raw type / per-spell / trade /
+    /// jungle-gank) — NOT by teamfight-cluster membership. The auto-clipper uses this to
+    /// decide which combat events deserve an individual clip: a kill/death/assist that an
+    /// objective tracks only because it fell inside a teamfight is covered by the one
+    /// per-fight clip, so it must NOT also be clipped on its own. De-duped per objective.
+    /// </summary>
+    public IReadOnlyList<ObjectiveTie> TokenTiesForEvent(GameEvent e)
+    {
+        var matches = new List<ObjectiveTie>();
+        foreach (var token in EventTokens(e))
+            if (_tokenMap.TryGetValue(token, out var tokenObjs))
+                foreach (var t in tokenObjs)
+                    if (!matches.Any(m => m.ObjectiveId == t.ObjectiveId)) matches.Add(t);
+        return matches;
+    }
+
+    /// <summary>
     /// The PRIMARY trackable token for an event (the priority-lane winner): per-spell
     /// (SPELL_FLASH/SPELL_SMITE/…) for summoner casts, the kind-specific trade token
     /// for a TRADE, otherwise the raw event type (UPPER). Null only for an empty type.
@@ -158,29 +175,37 @@ public sealed class ObjectiveEventTieResolver
         return type.Length > 0 ? [type] : [];
     }
 
-    // If any active objective tracks TEAMFIGHT, cluster the combat events (≥3 combat
-    // events within 14s, t>0 — same definition the client timeline uses) and tie every
-    // member to those objectives. eventId → tied objectives. Empty when no objective
-    // tracks teamfights.
-    private IReadOnlyDictionary<int, IReadOnlyList<ObjectiveTie>> ResolveTeamfightTies(
-        IReadOnlyList<GameEvent> events)
+    /// <summary>
+    /// The teamfight CLUSTERS in a game (≥3 combat events within 14s of each other, t&gt;0
+    /// — the same definition the client timeline band uses), each tagged with the active
+    /// objectives that track TEAMFIGHT. Empty when no objective tracks teamfights. Used by
+    /// the auto-clipper to make ONE clip per fight (spanning first→last member) instead of
+    /// one per kill/death/assist inside it.
+    /// </summary>
+    public IReadOnlyList<TeamfightCluster> ResolveTeamfightClusters(IReadOnlyList<GameEvent> events)
     {
-        var ties = new Dictionary<int, IReadOnlyList<ObjectiveTie>>();
-        if (_teamfightObjectives.Count == 0) return ties;
+        var result = new List<TeamfightCluster>();
+        if (_teamfightObjectives.Count == 0) return result;
 
         static bool IsCombat(string? t) =>
             (t ?? "").ToUpperInvariant() is "KILL" or "DEATH" or "ASSIST" or "MULTI_KILL" or "FIRST_BLOOD";
 
         // t>0 mirrors the client teamfightZones() filter: a t=0 combat event
         // (unresolved EventTime) is dropped client-side, so drop it here too to keep
-        // the ties aligned with the visible band.
+        // the clusters aligned with the visible band.
         var combat = events.Where(e => IsCombat(e.EventType) && e.GameTimeS > 0)
             .OrderBy(e => e.GameTimeS).ToList();
         var cluster = new List<GameEvent>();
         void Flush()
         {
             if (cluster.Count >= TeamfightMinEvents)
-                foreach (var m in cluster) ties[m.Id] = _teamfightObjectives;
+            {
+                result.Add(new TeamfightCluster(
+                    StartS: cluster[0].GameTimeS,
+                    EndS: cluster[^1].GameTimeS,
+                    MemberEventIds: cluster.Select(m => m.Id).ToList(),
+                    Objectives: _teamfightObjectives));
+            }
             cluster = new List<GameEvent>();
         }
         foreach (var e in combat)
@@ -190,6 +215,20 @@ public sealed class ObjectiveEventTieResolver
             else { Flush(); cluster.Add(e); }
         }
         Flush();
+        return result;
+    }
+
+    // If any active objective tracks TEAMFIGHT, tie every cluster member to those
+    // objectives. eventId → tied objectives. Empty when no objective tracks teamfights.
+    // Built on the shared cluster computation so the timeline ties and the auto-clip
+    // cluster windows can never drift.
+    private IReadOnlyDictionary<int, IReadOnlyList<ObjectiveTie>> ResolveTeamfightTies(
+        IReadOnlyList<GameEvent> events)
+    {
+        var ties = new Dictionary<int, IReadOnlyList<ObjectiveTie>>();
+        foreach (var c in ResolveTeamfightClusters(events))
+            foreach (var id in c.MemberEventIds)
+                ties[id] = c.Objectives;
         return ties;
     }
 
@@ -228,3 +267,14 @@ public sealed class ObjectiveEventTieResolver
 
 /// <summary>One active objective an event ties to: its id, title, and lane color.</summary>
 public readonly record struct ObjectiveTie(long ObjectiveId, string Title, string Color);
+
+/// <summary>
+/// A detected teamfight: the game-time span of its combat-event cluster (first→last),
+/// the ids of the member events, and the TEAMFIGHT-tracking objectives it ties to. The
+/// auto-clipper makes one clip per cluster spanning <see cref="StartS"/>→<see cref="EndS"/>.
+/// </summary>
+public sealed record TeamfightCluster(
+    int StartS,
+    int EndS,
+    IReadOnlyList<int> MemberEventIds,
+    IReadOnlyList<ObjectiveTie> Objectives);

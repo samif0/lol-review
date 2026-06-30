@@ -66,6 +66,16 @@
       <span class="vp-signin-cta">Sign in →</span>
     </a>
 
+    <!-- Share-progress banner — a single tab-agnostic summary of the global share
+         queue. Visible on ANY objective tab so queued/uploading/failed shares are
+         never hidden when you switch frames (the moments list is scoped per-objective,
+         but the upload queue is global). Built by renderShareBanner() from _shareJobs. -->
+    <div class="vp-sharebar" id="vp-sharebar" hidden>
+      <span class="vp-sharebar-spin" id="vp-sharebar-spin"></span>
+      <span class="vp-sharebar-txt" id="vp-sharebar-txt"></span>
+      <button class="vp-sharebar-retry" id="vp-sharebar-retry" type="button" hidden>Retry failed</button>
+    </div>
+
     <!-- No-VOD state -->
     <div class="card vp-novod" id="vp-novod" hidden>
       <div class="vline">No recording found for this game.</div>
@@ -282,6 +292,10 @@
         <button class="vp-copy-btn" data-action="copy_clip_link" type="button" hidden title="Copy link">
           <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 9h10v10H9zM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>Copy</span>
+        </button>
+        <button class="vp-clipdel-btn" data-action="delete_clip" type="button" title="Delete clip (file + entry)">
+          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Delete</span>
         </button>
         <span class="vp-share-url" hidden></span>
       </div>

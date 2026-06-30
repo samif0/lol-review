@@ -157,6 +157,47 @@ public sealed class ObjectiveEventTieResolverTests
     }
 
     [Fact]
+    public void ResolveTeamfightClusters_GroupsCombatIntoFights_WithSpanAndMembers()
+    {
+        var resolver = ObjectiveEventTieResolver.FromTies(new[] { ("TEAMFIGHT", 9L, "Win fights") });
+        var events = new[]
+        {
+            Ev(1, "KILL", 600),
+            Ev(2, "DEATH", 606),
+            Ev(3, "ASSIST", 612),   // fight A: 600..612, 3 members
+            Ev(4, "KILL", 1200),    // lone, far → no cluster
+        };
+
+        var clusters = resolver.ResolveTeamfightClusters(events);
+
+        var c = Assert.Single(clusters);
+        Assert.Equal(600, c.StartS);
+        Assert.Equal(612, c.EndS);
+        Assert.Equal(new[] { 1, 2, 3 }, c.MemberEventIds.OrderBy(x => x).ToArray());
+        Assert.Contains(c.Objectives, t => t.ObjectiveId == 9L);
+    }
+
+    [Fact]
+    public void ResolveTeamfightClusters_Empty_WhenNoObjectiveTracksTeamfight()
+    {
+        var resolver = ObjectiveEventTieResolver.FromTies(new[] { ("DEATH", 1L, "Deaths") });
+        var events = new[] { Ev(1, "KILL", 600), Ev(2, "DEATH", 606), Ev(3, "ASSIST", 612) };
+        Assert.Empty(resolver.ResolveTeamfightClusters(events));
+    }
+
+    [Fact]
+    public void TokenTiesForEvent_ExcludesTeamfightMembership()
+    {
+        // Objective tracks ONLY teamfight; a death inside a fight has NO token tie to it.
+        var resolver = ObjectiveEventTieResolver.FromTies(new[] { ("TEAMFIGHT", 9L, "Fights") });
+        Assert.Empty(resolver.TokenTiesForEvent(Ev(1, "DEATH", 606)));
+
+        // Objective tracks DEATH; now the death HAS a token tie.
+        var resolver2 = ObjectiveEventTieResolver.FromTies(new[] { ("DEATH", 5L, "Deaths") });
+        Assert.Single(resolver2.TokenTiesForEvent(Ev(1, "DEATH", 606)));
+    }
+
+    [Fact]
     public void DeDupesObjectivePerEvent_WhenTokenAndTeamfightBothMatch()
     {
         // One objective tracks both DEATH and TEAMFIGHT; a death inside a cluster must

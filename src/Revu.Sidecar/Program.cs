@@ -2065,6 +2065,123 @@ app.MapPost("/api/clip/upload", async (ShareClipBody body, WriteServices w, ILog
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/clip/delete  { gameId, bookmarkId }  — TRULY delete a saved clip:
+// the uploaded copy (if shared), the on-disk file, and the DB rows (the clip
+// bookmark + any evidence ledger entry that referenced it). Mirrors the clip-
+// upload composition: resolve the bookmark server-side; the frontend only sends
+// ids. Order matters — remote first (needs the share_url + token before the row
+// is gone), then DB, then the local file. Remote delete is best-effort: a logged-
+// out / offline user can still purge their local copy. Backup-guarded.
+// ─────────────────────────────────────────────────────────────────────────────
+app.MapPost("/api/clip/delete", async (DeleteClipBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
+{
+    if (body is null || body.GameId <= 0 || body.BookmarkId <= 0)
+        return Results.BadRequest(new { error = "gameId and bookmarkId required" });
+
+    // Resolve the bookmark server-side (the frontend never sees the file path).
+    VodBookmarkRecord? bm;
+    try
+    {
+        var marks = await w.Vod.GetBookmarksAsync(body.GameId);
+        bm = marks.FirstOrDefault(m => m.Id == body.BookmarkId);
+    }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Clip delete: bookmark lookup failed for game {GameId} bm {BookmarkId}", body.GameId, body.BookmarkId);
+        return Results.Json(new { ok = false, error = "Couldn't load that clip." }, jsonOptions, statusCode: 422);
+    }
+    if (bm is null)
+        return Results.Json(new { ok = false, error = "Clip not found." }, jsonOptions, statusCode: 404);
+
+    await w.BackupGuard.EnsureBackedUpAsync();
+
+    // 1) Remote copy (best-effort). Derive the public slug from the stored share
+    //    URL (revu.lol/<slug>) and ask the proxy to delete it. Owner-only on the
+    //    server; failures (offline / logged-out / expired) are logged, NOT fatal —
+    //    the user still gets their local clip removed.
+    var remoteDeleted = false;
+    var slug = ExtractClipSlug(bm.ShareUrl);
+    if (slug.Length > 0)
+    {
+        var cfg = await w.Config.LoadAsync();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var signedIn = !string.IsNullOrWhiteSpace(cfg.RiotSessionToken) && cfg.RiotSessionExpiresAt > now;
+        if (signedIn)
+        {
+            try
+            {
+                await w.ClipUpload.DeleteAsync(slug, cfg.RiotSessionToken, ct);
+                remoteDeleted = true;
+            }
+            catch (Exception ex)
+            {
+                log.LogDebug(ex, "Clip delete: remote delete of {Slug} failed (continuing local cleanup)", slug);
+            }
+        }
+    }
+
+    // 2) DB rows (clip bookmark + evidence tie), one transaction.
+    ClipDeletionInfo? info;
+    try
+    {
+        info = await w.Vod.DeleteClipFullAsync(body.BookmarkId);
+    }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Clip delete: DB delete failed for bm {BookmarkId}", body.BookmarkId);
+        return Results.Json(new { ok = false, error = "Couldn't delete the clip." }, jsonOptions, statusCode: 500);
+    }
+
+    // 3) Local file (best-effort, path-guarded). Skip a non-video path — a tampered
+    //    clip_path must never make the app delete an arbitrary file.
+    var fileDeleted = false;
+    var clipPath = info?.ClipPath ?? "";
+    if (IsDeletableClipFile(clipPath))
+    {
+        try
+        {
+            if (File.Exists(clipPath)) { File.Delete(clipPath); fileDeleted = true; }
+        }
+        catch (Exception ex)
+        {
+            log.LogDebug(ex, "Clip delete: file delete failed for {Path}", clipPath);
+        }
+    }
+
+    log.LogInformation("Clip deleted: bm {BookmarkId} (file={FileDeleted}, remote={RemoteDeleted})",
+        body.BookmarkId, fileDeleted, remoteDeleted);
+    return Results.Json(new { ok = true, fileDeleted, remoteDeleted }, jsonOptions);
+});
+
+// The public slug in a revu.lol/<slug> share URL (the last non-empty path segment),
+// or "" when the URL is empty / unparseable. Used to target the remote clip delete.
+static string ExtractClipSlug(string? shareUrl)
+{
+    if (string.IsNullOrWhiteSpace(shareUrl)) return "";
+    var s = shareUrl.Trim().TrimEnd('/');
+    var slash = s.LastIndexOf('/');
+    var slug = slash >= 0 ? s[(slash + 1)..] : s;
+    // Strip any query/fragment the URL might carry.
+    var cut = slug.IndexOfAny(['?', '#']);
+    if (cut >= 0) slug = slug[..cut];
+    return slug.Trim();
+}
+
+// True only when the path is well-formed and ends in a known clip video extension.
+// Same guard GameRepository's cascade-delete uses: a clip is always a video container,
+// so this blocks a tampered clip_path from deleting a non-clip file.
+static bool IsDeletableClipFile(string clipPath)
+{
+    if (string.IsNullOrWhiteSpace(clipPath)) return false;
+    string full;
+    try { full = Path.GetFullPath(clipPath); }
+    catch { return false; }
+    var ext = Path.GetExtension(full);
+    string[] allowed = [".mp4", ".webm", ".mkv", ".mov"];
+    return Array.FindIndex(allowed, e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase)) >= 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // RIOT-API BACKFILL (Batch 4). Walk games missing enemy_laner / laning@10 and
 // resolve them via Match-V5 (through the proxy). Long-running (throttled ~1.5 RPS,
 // two round-trips per game on the laning leg). Mirrors SettingsViewModel.Backfill-
@@ -2624,6 +2741,7 @@ internal sealed record AuthResolveBody(string RiotId, string Region);
 // The frontend sends only gameId + bookmarkId (+ optional caption); the sidecar
 // resolves the clip path / champion / share-state from the bookmark server-side.
 internal sealed record ShareClipBody(long GameId, long BookmarkId, string? ChampionName, string? Title);
+internal sealed record DeleteClipBody(long GameId, long BookmarkId);
 
 // ── Pre-game deferred-snapshot bodies (Batch 5 / LCU) ────────────────────────
 // These stage champ-select choices into LcuLiveState; the SidecarGameFlowCoordinator

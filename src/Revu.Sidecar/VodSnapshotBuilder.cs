@@ -34,6 +34,8 @@ public sealed class VodSnapshotBuilder
     // Jungle-ganked death — a deeper, more saturated red than a plain death so a gank
     // stands out from a normal loss marker. Matches the JUNGLE_GANK catalog color.
     private const string JungleGankHex = "#d6455e";
+    // Teamfight pin — matches the TEAMFIGHT catalog color (the soft red the band uses).
+    private const string TeamfightHex = "#f3a3a8";
 
     private readonly IGameRepository _gameRepo;
     private readonly IVodRepository _vodRepo;
@@ -130,12 +132,28 @@ public sealed class VodSnapshotBuilder
                 .OrderBy(e => e.GameTimeS)
                 .ToList();
 
-            // Resolve every event's tied objectives once (incl. teamfight membership).
-            var ties = tieResolver.ResolveForGame(raw);
+            // A combat marker lights up (priority lane) ONLY for objectives that track the
+            // event's OWN token — NOT for objectives that merely track TEAMFIGHT and happen
+            // to contain it. Otherwise a teamfight-only objective lit up every KIL/DTH/AST
+            // inside each fight (un-actionable individually, and over-clipped). So combat
+            // markers use TokenTiesForEvent (direct token ties only).
             foreach (var e in raw)
             {
-                ties.TryGetValue(e.Id, out var eventTies);
-                gameEvents.Add(MapEvent(e, eventTies ?? Array.Empty<ObjectiveTie>()));
+                gameEvents.Add(MapEvent(e, tieResolver.TokenTiesForEvent(e)));
+            }
+
+            // …and the teamfight itself becomes ONE synthetic TEAMFIGHT event per cluster,
+            // tagged with the objective(s) that track TEAMFIGHT. This is what a teamfight-
+            // tracking objective counts/steps/clips as its events (one per fight), instead
+            // of either every combat member (the over-count/over-clip bug) or nothing (the
+            // "TF isn't marked as an event" bug). Anchored at the cluster start so the loud
+            // TF pin sits at the band's left edge. Negative ids so they never collide with
+            // real DB event ids (used as marker keys / jump anchors).
+            var synthId = -1L;
+            foreach (var c in tieResolver.ResolveTeamfightClusters(raw))
+            {
+                gameEvents.Add(MapTeamfightCluster(c, synthId));
+                synthId--;
             }
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: game events load failed for {GameId}", gameId); }
@@ -190,9 +208,10 @@ public sealed class VodSnapshotBuilder
     }
 
     // ── event marker mapping (mirrors WinUI TimelineEvent) ────────────────────
-    // Tie resolution (token match + teamfight membership) is delegated to the shared
-    // ObjectiveEventTieResolver so the timeline can't drift from the auto-clipper.
-    // ObjectiveId/Title/Color keep the FIRST match (priority-lane color).
+    // The ties here are DIRECT TOKEN ties only (see the caller): a marker lights up for
+    // objectives that track the event's own token, not for teamfight-cluster membership
+    // (the fight is shown by its band). ObjectiveId/Title/Color keep the FIRST match
+    // (priority-lane color). Shared resolver so the timeline can't drift from the clipper.
     private static VodEventDto MapEvent(GameEvent e, IReadOnlyList<ObjectiveTie> matches)
     {
         var (kind, colorHex) = BucketEvent(e.EventType);
@@ -222,6 +241,30 @@ public sealed class VodSnapshotBuilder
             ObjectiveId: objId,
             ObjectiveTitle: objTitle,
             ObjectiveColorHex: objColor,
+            ObjectiveIds: objIds);
+    }
+
+    // A teamfight cluster → one synthetic TEAMFIGHT timeline event (the loud "TF" pin),
+    // tagged with the objective(s) that track teamfights. Anchored at the fight's start;
+    // the Summary carries the span + member count for the hover.
+    private static VodEventDto MapTeamfightCluster(TeamfightCluster c, long syntheticId)
+    {
+        var first = c.Objectives.Count > 0 ? c.Objectives[0] : default;
+        var objIds = c.Objectives.Count > 0 ? c.Objectives.Select(o => o.ObjectiveId).ToList() : null;
+        var memberCount = c.MemberEventIds.Count;
+        return new VodEventDto(
+            Id: syntheticId,
+            EventType: GameEvent.TrackableTokens.TeamfightToken, // "TEAMFIGHT"
+            GameTimeSeconds: c.StartS,
+            TimeLabel: FormatClock(c.StartS),
+            ShortLabel: "TF",
+            Label: "Teamfight",
+            Summary: $"{FormatClock(c.StartS)}–{FormatClock(c.EndS)} · {memberCount} events",
+            Kind: "teamfight",
+            ColorHex: TeamfightHex,
+            ObjectiveId: c.Objectives.Count > 0 ? first.ObjectiveId : null,
+            ObjectiveTitle: c.Objectives.Count > 0 ? first.Title : "",
+            ObjectiveColorHex: c.Objectives.Count > 0 ? first.Color : "",
             ObjectiveIds: objIds);
     }
 

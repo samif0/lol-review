@@ -616,6 +616,15 @@ async fn share_clip(payload: serde_json::Value) -> Result<serde_json::Value, Str
     sidecar::post_json_timeout("/api/clip/upload", payload, Duration::from_secs(300)).await
 }
 
+/// DESTRUCTIVE: fully delete a saved clip ({gameId, bookmarkId}) — the on-disk file,
+/// the DB rows (clip bookmark + evidence tie), and the uploaded copy if it was shared.
+/// The frontend MUST confirm before calling. Returns {ok, fileDeleted, remoteDeleted}.
+/// See Revu.Sidecar POST /api/clip/delete.
+#[tauri::command]
+async fn delete_clip(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/clip/delete", payload).await
+}
+
 // ── Riot-API backfill (Batch 4) ───────────────────────────────────────────────
 
 /// Backfills enemy laners + laning@10 for games missing them via the Riot Match-V5
@@ -940,6 +949,7 @@ pub fn run() {
             auth_clear_partial,
             get_auth_status,
             share_clip,
+            delete_clip,
             run_backfill,
             get_settings_status,
             scan_vods,

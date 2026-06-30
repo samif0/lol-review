@@ -109,7 +109,7 @@ public sealed class AutoClipService : IAutoClipService
                     note: note,
                     quality: "",
                     objectiveId: clip.ObjectiveId,
-                    sourceKey: AutoClipPlanner.SourceKey(gameId, clip.EventId));
+                    sourceKey: clip.SourceKey);
                 created++;
             }
             catch (Exception ex)

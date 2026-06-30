@@ -236,6 +236,58 @@ public sealed class VodRepository : IVodRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task<ClipDeletionInfo?> DeleteClipFullAsync(long bookmarkId)
+    {
+        using var conn = _factory.CreateConnection();
+
+        // Read the on-disk path + share URL BEFORE deleting — the caller needs them to
+        // delete the file and the uploaded copy, which live outside the DB.
+        string clipPath = "";
+        string shareUrl = "";
+        using (var read = conn.CreateCommand())
+        {
+            read.CommandText = "SELECT clip_path, share_url FROM vod_bookmarks WHERE id = @id LIMIT 1";
+            read.Parameters.AddWithValue("@id", bookmarkId);
+            using var reader = await read.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return null; // no such bookmark
+            clipPath = reader.IsDBNull(0) ? "" : reader.GetString(0);
+            shareUrl = reader.IsDBNull(1) ? "" : reader.GetString(1);
+        }
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // Drop any evidence ledger row that pointed at this clip (so it doesn't
+            // linger as a dangling "clip" entry on the objective). source_id holds the
+            // bookmark id for source_kind='clip'.
+            using (var ev = conn.CreateCommand())
+            {
+                ev.Transaction = tx;
+                ev.CommandText = "DELETE FROM evidence_items WHERE source_kind = @kind AND source_id = @id";
+                ev.Parameters.AddWithValue("@kind", EvidenceKinds.Clip);
+                ev.Parameters.AddWithValue("@id", bookmarkId);
+                await ev.ExecuteNonQueryAsync();
+            }
+
+            using (var bm = conn.CreateCommand())
+            {
+                bm.Transaction = tx;
+                bm.CommandText = "DELETE FROM vod_bookmarks WHERE id = @id";
+                bm.Parameters.AddWithValue("@id", bookmarkId);
+                await bm.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+
+        return new ClipDeletionInfo(clipPath, shareUrl);
+    }
+
     public async Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
