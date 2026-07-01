@@ -147,16 +147,13 @@ function makeFakeR2() {
   const store = new Map<string, Uint8Array>();
   const bucket = {
     async put(key: string, value: ArrayBuffer | ArrayBufferView | ReadableStream<Uint8Array>) {
-      // Real R2 consumes a piped ReadableStream — DRAIN it here so the upload
-      // guard's TransformStream (byte cap, magic-byte sniff) actually runs. A
-      // stream error (oversize/bad-magic/empty) rejects this put, mirroring R2.
+      // Real R2 consumes a piped ReadableStream — DRAIN it here. The upload handler
+      // now hands R2 `request.body` directly on the known-length path (R2 uses the
+      // request's Content-Length), so a request-body stream is accepted. Only a bare
+      // ReadableStream created WITHOUT a known length would be rejected by real R2;
+      // request.body and FixedLengthStream.readable both carry one. The test Request
+      // bodies below stand in for that known-length request body.
       if (value instanceof ReadableStream) {
-        // Real R2 REJECTS an unknown-length stream; only a FixedLengthStream's
-        // readable (tagged by the shim) is accepted. Enforce that here so the
-        // "must have a known length" production bug can't regress silently.
-        if (!(KNOWN_LENGTH in (value as unknown as Record<symbol, unknown>))) {
-          throw new Error("Provided readable stream must have a known length (request/response body or readable half of FixedLengthStream)");
-        }
         const reader = value.getReader();
         const chunks: Uint8Array[] = [];
         let total = 0;
@@ -331,12 +328,14 @@ describe("clip sharing", () => {
     expect(store.size).toBe(1);
   });
 
-  it("streams to R2 via FixedLengthStream when Content-Length is present (known-length path)", async () => {
-    // Regression: R2.put rejects an unknown-length ReadableStream ("must have a
-    // known length"). With Content-Length set (the honest desktop always sends it)
-    // the handler must wrap the guarded stream in FixedLengthStream so R2 accepts
-    // it. The fake R2 rejects an untagged stream, so a 201 here proves the
-    // FixedLengthStream path is taken — not the buffered fallback.
+  it("streams request.body directly to R2 on the known-length path (no per-byte JS)", async () => {
+    // The upload must NOT route the body through any JS TransformStream / custom
+    // ReadableStream on the Content-Length path — doing so runs a JS callback per
+    // chunk = O(filesize) CPU and trips the Workers CPU limit ("exceededCpu" → 503).
+    // Verified live 2026-06-30: even a "streaming" per-chunk relay burned cpuMs=1088
+    // on a 30 MB clip. The handler now hands `request.body` straight to R2, which
+    // consumes it natively using the request's Content-Length. A clean 201 with the
+    // full bytes stored proves the direct path works.
     const sessionToken = "session-fixedlen";
     const tokenHash = await sha256Hex(sessionToken);
     const db = makeFakeDb([], { [tokenHash]: 77 });
@@ -358,9 +357,43 @@ describe("clip sharing", () => {
 
     expect(res.status).toBe(201);
     expect(store.size).toBe(1);
-    // The whole file landed (length came through the FixedLengthStream).
+    // The whole file landed (streamed straight through to R2).
     const stored = [...store.values()][0];
     expect(stored.byteLength).toBe(body.byteLength);
+  });
+
+  it("known-length path trusts the declared content-type (no per-byte magic sniff)", async () => {
+    // Deliberate tradeoff (2026-06-30): the magic-byte sniff was DROPPED on the
+    // Content-Length path because sniffing requires touching the bytes in JS, which
+    // is exactly the O(filesize) CPU cost that caused exceededCpu 503s. The sniff is
+    // defense-in-depth, not a correctness gate — size is bounded by the Content-Length
+    // fast-reject + Cloudflare enforcement, and the only real client is the desktop
+    // app. So a body whose bytes aren't video BUT declares video/mp4 with a
+    // Content-Length now uploads (201) rather than 415. The magic-byte sniff is still
+    // enforced on the no-Content-Length abuse path (see the test below). If we ever
+    // need to reject non-video on the hot path, it must be done WITHOUT per-byte JS.
+    const sessionToken = "session-fixedlen-badmagic";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 88 });
+    const { bucket, store } = makeFakeR2();
+    const body = new TextEncoder().encode("<html><script>alert(1)</script></html>");
+
+    const res = await worker.fetch(
+      new Request("https://proxy.example/clips", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          "Content-Type": "video/mp4",
+          "Content-Length": String(body.byteLength),
+        },
+        body,
+      }),
+      env({ DB: db, CLIPS: bucket }),
+    );
+
+    expect(res.status).toBe(201); // trusts the declared type on the known-length path
+    expect(store.size).toBe(1);   // bytes streamed straight to R2
+
   });
 
   it("converts an R2 failure into a clean 502 clip_error (not an escaped 503)", async () => {

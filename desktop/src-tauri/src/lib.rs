@@ -606,9 +606,10 @@ async fn get_auth_status() -> Result<serde_json::Value, String> {
 /// Uploads a saved clip publicly (revu.lol/<id>) and persists the URL on the
 /// bookmark ({gameId, bookmarkId, championName?, title?}). Returns {ok, shareUrl,
 /// alreadyShared}. If logged out / session expired, the sidecar returns 401 with
-/// needsLogin and clears the stale token — the frontend opens the inline login
-/// panel. The VOD player copies the URL to the clipboard after. See Revu.Sidecar
-/// POST /api/clip/upload.
+/// needsLogin — the frontend opens the inline login panel. The stored session
+/// token is left intact (NOT cleared) so a transient 401 can't lock the user
+/// out; only an explicit sign-out clears it. The VOD player copies the URL to
+/// the clipboard after. See Revu.Sidecar POST /api/clip/upload.
 #[tauri::command]
 async fn share_clip(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     // Clip bodies can be large; the sidecar caps the upload at 5 min, so give the
