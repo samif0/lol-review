@@ -93,10 +93,52 @@ public sealed class ObjectiveFocusPhasesTests
         {
             ObjectiveFocusPhases.Auto, ObjectiveFocusPhases.Laning,
             ObjectiveFocusPhases.MidLate, ObjectiveFocusPhases.Teamfight, ObjectiveFocusPhases.Any,
+            ObjectiveFocusPhases.Deaths,
         })
         {
             var idx = ObjectiveFocusPhases.ToIndex(phase);
             Assert.Equal(phase, ObjectiveFocusPhases.FromIndex(idx));
         }
+    }
+
+    // ── Deaths focus (brief 2026-06-17-15) ──────────────────────────────────
+
+    [Theory]
+    [InlineData("deaths")]
+    [InlineData("Deaths")]
+    [InlineData("death")]
+    [InlineData("death-review")]
+    public void Normalize_RecognizesDeaths(string raw)
+    {
+        Assert.Equal(ObjectiveFocusPhases.Deaths, ObjectiveFocusPhases.Normalize(raw));
+    }
+
+    [Fact]
+    public void Deaths_IsIndexFive_AndKeepsExistingIndicesStable()
+    {
+        Assert.Equal(5, ObjectiveFocusPhases.ToIndex(ObjectiveFocusPhases.Deaths));
+        Assert.Equal(ObjectiveFocusPhases.Deaths, ObjectiveFocusPhases.FromIndex(5));
+        // The pre-existing 0-4 tags must not have shifted.
+        Assert.Equal(0, ObjectiveFocusPhases.ToIndex(ObjectiveFocusPhases.Auto));
+        Assert.Equal(4, ObjectiveFocusPhases.ToIndex(ObjectiveFocusPhases.Any));
+    }
+
+    [Fact]
+    public void Deaths_ExplicitTagWinsOverInference()
+    {
+        var resolved = ObjectiveFocusPhases.Resolve(
+            ObjectiveFocusPhases.Deaths, "Last hit under tower in lane", "");
+        Assert.Equal(ObjectiveFocusPhases.Deaths, resolved);
+    }
+
+    [Theory]
+    // Deaths matches every window (a death can happen any phase) — like Any.
+    [InlineData(120, true)]
+    [InlineData(900, true)]
+    [InlineData(2000, true)]
+    public void Deaths_MatchesEveryClipWindow(int clipTimeS, bool expected)
+    {
+        Assert.Equal(expected,
+            ObjectiveFocusPhases.MatchesClipTime(ObjectiveFocusPhases.Deaths, clipTimeS, gameDurationS: 2400));
     }
 }

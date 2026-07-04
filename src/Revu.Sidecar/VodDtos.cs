@@ -42,6 +42,10 @@ public sealed record VodBookmarkDto(
     // Objective this bookmark/clip is tagged to (null = untagged). Lets a clip-only
     // bookmark row pre-select its objective in the VOD player's objective picker.
     long? ObjectiveId = null,
+    // P-027: optional custom-prompt tag (from VodBookmarkRecord.PromptId). When set,
+    // the VOD player renders a small prompt badge on the bookmark/clip row; null when
+    // the bookmark answers no prompt. Surfaced so the picker's saved choice is visible.
+    long? PromptId = null,
     // Public share link (revu.lol/<id>) once the clip has been uploaded; "" until
     // shared. Drives the VOD player's Share-button label (Share vs Copy link).
     // The clip PATH itself stays server-side (resolved on POST /api/clip/upload).

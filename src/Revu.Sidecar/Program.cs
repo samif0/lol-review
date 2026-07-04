@@ -103,6 +103,13 @@ services.AddSingleton<IRulesRepository, RulesRepository>();
 services.AddSingleton<IVodRepository, VodRepository>();
 services.AddSingleton<ISessionLogRepository, SessionLogRepository>();
 services.AddSingleton<IEvidenceRepository, EvidenceRepository>();
+// Derived-event instances (teamfights/skirmishes/tower dives…) → VOD timeline
+// layer (P2). GET /api/derived reads GetInstancesAsync — a pure read via the
+// connection factory, so it belongs in the web-host container like its peers
+// (it is ALSO registered in the WriteServices graph for the capture-time
+// compute path; both share the same singleton contract). Without this the
+// endpoint-injected IDerivedEventsRepository can't resolve and the route 500s.
+services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
 // VOD event timeline (kills/deaths/objectives → colored markers). Read-only.
 // Also feeds the Review death audit (DEATH events → cause-chip rows).
 services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
@@ -592,6 +599,30 @@ app.MapGet("/api/objective", async (long id, ObjectiveEditSnapshotBuilder builde
 app.MapGet("/api/vod", async (long gameId, VodSnapshotBuilder builder, CancellationToken ct) =>
     Results.Json(await builder.BuildAsync(gameId, ct), jsonOptions));
 
+// ── GET /api/derived?gameId=N (token-gated): the BUILT derived-event instances
+// for one game, shaped for the VOD timeline. Reads the persisted instances via
+// IDerivedEventsRepository.GetInstancesAsync (computed/saved during game capture);
+// this endpoint never recomputes. sourceEventIds is intentionally dropped — the
+// timeline only needs id/definition/color/span/count/sourceTypes to draw + label
+// a region. Empty instances list (game never had derived events computed) is a
+// valid { ok:true, instances:[] }, not an error.
+app.MapGet("/api/derived", async (long gameId, IDerivedEventsRepository derived) =>
+{
+    var records = await derived.GetInstancesAsync(gameId);
+    var instances = records.Select(static r => new
+    {
+        id = r.Id,
+        definitionId = r.DefinitionId,
+        definitionName = r.DefinitionName,
+        color = r.Color,
+        startTimeSeconds = r.StartTimeSeconds,
+        endTimeSeconds = r.EndTimeSeconds,
+        eventCount = r.EventCount,
+        sourceTypes = r.SourceTypes,
+    });
+    return Results.Json(new { ok = true, instances }, jsonOptions);
+});
+
 // ── GET /api/review[?gameId=N] (token-gated): single-game review snapshot ────
 // With gameId, loads THAT game (clicking a game row); without, the sample subject.
 app.MapGet("/api/review", async (long? gameId, ReviewSnapshotBuilder builder, CancellationToken ct) =>
@@ -1016,6 +1047,28 @@ app.MapPost("/api/reset", async (ResetBody body, WriteServices w, ILogger<Progra
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
+// POST /api/pregame/ifthen  { plan } — R-002: author/confirm an if-then plan in the
+// PRE-CUE window (champ-select), so the plan PRE-DATES the trigger (Gollwitzer &
+// Sheeran / Schweiger Gallo 2009 — delegate the initiation decision to the planning
+// moment). Writes the plan to its existing home, tilt_checks.if_then_plan, as a
+// minimal row (emotion="pregame_plan") so GetLatestPlanAsync (≤14d) surfaces it on
+// the pregame intent card's ACTIVE PLAN row — closing the write-only/reactive-timing
+// gap (the plan was previously writable only from the post-loss Tilt reset ritual).
+// Descriptive, never scored. Backup-guarded like the other writes.
+app.MapPost("/api/pregame/ifthen", async (PreGameIfThenBody body, WriteServices w, ILogger<Program> log) =>
+{
+    var plan = body?.Plan?.Trim() ?? "";
+    if (plan.Length == 0)
+        return Results.BadRequest(new { error = "plan required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    await w.TiltChecks.SaveAsync(
+        emotion: "pregame_plan",
+        intensityBefore: 0,
+        ifThenPlan: plan);
+    log.LogInformation("Pre-queue if-then plan saved");
+    return Results.Json(new { ok = true }, jsonOptions);
+});
+
 // POST /api/config/save — read-modify-write the app config (Settings page +
 // dismiss-flag writers). Mirrors SettingsViewModel.SaveCommand EXACTLY: load the
 // whole config, mutate ONLY the fields present in the body (so unrelated keys —
@@ -1228,6 +1281,21 @@ app.MapPost("/api/evidence/objective", async (EvidenceObjectiveBody body, WriteS
         await w.Objectives.RecordGameAsync(body.GameId.Value, oid, practiced: true, executionNote: note);
     }
     log.LogInformation("Evidence {Id} -> objective {ObjectiveId}", body.EvidenceId, objectiveId);
+    return Results.Json(new { ok = true }, jsonOptions);
+});
+
+// POST /api/evidence/prompt  { evidenceId, promptId? }  (null/<=0 detaches)
+// P-027: tag an evidence row to the custom prompt it answers so the review can
+// group clips under that prompt. Independent of objective_id (both coexist) and
+// carries no score award — see IEvidenceRepository.UpdatePromptAsync.
+app.MapPost("/api/evidence/prompt", async (EvidencePromptBody body, WriteServices w, ILogger<Program> log) =>
+{
+    if (body is null || body.EvidenceId <= 0)
+        return Results.BadRequest(new { error = "evidenceId required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    long? promptId = (body.PromptId is > 0) ? body.PromptId : null;
+    await w.Evidence.UpdatePromptAsync(body.EvidenceId, promptId);
+    log.LogInformation("Evidence {Id} -> prompt {PromptId}", body.EvidenceId, promptId);
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
@@ -1626,28 +1694,47 @@ app.MapGet("/api/objectives/active", async (WriteServices w, ILogger<Program> lo
         }
         catch (Exception ex) { log.LogDebug(ex, "Active objectives: token map load failed (degraded)"); }
 
-        var rows = active
-            .Where(o => Revu.Core.Data.Repositories.ObjectivePhases.ShowsInPostGame(o.Phase))
-            .Select(o =>
+        var rows = new List<object>();
+        foreach (var o in active
+            .Where(o => Revu.Core.Data.Repositories.ObjectivePhases.ShowsInPostGame(o.Phase)))
+        {
+            // P-027: ship each objective's custom prompts for the VOD prompt-pickers.
+            // Per-objective failure degrades to an empty array, never the whole route.
+            var prompts = Array.Empty<object>();
+            try
             {
-                var toks = tokensByObjective.TryGetValue(o.Id, out var l) ? l : new List<string>();
-                return new
-                {
-                    objectiveId = o.Id,
-                    title = o.Title,
-                    phaseLabel = Revu.Core.Data.Repositories.ObjectivePhases.ToDisplayLabel(o.Phase),
-                    // Type drives the VOD objective-framed viewer's color-by-type chrome
-                    // (primary/mental/mini). Additive, read-only — no schema change.
-                    type = o.Type,
-                    isPriority = o.IsPriority,
-                    isMini = o.IsMini,
-                    // Tracked tokens → viewer token chips; tracksTeamfight gates whether
-                    // teamfight zones stay loud when this objective is focused.
-                    trackedTokens = toks,
-                    tracksTeamfight = toks.Contains(Revu.Core.Models.GameEvent.TrackableTokens.TeamfightToken),
-                };
-            })
-            .ToList();
+                prompts = (await w.Prompts.GetPromptsForObjectiveAsync(o.Id))
+                    .Select(p => (object)new
+                    {
+                        promptId = p.Id,
+                        label = p.Label,
+                        phase = p.Phase,
+                    })
+                    .ToArray();
+            }
+            catch (Exception px)
+            {
+                log.LogDebug(px, "Prompts load failed for objective {ObjectiveId} (degraded to empty)", o.Id);
+            }
+
+            var toks = tokensByObjective.TryGetValue(o.Id, out var l) ? l : new List<string>();
+            rows.Add(new
+            {
+                objectiveId = o.Id,
+                title = o.Title,
+                phaseLabel = Revu.Core.Data.Repositories.ObjectivePhases.ToDisplayLabel(o.Phase),
+                // Type drives the VOD objective-framed viewer's color-by-type chrome
+                // (primary/mental/mini). Additive, read-only — no schema change.
+                type = o.Type,
+                isPriority = o.IsPriority,
+                isMini = o.IsMini,
+                // Tracked tokens → viewer token chips; tracksTeamfight gates whether
+                // teamfight zones stay loud when this objective is focused.
+                trackedTokens = toks,
+                tracksTeamfight = toks.Contains(Revu.Core.Models.GameEvent.TrackableTokens.TeamfightToken),
+                prompts,
+            });
+        }
         return Results.Json(new { ok = true, objectives = rows }, jsonOptions);
     }
     catch (Exception ex)
@@ -2500,6 +2587,9 @@ internal sealed record EvidencePolarityBody(long EvidenceId, string? Polarity);
 // ObjectiveId null/<=0 detaches; GameId (optional) lets attach also mark the
 // objective practiced for that game (mirrors the WinUI evidence-attach flow).
 internal sealed record EvidenceObjectiveBody(long EvidenceId, long? ObjectiveId, long? GameId);
+// P-027: PromptId null/<=0 detaches. Tags the evidence row to a custom prompt
+// (independent of objective_id) so the review groups clips under the prompt.
+internal sealed record EvidencePromptBody(long EvidenceId, long? PromptId);
 internal sealed record EvidenceStatusBody(long EvidenceId, string? Status);
 // Per-death cause classification, keyed on (gameId, timeS).
 internal sealed record DeathClassifyBody(long GameId, int TimeS, string Key);
@@ -2752,3 +2842,4 @@ internal sealed record PreGameMoodBody(int Mood);
 internal sealed record PreGameIntentBody(string? Intention, string? Source, bool Cleared);
 internal sealed record PreGamePracticedBody(List<long>? ObjectiveIds);
 internal sealed record PreGameDraftBody(long PromptId, string? Text);
+internal sealed record PreGameIfThenBody(string? Plan);

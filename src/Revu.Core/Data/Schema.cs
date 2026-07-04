@@ -25,7 +25,15 @@ public static class Schema
     //               analytics can be scoped to one account (P3a, v3.1.2).
     //               Forward-only: existing rows keep '' and the lenient scope
     //               treats '' as the player's own history.
-    public const int CurrentAppSchemaVersion = 9;
+    // v10 (2026-07): evidence_items.prompt_id — tag a clip/auto-moment to the
+    //               custom prompt it answers, for the prompt-centric review
+    //               (P-027, brief 2026-06-17). NULL when untagged. Shipped as
+    //               "v8" in the 3.0.11/3.0.12 side-branch releases; renumbered
+    //               to 10 here because main-line v8 was objective_event_types.
+    //               Safe both ways: the runner tolerates duplicate-column and
+    //               objective_event_types is CREATE IF NOT EXISTS in
+    //               AllCreateStatements.
+    public const int CurrentAppSchemaVersion = 10;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -746,6 +754,21 @@ public static class Schema
         CreateObjectiveEventTypesIndex,
     ];
 
+    /// <summary>
+    /// v3.x (P-027, brief 2026-06-17-15/16): tag an evidence item (auto-clip,
+    /// death-audit moment, bookmark-derived row) to a specific custom prompt, so
+    /// the post-game review can group clips under the prompt they answer — the
+    /// same link <c>vod_bookmarks.prompt_id</c> already carries, now on the
+    /// evidence-bearing path so AUTO moments (which live only in evidence_items,
+    /// not vod_bookmarks) can answer a prompt too. NULL = untagged. objective_id
+    /// stays populated for backwards-compat queries. ALTER-only, never overwrites
+    /// existing rows.
+    /// </summary>
+    public static readonly string[] MigrateEvidencePromptId =
+    [
+        "ALTER TABLE evidence_items ADD COLUMN prompt_id INTEGER",
+    ];
+
     public static readonly string[] MigrateBookmarksClipColumns =
     [
         "ALTER TABLE vod_bookmarks ADD COLUMN clip_start_s INTEGER",
@@ -1074,6 +1097,10 @@ public static class Schema
         // v3.1.2 (schema v9): games.puuid — stamp the stable Riot account id at
         // capture for account-scoped analytics (P3a). Forward-only; '' = legacy.
         new(9, "games-puuid", MigrateGamesPuuid),
+        // v3.x (schema v10): evidence_items.prompt_id — clips/auto-moments tag
+        // to a custom prompt for the prompt-centric review (P-027). Shipped as
+        // "v8" in the 3.0.11/3.0.12 side-branch; duplicate-column tolerant.
+        new(10, "evidence-prompt-id", MigrateEvidencePromptId),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

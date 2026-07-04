@@ -135,6 +135,90 @@ public sealed class EvidenceRepositoryTests
     }
 
     [Fact]
+    public async Task PromptId_RoundTripsThroughUpsertAndUpdate_IndependentlyOfObjective()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var gameId = await scope.Games.SaveManualAsync("Ahri", true);
+        var objectiveId = await scope.Objectives.CreateAsync("Roam after pushing", "macro");
+        var promptId = await scope.Prompts.CreatePromptAsync(
+            objectiveId, ObjectivePhases.InGame, "Did you ping before roaming?", 0);
+        var otherPromptId = await scope.Prompts.CreatePromptAsync(
+            objectiveId, ObjectivePhases.InGame, "Was the wave pushing?", 1);
+
+        // Upsert a clip already tagged to BOTH an objective and a prompt.
+        var evidenceId = await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.Clip,
+            SourceId: 5,
+            SourceKey: "clip:5",
+            StartTimeSeconds: 300,
+            EndTimeSeconds: 320,
+            Title: "Roam clip",
+            ObjectiveId: objectiveId,
+            PromptId: promptId,
+            Status: EvidenceStatuses.Evidence));
+
+        var row = Assert.Single(await scope.Evidence.GetForGameAsync(gameId));
+        Assert.Equal(promptId, row.PromptId);
+        Assert.Equal(objectiveId, row.ObjectiveId);
+
+        // Re-tag to a different prompt — objective must stay untouched.
+        await scope.Evidence.UpdatePromptAsync(evidenceId, otherPromptId);
+        row = Assert.Single(await scope.Evidence.GetForGameAsync(gameId));
+        Assert.Equal(otherPromptId, row.PromptId);
+        Assert.Equal(objectiveId, row.ObjectiveId);
+
+        // Detach the prompt (null) — objective still coexists.
+        await scope.Evidence.UpdatePromptAsync(evidenceId, null);
+        row = Assert.Single(await scope.Evidence.GetForGameAsync(gameId));
+        Assert.Null(row.PromptId);
+        Assert.Equal(objectiveId, row.ObjectiveId);
+
+        // Untagged-by-default: an upsert with no PromptId leaves it null.
+        var untaggedId = await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.TimelineRegion,
+            SourceId: null,
+            SourceKey: "auto-moment-1",
+            StartTimeSeconds: 100,
+            EndTimeSeconds: 120,
+            Title: "Auto moment"));
+        var untagged = (await scope.Evidence.GetForGameAsync(gameId))
+            .Single(r => r.Id == untaggedId);
+        Assert.Null(untagged.PromptId);
+        Assert.Null(untagged.ObjectiveId);
+    }
+
+    [Fact]
+    public async Task UpdatePromptAsync_DoesNotAwardObjectiveScore()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        var gameId = await scope.Games.SaveManualAsync("Ahri", true);
+        var objectiveId = await scope.Objectives.CreateAsync("Roam after pushing", "macro");
+        var promptId = await scope.Prompts.CreatePromptAsync(
+            objectiveId, ObjectivePhases.InGame, "Did you ping?", 0);
+
+        var evidenceId = await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.Clip,
+            SourceId: 9,
+            SourceKey: "clip:9",
+            StartTimeSeconds: 150,
+            EndTimeSeconds: 170,
+            Title: "Some clip"));
+
+        // Prompt tagging is organizational only — score stays at 0 (objective_id
+        // is the score-bearing path, exercised by the score test above).
+        await scope.Evidence.UpdatePromptAsync(evidenceId, promptId);
+        var obj = await scope.Objectives.GetAsync(objectiveId);
+        Assert.Equal(0, obj!.Score);
+    }
+
+    [Fact]
     public async Task GetPatternCardsAsync_FindsDeterministicFailurePatterns()
     {
         using var scope = new TestDatabaseScope();

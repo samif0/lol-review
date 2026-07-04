@@ -112,6 +112,7 @@ public sealed class ConfigSaveGuardsTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
+    [InlineData("\t")]
     public void TextWrite_NullOrBlank_LeavesUnchanged(string? value)
     {
         // The P-020 fingerprint: a Save before the Settings page hydrated sends
@@ -129,6 +130,15 @@ public sealed class ConfigSaveGuardsTests
     }
 
     [Fact]
+    public void TextWrite_HasNoClearSentinel()
+    {
+        // Unlike folders, the folder-clear sentinel is just an ordinary value here —
+        // it is trimmed and written, never treated as "clear" (no identity clear path).
+        Assert.True(ConfigSaveGuards.TryResolveTextWrite(ConfigSaveGuards.FolderClearSentinel, out var resolved));
+        Assert.Equal("__REVU_CLEAR__", resolved);
+    }
+
+    [Fact]
     public void EmptyRiotIdAndRegion_DoNotBlankConfiguredAccount()
     {
         // The exact recurrence guard: an unhydrated/empty Settings save must leave
@@ -142,6 +152,30 @@ public sealed class ConfigSaveGuardsTests
 
         Assert.Equal("chapy#na1", cfg.RiotId);
         Assert.Equal("na1", cfg.RiotRegion);
+    }
+
+    [Fact]
+    public void EmptyRiotInputs_DoNotBlankExistingIdentity_WhileOtherFieldsSave()
+    {
+        var cfg = new AppConfig
+        {
+            AscentFolder = @"C:\Users\me\Videos\Ascent",
+            RiotId = "bye#world",
+            RiotRegion = "na1",
+            RiotSessionExpiresAt = 9999999999, // a live session in the far future
+            PrimaryRole = "BOTTOM",
+        };
+
+        // The bug trigger: a save with empty riotId/region inputs (page not rendered)
+        // while an unrelated folder field carries a real value.
+        if (ConfigSaveGuards.TryResolveTextWrite("", out var rid)) cfg.RiotId = rid;
+        if (ConfigSaveGuards.TryResolveTextWrite("", out var rgn)) cfg.RiotRegion = rgn.ToLowerInvariant();
+        if (ConfigSaveGuards.TryResolveFolderWrite(@"C:\Users\me\Videos\Ascent", out var a)) cfg.AscentFolder = a;
+
+        Assert.Equal("bye#world", cfg.RiotId);          // identity survived
+        Assert.Equal("na1", cfg.RiotRegion);
+        Assert.Equal(9999999999, cfg.RiotSessionExpiresAt); // session untouched by config-save
+        Assert.Equal(@"C:\Users\me\Videos\Ascent", cfg.AscentFolder);
     }
 
     [Fact]

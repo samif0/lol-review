@@ -187,12 +187,13 @@
                 <button class="key vp-iobtn vp-clipclear" id="vp-clip-clear" data-action="clip_clear" type="button" hidden>Clear</button>
               </div>
               <input class="inp" id="vp-clip-note" type="text" placeholder="What's happening?" autocomplete="off">
-              <!-- Objective the clip is tied to. Auto-selected to the objective you're
-                   framed on, so saving needs NO manual pick — the dropdown already shows
-                   it. Change it here only if this clip belongs to a different objective,
-                   or pick "No objective (untag)" to save it unassigned. Populated +
-                   pre-selected by populateObjectivePicker() once objectives load. -->
-              <select class="inp" id="vp-clip-obj" style="margin-bottom:0" aria-label="Tie clip to objective">
+              <!-- Objective (or custom prompt — P-027) the clip is tied to. Auto-selected
+                   to the objective you're framed on, so saving needs NO manual pick — the
+                   dropdown already shows it. Change it here only if this clip belongs to a
+                   different objective or answers a specific prompt, or pick "No objective
+                   (untag)" to save it unassigned. Values encode obj:ID / prompt:OBJID:PID;
+                   populated + pre-selected by populateObjectivePicker() once objectives load. -->
+              <select class="inp" id="vp-clip-obj" style="margin-bottom:0" aria-label="Tie clip to objective or prompt">
                 <option value="">No objective</option>
               </select>
               <div class="qual" id="vp-clip-qual">
@@ -242,7 +243,6 @@
           <div class="card vp-moments-card">
             <div class="mhead">
               <div>
-                <div class="mtitle" style="margin-bottom:0">Moments to Review</div>
                 <div class="sub">Auto-picked moments, saved clips, and bookmarks.</div>
               </div>
               <span class="openbadge" id="vp-open-count">0 open</span>

@@ -126,6 +126,14 @@ async fn set_pregame_intent(payload: serde_json::Value) -> Result<serde_json::Va
     sidecar::post_json("/api/pregame/intent", payload).await
 }
 
+/// R-002: persists a PRE-QUEUE if-then plan ({ plan }) authored in champ-select to
+/// tilt_checks.if_then_plan, so it pre-dates the cue and shows on the intent card's
+/// ACTIVE PLAN row. See Revu.Sidecar POST /api/pregame/ifthen.
+#[tauri::command]
+async fn save_pregame_ifthen(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/pregame/ifthen", payload).await
+}
+
 /// Stages the set of PRACTICED objective ids ({ objectiveIds:[...] }) into the
 /// live state; recorded per-objective at game end. See Revu.Sidecar POST
 /// /api/pregame/practiced.
@@ -234,6 +242,13 @@ async fn get_patterns() -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn get_vod(game_id: i64) -> Result<serde_json::Value, String> {
     sidecar::get_json(&format!("/api/vod?gameId={game_id}")).await
+}
+
+/// Returns the derived-event instances JSON for a game ({ ok, instances:[...] }),
+/// shaped for the VOD timeline. See Revu.Sidecar GET /api/derived.
+#[tauri::command]
+async fn get_derived_events(game_id: i64) -> Result<serde_json::Value, String> {
+    sidecar::get_json(&format!("/api/derived?gameId={game_id}")).await
 }
 
 /// Returns the app-config snapshot JSON (see Revu.Sidecar /api/config).
@@ -374,6 +389,14 @@ async fn set_evidence_polarity(payload: serde_json::Value) -> Result<serde_json:
 #[tauri::command]
 async fn set_evidence_objective(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     sidecar::post_json("/api/evidence/objective", payload).await
+}
+
+/// P-027: tags/detaches an evidence row to the custom prompt it answers
+/// (promptId null/<=0 detaches). Independent of objective_id; no score award.
+/// See Revu.Sidecar POST /api/evidence/prompt.
+#[tauri::command]
+async fn set_evidence_prompt(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/evidence/prompt", payload).await
 }
 
 /// Sets an evidence row's status (needs_review|evidence|dismissed|highlight) —
@@ -902,6 +925,7 @@ pub fn run() {
             get_tiltcheck,
             get_patterns,
             get_vod,
+            get_derived_events,
             get_config,
             start_block,
             end_block,
@@ -921,6 +945,7 @@ pub fn run() {
             save_review_draft,
             set_evidence_polarity,
             set_evidence_objective,
+            set_evidence_prompt,
             set_evidence_status,
             classify_death,
             clear_death,
@@ -967,6 +992,7 @@ pub fn run() {
             start_lcu_events,
             set_pregame_mood,
             set_pregame_intent,
+            save_pregame_ifthen,
             set_pregame_practiced,
             save_pregame_draft,
             review_vod,

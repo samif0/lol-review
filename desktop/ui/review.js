@@ -183,6 +183,10 @@ function renderObjectives(subject) {
   show($('rv-obj-label'), true);
   show($('rv-obj-empty'), false);
 
+  // Objective options for every clip card's attach picker (id + title), built once
+  // from the active objectives the snapshot ships — no extra read.
+  const objectiveOptions = objs.map((o) => ({ id: Number(o.id), title: o.title }));
+
   for (const o of objs) {
     const el = tpl('tpl-objective');
     const progress = Math.max(0, Math.min(1, Number(o.progress) || 0));
@@ -245,9 +249,17 @@ function renderObjectives(subject) {
         }
         autoSize(ansInput);
       }
+      // P-027: the clips tagged to THIS prompt render directly under its answer.
+      renderClipList(row.querySelector('.rv-prompt-clips'),
+        p && p.clips, objectiveOptions);
       promptHost.appendChild(row);
     }
     show(promptHost, promptHost.childElementCount > 0);
+
+    // P-027 homing: clips tagged to this objective but NOT to any prompt render in
+    // an "Objective evidence (no prompt)" sub-block so they aren't lost.
+    renderClipList(el.querySelector('.rv-obj-unprompted-list'),
+      o.unpromptedClips, objectiveOptions, el.querySelector('.rv-obj-unprompted'));
 
     // Stamp the objective id; the execution note shows only when "Practiced" is on.
     el.dataset.objectiveId = String(o.id);
@@ -275,13 +287,29 @@ function renderObjectives(subject) {
 // ── render: editable review form ────────────────────────────────────────────
 // Each debrief field is an editable textarea, pre-filled with any saved value so
 // re-reviewing edits in place. The `key` is the save_review payload field name.
+// P-027 / 17-16: the per-moment specifics now live in the prompt/objective CLIPS,
+// so the general debrief slimmed down to the fields that still earn their place —
+// attribution, the Reframe pair (REAPPRAISAL_PAIR, appended in renderForm), and a
+// catch-all reviewNotes. The dropped boxes (wentWell / mistakes / focusNext /
+// spottedProblems) are no longer rendered; gatherForm ROUND-TRIPS their existing
+// saved values from _subject.form (NOT '') so a re-save can't blank a value an
+// older review/WinUI build wrote (the sidecar UPDATE is unconditional — see FIX-3).
 const FIELD_ORDER = [
-  ['wentWell',        'What went well',       'What clicked? wins, good reads…'],
-  ['mistakes',        'What could improve',   'Mistakes, missed reads, habits to fix…'],
-  ['focusNext',       'Focus next game',      'One thing to carry into the next queue…'],
-  ['spottedProblems', 'Spotted problems',     'Recurring problems you noticed…'],
   ['attribution',     'Attribution',          'My play / teammates / matchup / variance…'],
   ['reviewNotes',     'Review notes',         'Anything else worth keeping…'],
+];
+
+// R-001: the cognitive-reappraisal pair, rendered as ONE blame-vs-improvable unit
+// (not two stray fields). The "outside" box accepts the blame instinct; the
+// "within" box pulls the protective internal-control half — attribution retraining
+// WITH the blame instinct, not against it (Weiner/Dweck; brief 2026-06-16-03).
+// Both round-trip through the existing save_review payload (sidecar already carries
+// outsideControl/withinControl). Descriptive only — never scored or flagged.
+const REAPPRAISAL_PAIR = [
+  ['outsideControl', 'What was outside your control',
+    'Granting the game went sideways — what genuinely wasn’t on you?'],
+  ['withinControl', 'What you can still repeat',
+    'Whatever else happened, the ONE thing YOU could do again regardless…'],
 ];
 
 function parseTags(tagsJson) {
@@ -331,7 +359,10 @@ function renderForm(subject) {
   // Editable debrief textareas, pre-filled with any saved value.
   const fieldHost = $('rv-fields');
   clear(fieldHost);
-  for (const [key, label, placeholder] of FIELD_ORDER) {
+  // Build one editable field card (reused by the main list + the reappraisal pair).
+  // The card keeps the standard .rv-field-in class so gatherForm() picks every box
+  // up by data-field automatically — no extra collection code for the new pair.
+  const buildField = ([key, label, placeholder]) => {
     const el = tpl('tpl-field');
     const ta = el.querySelector('.rv-field-in');
     const lbl = el.querySelector('.rv-field-k');
@@ -343,8 +374,20 @@ function renderForm(subject) {
     ta.placeholder = placeholder;
     const val = f[key];
     if (typeof val === 'string') ta.value = val;
-    fieldHost.appendChild(el);
-  }
+    return el;
+  };
+  for (const spec of FIELD_ORDER) fieldHost.appendChild(buildField(spec));
+
+  // R-001: the cognitive-reappraisal pair as ONE labelled unit (blame box +
+  // improvable box), set off from the main fields so the two read together.
+  const pairWrap = document.createElement('div');
+  pairWrap.className = 'rv-reappraisal';
+  const pairHd = document.createElement('div');
+  pairHd.className = 'rv-reappraisal-hd';
+  pairHd.textContent = 'Reframe the loss';
+  pairWrap.appendChild(pairHd);
+  for (const spec of REAPPRAISAL_PAIR) pairWrap.appendChild(buildField(spec));
+  fieldHost.appendChild(pairWrap);
 
   // Concept tags — seed editable chips from the saved tagsJson.
   const tagHost = $('rv-tags');
@@ -352,9 +395,22 @@ function renderForm(subject) {
   for (const t of parseTags(f.tagsJson)) addTagChip(t);
   $('rv-tag-input').value = '';
 
-  // Reset the commit message between renders.
-  showCommit('', null);
+  // Reset the commit message between renders — UNLESS a write just set one that
+  // must survive the reload it triggered (e.g. "Review saved." after save_review,
+  // which re-fetches the snapshot the same tick → renderForm would otherwise wipe
+  // the confirmation that sits beside the Save button; brief 2026-06-17-17). When
+  // a pending message is queued, render it (and clear the queue) instead of blanking.
+  if (_pendingCommitMsg) {
+    showCommit(_pendingCommitMsg.text, _pendingCommitMsg.kind);
+    _pendingCommitMsg = null;
+  } else {
+    showCommit('', null);
+  }
 }
+
+// A commit message queued by a write that triggers a reload, so it survives the
+// renderForm() that the reload runs. Consumed (once) by renderForm.
+let _pendingCommitMsg = null;
 
 // ── render: focus check (Yes/Partly/No, immediate write) ────────────────────
 // Reflects the session intention (if the snapshot carries one) and the saved
@@ -426,6 +482,21 @@ function renderDeaths(subject) {
     const timeS = Number(d.gameTimeSeconds);
     el.dataset.timeS = String(Number.isFinite(timeS) ? timeS : 0);
     el.querySelector('.rv-death-time').textContent = d.timeText || '';
+
+    // "Watch" jumps to this game's VOD ~10s before the death so you can see it
+    // before tagging the cause (P-006/P-010, brief 2026-06-17-15). Reuses the
+    // delegated view_moment handler (reads _subject.gameId + data-seek). Shown
+    // whenever the death has a real game time; the VOD page shows its own
+    // "no recording" state if the game has no recording (same as evidence rows).
+    const jump = el.querySelector('.rv-death-jump');
+    if (jump && Number.isFinite(timeS) && timeS > 0) {
+      const seek = Math.max(0, Math.floor(timeS) - 10);
+      jump.dataset.seek = String(seek);
+      show(jump, true);
+    } else if (jump) {
+      jump.remove();
+    }
+
     const cause = el.querySelector('.rv-death-cause');
     if (d.isClassified && d.selectedLabel) {
       cause.textContent = d.selectedLabel;
@@ -479,105 +550,114 @@ async function onDeathChipClick(chip) {
 }
 
 // ── render: evidence triage (immediate writes) ──────────────────────────────
-// Two lists: ATTACHED (tagged/clip/triaged moments, capped) and EVIDENCE TO
-// SORT (unassigned, uncapped). Each row shows time + title + polarity dot +
-// objective tag + status, plus triage controls:
-//   • Good / Bad   → set_evidence_polarity  (promotes out of needs_review)
-//   • Attach picker→ set_evidence_objective (marks the objective practiced)
-//   • Dismiss      → set_evidence_status (status='dismissed'); removed in place
-// The picker options are built from the active objectives the snapshot ships.
-// EVIDENCE TO SORT rows show all controls; ATTACHED rows show only the picker
-// (to re-assign/detach) + Dismiss (Good/Bad already implied by being triaged).
-function evidRow(item, objectiveOptions, isAttached) {
-  const el = tpl('tpl-evid');
-  const id = Number(item.id);
+// P-027 replaced the old two-list evidence UI (ATTACHED / EVIDENCE TO SORT) with
+// prompt-centric homing: clips render UNDER their prompt, under an objective's
+// "no prompt" sub-block, or (fully untagged) in the top-level To-sort strip. The
+// triage controls (Good/Bad/attach/dismiss) ride each clip card via the SAME
+// data-evid-action wiring (onEvidenceAction), so triage still works. The old
+// evidRow/renderEvidence were dropped; the set_evidence_* writes are unchanged.
+
+// ── render: prompt-centric clip cards (P-027) ────────────────────────────────
+// Build ONE clip card from a ReviewPromptClipDto (evidenceId, timeText, note,
+// startSeconds, polarity, polarityColorHex, shareUrl). Clicking the card jumps to
+// the VOD AT the clip: vodplayer.html?gameId=N&t=startSeconds&clip=evidenceId (the
+// &clip deep-link the VOD player consumes to highlight that exact clip). The same
+// triage controls as the old evidence rows ride along (Good/Bad/attach/dismiss) so
+// triage still works now that clips live under prompts + the sub-block + To-sort.
+function clipCard(clip, objectiveOptions) {
+  const el = tpl('tpl-clip');
+  const id = Number(clip.evidenceId);
   el.dataset.evidId = String(Number.isFinite(id) ? id : 0);
 
-  // Make the moment card jump to the VOD at its start time. Only when we have a
-  // real seek point — moments without a timestamp aren't clickable. The click is
-  // routed through the delegated handler (data-action), which ignores clicks that
-  // land on the inner triage controls so Good/Bad/picker/Dismiss still work.
-  const seek = Number(item.startTimeSeconds);
+  // Jump-to-VOD deep-link. Only when there's a real start second; the delegated
+  // view_moment handler reads data-seek + (P-027) data-clip to build the &clip= URL
+  // and ignores clicks that land on the inner triage controls.
+  const seek = Number(clip.startSeconds);
   if (Number.isFinite(seek) && seek > 0) {
     el.dataset.action = 'view_moment';
     el.dataset.seek = String(Math.floor(seek));
+    if (Number.isFinite(id) && id > 0) el.dataset.clip = String(id);
     el.classList.add('rv-evid-clickable');
     el.setAttribute('role', 'button');
     el.tabIndex = 0;
   }
 
   const dot = el.querySelector('.rv-evid-dot');
-  if (item.polarityColorHex) dot.style.background = item.polarityColorHex;
+  if (clip.polarityColorHex) dot.style.background = clip.polarityColorHex;
 
   const timeEl = el.querySelector('.rv-evid-time');
-  if (item.timeText) { timeEl.textContent = item.timeText; show(timeEl, true); }
-  el.querySelector('.rv-evid-title').textContent = item.title || '(untitled moment)';
+  if (clip.timeText) { timeEl.textContent = clip.timeText; show(timeEl, true); }
 
-  const noteEl = el.querySelector('.rv-evid-note');
-  const note = String(item.note || '').trim();
-  if (note) { noteEl.textContent = note; show(noteEl, true); }
+  // The note is the clip's headline here (clips have no separate title); fall back
+  // to a neutral placeholder so an untitled moment still reads as a row.
+  const noteEl = el.querySelector('.rv-clip-note');
+  noteEl.textContent = String(clip.note || '').trim() || '(clip)';
 
-  const objEl = el.querySelector('.rv-evid-obj');
-  const objTitle = String(item.objectiveTitle || '').trim();
-  if (objTitle) { objEl.textContent = objTitle; show(objEl, true); }
-
-  el.querySelector('.rv-evid-status').textContent = item.statusLabel || '';
-
-  // ── Triage controls ──
-  const actions = el.querySelector('.rv-evid-actions');
-  show(actions, true);
-
-  // Polarity buttons reflect the current polarity; hidden on ATTACHED rows.
-  const goodBtn = el.querySelector('.rv-evid-good');
-  const badBtn = el.querySelector('.rv-evid-bad');
-  if (isAttached) {
-    if (goodBtn) goodBtn.remove();
-    if (badBtn) badBtn.remove();
-  } else {
-    if (item.polarity === 'good' && goodBtn) goodBtn.classList.add('on');
-    if (item.polarity === 'bad' && badBtn) badBtn.classList.add('on');
+  // Public share link (revu.lol/<id>) when the bookmark was uploaded; hidden until
+  // shared. A real href so it opens externally; click is stopped from the card jump.
+  const shareEl = el.querySelector('.rv-clip-share');
+  const share = String(clip.shareUrl || '').trim();
+  if (shareEl) {
+    if (share) {
+      shareEl.textContent = 'Share link';
+      shareEl.href = share;
+      // Don't let the share-link click bubble into the card's VOD jump.
+      shareEl.addEventListener('click', (e) => e.stopPropagation());
+      show(shareEl, true);
+    } else {
+      shareEl.remove();
+    }
   }
 
-  // Objective picker: "(no objective)" + each active objective; current selected.
+  // Triage controls — same as the old evidence rows. Reflect current polarity.
+  show(el.querySelector('.rv-evid-actions'), true);
+  const goodBtn = el.querySelector('.rv-evid-good');
+  const badBtn = el.querySelector('.rv-evid-bad');
+  if (clip.polarity === 'good' && goodBtn) goodBtn.classList.add('on');
+  if (clip.polarity === 'bad' && badBtn) badBtn.classList.add('on');
+
+  // Objective picker: "(no objective)" + each active objective. The clip dto does
+  // not carry its current objectiveId, so we don't pre-select — the picker is for
+  // (re)attaching, and the clip already renders under its prompt/objective group.
   const pick = el.querySelector('.rv-evid-pick');
   if (pick) {
     const none = document.createElement('option');
     none.value = '';
     none.textContent = 'Attach to objective…';
     pick.appendChild(none);
-    const curObj = item.objectiveId != null ? Number(item.objectiveId) : null;
-    for (const o of objectiveOptions) {
+    for (const o of (objectiveOptions || [])) {
       const opt = document.createElement('option');
       opt.value = String(o.id);
       opt.textContent = o.title || `Objective ${o.id}`;
-      if (curObj != null && Number(o.id) === curObj) opt.selected = true;
       pick.appendChild(opt);
     }
   }
   return el;
 }
 
-function renderEvidence(subject) {
-  const ev = subject.evidence || {};
-  const attached = Array.isArray(ev.attached) ? ev.attached : [];
-  const unassigned = Array.isArray(ev.unassigned) ? ev.unassigned : [];
+// Populate a `.rv-clips` host with clip cards; toggle the host (and its enclosing
+// wrapper, if given) on whether there are any. Returns the count rendered.
+function renderClipList(host, clips, objectiveOptions, wrapper) {
+  if (!host) return 0;
+  clear(host);
+  const list = Array.isArray(clips) ? clips : [];
+  for (const c of list) host.appendChild(clipCard(c, objectiveOptions));
+  show(host, list.length > 0);
+  if (wrapper) show(wrapper, list.length > 0);
+  return list.length;
+}
 
-  // Objective options for the attach picker come from the active objectives the
-  // snapshot already ships (id + title), so no extra read is needed.
+// ── render: TO-SORT strip (P-027 homing) ─────────────────────────────────────
+// Fully-untagged auto-moments for this game (no objective AND no prompt). The
+// prompt clips + per-objective no-prompt clips render inline under the objectives;
+// these leftovers home into a single top-level strip so nothing is unreachable now
+// that the old two-list evidence UI is gone.
+function renderUnsorted(subject) {
+  const clips = Array.isArray(subject.unsortedClips) ? subject.unsortedClips : [];
   const objs = Array.isArray(subject.objectives) ? subject.objectives : [];
   const objectiveOptions = objs.map((o) => ({ id: Number(o.id), title: o.title }));
-
-  const attachedHost = $('rv-evid-attached');
-  const unassignedHost = $('rv-evid-unassigned');
-  clear(attachedHost);
-  clear(unassignedHost);
-
-  for (const it of attached) attachedHost.appendChild(evidRow(it, objectiveOptions, true));
-  for (const it of unassigned) unassignedHost.appendChild(evidRow(it, objectiveOptions, false));
-
-  show($('rv-evid-attached-label'), attached.length > 0);
-  show($('rv-evid-unassigned-label'), unassigned.length > 0);
-  show($('rv-evidsec'), attached.length > 0 || unassigned.length > 0);
+  const n = renderClipList($('rv-tosort'), clips, objectiveOptions);
+  show($('rv-tosortsec'), n > 0);
 }
 
 // Handle an evidence triage control (Good/Bad/Dismiss button or objective <select>).
@@ -605,6 +685,7 @@ async function onEvidenceAction(action, el) {
     row.remove();
     await postWrite('set_evidence_status', { evidenceId, status: 'dismissed' });
   } else if (action === 'objective') {
+    // The <select> already shows the chosen value; just persist it.
     const raw = el.value;
     const objectiveId = raw ? Number(raw) : null;
     await postWrite('set_evidence_objective', { evidenceId, objectiveId, gameId });
@@ -717,17 +798,28 @@ function gatherForm() {
   const litFocus = document.querySelector('#rv-focus .rv-focus-btn.on');
   const focusAdherence = litFocus ? Number(litFocus.dataset.focus) : null;
 
+  // P-027 / 17-16: these four prose boxes were removed from the form (specifics
+  // live in the clips now). They're no longer RENDERED, but the save path does a
+  // blind UPDATE of these columns — so we must NOT send '' (that would silently
+  // blank any value an older review/WinUI build wrote). Round-trip the existing
+  // saved value off the loaded snapshot so a re-save leaves them untouched. Still
+  // clearable in any future build that re-renders them.
+  const savedForm = _subject.form || {};
+
   return {
     gameId: Number(_subject.gameId),
     championName: h.championName || '',
     win: !!h.win,
     mentalRating: Number($('rv-mental-input').value) || 0,
-    wentWell: fields.wentWell || '',
-    mistakes: fields.mistakes || '',
-    focusNext: fields.focusNext || '',
-    spottedProblems: fields.spottedProblems || '',
+    wentWell: typeof savedForm.wentWell === 'string' ? savedForm.wentWell : '',
+    mistakes: typeof savedForm.mistakes === 'string' ? savedForm.mistakes : '',
+    focusNext: typeof savedForm.focusNext === 'string' ? savedForm.focusNext : '',
+    spottedProblems: typeof savedForm.spottedProblems === 'string' ? savedForm.spottedProblems : '',
     attribution: fields.attribution || '',
     reviewNotes: fields.reviewNotes || '',
+    // R-001 reappraisal pair (round-trips to games.outside_control/within_control).
+    outsideControl: fields.outsideControl || '',
+    withinControl: fields.withinControl || '',
     selectedTagIds,
     freeTextTags,
     objectivePractices,
@@ -748,6 +840,9 @@ function showCommit(text, kind) {
 // ── empty / error states ────────────────────────────────────────────────────
 function renderEmpty() {
   _subject = null;
+  // The form isn't rendered in the empty state, so a queued commit message would
+  // otherwise leak onto a later render — drop it here.
+  _pendingCommitMsg = null;
   show($('rv-hero'), false);
   show($('rv-body'), false);
   show($('rv-empty'), true);
@@ -768,13 +863,13 @@ function playEntrance() {
   if (_entranceDone) return;
   _entranceDone = true;
   // Reflects the on-page order: hero → objectives (the focus) → stats → death
-  // audit → evidence → debrief form.
+  // audit → to-sort strip → debrief form.
   const order = [
     $('rv-hero'),
     $('rv-objsec'),
     $('rv-strip'),
     $('rv-deathsec'),
-    $('rv-evidsec'),
+    $('rv-tosortsec'),
     $('rv-form'),
   ].filter((el) => el && !el.hidden);
   order.forEach((el, i) => {
@@ -799,7 +894,7 @@ function render(d) {
   renderObjectives(subject);
   renderFocus(subject);
   renderDeaths(subject);
-  renderEvidence(subject);
+  renderUnsorted(subject);
   renderForm(subject);
   renderTagCatalog(subject);
   renderMatchupHistory(subject);
@@ -956,14 +1051,21 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
-  // Clicking a moment/evidence card jumps to that game's VOD at the moment's start
-  // time (vodplayer reads ?t=seconds). gameId is the loaded subject's.
+  // Clicking a moment/evidence/clip card jumps to that game's VOD at the moment's
+  // start time (vodplayer reads ?t=seconds). gameId is the loaded subject's. P-027:
+  // a clip card also stamps data-clip with its evidenceId, so we append &clip=ID —
+  // the deep-link the VOD player consumes to highlight that exact clip.
   if (action === 'view_moment') {
     const gid = (_subject && _subject.gameId) || target.dataset.gameId;
     const t = Number(target.dataset.seek) || 0;
     if (gid && t > 0) {
-      window.location.href =
+      let url =
         `vodplayer.html?gameId=${encodeURIComponent(gid)}&t=${encodeURIComponent(t)}`;
+      const clipId = Number(target.dataset.clip);
+      if (Number.isFinite(clipId) && clipId > 0) {
+        url += `&clip=${encodeURIComponent(clipId)}`;
+      }
+      window.location.href = url;
     }
     return;
   }
@@ -1070,20 +1172,20 @@ document.addEventListener('click', async (ev) => {
     // save_review / skip_review take a single `payload` arg in Rust — wrap the
     // gathered form/body so Tauri doesn't reject with "missing required key payload".
     await invoke(action, { payload: args });
-    // RE-FETCH so the UI reflects the committed state (next subject / reviewed mark).
-    // The confirmation is shown AFTER the reload — renderForm() resets the commit
-    // line on every render, so setting it before loadReview() would be wiped instantly
-    // (why "Review saved." never appeared).
+    // RE-FETCH so the UI reflects the committed state (next subject / reviewed
+    // mark). Queue the confirmation so it SURVIVES the renderForm() the reload
+    // runs — renderForm resets the commit line on every render, so a plain
+    // showCommit() would flash and die the same tick (brief 2026-06-17-17).
+    if (action === 'save_review') _pendingCommitMsg = { text: 'Review saved.', kind: 'ok' };
+    if (action === 'skip_review') _pendingCommitMsg = { text: 'Game skipped.', kind: 'ok' };
     if (action === 'save_review' || action === 'skip_review') {
       await loadReview();
     }
     if (action === 'save_review') {
-      showCommit('Review saved.', 'ok');
       window.dispatchEvent(new CustomEvent('revu:first-review-review-saved', {
         detail: { gameId: args.gameId },
       }));
     }
-    if (action === 'skip_review') showCommit('Game skipped.', 'ok');
   } catch (err) {
     renderError(err);
     showCommit((err && err.message) ? err.message : 'Save failed.', 'err');

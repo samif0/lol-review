@@ -225,6 +225,17 @@ document.addEventListener('click', (ev) => {
   }
 });
 
+// Keyboard activation for the role="button" game rows (Enter / Space). The
+// nested Watch VOD <button> handles its own keys natively (it isn't role=button),
+// so a focused VOD button won't also fire the row's review_game.
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  const target = ev.target.closest('[data-action][role="button"]');
+  if (!target) return;
+  ev.preventDefault();
+  target.click();
+});
+
 // ── boot ────────────────────────────────────────────────────────────────────
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', load);

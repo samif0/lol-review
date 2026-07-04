@@ -23,6 +23,13 @@ public static class ObjectiveFocusPhases
     public const string MidLate = "midlate";
     public const string Teamfight = "teamfight";
     public const string Any = "any";
+    // v3.x (brief 2026-06-17-15): a "Deaths" focus for objectives about reviewing
+    // every death (e.g. objective #27 "Review every single death"), which had no
+    // home in the picker and was forced to Any. At the time-window level Deaths
+    // behaves like Any (a death can happen any phase); the death-keyed clip match
+    // is deferred follow-up work. The tag exists so the objective is legible and
+    // the picker offers the right intent.
+    public const string Deaths = "deaths";
 
     public static string Normalize(string? value)
     {
@@ -38,18 +45,21 @@ public static class ObjectiveFocusPhases
             "laning" or "lane" or "early" or "earlygame" => Laning,
             "midlate" or "mid" or "late" or "midgame" or "lategame" => MidLate,
             "teamfight" or "teamfighting" or "fight" or "fighting" => Teamfight,
+            "deaths" or "death" or "dying" or "deathreview" => Deaths,
             "any" or "all" => Any,
             _ => Auto,
         };
     }
 
-    /// <summary>ComboBox index: 0 Auto, 1 Laning, 2 Mid/Late, 3 Teamfight, 4 Any.</summary>
+    /// <summary>ComboBox index: 0 Auto, 1 Laning, 2 Mid/Late, 3 Teamfight, 4 Any,
+    /// 5 Deaths. (Deaths is last so existing 0-4 tags keep their index.)</summary>
     public static int ToIndex(string? value) => Normalize(value) switch
     {
         Laning => 1,
         MidLate => 2,
         Teamfight => 3,
         Any => 4,
+        Deaths => 5,
         _ => 0,
     };
 
@@ -59,6 +69,7 @@ public static class ObjectiveFocusPhases
         2 => MidLate,
         3 => Teamfight,
         4 => Any,
+        5 => Deaths,
         _ => Auto,
     };
 
@@ -67,6 +78,7 @@ public static class ObjectiveFocusPhases
         Laning => "Laning / early game",
         MidLate => "Mid / late game",
         Teamfight => "Teamfighting",
+        Deaths => "Deaths",
         Any => "Any phase",
         _ => "Auto (from title)",
     };
@@ -233,7 +245,10 @@ public static class ObjectiveFocusPhases
             Laning => clipGameTimeS < LanePhaseSeconds,
             MidLate => clipGameTimeS >= LanePhaseSeconds,
             Teamfight => clipGameTimeS >= LanePhaseSeconds,
-            _ => true, // Any (and Auto-resolved-to-Any)
+            // Any, Auto-resolved-to-Any, and Deaths all match every window (a
+            // death can happen in any phase; death-event-keyed matching is
+            // deferred follow-up, brief 2026-06-17-15).
+            _ => true,
         };
     }
 

@@ -21,7 +21,7 @@ function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s 
 let _vod = null;       // the loaded VOD snapshot
 let _core = null;      // cached Tauri core ({invoke, convertFileSrc}) or null
 let _gameId = 0;       // the game id from ?gameId=N
-let _objectives = [];  // active objectives for the Quick Bookmark objective picker
+let _objectives = [];  // active objectives (with prompts) for the objective/prompt pickers
 let _autoClipEnabled = false; // config.autoClipObjectivesEnabled — gates the auto-clip button
 let _autoClipBusy = false;    // true while an auto-clip run is in flight
 let _autoClipHintMsg = '';    // last auto-clip result message (survives objbar re-render)
@@ -159,7 +159,7 @@ async function fetchVod() {
   _core = core;
   if (core && gameId > 0) {
     const data = await core.invoke('get_vod', { gameId });
-    // Best-effort: active objectives feed the Quick Bookmark objective picker.
+    // Best-effort: active objectives (+ their prompts) feed the objective/prompt pickers.
     try {
       const r = await core.invoke('get_active_objectives');
       _objectives = Array.isArray(r && r.objectives) ? r.objectives : [];
@@ -851,6 +851,7 @@ function normMoment(m, srcLabel) {
     noteDisplay: m.note || m.title
       || (m.hasClip ? `Clip @ ${m.timeLabel || clock(m.startTimeSeconds || 0)}` : '(no note)'),
     objectiveId: m.objectiveId != null ? m.objectiveId : null,
+    promptId: m.promptId != null ? m.promptId : null, // evidence rows may carry a prompt tag (P-027)
     objectiveTitle: m.objectiveTitle || '',
     polarity: m.polarity || 'neutral',
     polarityColorHex: m.polarityColorHex || '',
@@ -885,6 +886,7 @@ function normBookmark(b, isClip) {
     noteDisplay: b.note
       || (isClip ? `Clip @ ${b.timeLabel || clock(b.gameTimeSeconds || 0)}` : '(no note)'),
     objectiveId: b.objectiveId != null ? b.objectiveId : null,
+    promptId: b.promptId != null ? b.promptId : null, // P-027: bookmark/clip prompt tag (drives the row badge)
     objectiveTitle: b.objectiveTitle || '',
     polarity: '',
     polarityColorHex: '',
@@ -969,7 +971,9 @@ function renderMoments() {
       el.dataset.evId = String(m.evidenceId);
       const sel = evEdit.querySelector('.vp-ev-obj');
       if (sel) {
-        fillObjectiveSelect(sel, m.objectiveId);
+        // Objective + prompt picker (optgroup per objective, prompt rows beneath).
+        // Pre-select the row's saved objective (and prompt, if the row carries one).
+        fillObjectivePromptPicker(sel, m.objectiveId, m.promptId);
         sel.dataset.evId = String(m.evidenceId);
         sel.dataset.route = 'evidence';
         sel.addEventListener('click', (e) => e.stopPropagation());
@@ -991,7 +995,7 @@ function renderMoments() {
       show(evEdit, true);
       const sel = evEdit.querySelector('.vp-ev-obj');
       if (sel) {
-        fillObjectiveSelect(sel, m.objectiveId);
+        fillObjectivePromptPicker(sel, m.objectiveId, m.promptId);
         sel.dataset.bmId = String(m.bookmarkId);
         sel.dataset.route = 'bookmark';
         sel.addEventListener('click', (e) => e.stopPropagation());
@@ -1050,6 +1054,15 @@ function renderMoments() {
         tag.className = 'b';
         tag.textContent = m.objectiveTitle;
         badges.appendChild(tag);
+      }
+      // P-027: prompt badge when the row answers a custom prompt. Resolve the label
+      // from the loaded objectives' prompt lists; fall back to "Prompt" if unknown.
+      if (m.promptId != null) {
+        const pl = promptLabelFor(m.promptId);
+        const pb = document.createElement('span');
+        pb.className = 'b b-prompt';
+        pb.textContent = pl ? `↳ ${pl}` : '↳ Prompt';
+        badges.appendChild(pb);
       }
       if (m.status && m.status !== 'needs_review') {
         const st = document.createElement('span');
@@ -1156,57 +1169,129 @@ document.addEventListener('click', (ev) => {
 // snapshot and re-renders markers/list without touching <video>). No-ops in
 // preview (no Tauri backend).
 
-// Fill the Quick Bookmark objective <select> from the active objectives loaded in
+// Fill the Quick Bookmark + Clip pickers from the active objectives loaded in
 // fetchVod(). When the viewer is FRAMED on an objective, default the picker to THAT
 // objective so a clip/bookmark made under the frame is tagged to what the user is
 // reviewing (the moment then shows in the focused panel instead of silently vanishing
-// — P-034). The user can still override to "No objective" or another objective. Safe
-// to call repeatedly; re-synced on objective switch. Fills BOTH the Quick Bookmark
-// (vp-bm-obj) and the Clip (vp-clip-obj) pickers, but each only while the user hasn't
-// overridden it — so re-syncing on a frame switch never clobbers a deliberate pick.
+// — P-034). The user can still override to "No objective", another objective, or a
+// specific PROMPT under one (P-027). Safe to call repeatedly; re-synced on objective
+// switch, but each picker only while the user hasn't overridden it — so re-syncing on
+// a frame switch never clobbers a deliberate pick.
 function populateObjectivePicker() {
   const frameSel = _framed ? _focusedObjId : null;
   const bm = $('vp-bm-obj');
-  if (bm && !_bmObjUserSet) fillObjectiveSelect(bm, frameSel);
+  if (bm && !_bmObjUserSet) fillObjectivePromptPicker(bm, frameSel, null);
   const clip = $('vp-clip-obj');
-  if (clip && !_clipObjUserSet) fillObjectiveSelect(clip, frameSel);
+  if (clip && !_clipObjUserSet) fillObjectivePromptPicker(clip, frameSel, null);
 }
 
-// The objective id a NEW clip / quick bookmark should be tagged with. The picker's own
-// dropdown wins when it holds an explicit value; otherwise, when framed, fall back to
-// the focused objective so framed work is never saved untagged (and then hidden by the
-// focused-panel filter — P-034). `pickerId` selects which dropdown to read (the clip
-// card and the quick-bookmark card each have their own). Returns null when nothing
-// applies (unframed + no explicit pick).
-function resolveSaveObjectiveId(pickerId) {
+// The {objectiveId, promptId} a NEW clip / quick bookmark should be tagged with. The
+// picker's own dropdown wins when it holds an explicit value; otherwise, when framed,
+// fall back to the focused objective so framed work is never saved untagged (and then
+// hidden by the focused-panel filter — P-034). `pickerId` selects which dropdown to
+// read (the clip card and the quick-bookmark card each have their own). Both ids are
+// null when nothing applies (unframed + no explicit pick).
+function resolveSaveTag(pickerId) {
   const objEl = $(pickerId);
-  if (objEl && objEl.value) return Number(objEl.value);
-  if (_framed && _focusedObjId != null) return Number(_focusedObjId);
-  return null;
+  const picked = parsePickerValue(objEl ? objEl.value : '');
+  if (picked.objectiveId != null || picked.promptId != null) return picked;
+  if (_framed && _focusedObjId != null) return { objectiveId: Number(_focusedObjId), promptId: null };
+  return { objectiveId: null, promptId: null };
 }
 
-// Fill an objective <select> with "No objective" + every active objective, marking
-// the currently-attached one selected. Shared by the Quick Bookmark picker and the
-// per-moment evidence / bookmark pickers so they stay consistent.
-function fillObjectiveSelect(sel, selectedObjectiveId) {
+// ── Objective + prompt picker (P-027) ────────────────────────────────────────
+// One <select> presents BOTH objectives and their custom prompts. An objective
+// with prompts becomes an <optgroup> holding an objective-level row ('— whole
+// objective —') plus one row per prompt; a promptless objective stays a plain
+// row. The option VALUE encodes the choice so save paths can recover both ids:
+//    ''                     → no objective / no prompt
+//    'obj:<OBJID>'          → the whole objective (no prompt)
+//    'prompt:<OBJID>:<PID>' → a specific prompt under that objective
+// Parse with parsePickerValue(); it always yields {objectiveId, promptId} (nulls
+// when unset). Selecting a prompt implies its parent objective.
+function parsePickerValue(value) {
+  const v = String(value || '');
+  if (v.startsWith('prompt:')) {
+    const parts = v.split(':');
+    const objectiveId = Number(parts[1]) || null;
+    const promptId = Number(parts[2]) || null;
+    return { objectiveId, promptId };
+  }
+  if (v.startsWith('obj:')) {
+    const objectiveId = Number(v.slice(4)) || null;
+    return { objectiveId, promptId: null };
+  }
+  return { objectiveId: null, promptId: null };
+}
+
+// Fill an objective/prompt <select> from the active objectives (+ their prompts)
+// loaded in fetchVod(), pre-selecting selObjId/selPromptId. Shared by the Quick
+// Bookmark + Clip pickers and the per-moment evidence/bookmark pickers so they
+// stay consistent. Safe to call repeatedly.
+function fillObjectivePromptPicker(sel, selObjId, selPromptId) {
   if (!sel) return;
   clear(sel);
-  const cur = selectedObjectiveId != null ? Number(selectedObjectiveId) : null;
+  const curObj = selObjId != null ? Number(selObjId) : null;
+  const curPrompt = selPromptId != null ? Number(selPromptId) : null;
   const none = document.createElement('option');
   none.value = '';
   // When nothing is pre-selected, "No objective" IS the default and reads plainly.
   // When an objective is pre-selected (framed), this option is the explicit opt-out
   // so it's clear the clip auto-tags unless you pick this — you never have to hunt
   // for the right objective in the list; it's already chosen.
-  none.textContent = cur != null ? 'No objective (untag)' : 'No objective';
+  none.textContent = (curObj != null || curPrompt != null) ? 'No objective (untag)' : 'No objective';
+  if (curObj == null && curPrompt == null) none.selected = true;
   sel.appendChild(none);
+
   for (const o of _objectives) {
-    const opt = document.createElement('option');
-    opt.value = String(o.objectiveId);
-    opt.textContent = o.title;
-    if (cur != null && Number(o.objectiveId) === cur) opt.selected = true;
-    sel.appendChild(opt);
+    const objId = Number(o.objectiveId);
+    const prompts = Array.isArray(o.prompts) ? o.prompts : [];
+
+    // No prompts → a plain objective row (no optgroup noise for the common case).
+    if (prompts.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = `obj:${objId}`;
+      opt.textContent = o.title || `Objective ${objId}`;
+      if (curPrompt == null && curObj != null && curObj === objId) opt.selected = true;
+      sel.appendChild(opt);
+      continue;
+    }
+
+    const group = document.createElement('optgroup');
+    group.label = o.title || `Objective ${objId}`;
+
+    // Objective-level row — attach to the whole objective, no prompt.
+    const whole = document.createElement('option');
+    whole.value = `obj:${objId}`;
+    whole.textContent = '— whole objective —';
+    if (curPrompt == null && curObj != null && curObj === objId) whole.selected = true;
+    group.appendChild(whole);
+
+    // One row per prompt under this objective.
+    for (const p of prompts) {
+      const pid = Number(p.promptId);
+      const opt = document.createElement('option');
+      opt.value = `prompt:${objId}:${pid}`;
+      opt.textContent = p.label || `Prompt ${pid}`;
+      if (curPrompt != null && curPrompt === pid) opt.selected = true;
+      group.appendChild(opt);
+    }
+
+    sel.appendChild(group);
   }
+}
+
+// Resolve a promptId → its label (for the row badge). Scans the loaded objectives'
+// prompt lists. Returns '' when unknown (older snapshot / prompt since deleted).
+function promptLabelFor(promptId) {
+  if (promptId == null) return '';
+  const pid = Number(promptId);
+  for (const o of _objectives) {
+    for (const p of (o.prompts || [])) {
+      if (Number(p.promptId) === pid) return p.label || '';
+    }
+  }
+  return '';
 }
 
 function bmHint(msg, isErr) {
@@ -1223,15 +1308,17 @@ async function addBookmark() {
   const timeS = Math.max(0, Math.floor(v.currentTime || 0));
   const noteEl = $('vp-bm-note');
   const note = noteEl ? noteEl.value.trim() : '';
-  // Tag the bookmark to the Quick Bookmark picker's pick, or (when framed, no explicit
-  // pick) the focused objective — so it shows in the focused panel, not vanishing (P-034).
-  const objectiveId = resolveSaveObjectiveId('vp-bm-obj');
+  // Tag the bookmark to the Quick Bookmark picker's pick (objective or prompt), or
+  // (when framed, no explicit pick) the focused objective — so it shows in the
+  // focused panel, not vanishing (P-034).
+  const { objectiveId, promptId } = resolveSaveTag('vp-bm-obj');
 
   const addBtn = $('vp-bm-add');
   if (addBtn) addBtn.disabled = true;
   try {
     const payload = { gameId: _gameId, timeS, note };
     if (objectiveId) payload.objectiveId = objectiveId;
+    if (promptId) payload.promptId = promptId;
     await _core.invoke('add_bookmark', { payload });
     if (noteEl) noteEl.value = '';
     bmHint(`Bookmark added at ${clock(timeS)}.`, false);
@@ -1297,29 +1384,38 @@ async function saveBookmarkNote(bookmarkId, note) {
 // (UpdateNoteAsync) which, for an auto-moment with a VOD + first note, also clips
 // the window; alreadyClipped suppresses re-extraction once it's a clip.
 
-async function setEvidenceObjective(evidenceId, objectiveId) {
+async function setEvidenceObjective(evidenceId, objectiveId, promptId) {
   if (!_core || !evidenceId) return;
+  const evId = Number(evidenceId);
   try {
-    const payload = { evidenceId: Number(evidenceId), gameId: _gameId };
+    const payload = { evidenceId: evId, gameId: _gameId };
     payload.objectiveId = objectiveId ? Number(objectiveId) : null; // null detaches
     await _core.invoke('set_evidence_objective', { payload });
+    // P-027: when a prompt row was chosen, also tag the prompt (independent of the
+    // objective; both coexist). Detaches (promptId:null) when '— whole objective —'
+    // or 'No objective' was picked.
+    await _core.invoke('set_evidence_prompt', {
+      payload: { evidenceId: evId, promptId: promptId ? Number(promptId) : null },
+    });
     await reloadBookmarks();
   } catch (err) {
-    console.error('[vodplayer] set_evidence_objective failed:', err);
+    console.error('[vodplayer] set_evidence_objective/prompt failed:', err);
   }
 }
 
-// Clip-bookmark objective tag: attach/detach on the bookmark row itself (no
-// evidence row exists for these). Mirrors POST /api/bookmark/objective.
-async function setBookmarkObjective(bookmarkId, objectiveId) {
+// Clip-bookmark objective/prompt tag: attach/detach on the bookmark row itself (no
+// evidence row exists for these). Mirrors POST /api/bookmark/tag (objective AND
+// prompt in one write; null detaches either).
+async function setBookmarkObjective(bookmarkId, objectiveId, promptId) {
   if (!_core || !bookmarkId) return;
   try {
     const payload = { bookmarkId: Number(bookmarkId) };
     payload.objectiveId = objectiveId ? Number(objectiveId) : null; // null detaches
-    await _core.invoke('set_bookmark_objective', { payload });
+    payload.promptId = promptId ? Number(promptId) : null;          // null detaches
+    await _core.invoke('set_bookmark_tag', { payload });
     await reloadBookmarks();
   } catch (err) {
-    console.error('[vodplayer] set_bookmark_objective failed:', err);
+    console.error('[vodplayer] set_bookmark_tag failed:', err);
   }
 }
 
@@ -1873,9 +1969,10 @@ document.addEventListener('blur', (ev) => {
   if (evNote) saveEvidenceNote(evNote);
 }, true);
 
-// Objective tag picker: attach/detach on change. Two write routes — evidence rows
-// (auto-moments + evidence-backed clips) go through set_evidence_objective; plain
-// clip-bookmarks (no evidence id) go through set_bookmark_objective.
+// Objective/prompt tag picker: attach/detach on change. The encoded value carries
+// objective + optional prompt. Two write routes — evidence rows (auto-moments +
+// evidence-backed clips) go through set_evidence_objective (+ set_evidence_prompt);
+// plain clip-bookmarks (no evidence id) go through set_bookmark_tag.
 document.addEventListener('change', (ev) => {
   // Quick Bookmark / Clip pickers: no write here — they just set the objective the NEXT
   // bookmark/clip inherits. Mark the picker user-controlled so frame switches stop
@@ -1888,10 +1985,11 @@ document.addEventListener('change', (ev) => {
   const sel = ev.target.closest && ev.target.closest('.vp-ev-obj');
   if (!sel) return;
   ev.stopPropagation();
+  const { objectiveId, promptId } = parsePickerValue(sel.value || '');
   if (sel.dataset.route === 'bookmark') {
-    setBookmarkObjective(sel.dataset.bmId, sel.value || '');
+    setBookmarkObjective(sel.dataset.bmId, objectiveId, promptId);
   } else {
-    setEvidenceObjective(sel.dataset.evId, sel.value || '');
+    setEvidenceObjective(sel.dataset.evId, objectiveId, promptId);
   }
 });
 
@@ -1991,6 +2089,8 @@ function clearClip() {
   _clipIn = -1; _clipOut = -1; _clipQuality = '';
   const note = $('vp-clip-note');
   if (note) note.value = '';
+  const obj = $('vp-clip-obj'); // reset the clip's objective/prompt picker to "none"
+  if (obj) obj.value = '';
   clipHint('');
   // A fresh clip starts over: drop any per-clip objective override so the picker
   // re-follows the focused objective (the next clip auto-ties to what's in focus).
@@ -2014,10 +2114,10 @@ async function saveClip() {
   const endTimeS = Math.max(_clipIn, _clipOut);
   const noteEl = $('vp-clip-note');
   const note = noteEl ? noteEl.value.trim() : '';
-  // Tag the clip to the Clip card's own picker, or (when framed, no explicit pick) the
-  // focused objective — otherwise a framed clip saves untagged and the focused-panel
-  // filter hides it, so it "doesn't show" (P-034).
-  const objectiveId = resolveSaveObjectiveId('vp-clip-obj');
+  // Tag the clip to the Clip card's own picker (objective or prompt), or (when
+  // framed, no explicit pick) the focused objective — otherwise a framed clip saves
+  // untagged and the focused-panel filter hides it, so it "doesn't show" (P-034).
+  const { objectiveId, promptId } = resolveSaveTag('vp-clip-obj');
 
   _clipBusy = true;
   renderClipState();
@@ -2033,6 +2133,7 @@ async function saveClip() {
       quality: _clipQuality,
     };
     if (objectiveId) payload.objectiveId = objectiveId;
+    if (promptId) payload.promptId = promptId;
     const res = await _core.invoke('extract_clip', { payload });
     if (res && res.ok) {
       const qualMsg = _clipQuality ? ` as ${_clipQuality}` : '';

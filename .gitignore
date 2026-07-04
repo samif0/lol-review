@@ -105,4 +105,10 @@ _glassdemo/
 desktop/node_modules/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
+desktop/ui/dist/
+desktop/tauri-dev.log
+desktop/tauri-dev.log.err
 .parity/
+
+# local audit/session working files (never ship — Riot API key audit cleanliness)
+.audit/

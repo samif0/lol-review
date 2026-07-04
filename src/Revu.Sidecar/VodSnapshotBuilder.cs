@@ -109,6 +109,7 @@ public sealed class VodSnapshotBuilder
                     ClipStartSeconds: b.ClipStartSeconds,
                     ClipEndSeconds: b.ClipEndSeconds,
                     ObjectiveId: b.ObjectiveId,
+                    PromptId: b.PromptId,
                     ShareUrl: b.ShareUrl ?? "")));
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: bookmarks load failed for {GameId}", gameId); }
