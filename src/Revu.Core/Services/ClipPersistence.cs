@@ -69,6 +69,10 @@ public static class ClipPersistence
             Title: note,
             Note: note,
             ObjectiveId: objectiveId,
+            // P-027: ride the prompt the clip was tagged to onto the evidence row so
+            // the review can group it under that prompt (same prompt_id the bookmark
+            // carries). NULL when the clip wasn't prompt-tagged.
+            PromptId: promptId,
             Polarity: string.IsNullOrWhiteSpace(q)
                 ? EvidencePolarities.Neutral
                 : EvidencePolarities.Normalize(q),

@@ -410,7 +410,8 @@ public sealed class VodSnapshotBuilder
         Polarity: item.Polarity ?? EvidencePolarities.Neutral,
         PolarityColorHex: PolarityHex(item.Polarity),
         Status: item.Status ?? EvidenceStatuses.NeedsReview,
-        HasClip: string.Equals(item.SourceKind, EvidenceKinds.Clip, StringComparison.OrdinalIgnoreCase));
+        HasClip: string.Equals(item.SourceKind, EvidenceKinds.Clip, StringComparison.OrdinalIgnoreCase),
+        PromptId: item.PromptId);
 
     private static string PolarityHex(string? polarity) => (polarity ?? "").Trim().ToLowerInvariant() switch
     {

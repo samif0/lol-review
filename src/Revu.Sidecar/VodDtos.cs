@@ -105,4 +105,8 @@ public sealed record VodEvidenceDto(
     // targets, and the public share link once uploaded ("" until shared). Both ""/0
     // on auto (non-clip) rows.
     long ShareBookmarkId = 0,
-    string ShareUrl = "");
+    string ShareUrl = "",
+    // P-027: the custom prompt this moment answers (evidence_items.prompt_id), null
+    // when untagged. Lets the VOD row's picker re-select the saved prompt and the
+    // '↳ prompt' badge render after a reload.
+    long? PromptId = null);
