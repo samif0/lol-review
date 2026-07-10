@@ -305,6 +305,17 @@ async function wireLiveAutoShow() {
         });
         break;
       case 'champSelectCancelled': leaveLiveSurface(); break;
+      case 'mapStateUpdated':
+        // Post-game map-state pass finished (jungle proximity + fog deaths written).
+        // If the framed page is the VOD player it may be SHOWING that game already —
+        // hand the event in so it can soft-refresh its timeline markers (same-origin
+        // iframe; the player checks the gameId itself and never touches playback).
+        try {
+          if (frameHas('vodplayer.html') && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:map-state-updated', { detail: p }));
+          }
+        } catch (_) { /* best-effort — a fresh navigation always fetches fresh */ }
+        break;
       case 'liveState':
         // The replayed snapshot carries the current client state — seed the LCU
         // indicator from it (live changes arrive via 'lcuConnection' below).

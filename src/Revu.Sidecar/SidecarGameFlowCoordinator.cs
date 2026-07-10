@@ -314,6 +314,12 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                     _logger.LogInformation(
                         "Post-game map-state pass done ({Updated} updated, {Skipped} empty) after game {GameId}",
                         result.Updated, result.Skipped, gameId);
+                    // Tell open pages the markers exist now — a VOD player already
+                    // showing this game soft-refreshes its timeline (the pass lands
+                    // ~90s after EOG, inside the window where the user may have the
+                    // VOD open already). Fresh navigations always fetch fresh.
+                    if (result.Updated > 0)
+                        _eventHub.Publish("mapStateUpdated", new { gameId, updated = result.Updated });
                     return;
                 }
                 // Some fetch failed — most likely the fresh match isn't visible
