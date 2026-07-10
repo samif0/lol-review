@@ -48,12 +48,15 @@ public class GameEvent
         // un-ingestible summoner-spell tokens in the objective picker.
         public const string Trade = "TRADE";
         // v3.2: jungle proximity, DERIVED post-game from the Match-V5 timeline
-        // (participantFrames carry every player's x/y once a minute). Emitted for a
-        // LANING-PHASE frame where a jungler sits inside the gank-threat radius of
-        // the player. Details.who ("enemy" | "ally") carries whose jungler it is —
-        // the review question differs (danger window vs. play-aggressive window).
-        // GOD-VIEW data: it records where the jungler actually WAS, not what the
-        // player could see — surfaced as a review anchor, never as "you knew this".
+        // (participantFrames carry every player's x/y once a minute, refined by
+        // exact-positioned kill/objective events). One event per LANING-PHASE
+        // closest-approach VISIT: the interpolated self/jungler tracks are swept
+        // and consecutive in-radius instants merge into a single row anchored at
+        // the visit start (Details.distance = closest approach, duration_s = stay).
+        // Details.who ("enemy" | "ally") carries whose jungler it is — the review
+        // question differs (danger window vs. play-aggressive window). GOD-VIEW
+        // data: it records where the jungler actually WAS, not what the player
+        // could see — surfaced as a review anchor, never as "you knew this".
         public const string JungleProximity = "JUNGLE_PROXIMITY";
     }
 

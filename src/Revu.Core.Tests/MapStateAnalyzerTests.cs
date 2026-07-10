@@ -123,6 +123,71 @@ public sealed class MapStateAnalyzerTests
     }
 
     [Fact]
+    public void CatchesGankArrivingBetweenFrames_ViaKillEventSample()
+    {
+        // The user's live report: ally jungler near (enemy gromp), enemy jungler
+        // collapses mid-minute — frames show him parked far at 4:00 AND 6:00, and
+        // the only trace of the gank is his kill on the ally jungler at 5:00 right
+        // next to the player. v1's frame-instant check saw nothing here; the v2
+        // interpolated sweep must surface the visit.
+        var timeline = Timeline(
+            Frame(240_000, string.Join(",",
+                PFrame(1, 7000, 7000), PFrame(2, 7500, 7200), PFrame(7, 13000, 13000))),
+            Frame(360_000, string.Join(",",
+                PFrame(1, 7000, 7000), PFrame(2, 14000, 14000), PFrame(7, 13000, 13000)),
+                KillEvent(300_000, killerId: 7, victimId: 2, x: 7600, y: 7300)));
+
+        var result = MapStateAnalyzer.Analyze(MatchPayload(), timeline, SelfPuuid, []);
+
+        var enemyVisit = result.ProximityEvents
+            .Select(e => (Event: e, Details: Details(e)))
+            .Single(x => x.Details.GetProperty("who").GetString() == "enemy");
+        // Closest approach is the kill instant — ~670 units from the player.
+        Assert.True(enemyVisit.Details.GetProperty("distance").GetInt32() < 1000);
+        // The visit anchors where the collapse enters the threat radius, before the kill.
+        Assert.InRange(enemyVisit.Event.GameTimeS, 270, 300);
+        Assert.True(enemyVisit.Details.GetProperty("duration_s").GetInt32() >= 15);
+    }
+
+    [Fact]
+    public void NoPhantomProximity_AcrossDeathRespawnTeleport()
+    {
+        // The enemy jungler dies far top-side at 4:10; the next frame pins him far
+        // bot-side after respawning. The straight line between those samples passes
+        // through the player's lane — the respawn blackout must suppress it.
+        var timeline = Timeline(
+            Frame(240_000, string.Join(",", PFrame(1, 7000, 7000), PFrame(7, 1000, 13000))),
+            Frame(360_000, string.Join(",", PFrame(1, 7000, 7000), PFrame(7, 13800, 1200)),
+                KillEvent(250_000, killerId: 4, victimId: 7, x: 1200, y: 12800)));
+
+        var result = MapStateAnalyzer.Analyze(MatchPayload(), timeline, SelfPuuid, []);
+
+        Assert.DoesNotContain(result.ProximityEvents,
+            e => Details(e).GetProperty("who").GetString() == "enemy");
+    }
+
+    [Fact]
+    public void SustainedVisit_CollapsesToOneEventWithDuration()
+    {
+        // Three consecutive frames with the ally jungler camping nearby — one event
+        // (not three), anchored at the visit start, carrying the closest approach.
+        var timeline = Timeline(
+            Frame(240_000, string.Join(",", PFrame(1, 7000, 7000), PFrame(2, 8000, 8000), PFrame(7, 1000, 1000))),
+            Frame(300_000, string.Join(",", PFrame(1, 7000, 7000), PFrame(2, 7500, 7500), PFrame(7, 1000, 1000))),
+            Frame(360_000, string.Join(",", PFrame(1, 7000, 7000), PFrame(2, 8500, 8500), PFrame(7, 1000, 1000))));
+
+        var result = MapStateAnalyzer.Analyze(MatchPayload(), timeline, SelfPuuid, []);
+
+        var e = Assert.Single(result.ProximityEvents);
+        var d = Details(e);
+        Assert.Equal("ally", d.GetProperty("who").GetString());
+        Assert.Equal(240, e.GameTimeS);
+        Assert.Equal(120, d.GetProperty("duration_s").GetInt32());
+        // Closest approach: the 5:00 frame at (7500,7500) → ~707 units.
+        Assert.Equal(707, d.GetProperty("distance").GetInt32());
+    }
+
+    [Fact]
     public void NothingDerived_WhenNoJunglers()
     {
         // ARAM-shaped match: no JUNGLE teamPosition anywhere → don't guess.

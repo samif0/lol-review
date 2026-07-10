@@ -422,17 +422,19 @@ public sealed class VodSnapshotBuilder
         return label;
     }
 
-    // "enemy Nocturne 2731 units" — whose jungler was near and how near, from the
-    // map-state Details. Best-effort like the other summaries.
+    // "enemy Nocturne 671 units · 45s" — whose jungler was near, the closest
+    // approach, and (v2 visits) how long he stayed inside the threat radius.
     private static string ProximitySummary(System.Text.Json.JsonElement root)
     {
         var who = ReadJsonString(root, "who");
         var champion = ReadJsonString(root, "champion");
         var subject = string.Join(' ', new[] { who, champion.Length > 0 ? champion : "jungler" }
             .Where(static s => s.Length > 0));
-        return root.TryGetProperty("distance", out var d) && d.TryGetInt32(out var dist) && dist > 0
-            ? $"{subject} {dist} units"
-            : subject;
+        if (root.TryGetProperty("distance", out var d) && d.TryGetInt32(out var dist) && dist > 0)
+            subject = $"{subject} {dist} units";
+        if (root.TryGetProperty("duration_s", out var du) && du.TryGetInt32(out var seconds) && seconds > 0)
+            subject = $"{subject} · {seconds}s";
+        return subject;
     }
 
     // Details.who from a JUNGLE_PROXIMITY event ("enemy" | "ally"), lower-cased,
