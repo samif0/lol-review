@@ -24,6 +24,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Revu.Core\Revu.Core.csproj" />
+    <!-- Referenced for read-only snapshot builders (e.g. GamesSnapshotBuilder)
+         so their enrichment logic can be contract-tested directly. The sidecar
+         host is a WinExe/Web app; we only touch its plain builder + DTO types,
+         which carry no Kestrel/WinUI/dispatcher dependency. -->
+    <ProjectReference Include="..\Revu.Sidecar\Revu.Sidecar.csproj" />
   </ItemGroup>
 
 </Project>

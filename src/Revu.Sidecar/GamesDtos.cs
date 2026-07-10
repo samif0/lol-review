@@ -76,13 +76,17 @@ public sealed record GamesRowDto(
     // ── History enrichment (mirror GamesViewModel.EnrichRowsAsync) ──────────
     // True when a VOD file is linked AND exists on disk.
     bool HasVod,
+    // True when a VOD is linked AND has at least one timestamped bookmark. False
+    // for a VOD-linked-but-never-annotated recording (and for no-VOD rows). Lets
+    // the frontend flag un-annotated recordings alongside VodStateText.
+    bool HasNotes,
     bool ObjectivePracticed,
     bool HasObjectiveEvidence,
     // "Evidence tagged" / "VOD evidence pending" / "Objective practiced" / "No objective tag".
     string ObjectiveStateText,
     // "Reviewed" / "Unreviewed".
     string ReviewStateText,
-    // "VOD linked" / "No VOD".
+    // "VOD linked" / "VOD linked - no notes" / "No VOD".
     string VodStateText,
     // Inline button label: "Watch VOD" / "Open" / "Review" (VOD wins, v2.17.8).
     string PrimaryAction,
