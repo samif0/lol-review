@@ -66,6 +66,14 @@ public interface IVodRepository
 
     Task<IReadOnlySet<long>> GetGamesWithObjectiveTaggedBookmarksAsync(IReadOnlyCollection<long> gameIds);
 
+    /// <summary>
+    /// Batch companion to <see cref="GetBookmarkCountAsync"/>: the subset of
+    /// <paramref name="gameIds"/> that have at least one vod_bookmarks row. Used
+    /// to tell an annotated VOD-linked game apart from one whose recording sits
+    /// on disk but was never annotated, without a per-row COUNT query.
+    /// </summary>
+    Task<IReadOnlySet<long>> GetGamesWithBookmarksAsync(IReadOnlyCollection<long> gameIds);
+
     Task<int> GetBookmarkCountAsync(long gameId);
 
     Task DeleteAllBookmarksAsync(long gameId);

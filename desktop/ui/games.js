@@ -186,7 +186,9 @@ function buildRow(g) {
   // State tokens — review / VOD / objective. Colored by meaning.
   const tokenSpecs = [
     { text: g.reviewStateText, tone: g.reviewStateText === 'Reviewed' ? 'good' : 'warn' },
-    { text: g.vodStateText, tone: g.hasVod ? 'good' : 'muted' },
+    // A linked-but-unannotated recording (hasVod, no notes) reads as a warn
+    // affordance, not the settled 'good' green of an annotated VOD.
+    { text: g.vodStateText, tone: g.hasVod ? (g.hasNotes ? 'good' : 'warn') : 'muted' },
     { text: g.objectiveStateText, tone: tokenTone(g) },
   ];
   for (const spec of tokenSpecs) {

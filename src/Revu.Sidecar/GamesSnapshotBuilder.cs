@@ -256,6 +256,7 @@ public sealed class GamesSnapshotBuilder
             var vodPaths = await _vodRepo.GetVodPathsAsync(gameIds);
             var practicedIds = await _objectivesRepo.GetGamesWithPracticedObjectivesAsync(gameIds);
             var taggedBookmarkIds = await _vodRepo.GetGamesWithObjectiveTaggedBookmarksAsync(gameIds);
+            var gamesWithNotes = await _vodRepo.GetGamesWithBookmarksAsync(gameIds);
 
             for (var i = 0; i < items.Count; i++)
             {
@@ -266,6 +267,9 @@ public sealed class GamesSnapshotBuilder
                              && File.Exists(path);
                 var practiced = practicedIds.Contains(row.GameId);
                 var hasObjectiveEvidence = taggedBookmarkIds.Contains(row.GameId);
+                // A linked recording with zero bookmarks was never annotated;
+                // only meaningful when the VOD is actually on disk.
+                var hasNotes = hasVod && gamesWithNotes.Contains(row.GameId);
 
                 // Mirror GamesViewModel.EnrichRowsAsync objective-state ladder.
                 var objectiveStateText = hasObjectiveEvidence
@@ -291,11 +295,16 @@ public sealed class GamesSnapshotBuilder
                 items[i] = row with
                 {
                     HasVod = hasVod,
+                    HasNotes = hasNotes,
                     ObjectivePracticed = practiced,
                     HasObjectiveEvidence = hasObjectiveEvidence,
                     ObjectiveStateText = objectiveStateText,
                     ReviewStateText = row.HasReview ? "Reviewed" : "Unreviewed",
-                    VodStateText = hasVod ? "VOD linked" : "No VOD",
+                    // Distinguish an annotated recording from one that sits on
+                    // disk but was never annotated (0 bookmarks).
+                    VodStateText = hasVod
+                        ? (hasNotes ? "VOD linked" : "VOD linked - no notes")
+                        : "No VOD",
                     PrimaryAction = primaryActionText,
                 };
             }
@@ -363,6 +372,7 @@ public sealed class GamesSnapshotBuilder
             // Enrichment defaults — overwritten by EnrichRowsAsync. Defaults
             // keep the row coherent if enrichment degrades.
             HasVod: false,
+            HasNotes: false,
             ObjectivePracticed: false,
             HasObjectiveEvidence: false,
             ObjectiveStateText: "No objective tag",
