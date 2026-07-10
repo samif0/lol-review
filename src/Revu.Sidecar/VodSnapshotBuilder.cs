@@ -36,6 +36,11 @@ public sealed class VodSnapshotBuilder
     private const string JungleGankHex = "#d6455e";
     // Teamfight pin — matches the TEAMFIGHT catalog color (the soft red the band uses).
     private const string TeamfightHex = "#f3a3a8";
+    // Jungle proximity (map-state backfill) — threat pink for the enemy jungler, calm
+    // teal for the ally, violet fallback. Match the Map-group catalog colors.
+    private const string EnemyProximityHex = "#ff7a9e";
+    private const string AllyProximityHex = "#6bd6c8";
+    private const string ProximityHex = "#b07cd8";
 
     private readonly IGameRepository _gameRepo;
     private readonly IVodRepository _vodRepo;
@@ -224,6 +229,16 @@ public sealed class VodSnapshotBuilder
         var isJungleGank = IsDeathEvent(e.EventType) && ReadJsonBool(e, "jungle_gank");
         if (isJungleGank) colorHex = JungleGankHex;
 
+        // JUNGLE_PROXIMITY markers color by whose jungler is near (Details.who):
+        // enemy = threat pink, ally = calm teal — the marker itself carries the read.
+        if (string.Equals(e.EventType, GameEvent.EventTypes.JungleProximity, StringComparison.OrdinalIgnoreCase))
+            colorHex = ReadJsonWho(e) switch
+            {
+                "enemy" => EnemyProximityHex,
+                "ally" => AllyProximityHex,
+                _ => ProximityHex,
+            };
+
         long? objId = matches.Count > 0 ? matches[0].ObjectiveId : null;
         var objTitle = matches.Count > 0 ? matches[0].Title : "";
         var objColor = matches.Count > 0 ? matches[0].Color : "";
@@ -308,6 +323,7 @@ public sealed class VodSnapshotBuilder
             "FLASH" or "SUMMONER_SPELL" => ("summoner", SummonerHex),
             "RECALL" => ("recall", RecallHex),
             "TRADE" => ("trade", TradeHex),
+            "JUNGLE_PROXIMITY" => ("neutral", ProximityHex), // hue refined by Details.who in MapEvent
             _ => ("neutral", NeutralHex),
         };
 
@@ -328,6 +344,7 @@ public sealed class VodSnapshotBuilder
         "SUMMONER_SPELL" => "SUM",
         "RECALL" => "RCL",
         "TRADE" => "TRD",
+        "JUNGLE_PROXIMITY" => "JPX",
         _ => "EVT",
     };
 
@@ -348,6 +365,7 @@ public sealed class VodSnapshotBuilder
         "SUMMONER_SPELL" => "Summoner Spell",
         "RECALL" => "Recall",
         "TRADE" => "Trade",
+        "JUNGLE_PROXIMITY" => "Jungle Proximity",
         _ => eventType ?? "",
     };
 
@@ -373,6 +391,7 @@ public sealed class VodSnapshotBuilder
                     ? $"spent {gs}g"
                     : "detected",
                 "TRADE" => TradeSummary(root),
+                "JUNGLE_PROXIMITY" => ProximitySummary(root),
                 _ => "",
             };
         }
@@ -393,6 +412,32 @@ public sealed class VodSnapshotBuilder
         if (root.TryGetProperty("hp_lost_pct", out var p) && p.TryGetInt32(out var pct) && pct > 0)
             return $"{label} -{pct}% hp";
         return label;
+    }
+
+    // "enemy Nocturne 2731 units" — whose jungler was near and how near, from the
+    // map-state Details. Best-effort like the other summaries.
+    private static string ProximitySummary(System.Text.Json.JsonElement root)
+    {
+        var who = ReadJsonString(root, "who");
+        var champion = ReadJsonString(root, "champion");
+        var subject = string.Join(' ', new[] { who, champion.Length > 0 ? champion : "jungler" }
+            .Where(static s => s.Length > 0));
+        return root.TryGetProperty("distance", out var d) && d.TryGetInt32(out var dist) && dist > 0
+            ? $"{subject} {dist} units"
+            : subject;
+    }
+
+    // Details.who from a JUNGLE_PROXIMITY event ("enemy" | "ally"), lower-cased,
+    // "" on any parse failure.
+    private static string ReadJsonWho(GameEvent e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Details) || e.Details == "{}") return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(e.Details);
+            return ReadJsonString(doc.RootElement, "who").Trim().ToLowerInvariant();
+        }
+        catch { return ""; }
     }
 
     // ── evidence inbox mapping ────────────────────────────────────────────────

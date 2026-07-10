@@ -20,4 +20,19 @@ public interface IGameEventsRepository
     Task<int> GetEventCountAsync(long gameId);
 
     Task DeleteEventsAsync(long gameId);
+
+    /// <summary>
+    /// v3.2: insert derived rows WITHOUT clearing the game's existing events —
+    /// the append path for post-game backfills (SaveEventsAsync is capture-time
+    /// only and would wipe the live-feed rows).
+    /// </summary>
+    Task AppendEventsAsync(long gameId, IReadOnlyList<GameEvent> events);
+
+    /// <summary>v3.2: delete only one event type's rows for a game — the
+    /// idempotency half of a derived-event re-run (delete + append).</summary>
+    Task DeleteEventsByTypeAsync(long gameId, string eventType);
+
+    /// <summary>v3.2: rewrite one event row's Details JSON in place (persists
+    /// post-game attribute stamps on existing rows, e.g. death map-state).</summary>
+    Task UpdateEventDetailsAsync(int eventId, string details);
 }

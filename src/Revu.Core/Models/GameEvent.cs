@@ -47,6 +47,14 @@ public class GameEvent
         // reads extended. Heuristic, hence Details.detected = true. Replaces the
         // un-ingestible summoner-spell tokens in the objective picker.
         public const string Trade = "TRADE";
+        // v3.2: jungle proximity, DERIVED post-game from the Match-V5 timeline
+        // (participantFrames carry every player's x/y once a minute). Emitted for a
+        // LANING-PHASE frame where a jungler sits inside the gank-threat radius of
+        // the player. Details.who ("enemy" | "ally") carries whose jungler it is —
+        // the review question differs (danger window vs. play-aggressive window).
+        // GOD-VIEW data: it records where the jungler actually WAS, not what the
+        // player could see — surfaced as a review anchor, never as "you knew this".
+        public const string JungleProximity = "JUNGLE_PROXIMITY";
     }
 
     /// <summary>Visual styling for each event type (color, symbol, label).</summary>
@@ -70,6 +78,7 @@ public class GameEvent
                 { EventTypes.SummonerSpell, ("#0099ff", "\u26a1", "Summoner Spell") },
                 { EventTypes.Recall,        ("#a9c8ff", "\u21ba", "Recall") },
                 { EventTypes.Trade,         ("#ffb86b", "\u2694", "Trade") },
+                { EventTypes.JungleProximity, ("#b07cd8", "\u25ce", "Jungle Proximity") },
             };
     }
 
@@ -105,6 +114,23 @@ public class GameEvent
         /// the plain DEATH token (mirrors how a TRADE matches its kind token + generic).</summary>
         public const string JungleGankToken = "JUNGLE_GANK";
 
+        /// <summary>The jungle-proximity family (v3.2, Match-V5 map-state backfill).
+        /// A stored JUNGLE_PROXIMITY row matches the generic <see cref="JungleProximityToken"/>
+        /// (either jungler) AND the who-specific token derived from Details.who:
+        /// "enemy" → <see cref="EnemyJungleProximityToken"/>, "ally" →
+        /// <see cref="AllyJungleProximityToken"/> — same shape as the trade family.</summary>
+        public const string JungleProximityToken = EventTypes.JungleProximity; // "JUNGLE_PROXIMITY"
+        public const string EnemyJungleProximityToken = "ENEMY_JUNGLE_PROXIMITY";
+        public const string AllyJungleProximityToken = "ALLY_JUNGLE_PROXIMITY";
+
+        /// <summary>A DEATH taken while the enemy jungler had been UNSEEN (no
+        /// map-visible timeline event involving him) for a fog window before he showed
+        /// up on the kill — "died into fog without information". An ATTRIBUTE of the
+        /// DEATH row (Details.fog_death = true) stamped by the map-state backfill,
+        /// exactly like <see cref="JungleGankToken"/>; a fog death matches this token
+        /// AND the plain DEATH token (and JUNGLE_GANK when both apply).</summary>
+        public const string FogDeathToken = "FOG_DEATH";
+
         /// <summary>The nine real League summoner spells, as SPELL_* tokens. The bare
         /// name (after the prefix, title-cased) matches Details.spell from the live API.
         /// Retained for back-compat: the Summoners group was removed from the picker
@@ -120,6 +146,7 @@ public class GameEvent
             (EventTypes.Kill,       "Combat",     "Kill",          "#28c76f"),
             (EventTypes.Death,      "Combat",     "Death",         "#ea5455"),
             (JungleGankToken,       "Combat",     "Died to Gank",  "#d6455e"),
+            (FogDeathToken,         "Combat",     "Died in Fog",   "#b23a72"),
             (EventTypes.Assist,     "Combat",     "Assist",        "#0099ff"),
             (EventTypes.MultiKill,  "Combat",     "Multikill",   "#fbbf24"),
             (EventTypes.FirstBlood, "Combat",     "First Blood", "#ef4444"),
@@ -137,6 +164,10 @@ public class GameEvent
             (TradeToken,         "Lane", "Trade",          "#ffb86b"),
             (ShortTradeToken,    "Lane", "Short Trade",    "#ffd9a3"),
             (ExtendedTradeToken, "Lane", "Extended Trade", "#ff9248"),
+            // Map state (derived post-game from Match-V5 timeline positions)
+            (JungleProximityToken,      "Map", "Jungler Near",       "#b07cd8"),
+            (EnemyJungleProximityToken, "Map", "Enemy Jungler Near", "#ff7a9e"),
+            (AllyJungleProximityToken,  "Map", "Ally Jungler Near",  "#6bd6c8"),
             // Fights (synthetic derived token)
             (TeamfightToken,   "Fights",    "Teamfight", "#f3a3a8"),
         ];

@@ -2328,12 +2328,29 @@ app.MapPost("/api/backfill/start", async (WriteServices w, ILogger<Program> log,
         log.LogDebug(ex, "Backfill: laning leg failed (degraded, non-fatal)");
     }
 
-    var totalUpdated = enemy.Updated + laning.Updated;
+    // Map-state leg (v3.2): jungle-proximity events + death map-state stamps from
+    // the same Match-V5 timeline. Degrades silently like the laning leg.
+    MapStateBackfillResult mapState = new(0, 0, 0, 0);
+    try
+    {
+        mapState = await w.MapStateBackfill.RunAsync(ct: ct);
+    }
+    catch (OperationCanceledException)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        log.LogDebug(ex, "Backfill: map-state leg failed (degraded, non-fatal)");
+    }
+
+    var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
     var text = totalUpdated > 0
-        ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}."
+        ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state: {mapState.Updated}/{mapState.Scanned}."
         : "Nothing to backfill — every game already has its matchup data.";
 
-    log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}", enemy.Updated, enemy.Scanned, laning.Updated, laning.Scanned);
+    log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}, map-state {MU}/{MS}",
+        enemy.Updated, enemy.Scanned, laning.Updated, laning.Scanned, mapState.Updated, mapState.Scanned);
     return Results.Json(new
     {
         ok = true,
@@ -2341,6 +2358,7 @@ app.MapPost("/api/backfill/start", async (WriteServices w, ILogger<Program> log,
         text,
         enemy = new { scanned = enemy.Scanned, updated = enemy.Updated, skipped = enemy.Skipped, failed = enemy.Failed },
         laning = new { scanned = laning.Scanned, updated = laning.Updated, skipped = laning.Skipped, failed = laning.Failed },
+        mapState = new { scanned = mapState.Scanned, updated = mapState.Updated, skipped = mapState.Skipped, failed = mapState.Failed },
     }, jsonOptions);
 });
 

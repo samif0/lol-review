@@ -774,7 +774,7 @@ function deriveShortLabel(eventType, label) {
     FIRSTBLOOD: 'FB', ACE: 'ACE', GANK: 'GNK', WARD: 'WRD', RECALL: 'RCL',
     FLASH: 'FLS', SUMMONERSPELL: 'SUM', LEVELUP: 'LVL',
     TRADE: 'TRD', SHORT_TRADE: 'STR', EXTENDED_TRADE: 'XTR',
-    JUNGLE_GANK: 'GNK',
+    JUNGLE_GANK: 'GNK', JUNGLE_PROXIMITY: 'JPX',
   };
   if (map[t]) return map[t];
   // Generic: first three letters of the type, upper-cased.

@@ -33,7 +33,11 @@ public static class Schema
     //               Safe both ways: the runner tolerates duplicate-column and
     //               objective_event_types is CREATE IF NOT EXISTS in
     //               AllCreateStatements.
-    public const int CurrentAppSchemaVersion = 10;
+    // v11 (2026-07): games.map_state_v — MapStateAnalyzer version that has
+    //               processed this game (NULL = never). Drives the map-state
+    //               backfill's missing-set query; bumping the analyzer version
+    //               naturally queues every game for a re-run.
+    public const int CurrentAppSchemaVersion = 11;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -972,6 +976,17 @@ public static class Schema
         "ALTER TABLE games ADD COLUMN puuid TEXT NOT NULL DEFAULT ''",
     ];
 
+    /// <summary>
+    /// v3.2 (schema v11): games.map_state_v — the <c>MapStateAnalyzer.Version</c>
+    /// that last processed this game's Match-V5 timeline into JUNGLE_PROXIMITY
+    /// rows + death map-state stamps. NULL = never processed (the backfill's
+    /// missing-set). Forward-only, additive; existing rows queue for the pass.
+    /// </summary>
+    public static readonly string[] MigrateGamesMapStateVersion =
+    [
+        "ALTER TABLE games ADD COLUMN map_state_v INTEGER",
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -1101,6 +1116,8 @@ public static class Schema
         // to a custom prompt for the prompt-centric review (P-027). Shipped as
         // "v8" in the 3.0.11/3.0.12 side-branch; duplicate-column tolerant.
         new(10, "evidence-prompt-id", MigrateEvidencePromptId),
+        // v3.2 (schema v11): games.map_state_v — map-state backfill marker.
+        new(11, "games-map-state-version", MigrateGamesMapStateVersion),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

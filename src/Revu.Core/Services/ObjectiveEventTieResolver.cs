@@ -166,11 +166,35 @@ public sealed class ObjectiveEventTieResolver
                 _          => [GameEvent.TrackableTokens.TradeToken],
             };
         }
-        if (type == GameEvent.EventTypes.Death && ReadDetailsBool(e, "jungle_gank"))
+        if (type == GameEvent.EventTypes.Death)
         {
-            // A jungle-ganked death matches the specific JUNGLE_GANK token (priority-lane
-            // winner) AND the plain DEATH token, so an objective tracking either fires.
-            return [GameEvent.TrackableTokens.JungleGankToken, GameEvent.EventTypes.Death];
+            // A death can carry derived attributes stamped by post-game analysis: a
+            // jungle gank (Details.jungle_gank) and/or a fog death (Details.fog_death
+            // from the map-state backfill). Each attribute adds its specific token,
+            // most-specific first, and the plain DEATH token always matches last.
+            var isGank = ReadDetailsBool(e, "jungle_gank");
+            var isFog = ReadDetailsBool(e, "fog_death");
+            if (isGank || isFog)
+            {
+                var tokens = new List<string>(3);
+                if (isGank) tokens.Add(GameEvent.TrackableTokens.JungleGankToken);
+                if (isFog) tokens.Add(GameEvent.TrackableTokens.FogDeathToken);
+                tokens.Add(GameEvent.EventTypes.Death);
+                return tokens;
+            }
+            return [GameEvent.EventTypes.Death];
+        }
+        if (type == GameEvent.EventTypes.JungleProximity)
+        {
+            // Who-specific token first (priority-lane winner), generic JUNGLE_PROXIMITY
+            // second — the same shape as the trade family. Unknown / missing who still
+            // matches the generic token.
+            return ReadDetailsString(e, "who").Trim().ToUpperInvariant() switch
+            {
+                "ENEMY" => [GameEvent.TrackableTokens.EnemyJungleProximityToken, GameEvent.TrackableTokens.JungleProximityToken],
+                "ALLY"  => [GameEvent.TrackableTokens.AllyJungleProximityToken, GameEvent.TrackableTokens.JungleProximityToken],
+                _       => [GameEvent.TrackableTokens.JungleProximityToken],
+            };
         }
         return type.Length > 0 ? [type] : [];
     }
