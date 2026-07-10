@@ -9,10 +9,11 @@ namespace Revu.Core.Services;
 public sealed record MapStateBackfillResult(int Scanned, int Updated, int Skipped, int Failed);
 
 /// <summary>
-/// v3.2 (schema v11): walks games the <see cref="MapStateAnalyzer"/> hasn't processed
-/// yet and resolves their map state via Match-V5 + its timeline endpoint (through the
-/// proxy) — the same two round-trips per game as <see cref="LaningBackfillService"/>,
-/// with the same per-call throttle. Per game it:
+/// v3.2 (schema v11): walks the REVIEW-QUEUE games (unreviewed + recent — see
+/// <c>GetGameIdsMissingMapStateAsync</c>) the <see cref="MapStateAnalyzer"/> hasn't
+/// processed yet and resolves their map state via Match-V5 + its timeline endpoint
+/// (through the proxy) — the same two round-trips per game as
+/// <see cref="LaningBackfillService"/>, with the same per-call throttle. Per game it:
 ///   1. deletes + re-appends the derived JUNGLE_PROXIMITY rows (idempotent re-run),
 ///   2. persists the death map-state stamps onto the existing DEATH rows,
 ///   3. marks games.map_state_v so the game never re-fetches at this analyzer version.

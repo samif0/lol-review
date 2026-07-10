@@ -278,8 +278,37 @@ public sealed class MapStateAnalyzerTests
         });
         Assert.True(saved >= 0);
 
+        // Scope guard: the missing-set is the REVIEW QUEUE (unreviewed + recent).
+        // A reviewed game and an old game must both stay out of the walk.
+        await scope.Games.SaveAsync(new GameStats
+        {
+            GameId = 930_002,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            QueueType = "Ranked Solo/Duo",
+            ChampionName = "Ahri",
+            Win = false,
+            GameDuration = 1800,
+        });
+        using (var conn = scope.OpenConnection())
+        using (var mark = conn.CreateCommand())
+        {
+            mark.CommandText = "UPDATE games SET rating = 4 WHERE game_id = 930002";
+            await mark.ExecuteNonQueryAsync();
+        }
+        await scope.Games.SaveAsync(new GameStats
+        {
+            GameId = 930_003,
+            Timestamp = DateTimeOffset.UtcNow.AddDays(-30).ToUnixTimeSeconds(),
+            QueueType = "Ranked Solo/Duo",
+            ChampionName = "Ahri",
+            Win = true,
+            GameDuration = 1800,
+        });
+
         var missing = await scope.Games.GetGameIdsMissingMapStateAsync(MapStateAnalyzer.Version);
         Assert.Contains(930_001, missing);
+        Assert.DoesNotContain(930_002, missing); // reviewed (rating set)
+        Assert.DoesNotContain(930_003, missing); // outside the recent window
 
         // Capture-time events, then the backfill's append — append must not clear.
         await scope.GameEvents.SaveEventsAsync(930_001,

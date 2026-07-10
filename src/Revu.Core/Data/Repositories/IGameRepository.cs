@@ -200,8 +200,11 @@ public interface IGameHistoryQuery
     Task<IReadOnlyList<long>> GetGameIdsMissingLaningAsync();
 
     /// <summary>v3.2 (schema v11): game_ids not yet processed by the map-state
-    /// pass at the given analyzer version. Excludes hidden + casual games.</summary>
-    Task<IReadOnlyList<long>> GetGameIdsMissingMapStateAsync(int currentVersion);
+    /// pass at the given analyzer version. Scoped to the review queue — only
+    /// UNREVIEWED games from the last <paramref name="recentDays"/> days (the
+    /// markers anchor upcoming reviews; a full-history walk is deliberately not
+    /// offered). Excludes hidden + casual games.</summary>
+    Task<IReadOnlyList<long>> GetGameIdsMissingMapStateAsync(int currentVersion, int recentDays = 14);
 
     /// <summary>Get a single game by game_id, or null if not found.</summary>
     Task<GameStats?> GetAsync(long gameId);
