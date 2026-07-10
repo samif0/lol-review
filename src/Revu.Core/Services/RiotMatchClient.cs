@@ -38,7 +38,29 @@ public sealed class RiotMatchClient : IRiotMatchClient
         _logger = logger;
     }
 
-    public async Task<JsonElement?> GetMatchAsync(string matchId, string region, CancellationToken ct = default)
+    // v3.2: 429-awareness. The Riot key's SUSTAINED budget (~100 calls / 2 min)
+    // is far below the worker's burst allowance, so any long backfill WILL
+    // exhaust a window and start drawing 429s — previously each one burned a
+    // game as "failed" and whole runs churned uselessly (observed live: 475-game
+    // laning walk with the majority 429ing). Honor Retry-After (or a
+    // conservative default) and retry the SAME request: sleeping to the window
+    // reset is the optimal pacing and self-adapts to whatever budget the proxy
+    // actually enforces. Bursts between sleeps stay throttled by the callers.
+    private const int MaxRateLimitRetries = 3;
+    private static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromMinutes(3);
+
+    public Task<JsonElement?> GetMatchAsync(string matchId, string region, CancellationToken ct = default) =>
+        GetJsonAsync(
+            $"{RiotProxyEndpoint.BaseUrl}/match/{Uri.EscapeDataString(matchId)}?region={Uri.EscapeDataString(region)}",
+            "Match", matchId, ct);
+
+    public Task<JsonElement?> GetTimelineAsync(string matchId, string region, CancellationToken ct = default) =>
+        GetJsonAsync(
+            $"{RiotProxyEndpoint.BaseUrl}/timeline/{Uri.EscapeDataString(matchId)}?region={Uri.EscapeDataString(region)}",
+            "Timeline", matchId, ct);
+
+    private async Task<JsonElement?> GetJsonAsync(string url, string what, string matchId, CancellationToken ct)
     {
         var token = _config.RiotSessionToken;
         if (string.IsNullOrWhiteSpace(token))
@@ -47,79 +69,62 @@ public sealed class RiotMatchClient : IRiotMatchClient
             return null;
         }
 
-        using var req = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"{RiotProxyEndpoint.BaseUrl}/match/{Uri.EscapeDataString(matchId)}?region={Uri.EscapeDataString(region)}");
-        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-
-        try
+        for (var attempt = 0; ; attempt++)
         {
-            var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
-            if (!res.IsSuccessStatusCode)
+            // A fresh HttpRequestMessage per attempt — they are single-use.
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            try
             {
-                // 404 from Riot is expected for matches outside the rolling window
-                // or for IDs the proxy can't validate — log at debug, not warn.
-                if ((int)res.StatusCode == 404)
+                var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+
+                if ((int)res.StatusCode == 429 && attempt < MaxRateLimitRetries)
                 {
-                    _logger.LogDebug("Match {MatchId} not found upstream", matchId);
+                    var wait = RetryAfterOf(res) ?? DefaultRetryAfter;
+                    if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
+                    if (wait > MaxRetryAfter) wait = MaxRetryAfter;
+                    _logger.LogInformation(
+                        "{What} {MatchId} rate-limited; waiting {Seconds:0}s then retrying (attempt {Attempt})",
+                        what, matchId, wait.TotalSeconds, attempt + 1);
+                    await Task.Delay(wait, ct).ConfigureAwait(false);
+                    continue;
                 }
-                else
+
+                if (!res.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning("Match {MatchId} fetch failed: {Status}", matchId, res.StatusCode);
+                    // 404 from Riot is expected for matches outside the rolling
+                    // window / IDs the proxy can't validate / an un-redeployed
+                    // proxy without the /timeline route — debug, not warn.
+                    if ((int)res.StatusCode == 404)
+                    {
+                        _logger.LogDebug("{What} {MatchId} not found upstream", what, matchId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("{What} {MatchId} fetch failed: {Status}", what, matchId, res.StatusCode);
+                    }
+                    return null;
                 }
+
+                return await res.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "{What} {MatchId} fetch errored", what, matchId);
                 return null;
             }
-            var doc = await res.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct).ConfigureAwait(false);
-            return doc;
-        }
-        catch (TaskCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Match {MatchId} fetch errored", matchId);
-            return null;
         }
     }
 
-    public async Task<JsonElement?> GetTimelineAsync(string matchId, string region, CancellationToken ct = default)
+    // Retry-After as a delay: delta form preferred, HTTP-date form converted.
+    private static TimeSpan? RetryAfterOf(HttpResponseMessage res)
     {
-        var token = _config.RiotSessionToken;
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            _logger.LogWarning("RiotMatchClient: no session token; user must reauth.");
-            return null;
-        }
-
-        using var req = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"{RiotProxyEndpoint.BaseUrl}/timeline/{Uri.EscapeDataString(matchId)}?region={Uri.EscapeDataString(region)}");
-        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-
-        try
-        {
-            var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
-            if (!res.IsSuccessStatusCode)
-            {
-                // 404 covers both matches outside Riot's window AND an
-                // un-redeployed proxy without the /timeline route — both are
-                // expected during rollout, keep at debug.
-                if ((int)res.StatusCode == 404)
-                {
-                    _logger.LogDebug("Timeline {MatchId} not found upstream", matchId);
-                }
-                else
-                {
-                    _logger.LogWarning("Timeline {MatchId} fetch failed: {Status}", matchId, res.StatusCode);
-                }
-                return null;
-            }
-            var doc = await res.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct).ConfigureAwait(false);
-            return doc;
-        }
-        catch (TaskCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Timeline {MatchId} fetch errored", matchId);
-            return null;
-        }
+        var ra = res.Headers.RetryAfter;
+        if (ra is null) return null;
+        if (ra.Delta is { } delta) return delta;
+        if (ra.Date is { } date) return date - DateTimeOffset.UtcNow;
+        return null;
     }
 }

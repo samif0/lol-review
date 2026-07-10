@@ -2313,6 +2313,27 @@ app.MapPost("/api/backfill/start", async (WriteServices w, ILogger<Program> log,
         return Results.Json(new { ok = false, error = $"Backfill failed: {ex.Message}" }, jsonOptions, statusCode: 502);
     }
 
+    // Map-state leg (v3.2): jungle-proximity events + death map-state stamps from
+    // the Match-V5 timeline. Runs BEFORE the laning leg on purpose: both walk the
+    // same missing-game backlog two calls at a time, a deep history takes tens of
+    // minutes at the Riot key's sustained budget, and if the run is cut short the
+    // newest review-facing data (timeline markers) should have landed first. The
+    // proxy edge-caches match/timeline, so the laning leg re-fetching the same
+    // games afterwards is comparatively cheap. Degrades silently like laning.
+    MapStateBackfillResult mapState = new(0, 0, 0, 0);
+    try
+    {
+        mapState = await w.MapStateBackfill.RunAsync(ct: ct);
+    }
+    catch (OperationCanceledException)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        log.LogDebug(ex, "Backfill: map-state leg failed (degraded, non-fatal)");
+    }
+
     // Laning leg degrades silently on a proxy 404 (mirror the VM try/catch).
     LaningBackfillResult laning = new(0, 0, 0, 0);
     try
@@ -2326,22 +2347,6 @@ app.MapPost("/api/backfill/start", async (WriteServices w, ILogger<Program> log,
     catch (Exception ex)
     {
         log.LogDebug(ex, "Backfill: laning leg failed (degraded, non-fatal)");
-    }
-
-    // Map-state leg (v3.2): jungle-proximity events + death map-state stamps from
-    // the same Match-V5 timeline. Degrades silently like the laning leg.
-    MapStateBackfillResult mapState = new(0, 0, 0, 0);
-    try
-    {
-        mapState = await w.MapStateBackfill.RunAsync(ct: ct);
-    }
-    catch (OperationCanceledException)
-    {
-        throw;
-    }
-    catch (Exception ex)
-    {
-        log.LogDebug(ex, "Backfill: map-state leg failed (degraded, non-fatal)");
     }
 
     var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;

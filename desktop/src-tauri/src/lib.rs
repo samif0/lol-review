@@ -657,10 +657,14 @@ async fn delete_clip(payload: serde_json::Value) -> Result<serde_json::Value, St
 /// POST /api/backfill/start.
 #[tauri::command]
 async fn run_backfill() -> Result<serde_json::Value, String> {
-    // Backfill walks every game missing matchup data, throttled ~1.5 RPS with two
-    // round-trips per game on the laning leg — well past 30s for any real backlog.
-    // 10-minute window; a larger backlog can be drained by re-running.
-    sidecar::post_json_timeout("/api/backfill/start", serde_json::json!({}), Duration::from_secs(600)).await
+    // Backfill walks every game missing matchup data (enemy laner, map-state,
+    // laning@10), two throttled round-trips per game, and the client sleeps
+    // through Riot 429 windows (~100 calls / 2 min sustained budget) instead of
+    // failing — so a deep backlog legitimately runs tens of minutes. Give it a
+    // full hour: aborting this request CANCELS the server-side walk mid-run,
+    // which is exactly what the old 600s cap did on any real backlog. A re-run
+    // resumes from the remaining missing games either way.
+    sidecar::post_json_timeout("/api/backfill/start", serde_json::json!({}), Duration::from_secs(3600)).await
 }
 
 // ── Settings page (Batch 6) ───────────────────────────────────────────────────
