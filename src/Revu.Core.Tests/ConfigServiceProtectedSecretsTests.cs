@@ -219,6 +219,44 @@ public sealed class ConfigServiceProtectedSecretsTests
         Assert.True(service.RiotProxyEnabled);
     }
 
+    [Fact]
+    public async Task Session_SurvivesConfigJsonDeletion_ViaExpiryMirror()
+    {
+        // Observed live 2026-07-10: config.json vanished from disk after a logged
+        // "session verified + persisted" (deleter unknown), and because the expiry
+        // had no DPAPI mirror the next launch read expiry=0 → signed out even
+        // though the token secret survived. The session must now recover fully
+        // from the store alone.
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+        var expiry = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
+
+        // Sign-in (the verify handler's save).
+        var signIn = CreateService(scope.ConfigPath, secrets);
+        await signIn.SaveAsync(new AppConfig
+        {
+            RiotSessionToken = "riot-session-secret",
+            RiotSessionEmail = "tester@example.com",
+            RiotSessionExpiresAt = expiry,
+        });
+        Assert.True(File.Exists(scope.ConfigPath));
+
+        // Whatever it is, it eats the file. Simulate a fresh process afterwards.
+        File.Delete(scope.ConfigPath);
+        var nextLaunch = CreateService(scope.ConfigPath, secrets);
+        var loaded = await nextLaunch.LoadAsync();
+
+        Assert.Equal("riot-session-secret", loaded.RiotSessionToken);
+        Assert.Equal(expiry, loaded.RiotSessionExpiresAt);
+        Assert.True(nextLaunch.HasValidRiotSession);
+
+        // And an explicit sign-out still wipes the mirror for real.
+        await nextLaunch.ClearSessionAsync();
+        Assert.Null(secrets.GetSecret("riot_session_token"));
+        Assert.Null(secrets.GetSecret("riot_session_expires_at"));
+        Assert.False(nextLaunch.HasValidRiotSession);
+    }
+
     private static ConfigService CreateService(string configPath, IProtectedSecretStore secrets) =>
         new(NullLogger<ConfigService>.Instance, secrets, configPath);
 

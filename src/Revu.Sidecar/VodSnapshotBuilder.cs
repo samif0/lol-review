@@ -229,10 +229,16 @@ public sealed class VodSnapshotBuilder
         var isJungleGank = IsDeathEvent(e.EventType) && ReadJsonBool(e, "jungle_gank");
         if (isJungleGank) colorHex = JungleGankHex;
 
-        // JUNGLE_PROXIMITY markers color by whose jungler is near (Details.who):
-        // enemy = threat pink, ally = calm teal — the marker itself carries the read.
-        if (string.Equals(e.EventType, GameEvent.EventTypes.JungleProximity, StringComparison.OrdinalIgnoreCase))
-            colorHex = ReadJsonWho(e) switch
+        // JUNGLE_PROXIMITY markers carry WHOSE jungler is near (Details.who) in
+        // every human-facing channel — hue (enemy threat pink / ally calm teal),
+        // short code (EJX/AJX) and label — because an objective tied to the
+        // GENERIC token paints focused markers in the objective's color, and the
+        // short code is then the only thing left distinguishing enemy from ally.
+        var proximityWho = string.Equals(e.EventType, GameEvent.EventTypes.JungleProximity, StringComparison.OrdinalIgnoreCase)
+            ? ReadJsonWho(e)
+            : null;
+        if (proximityWho is not null)
+            colorHex = proximityWho switch
             {
                 "enemy" => EnemyProximityHex,
                 "ally" => AllyProximityHex,
@@ -249,8 +255,10 @@ public sealed class VodSnapshotBuilder
             EventType: e.EventType ?? "",
             GameTimeSeconds: e.GameTimeS,
             TimeLabel: FormatClock(e.GameTimeS),
-            ShortLabel: isJungleGank ? "GNK" : ShortLabel(e.EventType),
-            Label: isJungleGank ? "Jungle Gank" : EventLabel(e.EventType),
+            ShortLabel: isJungleGank ? "GNK"
+                : proximityWho switch { "enemy" => "EJX", "ally" => "AJX", _ => (string?)null } ?? ShortLabel(e.EventType),
+            Label: isJungleGank ? "Jungle Gank"
+                : proximityWho switch { "enemy" => "Enemy Jungler Near", "ally" => "Ally Jungler Near", _ => (string?)null } ?? EventLabel(e.EventType),
             Summary: isJungleGank ? JungleGankSummary(e) : EventSummary(e),
             Kind: kind,
             ColorHex: colorHex,
