@@ -106,4 +106,54 @@ public sealed class GameEventsRepository : IGameEventsRepository
         cmd.Parameters.AddWithValue("@gameId", gameId);
         await cmd.ExecuteNonQueryAsync();
     }
+
+    public async Task AppendEventsAsync(long gameId, IReadOnlyList<GameEvent> events)
+    {
+        if (events.Count == 0) return;
+
+        using var conn = _factory.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+        using var insertCommand = conn.CreateCommand();
+        insertCommand.CommandText = """
+            INSERT INTO game_events (game_id, event_type, game_time_s, details)
+            VALUES (@gameId, @eventType, @gameTimeSeconds, @details)
+            """;
+        insertCommand.Transaction = transaction;
+
+        var gameIdParameter = insertCommand.Parameters.Add("@gameId", SqliteType.Integer);
+        var eventTypeParameter = insertCommand.Parameters.Add("@eventType", SqliteType.Text);
+        var gameTimeParameter = insertCommand.Parameters.Add("@gameTimeSeconds", SqliteType.Integer);
+        var detailsParameter = insertCommand.Parameters.Add("@details", SqliteType.Text);
+
+        foreach (var gameEvent in events)
+        {
+            gameIdParameter.Value = gameId;
+            eventTypeParameter.Value = gameEvent.EventType;
+            gameTimeParameter.Value = gameEvent.GameTimeS;
+            detailsParameter.Value = string.IsNullOrWhiteSpace(gameEvent.Details) ? "{}" : gameEvent.Details;
+            await insertCommand.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
+    }
+
+    public async Task DeleteEventsByTypeAsync(long gameId, string eventType)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM game_events WHERE game_id = @gameId AND event_type = @eventType";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        cmd.Parameters.AddWithValue("@eventType", eventType);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdateEventDetailsAsync(int eventId, string details)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE game_events SET details = @details WHERE id = @id";
+        cmd.Parameters.AddWithValue("@details", string.IsNullOrWhiteSpace(details) ? "{}" : details);
+        cmd.Parameters.AddWithValue("@id", eventId);
+        await cmd.ExecuteNonQueryAsync();
+    }
 }

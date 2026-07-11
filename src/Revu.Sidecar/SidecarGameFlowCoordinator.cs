@@ -229,6 +229,11 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                 // auto-match on next launch. Fire-and-forget so it never delays the save.
                 stats.GameId = gameId; // the persisted id; the matcher keys off it
                 _ = Task.Run(() => TryLinkRecordingWithRetryAsync(stats));
+
+                // v3.2: derive the just-ended game's map-state (jungle proximity +
+                // fog deaths) automatically, so the timeline markers appear without
+                // a manual Settings backfill. Fire-and-forget like the VOD link.
+                _ = Task.Run(() => TryMapStateWithRetryAsync(gameId));
             }
             else
             {
@@ -275,6 +280,54 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Post-game VOD link attempt failed for game {GameId} (will retry/heal)", game.GameId);
+            }
+        }
+    }
+
+    // v3.2: run the map-state pass for the just-ended game. Riot's Match-V5 data
+    // usually becomes fetchable ~1–2 minutes after EOG, so attempts at +90s / +5min
+    // (the run is keyed on games.map_state_v, so a still-unavailable match simply
+    // stays queued and the retry — or the next manual backfill — heals it).
+    // maxGames is small on purpose: newest-first ordering means the fresh game is
+    // first in the review-queue-scoped missing set; deep drains stay on the
+    // Settings button. Skips quietly when signed out — the proxy would reject
+    // anonymous calls, so attempting would just burn throttled 401s.
+    private async Task TryMapStateWithRetryAsync(long gameId)
+    {
+        var delaysSeconds = new[] { 90, 300 };
+        foreach (var delay in delaysSeconds)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
+            try
+            {
+                if (!_write.Config.HasValidRiotSession)
+                {
+                    _logger.LogDebug("Post-game map-state skipped for game {GameId}: no Riot session", gameId);
+                    return;
+                }
+
+                var result = await _write.MapStateBackfill.RunAsync(maxGames: 5).ConfigureAwait(false);
+                if (result.Scanned == 0 || result.Failed == 0)
+                {
+                    // Nothing queued (already processed) or everything queued landed —
+                    // either way the fresh game is done.
+                    _logger.LogInformation(
+                        "Post-game map-state pass done ({Updated} updated, {Skipped} empty) after game {GameId}",
+                        result.Updated, result.Skipped, gameId);
+                    // Tell open pages the markers exist now — a VOD player already
+                    // showing this game soft-refreshes its timeline (the pass lands
+                    // ~90s after EOG, inside the window where the user may have the
+                    // VOD open already). Fresh navigations always fetch fresh.
+                    if (result.Updated > 0)
+                        _eventHub.Publish("mapStateUpdated", new { gameId, updated = result.Updated });
+                    return;
+                }
+                // Some fetch failed — most likely the fresh match isn't visible
+                // upstream yet. Fall through to the next, longer delay.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Post-game map-state attempt failed for game {GameId} (will retry/heal)", gameId);
             }
         }
     }

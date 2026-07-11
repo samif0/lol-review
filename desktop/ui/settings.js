@@ -346,6 +346,7 @@ const ACTIONS = new Set([
   'save_config', 'pick_ascent', 'pick_clips', 'pick_backup', 'clear_ascent',
   'scan_vods', 'refresh_backups', 'export_data', 'open_logs',
   'restore_backup', 'reset_all_data', 'check_update', 'install_update',
+  'run_backfill',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -378,6 +379,7 @@ document.addEventListener('click', async (ev) => {
     if (action === 'save_config') return await doSave(invoke, target);
     if (action in PICK_TARGETS) return await doPick(invoke, action);
     if (action === 'scan_vods') return await doScan(invoke, target);
+    if (action === 'run_backfill') return await doBackfill(invoke, target);
     if (action === 'refresh_backups') return await loadStatus();
     if (action === 'export_data') return await doExport(invoke, target);
     if (action === 'open_logs') return await invoke('open_log_folder');
@@ -547,6 +549,31 @@ async function doScan(invoke, target) {
     }));
   } catch (err) {
     setStatusEl($('scan-result'), `Scan failed: ${err && err.message ? err.message : err}`, 'bad', false);
+  } finally {
+    if (canDisable) target.disabled = false;
+    target.textContent = prev;
+  }
+}
+
+// Backfill = long-running write (enemy laners + laning@10 + map-state events via
+// Match-V5). The sidecar walks every unprocessed game throttled, so this can run
+// minutes on a deep backlog; the Rust command allows up to 10. Shows the result
+// text the sidecar built. ranBackfill=false means the account gate refused (not
+// signed in) — surface that as an error tone so the user knows to sign in first.
+async function doBackfill(invoke, target) {
+  const canDisable = 'disabled' in target;
+  const prev = target.textContent;
+  if (canDisable) target.disabled = true;
+  target.textContent = 'Backfilling…';
+  setStatusEl($('backfill-status'),
+    'Backfilling… walks every unprocessed game (throttled). A deep backlog takes a few minutes.', null, false);
+  try {
+    const res = await invoke('run_backfill');
+    const text = res && res.text ? String(res.text) : 'Backfill complete.';
+    const failed = (res && res.ok === false) || (res && res.ranBackfill === false);
+    setStatusEl($('backfill-status'), text, failed ? 'bad' : 'good', false);
+  } catch (err) {
+    setStatusEl($('backfill-status'), `Backfill failed: ${err && err.message ? err.message : err}`, 'bad', false);
   } finally {
     if (canDisable) target.disabled = false;
     target.textContent = prev;

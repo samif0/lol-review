@@ -177,6 +177,15 @@ async function fetchVod() {
   return { data: await res.json(), core: null };
 }
 
+// Post-game map-state pass finished for a game (shell-outer forwards the sidecar's
+// mapStateUpdated SSE into this iframe). If it's THE game on screen, soft-refresh the
+// timeline so the fresh jungle-proximity / fog-death markers appear without a reload —
+// reloadBookmarks() already re-renders every marker lane and never touches playback.
+window.addEventListener('revu:map-state-updated', (ev) => {
+  const gid = Number(ev && ev.detail && ev.detail.gameId);
+  if (gid > 0 && gid === _gameId) reloadBookmarks();
+});
+
 // Re-fetch the VOD snapshot after a write and re-render the bookmark/marker UI
 // WITHOUT touching the <video> element (so playback position is preserved).
 // Manual invalidation — there's no message bus.
@@ -774,7 +783,7 @@ function deriveShortLabel(eventType, label) {
     FIRSTBLOOD: 'FB', ACE: 'ACE', GANK: 'GNK', WARD: 'WRD', RECALL: 'RCL',
     FLASH: 'FLS', SUMMONERSPELL: 'SUM', LEVELUP: 'LVL',
     TRADE: 'TRD', SHORT_TRADE: 'STR', EXTENDED_TRADE: 'XTR',
-    JUNGLE_GANK: 'GNK',
+    JUNGLE_GANK: 'GNK', JUNGLE_PROXIMITY: 'JPX',
   };
   if (map[t]) return map[t];
   // Generic: first three letters of the type, upper-cased.

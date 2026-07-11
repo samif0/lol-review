@@ -182,6 +182,10 @@ public interface IGameWriter
     /// identified.
     /// </summary>
     Task UpdateLaningAt10Async(long gameId, double csAt10, int? goldDiffAt10, double? csDiffAt10);
+
+    /// <summary>v3.2 (schema v11): mark a game processed by the map-state pass
+    /// at the given analyzer version.</summary>
+    Task UpdateMapStateVersionAsync(long gameId, int version);
 }
 
 /// <summary>Read model for game history and review queues.</summary>
@@ -194,6 +198,13 @@ public interface IGameHistoryQuery
     /// <summary>v2.18 (schema v5): game_ids with no laning-at-10 numbers yet,
     /// for the Match-V5 timeline backfill. Excludes hidden + casual games.</summary>
     Task<IReadOnlyList<long>> GetGameIdsMissingLaningAsync();
+
+    /// <summary>v3.2 (schema v11): game_ids not yet processed by the map-state
+    /// pass at the given analyzer version. Scoped to the review queue — only
+    /// UNREVIEWED games from the last <paramref name="recentDays"/> days (the
+    /// markers anchor upcoming reviews; a full-history walk is deliberately not
+    /// offered). Excludes hidden + casual games.</summary>
+    Task<IReadOnlyList<long>> GetGameIdsMissingMapStateAsync(int currentVersion, int recentDays = 14);
 
     /// <summary>Get a single game by game_id, or null if not found.</summary>
     Task<GameStats?> GetAsync(long gameId);

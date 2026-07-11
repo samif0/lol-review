@@ -108,10 +108,12 @@ public sealed class WriteServices : IDisposable
         services.AddHttpClient<IRiotAuthClient, RiotAuthClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddHttpClient<IRiotMatchClient, RiotMatchClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddHttpClient<IClipUploadService, ClipUploadService>(c => c.Timeout = TimeSpan.FromMinutes(5));
-        // Backfill services walk games missing enemy_laner / laning@10 and resolve
-        // them via Match-V5 (through IRiotMatchClient). Both write to GameRepository.
+        // Backfill services walk games missing enemy_laner / laning@10 / map state
+        // and resolve them via Match-V5 (through IRiotMatchClient). All write to
+        // GameRepository; the map-state leg also writes derived game_events rows.
         services.AddSingleton<EnemyLanerBackfillService>();
         services.AddSingleton<LaningBackfillService>();
+        services.AddSingleton<MapStateBackfillService>();
 
         // One-time safety backup guard (first write of a session).
         services.AddSingleton<SessionBackupGuard>();
@@ -192,9 +194,10 @@ public sealed class WriteServices : IDisposable
     // POST /api/clip/upload — IClipUploadService.UploadAsync(clipPath, token, ...)
     // returns the public revu.lol URL, then SetBookmarkShareUrlAsync persists it.
     public IClipUploadService ClipUpload => _provider.GetRequiredService<IClipUploadService>();
-    // POST /api/backfill/start — enemy-laner + laning@10 resolution via Match-V5.
+    // POST /api/backfill/start — enemy-laner + laning@10 + map-state resolution via Match-V5.
     public EnemyLanerBackfillService EnemyLanerBackfill => _provider.GetRequiredService<EnemyLanerBackfillService>();
     public LaningBackfillService LaningBackfill => _provider.GetRequiredService<LaningBackfillService>();
+    public MapStateBackfillService MapStateBackfill => _provider.GetRequiredService<MapStateBackfillService>();
 
     // ── Live game-end capture (Batch 5 / LCU) ─────────────────────────────────
     // The end-of-game persistence the SidecarGameFlowCoordinator runs when the

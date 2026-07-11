@@ -232,6 +232,22 @@
       <div class="set-acct-note">Account sign-in (email code) and sign-out stay in the current build for now.</div>
     </div>
 
+    <!-- MATCH DATA BACKFILL — walks past games missing Riot match data and fills
+         enemy laners, laning@10, and map-state events (jungle proximity + fog
+         deaths) from the Match-V5 timeline. Long-running (throttled); needs a
+         signed-in account so the proxy accepts the calls. -->
+    <div class="card set-card">
+      <div class="seclabel">Match Data Backfill</div>
+      <div class="set-row-s">Fills missing Riot match data: map-state timeline events (jungle
+        proximity, fog deaths) for your unreviewed games from the last two weeks, plus enemy laners
+        and laning@10 for any game still missing them. Throttled to the Riot API budget, so a deep
+        backlog takes a while. Requires sign-in.</div>
+      <div class="set-btnrow">
+        <button class="rule-act set-act-primary" type="button" data-action="run_backfill" id="backfill-btn">Run backfill</button>
+      </div>
+      <div class="set-status" id="backfill-status" hidden></div>
+    </div>
+
     <!-- ABOUT & UPDATES (deferred — installer-managed) -->
     <div class="seclabel seclabel-lead">About &amp; Updates</div>
 

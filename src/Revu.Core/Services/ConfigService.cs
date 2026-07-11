@@ -23,6 +23,15 @@ public sealed class ConfigService : IConfigService
     private const string RiotIdSecretName = "riot_id";
     private const string RiotRegionSecretName = "riot_region";
     private const string RiotPuuidSecretName = "riot_puuid";
+    // v3.2: the session EXPIRY mirrored into DPAPI next to the token. Observed
+    // live 2026-07-10: config.json vanished from disk twice AFTER a logged
+    // "session verified + persisted" (deleter unknown — no error, no corrupt
+    // backup), and because the expiry used to live ONLY in plaintext
+    // config.json, every such loss read as expiry=0 → signed out on the next
+    // launch even though the token secret survived. Mirroring the expiry makes
+    // the session recoverable from the store alone, closing the whole
+    // "logged out every launch" class regardless of what eats the file.
+    private const string RiotSessionExpiresAtSecretName = "riot_session_expires_at";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -165,6 +174,7 @@ public sealed class ConfigService : IConfigService
             try
             {
                 _secrets.ClearSecret(RiotSessionTokenSecretName);
+                _secrets.ClearSecret(RiotSessionExpiresAtSecretName);
                 var persistable = PersistSecretsAndCreateSanitizedConfig(cfg);
                 Directory.CreateDirectory(_configDir);
                 var json = JsonSerializer.Serialize(persistable, JsonOptions);
@@ -183,22 +193,27 @@ public sealed class ConfigService : IConfigService
     }
 
     // Read just the persisted RiotSessionExpiresAt from config.json on disk, without
-    // mutating _cached or taking the lock (callers already hold it). Returns 0 if the
-    // file is missing/unreadable/absent-field.
+    // mutating _cached or taking the lock (callers already hold it). Falls back to
+    // the DPAPI mirror when the file is missing/unreadable/absent-field, so a save
+    // that lands while config.json is gone still writes the real expiry back out.
     private long ReadPersistedExpiry()
     {
         try
         {
-            if (!File.Exists(_configFile)) return 0;
-            var json = File.ReadAllText(_configFile);
-            var onDisk = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
-            return onDisk?.RiotSessionExpiresAt ?? 0;
+            if (File.Exists(_configFile))
+            {
+                var json = File.ReadAllText(_configFile);
+                var onDisk = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
+                if (onDisk is { RiotSessionExpiresAt: > 0 } cfg) return cfg.RiotSessionExpiresAt;
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not read persisted session expiry; treating as 0.");
-            return 0;
+            _logger.LogWarning(ex, "Could not read persisted session expiry; falling back to the store.");
         }
+        return long.TryParse(_secrets.GetSecret(RiotSessionExpiresAtSecretName), out var stored) && stored > 0
+            ? stored
+            : 0;
     }
 
     // ── Keybinds ────────────────────────────────────────────────────
@@ -468,6 +483,11 @@ public sealed class ConfigService : IConfigService
         if (!string.IsNullOrWhiteSpace(config.RiotSessionToken))
         {
             _secrets.SetSecret(RiotSessionTokenSecretName, config.RiotSessionToken);
+            // Mirror the expiry alongside the token (see the secret-name note):
+            // only a positive expiry writes — a token-carrying save with expiry 0
+            // (hydrated read-modify-write) must not stomp the stored value.
+            if (config.RiotSessionExpiresAt > 0)
+                _secrets.SetSecret(RiotSessionExpiresAtSecretName, config.RiotSessionExpiresAt.ToString());
         }
 
         // Mirror the login-unlock identity into DPAPI next to the token (P1/19-02).
@@ -502,6 +522,15 @@ public sealed class ConfigService : IConfigService
         var copy = CloneConfig(config);
         copy.GithubToken = _secrets.GetSecret(GithubTokenSecretName) ?? "";
         copy.RiotSessionToken = _secrets.GetSecret(RiotSessionTokenSecretName) ?? "";
+        // Expiry: plaintext wins when present (written together with the mirror);
+        // a missing/clobbered config.json (expiry 0) recovers from the store so
+        // the surviving token secret still counts as a live session.
+        if (copy.RiotSessionExpiresAt <= 0
+            && long.TryParse(_secrets.GetSecret(RiotSessionExpiresAtSecretName), out var storedExpiry)
+            && storedExpiry > 0)
+        {
+            copy.RiotSessionExpiresAt = storedExpiry;
+        }
         // Identity: store-first, plaintext-fallback. If config.json was clobbered
         // (riot_id/region/puuid blanked) but the DPAPI mirror survives, recover from
         // the store so the user stays logged in (P1/19-02). The plaintext value wins

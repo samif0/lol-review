@@ -77,6 +77,7 @@ const FALLBACK_EVENT_TOKENS = [
   { token: 'KILL', group: 'Combat', label: 'Kill', color: '#28c76f' },
   { token: 'DEATH', group: 'Combat', label: 'Death', color: '#ea5455' },
   { token: 'JUNGLE_GANK', group: 'Combat', label: 'Died to Gank', color: '#d6455e' },
+  { token: 'FOG_DEATH', group: 'Combat', label: 'Died in Fog', color: '#b23a72' },
   { token: 'ASSIST', group: 'Combat', label: 'Assist', color: '#0099ff' },
   { token: 'MULTI_KILL', group: 'Combat', label: 'Multikill', color: '#fbbf24' },
   { token: 'FIRST_BLOOD', group: 'Combat', label: 'First Blood', color: '#ef4444' },
@@ -89,6 +90,9 @@ const FALLBACK_EVENT_TOKENS = [
   { token: 'TRADE', group: 'Lane', label: 'Trade', color: '#ffb86b' },
   { token: 'SHORT_TRADE', group: 'Lane', label: 'Short Trade', color: '#ffd9a3' },
   { token: 'EXTENDED_TRADE', group: 'Lane', label: 'Extended Trade', color: '#ff9248' },
+  { token: 'JUNGLE_PROXIMITY', group: 'Map', label: 'Jungler Near', color: '#b07cd8' },
+  { token: 'ENEMY_JUNGLE_PROXIMITY', group: 'Map', label: 'Enemy Jungler Near', color: '#ff7a9e' },
+  { token: 'ALLY_JUNGLE_PROXIMITY', group: 'Map', label: 'Ally Jungler Near', color: '#6bd6c8' },
   { token: 'TEAMFIGHT', group: 'Fights', label: 'Teamfight', color: '#f3a3a8' },
 ];
 

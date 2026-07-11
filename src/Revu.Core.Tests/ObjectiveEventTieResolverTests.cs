@@ -111,6 +111,61 @@ public sealed class ObjectiveEventTieResolverTests
     }
 
     [Fact]
+    public void EventTokens_FogDeath_YieldsFogThenDeath()
+    {
+        // A DEATH stamped fog_death by the map-state pass matches FOG_DEATH (first)
+        // AND the plain DEATH token.
+        Assert.Equal(
+            new[] { "FOG_DEATH", "DEATH" },
+            ObjectiveEventTieResolver.EventTokens(Ev(1, "DEATH", 300, "{\"fog_death\":true}")).ToArray());
+        // Gank + fog on the same death: gank keeps priority, fog second, DEATH last.
+        Assert.Equal(
+            new[] { "JUNGLE_GANK", "FOG_DEATH", "DEATH" },
+            ObjectiveEventTieResolver.EventTokens(
+                Ev(2, "DEATH", 300, "{\"jungle_gank\":true,\"fog_death\":true}")).ToArray());
+    }
+
+    [Fact]
+    public void EventTokens_JungleProximity_YieldsWhoSpecificThenGeneric()
+    {
+        Assert.Equal(
+            new[] { "ENEMY_JUNGLE_PROXIMITY", "JUNGLE_PROXIMITY" },
+            ObjectiveEventTieResolver.EventTokens(
+                Ev(1, "JUNGLE_PROXIMITY", 300, "{\"who\":\"enemy\"}")).ToArray());
+        Assert.Equal(
+            new[] { "ALLY_JUNGLE_PROXIMITY", "JUNGLE_PROXIMITY" },
+            ObjectiveEventTieResolver.EventTokens(
+                Ev(2, "JUNGLE_PROXIMITY", 300, "{\"who\":\"ally\"}")).ToArray());
+        // Missing/unknown who still matches the generic token.
+        Assert.Equal(
+            new[] { "JUNGLE_PROXIMITY" },
+            ObjectiveEventTieResolver.EventTokens(Ev(3, "JUNGLE_PROXIMITY", 300)).ToArray());
+    }
+
+    [Fact]
+    public void JungleProximityTokens_TieGenericAndWhoSpecificObjectives()
+    {
+        // One objective tracks any proximity, another only the enemy jungler's.
+        var resolver = ObjectiveEventTieResolver.FromTies(new[]
+        {
+            ("JUNGLE_PROXIMITY", 1L, "Track the junglers"),
+            ("ENEMY_JUNGLE_PROXIMITY", 2L, "Respect the enemy jungler"),
+        });
+        var enemyNear = Ev(1, "JUNGLE_PROXIMITY", 300, "{\"who\":\"enemy\"}");
+        var allyNear = Ev(2, "JUNGLE_PROXIMITY", 360, "{\"who\":\"ally\"}");
+
+        var ties = resolver.ResolveForGame(new[] { enemyNear, allyNear });
+
+        // Enemy proximity → BOTH objectives, de-duped per objective.
+        Assert.Equal(2, ties[1].Count);
+        Assert.Contains(ties[1], t => t.ObjectiveId == 1L);
+        Assert.Contains(ties[1], t => t.ObjectiveId == 2L);
+        // Ally proximity → only the generic objective.
+        Assert.Single(ties[2]);
+        Assert.Equal(1L, ties[2][0].ObjectiveId);
+    }
+
+    [Fact]
     public void JungleGankToken_TiesGenericDeathAndGankObjectives()
     {
         // One objective tracks any DEATH, another only JUNGLE_GANK.
