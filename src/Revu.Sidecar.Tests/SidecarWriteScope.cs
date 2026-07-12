@@ -17,11 +17,13 @@ namespace Revu.Sidecar.Tests;
 /// tests exercise the real persistence code the endpoints run — without the
 /// WinExe host, Kestrel, or Velopack.
 ///
-/// Mirrors Revu.Core.Tests/TestInfrastructure.cs (TestDatabaseScope). We do NOT
-/// reference Revu.Sidecar (Microsoft.NET.Sdk.Web + WinExe + RID = awkward to
-/// reference); only Revu.Core. The test doubles below (config / vod / backup /
-/// game factory) are copied here because their TestDatabaseScope equivalents are
-/// `internal` to the Revu.Core.Tests assembly.
+/// Mirrors Revu.Core.Tests/TestInfrastructure.cs (TestDatabaseScope). NOTE: this
+/// project DOES reference Revu.Sidecar (added for the snapshot builders), so
+/// sidecar types like WriteSqliteConnectionFactory are testable here directly —
+/// see WriteFactoryRecoveryTests / ScanVodsPathTests. This scope predates that
+/// reference and builds the Revu.Core graph on the plain test factory. The test
+/// doubles below (config / vod / backup / game factory) are copied here because
+/// their TestDatabaseScope equivalents are `internal` to Revu.Core.Tests.
 /// </summary>
 public sealed class SidecarWriteScope : IDisposable
 {

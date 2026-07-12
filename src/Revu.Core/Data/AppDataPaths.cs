@@ -57,8 +57,26 @@ public static class AppDataPaths
         yield return Path.Combine(InstallRoot, "data", "backups");
     }
 
+    /// <summary>
+    /// Directory the sidecar writes its port+token handshake file into
+    /// (<c>sidecar.json</c>). Lives beside the data root so the
+    /// <c>REVU_DATA_ROOT</c> override isolates it too — a dev/e2e sidecar must
+    /// never clobber the installed app's handshake.
+    /// </summary>
+    public static string SidecarHandshakeDirectory => Path.Combine(LocalAppDataRoot, "Revu");
+
     private static string GetLocalAppDataRoot()
     {
+        // Dev/e2e override: point ALL app data (DB, config, clips, backups, and
+        // the sidecar handshake) at a scratch root, so a genuine fresh-install
+        // flow can be exercised on a developer machine without touching the real
+        // %LOCALAPPDATA% data. Explicit opt-in only; never set in production.
+        var overrideRoot = Environment.GetEnvironmentVariable("REVU_DATA_ROOT");
+        if (!string.IsNullOrWhiteSpace(overrideRoot))
+        {
+            return overrideRoot;
+        }
+
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (!string.IsNullOrEmpty(localAppData))
         {

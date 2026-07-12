@@ -24,8 +24,17 @@ pub struct Handshake {
 /// stale. On a connection error we re-read the file and retry — see `get_json`.
 static HANDSHAKE: Mutex<Option<Handshake>> = Mutex::new(None);
 
-/// %LOCALAPPDATA%\Revu\sidecar.json — must match Revu.Sidecar's Program.cs.
+/// %LOCALAPPDATA%\Revu\sidecar.json — must match Revu.Sidecar's Program.cs
+/// (AppDataPaths.SidecarHandshakeDirectory). The REVU_DATA_ROOT dev/e2e override
+/// mirrors the C# side: a scratch-rooted dev app reads/deletes ITS OWN handshake
+/// and can never clobber (or hijack) the installed app's sidecar.json — the
+/// spawned sidecar inherits the same env var, so both ends agree on the path.
 fn handshake_path() -> Option<PathBuf> {
+    if let Ok(root) = std::env::var("REVU_DATA_ROOT") {
+        if !root.trim().is_empty() {
+            return Some(PathBuf::from(root).join("Revu").join("sidecar.json"));
+        }
+    }
     dirs::data_local_dir().map(|d| d.join("Revu").join("sidecar.json"))
 }
 

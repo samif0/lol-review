@@ -21,8 +21,11 @@ namespace Revu.Sidecar;
 ///
 /// <para>
 /// We reuse Revu.Core's tested write methods verbatim (the same code the WinUI app
-/// runs) rather than hand-rolling SQL. The sidecar NEVER runs DatabaseInitializer —
-/// schema ownership stays with the WinUI app.
+/// ran) rather than hand-rolling SQL. Schema ownership now lives in the sidecar
+/// (WinUI is gone): startup runs DatabaseInitializer.ApplyAdditiveSchemaAsync (the
+/// additive, non-destructive subset only), and the write factory's P-041 recovery
+/// stages the same additive pass when re-creating a never-existed fresh-install DB.
+/// The destructive normalize/seed phases of InitializeAsync are never run here.
 /// </para>
 /// </summary>
 public sealed class WriteServices : IDisposable
@@ -208,6 +211,10 @@ public sealed class WriteServices : IDisposable
     public IGameLifecycleWorkflowService GameLifecycle => _provider.GetRequiredService<IGameLifecycleWorkflowService>();
 
     public SessionBackupGuard BackupGuard => _provider.GetRequiredService<SessionBackupGuard>();
+
+    // The write graph's resolved DB path — used by endpoints to diagnose open
+    // failures (SqliteOpenHealth.Describe) with the path writes actually target.
+    public string DatabasePath => _provider.GetRequiredService<IDbConnectionFactory>().DatabasePath;
 
     public void Dispose() => _provider.Dispose();
 }

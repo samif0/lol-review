@@ -159,6 +159,11 @@ async function wireLiveAutoShow() {
           // navigating OR actively filling out a review/objective form.
           if (p.isGameInProgress) liveGoto('ingame.html');
           else if (p.sessionKey) liveGoto('pregame.html');
+        } else if (!p.isGameInProgress && !p.sessionKey) {
+          // Mirror shell-outer.js: a reconnect replay that says "no game, no
+          // champ select" is authoritative — if the gameEnded event was lost
+          // across an SSE drop, this is what unsticks the In Game surface.
+          leaveLiveSurface();
         }
         break;
       default:

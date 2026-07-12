@@ -324,6 +324,13 @@ async function wireLiveAutoShow() {
           sawFirstLiveState = true;
           if (p.isGameInProgress) liveGoto('ingame.html');
           else if (p.sessionKey) liveGoto('pregame.html');
+        } else if (!p.isGameInProgress && !p.sessionKey) {
+          // Replays fire on every SSE (re)connect. If the connection dropped
+          // across the end of a game, the 'gameEnded' event is gone forever and
+          // the shell would sit on In Game indefinitely (P-041 field report:
+          // "i finished the game and this still shows"). The replayed state is
+          // authoritative: no game, no champ select → leave the live surface.
+          leaveLiveSurface();
         }
         break;
       case 'lcuConnection': setLcuIndicator(!!p.connected); break;

@@ -266,7 +266,7 @@ try
 {
     var migrateLogger = app.Services.GetRequiredService<ILoggerFactory>();
     var writeFactory = new WriteSqliteConnectionFactory(
-        migrateLogger.CreateLogger<WriteSqliteConnectionFactory>());
+        migrateLogger.CreateLogger<WriteSqliteConnectionFactory>(), migrateLogger);
 
     // Missing-only: returns true only on a genuinely fresh install (no canonical
     // AND no legacy DB). On an existing DB this is a no-op — no recreation, no wipe.
@@ -340,11 +340,30 @@ app.Use(async (context, next) =>
             context.Response.Clear();
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsJsonAsync(new
+            // P-041: a database-open failure carries a user-actionable diagnosis
+            // (missing file, read-only attribute, blocked folder ...). Surface it
+            // instead of the generic sentence so ANY write endpoint that hits it
+            // tells the user what is actually wrong. Raw SqliteException 14/8 land
+            // here too when the failure surfaced at repo-query time (WAL sidecar
+            // problems never hit the factory's open). Clear pooled handles so a
+            // fixed file isn't shadowed by a stale downgraded connection.
+            string error;
+            if (ex is DatabaseUnavailableException dbEx)
             {
-                ok = false,
-                error = "The app hit an unexpected error saving. Please try again.",
-            });
+                SqliteConnection.ClearAllPools();
+                error = dbEx.Message;
+            }
+            else if (SqliteOpenHealth.IsOpenOrWriteAccessFailure(ex))
+            {
+                SqliteConnection.ClearAllPools();
+                var dbPath = app.Services.GetRequiredService<WriteServices>().DatabasePath;
+                error = $"Revu couldn't open its database: {SqliteOpenHealth.Describe(dbPath)}";
+            }
+            else
+            {
+                error = "The app hit an unexpected error saving. Please try again.";
+            }
+            await context.Response.WriteAsJsonAsync(new { ok = false, error });
         }
     }
 });
@@ -1135,9 +1154,11 @@ app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILo
 app.MapPost("/api/settings/scan-vods", async (WriteServices w, ILogger<Program> log) =>
 {
     await w.BackupGuard.EnsureBackedUpAsync();
+    var recordingCount = 0;
     try
     {
         var recordings = await w.VodScan.FindRecordingsAsync();
+        recordingCount = recordings.Count;
         var matched = await w.VodScan.AutoMatchRecordingsAsync();
 
         // P-007: surface silent misses — a recent recording matching no game is
@@ -1150,29 +1171,39 @@ app.MapPost("/api/settings/scan-vods", async (WriteServices w, ILogger<Program> 
                 StringComparer.OrdinalIgnoreCase);
             var weekAgo = DateTimeOffset.Now.AddDays(-7).ToUnixTimeSeconds();
             var unmatchedRecent = recordings.Count(r => r.Mtime >= weekAgo && !linkedPaths.Contains(r.Path));
-            if (unmatchedRecent > 0)
-                unmatchedNote = $" {unmatchedRecent} recording(s) from the last 7 days match no game.";
+            unmatchedNote = VodScanMessages.UnmatchedRecentNote(unmatchedRecent);
         }
         catch (Exception ex)
         {
             log.LogDebug(ex, "Scan unmatched-recent diagnostic failed (swallowed)");
         }
 
-        string text;
-        if (matched > 0)
-            text = $"Matched {matched} VOD(s) to games! ({recordings.Count} recordings found){unmatchedNote}";
-        else if (recordings.Count == 0)
-            text = "No video files found. Check that your Ascent folder is set and contains recordings.";
-        else
-            text = $"Found {recordings.Count} recordings but no new matches. Games may already be linked or outside the match window.{unmatchedNote}";
-
+        var text = VodScanMessages.Success(matched, recordings.Count, unmatchedNote);
         log.LogInformation("VOD scan: matched {Matched}, recordings {Count}", matched, recordings.Count);
         return Results.Json(new { ok = true, matched, recordingCount = recordings.Count, text }, jsonOptions);
+    }
+    catch (Exception ex) when (SqliteOpenHealth.IndicatesDatabaseUnavailable(ex))
+    {
+        // P-041: the recordings are fine — the DATABASE couldn't be opened. Say
+        // so, with the actual cause and the recordings count, instead of the bare
+        // "SQLite Error 14" the user can do nothing with. The factory has already
+        // self-healed what it safely can (missing folder, read-only attributes,
+        // never-created fresh-install DB) before this surfaces. Drop pooled
+        // handles too: SQLite silently downgrades a write open of a protected
+        // file to read-only, and the pool would keep serving that dead handle
+        // after the user fixes the file — the next scan must start clean.
+        SqliteConnection.ClearAllPools();
+        var reason = ex is DatabaseUnavailableException unavailable
+            ? unavailable.Reason
+            : SqliteOpenHealth.Describe(w.DatabasePath);
+        var text = VodScanMessages.DatabaseFailure(recordingCount, reason);
+        log.LogError(ex, "VOD scan DB unavailable: {Reason}", reason);
+        return Results.Json(new { ok = false, error = reason, recordingCount, text }, jsonOptions);
     }
     catch (Exception ex)
     {
         log.LogWarning(ex, "VOD scan failed");
-        return Results.Json(new { ok = false, error = ex.Message, text = $"Scan failed: {ex.Message}" }, jsonOptions);
+        return Results.Json(new { ok = false, error = ex.Message, recordingCount, text = $"Scan failed: {ex.Message}" }, jsonOptions);
     }
 });
 
@@ -2457,8 +2488,10 @@ static int ExtractPort(string address)
 
 static void WriteSidecarHandshake(int port, string token, ILogger logger)
 {
-    var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-    var dir = Path.Combine(localAppData, "Revu");
+    // Derived from AppDataPaths so the REVU_DATA_ROOT dev/e2e override isolates
+    // the handshake too — a scratch-rooted sidecar must never clobber the
+    // installed app's real sidecar.json (the Tauri host would reconnect to it).
+    var dir = AppDataPaths.SidecarHandshakeDirectory;
     Directory.CreateDirectory(dir); // sidecar handshake dir — NOT the DB data dir.
 
     var file = Path.Combine(dir, "sidecar.json");
