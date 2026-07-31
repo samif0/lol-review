@@ -24,7 +24,18 @@
   },
   "intent": {
     "sessionIntention": null,
-    "debriefRating": null
+    "debriefRating": null,
+    "withCoach": false,
+    "stintBlockNumber": null
+  },
+  "stint": {
+    "id": 1,
+    "name": "Violet",
+    "startDate": "2026-07-30",
+    "plannedEndDate": "2026-12-30",
+    "blocksTotal": 12,
+    "blocksWithCoach": 4,
+    "blocksSolo": 8
   },
   "deathMix": {
     "text": "Your most-tagged death cause is vision: 27% of the last 11 tagged deaths.",

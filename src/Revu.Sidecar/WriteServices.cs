@@ -53,6 +53,9 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IGameRepository>(sp => sp.GetRequiredService<GameRepository>());
         services.AddSingleton<IGameHistoryQuery>(sp => sp.GetRequiredService<GameRepository>());
         services.AddSingleton<ISessionLogRepository, SessionLogRepository>();
+        // v3.3: coaching stints (POST /api/stint/start, /api/stint/end; block
+        // start stamps the active stint's id + block number onto sessions).
+        services.AddSingleton<ICoachingStintsRepository, CoachingStintsRepository>();
         services.AddSingleton<IObjectivesRepository, ObjectivesRepository>();
         // Rules CRUD (create / update / toggle / delete). Reuses the same
         // schema-tolerant RulesRepository the WinUI app writes through, bound to
@@ -125,6 +128,8 @@ public sealed class WriteServices : IDisposable
     }
 
     public ISessionLogRepository SessionLog => _provider.GetRequiredService<ISessionLogRepository>();
+    // Coaching stints (POST /api/stint/start, /api/stint/end, GET /api/stint).
+    public ICoachingStintsRepository CoachingStints => _provider.GetRequiredService<ICoachingStintsRepository>();
     public IObjectivesRepository Objectives => _provider.GetRequiredService<IObjectivesRepository>();
     public ITiltCheckRepository TiltChecks => _provider.GetRequiredService<ITiltCheckRepository>();
     public IReviewWorkflowService ReviewWorkflow => _provider.GetRequiredService<IReviewWorkflowService>();

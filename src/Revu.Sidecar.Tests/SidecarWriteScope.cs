@@ -41,6 +41,7 @@ public sealed class SidecarWriteScope : IDisposable
         // ── Repositories the sidecar write endpoints hit ────────────────────
         Games = new GameRepository(ConnectionFactory, new NoopBackupService());
         SessionLog = new SessionLogRepository(ConnectionFactory);
+        CoachingStints = new CoachingStintsRepository(ConnectionFactory);
         Objectives = new ObjectivesRepository(ConnectionFactory);
         DeathClassifications = new DeathClassificationsRepository(ConnectionFactory);
         Evidence = new EvidenceRepository(ConnectionFactory);
@@ -88,6 +89,8 @@ public sealed class SidecarWriteScope : IDisposable
     public GameRepository Games { get; }
 
     public SessionLogRepository SessionLog { get; }
+
+    public CoachingStintsRepository CoachingStints { get; }
 
     public ObjectivesRepository Objectives { get; }
 

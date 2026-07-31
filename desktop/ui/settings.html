@@ -176,6 +176,33 @@
       </div>
     </div>
 
+    <!-- COACHING STINT (v3.3) -->
+    <div class="seclabel seclabel-lead">Coaching</div>
+
+    <div class="card set-card">
+      <div class="seclabel">Coaching Stint</div>
+      <div class="set-row-s">Group your blocks under a named coaching engagement. While a stint is
+        active, every block you start is counted within it, and blocks tagged WITH COACH skip the
+        in-app review queue (you review those with your coach outside Revu; their mental stats
+        still count).</div>
+      <div class="set-status" id="stint-active" hidden></div>
+      <div id="stint-form">
+        <div class="obj-field">
+          <div class="obj-field-k">Coach / stint name</div>
+          <input class="obj-input" id="stint-name" type="text" spellcheck="false" placeholder="e.g. Violet" />
+        </div>
+        <div class="obj-field" style="max-width:220px">
+          <div class="obj-field-k">Planned end date (optional)</div>
+          <input class="obj-input" id="stint-end-date" type="date" />
+        </div>
+      </div>
+      <div class="set-btnrow">
+        <button class="rule-act set-act-primary" type="button" data-action="start_stint" id="stint-start-btn">Start stint</button>
+        <button class="rule-act" type="button" data-action="end_stint" id="stint-end-btn" hidden>End stint</button>
+      </div>
+      <div class="set-status" id="stint-status" hidden></div>
+    </div>
+
     <!-- APPEARANCE -->
     <div class="seclabel seclabel-lead">Appearance</div>
 

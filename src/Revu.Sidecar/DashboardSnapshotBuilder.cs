@@ -55,6 +55,7 @@ public sealed class DashboardSnapshotBuilder
     private readonly IDeathClassificationsRepository _deathClassRepo;
     private readonly IRulesRepository _rulesRepo;
     private readonly IGameHistoryQuery _gameHistory;
+    private readonly ICoachingStintsRepository _stintsRepo;
     private readonly IConfigService _configService;
     private readonly ILogger<DashboardSnapshotBuilder> _logger;
 
@@ -66,6 +67,7 @@ public sealed class DashboardSnapshotBuilder
         IDeathClassificationsRepository deathClassRepo,
         IRulesRepository rulesRepo,
         IGameHistoryQuery gameHistory,
+        ICoachingStintsRepository stintsRepo,
         IConfigService configService,
         ILogger<DashboardSnapshotBuilder> logger)
     {
@@ -76,6 +78,7 @@ public sealed class DashboardSnapshotBuilder
         _deathClassRepo = deathClassRepo;
         _rulesRepo = rulesRepo;
         _gameHistory = gameHistory;
+        _stintsRepo = stintsRepo;
         _configService = configService;
         _logger = logger;
     }
@@ -171,6 +174,13 @@ public sealed class DashboardSnapshotBuilder
         var greeting = BuildGreeting(now);
         var nextStep = BuildNextStep();
 
+        // ── Active coaching stint (v3.3) — degrade to null on failure ───────
+        var stint = await BuildStintAsync();
+        // The open block's coach tag + within-stint number only apply while an
+        // intention is actually active (same gating as blockDate above).
+        var withCoach = sessionIntention != null && sessionInfo?.WithCoach == true;
+        int? stintBlockNumber = sessionIntention != null ? sessionInfo?.StintBlockNumber : null;
+
         var statsDto = new DashboardStatsDto(
             TotalGames: totalGames,
             Wins: wins,
@@ -190,12 +200,45 @@ public sealed class DashboardSnapshotBuilder
             Greeting: greeting,
             Stats: statsDto,
             NextStep: nextStep,
-            Intent: new IntentDto(sessionIntention, debriefRatingOut, blockDate, carriedOver),
+            Intent: new IntentDto(sessionIntention, debriefRatingOut, blockDate, carriedOver, withCoach, stintBlockNumber),
             DeathMix: deathMix,
             VodPending: vodPending,
             Unreviewed: unreviewed,
             ActiveObjectives: activeObjectives,
-            Patterns: patterns);
+            Patterns: patterns,
+            Stint: stint);
+    }
+
+    /// <summary>
+    /// v3.3: the active coaching stint with its per-tag block counts, or null
+    /// when none is running. Degrades to null on failure like the other
+    /// section builders — a stint hiccup must never blank the dashboard.
+    /// </summary>
+    private async Task<StintDto?> BuildStintAsync()
+    {
+        try
+        {
+            var active = await _stintsRepo.GetActiveStintAsync();
+            if (active == null)
+            {
+                return null;
+            }
+
+            var counts = await _stintsRepo.GetBlockCountsAsync(active.Id);
+            return new StintDto(
+                Id: active.Id,
+                Name: active.Name,
+                StartDate: active.StartDate,
+                PlannedEndDate: active.PlannedEndDate,
+                BlocksTotal: counts.Total,
+                BlocksWithCoach: counts.WithCoach,
+                BlocksSolo: counts.Solo);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Dashboard: stint section failed; omitting");
+            return null;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

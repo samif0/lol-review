@@ -13,9 +13,15 @@ public sealed partial class GameRepository
     /// (two Riot calls per game) costs tens of minutes of rate-limited fetching
     /// for games nobody will open again. The unreviewed predicate mirrors
     /// <see cref="GetUnreviewedGamesAsync"/> exactly (any review field, rating,
-    /// session_log note/skip, or concept tag counts as reviewed). Excludes
-    /// hidden games and casual queues like the other Match-V5 backfills;
-    /// newest first so fresh games get their map state first.
+    /// session_log note/skip, or concept tag counts as reviewed) — with ONE
+    /// deliberate divergence: the v3.3 with-coach block exemption is NOT
+    /// applied here. Coach-block games leave the review queue (the coach
+    /// reviews them outside Revu) but still get map-state enrichment;
+    /// otherwise the derived-event data set would have a systematic hole
+    /// correlated with coach presence, biasing every stint comparison the
+    /// feature exists to enable. Excludes hidden games and casual queues like
+    /// the other Match-V5 backfills; newest first so fresh games get their
+    /// map state first.
     /// </summary>
     public async Task<IReadOnlyList<long>> GetGameIdsMissingMapStateAsync(int currentVersion, int recentDays = 14)
     {

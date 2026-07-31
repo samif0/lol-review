@@ -29,6 +29,7 @@ internal sealed class TestDatabaseScope : IDisposable
         MatchupNotes = new MatchupNotesRepository(ConnectionFactory);
         Vod = new VodRepository(ConnectionFactory);
         SessionLog = new SessionLogRepository(ConnectionFactory);
+        CoachingStints = new CoachingStintsRepository(ConnectionFactory);
         ConceptTags = new ConceptTagRepository(ConnectionFactory);
         ReviewDrafts = new ReviewDraftRepository(ConnectionFactory);
         MissedGameDecisions = new MissedGameDecisionRepository(ConnectionFactory);
@@ -57,6 +58,8 @@ internal sealed class TestDatabaseScope : IDisposable
     public VodRepository Vod { get; }
 
     public SessionLogRepository SessionLog { get; }
+
+    public CoachingStintsRepository CoachingStints { get; }
 
     public ConceptTagRepository ConceptTags { get; }
 

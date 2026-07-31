@@ -272,6 +272,23 @@ async fn end_block(payload: serde_json::Value) -> Result<serde_json::Value, Stri
     sidecar::post_json("/api/block/end", payload).await
 }
 
+/// v3.3 coaching stints: start ({name, plannedEndDate?}) / end ({}) and the
+/// read used by the Settings stint card ({stint} or {stint: null}).
+#[tauri::command]
+async fn start_stint(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/stint/start", payload).await
+}
+
+#[tauri::command]
+async fn end_stint(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/stint/end", payload).await
+}
+
+#[tauri::command]
+async fn get_stint() -> Result<serde_json::Value, String> {
+    sidecar::get_json("/api/stint").await
+}
+
 #[tauri::command]
 async fn save_review(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     sidecar::post_json("/api/review/save", payload).await
@@ -933,6 +950,9 @@ pub fn run() {
             get_config,
             start_block,
             end_block,
+            start_stint,
+            end_stint,
+            get_stint,
             save_review,
             skip_review,
             delete_review,

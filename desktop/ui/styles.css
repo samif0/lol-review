@@ -348,6 +348,16 @@ html.framed .shell{padding-left:40px}
   box-shadow:0 0 12px -4px rgba(157,139,255,0.8)}
 .endblock-chips-need .endblock-chip{border-color:rgba(243,163,168,0.5)}
 
+/* v3.3 coaching stint — WITH COACH pill toggle inside the Start Block editor
+   (endblock-chip idiom, auto width) + the stint context line on the intent card. */
+.intent-coach{align-self:flex-start;height:30px;padding:0 12px;border-radius:8px;font-family:var(--fm);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--t3);
+  border:1px solid var(--gline2);background:rgba(255,255,255,0.03);cursor:pointer;
+  transition:color .14s ease,background .14s ease,border-color .14s ease}
+.intent-coach:hover{color:var(--t2);border-color:rgba(157,139,255,0.4)}
+.intent-coach.on{color:#fff;border-color:rgba(157,139,255,0.6);background:rgba(157,139,255,0.18);
+  box-shadow:0 0 12px -4px rgba(157,139,255,0.8)}
+.nextstep-stint{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--gold);margin-top:10px}
+
 /* Objectives pane — header + ring cards stacked in the 60% column. */
 .objpane{display:flex;flex-direction:column}
 .objpane .seclabel{margin-top:2px}

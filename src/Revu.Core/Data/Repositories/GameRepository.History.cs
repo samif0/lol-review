@@ -6,6 +6,42 @@ namespace Revu.Core.Data.Repositories;
 
 public sealed partial class GameRepository
 {
+    // v3.3 (schema v12): a game played on a with-coach block day counts as
+    // reviewed — the coach reviews those games outside Revu. The date mapping
+    // is the same canonical CASE as ResolveGameSessionDateAsync /
+    // CleanupMismatchedEntriesAsync (date_played first, timestamp fallback) so
+    // the exemption works even for import paths that never wrote a session_log
+    // row. Two legs: (1) a with-coach block on the game's own day; (2) a
+    // with-coach block on the PREVIOUS day that was still open past midnight
+    // (ended_at NULL = carried over, or closed on/after the game's day) — the
+    // 23:00 coach session whose games finish at 01:30 must stay exempt, same
+    // cross-midnight model as the dashboard's End Block carry-over.
+    // Deliberately a sessions-level signal: session_log is untouched, so
+    // mental stats, tilt warnings, and the adherence streak stay byte-identical
+    // (never route this through is_skipped).
+    private const string GameLocalDateCase = @"CASE
+                                WHEN COALESCE(games.date_played, '') != '' THEN SUBSTR(games.date_played, 1, 10)
+                                WHEN COALESCE(games.timestamp, 0) > 0 THEN DATE(games.timestamp, 'unixepoch', 'localtime')
+                                ELSE ''
+                              END";
+
+    private const string ReviewedByCoachBlockTerm = @"
+                 EXISTS (
+                        SELECT 1
+                        FROM sessions
+                        WHERE COALESCE(sessions.with_coach, 0) = 1
+                          AND (
+                                sessions.date = " + GameLocalDateCase + @"
+                             OR (
+                                    sessions.date = DATE(" + GameLocalDateCase + @", '-1 day')
+                                AND (
+                                        sessions.ended_at IS NULL
+                                     OR DATE(sessions.ended_at, 'unixepoch', 'localtime') >= " + GameLocalDateCase + @"
+                                    )
+                                )
+                              )
+                    )";
+
     public async Task<IReadOnlyList<long>> GetGameIdsMissingEnemyLanerAsync()
     {
         using var conn = _factory.CreateConnection();
@@ -111,6 +147,7 @@ public sealed partial class GameRepository
                     FROM game_concept_tags
                     WHERE game_concept_tags.game_id = games.game_id
                 )
+                AND NOT {ReviewedByCoachBlockTerm}
             )
             {CasualFilter}
             AND (is_hidden IS NULL OR is_hidden = 0)";
@@ -198,6 +235,7 @@ public sealed partial class GameRepository
                         FROM game_concept_tags
                         WHERE game_concept_tags.game_id = games.game_id
                     )
+                 OR {ReviewedByCoachBlockTerm}
               )
               {CasualFilter}
             ORDER BY timestamp DESC";

@@ -91,13 +91,25 @@ function renderNextStep(d) {
   const intent = d.intent || {};
   const blockActive = !!intent.sessionIntention && (intent.debriefRating == null);
   const cta = $('nextstep-cta');
+  // Stash the day's current coach tag so a same-day re-lock opens the intent
+  // editor with WITH COACH pre-lit instead of silently defaulting it off
+  // (which would retro-untag the day and flood coach games back into the
+  // review queue). The snapshot keeps intent.withCoach even after End Block.
+  _lastIntentWithCoach = !!intent.withCoach;
+  renderStintLine(d);
 
   if (blockActive) {
     // A block carried over from a prior day (started, never ended) still gets End
     // Block so it can be closed — nudge the user to wrap it. Stash the block's own
     // date on the button so end_block targets the right row, not just today.
     const carried = !!intent.carriedOver;
-    $('nextstep-k').textContent = carried ? 'Unfinished block · End Block' : 'In session · End Block';
+    // v3.3: surface the block's stint number + coach tag in the kicker.
+    const blockTag = [
+      intent.stintBlockNumber != null ? `Block #${intent.stintBlockNumber}` : '',
+      intent.withCoach ? 'With coach' : '',
+    ].filter(Boolean).join(' · ');
+    const baseKicker = carried ? 'Unfinished block · End Block' : 'In session · End Block';
+    $('nextstep-k').textContent = blockTag ? `${baseKicker} · ${blockTag}` : baseKicker;
     $('nextstep-h').textContent = carried ? 'Wrap your last block.' : 'Wrap the block.';
     $('nextstep-p').textContent = carried
       ? `You left "${intent.sessionIntention}" open. Rate how it went and lock it in.`
@@ -117,6 +129,25 @@ function renderNextStep(d) {
     'A 30-second ritual: name one focus, check your priority objective, lock in.';
   cta.textContent = ns.ctaLabel || 'START BLOCK →';
   cta.dataset.action = ns.action || 'start_block';
+}
+
+// v3.3: active coaching stint context under the intent copy — stint name,
+// blocks so far, and the with-coach / solo split. Hidden when no stint runs.
+function renderStintLine(d) {
+  const el = $('nextstep-stint');
+  if (!el) return;
+  const st = d.stint;
+  if (!st || !st.name) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  const parts = [`Stint · ${st.name}`, `${st.blocksTotal ?? 0} blocks`];
+  if ((st.blocksTotal ?? 0) > 0) {
+    parts.push(`${st.blocksWithCoach ?? 0} w/ coach · ${st.blocksSolo ?? 0} solo`);
+  }
+  el.textContent = parts.join(' · ');
+  el.hidden = false;
 }
 
 // ── render: stat strip (fixed order) ────────────────────────────────────────
@@ -358,6 +389,7 @@ function setActiveWork(on) {
 // the reload re-renders the next-step card, which restores the button. Escape
 // or Cancel aborts back to the button without touching the backend.
 let _intentOpen = false;
+let _lastIntentWithCoach = false;
 function openIntentEditor(cta) {
   if (_intentOpen) return;
   _intentOpen = true;
@@ -387,8 +419,27 @@ function openIntentEditor(cta) {
   cancel.className = 'intent-cancel';
   cancel.textContent = 'Cancel';
 
+  // v3.3: WITH COACH toggle — tags the block so its games are reviewed with
+  // the coach outside Revu (they leave the in-app review queue; mental stats
+  // are untouched). Lives inside the editor, so the active-work guard covers it.
+  // Seeded from the day's current tag: a re-lock preserves it (visibly, the
+  // pill opens pre-lit) unless the user explicitly turns it off.
+  let withCoach = _lastIntentWithCoach;
+  const coach = document.createElement('button');
+  coach.type = 'button';
+  coach.className = 'intent-coach';
+  coach.textContent = 'WITH COACH';
+  coach.setAttribute('role', 'switch');
+  coach.classList.toggle('on', withCoach);
+  coach.setAttribute('aria-checked', String(withCoach));
+  coach.addEventListener('click', () => {
+    withCoach = !withCoach;
+    coach.classList.toggle('on', withCoach);
+    coach.setAttribute('aria-checked', String(withCoach));
+  });
+
   actions.append(confirm, cancel);
-  wrap.append(input, actions);
+  wrap.append(input, coach, actions);
 
   // Swap the button out for the editor, then focus the field.
   cta.hidden = true;
@@ -415,8 +466,9 @@ function openIntentEditor(cta) {
     }
     input.disabled = true;
     confirm.disabled = true;
+    coach.disabled = true;
     try {
-      await invoke('start_block', { payload: { intention } });
+      await invoke('start_block', { payload: { intention, withCoach } });
       window.dispatchEvent(new CustomEvent('revu:first-review-block-started', {
         detail: { intention },
       }));
@@ -427,6 +479,7 @@ function openIntentEditor(cta) {
       console.error('[dashboard] action "start_block" failed:', err);
       input.disabled = false;
       confirm.disabled = false;
+      coach.disabled = false;
       input.focus();
     }
   }

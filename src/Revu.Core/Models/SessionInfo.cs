@@ -18,4 +18,16 @@ public class SessionInfo
     public string DebriefNote { get; set; } = "";
     public long? StartedAt { get; set; }
     public long? EndedAt { get; set; }
+
+    /// <summary>v3.3 (schema v12): coaching stint this block belongs to,
+    /// or null for a standalone block.</summary>
+    public int? StintId { get; set; }
+
+    /// <summary>1-based block number within the stint; stamped at Start
+    /// Block and never renumbered. Null when not part of a stint.</summary>
+    public int? StintBlockNumber { get; set; }
+
+    /// <summary>The block ran with the coach present — its games are
+    /// reviewed with the coach outside Revu and skip the review queue.</summary>
+    public bool WithCoach { get; set; }
 }

@@ -346,7 +346,7 @@ const ACTIONS = new Set([
   'save_config', 'pick_ascent', 'pick_clips', 'pick_backup', 'clear_ascent',
   'scan_vods', 'refresh_backups', 'export_data', 'open_logs',
   'restore_backup', 'reset_all_data', 'check_update', 'install_update',
-  'run_backfill',
+  'run_backfill', 'start_stint', 'end_stint',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -387,11 +387,86 @@ document.addEventListener('click', async (ev) => {
     if (action === 'reset_all_data') return await doReset(invoke, target);
     if (action === 'check_update') return await doCheckUpdate(invoke);
     if (action === 'install_update') return await doInstallUpdate(invoke, target);
+    if (action === 'start_stint') return await doStartStint(invoke, target);
+    if (action === 'end_stint') return await doEndStint(invoke, target);
   } catch (err) {
     console.error(`[settings] ${action} failed:`, err);
     renderError(err);
   }
 });
+
+// ── Coaching stint (v3.3) ───────────────────────────────────────────────────
+// One active stint at a time. Starting shows the form; while active the card
+// shows the stint line + End button. Blocks keep their stint tags after End.
+async function loadStint() {
+  const invoke = await getInvoke();
+  if (!invoke) { renderStint(null); return; }
+  try {
+    const res = await invoke('get_stint');
+    renderStint(res && res.stint ? res.stint : null);
+  } catch (err) {
+    console.warn('[settings] stint load failed (non-fatal):', err);
+  }
+}
+
+function renderStint(stint) {
+  const activeEl = $('stint-active');
+  const form = $('stint-form');
+  const startBtn = $('stint-start-btn');
+  const endBtn = $('stint-end-btn');
+  if (!activeEl || !form || !startBtn || !endBtn) return;
+  if (stint && stint.name) {
+    const parts = [
+      `Active: ${stint.name}`,
+      `started ${stint.startDate}`,
+      `${stint.blocksTotal ?? 0} blocks (${stint.blocksWithCoach ?? 0} w/ coach · ${stint.blocksSolo ?? 0} solo)`,
+    ];
+    if (stint.plannedEndDate) parts.splice(2, 0, `until ${stint.plannedEndDate}`);
+    setStatusEl(activeEl, parts.join(' · '), 'good', false);
+    form.hidden = true;
+    startBtn.hidden = true;
+    endBtn.hidden = false;
+  } else {
+    setStatusEl(activeEl, '', null, false);
+    form.hidden = false;
+    startBtn.hidden = false;
+    endBtn.hidden = true;
+  }
+}
+
+async function doStartStint(invoke, target) {
+  const name = ($('stint-name')?.value || '').trim();
+  if (!name) { setStatusEl($('stint-status'), 'Name the stint first (e.g. your coach).', 'bad', true); return; }
+  const plannedEndDate = ($('stint-end-date')?.value || '').trim();
+  if ('disabled' in target) target.disabled = true;
+  try {
+    await invoke('start_stint', { payload: { name, plannedEndDate } });
+    setStatusEl($('stint-status'), 'Stint started. Blocks now count toward it.', 'good', true);
+    await loadStint();
+  } catch (err) {
+    setStatusEl($('stint-status'), errText(err) || 'Could not start the stint.', 'bad', false);
+    console.error('[settings] start_stint failed:', err);
+  } finally {
+    if ('disabled' in target) target.disabled = false;
+  }
+}
+
+async function doEndStint(invoke, target) {
+  const ok = window.confirm(
+    'End the coaching stint?\n\nPast blocks keep their stint numbers and coach tags; new blocks simply stop counting toward it. Starting a new stint later begins at block #1.');
+  if (!ok) return;
+  if ('disabled' in target) target.disabled = true;
+  try {
+    await invoke('end_stint', { payload: {} });
+    setStatusEl($('stint-status'), 'Stint ended.', 'good', true);
+    await loadStint();
+  } catch (err) {
+    setStatusEl($('stint-status'), errText(err) || 'Could not end the stint.', 'bad', false);
+    console.error('[settings] end_stint failed:', err);
+  } finally {
+    if ('disabled' in target) target.disabled = false;
+  }
+}
 
 // Restore the selected backup. The sidecar takes a pre-restore safety backup first;
 // on success the app RELAUNCHES (the invoke never resolves — the process restarts).
@@ -625,7 +700,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────
-function boot() { loadConfig(); loadAppVersion(); }
+function boot() { loadConfig(); loadAppVersion(); loadStint(); }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {

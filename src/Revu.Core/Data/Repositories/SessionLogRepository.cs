@@ -89,6 +89,11 @@ public sealed class SessionLogRepository : ISessionLogRepository
             DebriefNote = GetStringOrDefault(reader, "debrief_note"),
             StartedAt = reader.IsDBNull(reader.GetOrdinal("started_at")) ? null : reader.GetInt64(reader.GetOrdinal("started_at")),
             EndedAt = reader.IsDBNull(reader.GetOrdinal("ended_at")) ? null : reader.GetInt64(reader.GetOrdinal("ended_at")),
+            // v3.3 (schema v12): stint columns are migration-added; tolerate
+            // their absence so reads against a pre-migration DB can't throw.
+            StintId = GetNullableIntOrDefault(reader, "stint_id"),
+            StintBlockNumber = GetNullableIntOrDefault(reader, "stint_block_number"),
+            WithCoach = GetNullableIntOrDefault(reader, "with_coach") == 1,
         };
     }
 
@@ -379,21 +384,51 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return result is not null;
     }
 
-    public async Task SetSessionIntentionAsync(string dateStr, string intention)
+    public async Task SetSessionIntentionAsync(
+        string dateStr,
+        string intention,
+        bool withCoach = false,
+        int? stintId = null,
+        int? stintBlockNumber = null)
     {
         using var conn = _factory.CreateConnection();
         await conn.OpenAsync();
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
+        // v3.3 (schema v12): with_coach follows the latest lock-in (retagging
+        // today's block must work). Stint stamps are sticky only WITHIN a
+        // stint: a same-stint re-lock keeps the day's original block number
+        // (the within-stint sequence never shifts even though the caller
+        // recomputed "next"), while a genuine same-day stint switch restamps
+        // the row to the new stint with its fresh number, and a re-lock after
+        // the stint ended (excluded NULL) keeps the era the block started in.
+        // A pre-stint block (row NULL) IS claimed by a stint started later the
+        // same day — one row per date, and the re-lock genuinely runs under
+        // the new stint.
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
-            INSERT INTO sessions (date, intention, started_at)
-            VALUES (@date, @intention, @started_at)
-            ON CONFLICT(date) DO UPDATE SET intention = excluded.intention";
+            INSERT INTO sessions (date, intention, started_at, with_coach, stint_id, stint_block_number)
+            VALUES (@date, @intention, @started_at, @with_coach, @stint_id, @stint_block_number)
+            ON CONFLICT(date) DO UPDATE SET
+                intention = excluded.intention,
+                with_coach = excluded.with_coach,
+                stint_id = CASE
+                    WHEN excluded.stint_id IS NULL THEN sessions.stint_id
+                    ELSE excluded.stint_id
+                END,
+                stint_block_number = CASE
+                    WHEN excluded.stint_id IS NULL THEN sessions.stint_block_number
+                    WHEN sessions.stint_id IS excluded.stint_id
+                        THEN COALESCE(sessions.stint_block_number, excluded.stint_block_number)
+                    ELSE excluded.stint_block_number
+                END";
         cmd.Parameters.AddWithValue("@date", dateStr);
         cmd.Parameters.AddWithValue("@intention", intention);
         cmd.Parameters.AddWithValue("@started_at", now);
+        cmd.Parameters.AddWithValue("@with_coach", withCoach ? 1 : 0);
+        cmd.Parameters.AddWithValue("@stint_id", stintId.HasValue ? stintId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@stint_block_number", stintBlockNumber.HasValue ? stintBlockNumber.Value : DBNull.Value);
 
         await cmd.ExecuteNonQueryAsync();
     }

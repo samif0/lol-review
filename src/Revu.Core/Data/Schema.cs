@@ -37,7 +37,13 @@ public static class Schema
     //               processed this game (NULL = never). Drives the map-state
     //               backfill's missing-set query; bumping the analyzer version
     //               naturally queues every game for a re-run.
-    public const int CurrentAppSchemaVersion = 11;
+    // v12 (2026-07): coaching_stints table + sessions.stint_id /
+    //               stint_block_number / with_coach — blocks are counted within
+    //               a named coaching stint and tagged coach-present or solo.
+    //               Games in a with_coach block leave the review queue (the
+    //               coach reviews them outside Revu) without touching
+    //               session_log, so mental stats and streaks stay intact.
+    public const int CurrentAppSchemaVersion = 12;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -484,6 +490,35 @@ public static class Schema
             started_at      INTEGER,
             ended_at        INTEGER
         );
+        """;
+
+    /// <summary>
+    /// v3.3 (schema v12): a coaching stint — a months-long engagement with a
+    /// named coach. At most one row has ended_at NULL (the active stint);
+    /// blocks started while a stint is active are stamped with its id and a
+    /// 1-based block number. Named coaching_stints (not coach_stints) to stay
+    /// clear of the dead legacy coach_* table family below.
+    /// </summary>
+    public const string CreateCoachingStintsTable = """
+        CREATE TABLE IF NOT EXISTS coaching_stints (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            name             TEXT NOT NULL,
+            start_date       TEXT NOT NULL,
+            planned_end_date TEXT NOT NULL DEFAULT '',
+            created_at       INTEGER,
+            ended_at         INTEGER
+        );
+        """;
+
+    /// <summary>
+    /// Hard backstop for the single-active-stint invariant: at most one row
+    /// may have ended_at NULL. The write route pre-checks for a friendly 400,
+    /// but only this partial unique index makes the invariant race-proof
+    /// (check-then-insert spans two connections).
+    /// </summary>
+    public const string CreateCoachingStintsOneActiveIndex = """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_coaching_stints_one_active
+        ON coaching_stints ((1)) WHERE ended_at IS NULL;
         """;
 
     public const string CreateTiltChecksTable = """
@@ -987,6 +1022,23 @@ public static class Schema
         "ALTER TABLE games ADD COLUMN map_state_v INTEGER",
     ];
 
+    /// <summary>
+    /// v3.3 (schema v12): coaching stints. New coaching_stints table plus three
+    /// sessions columns — stint_id (which stint the block belongs to, NULL for
+    /// standalone blocks), stint_block_number (1-based count within the stint,
+    /// stamped at Start Block and never renumbered), and with_coach (the block
+    /// ran with the coach present; its games are reviewed with the coach
+    /// outside Revu and leave the in-app review queue). Forward-only, additive.
+    /// </summary>
+    public static readonly string[] MigrateCoachingStints =
+    [
+        CreateCoachingStintsTable,
+        CreateCoachingStintsOneActiveIndex,
+        "ALTER TABLE sessions ADD COLUMN stint_id INTEGER",
+        "ALTER TABLE sessions ADD COLUMN stint_block_number INTEGER",
+        "ALTER TABLE sessions ADD COLUMN with_coach INTEGER NOT NULL DEFAULT 0",
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -1038,6 +1090,8 @@ public static class Schema
         CreateMissedGameDecisionsTable,
         CreateClearedRuleBreaksTable,
         CreateDeathClassificationsTable,
+        CreateCoachingStintsTable,
+        CreateCoachingStintsOneActiveIndex,
         CreateCoachPlayersTable,
         CreateCoachObjectiveBlocksTable,
         CreateCoachMomentsTable,
@@ -1118,6 +1172,9 @@ public static class Schema
         new(10, "evidence-prompt-id", MigrateEvidencePromptId),
         // v3.2 (schema v11): games.map_state_v — map-state backfill marker.
         new(11, "games-map-state-version", MigrateGamesMapStateVersion),
+        // v3.3 (schema v12): coaching stints — stint table + sessions stint /
+        // with_coach columns for coach-reviewed blocks.
+        new(12, "coaching-stints", MigrateCoachingStints),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

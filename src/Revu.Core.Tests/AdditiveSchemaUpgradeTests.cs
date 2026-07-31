@@ -44,6 +44,53 @@ public sealed class AdditiveSchemaUpgradeTests
         Assert.Equal(new[] { "SPELL_SMITE" }, await scope.Objectives.GetEventTokensForObjectiveAsync(id));
     }
 
+    /// <summary>
+    /// v12 (coaching stints): a DB last migrated at v11 must gain the
+    /// coaching_stints table AND the three sessions columns, with existing
+    /// session rows untouched.
+    /// </summary>
+    [Fact]
+    public async Task ApplyAdditiveSchemaAsync_BringsV11DatabaseToV12()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        // A pre-upgrade block that must survive the migration.
+        await scope.SessionLog.SetSessionIntentionAsync("2026-07-01", "keep me");
+
+        // Simulate a v11-era DB: drop the v12 table and pin the version back.
+        // (The sessions columns can't be un-ALTERed, but the runner's
+        // duplicate-column tolerance makes re-running the set a no-op for them.)
+        using (var conn = scope.OpenConnection())
+        {
+            await Exec(conn, "DROP TABLE IF EXISTS coaching_stints");
+            await Exec(conn,
+                "INSERT INTO schema_metadata (key, value, updated_at) VALUES ('app_schema_version','11',0) "
+                + "ON CONFLICT(key) DO UPDATE SET value='11'");
+        }
+        Assert.False(await TableExists(scope, "coaching_stints"));
+
+        await scope.Initializer.ApplyAdditiveSchemaAsync();
+
+        Assert.True(await TableExists(scope, "coaching_stints"));
+
+        // The stint round-trip the new endpoints perform now works, and the
+        // migrated sessions columns accept a stint stamp.
+        var id = await scope.CoachingStints.StartStintAsync("Violet", "2026-07-30", "2026-12-30");
+        await scope.SessionLog.SetSessionIntentionAsync(
+            "2026-07-30", "first stint block", withCoach: true, stintId: id, stintBlockNumber: 1);
+        var counts = await scope.CoachingStints.GetBlockCountsAsync(id);
+        Assert.Equal(1, counts.Total);
+        Assert.Equal(1, counts.WithCoach);
+
+        // Pre-upgrade data survived with NULL stint columns.
+        var old = await scope.SessionLog.GetSessionAsync("2026-07-01");
+        Assert.NotNull(old);
+        Assert.Equal("keep me", old!.Intention);
+        Assert.Null(old.StintId);
+        Assert.False(old.WithCoach);
+    }
+
     [Fact]
     public async Task ApplyAdditiveSchemaAsync_IsIdempotent_PreservesExistingData()
     {

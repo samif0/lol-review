@@ -102,6 +102,9 @@ services.AddSingleton<IDeathClassificationsRepository, DeathClassificationsRepos
 services.AddSingleton<IRulesRepository, RulesRepository>();
 services.AddSingleton<IVodRepository, VodRepository>();
 services.AddSingleton<ISessionLogRepository, SessionLogRepository>();
+// v3.3: active coaching stint + block counts for the dashboard snapshot.
+// Read-only here; stint writes go through WriteServices.CoachingStints.
+services.AddSingleton<ICoachingStintsRepository, CoachingStintsRepository>();
 services.AddSingleton<IEvidenceRepository, EvidenceRepository>();
 // Derived-event instances (teamfights/skirmishes/tower dives…) → VOD timeline
 // layer (P2). GET /api/derived reads GetInstancesAsync — a pure read via the
@@ -830,15 +833,97 @@ var today = () => DateTime.Now.ToString("yyyy-MM-dd");
 const int PatternClipLeadSeconds = 8;
 const int PatternClipTrailSeconds = 4;
 
-// POST /api/block/start  { intention }
+// POST /api/block/start  { intention, withCoach? }
+// v3.3: while a coaching stint is active, the block is stamped with the stint
+// id + the next 1-based block number (sticky in the sessions upsert, so a
+// same-day re-lock retags with_coach but never renumbers).
 app.MapPost("/api/block/start", async (StartBlockBody body, WriteServices w, ILogger<Program> log) =>
 {
     if (string.IsNullOrWhiteSpace(body?.Intention))
         return Results.BadRequest(new { error = "intention required" });
     await w.BackupGuard.EnsureBackedUpAsync();
-    await w.SessionLog.SetSessionIntentionAsync(today(), body.Intention.Trim());
-    log.LogInformation("Start block: intention set for {Date}", today());
+    var stint = await w.CoachingStints.GetActiveStintAsync();
+    int? stintId = stint?.Id;
+    int? blockNumber = stint != null
+        ? await w.CoachingStints.GetNextBlockNumberAsync(stint.Id)
+        : null;
+    await w.SessionLog.SetSessionIntentionAsync(
+        today(), body.Intention.Trim(), body.WithCoach, stintId, blockNumber);
+    log.LogInformation(
+        "Start block: intention set for {Date} (withCoach={WithCoach}, stint={StintId}, block #{BlockNumber})",
+        today(), body.WithCoach, stintId, blockNumber);
     return Results.Json(new { ok = true }, jsonOptions);
+});
+
+// POST /api/stint/start  { name, plannedEndDate? }
+// v3.3: begin a coaching stint. One active stint at a time — starting while
+// one is open is a 400 so the user ends it deliberately (no silent close).
+// plannedEndDate is honored only as strict yyyy-MM-dd (same guard as
+// /api/block/end's date) — anything else stores as open-ended.
+app.MapPost("/api/stint/start", async (StartStintBody body, WriteServices w, ILogger<Program> log) =>
+{
+    if (string.IsNullOrWhiteSpace(body?.Name))
+        return Results.BadRequest(new { error = "name required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    var active = await w.CoachingStints.GetActiveStintAsync();
+    if (active != null)
+        return Results.BadRequest(new { error = $"a stint is already active ({active.Name}); end it first" });
+    var plannedEnd = "";
+    if (!string.IsNullOrWhiteSpace(body.PlannedEndDate)
+        && DateTime.TryParseExact(body.PlannedEndDate, "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out _))
+    {
+        plannedEnd = body.PlannedEndDate;
+    }
+    int id;
+    try
+    {
+        id = await w.CoachingStints.StartStintAsync(body.Name.Trim(), today(), plannedEnd);
+    }
+    catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+    {
+        // The idx_coaching_stints_one_active backstop fired: a concurrent
+        // start won the race between our active-check and the insert.
+        return Results.BadRequest(new { error = "a stint is already active; end it first" });
+    }
+    log.LogInformation("Stint started: {Name} (id {Id}, planned end '{PlannedEnd}')", body.Name.Trim(), id, plannedEnd);
+    return Results.Json(new { ok = true, id }, jsonOptions);
+});
+
+// POST /api/stint/end  {}
+// v3.3: close the active stint. Blocks keep their stint stamps — the stint's
+// data outlives it; only the "active" pointer clears.
+app.MapPost("/api/stint/end", async (WriteServices w, ILogger<Program> log) =>
+{
+    await w.BackupGuard.EnsureBackedUpAsync();
+    var active = await w.CoachingStints.GetActiveStintAsync();
+    if (active == null)
+        return Results.BadRequest(new { error = "no active stint" });
+    await w.CoachingStints.EndStintAsync(active.Id);
+    log.LogInformation("Stint ended: {Name} (id {Id})", active.Name, active.Id);
+    return Results.Json(new { ok = true }, jsonOptions);
+});
+
+// GET /api/stint — the active stint + block counts for the Settings stint card.
+// READ-only; no backup guard. Uses the WRITE-graph stints repo (its read
+// methods are plain SELECTs — same precedent as GET /api/objectives/active).
+// stint is null when none is running.
+app.MapGet("/api/stint", async (WriteServices w) =>
+{
+    var active = await w.CoachingStints.GetActiveStintAsync();
+    if (active == null)
+        return Results.Json(new { stint = (StintDto?)null }, jsonOptions);
+    var counts = await w.CoachingStints.GetBlockCountsAsync(active.Id);
+    var dto = new StintDto(
+        Id: active.Id,
+        Name: active.Name,
+        StartDate: active.StartDate,
+        PlannedEndDate: active.PlannedEndDate,
+        BlocksTotal: counts.Total,
+        BlocksWithCoach: counts.WithCoach,
+        BlocksSolo: counts.Solo);
+    return Results.Json(new { stint = dto }, jsonOptions);
 });
 
 // POST /api/block/end  { rating, note?, date? }
@@ -2629,10 +2714,15 @@ static async Task PersistObjectiveSideTablesAsync(
 }
 
 // ── Write-endpoint request bodies ────────────────────────────────────────────
-internal sealed record StartBlockBody(string Intention);
+// v3.3: WithCoach tags the block as run with the coach present (its games are
+// reviewed with the coach outside Revu and leave the review queue). Trailing
+// default keeps older clients' {intention}-only posts valid.
+internal sealed record StartBlockBody(string Intention, bool WithCoach = false);
 // Date is the open block's own date (from IntentDto.BlockDate) so a carried-over
 // block from a prior day closes the right row. Null/empty falls back to today.
 internal sealed record EndBlockBody(int Rating, string? Note, string? Date = null);
+// v3.3: coaching stint start. PlannedEndDate is optional strict yyyy-MM-dd.
+internal sealed record StartStintBody(string Name, string? PlannedEndDate = null);
 internal sealed record RestoreBackupBody(string BackupFilePath);
 internal sealed record GameIdBody(long GameId);
 internal sealed record ObjectiveIdBody(long Id);

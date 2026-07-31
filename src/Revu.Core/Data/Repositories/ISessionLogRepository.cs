@@ -130,8 +130,21 @@ public interface ISessionLogRepository
     /// <summary>Save the post-game mental reflection for a specific game.</summary>
     Task UpdateMentalHandledAsync(long gameId, string mentalHandled);
 
-    /// <summary>Set or update the session intention for a given date.</summary>
-    Task SetSessionIntentionAsync(string dateStr, string intention);
+    /// <summary>Set or update the session intention for a given date.
+    /// v3.3 (schema v12): <paramref name="withCoach"/> tags the block as run
+    /// with the coach present (follows the latest lock-in);
+    /// <paramref name="stintId"/> / <paramref name="stintBlockNumber"/> attach
+    /// the block to the active coaching stint. Stamps are sticky within a
+    /// stint (a same-stint re-lock never renumbers the block), a same-day
+    /// stint SWITCH restamps to the new stint's id + number, a null stint
+    /// (none active) leaves an existing stamp untouched, and an unstamped
+    /// pre-stint row is claimed by the first stint-era re-lock that day.</summary>
+    Task SetSessionIntentionAsync(
+        string dateStr,
+        string intention,
+        bool withCoach = false,
+        int? stintId = null,
+        int? stintBlockNumber = null);
 
     /// <summary>Save the session debrief (did you stick to your goal?).</summary>
     Task SaveSessionDebriefAsync(string dateStr, int rating, string note = "");

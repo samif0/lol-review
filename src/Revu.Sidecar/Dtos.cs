@@ -30,7 +30,9 @@ public sealed record DashboardDto(
     VodPendingDto VodPending,
     UnreviewedDto Unreviewed,
     IReadOnlyList<ActiveObjectiveDto> ActiveObjectives,
-    PatternsDto Patterns);
+    PatternsDto Patterns,
+    // v3.3: the active coaching stint, null when none is running.
+    StintDto? Stint = null);
 
 /// <summary>Hero stat strip — today's numbers framed against the 30-day baseline.</summary>
 public sealed record DashboardStatsDto(
@@ -70,7 +72,25 @@ public sealed record IntentDto(
     string? SessionIntention,
     int? DebriefRating,
     string? BlockDate = null,
-    bool CarriedOver = false);
+    bool CarriedOver = false,
+    // v3.3: the open block's coach tag + its 1-based number within the active
+    // stint (null when the block predates the stint or no stint is running).
+    bool WithCoach = false,
+    int? StintBlockNumber = null);
+
+/// <summary>
+/// v3.3: the active coaching stint (null in the dashboard snapshot when none
+/// is running). Block counts split by the with-coach tag — the organizational
+/// data the stint exists to gather.
+/// </summary>
+public sealed record StintDto(
+    int Id,
+    string Name,
+    string StartDate,
+    string PlannedEndDate,
+    int BlocksTotal,
+    int BlocksWithCoach,
+    int BlocksSolo);
 
 /// <summary>
 /// 14-day classified death mix. <see cref="Text"/> is the ready-to-show
