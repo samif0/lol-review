@@ -89,7 +89,11 @@ public sealed class ReviewExportService : IReviewExportService
             .ToArray();
 
         var result = game.Win ? "Win" : "Loss";
-        sb.AppendLine($"# {OneLine(game.ChampionName)} vs {OneLine(game.EnemyLaner)} ({result})");
+        // Same role-aware heading as the review page itself: EnemyLaner is only
+        // populated by the Match-V5 backfill and is often empty, but the
+        // participant map captured at game end still names the opponents.
+        var matchup = MatchupDisplay.Build(game.ChampionName, game.EnemyLaner, game.Position, game.ParticipantMap);
+        sb.AppendLine($"# {OneLine(matchup)} ({result})");
         sb.AppendLine();
 
         AppendCompactNotes(sb, game, matchupNote?.Note ?? "", tagNames);

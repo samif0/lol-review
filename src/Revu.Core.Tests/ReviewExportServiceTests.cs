@@ -84,6 +84,53 @@ public sealed class ReviewExportServiceTests
     }
 
     [Fact]
+    public async Task ExportGameAsync_EmptyEnemyLaner_HeadingFallsBackToParticipantMap()
+    {
+        // EnemyLaner is only populated by the Match-V5 backfill and is often empty.
+        // The copy/export heading must fall back to the participant map (same
+        // MatchupDisplay rules as the review page) instead of printing "vs Unknown".
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 8_070;
+        var stats = TestGameStatsFactory.Create(gameId, champion: "Jhin", win: true);
+        stats.Position = "BOTTOM";
+        stats.ParticipantMap = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["ownBot"] = "Jhin",
+            ["ownSupp"] = "Karma",
+            ["enemyBot"] = "Ashe",
+            ["enemySupp"] = "Seraphine",
+        });
+        await scope.Games.SaveAsync(stats);
+
+        var service = CreateService(scope);
+        var markdown = await service.ExportGameAsync(gameId);
+
+        Assert.NotNull(markdown);
+        Assert.StartsWith("# Jhin+Karma vs Ashe+Seraphine (Win)", markdown);
+        Assert.DoesNotContain("Unknown", markdown!);
+    }
+
+    [Fact]
+    public async Task ExportGameAsync_NoEnemyDataAtAll_HeadingIsChampOnly()
+    {
+        // No enemy laner AND no participant map → just the champ, never "vs Unknown".
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 8_071;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Jhin", win: false));
+
+        var service = CreateService(scope);
+        var markdown = await service.ExportGameAsync(gameId);
+
+        Assert.NotNull(markdown);
+        Assert.StartsWith("# Jhin (Loss)", markdown);
+        Assert.DoesNotContain("Unknown", markdown!);
+    }
+
+    [Fact]
     public async Task ExportAllAsync_IncludesEveryRecentGame()
     {
         using var scope = new TestDatabaseScope();
