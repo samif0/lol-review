@@ -126,6 +126,33 @@ function renderHeader(subject) {
   $('rv-gdur').textContent = h.duration || '';
   $('rv-matchup').textContent = h.matchupHeading || '';
 
+  // FULL LOBBY strip — one cell per lane (champions only, both teams) from the
+  // participant map; hidden entirely when the game has no map yet.
+  const lobby = $('rv-lobby');
+  if (lobby) {
+    clear(lobby);
+    const rows = Array.isArray(h.lobbyMatchups) ? h.lobbyMatchups : [];
+    for (const r of rows) {
+      const cell = document.createElement('div');
+      cell.className = 'rv-lobby-cell' + (r.isUserLane ? ' me' : '');
+      const role = document.createElement('span');
+      role.className = 'rv-lobby-role';
+      role.textContent = r.roleLabel || '';
+      const pair = document.createElement('span');
+      pair.className = 'rv-lobby-pair';
+      const own = document.createElement('b');
+      own.textContent = r.own || '—';
+      const vs = document.createElement('i');
+      vs.textContent = 'vs';
+      const enemy = document.createElement('b');
+      enemy.textContent = r.enemy || '—';
+      pair.append(own, vs, enemy);
+      cell.append(role, pair);
+      lobby.appendChild(cell);
+    }
+    show(lobby, rows.length > 0);
+  }
+
   $('rv-kda').textContent = h.kdaText || '';
   $('rv-kdar').textContent = h.kdaRatioText ? `${h.kdaRatioText} KDA` : '';
 

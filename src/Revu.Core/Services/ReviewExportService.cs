@@ -96,6 +96,17 @@ public sealed class ReviewExportService : IReviewExportService
         sb.AppendLine($"# {OneLine(matchup)} ({result})");
         sb.AppendLine();
 
+        // Full-lobby context (same strip the review page hero shows) — one line
+        // so LLM analysis of the copied review sees both team comps.
+        var lobby = MatchupDisplay.LobbyRows(game.Position, game.ParticipantMap);
+        if (lobby.Count > 0)
+        {
+            var lobbyLine = string.Join(" · ", lobby.Select(l =>
+                $"{l.RoleLabel} {(string.IsNullOrEmpty(l.Own) ? "?" : OneLine(l.Own))} vs {(string.IsNullOrEmpty(l.Enemy) ? "?" : OneLine(l.Enemy))}"));
+            sb.AppendLine($"Lobby: {lobbyLine}");
+            sb.AppendLine();
+        }
+
         AppendCompactNotes(sb, game, matchupNote?.Note ?? "", tagNames);
         AppendCompactObjectives(sb, objectives);
         AppendCompactPromptAnswers(sb, promptAnswers);

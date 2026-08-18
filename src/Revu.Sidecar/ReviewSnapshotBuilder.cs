@@ -255,6 +255,10 @@ public sealed class ReviewSnapshotBuilder
         var matchupHeading = MatchupDisplay.Build(
             game.ChampionName, game.EnemyLaner, game.Position, game.ParticipantMap);
 
+        // Full-lobby strip: every lane's champions from the same map. Empty
+        // (strip hidden) until the map exists for this game.
+        var lobbyMatchups = MatchupDisplay.LobbyRows(game.Position, game.ParticipantMap);
+
         var metaLine = BuildMetaLine(game.DisplayGameMode, date, duration);
         var (laningLine, hasLaning) = BuildLaningLine(game);
 
@@ -279,7 +283,8 @@ public sealed class ReviewSnapshotBuilder
             MetaLine: metaLine,
             HasReview: HasPersistedReview(game),
             LaningAt10Line: laningLine,
-            HasLaningAt10: hasLaning);
+            HasLaningAt10: hasLaning,
+            LobbyMatchups: lobbyMatchups);
     }
 
     /// <summary>

@@ -347,13 +347,16 @@ public static class GameConstants
     /// (e.g. "Kaisa", "MonkeyKing") but a separate display <c>name</c>
     /// ("Kai'Sa", "Wukong"). The LCU and EOG payloads aren't consistent about
     /// which one they hand us, so the same champion lands in champion_name under
-    /// two spellings. This map repairs the known apostrophe/casing divergences
-    /// to the Data Dragon DISPLAY name so per-champion grouping and labels agree.
+    /// two spellings. This map repairs the known divergences — apostrophe/casing
+    /// splits AND the space-joined or renamed id forms Match-V5 hands the
+    /// backfill ("LeeSin", "MonkeyKing") — to the Data Dragon DISPLAY name so
+    /// per-champion grouping and labels agree.
     /// Keyed by the normalized group key (see <see cref="NormalizeChampionKey"/>).
     /// </summary>
     private static readonly FrozenDictionary<string, string> ChampionDisplayNames =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            // Apostrophe / punctuation splits.
             ["kaisa"]        = "Kai'Sa",
             ["khazix"]       = "Kha'Zix",
             ["chogath"]      = "Cho'Gath",
@@ -361,9 +364,25 @@ public static class GameConstants
             ["reksai"]       = "Rek'Sai",
             ["kogmaw"]       = "Kog'Maw",
             ["belveth"]      = "Bel'Veth",
+            ["ksante"]       = "K'Sante",
             ["nunuwillump"]  = "Nunu & Willump",
             ["drmundo"]      = "Dr. Mundo",
             ["leblanc"]      = "LeBlanc",
+            // Space-joined id forms (Match-V5 championName is the id).
+            ["leesin"]       = "Lee Sin",
+            ["masteryi"]     = "Master Yi",
+            ["missfortune"]  = "Miss Fortune",
+            ["twistedfate"]  = "Twisted Fate",
+            ["xinzhao"]      = "Xin Zhao",
+            ["jarvaniv"]     = "Jarvan IV",
+            ["aurelionsol"]  = "Aurelion Sol",
+            ["tahmkench"]    = "Tahm Kench",
+            ["fiddlesticks"] = "Fiddlesticks",
+            // Renamed / shortened ids.
+            ["monkeyking"]   = "Wukong",
+            ["nunu"]         = "Nunu & Willump",
+            ["renata"]       = "Renata Glasc",
+            ["renataglasc"]  = "Renata Glasc",
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>

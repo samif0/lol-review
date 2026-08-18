@@ -121,7 +121,13 @@ public sealed record ReviewHeaderDto(
     // v2.18 (schema v5): "LANING @10 // CS 84 · GOLD DIFF +210 · CS DIFF +6"
     // from the Match-V5 timeline backfill. Empty until the backfill has run.
     string LaningAt10Line,
-    bool HasLaningAt10);
+    bool HasLaningAt10,
+    // v3.3.2: full-lobby matchup strip (champions per lane, both teams) from the
+    // participant map captured at game end / Match-V5 backfill. Empty when the
+    // game has no map (ARAM, pre-map rows before a backfill run) — the frontend
+    // hides the strip. Reuses the Core display record; serializes camelCase like
+    // everything else: {roleLabel, own, enemy, isUserLane}.
+    IReadOnlyList<Revu.Core.Services.LobbyMatchupRow> LobbyMatchups);
 
 /// <summary>
 /// One cell of the review stat strip. <see cref="Value"/> is the big number,

@@ -41,6 +41,21 @@ public sealed class ChampionNameNormalizationTests
     [InlineData("Kaisa", "Kai'Sa")]
     [InlineData("Kai'Sa", "Kai'Sa")]
     [InlineData("KHAZIX", "Kha'Zix")]
+    // Space-joined Match-V5 id forms (what the backfill writes into the
+    // participant map) resolve to the spaced display name.
+    [InlineData("LeeSin", "Lee Sin")]
+    [InlineData("Lee Sin", "Lee Sin")]
+    [InlineData("TwistedFate", "Twisted Fate")]
+    [InlineData("JarvanIV", "Jarvan IV")]
+    [InlineData("MissFortune", "Miss Fortune")]
+    [InlineData("AurelionSol", "Aurelion Sol")]
+    [InlineData("KSante", "K'Sante")]
+    // Renamed / shortened ids resolve to the in-game display name.
+    [InlineData("MonkeyKing", "Wukong")]
+    [InlineData("Wukong", "Wukong")]
+    [InlineData("Nunu", "Nunu & Willump")]
+    [InlineData("Renata", "Renata Glasc")]
+    [InlineData("RenataGlasc", "Renata Glasc")]
     // Champions not in the repair map keep their (trimmed) spelling.
     [InlineData("Ahri", "Ahri")]
     [InlineData("  Sivir  ", "Sivir")]

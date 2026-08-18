@@ -23,7 +23,14 @@
       "metaLine": "RANKED SOLO/DUO  ·  JUN 14, 20:42  ·  32:11",
       "hasReview": false,
       "laningAt10Line": "LANING @10 // CS 84 · GOLD DIFF +210 · CS DIFF +6",
-      "hasLaningAt10": true
+      "hasLaningAt10": true,
+      "lobbyMatchups": [
+        { "roleLabel": "TOP", "own": "Aatrox", "enemy": "Sett", "isUserLane": false },
+        { "roleLabel": "JG", "own": "Lee Sin", "enemy": "Graves", "isUserLane": false },
+        { "roleLabel": "MID", "own": "Ahri", "enemy": "Syndra", "isUserLane": false },
+        { "roleLabel": "BOT", "own": "Jinx", "enemy": "Caitlyn", "isUserLane": true },
+        { "roleLabel": "SUP", "own": "Nautilus", "enemy": "Lux", "isUserLane": false }
+      ]
     },
     "stats": [
       { "label": "Damage", "value": "28.4k", "sub": "" },

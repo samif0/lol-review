@@ -963,6 +963,15 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .rv-gmode{font-size:12.5px;color:var(--t3)}
 .rv-gdur{font-family:var(--fm);font-size:11px;color:var(--t4);letter-spacing:0.5px}
 .rv-matchup{font-size:13px;font-weight:600;color:#9ec8ff;margin-top:10px;text-shadow:var(--tsh)}
+/* FULL LOBBY strip: lane cells (role eyebrow over "Own vs Enemy"), user's lane tinted. */
+.rv-lobby{display:flex;flex-wrap:wrap;gap:7px 20px;margin-top:12px}
+.rv-lobby-cell{display:flex;flex-direction:column;gap:2px}
+.rv-lobby-role{font-family:var(--fm);font-size:9px;font-weight:600;letter-spacing:1.4px;color:var(--t4)}
+.rv-lobby-pair{font-size:12.5px;color:var(--t2)}
+.rv-lobby-pair b{font-weight:600}
+.rv-lobby-pair i{font-style:normal;font-size:10.5px;color:var(--t4);margin:0 5px}
+.rv-lobby-cell.me .rv-lobby-role{color:#9ec8ff}
+.rv-lobby-cell.me .rv-lobby-pair b:first-child{color:#9ec8ff}
 .rv-hero-kda{text-align:right;flex-shrink:0}
 .rv-kda{font-family:var(--fo);font-size:26px;font-weight:600;color:#fff;line-height:1}
 .rv-kdar{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--t3);margin-top:6px}

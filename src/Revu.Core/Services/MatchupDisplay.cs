@@ -36,8 +36,8 @@ public static class MatchupDisplay
 
     private static string LaneOnly(string championName, string enemyChampion) =>
         string.IsNullOrWhiteSpace(enemyChampion)
-            ? championName
-            : $"{championName} vs {enemyChampion}";
+            ? Champ(championName)
+            : $"{Champ(championName)} vs {Champ(enemyChampion)}";
 
     private static string? RoleAware(string role, string participantMapJson)
     {
@@ -74,6 +74,51 @@ public static class MatchupDisplay
         }
     }
 
+    /// <summary>
+    /// Full-lobby matchup rows (champions only) from the participant map, in
+    /// fixed lane order TOP/JG/MID/BOT/SUP. Lanes absent from the map on BOTH
+    /// sides are omitted; a lane missing one side keeps the other with an empty
+    /// string for the gap. Empty list when there is no usable map, so callers
+    /// can hide the whole strip.
+    /// </summary>
+    public static IReadOnlyList<LobbyMatchupRow> LobbyRows(string role, string participantMapJson)
+    {
+        if (string.IsNullOrWhiteSpace(participantMapJson))
+            return Array.Empty<LobbyMatchupRow>();
+
+        var map = ParseMap(participantMapJson);
+        if (map is null || map.Count == 0) return Array.Empty<LobbyMatchupRow>();
+
+        var userSlot = UserSlot(role);
+        var rows = new List<LobbyMatchupRow>(LaneSlots.Length);
+        foreach (var (slot, label) in LaneSlots)
+        {
+            var own = map.TryGetValue("own" + slot, out var o) ? Champ(o) : "";
+            var enemy = map.TryGetValue("enemy" + slot, out var e) ? Champ(e) : "";
+            if (string.IsNullOrEmpty(own) && string.IsNullOrEmpty(enemy)) continue;
+            rows.Add(new LobbyMatchupRow(label, own, enemy, slot == userSlot));
+        }
+
+        return rows;
+    }
+
+    // Suffixes of the participant-map keys (own/enemy + slot) with their display
+    // labels, in the fixed top-to-bottom lane order every LoL scoreboard uses.
+    private static readonly (string Slot, string Label)[] LaneSlots =
+    [
+        ("Top", "TOP"), ("Jg", "JG"), ("Mid", "MID"), ("Bot", "BOT"), ("Supp", "SUP"),
+    ];
+
+    private static string? UserSlot(string role) => role?.ToLowerInvariant() switch
+    {
+        "top" => "Top",
+        "jungle" or "jg" => "Jg",
+        "mid" or "middle" => "Mid",
+        "adc" or "bottom" or "bot" => "Bot",
+        "support" or "supp" or "utility" => "Supp",
+        _ => null,
+    };
+
     private static string? Pair(
         Dictionary<string, string> map,
         string ownPrimary, string ownPartner,
@@ -85,8 +130,30 @@ public static class MatchupDisplay
         var ownPart = map.TryGetValue(ownPartner, out var v1) ? v1 : "";
         var enemyPart = map.TryGetValue(enemyPartner, out var v2) ? v2 : "";
 
+        op = Champ(op);
+        ep = Champ(ep);
+        ownPart = Champ(ownPart);
+        enemyPart = Champ(enemyPart);
+
         var ownStr = string.IsNullOrEmpty(ownPart) ? op : $"{op}+{ownPart}";
         var enemyStr = string.IsNullOrEmpty(enemyPart) ? ep : $"{ep}+{enemyPart}";
         return $"{ownStr} vs {enemyStr}";
     }
+
+    /// <summary>
+    /// Display repair at the output boundary: participant maps written by the
+    /// Match-V5 backfill carry Riot's id-form names ("LeeSin", "Kaisa",
+    /// "MonkeyKing") while LCU-captured ones carry display names; every name
+    /// this class emits goes through the shared canonicalizer so both read
+    /// "Lee Sin" / "Kai'Sa" / "Wukong". Empty stays empty.
+    /// </summary>
+    private static string Champ(string name) =>
+        Revu.Core.Constants.GameConstants.CanonicalChampionName(name);
 }
+
+/// <summary>
+/// One lane of the full-lobby matchup strip: "TOP  Aatrox vs Sett". Champions
+/// only (the participant map never stores summoner names). IsUserLane marks the
+/// lane the user played so the UI can highlight it.
+/// </summary>
+public sealed record LobbyMatchupRow(string RoleLabel, string Own, string Enemy, bool IsUserLane);

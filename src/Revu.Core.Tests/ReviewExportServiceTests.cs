@@ -110,6 +110,8 @@ public sealed class ReviewExportServiceTests
         Assert.NotNull(markdown);
         Assert.StartsWith("# Jhin+Karma vs Ashe+Seraphine (Win)", markdown);
         Assert.DoesNotContain("Unknown", markdown!);
+        // Full-lobby context line (parity with the review page hero strip).
+        Assert.Contains("Lobby: BOT Jhin vs Ashe · SUP Karma vs Seraphine", markdown);
     }
 
     [Fact]
