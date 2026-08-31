@@ -9,10 +9,11 @@
 //     properties only.
 //   • ONE delegated [data-action] click handler.
 //
-// READ-ONLY: this page surfaces the cross-game pattern playlists for review.
-// "Mark pattern reviewed" + note writes are DEFERRED (no backend command yet);
-// the reviewed state + carry-forward note are display-only. Selecting a pattern
-// and stepping through its moments is pure client-side over the loaded snapshot.
+// This page surfaces the cross-game pattern playlists for review. Two WRITES
+// are live: "Mark pattern reviewed" (mark_pattern_reviewed) and the per-moment
+// note autosave (save_pattern_moment_note) — see markReviewed() and
+// commitPendingNote() below. Selecting a pattern and stepping through its
+// moments is pure client-side over the loaded snapshot.
 //
 // The inline moment clip plays on a SHARED transport (./vodtransport.js) — the
 // same core the full VOD player uses — so the inline player looks + behaves
@@ -201,7 +202,12 @@ function renderPlayer() {
   if (m.startTimeSeconds != null) surface.dataset.startSeconds = String(m.startTimeSeconds);
   else delete surface.dataset.startSeconds;
   $('m-tstart').textContent = m.timeLabel || '';
-  $('m-tend').textContent = m.timeLabel || '';
+  // The scrub's right edge is the moment's END time (fall back to the start
+  // label only when the moment has no timed end) — both ends showing the same
+  // label made the strip meaningless.
+  $('m-tend').textContent = m.endTimeSeconds != null
+    ? `${Math.floor(m.endTimeSeconds / 60)}:${String(m.endTimeSeconds % 60).padStart(2, '0')}`
+    : (m.timeLabel || '');
 
   // Note panel — editable, autosaves on pause/blur. Load WITHOUT triggering a
   // save (the programmatic value-set must not look like a user edit). Bind this
@@ -527,6 +533,12 @@ async function markReviewed() {
       },
     });
     p.isReviewed = true;
+    // Keep the counters honest without a full reload: one fewer pending, one
+    // more reviewed all-time (renderHeader/renderPicker read these off _data).
+    if (_data) {
+      _data.pendingCount = Math.max(0, (_data.pendingCount ?? 1) - 1);
+      if (_data.reviewedPatternCount != null) _data.reviewedPatternCount += 1;
+    }
     renderPicker();   // dim the now-reviewed card
     renderHeader(_data);
     renderClosure();  // swap pending → closed

@@ -24,7 +24,8 @@
       "practicedColorHex": "#8ee7ba",
       "practicedDimColorHex": "#10221a",
       "executionNote": "Held the slow push into the dive at 6; recall timing was clean.",
-      "hasExecutionNote": true
+      "hasExecutionNote": true,
+      "hasVod": true
     },
     {
       "gameId": 5581970022,
@@ -39,7 +40,8 @@
       "practicedColorHex": "#8ee7ba",
       "practicedDimColorHex": "#10221a",
       "executionNote": "Shoved when I should have frozen; gave up plates.",
-      "hasExecutionNote": true
+      "hasExecutionNote": true,
+      "hasVod": true
     },
     {
       "gameId": 5581965540,
@@ -54,7 +56,8 @@
       "practicedColorHex": "#8ee7ba",
       "practicedDimColorHex": "#10221a",
       "executionNote": "",
-      "hasExecutionNote": false
+      "hasExecutionNote": false,
+      "hasVod": false
     },
     {
       "gameId": 5581960018,
@@ -69,7 +72,8 @@
       "practicedColorHex": "#a79ec2",
       "practicedDimColorHex": "#16131f",
       "executionNote": "",
-      "hasExecutionNote": false
+      "hasExecutionNote": false,
+      "hasVod": false
     }
   ],
   "evidence": [

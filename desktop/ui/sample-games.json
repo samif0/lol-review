@@ -44,7 +44,7 @@
       "reviewStateText": "Reviewed",
       "vodStateText": "VOD linked",
       "primaryAction": "Watch VOD",
-      "action": "open_review"
+      "action": "watch_vod"
     },
     {
       "gameId": 5581655110,
@@ -79,7 +79,7 @@
       "reviewStateText": "Reviewed",
       "vodStateText": "VOD linked",
       "primaryAction": "Watch VOD",
-      "action": "open_review"
+      "action": "watch_vod"
     },
     {
       "gameId": 5581012044,
@@ -149,7 +149,7 @@
       "reviewStateText": "Unreviewed",
       "vodStateText": "VOD linked",
       "primaryAction": "Watch VOD",
-      "action": "open_review"
+      "action": "watch_vod"
     },
     {
       "gameId": 5580217709,

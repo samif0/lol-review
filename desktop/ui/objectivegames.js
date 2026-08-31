@@ -123,6 +123,11 @@ function buildGame(g) {
   show(exec, !!g.hasExecutionNote && !!g.executionNote);
   if (g.hasExecutionNote && g.executionNote) exec.textContent = g.executionNote;
 
+  // Watch VOD only renders when a recording actually exists on disk — the
+  // button used to show on every row and dead-end on games with no VOD.
+  const vodBtn = el.querySelector('.og-act-vod');
+  if (vodBtn && g.hasVod !== true) vodBtn.remove();
+
   return el;
 }
 

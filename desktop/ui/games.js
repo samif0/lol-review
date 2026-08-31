@@ -310,6 +310,7 @@ async function loadView(view) {
   if (_loading) return;
   if (!VIEWS.includes(view)) view = 'queue';
   _loading = true;
+  const prevView = _view;
   _view = view;
   _page = 0;
   try {
@@ -322,6 +323,11 @@ async function loadView(view) {
     _rows = Array.isArray(data?.items) ? data.items.slice() : [];
     render(data);
   } catch (err) {
+    // The switch failed — roll _view back to the view whose rows are still on
+    // screen and re-highlight its tab, so the seg, stat strip and list agree
+    // under the error panel instead of asserting a view that never loaded.
+    _view = prevView;
+    renderSeg();
     renderError(err);
     console.error('[games] load failed:', err);
   } finally {
@@ -355,7 +361,7 @@ async function loadMore() {
 // view        = the segmented control (server-side view switch, page reset).
 // open_review = clicking a whole game row (→ review page).
 // load_more   = History pagination (append next page).
-const ACTIONS = new Set(['view', 'open_review', 'load_more', 'manual_entry']);
+const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry']);
 
 document.addEventListener('click', async (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -375,6 +381,14 @@ document.addEventListener('click', async (ev) => {
   if (action === 'open_review') {
     const gid = target.dataset.gameId;
     window.location.href = gid ? `review.html?gameId=${encodeURIComponent(gid)}` : 'review.html';
+    return;
+  }
+
+  // A row whose cue reads "WATCH VOD →" opens the VOD player — the cue and the
+  // click must agree (rows without a recording keep open_review).
+  if (action === 'watch_vod') {
+    const gid = target.dataset.gameId;
+    window.location.href = gid ? `vodplayer.html?gameId=${encodeURIComponent(gid)}` : 'games.html';
     return;
   }
 

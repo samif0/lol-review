@@ -99,10 +99,13 @@
         <!-- YOUR REVIEW — editable form. Save commits (no un-review); Skip marks reviewed. -->
         <div class="seclabel">Your Review <span class="n">debrief &amp; commit</span></div>
 
-        <!-- Already-saved banner (this game carries a prior review). -->
+        <!-- Already-saved banner (this game carries a prior review). The NEXT
+             link chains straight to the newest unreviewed game so a multi-game
+             review session never bounces through the Games list. -->
         <div class="rv-note rv-note-saved" id="rv-savednote" hidden>
           <span class="rv-note-dot"></span>
           <span class="rv-note-text" id="rv-savednote-text">This game already has a saved review; saving again overwrites it.</span>
+          <button type="button" class="review rv-nextbtn" id="rv-savednote-next" data-action="next_unreviewed" hidden>Next unreviewed →</button>
         </div>
 
         <!-- FOCUS CHECK — did you play to the session's intention this game? The
@@ -153,6 +156,7 @@
           <button type="button" class="review rv-copybtn" id="rv-copybtn" data-action="copy_review" title="Copy this game's review as markdown">Copy</button>
           <button type="button" class="review rv-exportbtn" id="rv-exportbtn" data-action="export_review" title="Export this game's review as a markdown file">Export</button>
           <button type="button" class="rv-deletebtn" id="rv-deletebtn" data-action="delete_review" hidden>Delete review</button>
+          <button type="button" class="review rv-nextbtn" id="rv-nextbtn" data-action="next_unreviewed" hidden>Next game →</button>
           <span class="rv-commit-msg" id="rv-commit-msg" hidden></span>
         </div>
 

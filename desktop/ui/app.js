@@ -338,6 +338,25 @@ function render(d) {
   renderUnreviewed(d);
   renderVod(d);
   playEntrance();
+  honorIntentDeepLink(d);
+}
+
+// ?intent=startblock — the Tilt Check ritual's closing CTA ("SAVE → SET INTENT")
+// navigates here promising the Start Block intent editor opens. Honor it once
+// per page load, only when no block is already active (renderNextStep computed
+// that above; an active block's CTA is End Block, where auto-opening an editor
+// would be wrong).
+let _intentDeepLinkDone = false;
+function honorIntentDeepLink(d) {
+  if (_intentDeepLinkDone) return;
+  _intentDeepLinkDone = true;
+  const wanted = new URLSearchParams(window.location.search).get('intent');
+  if (wanted !== 'startblock') return;
+  const intent = (d && d.intent) || {};
+  const blockActive = !!intent.sessionIntention && (intent.debriefRating == null);
+  if (blockActive) return;
+  const cta = $('nextstep-cta');
+  if (cta) openIntentEditor(cta);
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────

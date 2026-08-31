@@ -260,6 +260,11 @@ async function wireLiveAutoShow() {
           firstReviewTutorialGameId: Number(payload.gameId),
         },
       });
+      // Same active-work guard the ordinary auto-shows obey (P-035): the
+      // tutorial handoff must not reload the iframe over a half-typed form
+      // either. The config step above still ran, so the tutorial resumes at
+      // wait_vod on the user's own next navigation.
+      if (onActiveWorkPage() || inActiveEdit()) return true;
       frameGoto(`vodplayer.html?gameId=${encodeURIComponent(payload.gameId)}`);
       return true;
     } catch (err) {
@@ -272,7 +277,10 @@ async function wireLiveAutoShow() {
   // off these mid-task (an LCU champ-select/game tick reloading the iframe wipes the
   // unsaved form, the P-035 regression). Mirrors shell.js:125-133; this is the path
   // that actually runs in-app (shell.js's copy is gated !FRAMED, off for the iframe).
-  const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html'];
+  // onboarding (email/OTP entry), rules (create/edit form) and patterns
+  // (moment-note autosave) are form-bearing too — a champ-select tick reloading
+  // the iframe from any of them wiped half-typed OTP codes / rule text.
+  const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html', 'onboarding.html', 'rules.html', 'patterns.html'];
   const onActiveWorkPage = () => ACTIVE_WORK_PAGES.some((f) => frameHas(f));
   // Some pages aren't whole-page forms but still have a transient mid-edit state —
   // the dashboard's inline Start/End-Block editors. Those set window.__revuActiveWork

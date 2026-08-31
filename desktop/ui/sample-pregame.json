@@ -41,6 +41,7 @@
   },
   "activePlan": "If I die before 6, then I will ping back and reset for 20 seconds.",
   "showMoodSelector": true,
+  "staged": { "mood": 0, "intention": "", "intentionSource": "", "intentCleared": false, "practicedObjectiveIds": [] },
   "sessionIntention": {
     "show": true,
     "isFirstGame": true,

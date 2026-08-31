@@ -219,6 +219,15 @@ function render(data, core) {
   if (!data.hasVod || !data.filePath) {
     show($('vp-novod'), true);
     show($('vp-wrap'), false);
+    // Still offer the way OUT: the review page routes death/clip jumps here
+    // expecting a no-recording state, so link back to this game's review
+    // instead of stranding the user on a cul-de-sac.
+    const back = $('vp-novod-review');
+    if (back) {
+      const gid = Number(data.gameId || _gameId || 0);
+      if (gid > 0) back.setAttribute('href', `review.html?gameId=${encodeURIComponent(gid)}`);
+      show(back, gid > 0);
+    }
     return;
   }
   show($('vp-novod'), false);
@@ -229,8 +238,17 @@ function render(data, core) {
   show($('vp-context'), true);
   const ctx = $('vp-ctx-meta');
   if (ctx) {
+    // DOM building, not innerHTML — this file's contract is textContent-only for
+    // server-supplied strings (champion/result/mode come from the DB).
     const bits = [matchup, data.resultText, data.gameMode].filter(Boolean).join(' · ');
-    ctx.innerHTML = '<b>' + bits + '</b> &nbsp;·&nbsp; <span class="vp-ctx-frame">reviewing by objective</span>';
+    clear(ctx);
+    const b = document.createElement('b');
+    b.textContent = bits;
+    const sep = document.createTextNode('  ·  ');
+    const frame = document.createElement('span');
+    frame.className = 'vp-ctx-frame';
+    frame.textContent = 'reviewing by objective';
+    ctx.append(b, sep, frame);
   }
 
   // OPEN REVIEW → the structured review for this game (this nav IS wired). Now a link
@@ -257,6 +275,9 @@ function render(data, core) {
   renderMoments();
   renderMarkerStepper();
   renderClipState();
+  // P-027: honor the &clip=<evidenceId> deep-link the review page's clip cards
+  // build — surface the right Moments lane, scroll to the row, flash it.
+  applyClipDeepLink();
 
   // The key step: convert the absolute file path → an asset URL the webview can
   // stream (with range requests, so seeking works).
@@ -301,8 +322,10 @@ function onMeta() {
   // % of a possibly-stale fallback duration before metadata loaded).
   renderClipOverlay();
   // A ?t=SECONDS param (from a pattern moment / bookmark) jumps straight there.
-  const t = Number(new URLSearchParams(window.location.search).get('t') || 0);
-  if (t > 0) { if (_T) _T.seekTo(t); v.play().catch(() => {}); }
+  // t=0 is a real target (a moment at the game start), so key on presence.
+  const tRaw = new URLSearchParams(window.location.search).get('t');
+  const t = tRaw == null ? NaN : Number(tRaw);
+  if (Number.isFinite(t) && t >= 0) { if (_T) _T.seekTo(t); v.play().catch(() => {}); }
 }
 
 
@@ -1342,6 +1365,11 @@ async function addBookmark() {
 
 async function deleteBookmark(bookmarkId) {
   if (!_core || !bookmarkId) return;
+  // The trash icon sits inside a clickable row — one misclick used to be one
+  // permanently lost bookmark (the adjacent clip delete already confirms).
+  if (!window.confirm('Delete this bookmark? Its note and objective tag are removed. This can’t be undone.')) {
+    return;
+  }
   try {
     await _core.invoke('delete_bookmark', { payload: { bookmarkId: Number(bookmarkId) } });
     await reloadBookmarks();
@@ -2404,6 +2432,10 @@ document.addEventListener('keydown', (ev) => {
   // Never hijack typing in a text field, or the arrow/Space keys of a focused
   // <select> (the speed dropdown), for the global shortcuts.
   if (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT') return;
+  // Never treat a chorded key as a shortcut: Ctrl+S is a save reflex, not "save
+  // clip"; Ctrl+B is not "bookmark". (Arrow/Space/Escape handling below is
+  // unaffected — browsers don't send those chorded in this context.)
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
 
   const moment = ev.target.closest && ev.target.closest('.moment[data-action="jump"]');
   if (moment && (ev.key === 'Enter' || ev.key === ' ')) {
@@ -2441,6 +2473,54 @@ document.addEventListener('keydown', (ev) => {
   else if (ev.key === 'ArrowLeft') { ev.preventDefault(); if (_T) _T.seekByStep(-1); }
   else if (ev.key === 'ArrowRight') { ev.preventDefault(); if (_T) _T.seekByStep(1); }
 });
+
+// ── &clip= deep-link (P-027) ──────────────────────────────────────────────
+// The review page's clip cards navigate here as vodplayer.html?gameId=N&t=S
+// &clip=<evidenceId>. Seeking is handled by the ?t= param; this finds the
+// clip's Moments row (rows stamp data-ev-id), switching lanes if needed, then
+// scrolls it into view with a brief highlight so the user knows which moment
+// they came for. One-shot per page load.
+let _clipDeepLinkDone = false;
+function applyClipDeepLink() {
+  if (_clipDeepLinkDone) return;
+  _clipDeepLinkDone = true;
+  const clipId = Number(new URLSearchParams(window.location.search).get('clip') || 0);
+  if (!(clipId > 0)) return;
+  // If the clip is tagged to an objective other than the one in focus, the
+  // objective frame would filter its row out of every lane — refocus onto the
+  // clip's own objective first (review-page clip cards are usually tagged).
+  const raw = (_vod && [].concat(_vod.autoMoments || [], _vod.savedClips || [])) || [];
+  const target = raw.find((m) => Number(m && m.id) === clipId);
+  if (target && target.objectiveId != null && _framed
+      && Number(target.objectiveId) !== _focusedObjId) {
+    setFocusedObjective(Number(target.objectiveId));
+  }
+  const locate = () => document.querySelector(`#vp-bookmarks [data-ev-id="${clipId}"]`);
+  let row = locate();
+  if (!row) {
+    // The row may live in another lane — try Clips first (the likeliest), then
+    // the others, re-rendering the panel each time.
+    for (const lane of ['clips', 'auto', 'bm']) {
+      _bmFilter = lane;
+      renderMoments();
+      row = locate();
+      if (row) {
+        document.querySelectorAll('#vp-tabs .tab').forEach((t) => t.classList.toggle('on', t.dataset.filter === lane));
+        break;
+      }
+    }
+    if (!row) {
+      // Not in any lane (dismissed/deleted since) — restore the default view.
+      _bmFilter = 'auto';
+      renderMoments();
+    }
+  }
+  if (row) {
+    row.classList.add('vp-bm-flash');
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setTimeout(() => row.classList.remove('vp-bm-flash'), 3200);
+  }
+}
 
 // ── error ─────────────────────────────────────────────────────────────────
 function renderError(err) {

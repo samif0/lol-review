@@ -242,5 +242,7 @@
       { "evidenceId": 58, "timeText": "24:18", "note": "Auto-captured teamfight — untagged.", "startSeconds": 1458, "polarity": "neutral", "polarityColorHex": "#9d8bff", "shareUrl": "" }
     ]
   },
-  "subjectSourceText": "Most recent unreviewed game"
+  "subjectSourceText": "Most recent unreviewed game",
+  "nextUnreviewedGameId": 5581701799,
+  "unreviewedRemaining": 3
 }

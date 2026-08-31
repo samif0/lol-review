@@ -101,12 +101,16 @@ function render(d) {
   renderMatchupHistory(d.matchupHistory || {});
   renderPromptBlocks(d.promptBlocks || []);
 
-  // PreGamePage-only sections (absent in ingame.html → skipped).
+  // PreGamePage-only sections (absent in ingame.html → skipped). The snapshot's
+  // `staged` echo carries what the user already chose THIS champ select (mood /
+  // intent / practiced toggles, held server-side in LcuLiveState) so a live tick
+  // or webview reload re-renders those choices instead of resetting them.
   if (!IS_INGAME) {
-    renderIntent(d.intent || {}, d.activePlan);
-    renderMood(d.showMoodSelector);
+    const staged = d.staged || {};
+    renderIntent(d.intent || {}, d.activePlan, staged);
+    renderMood(d.showMoodSelector, staged);
     renderSessionIntention(d.sessionIntention || {});
-    renderObjectives(d.objectives || {});
+    renderObjectives(d.objectives || {}, staged);
   } else {
     // InGamePage shows a "NO ACTIVE GAME" card when no champ is detected.
     show($('noactive'), !(d.matchup && d.matchup.hasMatchupDetected));
@@ -294,30 +298,14 @@ function scheduleDraftSave(promptId, text) {
 // ── INTENT carry-over card (PreGamePage only) ─────────────────────────────────
 let _intentSource = '';
 let _intentCleared = false;
-function renderIntent(intent, activePlan) {
+function renderIntent(intent, activePlan, staged) {
   const card = $('intent-card');
   if (!card) return;
   if (intent.accentHex) card.style.setProperty('--cardbr', intent.accentHex);
 
-  _intentSource = intent.selectedSource || '';
-  _intentCleared = false;
-
-  setText('intent-prov', intent.provenance || '');
-  show($('intent-prov-row'), !!intent.provenance);
-
   setText('active-plan', activePlan || '');
   show($('active-plan-row'), !!activePlan);
 
-  const box = $('intent-input');
-  // Don't overwrite the box (or re-stage the seed over it) while the user is typing
-  // their own intent — a champSelectUpdated tick would otherwise revert it to the seed.
-  const editingIntent = isEditingWithin(card);
-  if (box && !editingIntent) box.value = intent.seedText || '';
-
-  // Source chips — visible only when their seed exists.
-  setupChip('chip-carry', intent.hasCarrySource, _intentSource === 'carry');
-  setupChip('chip-objective', intent.hasObjectiveSource, _intentSource === 'objective');
-  setupChip('chip-adherence', intent.hasAdherenceSource, _intentSource === 'adherence');
   // Stash the seeds so the chips can re-seed the box on click.
   card.dataset.carrySeed = intent.carrySeed || '';
   card.dataset.carryProv = intent.carryProvenance || '';
@@ -325,6 +313,71 @@ function renderIntent(intent, activePlan) {
   card.dataset.objProv = intent.objectiveProvenance || '';
   card.dataset.adhSeed = intent.adherenceSeed || '';
   card.dataset.adhProv = intent.adherenceProvenance || '';
+
+  const box = $('intent-input');
+  // Don't overwrite the box (or re-stage the seed over it) while the user is typing
+  // their own intent — a champSelectUpdated tick would otherwise revert it to the seed.
+  const editingIntent = isEditingWithin(card);
+  const st = staged || {};
+
+  // The user explicitly chose "don't carry" this flow — a live tick or reload
+  // must render that choice, not resurrect the seed (and must NOT re-stage it).
+  if (st.intentCleared) {
+    _intentCleared = true;
+    _intentSource = '';
+    setText('intent-prov', 'NOTHING CARRIED THIS GAME');
+    show($('intent-prov-row'), true);
+    setupChip('chip-carry', intent.hasCarrySource, false);
+    setupChip('chip-objective', intent.hasObjectiveSource, false);
+    setupChip('chip-adherence', intent.hasAdherenceSource, false);
+    if (box && !editingIntent) box.value = '';
+    applyIntentClearedUi();
+    return;
+  }
+  _intentCleared = false;
+
+  // A custom intent is already staged server-side (typed-then-blurred earlier
+  // this flow, or a chip choice) — render IT; re-staging the seed over it was
+  // the "my intent reverted mid-champ-select" bug. Which chip/provenance to
+  // light is recovered by matching the staged TEXT against the known seeds
+  // (the staged source string can't distinguish adherence — use_adherence
+  // deliberately stages source 'objective' for the EOG write).
+  const stagedIntent = String(st.intention || '').trim();
+  if (stagedIntent && stagedIntent !== (intent.seedText || '').trim()) {
+    const matchSeed = (seed) => stagedIntent === String(seed || '').trim() && stagedIntent.length > 0;
+    if (matchSeed(intent.carrySeed)) {
+      _intentSource = 'carry';
+      setText('intent-prov', intent.carryProvenance || '');
+      show($('intent-prov-row'), !!intent.carryProvenance);
+    } else if (matchSeed(intent.adherenceSeed)) {
+      _intentSource = 'adherence';
+      setText('intent-prov', intent.adherenceProvenance || '');
+      show($('intent-prov-row'), !!intent.adherenceProvenance);
+    } else if (matchSeed(intent.objectiveSeed)) {
+      _intentSource = 'objective';
+      setText('intent-prov', intent.objectiveProvenance || '');
+      show($('intent-prov-row'), !!intent.objectiveProvenance);
+    } else {
+      _intentSource = 'edited';
+      setText('intent-prov', 'EDITED BY YOU: SAVES AS WRITTEN');
+      show($('intent-prov-row'), true);
+    }
+    setupChip('chip-carry', intent.hasCarrySource, _intentSource === 'carry');
+    setupChip('chip-objective', intent.hasObjectiveSource, _intentSource === 'objective');
+    setupChip('chip-adherence', intent.hasAdherenceSource, _intentSource === 'adherence');
+    if (box && !editingIntent) box.value = stagedIntent;
+    applyIntentClearedUi();
+    return;
+  }
+
+  // Nothing staged yet (or the staged text IS the seed): zero-tap default.
+  _intentSource = intent.selectedSource || '';
+  setText('intent-prov', intent.provenance || '');
+  show($('intent-prov-row'), !!intent.provenance);
+  setupChip('chip-carry', intent.hasCarrySource, _intentSource === 'carry');
+  setupChip('chip-objective', intent.hasObjectiveSource, _intentSource === 'objective');
+  setupChip('chip-adherence', intent.hasAdherenceSource, _intentSource === 'adherence');
+  if (box && !editingIntent) box.value = intent.seedText || '';
 
   applyIntentClearedUi();
   // Stage the zero-tap default so a do-nothing game still carries it — but NOT while
@@ -368,7 +421,12 @@ function applySeed(seed, prov, source, chip) {
 
 // ── MOOD selector (PreGamePage only) ──────────────────────────────────────────
 let _mood = 0;
-function renderMood(showIt) {
+function renderMood(showIt, staged) {
+  // After a webview reload the module state is gone but the server still holds
+  // the staged mood — adopt it so the selection doesn't silently desync from
+  // what EOG will persist.
+  const stagedMood = Number(staged && staged.mood) || 0;
+  if (_mood === 0 && stagedMood > 0) _mood = stagedMood;
   show($('mood-card'), !!showIt);
   highlightMood();
 }
@@ -394,7 +452,14 @@ function renderSessionIntention(si) {
   if (!si.show) return;
   if (si.accentHex) card.style.setProperty('--cardbr', si.accentHex);
   const box = $('session-input');
-  if (box) box.value = si.intention || '';
+  // Same mid-typing guard as the intent box: a champ-select tick re-renders
+  // this card every few hundred ms, and overwriting the focused box would wipe
+  // in-flight typing before the debounce save fires.
+  if (box && !isEditingWithin(card)) {
+    box.value = si.intention || '';
+    // Don't re-save the value that's already stored when the user refocuses it.
+    _sessionLastSaved = (si.intention || '').trim();
+  }
   const chips = $('session-quick');
   if (chips) {
     clear(chips);
@@ -412,7 +477,8 @@ function renderSessionIntention(si) {
 
 // ── OBJECTIVES mega-card (priority + practiced toggles; PreGamePage only) ─────
 const _practiced = new Set();
-function renderObjectives(o) {
+let _practicedSeeded = false;
+function renderObjectives(o, staged) {
   const card = $('obj-card');
   if (!card) return;
   show(card, !!o.hasActiveObjective);
@@ -422,7 +488,18 @@ function renderObjectives(o) {
   setText('obj-priority-crit', o.priorityCriteria || '');
   show($('obj-priority-crit'), !!o.priorityCriteria);
 
-  _practiced.clear();
+  // Seed ONCE per page load from the server-side staged set (survives a webview
+  // reload), then keep the local set across refetches — the old clear-on-render
+  // wiped every toggle on each live champ-select tick, and the next single
+  // toggle then POSTed a 1-element set over the user's multi-objective choice.
+  if (!_practicedSeeded) {
+    for (const id of (staged && staged.practicedObjectiveIds) || []) {
+      const n = Number(id);
+      if (Number.isFinite(n) && n > 0) _practiced.add(n);
+    }
+    _practicedSeeded = true;
+  }
+
   const host = $('obj-list');
   clear(host);
   show($('obj-list-label'), !!o.hasObjectives);
@@ -438,6 +515,7 @@ function renderObjectives(o) {
     const toggle = row.querySelector('.obj-toggle');
     toggle.dataset.objectiveId = String(it.objectiveId);
     toggle.dataset.action = 'toggle_practiced';
+    toggle.classList.toggle('on', _practiced.has(Number(it.objectiveId)));
     host.appendChild(row);
   });
 }
@@ -486,11 +564,23 @@ function scheduleRefresh() {
   setTimeout(() => { _refreshScheduled = false; loadPregame(); }, 150);
 }
 
+// A new champ-select flow began (or the previous one ended): drop the page's
+// LOCAL staged caches so they re-seed from the server's staged echo on the next
+// render. Without this, a surviving page re-lights the previous lobby's
+// practiced toggles/mood, and the first toggle would POST the stale set back
+// over the fresh (server-cleared) flow.
+function resetLocalStagedState() {
+  _practiced.clear();
+  _practicedSeeded = false;
+  _mood = 0;
+}
+
 function handleLcuEvent(type, payload) {
   switch (type) {
     case 'liveState':
     case 'champSelectStarted':
     case 'champSelectUpdated': {
+      if (type === 'champSelectStarted') resetLocalStagedState();
       // Overlay the live champ-select context, then re-render the matchup + refetch
       // (the intel deck + champion-gated prompts depend on the locked champion).
       if (payload.myChampion != null && payload.myChampion !== '') _live.myChampion = payload.myChampion;
@@ -504,6 +594,8 @@ function handleLcuEvent(type, payload) {
       break;
     }
     case 'champSelectCancelled':
+      resetLocalStagedState();
+      scheduleRefresh();
       setBanner('Champ select cancelled.', 'warn');
       break;
     case 'gameInProgress':
@@ -573,7 +665,7 @@ document.addEventListener('click', (ev) => {
     case 'save_ifthen_plan': ev.preventDefault(); saveIfThenPlan(); break;
     case 'toggle_carry': ev.preventDefault(); toggleIntentCarry(); break;
     case 'toggle_practiced': ev.preventDefault(); togglePracticed(Number(target.dataset.objectiveId), target); break;
-    case 'set_session_quick': { ev.preventDefault(); const b = $('session-input'); if (b) b.value = target.dataset.text || ''; break; }
+    case 'set_session_quick': { ev.preventDefault(); const b = $('session-input'); if (b) b.value = target.dataset.text || ''; saveSessionIntention(); break; }
     default: break;
   }
 });
@@ -634,7 +726,35 @@ document.addEventListener('input', (ev) => {
     if (_intentDebounce) clearTimeout(_intentDebounce);
     _intentDebounce = setTimeout(stageIntent, 400);
   }
+  // Session intention (first game of day): debounce-persist as the user types —
+  // this box previously had NO save path at all, silently discarding input.
+  if (ev.target && ev.target.id === 'session-input') {
+    if (_sessionDebounce) clearTimeout(_sessionDebounce);
+    _sessionDebounce = setTimeout(saveSessionIntention, 900);
+  }
 });
+
+// Persist the session-intention box via the SAME write the dashboard's Start
+// Block editor uses (start_block → POST /api/block/start →
+// SetSessionIntentionAsync for today) — an intention typed in champ select is a
+// block start. Empty text is not saved (the server rejects it; clearing an
+// already-saved intention is the dashboard's job).
+let _sessionDebounce = null;
+let _sessionLastSaved = '';
+async function saveSessionIntention() {
+  const box = $('session-input');
+  if (!box) return;
+  const text = box.value.trim();
+  if (!text || text === _sessionLastSaved) return;
+  const invoke = await getInvoke();
+  if (!invoke) { console.info('[pregame] (preview) session intention', text); return; }
+  try {
+    await invoke('start_block', { payload: { intention: text } });
+    _sessionLastSaved = text;
+  } catch (err) {
+    console.error('[pregame] session intention save failed:', err);
+  }
+}
 
 // ── boot ──────────────────────────────────────────────────────────────────────
 function boot() { loadPregame(); wireLiveChannel(); }

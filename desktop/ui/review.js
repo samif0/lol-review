@@ -70,6 +70,60 @@ async function postWrite(cmd, args) {
   }
 }
 
+// ── draft autosave ──────────────────────────────────────────────────────────
+// Typed debrief text used to ride ONLY the explicit SAVE REVIEW commit — any
+// navigation (clip card jump, death Watch, Review VOD) silently discarded it.
+// Now every edit debounce-saves the whole form as a review DRAFT
+// (save_review_draft → review_drafts row, deleted on final save), and the
+// snapshot builder hydrates the form from that draft on the next load.
+let _draftTimer = null;
+let _draftDirty = false;
+let _draftSaving = false;
+let _suppressDraft = false; // true while rendering or while save/skip commits
+
+function markDraftDirty() {
+  if (_suppressDraft || !_subject) return;
+  _draftDirty = true;
+  if (_draftTimer) clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(() => { flushDraft(); }, 1200);
+}
+
+async function flushDraft() {
+  if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
+  // Wait out an in-flight save, then loop while dirty: edits typed DURING an
+  // in-flight save re-raise _draftDirty and must also reach the server before
+  // a navigation proceeds (the naive clear-after-await version silently
+  // dropped them).
+  while (!_suppressDraft && (_draftSaving || _draftDirty)) {
+    if (_draftSaving) {
+      await new Promise((r) => setTimeout(r, 40));
+      continue;
+    }
+    const payload = gatherForm();
+    if (!payload || !(payload.gameId > 0)) { _draftDirty = false; return; }
+    const invoke = await getInvoke();
+    if (!invoke) { _draftDirty = false; return; } // browser preview: nothing to save to
+    _draftSaving = true;
+    _draftDirty = false; // claimed by this write; a new edit re-raises it
+    try {
+      await invoke('save_review_draft', { payload });
+    } catch (err) {
+      // Autosave is best-effort — never surface an error mid-typing, and don't
+      // re-raise dirty (a dead backend would spin the loop forever).
+      console.warn('[review] draft autosave failed:', err);
+    } finally {
+      _draftSaving = false;
+    }
+  }
+}
+
+// Cancel any pending autosave and mark clean — used when a real save/skip/delete
+// commits (the backend deletes the draft; an autosave after would resurrect it).
+function cancelDraft() {
+  if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
+  _draftDirty = false;
+}
+
 // ── small DOM helpers ───────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 function show(el, on) { if (el) el.hidden = !on; }
@@ -89,6 +143,9 @@ const RING_CIRCUMFERENCE = 150.8; // 2·π·r, r=24
 
 // The subject currently rendered — save/skip read gameId/champ/win from here.
 let _subject = null;
+// The whole snapshot (subject + queue info) — the Next-game chaining reads
+// nextUnreviewedGameId / unreviewedRemaining off this.
+let _snapshot = null;
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchReview() {
@@ -360,7 +417,7 @@ function addTagChip(label) {
   if (existing.includes(text.toLowerCase())) return;
   const chip = tpl('tpl-tag');
   chip.querySelector('.rv-tag-txt').textContent = text;
-  chip.querySelector('.rv-tag-x').addEventListener('click', () => chip.remove());
+  chip.querySelector('.rv-tag-x').addEventListener('click', () => { chip.remove(); markDraftDirty(); });
   host.appendChild(chip);
 }
 
@@ -375,11 +432,16 @@ function renderForm(subject) {
   show($('rv-deletebtn'), !!hdr.hasReview);
 
   // Mental rating — seed the slider + readout (default 5 when unset). Tint the
-  // readout with the server-supplied color when one is provided.
+  // readout with the server-supplied color when one is provided. `touched`
+  // tracks whether the value is a real answer (saved, or moved this session):
+  // an untouched slider submits 0 and the backend keeps the stored value (or
+  // the neutral default) instead of silently recording a 5/10 the user never
+  // gave.
   const slider = $('rv-mental-input');
   const readout = $('rv-mental');
   const savedMental = Number(f.mentalRating);
   slider.value = String(savedMental > 0 ? savedMental : 5);
+  slider.dataset.touched = savedMental > 0 ? '1' : '';
   readout.textContent = slider.value;
   if (f.mentalRatingColorHex) readout.style.color = f.mentalRatingColorHex;
 
@@ -430,6 +492,10 @@ function renderForm(subject) {
   if (_pendingCommitMsg) {
     showCommit(_pendingCommitMsg.text, _pendingCommitMsg.kind);
     _pendingCommitMsg = null;
+  } else if (f.hasDraft) {
+    // The form fields above were hydrated from an unsaved autosave draft —
+    // say so, so the user knows their earlier typing survived.
+    showCommit('Unsaved edits restored from draft.', null);
   } else {
     showCommit('', null);
   }
@@ -596,11 +662,13 @@ function clipCard(clip, objectiveOptions) {
   const id = Number(clip.evidenceId);
   el.dataset.evidId = String(Number.isFinite(id) ? id : 0);
 
-  // Jump-to-VOD deep-link. Only when there's a real start second; the delegated
-  // view_moment handler reads data-seek + (P-027) data-clip to build the &clip= URL
-  // and ignores clicks that land on the inner triage controls.
-  const seek = Number(clip.startSeconds);
-  if (Number.isFinite(seek) && seek > 0) {
+  // Jump-to-VOD deep-link. Only when there's a real start second (null = the
+  // row genuinely has no time; 0 IS a real time — a clip covering the game
+  // start must stay clickable). The delegated view_moment handler reads
+  // data-seek + (P-027) data-clip to build the &clip= URL and ignores clicks
+  // that land on the inner triage controls.
+  const seek = clip.startSeconds == null ? NaN : Number(clip.startSeconds);
+  if (Number.isFinite(seek) && seek >= 0) {
     el.dataset.action = 'view_moment';
     el.dataset.seek = String(Math.floor(seek));
     if (Number.isFinite(id) && id > 0) el.dataset.clip = String(id);
@@ -687,6 +755,20 @@ function renderUnsorted(subject) {
   show($('rv-tosortsec'), n > 0);
 }
 
+// Hide clip-list hosts (and their labelled wrappers) that just emptied out —
+// called after an in-place dismiss removes a row.
+function pruneEmptyClipSections() {
+  for (const host of document.querySelectorAll('.rv-prompt-clips, .rv-obj-unprompted-list')) {
+    if (host.childElementCount === 0) {
+      show(host, false);
+      const wrap = host.closest('.rv-obj-unprompted');
+      if (wrap) show(wrap, false);
+    }
+  }
+  const tosort = $('rv-tosort');
+  if (tosort && tosort.childElementCount === 0) show($('rv-tosortsec'), false);
+}
+
 // Handle an evidence triage control (Good/Bad/Dismiss button or objective <select>).
 async function onEvidenceAction(action, el) {
   const row = el.closest('.rv-evid');
@@ -708,8 +790,11 @@ async function onEvidenceAction(action, el) {
     if (btn) btn.classList.toggle('on', !turningOff);
     await postWrite('set_evidence_polarity', { evidenceId, polarity: turningOff ? '' : action });
   } else if (action === 'dismiss') {
-    // Remove the row in place; no re-render needed.
+    // Remove the row in place; no re-render needed — but re-check the section
+    // wrappers so dismissing the LAST clip doesn't leave an empty "To sort" /
+    // "Objective evidence" header floating until the next full load.
     row.remove();
+    pruneEmptyClipSections();
     await postWrite('set_evidence_status', { evidenceId, status: 'dismissed' });
   } else if (action === 'objective') {
     // The <select> already shows the chosen value; just persist it.
@@ -833,11 +918,14 @@ function gatherForm() {
   // clearable in any future build that re-renders them.
   const savedForm = _subject.form || {};
 
+  const mentalSlider = $('rv-mental-input');
   return {
     gameId: Number(_subject.gameId),
     championName: h.championName || '',
     win: !!h.win,
-    mentalRating: Number($('rv-mental-input').value) || 0,
+    // 0 = "never answered" — the backend preserves the stored value (or the
+    // neutral default) instead of recording an untouched slider as a real 5.
+    mentalRating: mentalSlider.dataset.touched ? (Number(mentalSlider.value) || 0) : 0,
     wentWell: typeof savedForm.wentWell === 'string' ? savedForm.wentWell : '',
     mistakes: typeof savedForm.mistakes === 'string' ? savedForm.mistakes : '',
     focusNext: typeof savedForm.focusNext === 'string' ? savedForm.focusNext : '',
@@ -907,6 +995,7 @@ function playEntrance() {
 // ── top-level render ────────────────────────────────────────────────────────
 function render(d) {
   clearError();
+  _snapshot = d || null;
   const subject = d && d.subject;
   if (!subject) {
     renderEmpty();
@@ -925,7 +1014,23 @@ function render(d) {
   renderForm(subject);
   renderTagCatalog(subject);
   renderMatchupHistory(subject);
+  renderNextGame(d);
   playEntrance();
+}
+
+// ── render: "Next game →" chaining ──────────────────────────────────────────
+// The snapshot carries the newest OTHER unreviewed game + the remaining count,
+// so a session of several reviews chains directly instead of bouncing through
+// the Games list after every save. Both buttons (commit bar + already-reviewed
+// banner) navigate to review.html?gameId=<next>.
+function renderNextGame(d) {
+  const nextId = Number(d && d.nextUnreviewedGameId) || 0;
+  const remaining = Number(d && d.unreviewedRemaining) || 0;
+  const suffix = remaining > 1 ? ` (${remaining} left)` : '';
+  const nextBtn = $('rv-nextbtn');
+  if (nextBtn) { nextBtn.textContent = `Next game${suffix} →`; show(nextBtn, nextId > 0); }
+  const bannerBtn = $('rv-savednote-next');
+  if (bannerBtn) { bannerBtn.textContent = `Next unreviewed${suffix} →`; show(bannerBtn, nextId > 0); }
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────
@@ -946,12 +1051,50 @@ async function loadReview() {
 }
 
 // ── live form interactions: mental slider + tag input ───────────────────────
-// Mental slider mirrors its value into the readout as it moves.
+// Mental slider mirrors its value into the readout as it moves (and counts as
+// a real answer from the first move). Any edit to a debrief textarea, objective
+// note, or the slider marks the draft dirty for the debounced autosave.
 document.addEventListener('input', (ev) => {
-  if (ev.target && ev.target.id === 'rv-mental-input') {
-    $('rv-mental').textContent = ev.target.value;
+  const t = ev.target;
+  if (!t) return;
+  if (t.id === 'rv-mental-input') {
+    $('rv-mental').textContent = t.value;
+    t.dataset.touched = '1';
+    markDraftDirty();
+    return;
+  }
+  if (t.classList && (t.classList.contains('rv-field-in') || t.classList.contains('rv-objnote') || t.id === 'rv-tag-input')) {
+    markDraftDirty();
   }
 });
+
+// Practiced toggles ride the batched save — autosave them too.
+document.addEventListener('change', (ev) => {
+  if (ev.target && ev.target.classList && ev.target.classList.contains('rv-practiced-cb')) {
+    markDraftDirty();
+  }
+});
+
+// Ctrl+Enter (or Cmd+Enter) commits the review — the highest-frequency action
+// on the page was mouse-only.
+document.addEventListener('keydown', (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+    const saveBtn = $('rv-savebtn');
+    if (saveBtn && !saveBtn.disabled && _subject) {
+      ev.preventDefault();
+      // Blur the focused field first — a prompt-answer box persists via its
+      // blur handler only, and a mouse click on Save would have blurred it;
+      // the keyboard path must not skip that write.
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+      saveBtn.click();
+    }
+  }
+});
+
+// Best-effort flush when the page is being torn down (navigation, app close).
+window.addEventListener('pagehide', () => { flushDraft(); });
 
 // Tag input: Enter or comma commits the current text as a chip; Backspace on an
 // empty input removes the last chip. Blur also commits any pending text.
@@ -998,6 +1141,7 @@ document.addEventListener('click', (ev) => {
   if (tagChip && tagChip.closest('#rv-tagcat-grid')) {
     ev.preventDefault();
     applyTagcatSelected(tagChip, !tagChip.classList.contains('on'));
+    markDraftDirty();
     return;
   }
 });
@@ -1057,7 +1201,7 @@ document.addEventListener('input', (ev) => {
 // review_vod  = VOD button on the hero card (→ vod viewer, deferred).
 // save_review = gather the editable form and COMMIT (no un-review), then refetch.
 // skip_review = mark the game reviewed without notes, then refetch.
-const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review']);
+const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed']);
 
 document.addEventListener('click', async (ev) => {
   // An evidence card jump must NOT fire when the click landed on its inner triage
@@ -1071,27 +1215,43 @@ document.addEventListener('click', async (ev) => {
   ev.preventDefault();
 
   // "Review VOD" navigates to the VOD player for the loaded game (not a backend
-  // command). Uses the subject's gameId.
+  // command). Uses the subject's gameId. Unsaved edits flush as a draft first.
   if (action === 'review_vod') {
     const gid = (_subject && _subject.gameId) || target.dataset.gameId;
-    if (gid) window.location.href = `vodplayer.html?gameId=${encodeURIComponent(gid)}`;
+    if (gid) {
+      await flushDraft();
+      window.location.href = `vodplayer.html?gameId=${encodeURIComponent(gid)}`;
+    }
+    return;
+  }
+
+  // "Next game →" chains to the newest other unreviewed game (queue info rides
+  // the snapshot). Unsaved edits flush as a draft first.
+  if (action === 'next_unreviewed') {
+    const nextId = Number(_snapshot && _snapshot.nextUnreviewedGameId) || 0;
+    if (nextId > 0) {
+      await flushDraft();
+      window.location.href = `review.html?gameId=${encodeURIComponent(nextId)}`;
+    }
     return;
   }
 
   // Clicking a moment/evidence/clip card jumps to that game's VOD at the moment's
-  // start time (vodplayer reads ?t=seconds). gameId is the loaded subject's. P-027:
-  // a clip card also stamps data-clip with its evidenceId, so we append &clip=ID —
-  // the deep-link the VOD player consumes to highlight that exact clip.
+  // start time (vodplayer reads ?t=seconds; 0 is a valid time — the handler keys
+  // on data-seek being present, not truthy). gameId is the loaded subject's.
+  // P-027: a clip card also stamps data-clip with its evidenceId, so we append
+  // &clip=ID — the deep-link the VOD player consumes to highlight that clip.
   if (action === 'view_moment') {
     const gid = (_subject && _subject.gameId) || target.dataset.gameId;
-    const t = Number(target.dataset.seek) || 0;
-    if (gid && t > 0) {
+    const t = target.dataset.seek != null ? Number(target.dataset.seek) : NaN;
+    if (gid && Number.isFinite(t) && t >= 0) {
       let url =
         `vodplayer.html?gameId=${encodeURIComponent(gid)}&t=${encodeURIComponent(t)}`;
       const clipId = Number(target.dataset.clip);
       if (Number.isFinite(clipId) && clipId > 0) {
         url += `&clip=${encodeURIComponent(clipId)}`;
       }
+      await flushDraft();
       window.location.href = url;
     }
     return;
@@ -1164,6 +1324,29 @@ document.addEventListener('click', async (ev) => {
   // Flush any tag text still sitting in the input before gathering.
   if (action === 'save_review') commitTagInput();
 
+  // Skip is an irreversible "reviewed with no notes" one click away from SAVE —
+  // require a second tap to confirm instead of a modal (keeps the flow fast,
+  // kills the misclick cost).
+  if (action === 'skip_review') {
+    const skipBtn = $('rv-skipbtn');
+    if (skipBtn && !skipBtn.dataset.confirm) {
+      skipBtn.dataset.confirm = '1';
+      skipBtn.classList.add('rv-skip-confirm');
+      skipBtn.textContent = 'Skip with no notes?';
+      setTimeout(() => {
+        delete skipBtn.dataset.confirm;
+        skipBtn.classList.remove('rv-skip-confirm');
+        skipBtn.textContent = 'Skip';
+      }, 4000);
+      return;
+    }
+    if (skipBtn) {
+      delete skipBtn.dataset.confirm;
+      skipBtn.classList.remove('rv-skip-confirm');
+      skipBtn.textContent = 'Skip';
+    }
+  }
+
   // Build the payload per action. save/skip read from the loaded subject.
   let args = {};
   if (action === 'save_review') {
@@ -1195,6 +1378,12 @@ document.addEventListener('click', async (ev) => {
   if (canDisable) target.disabled = true;
   if (action === 'save_review') showCommit('Saving…', null);
   if (action === 'skip_review') showCommit('Skipping…', null);
+  // The commit deletes the server-side draft — cancel any pending autosave so
+  // it can't fire mid-save and resurrect the draft.
+  if (action === 'save_review' || action === 'skip_review') {
+    cancelDraft();
+    _suppressDraft = true;
+  }
   try {
     // save_review / skip_review take a single `payload` arg in Rust — wrap the
     // gathered form/body so Tauri doesn't reject with "missing required key payload".
@@ -1218,6 +1407,7 @@ document.addEventListener('click', async (ev) => {
     showCommit((err && err.message) ? err.message : 'Save failed.', 'err');
     console.error(`[review] action "${action}" failed:`, err);
   } finally {
+    _suppressDraft = false;
     if (saveBtn) saveBtn.disabled = false;
     if (skipBtn) skipBtn.disabled = false;
     if (canDisable) target.disabled = false;

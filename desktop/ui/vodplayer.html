@@ -80,6 +80,9 @@
     <div class="card vp-novod" id="vp-novod" hidden>
       <div class="vline">No recording found for this game.</div>
       <div class="vsmall">A VOD shows here when an Ascent recording matches the game and the file still exists on disk.</div>
+      <!-- The review page deliberately routes death/clip jumps here expecting a
+           no-recording state — this link keeps that path from being a dead end. -->
+      <a class="vp-novod-review" id="vp-novod-review" href="review.html" hidden>Open this game's review →</a>
     </div>
 
     <!-- Player -->

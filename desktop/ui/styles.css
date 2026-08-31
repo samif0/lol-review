@@ -1113,6 +1113,17 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .rv-deletebtn:disabled{opacity:0.55;cursor:default}
 .rv-commit-msg.ok{color:var(--win)}
 .rv-commit-msg.err{color:var(--loss)}
+/* Skip's two-tap confirm state — the first tap arms it (loss tint) so the
+   irreversible no-notes commit is never one misclick away from Save. */
+.rv-skipbtn.rv-skip-confirm{color:var(--loss);border-color:rgba(243,163,168,0.55)}
+/* Next-game chaining (commit bar + already-reviewed banner): quiet win-tinted
+   ghost button, the "keep the loop going" affordance. */
+.rv-nextbtn{padding:12px 16px;border-radius:11px;cursor:pointer;
+  font-family:var(--fm);font-size:11px;letter-spacing:0.8px;text-transform:uppercase;
+  color:var(--win);background:transparent;border:1px solid rgba(142,231,186,0.32);
+  transition:color .16s ease,background .16s ease,border-color .16s ease}
+.rv-nextbtn:hover{color:#fff;background:rgba(142,231,186,0.14);border-color:rgba(142,231,186,0.55)}
+.rv-note-saved .rv-nextbtn{margin-left:auto;padding:7px 12px;flex-shrink:0}
 
 /* Inline empty lines (no objectives). */
 .rv-emptyline{font-size:12.5px;color:var(--t4);line-height:1.5;padding:4px 2px}
@@ -1898,6 +1909,16 @@ select.obj-input option{background:#14102a;color:var(--t1)}
    surfaces. House palette + Space Grotesk/Inter, .16s hovers, motion-guarded. */
 .vp-wrap{margin-top:22px}
 .vp-novod{margin-top:18px}
+/* The way OUT of the no-recording state — back to this game's review. */
+.vp-novod-review{display:inline-block;margin-top:10px;font-family:var(--fm);font-size:11px;
+  letter-spacing:0.8px;text-transform:uppercase;color:var(--win);text-decoration:none;
+  border:1px solid rgba(142,231,186,0.32);border-radius:10px;padding:8px 13px;
+  transition:color .16s ease,background .16s ease,border-color .16s ease}
+.vp-novod-review:hover{color:#fff;background:rgba(142,231,186,0.14);border-color:rgba(142,231,186,0.55)}
+/* &clip= deep-link arrival flash: briefly ring the Moments row the review page
+   sent the user to, so the target clip is unmistakable. */
+.vp-bm-flash{outline:2px solid var(--gold);outline-offset:2px;box-shadow:0 0 18px rgba(243,199,148,0.35);
+  transition:outline-color .4s ease,box-shadow .4s ease}
 
 /* Sign-in hint banner — gold/amber, shown only when signed out. Whole banner is
    a link to onboarding. Sits between the statusline and the player. */
