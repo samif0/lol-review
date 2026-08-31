@@ -9,6 +9,7 @@
   "tiltFixMode": false,
   "requireReviewNotes": false,
   "sidebarAnimationEnabled": true,
+  "windowResolution": "",
   "minimizeDuringGame": true,
   "autoTimelineClippingEnabled": true,
   "autoTimelineClippingHintDismissed": false,

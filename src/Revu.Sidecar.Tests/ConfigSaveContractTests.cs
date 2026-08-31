@@ -267,6 +267,32 @@ public sealed class ConfigSaveContractTests
     }
 
     [Fact]
+    public async Task SaveConfig_WindowResolution_RoundTripsAndSurvivesPartialSave()
+    {
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+        var service = CreateService(scope.ConfigPath, secrets);
+
+        // User picks Maximized in Settings.
+        await ApplySaveConfig(service, windowResolution: "maximized");
+        Assert.Equal("maximized", (await service.LoadAsync()).WindowResolution);
+
+        // An unrelated partial save (null = unchanged) leaves the preference intact.
+        await ApplySaveConfig(service, clipsMaxSizeMb: 4096);
+        var reloaded = await service.LoadAsync();
+        Assert.Equal("maximized", reloaded.WindowResolution);
+        Assert.Equal(4096, reloaded.ClipsMaxSizeMb);
+
+        // Switching to a fixed size stores the normalized WxH...
+        await ApplySaveConfig(service, windowResolution: "1920x1080");
+        Assert.Equal("1920x1080", (await service.LoadAsync()).WindowResolution);
+
+        // ...and switching back to Default stores "" (the built-in size).
+        await ApplySaveConfig(service, windowResolution: "default");
+        Assert.Equal("", (await service.LoadAsync()).WindowResolution);
+    }
+
+    [Fact]
     public async Task SaveConfig_TutorialProgress_RoundTripsAndSurvivesPartialSave()
     {
         using var scope = new TempConfigScope();
@@ -327,7 +353,8 @@ public sealed class ConfigSaveContractTests
         bool? firstReviewTutorialCompleted = null,
         bool? firstReviewTutorialDismissed = null,
         long? firstReviewTutorialObjectiveId = null,
-        long? firstReviewTutorialGameId = null)
+        long? firstReviewTutorialGameId = null,
+        string? windowResolution = null)
     {
         var cfg = await service.LoadAsync();
 
@@ -355,6 +382,8 @@ public sealed class ConfigSaveContractTests
         if (firstReviewTutorialDismissed is not null) cfg.FirstReviewTutorialDismissed = firstReviewTutorialDismissed.Value;
         if (firstReviewTutorialObjectiveId is not null) cfg.FirstReviewTutorialObjectiveId = Math.Max(0, firstReviewTutorialObjectiveId.Value);
         if (firstReviewTutorialGameId is not null) cfg.FirstReviewTutorialGameId = Math.Max(0, firstReviewTutorialGameId.Value);
+        // Window size: validated + normalized by the guard; null/blank/garbage = unchanged.
+        if (ConfigSaveGuards.TryResolveWindowResolution(windowResolution, out var windowRes)) cfg.WindowResolution = windowRes;
 
         await service.SaveAsync(cfg);
     }

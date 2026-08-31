@@ -67,6 +67,7 @@ public sealed class ConfigSnapshotBuilder
             TiltFixMode: cfg.TiltFixMode,
             RequireReviewNotes: cfg.RequireReviewNotes,
             SidebarAnimationEnabled: cfg.SidebarAnimationEnabled,
+            WindowResolution: cfg.WindowResolution ?? "",
             MinimizeDuringGame: cfg.MinimizeDuringGame,
             AutoTimelineClippingEnabled: cfg.AutoTimelineClippingEnabled,
             AutoTimelineClippingHintDismissed: cfg.AutoTimelineClippingHintDismissed,
@@ -104,6 +105,9 @@ public sealed record ConfigDto(
     bool TiltFixMode,
     bool RequireReviewNotes,
     bool SidebarAnimationEnabled,
+    // Main-window size: "" = built-in default (1600x1000), "maximized", or "WxH".
+    // Applied by the Tauri host on launch + live on Settings save.
+    string WindowResolution,
     bool MinimizeDuringGame,
     bool AutoTimelineClippingEnabled,
     bool AutoTimelineClippingHintDismissed,

@@ -1202,6 +1202,9 @@ app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILo
     if (body.TiltFixMode is not null) cfg.TiltFixMode = body.TiltFixMode.Value;
     if (body.RequireReviewNotes is not null) cfg.RequireReviewNotes = body.RequireReviewNotes.Value;
     if (body.SidebarAnimationEnabled is not null) cfg.SidebarAnimationEnabled = body.SidebarAnimationEnabled.Value;
+    // Window size: null/blank = unchanged; "default" stores "" (built-in size);
+    // "maximized" / "WxH" store as-is; garbage is rejected (unchanged).
+    if (ConfigSaveGuards.TryResolveWindowResolution(body.WindowResolution, out var windowRes)) cfg.WindowResolution = windowRes;
     if (body.MinimizeDuringGame is not null) cfg.MinimizeDuringGame = body.MinimizeDuringGame.Value;
     if (body.AutoTimelineClippingEnabled is not null) cfg.AutoTimelineClippingEnabled = body.AutoTimelineClippingEnabled.Value;
     if (body.AutoTimelineClippingHintDismissed is not null) cfg.AutoTimelineClippingHintDismissed = body.AutoTimelineClippingHintDismissed.Value;
@@ -2869,7 +2872,10 @@ internal sealed record SaveConfigBody(
     string? PrimaryRole,
     // Onboarding role-finish (skip path) stamps OnboardingSkipped=true; null leaves
     // it unchanged. Login path never sends it (resolve already set it false).
-    bool? OnboardingSkipped);
+    bool? OnboardingSkipped,
+    // Main-window size: "default" | "maximized" | "WxH" (validated by
+    // ConfigSaveGuards.TryResolveWindowResolution); null/blank = unchanged.
+    string? WindowResolution = null);
 
 // POST /api/review/draft/save body — same shape as SaveReviewBody minus the
 // championName/win/requireReviewNotes fields a finalized save needs (a draft

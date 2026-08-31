@@ -121,6 +121,26 @@ function render(d) {
     setToggle($(f), !!d[f]);
   }
 
+  // Window size select. Stored "" means the default. A stored non-preset "WxH"
+  // (hand-edited config.json — the sidecar guard accepts any sane size) gets a
+  // dynamic "Custom" option so the select can REPRESENT it: without one, the
+  // fallback-to-Default would be sent back on the next save and silently erase
+  // the custom value (the P-020 clobber class). Garbage falls back to Default.
+  const winRes = $('windowResolution');
+  if (winRes) {
+    const stored = d.windowResolution ? String(d.windowResolution) : 'default';
+    winRes.querySelector('option[data-custom]')?.remove();
+    if (![...winRes.options].some((o) => o.value === stored) && /^\d{3,5}x\d{3,5}$/.test(stored)) {
+      const opt = document.createElement('option');
+      opt.value = stored;
+      opt.dataset.custom = '1';
+      opt.textContent = `Custom (${stored.replace('x', ' x ')})`;
+      winRes.appendChild(opt);
+    }
+    winRes.value = stored;
+    if (winRes.selectedIndex < 0) winRes.value = 'default';
+  }
+
   // Riot account attachment status. "Attached" means we have a stored identity
   // (riotId) — independent of an active OTP session — so a configured account
   // still reads as attached after a session lapses. The email line is the
@@ -266,6 +286,11 @@ function collectPayload() {
   for (const f of TOGGLE_FIELDS) {
     p[f] = toggleState($(f));
   }
+  // Window size: only send once the page has rendered real config (_data set) —
+  // a pre-hydration save would otherwise send the select's built-in "default"
+  // and reset a saved Maximized preference (same P-020/P-023 clobber class).
+  const winRes = $('windowResolution');
+  if (winRes && _data) p.windowResolution = winRes.value || 'default';
   return p;
 }
 
@@ -346,7 +371,7 @@ const ACTIONS = new Set([
   'save_config', 'pick_ascent', 'pick_clips', 'pick_backup', 'clear_ascent',
   'scan_vods', 'refresh_backups', 'export_data', 'open_logs',
   'restore_backup', 'reset_all_data', 'check_update', 'install_update',
-  'run_backfill', 'start_stint', 'end_stint',
+  'run_backfill',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -387,86 +412,11 @@ document.addEventListener('click', async (ev) => {
     if (action === 'reset_all_data') return await doReset(invoke, target);
     if (action === 'check_update') return await doCheckUpdate(invoke);
     if (action === 'install_update') return await doInstallUpdate(invoke, target);
-    if (action === 'start_stint') return await doStartStint(invoke, target);
-    if (action === 'end_stint') return await doEndStint(invoke, target);
   } catch (err) {
     console.error(`[settings] ${action} failed:`, err);
     renderError(err);
   }
 });
-
-// ── Coaching stint (v3.3) ───────────────────────────────────────────────────
-// One active stint at a time. Starting shows the form; while active the card
-// shows the stint line + End button. Blocks keep their stint tags after End.
-async function loadStint() {
-  const invoke = await getInvoke();
-  if (!invoke) { renderStint(null); return; }
-  try {
-    const res = await invoke('get_stint');
-    renderStint(res && res.stint ? res.stint : null);
-  } catch (err) {
-    console.warn('[settings] stint load failed (non-fatal):', err);
-  }
-}
-
-function renderStint(stint) {
-  const activeEl = $('stint-active');
-  const form = $('stint-form');
-  const startBtn = $('stint-start-btn');
-  const endBtn = $('stint-end-btn');
-  if (!activeEl || !form || !startBtn || !endBtn) return;
-  if (stint && stint.name) {
-    const parts = [
-      `Active: ${stint.name}`,
-      `started ${stint.startDate}`,
-      `${stint.blocksTotal ?? 0} blocks (${stint.blocksWithCoach ?? 0} w/ coach · ${stint.blocksSolo ?? 0} solo)`,
-    ];
-    if (stint.plannedEndDate) parts.splice(2, 0, `until ${stint.plannedEndDate}`);
-    setStatusEl(activeEl, parts.join(' · '), 'good', false);
-    form.hidden = true;
-    startBtn.hidden = true;
-    endBtn.hidden = false;
-  } else {
-    setStatusEl(activeEl, '', null, false);
-    form.hidden = false;
-    startBtn.hidden = false;
-    endBtn.hidden = true;
-  }
-}
-
-async function doStartStint(invoke, target) {
-  const name = ($('stint-name')?.value || '').trim();
-  if (!name) { setStatusEl($('stint-status'), 'Name the stint first (e.g. your coach).', 'bad', true); return; }
-  const plannedEndDate = ($('stint-end-date')?.value || '').trim();
-  if ('disabled' in target) target.disabled = true;
-  try {
-    await invoke('start_stint', { payload: { name, plannedEndDate } });
-    setStatusEl($('stint-status'), 'Stint started. Blocks now count toward it.', 'good', true);
-    await loadStint();
-  } catch (err) {
-    setStatusEl($('stint-status'), errText(err) || 'Could not start the stint.', 'bad', false);
-    console.error('[settings] start_stint failed:', err);
-  } finally {
-    if ('disabled' in target) target.disabled = false;
-  }
-}
-
-async function doEndStint(invoke, target) {
-  const ok = window.confirm(
-    'End the coaching stint?\n\nPast blocks keep their stint numbers and coach tags; new blocks simply stop counting toward it. Starting a new stint later begins at block #1.');
-  if (!ok) return;
-  if ('disabled' in target) target.disabled = true;
-  try {
-    await invoke('end_stint', { payload: {} });
-    setStatusEl($('stint-status'), 'Stint ended.', 'good', true);
-    await loadStint();
-  } catch (err) {
-    setStatusEl($('stint-status'), errText(err) || 'Could not end the stint.', 'bad', false);
-    console.error('[settings] end_stint failed:', err);
-  } finally {
-    if ('disabled' in target) target.disabled = false;
-  }
-}
 
 // Restore the selected backup. The sidecar takes a pre-restore safety backup first;
 // on success the app RELAUNCHES (the invoke never resolves — the process restarts).
@@ -583,6 +533,19 @@ async function doSave(invoke, target) {
   try {
     await invoke('save_config', { payload });
     setSaveStatus('Settings saved.', 'good');
+    // Apply the window-size choice immediately (no relaunch needed) — but ONLY
+    // when the user actually changed it. Applying unconditionally would snap a
+    // manually resized/moved window back to the preset on every unrelated save.
+    // Best-effort: the preference is already persisted, so launch-time apply
+    // still happens even if the live resize fails.
+    const loadedRes = _data && _data.windowResolution ? String(_data.windowResolution) : 'default';
+    if (payload.windowResolution && payload.windowResolution !== loadedRes) {
+      try {
+        await invoke('set_window_resolution', { resolution: payload.windowResolution });
+      } catch (resizeErr) {
+        console.warn('[settings] live window resize failed (non-fatal):', resizeErr);
+      }
+    }
     await loadConfig(); // manual invalidation — no message bus
   } catch (err) {
     renderError(err);
@@ -700,7 +663,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────
-function boot() { loadConfig(); loadAppVersion(); loadStint(); }
+function boot() { loadConfig(); loadAppVersion(); }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {

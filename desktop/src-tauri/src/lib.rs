@@ -33,6 +33,75 @@ fn urlencode(s: &str) -> String {
     out
 }
 
+// ── Window size preference (Settings → Appearance) ───────────────────────────
+// config.json's window_resolution: "" / "default" = the tauri.conf.json size
+// (1600x1000), "maximized" = fill the screen, "WxH" = a fixed logical size.
+// Applied on launch BEFORE the hidden window is shown, and live via the
+// set_window_resolution command after a Settings save.
+
+/// Applies one window-resolution value to a window. Unrecognized or out-of-range
+/// values are ignored (the window keeps its current size) — the sidecar validates
+/// on save, so this only guards against a hand-edited config.json.
+fn apply_window_resolution(win: &tauri::WebviewWindow, res: &str) {
+    let r = res.trim().to_ascii_lowercase();
+    if r == "maximized" {
+        let _ = win.maximize();
+        return;
+    }
+    let (mut w, mut h) = if r.is_empty() || r == "default" {
+        (1600.0, 1000.0) // must match tauri.conf.json's main-window width/height
+    } else if let Some((ws, hs)) = r.split_once('x') {
+        match (ws.trim().parse::<f64>(), hs.trim().parse::<f64>()) {
+            // Bounds mirror ConfigSaveGuards.TryResolveWindowResolution (min = the
+            // window's minWidth/minHeight, so we never fight the OS clamp).
+            (Ok(w), Ok(h)) if (980.0..=10000.0).contains(&w) && (640.0..=10000.0).contains(&h) => (w, h),
+            _ => return,
+        }
+    } else {
+        return;
+    };
+    // Clamp to the current monitor: presets are LOGICAL pixels, so on a scaled
+    // display (e.g. 1920x1080 physical at 125%) an exact-resolution preset would
+    // overflow the screen. Clamping fills the monitor instead.
+    if let Ok(Some(mon)) = win.current_monitor() {
+        let scale = mon.scale_factor();
+        if scale > 0.0 {
+            w = w.min(mon.size().width as f64 / scale);
+            h = h.min(mon.size().height as f64 / scale);
+        }
+    }
+    let _ = win.unmaximize();
+    let _ = win.set_size(tauri::LogicalSize::new(w, h));
+    let _ = win.center();
+}
+
+/// Reads window_resolution from the sidecar-owned config file
+/// (%LOCALAPPDATA%\LoLReviewData\config.json — see Revu.Core AppDataPaths). Read
+/// directly rather than over HTTP because the size must apply BEFORE the window is
+/// shown, and the sidecar isn't up yet at that point. snake_case key: the config
+/// serializer uses SnakeCaseLower (ConfigService.JsonOptions).
+fn saved_window_resolution() -> Option<String> {
+    let path = dirs::data_local_dir()?
+        .join("LoLReviewData")
+        .join("config.json");
+    let text = std::fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    json.get("window_resolution")?.as_str().map(|s| s.to_string())
+}
+
+/// Applies a window-size choice ("default" | "maximized" | "WxH") to the main
+/// window immediately. The Settings page calls this after save_config so the new
+/// size takes effect without a relaunch; the persisted value is re-applied from
+/// config.json on every launch (see setup).
+#[tauri::command]
+async fn set_window_resolution(app: tauri::AppHandle, resolution: String) -> Result<(), String> {
+    let win = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    apply_window_resolution(&win, &resolution);
+    Ok(())
+}
+
 /// Returns the full dashboard snapshot JSON (see Revu.Sidecar /api/dashboard).
 #[tauri::command]
 async fn get_dashboard() -> Result<serde_json::Value, String> {
@@ -903,8 +972,25 @@ pub fn run() {
         .setup(|app| {
             // Spawn the C# sidecar and wait for it to report ready BEFORE the
             // window starts hitting get_dashboard. We hide the window until then.
+            // Saved window-size preference. Fixed "WxH" sizes apply NOW, while the
+            // window is hidden (SetWindowPos path — safe on a hidden window, so the
+            // first visible frame is already the chosen size). "maximized" must NOT
+            // apply here: tao's SW_MAXIMIZE has no hidden variant, so maximizing a
+            // hidden window transiently shows+activates it (a visible flash at
+            // launch). It is applied just before show() instead, where the
+            // transient is immediately covered by the real show.
+            let maximize_on_show = saved_window_resolution()
+                .map(|r| r.trim().eq_ignore_ascii_case("maximized"))
+                .unwrap_or(false);
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.hide();
+                if !maximize_on_show {
+                    if let Some(res) = saved_window_resolution() {
+                        if !res.trim().is_empty() {
+                            apply_window_resolution(&win, &res);
+                        }
+                    }
+                }
             }
 
             // Spawn synchronously (cheap), then await readiness on the async runtime.
@@ -918,6 +1004,9 @@ pub fn run() {
                     Ok(hs) => {
                         println!("sidecar ready on port {}", hs.port);
                         if let Some(win) = handle.get_webview_window("main") {
+                            if maximize_on_show {
+                                let _ = win.maximize();
+                            }
                             let _ = win.show();
                             let _ = win.set_focus();
                         }
@@ -926,6 +1015,9 @@ pub fn run() {
                         eprintln!("sidecar not ready: {e}");
                         // Show the window anyway so the UI's error panel surfaces.
                         if let Some(win) = handle.get_webview_window("main") {
+                            if maximize_on_show {
+                                let _ = win.maximize();
+                            }
                             let _ = win.show();
                         }
                     }
@@ -1009,6 +1101,7 @@ pub fn run() {
             get_export_markdown,
             get_review_export_markdown,
             app_version,
+            set_window_resolution,
             pick_folder,
             save_export_file,
             open_log_folder,

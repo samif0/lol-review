@@ -127,6 +127,15 @@ public class AppConfig
     public long FirstReviewTutorialGameId { get; set; }
 
     /// <summary>
+    /// v3.4: preferred main-window size, applied by the Tauri host on launch and
+    /// live on Settings save. "" = the built-in default (1600x1000, tauri.conf.json),
+    /// "maximized" = fill the screen, or "WxH" (e.g. "1920x1080") for a fixed size.
+    /// Values are validated by <see cref="Services.ConfigSaveGuards.TryResolveWindowResolution"/>
+    /// before they land here; the Rust host ignores anything it can't parse.
+    /// </summary>
+    public string WindowResolution { get; set; } = "";
+
+    /// <summary>
     /// Default keybind map — each action maps to a key-event string.
     /// Users can remap these in Settings.
     /// </summary>

@@ -185,4 +185,77 @@ public sealed class ConfigSaveGuardsTests
         if (ConfigSaveGuards.TryResolveTextWrite("EUW1", out var reg)) cfg.RiotRegion = reg.ToLowerInvariant();
         Assert.Equal("euw1", cfg.RiotRegion);
     }
+
+    // ── TryResolveWindowResolution (Settings → window size) ───────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void WindowResolution_NullOrBlank_LeavesUnchanged(string? value)
+    {
+        Assert.False(ConfigSaveGuards.TryResolveWindowResolution(value, out var resolved));
+        Assert.Equal("", resolved);
+    }
+
+    [Theory]
+    [InlineData("default")]
+    [InlineData("DEFAULT")]
+    [InlineData("  Default  ")]
+    public void WindowResolution_Default_StoresEmpty(string value)
+    {
+        // "default" is a REAL choice (returns true) that stores "" — distinct from
+        // blank, which is "leave unchanged". This is what lets a user switch BACK
+        // to the default size after saving Maximized.
+        Assert.True(ConfigSaveGuards.TryResolveWindowResolution(value, out var resolved));
+        Assert.Equal("", resolved);
+    }
+
+    [Theory]
+    [InlineData("maximized")]
+    [InlineData("Maximized")]
+    public void WindowResolution_Maximized_Resolves(string value)
+    {
+        Assert.True(ConfigSaveGuards.TryResolveWindowResolution(value, out var resolved));
+        Assert.Equal("maximized", resolved);
+    }
+
+    [Theory]
+    [InlineData("1920x1080", "1920x1080")]
+    [InlineData("2560x1440", "2560x1440")]
+    [InlineData(" 1920 X 1080 ", "1920x1080")] // normalized: trimmed, lowercase x
+    [InlineData("980x640", "980x640")]         // exact window minimum is allowed
+    public void WindowResolution_ValidSize_ResolvesNormalized(string value, string expected)
+    {
+        Assert.True(ConfigSaveGuards.TryResolveWindowResolution(value, out var resolved));
+        Assert.Equal(expected, resolved);
+    }
+
+    [Theory]
+    [InlineData("800x600")]        // below the window's minWidth (980)
+    [InlineData("1920x480")]       // below the window's minHeight (640)
+    [InlineData("99999x99999")]    // absurd
+    [InlineData("1920")]           // no separator
+    [InlineData("1920x")]          // missing height
+    [InlineData("axb")]            // not numbers
+    [InlineData("1920x1080x60")]   // too many parts
+    public void WindowResolution_Invalid_LeavesUnchanged(string value)
+    {
+        Assert.False(ConfigSaveGuards.TryResolveWindowResolution(value, out var resolved));
+        Assert.Equal("", resolved);
+    }
+
+    [Fact]
+    public void WindowResolution_GarbageSave_DoesNotClobberSavedPreference()
+    {
+        // Mirror the handler branch: an invalid value must leave a saved
+        // "maximized" preference intact.
+        var cfg = new AppConfig { WindowResolution = "maximized" };
+        if (ConfigSaveGuards.TryResolveWindowResolution("nonsense", out var wr)) cfg.WindowResolution = wr;
+        Assert.Equal("maximized", cfg.WindowResolution);
+
+        // ...while a deliberate switch back to Default does reset it.
+        if (ConfigSaveGuards.TryResolveWindowResolution("default", out var wr2)) cfg.WindowResolution = wr2;
+        Assert.Equal("", cfg.WindowResolution);
+    }
 }
