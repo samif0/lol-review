@@ -1,0 +1,48 @@
+name: Create release tag
+
+# One-shot helper for cutting a release from an environment whose Git
+# credentials cannot push tags (remote Claude sessions get a 403 on
+# refs/tags/*). Dispatch-only, collaborator-only, and restricted to
+# release-shaped tag names.
+#
+# NOTE: a tag created here does NOT itself trigger release.yml — GitHub never
+# chains workflow runs off the Actions token. After this succeeds, dispatch
+# "Build & Release (Tauri)" on the new tag (the tag ref is what the Azure
+# code-signing federated credential trusts).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create (e.g. v3.4.0)"
+        required: true
+      sha:
+        description: "Commit SHA the tag points at"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "refusing non-release tag name: $TAG"; exit 1 ;;
+          esac
+          git tag "$TAG" "$SHA"
+          git push origin "refs/tags/$TAG"
+          # Clean up a leftover helper BRANCH with the same name, if any
+          # (an earlier workaround pushed refs/heads/v3.4.0).
+          git push origin ":refs/heads/$TAG" || true
