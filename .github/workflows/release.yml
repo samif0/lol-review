@@ -85,8 +85,12 @@ jobs:
       - name: Download ffmpeg (pinned + checksum-verified)
         shell: pwsh
         run: |
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-09-15-17/ffmpeg-n8.1.1-11-ge4c7fbf6c0-win64-gpl-8.1.zip"
-          $expectedSha256 = "55ECBF2C5DB210A72D525746013F6C1AF87A8CB3D0740D42280222831FD7F157"
+          # 2026-08-31: the previous pin (autobuild-2026-06-09-15-17) was pruned
+          # upstream and 404'd — the soft-fail meant v3.3.3 shipped WITHOUT
+          # ffmpeg.exe. Hash verified against BtbN's checksums.sha256 AND an
+          # independent local sha256 of the downloaded asset.
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-30-13-12/ffmpeg-n8.1.2-50-g1a748fe2cd-win64-gpl-8.1.zip"
+          $expectedSha256 = "962D052FF9A18AE3558A521F91969E1F7D2CA3AA3D1116681E42F7D99F5B66FB"
           $downloaded = $false
           try {
             Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip -TimeoutSec 300
