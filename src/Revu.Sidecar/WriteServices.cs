@@ -133,6 +133,10 @@ public sealed class WriteServices : IDisposable
     public IObjectivesRepository Objectives => _provider.GetRequiredService<IObjectivesRepository>();
     public ITiltCheckRepository TiltChecks => _provider.GetRequiredService<ITiltCheckRepository>();
     public IReviewWorkflowService ReviewWorkflow => _provider.GetRequiredService<IReviewWorkflowService>();
+    // Skip needs to discard any autosaved draft (a skipped game must not
+    // resurrect abandoned text on its next open); save/delete clear the draft
+    // inside ReviewWorkflowService already.
+    public IReviewDraftRepository ReviewDrafts => _provider.GetRequiredService<IReviewDraftRepository>();
     public IBackupService Backup => _provider.GetRequiredService<IBackupService>();
     // App config read-modify-write (POST /api/config/save). Reuses the WRITE-graph
     // ConfigService so it mutates the same config.json the WinUI app owns; never

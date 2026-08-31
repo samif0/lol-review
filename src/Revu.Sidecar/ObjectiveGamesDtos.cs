@@ -60,7 +60,10 @@ public sealed record ObjectiveGameRowDto(
     string PracticedDimColorHex,
     // Per-game execution note (only shown when HasExecutionNote).
     string ExecutionNote,
-    bool HasExecutionNote);
+    bool HasExecutionNote,
+    // A linked recording exists on disk — gates the row's Watch VOD button
+    // (previously rendered unconditionally and dead-ended on games with none).
+    bool HasVod = false);
 
 /// <summary>One evidence-ledger row. Mirrors ObjectiveEvidenceRow.</summary>
 public sealed record ObjectiveEvidenceRowDto(

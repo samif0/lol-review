@@ -72,7 +72,10 @@ public sealed class LcuLiveState
             _enemyChampion = enemyChampion ?? "";
             _myPosition = myPosition ?? "";
             _participantMapJson = participantMapJson ?? "";
-            _sessionKey ??= Guid.NewGuid().ToString("N");
+            // Unconditionally mint (the doc contract): a surviving key here is a
+            // stale flow — a game that never reached EOG — and reusing it would
+            // prefill and later promote THAT lobby's drafts onto this game.
+            _sessionKey = Guid.NewGuid().ToString("N");
             // Fresh flow: clear any leftover deferred snapshots.
             _preGameMood = 0;
             _intention = "";
@@ -105,7 +108,14 @@ public sealed class LcuLiveState
         lock (_gate) _isLcuConnected = connected;
     }
 
-    /// <summary>Champ select cancelled (dodge / queue expired) — drop the flow.</summary>
+    /// <summary>Champ select cancelled (dodge / queue expired) — drop the champ
+    /// context ONLY. The session key and staged choices deliberately survive:
+    /// the "cancel" signal also fires on LCU wobbles where the game still
+    /// launches (ChampSelect → FailedToLaunch/None → InProgress), and wiping
+    /// here would lose the staged mood/intent/drafts for a game that IS played.
+    /// Cross-lobby leakage is closed at the other end — BeginChampSelect
+    /// unconditionally mints a fresh key and clears the staged snapshots, so a
+    /// genuinely dodged lobby's state can never attach to the next game.</summary>
     public void CancelChampSelect()
     {
         lock (_gate)

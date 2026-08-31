@@ -274,6 +274,12 @@ public sealed class PreGameSnapshotBuilder
                 Items: objectiveRows,
                 AccentHex: GoldHex),
             PromptBlocks: promptBlocks,
+            Staged: new PreGameStagedDto(
+                Mood: _liveState.PreGameMood,
+                Intention: _liveState.Intention,
+                IntentionSource: _liveState.IntentionSource,
+                IntentCleared: _liveState.IntentCleared,
+                PracticedObjectiveIds: _liveState.PracticedObjectiveIds),
             GoldHex: GoldHex,
             TealHex: TealHex,
             PurpleHex: PurpleHex,

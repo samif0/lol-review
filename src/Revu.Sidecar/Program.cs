@@ -118,6 +118,10 @@ services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
 services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
 // Review page matchup-note history (same champ vs enemy, past notes). Read-only.
 services.AddSingleton<IMatchupNotesRepository, MatchupNotesRepository>();
+// Review draft hydration (GetAsync is a plain SELECT): the review form prefills
+// from an unsaved draft so autosaved edits survive navigation/reload. Draft
+// WRITES go through WriteServices.ReviewWorkflow.SaveDraftAsync.
+services.AddSingleton<IReviewDraftRepository, ReviewDraftRepository>();
 // Tilt Check page read slice (recent history + stats + latest plan). Read-only;
 // the reset RITUAL is a write that goes through WriteServices.TiltChecks instead.
 services.AddSingleton<ITiltCheckRepository, TiltCheckRepository>();
@@ -281,6 +285,14 @@ try
             writeFactory, migrateLogger.CreateLogger<DatabaseInitializer>());
         await migrator.ApplyAdditiveSchemaAsync();
 
+        // Seeds + post-migration indexes + objective count/score reconciliation.
+        // The WinUI app's InitializeAsync used to run these on every launch; the
+        // sidecar-only era lost them, which left fresh installs with no
+        // persistent_notes row (notes never saved), no default derived events
+        // (empty VOD timeline), no default concept tags, and no visible-games
+        // indexes. Idempotent, non-destructive, safe on every startup.
+        await migrator.ApplySeedsAndIndexesAsync();
+
         // Back-catalog account-scope repair: games captured before 3.1.6 (or by a
         // stale sidecar) carry the UUID-shaped LCU localPlayer.puuid instead of the
         // encrypted Riot PUUID our login stores, so the dashboard's account filter
@@ -364,7 +376,13 @@ app.Use(async (context, next) =>
             }
             else
             {
-                error = "The app hit an unexpected error saving. Please try again.";
+                // Verb-aware copy: a GET that blew up was LOADING a page, not
+                // saving — "error saving" on a dashboard load sent users hunting
+                // for a save that never happened. Include the path so the Rust
+                // transport's error surface says which page/action failed.
+                error = HttpMethods.IsGet(context.Request.Method)
+                    ? $"The app hit an unexpected error loading {context.Request.Path}. Please try again."
+                    : $"The app hit an unexpected error saving ({context.Request.Path}). Please try again.";
             }
             await context.Response.WriteAsJsonAsync(new { ok = false, error });
         }
@@ -470,6 +488,14 @@ app.MapGet("/api/events", async (HttpContext ctx, SidecarEventHub hub, LcuLiveSt
             sessionKey = live.SessionKey,
             isGameInProgress = live.IsGameInProgress,
             lcuConnected = live.IsLcuConnected,
+            // Staged pre-game choices, so a webview reload mid-champ-select
+            // renders exactly what the EOG write will persist instead of
+            // silently desyncing to defaults.
+            preGameMood = live.PreGameMood,
+            intention = live.Intention,
+            intentionSource = live.IntentionSource,
+            intentCleared = live.IntentCleared,
+            practicedObjectiveIds = live.PracticedObjectiveIds,
         });
 
         // 2) Stream events until the client disconnects. A periodic comment frame
@@ -531,9 +557,15 @@ app.MapGet("/api/pregame", async (
 // ─────────────────────────────────────────────────────────────────────────────
 
 // POST /api/pregame/mood  { mood }  — 1..5 (Tilted/Off/Neutral/Good/LockedIn).
+// Out-of-range values are rejected (0 = "unset" is allowed): the staged value
+// flows unchecked into session_log.pre_game_mood at EOG, so a buggy caller
+// would silently pollute mood analytics.
 app.MapPost("/api/pregame/mood", (PreGameMoodBody body, LcuLiveState live) =>
 {
-    live.SetMood(body?.Mood ?? 0);
+    var mood = body?.Mood ?? 0;
+    if (mood is < 0 or > 5)
+        return Results.BadRequest(new { error = "mood must be 0 (unset) or 1..5" });
+    live.SetMood(mood);
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
@@ -847,11 +879,17 @@ app.MapPost("/api/block/start", async (StartBlockBody body, WriteServices w, ILo
     int? blockNumber = stint != null
         ? await w.CoachingStints.GetNextBlockNumberAsync(stint.Id)
         : null;
+    // WithCoach omitted → preserve today's existing tag (the sessions upsert
+    // overwrites with_coach unconditionally, and an intention-only caller like
+    // the champ-select session box must never untag a with-coach block).
+    var withCoach = body.WithCoach
+        ?? (await w.SessionLog.GetSessionAsync(today()))?.WithCoach
+        ?? false;
     await w.SessionLog.SetSessionIntentionAsync(
-        today(), body.Intention.Trim(), body.WithCoach, stintId, blockNumber);
+        today(), body.Intention.Trim(), withCoach, stintId, blockNumber);
     log.LogInformation(
         "Start block: intention set for {Date} (withCoach={WithCoach}, stint={StintId}, block #{BlockNumber})",
-        today(), body.WithCoach, stintId, blockNumber);
+        today(), withCoach, stintId, blockNumber);
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
@@ -1021,6 +1059,10 @@ app.MapPost("/api/review/skip", async (GameIdBody body, WriteServices w, ILogger
         return Results.BadRequest(new { error = "gameId required" });
     await w.BackupGuard.EnsureBackedUpAsync();
     await w.SessionLog.MarkSkippedAsync(body.GameId);
+    // A skip is an explicit "no notes" — discard any autosaved draft so the
+    // abandoned text can't resurrect as "Unsaved edits restored" later.
+    try { await w.ReviewDrafts.DeleteAsync(body.GameId); }
+    catch (Exception ex) { log.LogDebug(ex, "Skip: draft cleanup failed for game {GameId}", body.GameId); }
     log.LogInformation("Review skipped for game {GameId}", body.GameId);
     return Results.Json(new { ok = true }, jsonOptions);
 });
@@ -1196,7 +1238,10 @@ app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILo
     if (ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent)) cfg.AscentFolder = ascent;
     if (body.AscentReminderDismissed is not null) cfg.AscentReminderDismissed = body.AscentReminderDismissed.Value;
     if (ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips)) cfg.ClipsFolder = clips;
-    if (body.ClipsMaxSizeMb is not null) cfg.ClipsMaxSizeMb = body.ClipsMaxSizeMb.Value;
+    // Server-side clamp mirroring the Settings page (100–50000 MB). This value
+    // feeds EnforceFolderSizeLimitAsync — an unclamped 0 (or negative) would
+    // make the next clip extraction delete EVERY clip in the folder.
+    if (body.ClipsMaxSizeMb is not null) cfg.ClipsMaxSizeMb = Math.Clamp(body.ClipsMaxSizeMb.Value, 100, 50_000);
     if (body.BackupEnabled is not null) cfg.BackupEnabled = body.BackupEnabled.Value;
     if (ConfigSaveGuards.TryResolveFolderWrite(body.BackupFolder, out var backup)) cfg.BackupFolder = backup;
     if (body.TiltFixMode is not null) cfg.TiltFixMode = body.TiltFixMode.Value;
@@ -1813,28 +1858,37 @@ app.MapGet("/api/objectives/active", async (WriteServices w, ILogger<Program> lo
         }
         catch (Exception ex) { log.LogDebug(ex, "Active objectives: token map load failed (degraded)"); }
 
-        var rows = new List<object>();
-        foreach (var o in active
-            .Where(o => Revu.Core.Data.Repositories.ObjectivePhases.ShowsInPostGame(o.Phase)))
+        var shown = active
+            .Where(o => Revu.Core.Data.Repositories.ObjectivePhases.ShowsInPostGame(o.Phase))
+            .ToList();
+
+        // P-027: ship each objective's custom prompts for the VOD prompt-pickers.
+        // Batched — same one-query shape as the event tokens above; the per-
+        // objective loop used to cost one round-trip per active objective on the
+        // VOD/manual-entry hot path. Failure degrades to empty, never the route.
+        IReadOnlyDictionary<long, IReadOnlyList<Revu.Core.Data.Repositories.ObjectivePrompt>> promptsByObjective =
+            new Dictionary<long, IReadOnlyList<Revu.Core.Data.Repositories.ObjectivePrompt>>();
+        try
         {
-            // P-027: ship each objective's custom prompts for the VOD prompt-pickers.
-            // Per-objective failure degrades to an empty array, never the whole route.
-            var prompts = Array.Empty<object>();
-            try
-            {
-                prompts = (await w.Prompts.GetPromptsForObjectiveAsync(o.Id))
-                    .Select(p => (object)new
+            promptsByObjective = await w.Prompts.GetPromptsForObjectivesAsync(shown.Select(o => o.Id).ToList());
+        }
+        catch (Exception px)
+        {
+            log.LogDebug(px, "Prompts batch load failed (degraded to empty)");
+        }
+
+        var rows = new List<object>();
+        foreach (var o in shown)
+        {
+            var prompts = promptsByObjective.TryGetValue(o.Id, out var promptList)
+                ? promptList.Select(p => (object)new
                     {
                         promptId = p.Id,
                         label = p.Label,
                         phase = p.Phase,
                     })
-                    .ToArray();
-            }
-            catch (Exception px)
-            {
-                log.LogDebug(px, "Prompts load failed for objective {ObjectiveId} (degraded to empty)", o.Id);
-            }
+                    .ToArray()
+                : Array.Empty<object>();
 
             var toks = tokensByObjective.TryGetValue(o.Id, out var l) ? l : new List<string>();
             rows.Add(new
@@ -2718,9 +2772,11 @@ static async Task PersistObjectiveSideTablesAsync(
 
 // ── Write-endpoint request bodies ────────────────────────────────────────────
 // v3.3: WithCoach tags the block as run with the coach present (its games are
-// reviewed with the coach outside Revu and leave the review queue). Trailing
-// default keeps older clients' {intention}-only posts valid.
-internal sealed record StartBlockBody(string Intention, bool WithCoach = false);
+// reviewed with the coach outside Revu and leave the review queue). WithCoach
+// null = "leave today's tag as it is": the sessions upsert writes with_coach
+// unconditionally, so an {intention}-only post (the champ-select session box,
+// older clients) must not silently retag a with-coach day to solo.
+internal sealed record StartBlockBody(string Intention, bool? WithCoach = null);
 // Date is the open block's own date (from IntentDto.BlockDate) so a carried-over
 // block from a prior day closes the right row. Null/empty falls back to today.
 internal sealed record EndBlockBody(int Rating, string? Note, string? Date = null);

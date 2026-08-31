@@ -38,7 +38,14 @@ public sealed record ReviewDto(
     ReviewSubjectDto? Subject,
     // Read-only note explaining how the sample game was chosen (most-recent
     // unreviewed, else most-recent reviewed). Empty when Subject is null.
-    string SubjectSourceText);
+    string SubjectSourceText,
+    // The newest OTHER game still awaiting review (0 = queue empty) + how many
+    // remain besides the subject. Lets the review page offer "Next game →"
+    // after a save instead of forcing a round-trip through the Games list —
+    // the queue is already known here, so this costs one extra query, not a
+    // second /api/games fetch on the frontend.
+    long NextUnreviewedGameId = 0,
+    int UnreviewedRemaining = 0);
 
 /// <summary>
 /// The single game under review: the GameDisplayItem-style header, the 8-up
@@ -206,8 +213,10 @@ public sealed record ReviewPromptClipDto(
     // "12:34" (or "12:34–13:02" range), empty when the row has no time.
     string TimeText,
     string Note,
-    // Game-time seconds to jump the VOD to (0 when the row has no start time).
-    int StartSeconds,
+    // Game-time seconds to jump the VOD to. Null when the row genuinely has no
+    // start time — 0 is a REAL time (a clip covering the game start) and must
+    // stay clickable, so "no time" is null rather than a 0 sentinel.
+    int? StartSeconds,
     string Polarity,
     // Polarity accent: bad → loss red, good → win green, else neutral accent.
     string PolarityColorHex,
@@ -243,7 +252,11 @@ public sealed record ReviewFormDto(
     // Saved focus-adherence for this game: 2=Yes / 1=Partly / 0=No / null=unset.
     // The Focus Check buttons preselect from this; without it the selection never
     // survives a re-render (set_focus_adherence writes it, this reads it back).
-    int? FocusAdherence = null);
+    int? FocusAdherence = null,
+    // True when the text/mental fields above came from an UNSAVED autosave draft
+    // (review_drafts row) rather than the committed review — the UI shows a
+    // "draft restored" note. Drafts are deleted on final save.
+    bool HasDraft = false);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Death audit

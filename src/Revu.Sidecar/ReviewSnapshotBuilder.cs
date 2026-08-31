@@ -79,6 +79,7 @@ public sealed class ReviewSnapshotBuilder
     private readonly IConceptTagRepository _conceptTagRepo;
     private readonly IVodRepository _vodRepo;
     private readonly IConfigService _configService;
+    private readonly IReviewDraftRepository _draftRepo;
     private readonly ILogger<ReviewSnapshotBuilder> _logger;
 
     public ReviewSnapshotBuilder(
@@ -94,6 +95,7 @@ public sealed class ReviewSnapshotBuilder
         IConceptTagRepository conceptTagRepo,
         IVodRepository vodRepo,
         IConfigService configService,
+        IReviewDraftRepository draftRepo,
         ILogger<ReviewSnapshotBuilder> logger)
     {
         _gameHistory = gameHistory;
@@ -108,6 +110,7 @@ public sealed class ReviewSnapshotBuilder
         _conceptTagRepo = conceptTagRepo;
         _vodRepo = vodRepo;
         _configService = configService;
+        _draftRepo = draftRepo;
         _logger = logger;
     }
 
@@ -126,16 +129,22 @@ public sealed class ReviewSnapshotBuilder
 
         var header = BuildHeader(game);
         var stats = BuildStatStrip(game);
-        // P-027: load THIS game's evidence + bookmark share-URLs once so the
-        // prompt-grouped clips (Prompts[].Clips / UnpromptedClips / UnsortedClips)
-        // and the legacy Evidence (attached/unassigned) split share one row set.
-        var promptClips = await BuildPromptClipContextAsync(game.GameId);
-        var objectives = await BuildObjectivesAsync(game.GameId, promptClips);
-        var form = await BuildFormAsync(game);
+        // P-027 / P-013: load THIS game's evidence rows ONCE so the prompt-grouped
+        // clips (Prompts[].Clips / UnpromptedClips / UnsortedClips) and the legacy
+        // Evidence (attached/unassigned) split genuinely derive from one row set —
+        // two separate reads could disagree under a concurrent write.
+        var evidenceRows = await LoadEvidenceRowsAsync(game.GameId);
+        var promptClips = await BuildPromptClipContextAsync(game.GameId, evidenceRows);
+        // Unsaved autosave draft (deleted on save/skip/delete): strictly newer
+        // than the committed values, so it overlays the form text, the tag
+        // selection AND the objective practiced/note state below.
+        var draft = await ResolveDraftAsync(game.GameId);
+        var objectives = await BuildObjectivesAsync(game.GameId, promptClips, draft);
+        var form = await BuildFormAsync(game, draft);
         var deaths = await BuildDeathsAsync(game.GameId);
-        var evidence = await BuildEvidenceAsync(game.GameId);
+        var evidence = BuildEvidence(evidenceRows);
         var matchupHistory = await BuildMatchupHistoryAsync(game);
-        var tagCatalog = await BuildTagCatalogAsync(game.GameId);
+        var tagCatalog = await BuildTagCatalogAsync(game.GameId, draft);
 
         // P-027 reachability guard: a clip tagged to a prompt/objective is only
         // RENDERED if that objective is active AND (for prompt clips) the prompt
@@ -163,10 +172,37 @@ public sealed class ReviewSnapshotBuilder
             // prompt/objective isn't rendered — the "To sort" strip catches all.
             UnsortedClips: unsortedClips);
 
+        var (nextUnreviewedGameId, unreviewedRemaining) = await ResolveNextUnreviewedAsync(game.GameId);
+
         return new ReviewDto(
             GeneratedAt: generatedAt,
             Subject: subject,
-            SubjectSourceText: sourceText);
+            SubjectSourceText: sourceText,
+            NextUnreviewedGameId: nextUnreviewedGameId,
+            UnreviewedRemaining: unreviewedRemaining);
+    }
+
+    // The newest OTHER unreviewed game + the remaining count, so the page can
+    // chain reviews ("Next game →") without a /api/games round-trip. Degrades
+    // to (0, 0) on failure — the button just doesn't render.
+    // Mirrors the Games QUEUE view's window (GamesSnapshotBuilder.QueueDays),
+    // not the 3-day sample-subject window: chaining must cover exactly the set
+    // the queue shows, or the button vanishes while games still wait there.
+    private const int NextUnreviewedWindowDays = 14;
+
+    private async Task<(long NextGameId, int Remaining)> ResolveNextUnreviewedAsync(long currentGameId)
+    {
+        try
+        {
+            var unreviewed = await _gameHistory.GetUnreviewedGamesAsync(days: NextUnreviewedWindowDays);
+            var others = unreviewed.Where(g => g.GameId != currentGameId).ToList();
+            return (others.FirstOrDefault()?.GameId ?? 0, others.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Review: next-unreviewed scan failed");
+            return (0, 0);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -354,7 +390,7 @@ public sealed class ReviewSnapshotBuilder
     // ─────────────────────────────────────────────────────────────────────────
 
     private async Task<IReadOnlyList<ReviewObjectiveDto>> BuildObjectivesAsync(
-        long gameId, PromptClipContext promptClips)
+        long gameId, PromptClipContext promptClips, Revu.Core.Models.ReviewDraft? draft = null)
     {
         var result = new List<ReviewObjectiveDto>();
 
@@ -388,6 +424,15 @@ public sealed class ReviewSnapshotBuilder
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Review: game-objective practice hydrate failed for game {GameId}", gameId);
+        }
+
+        // An unsaved autosave draft carries the whole practiced/note set the
+        // user last had — strictly newer than the committed rows, so it wins
+        // (matching the form-text overlay; without this, drafted toggles and
+        // execution notes silently reverted on reload).
+        foreach (var p in ParseDraftPractices(draft))
+        {
+            practiceByObjective[p.ObjectiveId] = (p.Practiced, p.ExecutionNote ?? "");
         }
 
         try
@@ -506,12 +551,25 @@ public sealed class ReviewSnapshotBuilder
         new Dictionary<long, IReadOnlyList<ReviewPromptClipDto>>(),
         Array.Empty<ReviewPromptClipDto>());
 
-    private async Task<PromptClipContext> BuildPromptClipContextAsync(long gameId)
+    // The one evidence read for the whole snapshot; degrades to empty on failure
+    // so a bad read never blanks the page.
+    private async Task<IReadOnlyList<EvidenceItemRecord>> LoadEvidenceRowsAsync(long gameId)
     {
         try
         {
-            var rows = await _evidenceRepo.GetForGameAsync(gameId);
+            return await _evidenceRepo.GetForGameAsync(gameId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Review: evidence load failed for game {GameId}", gameId);
+            return Array.Empty<EvidenceItemRecord>();
+        }
+    }
 
+    private async Task<PromptClipContext> BuildPromptClipContextAsync(long gameId, IReadOnlyList<EvidenceItemRecord> rows)
+    {
+        try
+        {
             // bookmarkId → ShareUrl, so clip rows can carry their share state.
             var shareUrlByBookmarkId = new Dictionary<long, string>();
             try
@@ -599,7 +657,7 @@ public sealed class ReviewSnapshotBuilder
                 foreach (var c in kv.Value) Add(c);
 
         return result
-            .OrderBy(c => c.StartSeconds <= 0 ? int.MaxValue : c.StartSeconds)
+            .OrderBy(c => c.StartSeconds ?? int.MaxValue)
             .ThenBy(c => c.EvidenceId)
             .ToList();
     }
@@ -630,7 +688,7 @@ public sealed class ReviewSnapshotBuilder
             EvidenceId: row.Id,
             TimeText: timeText,
             Note: string.IsNullOrWhiteSpace(row.Note) ? row.Title : row.Note,
-            StartSeconds: row.StartTimeSeconds ?? 0,
+            StartSeconds: row.StartTimeSeconds,
             Polarity: row.Polarity,
             PolarityColorHex: PolarityHex(row.Polarity),
             ShareUrl: shareUrl);
@@ -658,10 +716,26 @@ public sealed class ReviewSnapshotBuilder
     // from the per-game (game_id → mental_rating) map on session_log.
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<ReviewFormDto> BuildFormAsync(GameStats game)
+    private async Task<ReviewFormDto> BuildFormAsync(GameStats game, Revu.Core.Models.ReviewDraft? draft)
     {
-        var mentalRating = await ResolveMentalRatingAsync(game.GameId);
-        var focusAdherence = await ResolveFocusAdherenceAsync(game.GameId);
+        // ONE session_log row read feeds both fields. Mental rating used to go
+        // through GetAllMentalRatingsAsync — a full-table scan to look up the
+        // single game this page shows.
+        var entry = await ResolveSessionEntryAsync(game.GameId);
+        var mentalRating = entry is { IsSkipped: false } && entry.MentalRating > 0 ? entry.MentalRating : 0;
+        var focusAdherence = entry?.FocusAdherence;
+
+        // Overlay the unsaved autosave draft when present. The overlay is
+        // UNCONDITIONAL for the fields the Tauri form renders — the draft holds
+        // exactly what the user last had, including deliberately cleared text
+        // (a non-empty-only overlay would resurrect deleted committed text).
+        // Fields the form doesn't render keep their committed values for the
+        // round-trip guard.
+        var hasDraft = draft is not null;
+        if (draft is not null && draft.MentalRating > 0)
+        {
+            mentalRating = draft.MentalRating;
+        }
 
         return new ReviewFormDto(
             Editable: false,
@@ -671,48 +745,80 @@ public sealed class ReviewSnapshotBuilder
             WentWell: game.WentWell,
             Mistakes: game.Mistakes,
             FocusNext: game.FocusNext,
-            ReviewNotes: game.ReviewNotes,
+            ReviewNotes: draft is not null ? draft.ReviewNotes : game.ReviewNotes,
             SpottedProblems: game.SpottedProblems,
-            Attribution: game.Attribution,
+            Attribution: draft is not null ? draft.Attribution : game.Attribution,
             PersonalContribution: game.PersonalContribution,
-            OutsideControl: game.OutsideControl,
-            WithinControl: game.WithinControl,
+            OutsideControl: draft is not null ? draft.OutsideControl : game.OutsideControl,
+            WithinControl: draft is not null ? draft.WithinControl : game.WithinControl,
             TagsJson: string.IsNullOrWhiteSpace(game.Tags) ? "[]" : game.Tags,
-            FocusAdherence: focusAdherence);
+            FocusAdherence: focusAdherence,
+            HasDraft: hasDraft);
     }
 
-    // Saved focus-adherence (2/1/0/null) for this game, so the Focus Check buttons
-    // preselect and the choice survives a re-render. Best-effort: any failure (e.g.
-    // a pre-v5 DB without the column) degrades to null (unset), never throws.
-    private async Task<int?> ResolveFocusAdherenceAsync(long gameId)
+    // Unsaved review draft for this game (null when none / on failure).
+    private async Task<Revu.Core.Models.ReviewDraft?> ResolveDraftAsync(long gameId)
     {
         try
         {
-            var entry = await _sessionLogRepo.GetEntryAsync(gameId);
-            return entry?.FocusAdherence;
+            return await _draftRepo.GetAsync(gameId);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Review: focus-adherence load failed for {GameId}", gameId);
+            _logger.LogDebug(ex, "Review: draft load failed for {GameId}", gameId);
             return null;
         }
     }
 
-    private async Task<int> ResolveMentalRatingAsync(long gameId)
+    // Draft JSON columns → typed values. Same serialization shapes
+    // ReviewWorkflowService.SaveDraftAsync writes (SelectedTagIds as long[],
+    // ObjectivePractices as SaveObjectivePracticeRequest[]); parse failures
+    // degrade to "no draft data" rather than throwing.
+    private static HashSet<long>? ParseDraftTagIds(Revu.Core.Models.ReviewDraft? draft)
+    {
+        if (draft is null) return null;
+        try
+        {
+            var ids = System.Text.Json.JsonSerializer.Deserialize<List<long>>(draft.SelectedTagIdsJson ?? "[]");
+            return ids is null ? null : ids.ToHashSet();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<Revu.Core.Services.SaveObjectivePracticeRequest> ParseDraftPractices(
+        Revu.Core.Models.ReviewDraft? draft)
+    {
+        if (draft is null) return Array.Empty<Revu.Core.Services.SaveObjectivePracticeRequest>();
+        try
+        {
+            return System.Text.Json.JsonSerializer
+                .Deserialize<List<Revu.Core.Services.SaveObjectivePracticeRequest>>(draft.ObjectiveAssessmentsJson ?? "[]")
+                ?? (IReadOnlyList<Revu.Core.Services.SaveObjectivePracticeRequest>)Array.Empty<Revu.Core.Services.SaveObjectivePracticeRequest>();
+        }
+        catch
+        {
+            return Array.Empty<Revu.Core.Services.SaveObjectivePracticeRequest>();
+        }
+    }
+
+    // The saved session_log row for this game: mental rating (0 when unset or
+    // skip-reviewed) + focus-adherence (2/1/0/null) so the form preselects and
+    // survives a re-render. Best-effort: any failure (e.g. a pre-v5 DB without
+    // a column) degrades to null (unset), never throws.
+    private async Task<Revu.Core.Models.SessionLogEntry?> ResolveSessionEntryAsync(long gameId)
     {
         try
         {
-            var ratings = await _sessionLogRepo.GetAllMentalRatingsAsync();
-            if (ratings.TryGetValue(gameId, out var rating) && rating > 0)
-            {
-                return rating;
-            }
+            return await _sessionLogRepo.GetEntryAsync(gameId);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Review: mental-rating lookup failed for game {GameId}", gameId);
+            _logger.LogDebug(ex, "Review: session-log entry load failed for {GameId}", gameId);
+            return null;
         }
-        return 0;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -784,12 +890,10 @@ public sealed class ReviewSnapshotBuilder
     // GetForGameAsync already returns — the WinUI app remains the writer.
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<ReviewEvidenceDto> BuildEvidenceAsync(long gameId)
+    private ReviewEvidenceDto BuildEvidence(IReadOnlyList<EvidenceItemRecord> allRows)
     {
         try
         {
-            var allRows = await _evidenceRepo.GetForGameAsync(gameId);
-
             // Attached: assigned-to-an-objective OR a real clip OR already triaged
             // as evidence/highlight — the prioritized, capped set (mirror
             // ReviewViewModel.PrioritizeEvidenceRows, capped at MaxEvidenceInbox).
@@ -825,7 +929,7 @@ public sealed class ReviewSnapshotBuilder
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Review: evidence load failed for game {GameId}", gameId);
+            _logger.LogDebug(ex, "Review: evidence mapping failed");
             return new ReviewEvidenceDto(
                 Array.Empty<ReviewEvidenceItemDto>(), false,
                 Array.Empty<ReviewEvidenceItemDto>(), false);
@@ -930,13 +1034,17 @@ public sealed class ReviewSnapshotBuilder
     // selectable toggle grid is a DEFERRED write.
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<IReadOnlyList<ReviewTagDto>> BuildTagCatalogAsync(long gameId)
+    private async Task<IReadOnlyList<ReviewTagDto>> BuildTagCatalogAsync(long gameId, Revu.Core.Models.ReviewDraft? draft = null)
     {
         var result = new List<ReviewTagDto>();
         try
         {
             var tags = await _conceptTagRepo.GetAllAsync();
-            var selectedIds = (await _conceptTagRepo.GetIdsForGameAsync(gameId)).ToHashSet();
+            // A draft stores the FULL tag selection the user last had — it
+            // replaces the committed selection (same newer-wins rule as the
+            // form text overlay).
+            var selectedIds = ParseDraftTagIds(draft)
+                ?? (await _conceptTagRepo.GetIdsForGameAsync(gameId)).ToHashSet();
 
             foreach (var tag in tags)
             {

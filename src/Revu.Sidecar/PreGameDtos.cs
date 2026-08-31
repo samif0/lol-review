@@ -52,11 +52,26 @@ public sealed record PreGameDto(
     // custom pre-game prompt blocks. Champion-gated when MyChampion is known.
     PreGameObjectivesDto Objectives,
     IReadOnlyList<PreGamePromptBlockDto> PromptBlocks,
+    // The choices the user already staged THIS champ select (mood / intent /
+    // practiced toggles, POSTed to /api/pregame/*). Echoed back so a webview
+    // reload — or a live champ-select tick re-render — shows exactly what the
+    // EOG write will persist instead of silently resetting to defaults.
+    PreGameStagedDto Staged,
     // Accent palette (mirrors the WinUI AccentGold/Teal/Purple/Blue brushes).
     string GoldHex,
     string TealHex,
     string PurpleHex,
     string BlueHex);
+
+/// <summary>Live staged champ-select state from <see cref="LcuLiveState"/>.</summary>
+public sealed record PreGameStagedDto(
+    int Mood,
+    string Intention,
+    string IntentionSource,
+    // True when the user explicitly chose "don't carry" — the frontend must not
+    // re-seed the intent box on the next tick.
+    bool IntentCleared,
+    IReadOnlyList<long> PracticedObjectiveIds);
 
 /// <summary>One rotating intel card (eyebrow + headline + body).</summary>
 public sealed record IntelCardDto(string Eyebrow, string Headline, string Body);

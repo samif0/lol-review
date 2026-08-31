@@ -48,15 +48,18 @@ public sealed class ObjectiveGamesSnapshotBuilder
 
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IEvidenceRepository _evidenceRepo;
+    private readonly IVodRepository _vodRepo;
     private readonly ILogger<ObjectiveGamesSnapshotBuilder> _logger;
 
     public ObjectiveGamesSnapshotBuilder(
         IObjectivesRepository objectivesRepo,
         IEvidenceRepository evidenceRepo,
+        IVodRepository vodRepo,
         ILogger<ObjectiveGamesSnapshotBuilder> logger)
     {
         _objectivesRepo = objectivesRepo;
         _evidenceRepo = evidenceRepo;
+        _vodRepo = vodRepo;
         _logger = logger;
     }
 
@@ -89,6 +92,24 @@ public sealed class ObjectiveGamesSnapshotBuilder
         try
         {
             var entries = await _objectivesRepo.GetGamesForObjectiveAsync(objectiveId);
+
+            // Batch-resolve which games have a playable recording (same
+            // GetVodPathsAsync → File.Exists shape as the Games builder) so the
+            // Watch VOD button only renders where it can actually play.
+            var vodOnDisk = new HashSet<long>();
+            try
+            {
+                var vodPaths = await _vodRepo.GetVodPathsAsync(entries.Select(e => e.GameId).ToArray());
+                foreach (var (gameId, path) in vodPaths)
+                {
+                    if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) vodOnDisk.Add(gameId);
+                }
+            }
+            catch (Exception vex)
+            {
+                _logger.LogDebug(vex, "ObjectiveGames: VOD path probe failed (degraded to no VOD buttons)");
+            }
+
             foreach (var g in entries)
             {
                 games.Add(new ObjectiveGameRowDto(
@@ -104,7 +125,8 @@ public sealed class ObjectiveGamesSnapshotBuilder
                     PracticedColorHex: g.Practiced ? PositiveHex : NeutralHex,
                     PracticedDimColorHex: g.Practiced ? PositiveDimHex : NeutralDimHex,
                     ExecutionNote: g.ExecutionNote ?? "",
-                    HasExecutionNote: !string.IsNullOrWhiteSpace(g.ExecutionNote)));
+                    HasExecutionNote: !string.IsNullOrWhiteSpace(g.ExecutionNote),
+                    HasVod: vodOnDisk.Contains(g.GameId)));
             }
         }
         catch (Exception ex)

@@ -288,12 +288,13 @@ public sealed class GamesSnapshotBuilder
                         ? "Open"
                         : "Review";
 
-                // The row-body click is the always-Review escape hatch
-                // (data-action open_review); the inline button is the fast
-                // path. VOD/skip/delete actions are DEFERRED stubs on the
-                // frontend.
+                // The row click must do what its cue SAYS: "Watch VOD" rows
+                // open the VOD player (which links back to the review), all
+                // others keep the open_review default. The old shape showed
+                // "WATCH VOD →" but sent every click to the review form.
                 items[i] = row with
                 {
+                    Action = hasVod ? "watch_vod" : row.Action,
                     HasVod = hasVod,
                     HasNotes = hasNotes,
                     ObjectivePracticed = practiced,
