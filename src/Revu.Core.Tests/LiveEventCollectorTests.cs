@@ -63,6 +63,43 @@ public sealed class LiveEventCollectorTests
     }
 
     [Fact]
+    public void ParseLiveEvents_MatchesRiotIdPlayerName_AgainstBareFeedName()
+    {
+        // Modern clients return "GameName#TAG" from /activeplayername while the
+        // kill feed usually carries the bare game name. Attribution must survive
+        // the form divergence in BOTH directions — before the fix these events
+        // silently vanished from the timeline.
+        var raw = CreateEvents(
+            """
+            [
+              { "EventID": 0, "EventName": "ChampionKill", "EventTime": 120.0,
+                "KillerName": "Tester", "VictimName": "EnemyTop", "Assisters": [] },
+              { "EventID": 0, "EventName": "ChampionKill", "EventTime": 300.0,
+                "KillerName": "EnemyMid", "VictimName": "Tester#NA1", "Assisters": [] }
+            ]
+            """);
+
+        var parsed = LiveEventCollector.ParseLiveEvents(raw, "Tester#NA1");
+
+        Assert.Single(parsed, e => e.EventType == GameEvent.EventTypes.Kill);
+        Assert.Single(parsed, e => e.EventType == GameEvent.EventTypes.Death);
+    }
+
+    [Theory]
+    [InlineData("Tester", "Tester#NA1", true)]
+    [InlineData("Tester#NA1", "Tester", true)]
+    [InlineData("tester#na1", "TESTER#NA1", true)]
+    [InlineData("Other", "Tester#NA1", false)]
+    // Two FULLY-QUALIFIED Riot IDs sharing a game name are different players —
+    // the bare-name fallback must not merge them.
+    [InlineData("Smurf#111", "Smurf#222", false)]
+    [InlineData("", "Tester", false)]
+    public void NamesMatch_ToleratesRiotIdTagDrift(string feedName, string playerName, bool expected)
+    {
+        Assert.Equal(expected, LiveEventCollector.NamesMatch(feedName, playerName));
+    }
+
+    [Fact]
     public async Task StopAsync_CollectsObjectiveAndPlayerEvents_WhenSnapshotsGrow()
     {
         var snapshots = new Queue<List<JsonElement>>(

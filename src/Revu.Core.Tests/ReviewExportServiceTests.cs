@@ -27,6 +27,10 @@ public sealed class ReviewExportServiceTests
             PersonalContribution = "Could have pinged support earlier."
         });
 
+        // The review flow stores the real mental rating on session_log
+        // (games.rating is a queue-gate flag hardcoded to 1 by the save path).
+        await scope.SessionLog.LogGameAsync(gameId, "Kai'Sa", win: false, mentalRating: 7);
+
         var tagId = await scope.ConceptTags.CreateAsync("reset timing", "negative", "#D38C90");
         await scope.ConceptTags.SetForGameAsync(gameId, [tagId]);
 
@@ -73,6 +77,7 @@ public sealed class ReviewExportServiceTests
         Assert.DoesNotContain(@"C:\clips\recall.mp4", markdown);
         Assert.Contains("Kai'Sa", markdown);
         Assert.Contains("Smolder", markdown);
+        Assert.Contains("7/10", markdown);
         Assert.Contains("Got punished for mid-wave reset.", markdown);
         Assert.Contains("reset timing", markdown);
         Assert.Contains("Crash before recall", markdown);
@@ -147,6 +152,28 @@ public sealed class ReviewExportServiceTests
         Assert.Contains("Games exported:** 2", markdown);
         Assert.Contains("Ahri", markdown);
         Assert.Contains("Lux", markdown);
+    }
+
+    [Fact]
+    public async Task ExportAllAsync_MentalRating_ComesFromSessionLog_NotQueueGateFlag()
+    {
+        // The review save hardcodes games.rating = 1 as a "reviewed" queue-gate
+        // flag; the user's real answer lives on session_log.mental_rating. The
+        // export must show the real answer — before the fix every reviewed game
+        // exported as "Mental rating: 1/10".
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        const long gameId = 9_100;
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Orianna", timestamp: 9_100));
+        await scope.Games.UpdateReviewAsync(gameId, new GameReview { Rating = 1, Notes = "Reviewed." });
+        await scope.SessionLog.LogGameAsync(gameId, "Orianna", win: true, mentalRating: 8);
+
+        var service = CreateService(scope);
+        var markdown = await service.ExportAllAsync();
+
+        Assert.Contains("Mental rating:** 8/10", markdown);
+        Assert.DoesNotContain("Mental rating:** 1/10", markdown);
     }
 
     [Fact]
@@ -230,5 +257,6 @@ public sealed class ReviewExportServiceTests
             scope.Prompts,
             scope.Vod,
             scope.MatchupNotes,
-            scope.Evidence);
+            scope.Evidence,
+            scope.SessionLog);
 }

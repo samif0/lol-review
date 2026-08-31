@@ -281,7 +281,7 @@ public sealed class AnalysisService : IAnalysisService
             {
                 AvgGamesPerSession = patterns.AvgGamesPerSession,
                 TotalSessions = patterns.TotalSessionDays,
-                AvgMentalRating = patterns.AvgMentalDelta, // Use best available mapping
+                AvgMentalDelta = patterns.AvgMentalDelta,
             };
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Profile: session patterns failed"); }

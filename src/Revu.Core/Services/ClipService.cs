@@ -165,6 +165,17 @@ public sealed partial class ClipService : IClipService
     {
         return Task.Run(() =>
         {
+            // Defense-in-depth against a zero/negative limit (bad config write,
+            // corrupted config.json): a non-positive cap would mean "delete every
+            // clip". The config save clamps to >= 100 MB; anything below 1 MB
+            // here can only be a bug, so refuse rather than wipe.
+            if (maxSizeBytes < 1024 * 1024)
+            {
+                _logger.LogWarning(
+                    "Refusing clip folder size enforcement with implausible limit {Bytes} bytes", maxSizeBytes);
+                return;
+            }
+
             if (!Directory.Exists(folder)) return;
 
             var files = new DirectoryInfo(folder)

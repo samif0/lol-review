@@ -116,7 +116,14 @@ public sealed class ProtectedSecretStore : IProtectedSecretStore
             var json = JsonSerializer.Serialize(values, JsonOptions);
             var plaintext = Encoding.UTF8.GetBytes(json);
             var encrypted = ProtectedData.Protect(plaintext, optionalEntropy: null, DataProtectionScope.CurrentUser);
-            File.WriteAllBytes(_filePath, encrypted);
+            // Atomic write (temp sibling + rename), same pattern as
+            // ConfigService.WriteFileAtomic: this file is the designated
+            // recovery path when config.json is lost, and a crash mid-write
+            // would otherwise corrupt it — ReadUnlocked then treats the store
+            // as EMPTY and the login session is silently gone.
+            var tmp = _filePath + ".tmp";
+            File.WriteAllBytes(tmp, encrypted);
+            File.Move(tmp, _filePath, overwrite: true);
         }
         catch (Exception ex)
         {

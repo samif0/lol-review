@@ -31,13 +31,18 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private const int MaxCredentialBackoffTicks = 6;
 
     /// <summary>
-    /// Queue IDs that skip the review flow — everything except ranked solo (420) and ranked flex (440).
-    /// Normal Draft (400), Normal Blind (430), Quickplay (490), ARAM (450), Arena (1700), URF, etc.
+    /// Queue IDs that skip the review flow — everything except Ranked Solo/Duo
+    /// (420), the only queue <see cref="Constants.GameConstants.RankedQueueTypes"/>
+    /// lets the save path ingest. Ranked Flex (440) is deliberately listed: before
+    /// it was, flex games ran the whole live pipeline (collector, EOG capture)
+    /// only for ProcessGameEndAsync to decline them — and reconciliation then
+    /// re-surfaced them as "missed" forever.
     /// </summary>
     private static readonly HashSet<int> CasualQueueIds =
     [
         400,  // Normal Draft
         430,  // Normal Blind
+        440,  // Ranked Flex — not reviewable (save gate is Ranked Solo/Duo only)
         490,  // Quickplay / Normal
         450,  // ARAM
         1700, // Arena

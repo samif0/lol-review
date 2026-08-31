@@ -79,6 +79,14 @@ public sealed class LiveEventCollector
     // several fountain purchases across a few poll ticks. Shared by BOTH detectors
     // (gold + health-restore) so a recall-then-buy never double-fires.
     private const int RecallDebounceSeconds = 25;
+    // Death guard shared by both recall detectors: a respawn restores HP+mana to
+    // exactly full (indistinguishable from the fountain-restore tell) and shopping
+    // during the death timer drops gold (indistinguishable from the purchase tell).
+    // Track the last sample where the player was DEAD (currentHealth 0); any
+    // "recall" detected within this window of a dead sample is a respawn or a
+    // dead-at-fountain buy, not a back.
+    private int _lastZeroHpSampleS = int.MinValue; // game-time of last dead sample
+    private const int RespawnRecallSuppressSeconds = 10;
 
     // v3.0.18: second recall signal — a FOUNTAIN HP+mana restore, to catch recalls
     // with no purchase (recalled to defend, to TP back, or with no gold). The
@@ -200,6 +208,7 @@ public sealed class LiveEventCollector
         _tradeEvents.Clear();
         _lastGold = double.NaN;
         _lastRecallEmitS = int.MinValue;
+        _lastZeroHpSampleS = int.MinValue;
         _lastHealthFrac = double.NaN;
         _lastManaFrac = double.NaN;
         _lastTradeHpFrac = double.NaN;
@@ -248,6 +257,20 @@ public sealed class LiveEventCollector
             {
                 if (elapsed >= nextEventPoll)
                 {
+                    // The player name is what attributes kill-feed events to YOU
+                    // (ParseLiveEvents) and drives the trade death guard. It is
+                    // fetched once above; if that one fetch failed transiently,
+                    // every event of the game would be unattributed — so keep
+                    // retrying at the event cadence until it resolves.
+                    if (string.IsNullOrWhiteSpace(_playerName))
+                    {
+                        _playerName = await _liveEventApi.GetActivePlayerNameAsync(ct).ConfigureAwait(false);
+                        if (!string.IsNullOrWhiteSpace(_playerName))
+                        {
+                            _logger.LogInformation("Live API player name resolved late: {PlayerName}", _playerName);
+                        }
+                    }
+
                     await PollEventStreamAsync(ct).ConfigureAwait(false);
                     nextEventPoll = elapsed + _eventPollInterval;
                 }
@@ -357,6 +380,7 @@ public sealed class LiveEventCollector
             if (active is JsonElement el)
             {
                 var t = ResolveGameTimeS(el, gameStats);
+                TrackDeadSample(el, t);
                 CheckSummonerSpellCasts(el, t);
                 CheckRecall(el, t);
                 CheckRecallByRestore(el, t);
@@ -511,6 +535,20 @@ public sealed class LiveEventCollector
     /// debounce so one back doesn't fire on every fountain buy. It's a heuristic, hence
     /// Details.detected = true and a "recall" source note.
     /// </summary>
+    /// <summary>Record when a sample shows the player DEAD (currentHealth 0 with a
+    /// real maxHealth), feeding the recall detectors' respawn/dead-shop guard.</summary>
+    private void TrackDeadSample(JsonElement activePlayer, int gameTimeS)
+    {
+        if (activePlayer.ValueKind != JsonValueKind.Object) return;
+        if (!activePlayer.TryGetProperty("championStats", out var stats) || stats.ValueKind != JsonValueKind.Object) return;
+        var maxHealth = ReadDoubleProp(stats, "maxHealth");
+        var curHealth = ReadDoubleProp(stats, "currentHealth");
+        if (maxHealth > 0 && curHealth <= 0)
+        {
+            _lastZeroHpSampleS = gameTimeS;
+        }
+    }
+
     private void CheckRecall(JsonElement activePlayer, int gameTimeS)
     {
         if (activePlayer.ValueKind != JsonValueKind.Object) return;
@@ -597,6 +635,14 @@ public sealed class LiveEventCollector
     /// </summary>
     private void TryEmitRecall(int gameTimeS, string source, int goldSpent)
     {
+        // Death guard: if the player was sampled DEAD within the last few seconds,
+        // this "recall" is a respawn restore or a dead-at-fountain purchase. The
+        // pre-fix behavior emitted a phantom RECALL on virtually every death of a
+        // mana champion (respawn = HP+mana jump to full) and on every buy made
+        // during the death timer.
+        if (_lastZeroHpSampleS != int.MinValue
+            && gameTimeS - _lastZeroHpSampleS <= RespawnRecallSuppressSeconds) return;
+
         // Debounce: one back can mean several fountain purchases / a buy AND a restore
         // across a few ticks. Only the first within the window counts. Guard the
         // "no recall yet" sentinel explicitly so the subtraction can't overflow.
@@ -806,11 +852,42 @@ public sealed class LiveEventCollector
         {
             if (raw.ValueKind != JsonValueKind.Object) continue;
             if (!string.Equals(raw.GetPropertyOrDefault("EventName", ""), "ChampionKill", StringComparison.Ordinal)) continue;
-            if (!raw.GetPropertyOrDefault("VictimName", "").Equals(_playerName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!NamesMatch(raw.GetPropertyOrDefault("VictimName", ""), _playerName)) continue;
             var t = (int)raw.GetPropertyDoubleOrDefault("EventTime", -1.0);
             if (t >= fromS && t <= toS) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Kill-feed name comparison tolerant of Riot-ID form drift: /activeplayername
+    /// returns "GameName#TAG" on modern clients while the kill feed usually carries
+    /// the bare game name (and vice versa on older shapes). The EOG capture side
+    /// normalizes with PlayerNameForms for exactly this reason; without the same
+    /// tolerance here every KILL/DEATH/ASSIST would silently vanish (and the trade
+    /// death guard stop suppressing) whenever the two forms diverge.
+    /// </summary>
+    internal static bool NamesMatch(string feedName, string playerName)
+    {
+        if (string.IsNullOrWhiteSpace(feedName) || string.IsNullOrWhiteSpace(playerName)) return false;
+        if (feedName.Equals(playerName, StringComparison.OrdinalIgnoreCase)) return true;
+        // Bare-name fallback ONLY when the two forms genuinely diverge (one
+        // side carries a #tag, the other doesn't). When BOTH are fully
+        // qualified and unequal they are different players — a lobby can hold
+        // two Riot IDs sharing a game name (Smurf#111 vs Smurf#222), and
+        // bare-matching those would attribute a namesake's kills to the player.
+        var feedTagged = feedName.IndexOf('#') > 0;
+        var playerTagged = playerName.IndexOf('#') > 0;
+        if (feedTagged == playerTagged) return false;
+        var bareFeed = BareGameName(feedName);
+        var barePlayer = BareGameName(playerName);
+        return bareFeed.Length > 0 && bareFeed.Equals(barePlayer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BareGameName(string name)
+    {
+        var hash = name.IndexOf('#');
+        return (hash > 0 ? name[..hash] : name).Trim();
     }
 
     // Read a JSON string-array property into a string[] ("" / non-array → empty).
@@ -853,7 +930,6 @@ public sealed class LiveEventCollector
     public static List<GameEvent> ParseLiveEvents(List<JsonElement> rawEvents, string playerName)
     {
         var events = new List<GameEvent>();
-        var playerLower = playerName.ToLowerInvariant();
 
         foreach (var raw in rawEvents)
         {
@@ -869,7 +945,7 @@ public sealed class LiveEventCollector
                     var victim = raw.GetPropertyOrDefault("VictimName", "");
 
                     // Player got a kill
-                    if (killer.Equals(playerName, StringComparison.OrdinalIgnoreCase))
+                    if (NamesMatch(killer, playerName))
                     {
                         events.Add(new GameEvent
                         {
@@ -880,7 +956,7 @@ public sealed class LiveEventCollector
                     }
 
                     // Player died
-                    if (victim.Equals(playerName, StringComparison.OrdinalIgnoreCase))
+                    if (NamesMatch(victim, playerName))
                     {
                         // Capture the assisters too (the enemies who helped kill me), so a
                         // post-game pass can tell whether the enemy JUNGLER was on the kill
@@ -901,7 +977,7 @@ public sealed class LiveEventCollector
                         foreach (var a in assisters.EnumerateArray())
                         {
                             var assisterName = a.GetString() ?? "";
-                            if (assisterName.Equals(playerName, StringComparison.OrdinalIgnoreCase))
+                            if (NamesMatch(assisterName, playerName))
                             {
                                 events.Add(new GameEvent
                                 {

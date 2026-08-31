@@ -111,6 +111,27 @@ public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliat
                 continue;
             }
 
+            // Never offer a game the save gate will decline. Without this filter
+            // an ARAM/normal/flex game (or a remake) appears in the missed-reviews
+            // dialog on every startup; selecting it makes ProcessGameEndAsync
+            // skip it silently, it is never auto-dismissed, and it comes back
+            // next launch — an un-dismissable ghost.
+            if (!Constants.GameConstants.RankedQueueTypes.Contains(stats.QueueType ?? ""))
+            {
+                CoreDiagnostics.WriteVerbose(
+                    $"LCU: Reconciliation skipping gameId={gameId} reason=non-reviewable-queue ({stats.QueueType})");
+                continue;
+            }
+
+            // Exact mirror of the save gate (no zero-duration exemption: the
+            // gate declines ANY duration below the threshold, so offering a
+            // 0-duration payload would recreate the un-dismissable ghost).
+            if (stats.GameDuration < Constants.GameConstants.RemakeThresholdS)
+            {
+                CoreDiagnostics.WriteVerbose($"LCU: Reconciliation skipping gameId={gameId} reason=remake-or-no-duration");
+                continue;
+            }
+
             if ((string.IsNullOrWhiteSpace(stats.ChampionName)
                     || stats.ChampionName.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
                 && stats.ChampionId > 0)

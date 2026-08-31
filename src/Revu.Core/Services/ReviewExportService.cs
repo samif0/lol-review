@@ -19,6 +19,7 @@ public sealed class ReviewExportService : IReviewExportService
     private readonly IVodRepository _vod;
     private readonly IMatchupNotesRepository _matchupNotes;
     private readonly IEvidenceRepository _evidence;
+    private readonly ISessionLogRepository _sessionLog;
 
     public ReviewExportService(
         IGameHistoryQuery gameHistory,
@@ -27,7 +28,8 @@ public sealed class ReviewExportService : IReviewExportService
         IPromptsRepository prompts,
         IVodRepository vod,
         IMatchupNotesRepository matchupNotes,
-        IEvidenceRepository evidence)
+        IEvidenceRepository evidence,
+        ISessionLogRepository sessionLog)
     {
         _gameHistory = gameHistory;
         _objectives = objectives;
@@ -36,11 +38,17 @@ public sealed class ReviewExportService : IReviewExportService
         _vod = vod;
         _matchupNotes = matchupNotes;
         _evidence = evidence;
+        _sessionLog = sessionLog;
     }
 
     public async Task<string> ExportAllAsync(CancellationToken cancellationToken = default)
     {
         var games = await _gameHistory.GetRecentAsync(ExportLimit);
+        // The mental rating lives on session_log (games.rating is a queue-gate
+        // flag hardcoded to 1 by the review save — exporting it would show
+        // "1/10" for every game). One bulk fetch covers all exported games.
+        var mentalRatings = await _sessionLog.GetAllMentalRatingsAsync();
+        var allTags = await _conceptTags.GetAllAsync();
         var sb = new StringBuilder();
 
         sb.AppendLine("# Revu Review Export");
@@ -52,7 +60,8 @@ public sealed class ReviewExportService : IReviewExportService
         foreach (var game in games)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await AppendGameAsync(sb, game, headingLevel: 2);
+            var mentalRating = mentalRatings.TryGetValue(game.GameId, out var rating) ? rating : 0;
+            await AppendGameAsync(sb, game, mentalRating, allTags, headingLevel: 2);
         }
 
         return sb.ToString();
@@ -80,6 +89,7 @@ public sealed class ReviewExportService : IReviewExportService
         var matchupNote = await _matchupNotes.GetForGameAsync(game.GameId);
         var bookmarks = await _vod.GetBookmarksAsync(game.GameId);
         var evidence = await _evidence.GetForGameAsync(game.GameId);
+        var sessionEntry = await _sessionLog.GetEntryAsync(game.GameId);
         var tagIds = await _conceptTags.GetIdsForGameAsync(game.GameId);
         var allTags = await _conceptTags.GetAllAsync();
         var tagNames = allTags
@@ -107,13 +117,19 @@ public sealed class ReviewExportService : IReviewExportService
             sb.AppendLine();
         }
 
-        AppendCompactNotes(sb, game, matchupNote?.Note ?? "", tagNames);
+        var singleMentalRating = sessionEntry is { IsSkipped: false } ? sessionEntry.MentalRating : 0;
+        AppendCompactNotes(sb, game, matchupNote?.Note ?? "", tagNames, singleMentalRating);
         AppendCompactObjectives(sb, objectives);
         AppendCompactPromptAnswers(sb, promptAnswers);
         AppendMoments(sb, bookmarks, evidence, objectives);
     }
 
-    private async Task AppendGameAsync(StringBuilder sb, GameStats game, int headingLevel)
+    private async Task AppendGameAsync(
+        StringBuilder sb,
+        GameStats game,
+        int mentalRating,
+        IReadOnlyList<ConceptTagRecord> allTags,
+        int headingLevel)
     {
         var objectives = await _objectives.GetGameObjectivesAsync(game.GameId);
         var promptAnswers = await _prompts.GetAnswersForGameAsync(game.GameId);
@@ -121,7 +137,6 @@ public sealed class ReviewExportService : IReviewExportService
         var vod = await _vod.GetVodAsync(game.GameId);
         var bookmarks = await _vod.GetBookmarksAsync(game.GameId);
         var tagIds = await _conceptTags.GetIdsForGameAsync(game.GameId);
-        var allTags = await _conceptTags.GetAllAsync();
         var tagNames = allTags
             .Where(tag => tagIds.Contains(tag.Id))
             .Select(tag => tag.Name)
@@ -148,7 +163,7 @@ public sealed class ReviewExportService : IReviewExportService
         sb.AppendLine();
 
         sb.AppendLine("### Review");
-        AppendField(sb, "Mental rating", game.Rating > 0 ? $"{game.Rating}/10" : "");
+        AppendField(sb, "Mental rating", mentalRating > 0 ? $"{mentalRating}/10" : "");
         AppendField(sb, "Attribution", game.Attribution);
         AppendField(sb, "Review notes", game.ReviewNotes);
         AppendField(sb, "Went well", game.WentWell);
@@ -167,35 +182,15 @@ public sealed class ReviewExportService : IReviewExportService
         AppendVod(sb, vod, bookmarks, objectives);
     }
 
-    private static void AppendReviewNotes(
-        StringBuilder sb,
-        GameStats game,
-        string matchupNote,
-        IReadOnlyList<string> tagNames)
-    {
-        sb.AppendLine("## Review");
-        AppendField(sb, "Mental rating", game.Rating > 0 ? $"{game.Rating}/10" : "");
-        AppendField(sb, "Attribution", game.Attribution);
-        AppendField(sb, "Review notes", game.ReviewNotes);
-        AppendField(sb, "Went well", game.WentWell);
-        AppendField(sb, "Mistakes", game.Mistakes);
-        AppendField(sb, "Focus next", game.FocusNext);
-        AppendField(sb, "Spotted problems", game.SpottedProblems);
-        AppendField(sb, "Outside control", game.OutsideControl);
-        AppendField(sb, "Within control", game.WithinControl);
-        AppendField(sb, "Personal contribution", game.PersonalContribution);
-        AppendField(sb, "Matchup note", matchupNote);
-        AppendField(sb, "Concept tags", tagNames.Count > 0 ? string.Join(", ", tagNames) : "");
-        sb.AppendLine();
-    }
-
     private static void AppendCompactNotes(
         StringBuilder sb,
         GameStats game,
         string matchupNote,
-        IReadOnlyList<string> tagNames)
+        IReadOnlyList<string> tagNames,
+        int mentalRating)
     {
         sb.AppendLine("## Notes");
+        AppendCompactField(sb, "Mental", mentalRating > 0 ? $"{mentalRating}/10" : "");
         AppendCompactField(sb, "Review", game.ReviewNotes);
         AppendCompactField(sb, "Mistakes", game.Mistakes);
         AppendCompactField(sb, "Went well", game.WentWell);

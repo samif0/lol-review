@@ -49,6 +49,7 @@ public sealed partial class GameRepository
             "tilt_checks",
             "review_drafts",
             "cleared_rule_breaks",
+            "death_classifications",
             "game_summary",
             "review_concepts",
             "feature_values",
@@ -201,8 +202,8 @@ public sealed partial class GameRepository
         "evidence_items", "session_log", "vod_files", "game_events",
         "derived_event_instances", "game_objectives", "game_concept_tags",
         "prompt_answers", "matchup_notes", "tilt_checks", "review_drafts",
-        "cleared_rule_breaks", "game_summary", "review_concepts",
-        "feature_values", "coach_moments", "vod_bookmarks",
+        "cleared_rule_breaks", "death_classifications", "game_summary",
+        "review_concepts", "feature_values", "coach_moments", "vod_bookmarks",
         "coach_labels", "coach_inferences",
     };
 

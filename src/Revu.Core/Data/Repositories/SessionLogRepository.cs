@@ -60,6 +60,9 @@ public sealed class SessionLogRepository : ISessionLogRepository
             // (write-path audit, brief 2026-06-11-03) — mapped again here.
             PregameIntention = GetStringOrDefaultSafe(reader, "pregame_intention"),
             IntentionSource = GetStringOrDefaultSafe(reader, "intention_source"),
+            // is_skipped is migration-added; tolerate its absence like the
+            // other migration columns above.
+            IsSkipped = GetNullableIntOrDefault(reader, "is_skipped") == 1,
         };
     }
 
@@ -904,16 +907,21 @@ public sealed class SessionLogRepository : ISessionLogRepository
         double avgMentalDelta;
         using (var cmd = conn.CreateCommand())
         {
+            // DISTINCT, not GROUP BY: SQLite evaluates window functions AFTER
+            // grouping, so with GROUP BY each date collapses to one row before
+            // FIRST_VALUE runs and first_mental always equals last_mental (the
+            // delta reads 0 forever). The windows must see every row of the
+            // day; every row of a partition carries the same first/last values,
+            // and DISTINCT then reduces each day to one row.
             cmd.CommandText = $@"
-                SELECT sl.date,
+                SELECT DISTINCT sl.date,
                         FIRST_VALUE(sl.mental_rating) OVER (PARTITION BY sl.date ORDER BY sl.timestamp) as first_mental,
                         FIRST_VALUE(sl.mental_rating) OVER (PARTITION BY sl.date ORDER BY sl.timestamp DESC) as last_mental
                 FROM session_log sl
                 {VisibleGamesJoin}
                 WHERE sl.mental_rating IS NOT NULL
                   AND COALESCE(sl.is_skipped, 0) = 0
-                  AND {VisibleGamesFilter}
-                GROUP BY sl.date";
+                  AND {VisibleGamesFilter}";
 
             var deltas = new List<double>();
             await using var reader = await cmd.ExecuteReaderAsync();

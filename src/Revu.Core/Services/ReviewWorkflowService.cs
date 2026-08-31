@@ -229,11 +229,20 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             // unconditionally, so pass the existing value through rather than "").
             var improvementNote = request.Snapshot.ImprovementNote?.Trim()
                 ?? existingEntry?.ImprovementNote ?? "";
+            // mental rating: valid answers are 1..10. Anything else (0 from an
+            // untouched slider / NaN parse, negatives) must not reach session_log
+            // — a stored 0 falls outside every analytics bucket yet still drags
+            // filtered averages down. Keep the existing stored value, else the
+            // neutral default.
+            var storedMental = existingEntry?.MentalRating ?? 0;
+            var mentalRating = request.Snapshot.MentalRating is >= 1 and <= 10
+                ? request.Snapshot.MentalRating
+                : storedMental is >= 1 and <= 10 ? storedMental : 5;
             await _sessionLogRepository.LogGameAsync(
                 request.GameId,
                 request.ChampionName,
                 request.Win,
-                request.Snapshot.MentalRating,
+                mentalRating,
                 improvementNote);
             // mental_handled: null → don't touch it (skip the UPDATE entirely).
             if (request.Snapshot.MentalHandled is not null)

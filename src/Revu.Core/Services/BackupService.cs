@@ -156,6 +156,10 @@ public sealed class BackupService : IBackupService
 
         try
         {
+            // Same WAL checkpoint the safety/reset/restore paths do (v2.15.4):
+            // without it the user's configured backup folder receives copies
+            // missing every write still sitting in revu.db-wal.
+            CheckpointDatabase();
             Directory.CreateDirectory(folder);
             File.Copy(dbPath, dest, overwrite: false);
             _logger.LogInformation("Database backed up to {Dest}", dest);

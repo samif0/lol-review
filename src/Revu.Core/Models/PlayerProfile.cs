@@ -173,5 +173,10 @@ public record SessionPatternStats
     public double AvgGamesPerSession { get; init; }
     public double AvgSessionDurationMin { get; init; }
     public int TotalSessions { get; init; }
-    public double AvgMentalRating { get; init; }
+    /// <summary>Average per-day mental trajectory: (last game's mental −
+    /// first game's mental), averaged across play-days. Negative = sessions
+    /// tend to end more tilted than they start. This is a DELTA, not an
+    /// average rating — it was previously named AvgMentalRating, which
+    /// invited rendering it as one.</summary>
+    public double AvgMentalDelta { get; init; }
 }

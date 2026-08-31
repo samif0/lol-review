@@ -29,6 +29,9 @@ public class SessionLogEntry
 
     public string MentalHandled { get; set; } = "";
     public int PreGameMood { get; set; }
+    /// <summary>True when the game was one-click skipped from the review
+    /// queue — its mental_rating is a default, not a user answer.</summary>
+    public bool IsSkipped { get; set; }
 
     /// <summary>
     /// v2.18 (schema v5): one-tap "did you do your focus?" answer.

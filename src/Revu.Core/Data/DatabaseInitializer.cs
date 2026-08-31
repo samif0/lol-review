@@ -150,6 +150,36 @@ public sealed class DatabaseInitializer
     }
 
     /// <summary>
+    /// The safe, non-destructive two-thirds of <see cref="InitializeAsync"/> that
+    /// the sidecar-only era lost: default seeds (INSERT OR IGNORE / count-gated),
+    /// post-migration indexes, and the objectives count/score reconciliation.
+    /// Without this a fresh Tauri-era install has no persistent_notes row (notes
+    /// silently never save), an empty derived_event_definitions table (no
+    /// Teamfight/Skirmish/etc. timeline events, ever), no default concept tags,
+    /// no visible-games indexes, and objective game counts that drift stale when
+    /// games are hidden. Everything here is idempotent and touches no user data,
+    /// so it is safe to run on every startup — unlike the normalize-rebuild
+    /// phases of InitializeAsync, which stay excluded on purpose.
+    /// </summary>
+    public async Task ApplySeedsAndIndexesAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+
+        await CreatePostMigrationIndexesAsync(connection, cancellationToken);
+        await SeedConceptTagsAsync(connection, cancellationToken);
+        await SeedDerivedEventsAsync(connection, cancellationToken);
+        await SeedPersistentNotesAsync(connection, cancellationToken);
+
+        // Reconciliation, not migration: keeps objectives.game_count / score in
+        // sync with practiced game_objectives rows (hide/unhide, deletes). The
+        // WHERE/COALESCE guards make both no-ops when nothing changed.
+        await BackfillObjectiveGameCountAsync(connection, cancellationToken);
+        await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
+
+        _logger.LogInformation("Seeds, indexes and objective reconciliation applied at {Path}", _connectionFactory.DatabasePath);
+    }
+
+    /// <summary>
     /// One-time, idempotent back-catalog account-scope repair: re-stamp the
     /// signed-in Riot PUUID onto every game row that was captured with a
     /// DIFFERENT non-empty account id — i.e. the UUID-shaped LCU
@@ -939,25 +969,40 @@ public sealed class DatabaseInitializer
 
     // v2.15.0: CREATE INDEX statements for tables that got rewritten by
     // NormalizeObjectivePromptsTableAsync. Called after normalize so the
-    // referenced columns exist.
-    private static async Task CreatePostMigrationIndexesAsync(SqliteConnection connection, CancellationToken ct)
+    // referenced columns exist. Each index is individually tolerant: on a DB
+    // whose prompt tables were never normalized the referenced columns may not
+    // exist, and one failed index must not block the others (or startup).
+    private async Task CreatePostMigrationIndexesAsync(SqliteConnection connection, CancellationToken ct)
     {
         string[] indexes =
         [
+            // Retire the old visible-games indexes: their "WHERE is_hidden = 0"
+            // predicate is not implied by the COALESCE(is_hidden, 0) = 0 filter
+            // every query actually uses, so SQLite never chose them.
+            "DROP INDEX IF EXISTS idx_games_timestamp",
+            "DROP INDEX IF EXISTS idx_games_champion",
             Schema.CreateObjectivePromptsIndex,
             Schema.CreatePromptAnswersIndex,
-            // Partial indexes on games WHERE is_hidden = 0 — is_hidden is added by
-            // an ALTER TABLE migration, so these must run here, after migrations,
-            // not in AllCreateStatements (which runs before the column exists).
+            // Partial indexes on games — is_hidden is added by an ALTER TABLE
+            // migration, so these must run here, after migrations, not in
+            // AllCreateStatements (which runs before the column exists).
             Schema.CreateGamesTimestampIndex,
             Schema.CreateGamesChampionIndex,
         ];
 
         foreach (var sql in indexes)
         {
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = sql;
-            await cmd.ExecuteNonQueryAsync(ct);
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (SqliteException ex)
+            {
+                _logger.LogWarning(ex, "Post-migration index statement skipped: {Sql}", sql);
+            }
         }
     }
 

@@ -239,12 +239,19 @@ public static class Schema
         );
         """;
 
+    // The index predicate must match the query filter TEXTUALLY for SQLite to
+    // use a partial index. Every visible-games query filters with
+    // COALESCE(is_hidden, 0) = 0 (GameConstants.CasualModeSqlFilter) — NULL
+    // rows pass that filter but were absent from the old "WHERE is_hidden = 0"
+    // indexes, so the planner could never use them and history paging did a
+    // full scan + sort. The _v2 names let CreatePostMigrationIndexesAsync drop
+    // the old, unusable definitions idempotently.
     public const string CreateGamesTimestampIndex = """
-        CREATE INDEX IF NOT EXISTS idx_games_timestamp ON games(timestamp DESC) WHERE is_hidden = 0;
+        CREATE INDEX IF NOT EXISTS idx_games_timestamp_v2 ON games(timestamp DESC) WHERE COALESCE(is_hidden, 0) = 0;
         """;
 
     public const string CreateGamesChampionIndex = """
-        CREATE INDEX IF NOT EXISTS idx_games_champion ON games(champion_name, timestamp DESC) WHERE is_hidden = 0;
+        CREATE INDEX IF NOT EXISTS idx_games_champion_v2 ON games(champion_name, timestamp DESC) WHERE COALESCE(is_hidden, 0) = 0;
         """;
 
     public const string CreateSessionLogGameIdIndex = """
@@ -1049,10 +1056,11 @@ public static class Schema
     [
         CreateSchemaMetadataTable,
         CreateGamesTable,
-        // NOTE: idx_games_timestamp / idx_games_champion are partial indexes on
-        // WHERE is_hidden = 0, but is_hidden is added by an ALTER TABLE migration
-        // (not a base column), so they must be created AFTER migrations run — see
-        // CreatePostMigrationIndexesAsync. They are intentionally NOT in this list.
+        // NOTE: idx_games_timestamp_v2 / idx_games_champion_v2 are partial
+        // indexes on WHERE COALESCE(is_hidden, 0) = 0, but is_hidden is added by
+        // an ALTER TABLE migration (not a base column), so they must be created
+        // AFTER migrations run — see CreatePostMigrationIndexesAsync. They are
+        // intentionally NOT in this list.
         CreateSessionLogTable,
         CreateSessionLogGameIdIndex,
         CreatePatternReviewsTable,

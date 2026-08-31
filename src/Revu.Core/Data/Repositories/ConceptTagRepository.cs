@@ -39,8 +39,13 @@ public sealed class ConceptTagRepository : IConceptTagRepository
         cmd.Parameters.AddWithValue("@color", color);
         await cmd.ExecuteNonQueryAsync();
 
+        // Look the id up by name, never last_insert_rowid(): when the name
+        // already exists the insert is IGNOREd and last_insert_rowid() returns
+        // 0 (or a stale rowid from an earlier insert on the pooled physical
+        // connection) — the caller would then tag games with the wrong tag id.
         using var idCmd = conn.CreateCommand();
-        idCmd.CommandText = "SELECT last_insert_rowid()";
+        idCmd.CommandText = "SELECT id FROM concept_tags WHERE name = @name LIMIT 1";
+        idCmd.Parameters.AddWithValue("@name", name);
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 

@@ -938,10 +938,17 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         using (var upsertCmd = conn.CreateCommand())
         {
             upsertCmd.Transaction = tx;
+            // True UPSERT, not INSERT OR REPLACE: REPLACE deletes the existing
+            // row and re-inserts it, which silently nulls criteria_met (and any
+            // future column this statement doesn't name) on every re-save —
+            // shrinking the criteria hit-rate/mastery denominators.
             upsertCmd.CommandText = """
-                INSERT OR REPLACE INTO game_objectives
+                INSERT INTO game_objectives
                     (game_id, objective_id, practiced, execution_note)
                 VALUES (@gameId, @objectiveId, @practiced, @executionNote)
+                ON CONFLICT(game_id, objective_id) DO UPDATE SET
+                    practiced = excluded.practiced,
+                    execution_note = excluded.execution_note
                 """;
             upsertCmd.Parameters.AddWithValue("@gameId", gameId);
             upsertCmd.Parameters.AddWithValue("@objectiveId", objectiveId);
