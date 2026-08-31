@@ -16,9 +16,11 @@ Download the latest **`Revu-Setup.exe`** from [Releases](https://github.com/sami
 
 ### Requirements
 
-- Windows 10/11 (x64 or arm64)
+- Windows 10/11 (x64)
 - .NET 8 SDK
-- Visual Studio 2022 or MSBuild Build Tools
+- Node 20+ (for the desktop UI)
+- Rust stable + the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
+  (for the desktop shell)
 - League of Legends client (for the live monitoring features)
 - Optional: `ffmpeg.exe` placed at `deps\ffmpeg.exe` to enable clip extraction
   (the release workflow downloads this automatically; for local dev, drop your
@@ -26,34 +28,45 @@ Download the latest **`Revu-Setup.exe`** from [Releases](https://github.com/sami
 
 ### Build and run
 
-```powershell
-dotnet build src\Revu.App\Revu.App.csproj -c Debug -p:Platform=x64
-```
-
-The build outputs to `src\Revu.App\bin\x64\Debug\`. The executable is named
-`LoLReview.App.exe` (the historical package id; the product is Revu). Launch it
-with `run.bat`, or directly:
+The app is a Tauri shell (`desktop/`) that spawns a C# sidecar
+(`src/Revu.Sidecar`) — a local HTTP backend over the shared core library
+(`src/Revu.Core`).
 
 ```powershell
-src\Revu.App\bin\x64\Debug\LoLReview.App.exe
+# Backend (sidecar + core)
+dotnet build Revu.sln -c Debug -p:Platform=x64
+
+# Desktop app (spawns the sidecar it finds via the dev lookup)
+cd desktop
+npm ci
+npm run tauri dev
 ```
 
 ### Test
 
+A change is not done until both suites pass (CI runs the same commands):
+
 ```powershell
-dotnet test src\Revu.Core.Tests\
+dotnet test src\Revu.Core.Tests\Revu.Core.Tests.csproj -c Release -p:Platform=x64
+dotnet test src\Revu.Sidecar.Tests\Revu.Sidecar.Tests.csproj -c Release -p:Platform=x64
 ```
+
+`-p:Platform=x64` is required — the projects declare only an x64 platform, so a
+default AnyCPU run fails. The UI compile gate is `cd desktop && npm ci && npm run build`.
 
 ### Project layout
 
 ```text
 src/
-  Revu.App/        WinUI 3 desktop app — DI, views, view models, update flow
-  Revu.Core/       SQLite, repositories, services, LCU integration, migrations
-  Revu.Core.Tests/ xUnit tests over temp-file SQLite fixtures
-site/              Static landing site at revu.lol
-proxy/             Cloudflare Worker that proxies Riot Match-V5
-.github/           Issue templates and the release workflow
+  Revu.Core/          Domain + persistence — SQLite, repositories, services,
+                      LCU integration, migrations (.NET 8)
+  Revu.Core.Tests/    xUnit tests over temp-file SQLite fixtures
+  Revu.Sidecar/       Local HTTP sidecar the desktop UI talks to
+  Revu.Sidecar.Tests/ Write-contract tests for the sidecar
+desktop/              Tauri app — ui/ (vanilla JS pages) + src-tauri (Rust shell)
+site/                 Static landing site at revu.lol
+proxy/                Cloudflare Worker that proxies Riot Match-V5
+.github/              Issue templates, CI, and the release workflow
 ```
 
 ## Contributing
@@ -71,15 +84,17 @@ Releases are automated by `.github/workflows/release.yml`. To publish a version,
 commit to `main`, then tag and push:
 
 ```powershell
-git tag -a v2.17.0 -m "v2.17.0"
-git push origin main v2.17.0
+git tag -a v3.4.0 -m "v3.4.0"
+git push origin main v3.4.0
 ```
 
-The workflow runs the tests, stamps the version into the csproj, publishes a
-self-contained `win-x64` build with MSBuild, bundles `ffmpeg.exe` if present,
-signs the binaries, packs with `vpk`, and creates the GitHub Release that the
-in-app updater consumes. It also publishes a cleanly-named `Revu-Setup.exe`
-asset. The workflow triggers on any tag beginning with `v` (e.g. `v2.17.19`).
+The workflow runs the tests, stamps the version into `tauri.conf.json`, builds
+the Tauri app (cargo) and a self-contained `win-x64` sidecar, bundles
+`ffmpeg.exe` if present, signs the binaries, packs with `vpk` (packId stays
+`LoLReview` so existing installs update in place), and creates the GitHub
+Release that the in-app updater consumes. It also publishes a cleanly-named
+`Revu-Setup.exe` asset. The workflow triggers on any tag beginning with `v`
+(e.g. `v3.3.3`).
 
 ## Data and logs
 

@@ -7,13 +7,16 @@ churn of an unwanted refactor or a feature that overlaps something I'm
 already building. For tiny fixes (typos, broken links, obvious bug fixes)
 just open the PR — no preamble needed.
 
-To build locally you need .NET 8 SDK, Windows 10/11, and Visual Studio
-2022 or VS Code with the C# extension. Clone, then
-`dotnet build src/Revu.App/Revu.App.csproj -c Debug -r win-x64`. The
-unit tests live in `src/Revu.Core.Tests/` and run with `dotnet test`. The
-data layer uses an isolated SQLite test fixture so tests don't touch your
-real Revu database at `%LOCALAPPDATA%\LoLReviewData\revu.db`. Architecture
-notes are in `docs/CODEBASE_ONBOARDING.md`.
+To build locally you need Windows 10/11, the .NET 8 SDK, Node 20+, and Rust
+stable with the Tauri v2 prerequisites. Clone, then
+`dotnet build Revu.sln -c Debug -p:Platform=x64` for the backend and
+`cd desktop && npm ci && npm run tauri dev` for the app (see the README's
+Development section for the full layout). The tests live in
+`src/Revu.Core.Tests/` and `src/Revu.Sidecar.Tests/` and run with
+`dotnet test <project> -c Release -p:Platform=x64` (the `-p:Platform=x64` is
+required — the projects only declare an x64 platform). The data layer uses an
+isolated SQLite test fixture so tests don't touch your real Revu database at
+`%LOCALAPPDATA%\LoLReviewData\revu.db`.
 
 PR-acceptance bar: builds clean (0 warnings, 0 errors on Release), tests
 pass, and the change is scoped to a single concern — a bug fix doesn't
