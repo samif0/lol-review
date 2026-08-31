@@ -1,6 +1,7 @@
 #nullable enable
 
 using Microsoft.Data.Sqlite;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Data.Repositories;
 
@@ -8,21 +9,21 @@ public sealed class EvidenceRepository : IEvidenceRepository
 {
     private readonly IDbConnectionFactory _factory;
 
-    private const string UnreviewedEvidenceGamePredicate = """
-        COALESCE(g.rating, 0) <= 0
-        AND COALESCE(g.review_notes, '') = ''
-        AND COALESCE(g.mistakes, '') = ''
-        AND COALESCE(g.went_well, '') = ''
-        AND COALESCE(g.focus_next, '') = ''
-        AND COALESCE(g.spotted_problems, '') = ''
-        AND COALESCE(g.outside_control, '') = ''
-        AND COALESCE(g.within_control, '') = ''
-        AND COALESCE(g.attribution, '') = ''
-        AND COALESCE(g.personal_contribution, '') = ''
-        AND COALESCE(sl.improvement_note, '') = ''
-        AND COALESCE(sl.mental_handled, '') = ''
-        AND COALESCE(sl.is_skipped, 0) = 0
+    // The ONE game gate every pattern count, moment playlist, and backfill query
+    // shares: visible ranked/manual games inside the recency window. Reviewing,
+    // rating, or skipping a game has NO hiding effect — the predecessor predicate
+    // (13 ANDed "game is completely unreviewed" conditions) meant the app's own
+    // review flow permanently ejected evidence from every pattern count, which is
+    // why the Patterns page sat empty for anyone who actually used the app.
+    // @windowStart = now - PatternConstants.WindowDays, unix seconds.
+    private const string PatternGamePredicate = """
+        COALESCE(g.is_hidden, 0) = 0
+        AND COALESCE(g.queue_type, '') IN ('Ranked Solo/Duo', 'Manual')
+        AND COALESCE(g.timestamp, 0) >= @windowStart
         """;
+
+    private static long WindowStartUnixSeconds() =>
+        DateTimeOffset.UtcNow.AddDays(-PatternConstants.WindowDays).ToUnixTimeSeconds();
 
     public EvidenceRepository(IDbConnectionFactory factory) => _factory = factory;
 
@@ -336,117 +337,384 @@ public sealed class EvidenceRepository : IEvidenceRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    /// <summary>
+    /// The seven windowed pattern detectors. Retired kinds: isolated_deaths
+    /// (isolation is unprovable from the kill feed — the inference service's own
+    /// comment disavows the label) and negative_matchup_clips (nothing ever
+    /// wrote matchup_note_id, so it never fired once). Every kind here counts
+    /// rows the CURRENT app actually produces — see PatternConstants for the
+    /// shared writer/reader vocabulary and thresholds.
+    /// </summary>
     public async Task<IReadOnlyList<ObjectivePatternCard>> GetPatternCardsAsync(int limit = 6)
     {
         var cards = new List<ObjectivePatternCard>();
+        var windowStart = WindowStartUnixSeconds();
         using var conn = _factory.CreateConnection();
 
-        var isolatedDeathPattern = await CountPlainDeathMomentsAsync(conn);
-        if (isolatedDeathPattern.Count >= 3)
+        await AddDeathClassMixCardsAsync(conn, windowStart, cards);
+        await AddGankDeathsCardAsync(conn, windowStart, cards);
+        await AddLostObjectiveFightsCardAsync(conn, windowStart, cards);
+        await AddDeathsBeforeObjectivesCardAsync(conn, windowStart, cards);
+        await AddBadObjectiveEvidenceCardsAsync(conn, windowStart, cards);
+        await AddRecurringConceptTagCardsAsync(conn, windowStart, cards);
+        await AddRuleBreaksCardAsync(conn, windowStart, cards);
+
+        // Seven detectors under the card cap: worst first (severity, then volume).
+        return cards
+            .OrderBy(static c => c.Severity == "high" ? 0 : c.Severity == "medium" ? 1 : 2)
+            .ThenByDescending(static c => c.MomentCount)
+            .Take(Math.Max(1, limit))
+            .ToArray();
+    }
+
+    /// <summary>
+    /// One card per death-audit class ("Deaths to GREED") when a class both
+    /// repeats in absolute terms and dominates the classified-death mix — the
+    /// death-audit taxonomy's documented purpose ("44% of your deaths are
+    /// vision-class") finally wired to the Patterns page.
+    /// </summary>
+    private static async Task AddDeathClassMixCardsAsync(
+        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
+    {
+        int classifiedTotal;
+        using (var denomCmd = conn.CreateCommand())
         {
-            cards.Add(new ObjectivePatternCard(
-                Kind: "isolated_deaths",
-                Title: "Frequent isolated deaths",
-                Detail: $"{isolatedDeathPattern.Count} isolated-death moments are waiting in the evidence ledger.",
-                GameId: isolatedDeathPattern.LatestGameId,
-                Severity: "high"));
+            denomCmd.CommandText = $"""
+                SELECT COUNT(*)
+                FROM death_classifications dc
+                JOIN games g ON g.game_id = dc.game_id
+                WHERE dc.death_class != ''
+                  AND {PatternGamePredicate}
+                """;
+            denomCmd.Parameters.AddWithValue("@windowStart", windowStart);
+            classifiedTotal = Convert.ToInt32(await denomCmd.ExecuteScalarAsync() ?? 0);
         }
 
-        var lostObjectiveFightPattern = await CountTitleLikeAsync(conn, "Lost % fight%");
-        if (lostObjectiveFightPattern.Count >= 2)
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT COALESCE(e.title, ''),
+                   COUNT(*) AS cnt,
+                   COUNT(DISTINCT e.game_id) AS games,
+                   MAX(e.game_id)
+            FROM evidence_items e
+            JOIN games g ON g.game_id = e.game_id
+            WHERE e.status != 'dismissed'
+              AND e.title LIKE @titlePrefix
+              AND {PatternGamePredicate}
+            GROUP BY e.title
+            HAVING cnt >= @minCount AND games >= @minGames
+            ORDER BY cnt DESC
+            """;
+        cmd.Parameters.AddWithValue("@titlePrefix", PatternConstants.DeathAuditTitlePrefix + "%");
+        cmd.Parameters.AddWithValue("@minCount", PatternConstants.DeathClassMinCount);
+        cmd.Parameters.AddWithValue("@minGames", PatternConstants.DeathClassMinGames);
+        cmd.Parameters.AddWithValue("@windowStart", windowStart);
+
+        var added = 0;
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync() && added < PatternConstants.DeathClassCardLimit)
+        {
+            var title = reader.GetString(0);
+            var count = Convert.ToInt32(reader.GetInt64(1));
+            var games = Convert.ToInt32(reader.GetInt64(2));
+            var latestGameId = reader.IsDBNull(3) ? (long?)null : reader.GetInt64(3);
+
+            // Reverse-map the title's chip label to its class key; skip titles
+            // that don't resolve (e.g. a hand-typed clip note that happens to
+            // start with "Death: "). The exact-title recheck matters: SQLite's
+            // LIKE is case-insensitive, but the moment playlist matches the
+            // canonical title exactly — a case-variant group would produce a
+            // card whose count and playlist disagree.
+            if (title.Length <= PatternConstants.DeathAuditTitlePrefix.Length)
+            {
+                continue;
+            }
+            var label = title[PatternConstants.DeathAuditTitlePrefix.Length..];
+            var entry = DeathClasses.All.FirstOrDefault(c =>
+                string.Equals(c.Label, label, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(entry.Key)
+                || !string.Equals(title, PatternConstants.DeathAuditTitle(entry.Label), StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var share = Math.Min(1.0, count / (double)Math.Max(1, classifiedTotal));
+            if (share < PatternConstants.DeathClassMinShare)
+            {
+                continue;
+            }
+
+            var severity = count >= PatternConstants.DeathClassHighCount
+                || share >= PatternConstants.DeathClassHighShare ? "high" : "medium";
+            cards.Add(new ObjectivePatternCard(
+                Kind: PatternConstants.KindDeathClassMix,
+                Title: $"Deaths to {entry.Label}",
+                Detail: $"{count} {entry.Label} deaths across {games} games — "
+                    + $"{(int)Math.Round(share * 100)}% of your classified deaths in the last "
+                    + $"{PatternConstants.WindowDays} days. {entry.Hint}.",
+                GameId: latestGameId,
+                Severity: severity,
+                Discriminator: entry.Key,
+                MomentCount: count,
+                GameCount: games));
+            added++;
+        }
+    }
+
+    /// <summary>Laning-phase deaths to the enemy jungler — fully automatic
+    /// (Details.jungle_gank is stamped at capture), so this kind fires with
+    /// zero user input.</summary>
+    private static async Task AddGankDeathsCardAsync(
+        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
+    {
+        var (count, games, latestGameId) = await CountWindowedTitleAsync(
+            conn, windowStart, "=", PatternConstants.GankDeathTitle);
+        if (count >= PatternConstants.GankMinCount && games >= PatternConstants.GankMinGames)
         {
             cards.Add(new ObjectivePatternCard(
-                Kind: "lost_objective_fights",
+                Kind: PatternConstants.KindGankDeaths,
+                Title: "Dying to jungle ganks",
+                Detail: $"{count} laning-phase deaths to the enemy jungler across {games} games "
+                    + $"in the last {PatternConstants.WindowDays} days.",
+                GameId: latestGameId,
+                Severity: "high",
+                MomentCount: count,
+                GameCount: games));
+        }
+    }
+
+    private static async Task AddLostObjectiveFightsCardAsync(
+        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
+    {
+        // Matches the materialized 'Lost Dragon/Baron/Herald fight' regions
+        // (never 'Lost Teamfight' — no space before 'fight').
+        var (count, games, latestGameId) = await CountWindowedTitleAsync(
+            conn, windowStart, "LIKE", "Lost % fight%");
+        if (count >= PatternConstants.LostFightMinCount && games >= PatternConstants.LostFightMinGames)
+        {
+            cards.Add(new ObjectivePatternCard(
+                Kind: PatternConstants.KindLostObjectiveFights,
                 Title: "Repeated lost objective fights",
-                Detail: $"{lostObjectiveFightPattern.Count} lost objective-fight moments are tagged or pending.",
-                GameId: lostObjectiveFightPattern.LatestGameId,
-                Severity: "high"));
+                Detail: $"{count} lost fights at dragon, baron, or herald across {games} games "
+                    + $"in the last {PatternConstants.WindowDays} days.",
+                GameId: latestGameId,
+                Severity: "high",
+                MomentCount: count,
+                GameCount: games));
         }
+    }
 
-        var deathsBeforeObjectives = await CountTitleLikeAsync(conn, "Death before %");
-        if (deathsBeforeObjectives.Count >= 2)
+    private static async Task AddDeathsBeforeObjectivesCardAsync(
+        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
+    {
+        var (count, games, latestGameId) = await CountWindowedTitleAsync(
+            conn, windowStart, "LIKE", "Death before %");
+        if (count >= PatternConstants.DeathBeforeObjMinCount && games >= PatternConstants.DeathBeforeObjMinGames)
         {
             cards.Add(new ObjectivePatternCard(
-                Kind: "deaths_before_objectives",
+                Kind: PatternConstants.KindDeathsBeforeObjectives,
                 Title: "Deaths before major objectives",
-                Detail: $"{deathsBeforeObjectives.Count} deaths happened shortly before dragon, baron, or herald moments.",
-                GameId: deathsBeforeObjectives.LatestGameId,
-                Severity: "high"));
+                Detail: $"{count} deaths 15-75s before dragon, baron, or herald across {games} games "
+                    + $"in the last {PatternConstants.WindowDays} days.",
+                GameId: latestGameId,
+                Severity: "medium",
+                MomentCount: count,
+                GameCount: games));
+        }
+    }
+
+    private static async Task AddBadObjectiveEvidenceCardsAsync(
+        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT e.objective_id,
+                   COALESCE(o.title, '') AS objective_title,
+                   SUM(CASE WHEN e.polarity = 'bad' THEN 1 ELSE 0 END) AS bad_count,
+                   SUM(CASE WHEN e.polarity = 'good' THEN 1 ELSE 0 END) AS good_count,
+                   COUNT(DISTINCT CASE WHEN e.polarity = 'bad' THEN e.game_id END) AS bad_games
+            FROM evidence_items e
+            JOIN games g ON g.game_id = e.game_id
+            LEFT JOIN objectives o ON o.id = e.objective_id
+            WHERE e.objective_id IS NOT NULL
+              AND e.status != 'dismissed'
+              AND {PatternGamePredicate}
+            GROUP BY e.objective_id
+            HAVING bad_count >= @minBad AND bad_count > good_count
+            ORDER BY bad_count DESC
+            LIMIT @cardLimit
+            """;
+        cmd.Parameters.AddWithValue("@minBad", PatternConstants.BadObjectiveMinBad);
+        cmd.Parameters.AddWithValue("@cardLimit", PatternConstants.BadObjectiveCardLimit);
+        cmd.Parameters.AddWithValue("@windowStart", windowStart);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var objectiveId = reader.GetInt64(0);
+            var title = reader.IsDBNull(1) || reader.GetString(1).Length == 0 ? "Objective" : reader.GetString(1);
+            var badCount = Convert.ToInt32(reader.GetInt64(2));
+            var goodCount = Convert.ToInt32(reader.GetInt64(3));
+            var badGames = Convert.ToInt32(reader.GetInt64(4));
+            cards.Add(new ObjectivePatternCard(
+                Kind: PatternConstants.KindBadObjectiveEvidence,
+                Title: $"{title}: mostly bad examples",
+                Detail: $"{badCount} bad vs {goodCount} good clips on {title} "
+                    + $"in the last {PatternConstants.WindowDays} days.",
+                ObjectiveId: objectiveId,
+                Severity: badCount >= PatternConstants.BadObjectiveHighBad ? "high" : "medium",
+                // MomentCount = the bad rows only, matching the playlist filter.
+                MomentCount: badCount,
+                GameCount: badGames));
+        }
+    }
+
+    /// <summary>
+    /// A negative concept tag recurring across a meaningful share of the window's
+    /// reviewed games. Counts the materialized per-game anchor rows, but requires
+    /// the LIVE game_concept_tags row via EXISTS — untagging a game drops it from
+    /// count and playlist symmetrically with no reconciliation pass.
+    /// </summary>
+    private static async Task AddRecurringConceptTagCardsAsync(
+        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
+    {
+        int reviewedGames;
+        using (var denomCmd = conn.CreateCommand())
+        {
+            denomCmd.CommandText = $"""
+                SELECT COUNT(*)
+                FROM games g
+                WHERE COALESCE(g.rating, 0) > 0
+                  AND {PatternGamePredicate}
+                """;
+            denomCmd.Parameters.AddWithValue("@windowStart", windowStart);
+            reviewedGames = Convert.ToInt32(await denomCmd.ExecuteScalarAsync() ?? 0);
         }
 
-        using (var cmd = conn.CreateCommand())
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT ct.id, ct.name, COUNT(*) AS cnt, MAX(e.game_id)
+            FROM evidence_items e
+            JOIN games g ON g.game_id = e.game_id
+            JOIN concept_tags ct ON e.source_key = '{PatternConstants.TagSourceKeyPrefix}' || ct.id
+                AND ct.polarity = 'negative'
+            WHERE e.source_kind = '{EvidenceKinds.TimelineRegion}'
+              AND e.status != 'dismissed'
+              AND EXISTS (
+                    SELECT 1 FROM game_concept_tags gct
+                    WHERE gct.game_id = e.game_id AND gct.tag_id = ct.id)
+              AND {PatternGamePredicate}
+            GROUP BY ct.id
+            HAVING cnt >= @minCount
+            ORDER BY cnt DESC
+            """;
+        cmd.Parameters.AddWithValue("@minCount", PatternConstants.TagMinCount);
+        cmd.Parameters.AddWithValue("@windowStart", windowStart);
+
+        var added = 0;
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync() && added < PatternConstants.TagCardLimit)
         {
-            cmd.CommandText = $"""
-                SELECT e.objective_id,
-                       COALESCE(o.title, '') AS objective_title,
-                       SUM(CASE WHEN e.polarity = 'bad' THEN 1 ELSE 0 END) AS bad_count,
-                       SUM(CASE WHEN e.polarity = 'good' THEN 1 ELSE 0 END) AS good_count,
-                       COUNT(*) AS total_count
-                FROM evidence_items e
-                LEFT JOIN objectives o ON o.id = e.objective_id
-                LEFT JOIN games g ON g.game_id = e.game_id
-                LEFT JOIN session_log sl ON sl.game_id = e.game_id
-                WHERE e.objective_id IS NOT NULL
-                  AND e.status != 'dismissed'
-                  AND {UnreviewedEvidenceGamePredicate}
-                GROUP BY e.objective_id
-                HAVING bad_count >= 2 AND bad_count > good_count
-                ORDER BY bad_count DESC, total_count DESC
-                LIMIT 3
-                """;
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            var tagId = reader.GetInt64(0);
+            var name = reader.GetString(1);
+            var count = Convert.ToInt32(reader.GetInt64(2));
+            var latestGameId = reader.IsDBNull(3) ? (long?)null : reader.GetInt64(3);
+
+            var share = Math.Min(1.0, count / (double)Math.Max(1, reviewedGames));
+            if (share < PatternConstants.TagMinShare)
             {
-                var objectiveId = reader.GetInt64(0);
-                var title = reader.IsDBNull(1) ? "Objective" : reader.GetString(1);
-                var badCount = Convert.ToInt32(reader.GetInt64(2));
-                var total = Convert.ToInt32(reader.GetInt64(4));
+                continue;
+            }
+
+            cards.Add(new ObjectivePatternCard(
+                Kind: PatternConstants.KindRecurringConceptTag,
+                Title: $"Recurring: {name}",
+                Detail: $"'{name}' tagged in {count} of {reviewedGames} reviewed games "
+                    + $"in the last {PatternConstants.WindowDays} days.",
+                GameId: latestGameId,
+                Severity: share >= PatternConstants.TagHighShare ? "high" : "medium",
+                Discriminator: $"tag{tagId}",
+                MomentCount: count,
+                GameCount: count));
+            added++;
+        }
+    }
+
+    /// <summary>Rule-broken games in the window (one anchor per game, gated on
+    /// the LIVE session_log.rule_broken flag so a user-cleared false positive
+    /// drops out of count and playlist).</summary>
+    private static async Task AddRuleBreaksCardAsync(
+        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT COUNT(*), MAX(e.game_id)
+            FROM evidence_items e
+            JOIN games g ON g.game_id = e.game_id
+            WHERE e.source_kind = '{EvidenceKinds.TimelineRegion}'
+              AND e.source_key = '{PatternConstants.RuleBreakSourceKey}'
+              AND e.status != 'dismissed'
+              AND EXISTS (
+                    SELECT 1 FROM session_log sl
+                    WHERE sl.game_id = e.game_id AND COALESCE(sl.rule_broken, 0) = 1)
+              AND {PatternGamePredicate}
+            """;
+        cmd.Parameters.AddWithValue("@windowStart", windowStart);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            var count = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetInt64(0));
+            var latestGameId = reader.IsDBNull(1) ? (long?)null : reader.GetInt64(1);
+            if (count >= PatternConstants.RuleBreakMinCount)
+            {
                 cards.Add(new ObjectivePatternCard(
-                    Kind: "bad_objective_evidence",
-                    Title: $"{title}: mostly bad examples",
-                    Detail: $"{badCount} of {total} linked evidence items are marked bad.",
-                    ObjectiveId: objectiveId,
-                    Severity: "medium"));
+                    Kind: PatternConstants.KindRuleBreaks,
+                    Title: "Breaking your own queue rules",
+                    Detail: $"You broke your own queue rules in {count} games "
+                        + $"in the last {PatternConstants.WindowDays} days.",
+                    GameId: latestGameId,
+                    Severity: count >= PatternConstants.RuleBreakHighCount ? "high" : "medium",
+                    MomentCount: count,
+                    GameCount: count));
             }
         }
+    }
 
-        using (var cmd = conn.CreateCommand())
+    private static async Task<(int Count, int Games, long? LatestGameId)> CountWindowedTitleAsync(
+        SqliteConnection conn, long windowStart, string comparison, string title)
+    {
+        // comparison is an internal constant ("=" or "LIKE"), never user input.
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT COUNT(*), COUNT(DISTINCT e.game_id), MAX(e.game_id)
+            FROM evidence_items e
+            JOIN games g ON g.game_id = e.game_id
+            WHERE e.status != 'dismissed'
+              AND e.title {comparison} @title
+              AND {PatternGamePredicate}
+            """;
+        cmd.Parameters.AddWithValue("@title", title);
+        cmd.Parameters.AddWithValue("@windowStart", windowStart);
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
         {
-            cmd.CommandText = $"""
-                SELECT e.game_id, COUNT(*) AS bad_count
-                FROM evidence_items e
-                LEFT JOIN games g ON g.game_id = e.game_id
-                LEFT JOIN session_log sl ON sl.game_id = e.game_id
-                WHERE e.matchup_note_id IS NOT NULL
-                  AND e.polarity = 'bad'
-                  AND e.status != 'dismissed'
-                  AND {UnreviewedEvidenceGamePredicate}
-                GROUP BY e.game_id
-                HAVING bad_count >= 2
-                ORDER BY bad_count DESC
-                LIMIT 2
-                """;
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                cards.Add(new ObjectivePatternCard(
-                    Kind: "negative_matchup_clips",
-                    Title: "Matchup notes have negative clips",
-                    Detail: $"{Convert.ToInt32(reader.GetInt64(1))} bad examples are attached to matchup evidence.",
-                    GameId: reader.GetInt64(0),
-                    Severity: "medium"));
-            }
+            return (
+                reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetInt64(0)),
+                reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetInt64(1)),
+                reader.IsDBNull(2) ? null : reader.GetInt64(2));
         }
-
-        return cards.Take(Math.Max(1, limit)).ToArray();
+        return (0, 0, null);
     }
 
     // ── Pattern Review viewer ───────────────────────────────────────────────
 
-    // Column projection shared by every pattern-moment query. Mirrors the joins
-    // GetPatternCardsAsync uses, plus vod_files for the recording path. Ordered
-    // oldest-first (by game time then in-game time) so the viewer walks the
-    // pattern chronologically across games.
+    // Column projection shared by every pattern-moment query, joined to the
+    // games row (INNER — the window predicate needs it; session_log is NOT
+    // joined here: game_id has no unique constraint there, so joining it was a
+    // latent row duplicator) plus vod_files (UNIQUE game_id) for the recording
+    // path. Ordered oldest-first (game time, then in-game time with start-less
+    // anchors last) so the viewer walks the pattern chronologically.
     private const string SelectPatternMomentSql = """
         SELECT e.id,
                e.game_id,
@@ -459,72 +727,126 @@ public sealed class EvidenceRepository : IEvidenceRepository
                COALESCE(e.note, ''),
                COALESCE(e.polarity, 'neutral'),
                COALESCE(e.source_kind, ''),
-               COALESCE(v.file_path, '')
+               COALESCE(v.file_path, ''),
+               COALESCE(e.created_at, 0)
         FROM evidence_items e
-        LEFT JOIN games g ON g.game_id = e.game_id
-        LEFT JOIN session_log sl ON sl.game_id = e.game_id
+        JOIN games g ON g.game_id = e.game_id
         LEFT JOIN vod_files v ON v.game_id = e.game_id
         """;
+
+    private const string PatternMomentOrderBy =
+        "ORDER BY g.timestamp ASC, COALESCE(e.start_time_s, 2147483647) ASC, e.id ASC";
 
     public async Task<IReadOnlyList<PatternMoment>> GetPatternMomentsAsync(ObjectivePatternCard pattern)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Parameters.AddWithValue("@windowStart", WindowStartUnixSeconds());
 
         // Each kind reuses the exact predicate from GetPatternCardsAsync so the
-        // moment list is precisely the rows the card counted.
+        // moment list is precisely the rows the card counted (pinned by tests:
+        // card.MomentCount == playlist length).
         switch (pattern.Kind)
         {
-            case "isolated_deaths":
+            case PatternConstants.KindDeathClassMix:
+            {
+                // Discriminator carries the class key; match the exact audit
+                // title (NOT source_key) so a moment the note flow promoted to a
+                // clip — which rewrites source_kind/source_key — stays listed.
+                var label = DeathClasses.LabelFor(pattern.Discriminator);
+                if (label.Length == 0) return Array.Empty<PatternMoment>();
                 cmd.CommandText = $"""
                     {SelectPatternMomentSql}
                     WHERE e.status != 'dismissed'
-                      AND e.title IN ('Death', 'Isolated death', 'First death')
-                      AND {UnreviewedEvidenceGamePredicate}
-                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                      AND e.title = @title
+                      AND {PatternGamePredicate}
+                    {PatternMomentOrderBy}
                     """;
+                cmd.Parameters.AddWithValue("@title", PatternConstants.DeathAuditTitle(label));
+                break;
+            }
+
+            case PatternConstants.KindGankDeaths:
+                cmd.CommandText = $"""
+                    {SelectPatternMomentSql}
+                    WHERE e.status != 'dismissed'
+                      AND e.title = @title
+                      AND {PatternGamePredicate}
+                    {PatternMomentOrderBy}
+                    """;
+                cmd.Parameters.AddWithValue("@title", PatternConstants.GankDeathTitle);
                 break;
 
-            case "lost_objective_fights":
+            case PatternConstants.KindLostObjectiveFights:
                 cmd.CommandText = $"""
                     {SelectPatternMomentSql}
                     WHERE e.status != 'dismissed'
                       AND e.title LIKE 'Lost % fight%'
-                      AND {UnreviewedEvidenceGamePredicate}
-                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                      AND {PatternGamePredicate}
+                    {PatternMomentOrderBy}
                     """;
                 break;
 
-            case "deaths_before_objectives":
+            case PatternConstants.KindDeathsBeforeObjectives:
                 cmd.CommandText = $"""
                     {SelectPatternMomentSql}
                     WHERE e.status != 'dismissed'
                       AND e.title LIKE 'Death before %'
-                      AND {UnreviewedEvidenceGamePredicate}
-                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                      AND {PatternGamePredicate}
+                    {PatternMomentOrderBy}
                     """;
                 break;
 
-            case "bad_objective_evidence":
+            case PatternConstants.KindBadObjectiveEvidence:
                 if (pattern.ObjectiveId is not long objId) return Array.Empty<PatternMoment>();
                 cmd.CommandText = $"""
                     {SelectPatternMomentSql}
                     WHERE e.objective_id = @objectiveId
+                      AND e.polarity = 'bad'
                       AND e.status != 'dismissed'
-                      AND {UnreviewedEvidenceGamePredicate}
-                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                      AND {PatternGamePredicate}
+                    {PatternMomentOrderBy}
                     """;
                 cmd.Parameters.AddWithValue("@objectiveId", objId);
                 break;
 
-            case "negative_matchup_clips":
+            case PatternConstants.KindRecurringConceptTag:
+            {
+                // Discriminator "tag{id}" → the anchor rows for that tag, gated
+                // on the LIVE game_concept_tags row (untagged games vanish from
+                // count and playlist symmetrically).
+                if (!pattern.Discriminator.StartsWith("tag", StringComparison.Ordinal)
+                    || !long.TryParse(pattern.Discriminator["tag".Length..], out var tagId))
+                {
+                    return Array.Empty<PatternMoment>();
+                }
                 cmd.CommandText = $"""
                     {SelectPatternMomentSql}
-                    WHERE e.matchup_note_id IS NOT NULL
-                      AND e.polarity = 'bad'
+                    WHERE e.source_kind = '{EvidenceKinds.TimelineRegion}'
+                      AND e.source_key = @sourceKey
                       AND e.status != 'dismissed'
-                      AND {UnreviewedEvidenceGamePredicate}
-                    ORDER BY g.timestamp ASC, e.start_time_s ASC
+                      AND EXISTS (
+                            SELECT 1 FROM game_concept_tags gct
+                            WHERE gct.game_id = e.game_id AND gct.tag_id = @tagId)
+                      AND {PatternGamePredicate}
+                    {PatternMomentOrderBy}
+                    """;
+                cmd.Parameters.AddWithValue("@sourceKey", PatternConstants.TagSourceKey(tagId));
+                cmd.Parameters.AddWithValue("@tagId", tagId);
+                break;
+            }
+
+            case PatternConstants.KindRuleBreaks:
+                cmd.CommandText = $"""
+                    {SelectPatternMomentSql}
+                    WHERE e.source_kind = '{EvidenceKinds.TimelineRegion}'
+                      AND e.source_key = '{PatternConstants.RuleBreakSourceKey}'
+                      AND e.status != 'dismissed'
+                      AND EXISTS (
+                            SELECT 1 FROM session_log sl
+                            WHERE sl.game_id = e.game_id AND COALESCE(sl.rule_broken, 0) = 1)
+                      AND {PatternGamePredicate}
+                    {PatternMomentOrderBy}
                     """;
                 break;
 
@@ -548,7 +870,8 @@ public sealed class EvidenceRepository : IEvidenceRepository
                 Note: reader.GetString(8),
                 Polarity: reader.GetString(9),
                 SourceKind: reader.GetString(10),
-                VodPath: reader.GetString(11)));
+                VodPath: reader.GetString(11),
+                CreatedAt: reader.GetInt64(12)));
         }
         return moments;
     }
@@ -581,40 +904,85 @@ public sealed class EvidenceRepository : IEvidenceRepository
         return result is null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
     }
 
-    public async Task<IReadOnlySet<string>> GetReviewedPatternKeysAsync()
+    public async Task<IReadOnlyDictionary<string, long>> GetReviewedPatternsAsync()
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT pattern_key FROM pattern_reviews";
-        var keys = new HashSet<string>(StringComparer.Ordinal);
+        cmd.CommandText = "SELECT pattern_key, COALESCE(reviewed_at, 0) FROM pattern_reviews";
+        var stamps = new Dictionary<string, long>(StringComparer.Ordinal);
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            if (!reader.IsDBNull(0)) keys.Add(reader.GetString(0));
+            if (!reader.IsDBNull(0)) stamps[reader.GetString(0)] = reader.GetInt64(1);
         }
-        return keys;
+        return stamps;
     }
 
-    private static async Task<(int Count, long? LatestGameId)> CountPlainDeathMomentsAsync(SqliteConnection conn)
+    // ── Pattern-evidence materializer support ───────────────────────────────
+
+    /// <summary>
+    /// Find a death-audit moment the note flow promoted to a clip:
+    /// AttachClipToEvidenceAsync rewrote source_kind/source_key (so the
+    /// death-audit source key no longer matches) but preserved the title, and the
+    /// clip window still contains the death second. Also matches a promoted row a
+    /// later CLEAR retitled to the plain cleared title, so re-classifying it
+    /// retitles in place instead of inserting a twin.
+    /// </summary>
+    public async Task<long?> FindPromotedDeathAuditAsync(long gameId, int gameTimeSeconds)
     {
+        using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
-            SELECT COUNT(*), MAX(e.game_id)
+            SELECT e.id
             FROM evidence_items e
-            LEFT JOIN games g ON g.game_id = e.game_id
-            LEFT JOIN session_log sl ON sl.game_id = e.game_id
-            WHERE e.status != 'dismissed'
-              AND e.title IN ('Death', 'Isolated death', 'First death')
-              AND {UnreviewedEvidenceGamePredicate}
+            WHERE e.game_id = @gameId
+              AND e.source_kind = '{EvidenceKinds.Clip}'
+              AND (e.title LIKE @auditPrefix OR e.title = @clearedTitle)
+              AND COALESCE(e.start_time_s, 2147483647) <= @timeS
+              AND COALESCE(e.end_time_s, -1) >= @timeS
+            LIMIT 1
             """;
-        using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
-        {
-            var latestGameId = reader.IsDBNull(1) ? (long?)null : reader.GetInt64(1);
-            return (reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetInt64(0)), latestGameId);
-        }
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        cmd.Parameters.AddWithValue("@auditPrefix", PatternConstants.DeathAuditTitlePrefix + "%");
+        cmd.Parameters.AddWithValue("@clearedTitle", PatternConstants.ClearedDeathAuditTitle);
+        cmd.Parameters.AddWithValue("@timeS", gameTimeSeconds);
+        var result = await cmd.ExecuteScalarAsync();
+        return result is null or DBNull ? null : Convert.ToInt64(result);
+    }
 
-        return (0, null);
+    public async Task UpdateTitleAsync(long evidenceId, string title)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE evidence_items
+            SET title = @title,
+                updated_at = @updatedAt
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@title", title ?? "");
+        cmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("@id", evidenceId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// Delete the evidence row addressed by its dedupe identity. Returns rows
+    /// affected — 0 when no such row exists (e.g. it was promoted to a clip and
+    /// rekeyed, which deliberately protects the user's clip from deletion).
+    /// </summary>
+    public async Task<int> DeleteBySourceKeyAsync(long gameId, string sourceKind, string sourceKey)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM evidence_items
+            WHERE game_id = @gameId AND source_kind = @sourceKind AND source_key = @sourceKey
+            """;
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        cmd.Parameters.AddWithValue("@sourceKind", sourceKind);
+        cmd.Parameters.AddWithValue("@sourceKey", sourceKey);
+        return await cmd.ExecuteNonQueryAsync();
     }
 
     private async Task UpdateScalarAsync(long evidenceId, string columnName, string value)
@@ -636,29 +1004,6 @@ public sealed class EvidenceRepository : IEvidenceRepository
         cmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("@id", evidenceId);
         await cmd.ExecuteNonQueryAsync();
-    }
-
-    private static async Task<(int Count, long? LatestGameId)> CountTitleLikeAsync(SqliteConnection conn, string pattern)
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"""
-            SELECT COUNT(*), MAX(e.game_id)
-            FROM evidence_items e
-            LEFT JOIN games g ON g.game_id = e.game_id
-            LEFT JOIN session_log sl ON sl.game_id = e.game_id
-            WHERE e.status != 'dismissed'
-              AND e.title LIKE @pattern
-              AND {UnreviewedEvidenceGamePredicate}
-            """;
-        cmd.Parameters.AddWithValue("@pattern", pattern);
-        using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
-        {
-            var latestGameId = reader.IsDBNull(1) ? (long?)null : reader.GetInt64(1);
-            return (reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetInt64(0)), latestGameId);
-        }
-
-        return (0, null);
     }
 
     private static void BindUpsert(

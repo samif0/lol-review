@@ -186,6 +186,15 @@ public interface IGameWriter
     /// <summary>v3.2 (schema v11): mark a game processed by the map-state pass
     /// at the given analyzer version.</summary>
     Task UpdateMapStateVersionAsync(long gameId, int version);
+
+    /// <summary>v3.5 (schema v13): game_ids in the pattern window not yet
+    /// processed by the pattern-evidence materializer at the given version.
+    /// Excludes hidden + casual games; newest first.</summary>
+    Task<IReadOnlyList<long>> GetPatternEvidenceBackfillIdsAsync(
+        int currentVersion, int windowDays = Constants.PatternConstants.WindowDays);
+
+    /// <summary>v3.5 (schema v13): mark a game processed by the pattern-evidence pass.</summary>
+    Task UpdatePatternEvidenceVersionAsync(long gameId, int version);
 }
 
 /// <summary>Read model for game history and review queues.</summary>

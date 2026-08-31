@@ -316,13 +316,19 @@ public sealed class DashboardSnapshotBuilder
         try
         {
             var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: 6);
-            var reviewedKeys = await _evidenceRepo.GetReviewedPatternKeysAsync();
+            var reviewedStamps = await _evidenceRepo.GetReviewedPatternsAsync();
             var reviewedCount = await _evidenceRepo.CountReviewedPatternsAsync();
 
-            var pending = rawPatterns
-                .Where(p => !reviewedKeys.Contains(p.PatternKey))
-                .Take(PatternsTake)
-                .Select(p => new ObjectivePatternItemDto(
+            // Same reviewed/re-arm rule the Patterns page applies
+            // (PatternReviewGate over the card's moments — ≤6 cheap local
+            // reads), so the nag and the page can never disagree.
+            var pending = new List<ObjectivePatternItemDto>();
+            foreach (var p in rawPatterns)
+            {
+                if (pending.Count >= PatternsTake) break;
+                var moments = await _evidenceRepo.GetPatternMomentsAsync(p);
+                if (PatternReviewGate.IsReviewed(reviewedStamps, p.PatternKey, moments)) continue;
+                pending.Add(new ObjectivePatternItemDto(
                     Kind: p.Kind,
                     Title: p.Title,
                     Detail: p.Detail,
@@ -330,15 +336,15 @@ public sealed class DashboardSnapshotBuilder
                     ObjectiveId: p.ObjectiveId,
                     Severity: p.Severity,
                     // Severity "high" -> negative red, else gold (mirrors AccentBrush).
-                    AccentHex: p.Severity == "high" ? LossHex : GoldHex))
-                .ToList();
+                    AccentHex: p.Severity == "high" ? LossHex : GoldHex));
+            }
 
             var sub = reviewedCount == 0 ? "NONE YET" : "CROSS-GAME";
             return (reviewedCount, sub, new PatternsDto(Has: pending.Count > 0, Items: pending));
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Dashboard: objective pattern load failed");
+            _logger.LogWarning(ex, "Dashboard: objective pattern load failed");
             // Reviewed count couldn't be read; degrade the nag to empty but keep
             // the sub coherent ("NONE YET" since we report 0).
             return (0, "NONE YET", new PatternsDto(Has: false, Items: Array.Empty<ObjectivePatternItemDto>()));

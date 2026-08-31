@@ -289,15 +289,25 @@ public sealed record ObjectivePatternCard(
     string Detail,
     long? GameId = null,
     long? ObjectiveId = null,
-    string Severity = "medium")
+    string Severity = "medium",
+    // Discriminator for kinds that surface one card per signal value (e.g.
+    // "greed" for death_class_mix:greed, "tag12" for recurring_concept_tag).
+    // "" for global kinds; objective-scoped kinds keep the legacy :objN scheme.
+    string Discriminator = "",
+    // Moment/game counts the card query computed — must equal the playlist
+    // GetPatternMomentsAsync returns for this card (pinned by tests).
+    int MomentCount = 0,
+    int GameCount = 0)
 {
     /// <summary>
     /// Stable identity of this pattern for review-tracking. Kind alone for
-    /// game/global patterns; kind + objective id for objective-scoped ones so
-    /// two objectives with the same kind don't collide.
+    /// game/global patterns; kind + objective id for objective-scoped ones;
+    /// kind + discriminator for per-signal kinds. Legacy keys are unchanged.
     /// </summary>
     public string PatternKey =>
-        ObjectiveId is long oid ? $"{Kind}:obj{oid}" : Kind;
+        ObjectiveId is long oid ? $"{Kind}:obj{oid}"
+        : Discriminator.Length > 0 ? $"{Kind}:{Discriminator}"
+        : Kind;
 }
 
 /// <summary>
@@ -317,4 +327,7 @@ public sealed record PatternMoment(
     string Note,
     string Polarity,
     string SourceKind,
-    string VodPath);
+    string VodPath,
+    // evidence_items.created_at (unix seconds, 0 when unset) — compared against
+    // pattern_reviews.reviewed_at by PatternReviewGate for the re-arm rule.
+    long CreatedAt = 0);

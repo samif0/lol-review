@@ -338,6 +338,12 @@ function render(d) {
   _data = d;
   clearError();
 
+  // A backend failure arrives as errorText on an otherwise-valid snapshot (the
+  // sidecar still answers 200) — surface it instead of a clean empty state.
+  if (d && d.errorText) {
+    renderError(new Error(d.errorText));
+  }
+
   // Seed each moment's local clip flag from the snapshot so Save never re-clips a
   // moment that's already a saved clip (mirrors the VM's HasClip seed at load).
   for (const p of patterns()) {
@@ -351,8 +357,10 @@ function render(d) {
     renderHeader(d);
     renderPicker();
     show($('pat-main'), false);
+    // A load failure shows the error panel INSTEAD of the "no patterns yet"
+    // copy — the two must never claim the empty state simultaneously.
     const empty = $('pat-empty');
-    show(empty, true);
+    show(empty, !(d && d.errorText));
     if (d.emptyText) $('pat-empty-h').textContent = d.emptyText;
     playEntrance();
     return;
@@ -466,8 +474,10 @@ async function flushMomentNote(moment, text) {
       vodPath: moment.vodPath || '',
       title: moment.title || '',
       polarity: moment.polarity || 'neutral',
-      startTimeS: moment.startTimeSeconds != null ? moment.startTimeSeconds : 0,
-      endTimeS: moment.endTimeSeconds != null ? moment.endTimeSeconds : 0,
+      // null (NOT 0) for a start-less game-level moment — the server's clip
+      // branch requires a real start so it never extracts a garbage 0:00 clip.
+      startTimeS: moment.startTimeSeconds != null ? moment.startTimeSeconds : null,
+      endTimeS: moment.endTimeSeconds != null ? moment.endTimeSeconds : null,
       alreadyClipped: !!moment._clipped,
     };
     const res = await invoke('save_pattern_moment_note', { payload });

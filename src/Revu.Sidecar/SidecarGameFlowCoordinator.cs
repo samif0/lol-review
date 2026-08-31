@@ -209,6 +209,19 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                     }
                 }
 
+                // v3.5: produce this game's pattern evidence (inferred regions,
+                // gank deaths, review-signal anchors) while the events are fresh
+                // — the write that keeps the Patterns page fed. Best-effort: a
+                // failure leaves the game unstamped for the startup backfill.
+                try
+                {
+                    await _write.PatternMaterializer.MaterializeForGameAsync(gameId).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Pattern-evidence materialization failed for game {GameId}", gameId);
+                }
+
                 _logger.LogInformation("Live game captured + saved: game {GameId} ({Champ})", gameId, stats.ChampionName);
                 _eventHub.Publish("gameEnded", new
                 {
