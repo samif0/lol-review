@@ -86,11 +86,19 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
 
         // (a) Pattern-relevant inferred regions, selected by structured Kind —
         // never by parsing display names (name-parsing is how the old reader and
-        // writer drifted apart).
+        // writer drifted apart). The promoted-twin probe keeps re-materialization
+        // (crash-recovery backfill, a future Version bump) from re-inserting a
+        // moment the note flow promoted — the promotion rekeys the row out from
+        // under its source key, so source-key dedupe alone can't see it.
         foreach (var region in TimelineInferenceService.Infer(events))
         {
             if (region.Kind is not (PatternRegionKinds.LostObjectiveFight
                 or PatternRegionKinds.DeathBeforeObjective))
+            {
+                continue;
+            }
+            if (await _evidence.FindPromotedTwinAsync(
+                    gameId, region.Name, region.StartTimeSeconds, region.EndTimeSeconds) is not null)
             {
                 continue;
             }
@@ -109,11 +117,18 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
         }
 
         // (b) Jungle-gank deaths (Details.jungle_gank stamped at capture by
-        // JungleGankClassifier — fully automatic, zero user input).
+        // JungleGankClassifier — fully automatic, zero user input). Same
+        // promoted-twin guard as (a).
         foreach (var e in events)
         {
             if (!string.Equals(e.EventType, GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase)
                 || !ReadDetailsBool(e.Details, "jungle_gank"))
+            {
+                continue;
+            }
+            var startS = Math.Max(0, e.GameTimeS - PatternConstants.DeathMomentLeadSeconds);
+            var endS = e.GameTimeS + PatternConstants.DeathMomentTrailSeconds;
+            if (await _evidence.FindPromotedTwinAsync(gameId, PatternConstants.GankDeathTitle, startS, endS) is not null)
             {
                 continue;
             }
@@ -122,18 +137,33 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
                 SourceKind: EvidenceKinds.TimelineRegion,
                 SourceId: null,
                 SourceKey: PatternConstants.GankDeathSourceKey(e.GameTimeS),
-                StartTimeSeconds: Math.Max(0, e.GameTimeS - PatternConstants.DeathMomentLeadSeconds),
-                EndTimeSeconds: e.GameTimeS + PatternConstants.DeathMomentTrailSeconds,
+                StartTimeSeconds: startS,
+                EndTimeSeconds: endS,
                 Title: PatternConstants.GankDeathTitle,
                 Polarity: EvidencePolarities.Bad,
                 Status: EvidenceStatuses.Evidence));
         }
 
         // (c) Already-classified deaths (the backfill path; live classifications
-        // arrive through UpsertClassifiedDeathAsync from the endpoint hook).
-        foreach (var dc in await _deathClassifications.GetForGameAsync(gameId))
+        // arrive through UpsertClassifiedDeathAsync from the endpoint hook) —
+        // plus reconciliation: an un-promoted audit row whose classification is
+        // gone (e.g. a clear whose mirror write failed) is removed, so the
+        // backfill heals the ledger in both directions.
+        var classifications = await _deathClassifications.GetForGameAsync(gameId);
+        foreach (var dc in classifications)
         {
             await UpsertClassifiedDeathAsync(gameId, dc.GameTimeSeconds, dc.DeathClass);
+        }
+        var classifiedSeconds = classifications.Select(static dc => dc.GameTimeSeconds).ToHashSet();
+        foreach (var row in await _evidence.GetForGameAsync(gameId, includeDismissed: true))
+        {
+            if (row.SourceKind == EvidenceKinds.TimelineRegion
+                && row.SourceKey.StartsWith(PatternConstants.DeathAuditSourceKeyPrefix, StringComparison.Ordinal)
+                && int.TryParse(row.SourceKey[PatternConstants.DeathAuditSourceKeyPrefix.Length..], out var t)
+                && !classifiedSeconds.Contains(t))
+            {
+                await ClearClassifiedDeathAsync(gameId, t);
+            }
         }
 
         // (d) Game-level review signals (negative tags, rule break).
@@ -175,10 +205,22 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
 
     public async Task ClearClassifiedDeathAsync(long gameId, int gameTimeSeconds)
     {
-        var deleted = await _evidence.DeleteBySourceKeyAsync(
-            gameId, EvidenceKinds.TimelineRegion, PatternConstants.DeathAuditSourceKey(gameTimeSeconds));
-        if (deleted > 0)
+        // A user note can land on an UN-promoted audit row too (the note flow
+        // saves notes even when there's no VOD to clip) — a noted row is
+        // retitled out of the counts instead of deleted, same as a promoted one.
+        var sourceKey = PatternConstants.DeathAuditSourceKey(gameTimeSeconds);
+        var keyed = (await _evidence.GetForGameAsync(gameId, includeDismissed: true))
+            .FirstOrDefault(r => r.SourceKind == EvidenceKinds.TimelineRegion && r.SourceKey == sourceKey);
+        if (keyed is not null)
         {
+            if (string.IsNullOrWhiteSpace(keyed.Note))
+            {
+                await _evidence.DeleteBySourceKeyAsync(gameId, EvidenceKinds.TimelineRegion, sourceKey);
+            }
+            else
+            {
+                await _evidence.UpdateTitleAsync(keyed.Id, PatternConstants.ClearedDeathAuditTitle);
+            }
             return;
         }
 

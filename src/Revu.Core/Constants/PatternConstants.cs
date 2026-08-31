@@ -45,6 +45,14 @@ public static class PatternConstants
     /// <summary>Max cards in a patterns snapshot (severity-then-count ordered).</summary>
     public const int PatternCardLimit = 6;
 
+    /// <summary>
+    /// Candidate fetch size for the snapshot builders — every card the seven
+    /// detectors can emit (at most 11 under their per-kind limits), so the
+    /// review gate runs over the FULL candidate set and a reviewed-closed card
+    /// can never crowd a pending one out of the display cap.
+    /// </summary>
+    public const int PatternCandidateLimit = 12;
+
     // ── Per-kind thresholds ─────────────────────────────────────────────────
     // All counts are within the window. "Share" thresholds divide by a window
     // denominator so heavy weeks don't spuriously fire and light weeks still can.

@@ -126,6 +126,43 @@ public sealed class PatternsSnapshotContractTests
     }
 
     [Fact]
+    public async Task BuildAsync_PendingCardsRankAheadOfReviewedOnes()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var games = await SeedRuleBreaksAsync(scope);
+
+        // Also arm gank_deaths (severity HIGH — the repo orders it ahead of the
+        // medium rule_breaks card) and mark IT reviewed.
+        foreach (var (game, t) in new[] { (games[0], 300), (games[0], 700), (games[1], 400) })
+        {
+            await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+                GameId: game,
+                SourceKind: EvidenceKinds.TimelineRegion,
+                SourceId: null,
+                SourceKey: PatternConstants.GankDeathSourceKey(t),
+                StartTimeSeconds: t - PatternConstants.DeathMomentLeadSeconds,
+                EndTimeSeconds: t + PatternConstants.DeathMomentTrailSeconds,
+                Title: PatternConstants.GankDeathTitle,
+                Polarity: EvidencePolarities.Bad,
+                Status: EvidenceStatuses.Evidence));
+        }
+        await scope.Evidence.MarkPatternReviewedAsync(
+            PatternConstants.KindGankDeaths, PatternConstants.KindGankDeaths, 3);
+
+        var snapshot = await Builder(scope).BuildAsync();
+
+        // The pending rule_breaks card leads despite lower severity; the
+        // reviewed gank card follows instead of consuming a leading slot.
+        Assert.Equal(2, snapshot.Patterns.Count);
+        Assert.Equal(PatternConstants.KindRuleBreaks, snapshot.Patterns[0].Kind);
+        Assert.False(snapshot.Patterns[0].IsReviewed);
+        Assert.Equal(PatternConstants.KindGankDeaths, snapshot.Patterns[1].Kind);
+        Assert.True(snapshot.Patterns[1].IsReviewed);
+        Assert.Equal(1, snapshot.PendingCount);
+    }
+
+    [Fact]
     public async Task BuildAsync_EmptyDatabase_TellsTheTruthAboutHowPatternsBuild()
     {
         using var scope = new SidecarWriteScope();
@@ -181,6 +218,7 @@ public sealed class PatternsSnapshotContractTests
         public Task<int> CountReviewedPatternsAsync() => throw Boom();
         public Task<IReadOnlyDictionary<string, long>> GetReviewedPatternsAsync() => throw Boom();
         public Task<long?> FindPromotedDeathAuditAsync(long gameId, int gameTimeSeconds) => throw Boom();
+        public Task<long?> FindPromotedTwinAsync(long gameId, string title, int startTimeSeconds, int endTimeSeconds) => throw Boom();
         public Task UpdateTitleAsync(long evidenceId, string title) => throw Boom();
         public Task<int> DeleteBySourceKeyAsync(long gameId, string sourceKind, string sourceKey) => throw Boom();
     }

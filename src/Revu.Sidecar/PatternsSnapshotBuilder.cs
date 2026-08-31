@@ -75,7 +75,10 @@ public sealed class PatternsSnapshotBuilder
 
         try
         {
-            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: PatternCardLimit);
+            // Fetch the FULL candidate set so the review gate runs before the
+            // display cap — a reviewed-closed card must never crowd a pending
+            // one out of the page.
+            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: PatternConstants.PatternCandidateLimit);
             var reviewedStamps = await _evidenceRepo.GetReviewedPatternsAsync();
             reviewedCount = await _evidenceRepo.CountReviewedPatternsAsync();
 
@@ -123,7 +126,15 @@ public sealed class PatternsSnapshotBuilder
             errorText = "Couldn't load patterns from the local database. See the sidecar log for details.";
         }
 
+        // Honest counts over the full candidate set; the DISPLAY list is then
+        // capped pending-first (stable within each group — the repo already
+        // ordered by severity then volume).
         var pendingCount = cards.Count(c => !c.IsReviewed);
+        cards = cards
+            .Where(c => !c.IsReviewed)
+            .Concat(cards.Where(c => c.IsReviewed))
+            .Take(PatternCardLimit)
+            .ToList();
 
         return new PatternsSnapshotDto(
             GeneratedAt: now.ToString("yyyy-MM-ddTHH:mm:ss"),

@@ -923,13 +923,17 @@ public sealed class EvidenceRepository : IEvidenceRepository
     /// <summary>
     /// Find a death-audit moment the note flow promoted to a clip:
     /// AttachClipToEvidenceAsync rewrote source_kind/source_key (so the
-    /// death-audit source key no longer matches) but preserved the title, and the
-    /// clip window still contains the death second. Also matches a promoted row a
-    /// later CLEAR retitled to the plain cleared title, so re-classifying it
-    /// retitles in place instead of inserting a twin.
+    /// death-audit source key no longer matches) but preserved the title AND the
+    /// moment's exact window (the note endpoint clips a real start/end range
+    /// verbatim). The EXACT window match is the row's identity — containment
+    /// matching could adopt a neighbouring death's clip when two deaths fall
+    /// within one 14s window. Also matches a promoted row a later CLEAR retitled
+    /// to the plain cleared title, so re-classifying retitles in place.
     /// </summary>
     public async Task<long?> FindPromotedDeathAuditAsync(long gameId, int gameTimeSeconds)
     {
+        var startS = Math.Max(0, gameTimeSeconds - PatternConstants.DeathMomentLeadSeconds);
+        var endS = gameTimeSeconds + PatternConstants.DeathMomentTrailSeconds;
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
@@ -938,14 +942,47 @@ public sealed class EvidenceRepository : IEvidenceRepository
             WHERE e.game_id = @gameId
               AND e.source_kind = '{EvidenceKinds.Clip}'
               AND (e.title LIKE @auditPrefix OR e.title = @clearedTitle)
-              AND COALESCE(e.start_time_s, 2147483647) <= @timeS
-              AND COALESCE(e.end_time_s, -1) >= @timeS
+              AND e.start_time_s = @startS
+              AND e.end_time_s = @endS
+            ORDER BY e.id
             LIMIT 1
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
         cmd.Parameters.AddWithValue("@auditPrefix", PatternConstants.DeathAuditTitlePrefix + "%");
         cmd.Parameters.AddWithValue("@clearedTitle", PatternConstants.ClearedDeathAuditTitle);
-        cmd.Parameters.AddWithValue("@timeS", gameTimeSeconds);
+        cmd.Parameters.AddWithValue("@startS", startS);
+        cmd.Parameters.AddWithValue("@endS", endS);
+        var result = await cmd.ExecuteScalarAsync();
+        return result is null or DBNull ? null : Convert.ToInt64(result);
+    }
+
+    /// <summary>
+    /// Find a promoted twin of a materialized moment: a clip-promoted row with
+    /// the same title and the EXACT original window. Guards the region/gank
+    /// upserts against re-materialization duplicating a moment the user promoted
+    /// (the rekey moves it out from under its source key, but the note endpoint
+    /// clips the moment's own start/end verbatim, so title + exact window is a
+    /// stable identity).
+    /// </summary>
+    public async Task<long?> FindPromotedTwinAsync(long gameId, string title, int startTimeSeconds, int endTimeSeconds)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT e.id
+            FROM evidence_items e
+            WHERE e.game_id = @gameId
+              AND e.source_kind = '{EvidenceKinds.Clip}'
+              AND e.title = @title
+              AND e.start_time_s = @startS
+              AND e.end_time_s = @endS
+            ORDER BY e.id
+            LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        cmd.Parameters.AddWithValue("@title", title);
+        cmd.Parameters.AddWithValue("@startS", startTimeSeconds);
+        cmd.Parameters.AddWithValue("@endS", endTimeSeconds);
         var result = await cmd.ExecuteScalarAsync();
         return result is null or DBNull ? null : Convert.ToInt64(result);
     }

@@ -315,7 +315,10 @@ public sealed class DashboardSnapshotBuilder
     {
         try
         {
-            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: 6);
+            // Full candidate set, so reviewed-closed cards can't crowd pending
+            // ones out of the nag (the gate below decides, not the fetch cap).
+            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(
+                limit: Revu.Core.Constants.PatternConstants.PatternCandidateLimit);
             var reviewedStamps = await _evidenceRepo.GetReviewedPatternsAsync();
             var reviewedCount = await _evidenceRepo.CountReviewedPatternsAsync();
 

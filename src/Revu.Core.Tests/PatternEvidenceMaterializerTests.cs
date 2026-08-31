@@ -184,6 +184,131 @@ public sealed class PatternEvidenceMaterializerTests
     }
 
     [Fact]
+    public async Task MaterializeForGame_DoesNotDuplicateAPromotedGankOrRegionMoment()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var materializer = Create(scope, new DeathClassificationsRepository(scope.ConnectionFactory));
+
+        var gameId = await SeedRankedGameAsync(scope, 7321);
+        await scope.GameEvents.SaveEventsAsync(gameId, new[]
+        {
+            Ev(gameId, GameEvent.EventTypes.Death, 400, "{\"jungle_gank\":true}"),
+            Ev(gameId, GameEvent.EventTypes.Death, 890),
+            Ev(gameId, GameEvent.EventTypes.Dragon, 900),
+            Ev(gameId, GameEvent.EventTypes.Death, 905),
+        });
+        await materializer.MaterializeForGameAsync(gameId);
+        var rows = await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true);
+        Assert.Equal(2, rows.Count);
+
+        // The user notes both moments → the note flow promotes them to clips,
+        // rewriting source_kind/source_key but clipping the moment's EXACT
+        // original window (the note endpoint passes start/end verbatim).
+        foreach (var row in rows)
+        {
+            var bookmarkId = await scope.Vod.AddBookmarkAsync(
+                gameId, row.StartTimeSeconds!.Value, "noted",
+                clipStartSeconds: row.StartTimeSeconds, clipEndSeconds: row.EndTimeSeconds,
+                clipPath: @"C:\clips\x.mp4");
+            await scope.Evidence.AttachClipToEvidenceAsync(
+                row.Id, bookmarkId, row.StartTimeSeconds!.Value, row.EndTimeSeconds!.Value);
+        }
+
+        // Crash-recovery / version-bump path: the game is re-queued and
+        // re-materialized. The promoted-twin guard must not re-insert either
+        // moment under its original source key — that would double-count both
+        // in the title-keyed detectors.
+        await scope.Games.UpdatePatternEvidenceVersionAsync(gameId, 0);
+        await materializer.MaterializeForGameAsync(gameId);
+
+        var after = await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true);
+        Assert.Equal(2, after.Count);
+        Assert.All(after, r => Assert.Equal(EvidenceKinds.Clip, r.SourceKind));
+    }
+
+    [Fact]
+    public async Task ClassifiedDeath_AdjacentDeaths_NeverHijackEachOthersPromotedClip()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var deathClassifications = new DeathClassificationsRepository(scope.ConnectionFactory);
+        var materializer = Create(scope, deathClassifications);
+
+        var gameId = await SeedRankedGameAsync(scope, 7322);
+
+        // Death A at 100, classified + promoted; its clip window (94..108)
+        // CONTAINS death B's second (104).
+        await deathClassifications.UpsertAsync(gameId, 100, DeathClasses.Greed);
+        await materializer.UpsertClassifiedDeathAsync(gameId, 100, DeathClasses.Greed);
+        var rowA = Assert.Single(await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true));
+        var bookmarkId = await scope.Vod.AddBookmarkAsync(
+            gameId, 94, "noted", clipStartSeconds: 94, clipEndSeconds: 108, clipPath: @"C:\clips\a.mp4");
+        await scope.Evidence.AttachClipToEvidenceAsync(rowA.Id, bookmarkId, 94, 108);
+
+        // Classifying death B (its own window 98..112) must create B's OWN row,
+        // not adopt and retitle A's promoted clip.
+        await deathClassifications.UpsertAsync(gameId, 104, DeathClasses.Vision);
+        await materializer.UpsertClassifiedDeathAsync(gameId, 104, DeathClasses.Vision);
+
+        var rows = await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true);
+        Assert.Equal(2, rows.Count);
+        var promotedA = Assert.Single(rows, r => r.Id == rowA.Id);
+        Assert.Equal("Death: GREED", promotedA.Title);
+        Assert.Single(rows, r => r.Title == "Death: VISION"
+            && r.SourceKey == PatternConstants.DeathAuditSourceKey(104));
+    }
+
+    [Fact]
+    public async Task ClearClassifiedDeath_PreservesANotedUnpromotedRow()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var materializer = Create(scope, new DeathClassificationsRepository(scope.ConnectionFactory));
+
+        var gameId = await SeedRankedGameAsync(scope, 7323);
+        await materializer.UpsertClassifiedDeathAsync(gameId, 380, DeathClasses.Greed);
+        var row = Assert.Single(await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true));
+
+        // The note flow saves notes even when there is no VOD to clip — the row
+        // stays un-promoted but carries user writing.
+        await scope.Evidence.UpdateNoteAsync(row.Id, "I keep doing this after winning a trade");
+
+        await materializer.ClearClassifiedDeathAsync(gameId, 380);
+
+        // The noted row is retitled out of every count, not deleted.
+        var kept = Assert.Single(await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true));
+        Assert.Equal(row.Id, kept.Id);
+        Assert.Equal(PatternConstants.ClearedDeathAuditTitle, kept.Title);
+        Assert.Equal("I keep doing this after winning a trade", kept.Note);
+    }
+
+    [Fact]
+    public async Task MaterializeForGame_RemovesOrphanedAuditRows_WhoseClassificationIsGone()
+    {
+        // A clear whose evidence mirror write failed leaves a stale audit row on
+        // a game the endpoint then un-stamps; the next backfill run must
+        // reconcile it away so death_class_mix counts stay truthful.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var deathClassifications = new DeathClassificationsRepository(scope.ConnectionFactory);
+        var materializer = Create(scope, deathClassifications);
+
+        var gameId = await SeedRankedGameAsync(scope, 7324);
+        await deathClassifications.UpsertAsync(gameId, 380, DeathClasses.Greed);
+        await materializer.UpsertClassifiedDeathAsync(gameId, 380, DeathClasses.Greed);
+
+        // Simulate the failed mirror: the classification is cleared but the
+        // evidence row survived.
+        await deathClassifications.ClearAsync(gameId, 380);
+        Assert.Single(await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true));
+
+        await materializer.MaterializeForGameAsync(gameId);
+
+        Assert.Empty(await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true));
+    }
+
+    [Fact]
     public async Task ReviewSignals_AnchorNegativeTagsAndRuleBreaksOnly()
     {
         using var scope = new TestDatabaseScope();

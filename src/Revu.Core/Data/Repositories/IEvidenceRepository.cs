@@ -65,9 +65,14 @@ public interface IEvidenceRepository
     // ── Pattern-evidence materializer support ───────────────────────────────
 
     /// <summary>A death-audit moment that was promoted to a clip (source key
-    /// rewritten, title preserved) whose clip window contains the death second;
-    /// null when none. Lets re-classify/clear retitle in place.</summary>
+    /// rewritten; title and exact window preserved) for the death at this
+    /// second; null when none. Lets re-classify/clear retitle in place.</summary>
     Task<long?> FindPromotedDeathAuditAsync(long gameId, int gameTimeSeconds);
+
+    /// <summary>A clip-promoted twin of a materialized moment (same title +
+    /// exact original window); null when none. Guards re-materialization from
+    /// duplicating promoted region/gank moments.</summary>
+    Task<long?> FindPromotedTwinAsync(long gameId, string title, int startTimeSeconds, int endTimeSeconds);
 
     /// <summary>Rewrite an evidence row's title (detection keys off title).</summary>
     Task UpdateTitleAsync(long evidenceId, string title);
