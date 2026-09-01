@@ -1,6 +1,5 @@
 #nullable enable
 
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Revu.Core.Constants;
 using Revu.Core.Data.Repositories;
@@ -9,36 +8,31 @@ using Revu.Core.Models;
 namespace Revu.Core.Services;
 
 /// <summary>
-/// Produces the evidence rows the pattern detectors count. This is the bridge
-/// the WinUI→Tauri migration severed: the old VOD player ran
-/// <see cref="TimelineInferenceService"/> and upserted its regions as evidence;
-/// when that ViewModel was deleted nothing wrote pattern-qualifying rows again
-/// and the Patterns page went permanently empty. The materializer restores the
-/// bridge — automatically at game end, incrementally from the death-classify
-/// and review-save endpoints, and via a windowed startup backfill for games
-/// already in the DB.
+/// Produces the evidence rows the objective-driven pattern detectors count:
+/// one anchor per tracked-event occurrence (<c>objev:{TOKEN}:{t}</c>, matching
+/// the ObjectiveEventTieResolver semantics the timeline and auto-clipper use)
+/// and one anchor per failed structured criterion per game
+/// (<c>objcrit:{objectiveId}</c>). Runs automatically at game end, after a
+/// review save, and via a windowed startup backfill for games already in the
+/// DB (stamped per game in games.pattern_evidence_v).
+///
+/// <para>
+/// Version 2 (v3.6): patterns became objective-only. Materialization also
+/// CLEANS UP the retired v3.5 rows (gank deaths, death audits, tag anchors,
+/// rule breaks, inferred regions) — except anything the user noted or promoted
+/// to a clip, which is preserved.
+/// </para>
 /// </summary>
 public interface IPatternEvidenceMaterializer
 {
-    /// <summary>Materialize one game's pattern evidence (regions, gank deaths,
-    /// classified deaths, review signals) and stamp games.pattern_evidence_v.</summary>
+    /// <summary>Materialize one game's pattern evidence (tracked-event anchors,
+    /// failed-criterion anchors, retired-row cleanup) and stamp
+    /// games.pattern_evidence_v.</summary>
     Task MaterializeForGameAsync(long gameId);
 
-    /// <summary>Upsert the death-audit moment for one classified death (called
-    /// from POST /api/death/classify after the classification row is written).
-    /// Re-classifying retitles in place — including a moment the note flow
-    /// already promoted to a clip. Unknown class keys are ignored.</summary>
-    Task UpsertClassifiedDeathAsync(long gameId, int gameTimeSeconds, string deathClassKey);
-
-    /// <summary>Remove the death-audit moment for a cleared classification. An
-    /// un-promoted row is deleted; a promoted row (the user kept a clip + note)
-    /// is retitled to the neutral cleared title so it leaves every count but the
-    /// clip survives.</summary>
-    Task ClearClassifiedDeathAsync(long gameId, int gameTimeSeconds);
-
-    /// <summary>Materialize the game-level review-signal anchors (negative
-    /// concept tags, rule break) — called after a review save, and as part of
-    /// <see cref="MaterializeForGameAsync"/>.</summary>
+    /// <summary>Refresh the game's failed-criterion anchors (called after a
+    /// review save, whose objective practices can change criteria outcomes;
+    /// also part of <see cref="MaterializeForGameAsync"/>).</summary>
     Task MaterializeReviewSignalsAsync(long gameId);
 
     /// <summary>Materialize every window game not yet stamped at
@@ -51,228 +45,119 @@ public interface IPatternEvidenceMaterializer
 public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
 {
     /// <summary>Bump to re-queue every window game for the backfill (the exact
-    /// MapStateAnalyzer.Version contract).</summary>
-    public const int Version = 1;
+    /// MapStateAnalyzer.Version contract). v2 = objective-only anchors + retired-row cleanup.</summary>
+    public const int Version = 2;
 
     private readonly IGameEventsRepository _gameEvents;
     private readonly IEvidenceRepository _evidence;
-    private readonly IDeathClassificationsRepository _deathClassifications;
-    private readonly IConceptTagRepository _conceptTags;
-    private readonly ISessionLogRepository _sessionLog;
+    private readonly IObjectivesRepository _objectives;
     private readonly IGameRepository _games;
     private readonly ILogger<PatternEvidenceMaterializer> _logger;
 
     public PatternEvidenceMaterializer(
         IGameEventsRepository gameEvents,
         IEvidenceRepository evidence,
-        IDeathClassificationsRepository deathClassifications,
-        IConceptTagRepository conceptTags,
-        ISessionLogRepository sessionLog,
+        IObjectivesRepository objectives,
         IGameRepository games,
         ILogger<PatternEvidenceMaterializer> logger)
     {
         _gameEvents = gameEvents;
         _evidence = evidence;
-        _deathClassifications = deathClassifications;
-        _conceptTags = conceptTags;
-        _sessionLog = sessionLog;
+        _objectives = objectives;
         _games = games;
         _logger = logger;
     }
 
     public async Task MaterializeForGameAsync(long gameId)
     {
-        var events = await _gameEvents.GetEventsAsync(gameId);
-
-        // (a) Pattern-relevant inferred regions, selected by structured Kind —
-        // never by parsing display names (name-parsing is how the old reader and
-        // writer drifted apart). The promoted-twin probe keeps re-materialization
-        // (crash-recovery backfill, a future Version bump) from re-inserting a
-        // moment the note flow promoted — the promotion rekeys the row out from
-        // under its source key, so source-key dedupe alone can't see it.
-        foreach (var region in TimelineInferenceService.Infer(events))
-        {
-            if (region.Kind is not (PatternRegionKinds.LostObjectiveFight
-                or PatternRegionKinds.DeathBeforeObjective))
-            {
-                continue;
-            }
-            if (await _evidence.FindPromotedTwinAsync(
-                    gameId, region.Name, region.StartTimeSeconds, region.EndTimeSeconds) is not null)
-            {
-                continue;
-            }
-            await _evidence.UpsertAsync(new EvidenceUpsert(
-                GameId: gameId,
-                SourceKind: EvidenceKinds.TimelineRegion,
-                SourceId: null,
-                SourceKey: region.SourceKey,
-                StartTimeSeconds: region.StartTimeSeconds,
-                EndTimeSeconds: region.EndTimeSeconds,
-                Title: region.Name,
-                Polarity: EvidencePolarities.Bad,
-                // 'evidence', not 'needs_review': materialized rows must never
-                // flood the review queue's pending count.
-                Status: EvidenceStatuses.Evidence));
-        }
-
-        // (b) Jungle-gank deaths (Details.jungle_gank stamped at capture by
-        // JungleGankClassifier — fully automatic, zero user input). Same
-        // promoted-twin guard as (a).
-        foreach (var e in events)
-        {
-            if (!string.Equals(e.EventType, GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase)
-                || !ReadDetailsBool(e.Details, "jungle_gank"))
-            {
-                continue;
-            }
-            var startS = Math.Max(0, e.GameTimeS - PatternConstants.DeathMomentLeadSeconds);
-            var endS = e.GameTimeS + PatternConstants.DeathMomentTrailSeconds;
-            if (await _evidence.FindPromotedTwinAsync(gameId, PatternConstants.GankDeathTitle, startS, endS) is not null)
-            {
-                continue;
-            }
-            await _evidence.UpsertAsync(new EvidenceUpsert(
-                GameId: gameId,
-                SourceKind: EvidenceKinds.TimelineRegion,
-                SourceId: null,
-                SourceKey: PatternConstants.GankDeathSourceKey(e.GameTimeS),
-                StartTimeSeconds: startS,
-                EndTimeSeconds: endS,
-                Title: PatternConstants.GankDeathTitle,
-                Polarity: EvidencePolarities.Bad,
-                Status: EvidenceStatuses.Evidence));
-        }
-
-        // (c) Already-classified deaths (the backfill path; live classifications
-        // arrive through UpsertClassifiedDeathAsync from the endpoint hook) —
-        // plus reconciliation: an un-promoted audit row whose classification is
-        // gone (e.g. a clear whose mirror write failed) is removed, so the
-        // backfill heals the ledger in both directions.
-        var classifications = await _deathClassifications.GetForGameAsync(gameId);
-        foreach (var dc in classifications)
-        {
-            await UpsertClassifiedDeathAsync(gameId, dc.GameTimeSeconds, dc.DeathClass);
-        }
-        var classifiedSeconds = classifications.Select(static dc => dc.GameTimeSeconds).ToHashSet();
-        foreach (var row in await _evidence.GetForGameAsync(gameId, includeDismissed: true))
-        {
-            if (row.SourceKind == EvidenceKinds.TimelineRegion
-                && row.SourceKey.StartsWith(PatternConstants.DeathAuditSourceKeyPrefix, StringComparison.Ordinal)
-                && int.TryParse(row.SourceKey[PatternConstants.DeathAuditSourceKeyPrefix.Length..], out var t)
-                && !classifiedSeconds.Contains(t))
-            {
-                await ClearClassifiedDeathAsync(gameId, t);
-            }
-        }
-
-        // (d) Game-level review signals (negative tags, rule break).
+        await CleanupRetiredRowsAsync(gameId);
+        await MaterializeTrackedEventAnchorsAsync(gameId);
         await MaterializeReviewSignalsAsync(gameId);
-
         await _games.UpdatePatternEvidenceVersionAsync(gameId, Version);
     }
 
-    public async Task UpsertClassifiedDeathAsync(long gameId, int gameTimeSeconds, string deathClassKey)
+    /// <summary>
+    /// One anchor per (tracked token, event second), for tokens any ACTIVE
+    /// objective tracks — tie semantics via ObjectiveEventTieResolver.EventTokens
+    /// so patterns match exactly what the objective timeline highlights. When
+    /// TEAMFIGHT is tracked, one anchor per combat CLUSTER (≥3 combat events
+    /// chained within 14s), not per member event.
+    /// </summary>
+    private async Task MaterializeTrackedEventAnchorsAsync(long gameId)
     {
-        var label = DeathClasses.LabelFor(deathClassKey);
-        if (label.Length == 0)
+        var ties = await _objectives.GetActiveObjectiveEventTokensAsync();
+        if (ties.Count == 0)
         {
-            return; // unknown/empty class — don't invent a title no detector matches
+            return;
         }
-        var title = PatternConstants.DeathAuditTitle(label);
-
-        // A moment the note flow promoted to a clip was rekeyed (source_key ->
-        // clip:{bookmarkId}), so the source-key upsert below would insert a twin.
-        // Retitle the promoted row in place instead — the user's clip and note
-        // stay attached to the (re)classified death.
-        if (await _evidence.FindPromotedDeathAuditAsync(gameId, gameTimeSeconds) is long promotedId)
+        var trackedTokens = new HashSet<string>(
+            ties.Select(static t => PatternConstants.Canonical(t.Token)).Where(static t => t.Length > 0),
+            StringComparer.Ordinal);
+        if (trackedTokens.Count == 0)
         {
-            await _evidence.UpdateTitleAsync(promotedId, title);
             return;
         }
 
-        await _evidence.UpsertAsync(new EvidenceUpsert(
-            GameId: gameId,
-            SourceKind: EvidenceKinds.TimelineRegion,
-            SourceId: null,
-            SourceKey: PatternConstants.DeathAuditSourceKey(gameTimeSeconds),
-            StartTimeSeconds: Math.Max(0, gameTimeSeconds - PatternConstants.DeathMomentLeadSeconds),
-            EndTimeSeconds: gameTimeSeconds + PatternConstants.DeathMomentTrailSeconds,
-            Title: title,
-            Polarity: EvidencePolarities.Bad,
-            Status: EvidenceStatuses.Evidence));
-    }
+        var events = await _gameEvents.GetEventsAsync(gameId);
 
-    public async Task ClearClassifiedDeathAsync(long gameId, int gameTimeSeconds)
-    {
-        // A user note can land on an UN-promoted audit row too (the note flow
-        // saves notes even when there's no VOD to clip) — a noted row is
-        // retitled out of the counts instead of deleted, same as a promoted one.
-        var sourceKey = PatternConstants.DeathAuditSourceKey(gameTimeSeconds);
-        var keyed = (await _evidence.GetForGameAsync(gameId, includeDismissed: true))
-            .FirstOrDefault(r => r.SourceKind == EvidenceKinds.TimelineRegion && r.SourceKey == sourceKey);
-        if (keyed is not null)
+        foreach (var e in events)
         {
-            if (string.IsNullOrWhiteSpace(keyed.Note))
+            foreach (var rawToken in ObjectiveEventTieResolver.EventTokens(e))
             {
-                await _evidence.DeleteBySourceKeyAsync(gameId, EvidenceKinds.TimelineRegion, sourceKey);
+                var token = PatternConstants.Canonical(rawToken);
+                if (!trackedTokens.Contains(token))
+                {
+                    continue;
+                }
+                await UpsertAnchorAsync(
+                    gameId,
+                    sourceKey: PatternConstants.ObjEventSourceKey(token, e.GameTimeS),
+                    title: PatternConstants.TokenLabel(token),
+                    startS: Math.Max(0, e.GameTimeS - PatternConstants.MomentLeadSeconds),
+                    endS: e.GameTimeS + PatternConstants.MomentTrailSeconds,
+                    polarity: PolarityFor(token));
             }
-            else
-            {
-                await _evidence.UpdateTitleAsync(keyed.Id, PatternConstants.ClearedDeathAuditTitle);
-            }
-            return;
         }
 
-        // Promoted to a clip: keep the user's clip + note, retitle it out of the
-        // death-class counts.
-        if (await _evidence.FindPromotedDeathAuditAsync(gameId, gameTimeSeconds) is long promotedId)
+        if (trackedTokens.Contains(GameEvent.TrackableTokens.TeamfightToken))
         {
-            await _evidence.UpdateTitleAsync(promotedId, PatternConstants.ClearedDeathAuditTitle);
+            foreach (var (start, end) in TeamfightClusters(events))
+            {
+                await UpsertAnchorAsync(
+                    gameId,
+                    sourceKey: PatternConstants.ObjEventSourceKey(GameEvent.TrackableTokens.TeamfightToken, start),
+                    title: PatternConstants.TokenLabel(GameEvent.TrackableTokens.TeamfightToken),
+                    startS: Math.Max(0, start - PatternConstants.TeamfightLeadSeconds),
+                    endS: end + PatternConstants.TeamfightTrailSeconds,
+                    polarity: EvidencePolarities.Neutral);
+            }
         }
     }
 
     public async Task MaterializeReviewSignalsAsync(long gameId)
     {
-        // Negative concept tags on the game -> one start-less anchor row per tag.
-        // The detectors additionally EXISTS-join the live game_concept_tags row,
-        // so an anchor left behind by an untag drops out of every count/playlist
+        // One start-less anchor per objective whose structured criterion failed
+        // for this game. The detectors additionally EXISTS-gate on the live
+        // game_objectives row, so a later re-evaluation that passes (or
+        // archiving the objective) drops the anchor from every count/playlist
         // without needing a delete here.
-        var tagIds = await _conceptTags.GetIdsForGameAsync(gameId);
-        if (tagIds.Count > 0)
+        foreach (var go in await _objectives.GetGameObjectivesAsync(gameId))
         {
-            var negativeTags = (await _conceptTags.GetAllAsync())
-                .Where(static t => string.Equals(t.Polarity, "negative", StringComparison.OrdinalIgnoreCase))
-                .Where(t => tagIds.Contains(t.Id));
-            foreach (var tag in negativeTags)
+            if (go.CriteriaMet != 0)
             {
-                await _evidence.UpsertAsync(new EvidenceUpsert(
-                    GameId: gameId,
-                    SourceKind: EvidenceKinds.TimelineRegion,
-                    SourceId: null,
-                    SourceKey: PatternConstants.TagSourceKey(tag.Id),
-                    StartTimeSeconds: null,
-                    EndTimeSeconds: null,
-                    Title: tag.Name,
-                    Polarity: EvidencePolarities.Bad,
-                    Status: EvidenceStatuses.Evidence));
+                continue; // passed (1) or never evaluated (null)
             }
-        }
-
-        // Rule break -> one anchor per game (same live-signal EXISTS shape:
-        // clearing a false positive drops it from counts without a delete).
-        var entry = await _sessionLog.GetEntryAsync(gameId);
-        if (entry is { RuleBroken: > 0 })
-        {
             await _evidence.UpsertAsync(new EvidenceUpsert(
                 GameId: gameId,
                 SourceKind: EvidenceKinds.TimelineRegion,
                 SourceId: null,
-                SourceKey: PatternConstants.RuleBreakSourceKey,
+                SourceKey: PatternConstants.ObjCritSourceKey(go.ObjectiveId),
                 StartTimeSeconds: null,
                 EndTimeSeconds: null,
-                Title: PatternConstants.RuleBreakTitle,
+                Title: PatternConstants.ObjCritTitle(string.IsNullOrWhiteSpace(go.Title) ? "objective" : go.Title),
                 Polarity: EvidencePolarities.Bad,
+                // 'evidence', not 'needs_review': materialized rows must never
+                // flood the review queue's pending count.
                 Status: EvidenceStatuses.Evidence));
         }
     }
@@ -304,23 +189,105 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
         return done;
     }
 
-    // Tolerant Details JSON probe (malformed details are skipped, never thrown).
-    private static bool ReadDetailsBool(string? detailsJson, string key)
+    /// <summary>
+    /// Remove this game's retired v3.5 materialized rows (they fed detectors
+    /// that no longer exist and would otherwise linger in the per-game evidence
+    /// list). Preserved: rows carrying a user note, and rows promoted to clips
+    /// (those are source_kind 'clip' now and never match the retired keys).
+    /// </summary>
+    private async Task CleanupRetiredRowsAsync(long gameId)
     {
-        if (string.IsNullOrWhiteSpace(detailsJson) || detailsJson == "{}")
+        foreach (var row in await _evidence.GetForGameAsync(gameId, includeDismissed: true))
         {
-            return false;
-        }
-        try
-        {
-            using var doc = JsonDocument.Parse(detailsJson);
-            return doc.RootElement.ValueKind == JsonValueKind.Object
-                && doc.RootElement.TryGetProperty(key, out var v)
-                && v.ValueKind == JsonValueKind.True;
-        }
-        catch (JsonException)
-        {
-            return false;
+            if (row.SourceKind != EvidenceKinds.TimelineRegion
+                || !string.IsNullOrWhiteSpace(row.Note)
+                || !IsRetiredSourceKey(row.SourceKey))
+            {
+                continue;
+            }
+            await _evidence.DeleteBySourceKeyAsync(gameId, EvidenceKinds.TimelineRegion, row.SourceKey);
         }
     }
+
+    private static bool IsRetiredSourceKey(string sourceKey)
+    {
+        if (PatternConstants.RetiredSourceKeys.Contains(sourceKey, StringComparer.Ordinal))
+        {
+            return true;
+        }
+        foreach (var prefix in PatternConstants.RetiredSourceKeyPrefixes)
+        {
+            if (sourceKey.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Anchor upsert with the promoted-twin guard: a moment the note
+    /// flow promoted to a clip was rekeyed out from under its source key (title
+    /// and exact window preserved), so a re-run must not re-insert it.</summary>
+    private async Task UpsertAnchorAsync(
+        long gameId, string sourceKey, string title, int startS, int endS, string polarity)
+    {
+        if (await _evidence.FindPromotedTwinAsync(gameId, title, startS, endS) is not null)
+        {
+            return;
+        }
+        await _evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId,
+            SourceKind: EvidenceKinds.TimelineRegion,
+            SourceId: null,
+            SourceKey: sourceKey,
+            StartTimeSeconds: startS,
+            EndTimeSeconds: endS,
+            Title: title,
+            Polarity: polarity,
+            Status: EvidenceStatuses.Evidence));
+    }
+
+    // Deaths (and their derived gank/fog attributes) read as bad; everything
+    // else a player might track (kills, objectives, trades, casts) is neutral —
+    // recurrence is the signal, not blame.
+    private static string PolarityFor(string token) => token switch
+    {
+        GameEvent.EventTypes.Death => EvidencePolarities.Bad,
+        GameEvent.TrackableTokens.JungleGankToken => EvidencePolarities.Bad,
+        GameEvent.TrackableTokens.FogDeathToken => EvidencePolarities.Bad,
+        _ => EvidencePolarities.Neutral,
+    };
+
+    /// <summary>Combat clusters per the teamfight membership rule the tie
+    /// resolver applies (≥3 combat events, consecutive gaps ≤14s, t&gt;0).</summary>
+    private static IEnumerable<(int Start, int End)> TeamfightClusters(IReadOnlyList<GameEvent> events)
+    {
+        var combat = events
+            .Where(static e => IsCombat(e.EventType) && e.GameTimeS > 0)
+            .Select(static e => e.GameTimeS)
+            .OrderBy(static t => t)
+            .ToList();
+
+        var i = 0;
+        while (i < combat.Count)
+        {
+            var j = i;
+            while (j + 1 < combat.Count && combat[j + 1] - combat[j] <= PatternConstants.TeamfightGapSeconds)
+            {
+                j++;
+            }
+            if (j - i + 1 >= PatternConstants.TeamfightMinEvents)
+            {
+                yield return (combat[i], combat[j]);
+            }
+            i = j + 1;
+        }
+    }
+
+    private static bool IsCombat(string eventType) =>
+        eventType.Equals(GameEvent.EventTypes.Kill, StringComparison.OrdinalIgnoreCase)
+        || eventType.Equals(GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase)
+        || eventType.Equals(GameEvent.EventTypes.Assist, StringComparison.OrdinalIgnoreCase)
+        || eventType.Equals(GameEvent.EventTypes.FirstBlood, StringComparison.OrdinalIgnoreCase)
+        || eventType.Equals(GameEvent.EventTypes.MultiKill, StringComparison.OrdinalIgnoreCase);
 }

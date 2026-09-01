@@ -8,10 +8,10 @@
   "windowDays": 14,
   "patterns": [
     {
-      "patternKey": "death_class_mix:greed",
-      "kind": "death_class_mix",
-      "title": "Deaths to GREED",
-      "detail": "5 GREED deaths across 3 games — 42% of your classified deaths in the last 14 days. Overstayed — wave, tower dive, one more trade.",
+      "patternKey": "objective_events:obj3:JUNGLE_GANK",
+      "kind": "objective_events",
+      "title": "Punish ganks with vision: recurring Died to Gank",
+      "detail": "6 Died to Gank moments across 4 games in the last 14 days — tracked by ‘Punish ganks with vision’.",
       "gameId": null,
       "objectiveId": null,
       "severity": "high",
@@ -190,10 +190,10 @@
       "newMomentCount": 0
     },
     {
-      "patternKey": "gank_deaths",
-      "kind": "gank_deaths",
-      "title": "Dying to jungle ganks",
-      "detail": "3 laning-phase deaths to the enemy jungler across 2 games in the last 14 days.",
+      "patternKey": "objective_criteria:obj5",
+      "kind": "objective_criteria",
+      "title": "CS 7+/min by 10: criterion keeps failing",
+      "detail": "Missed the ‘CS 7+/min by 10’ criterion in 4 of 6 evaluated games in the last 14 days.",
       "gameId": null,
       "objectiveId": null,
       "severity": "low",
