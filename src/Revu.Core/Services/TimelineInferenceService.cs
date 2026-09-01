@@ -11,7 +11,12 @@ public sealed record InferredTimelineRegion(
     int EndTimeSeconds,
     string Color,
     string Tooltip,
-    int Priority);
+    int Priority,
+    // Structured pattern kind (Revu.Core.Constants.PatternRegionKinds), "" for
+    // regions no pattern detector consumes. The PatternEvidenceMaterializer
+    // selects regions by THIS, never by parsing Name — display wording can
+    // change without silently zeroing a detector.
+    string Kind = "");
 
 public static class TimelineInferenceService
 {
@@ -94,6 +99,7 @@ public static class TimelineInferenceService
                 SourceKey: BuildSourceKey("objective", objectiveLabel, Math.Max(0, start - 4), end + 6),
                 StartTimeSeconds: Math.Max(0, start - 4),
                 EndTimeSeconds: end + 6,
+                Kind: outcome == "Lost" ? Constants.PatternRegionKinds.LostObjectiveFight : "",
                 Color: objective.EventType.Equals(GameEvent.EventTypes.Baron, StringComparison.OrdinalIgnoreCase)
                     ? "#8b5cf6"
                     : "#c89b3c",
@@ -143,7 +149,8 @@ public static class TimelineInferenceService
                 EndTimeSeconds: end,
                 Color: "#D38C90",
                 Tooltip: $"{name}: player death {objective.GameTimeS - death.GameTimeS}s before {objectiveLabel.ToLowerInvariant()}",
-                Priority: 70);
+                Priority: 70,
+                Kind: Constants.PatternRegionKinds.DeathBeforeObjective);
         }
     }
 

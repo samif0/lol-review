@@ -1,7 +1,9 @@
 #nullable enable
 
 using Microsoft.Extensions.Logging;
+using Revu.Core.Constants;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Services;
 
 namespace Revu.Sidecar;
 
@@ -69,17 +71,28 @@ public sealed class PatternsSnapshotBuilder
 
         var cards = new List<PatternCardDto>();
         var reviewedCount = 0;
+        var errorText = "";
 
         try
         {
-            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: PatternCardLimit);
-            var reviewedKeys = await _evidenceRepo.GetReviewedPatternKeysAsync();
+            // Fetch the FULL candidate set so the review gate runs before the
+            // display cap — a reviewed-closed card must never crowd a pending
+            // one out of the page.
+            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: PatternConstants.PatternCandidateLimit);
+            var reviewedStamps = await _evidenceRepo.GetReviewedPatternsAsync();
             reviewedCount = await _evidenceRepo.CountReviewedPatternsAsync();
 
             foreach (var pattern in rawPatterns)
             {
-                var isReviewed = reviewedKeys.Contains(pattern.PatternKey);
-                var moments = await BuildMomentsAsync(pattern);
+                var rawMoments = await LoadMomentsAsync(pattern);
+                var moments = MapMoments(rawMoments);
+
+                // Reviewed with re-arm hysteresis (PatternReviewGate) — the ONE
+                // rule the dashboard nag also applies, so page and nag agree.
+                var isReviewed = PatternReviewGate.IsReviewed(reviewedStamps, pattern.PatternKey, rawMoments);
+                var newMoments = isReviewed
+                    ? 0
+                    : PatternReviewGate.NewMomentCount(reviewedStamps, pattern.PatternKey, rawMoments);
 
                 var distinctGames = moments.Select(m => m.GameId).Distinct().Count();
                 var momentCount = moments.Count;
@@ -101,25 +114,41 @@ public sealed class PatternsSnapshotBuilder
                     Subtitle: BuildSubtitle(momentCount, distinctGames),
                     // Carry-forward note write is DEFERRED — display-only placeholder.
                     CarryForwardNote: "",
-                    Moments: moments));
+                    Moments: moments,
+                    NewMomentCount: newMoments));
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Patterns: pattern-card load failed");
+            // A backend failure must not masquerade as "no patterns yet" — log
+            // loud and surface it so the page renders its error panel.
+            _logger.LogError(ex, "Patterns: pattern-card load failed");
+            errorText = "Couldn't load patterns from the local database. See the sidecar log for details.";
         }
 
+        // Honest counts over the full candidate set; the DISPLAY list is then
+        // capped pending-first (stable within each group — the repo already
+        // ordered by severity then volume).
         var pendingCount = cards.Count(c => !c.IsReviewed);
+        cards = cards
+            .Where(c => !c.IsReviewed)
+            .Concat(cards.Where(c => c.IsReviewed))
+            .Take(PatternCardLimit)
+            .ToList();
 
         return new PatternsSnapshotDto(
             GeneratedAt: now.ToString("yyyy-MM-ddTHH:mm:ss"),
             ReviewedPatternCount: reviewedCount,
             HasPending: pendingCount > 0,
             PendingCount: pendingCount,
-            EmptyText: cards.Count == 0
-                ? "No cross-game patterns yet; keep tagging evidence and they'll surface here."
+            EmptyText: cards.Count == 0 && errorText.Length == 0
+                ? $"No recurring patterns in your last {PatternConstants.WindowDays} days of ranked games. "
+                  + "They build as you play and review — deaths you classify, jungle ganks, "
+                  + "lost objective fights, clips you mark bad, negative tags, and rule breaks."
                 : "",
-            Patterns: cards);
+            Patterns: cards,
+            ErrorText: errorText,
+            WindowDays: PatternConstants.WindowDays);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -127,23 +156,26 @@ public sealed class PatternsSnapshotBuilder
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Resolve one pattern's ordered (oldest-first) moments into display DTOs.
-    /// Degrades to an empty playlist on failure so a single bad pattern never
-    /// blanks the page.
+    /// Resolve one pattern's ordered (oldest-first) raw moments. Degrades to an
+    /// empty playlist on failure so a single bad pattern never blanks the page.
     /// </summary>
-    private async Task<IReadOnlyList<PatternMomentDto>> BuildMomentsAsync(ObjectivePatternCard pattern)
+    private async Task<IReadOnlyList<PatternMoment>> LoadMomentsAsync(ObjectivePatternCard pattern)
     {
         try
         {
-            var moments = await _evidenceRepo.GetPatternMomentsAsync(pattern);
-            var ordinal = 0;
-            return moments.Select(m => MapMoment(m, ++ordinal)).ToList();
+            return await _evidenceRepo.GetPatternMomentsAsync(pattern);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Patterns: moment load failed for {Kind}", pattern.Kind);
-            return Array.Empty<PatternMomentDto>();
+            _logger.LogWarning(ex, "Patterns: moment load failed for {Kind}", pattern.Kind);
+            return Array.Empty<PatternMoment>();
         }
+    }
+
+    private static IReadOnlyList<PatternMomentDto> MapMoments(IReadOnlyList<PatternMoment> moments)
+    {
+        var ordinal = 0;
+        return moments.Select(m => MapMoment(m, ++ordinal)).ToList();
     }
 
     /// <summary>Mirror of PatternReviewViewModel.PatternSubtitle.</summary>
@@ -167,9 +199,12 @@ public sealed class PatternsSnapshotBuilder
         var note = m.Note ?? "";
         var polarity = m.Polarity;
 
-        var startS = m.StartTimeSeconds ?? 0;
-        var timeLabel = FormatTime(startS);
-        var videoHeaderText = $"{championLabel} · {resultLabel} · {timeLabel}";
+        // A start-less moment (game-level anchor: recurring tag, rule break) has
+        // no in-game second — render no time rather than a fabricated "0:00".
+        var timeLabel = m.StartTimeSeconds is int startS ? FormatTime(startS) : "";
+        var videoHeaderText = timeLabel.Length > 0
+            ? $"{championLabel} · {resultLabel} · {timeLabel}"
+            : $"{championLabel} · {resultLabel}";
 
         return new PatternMomentDto(
             EvidenceId: m.EvidenceId,

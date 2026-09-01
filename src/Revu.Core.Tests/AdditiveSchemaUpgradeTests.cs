@@ -91,6 +91,40 @@ public sealed class AdditiveSchemaUpgradeTests
         Assert.False(old.WithCoach);
     }
 
+    /// <summary>
+    /// v13 (pattern evidence): a DB last migrated at v12 must gain the
+    /// games.pattern_evidence_v backfill-marker column and record version 13.
+    /// (The column can't be un-ALTERed here, so this pins the version advance +
+    /// duplicate-column tolerance + the column being usable.)
+    /// </summary>
+    [Fact]
+    public async Task ApplyAdditiveSchemaAsync_BringsV12DatabaseToV13()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        using (var conn = scope.OpenConnection())
+        {
+            await Exec(conn,
+                "INSERT INTO schema_metadata (key, value, updated_at) VALUES ('app_schema_version','12',0) "
+                + "ON CONFLICT(key) DO UPDATE SET value='12'");
+        }
+
+        await scope.Initializer.ApplyAdditiveSchemaAsync();
+
+        using (var conn = scope.OpenConnection())
+        {
+            using var versionCmd = conn.CreateCommand();
+            versionCmd.CommandText = "SELECT value FROM schema_metadata WHERE key='app_schema_version'";
+            Assert.Equal(Schema.CurrentAppSchemaVersion.ToString(), (string?)await versionCmd.ExecuteScalarAsync());
+
+            // The backfill-marker column exists and defaults to NULL (= queued).
+            using var colCmd = conn.CreateCommand();
+            colCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('games') WHERE name='pattern_evidence_v'";
+            Assert.Equal(1L, await colCmd.ExecuteScalarAsync());
+        }
+    }
+
     [Fact]
     public async Task ApplyAdditiveSchemaAsync_IsIdempotent_PreservesExistingData()
     {

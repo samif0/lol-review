@@ -88,6 +88,12 @@ public sealed class WriteServices : IDisposable
         // The review save — the big transactional multi-table write.
         services.AddSingleton<IReviewWorkflowService, ReviewWorkflowService>();
 
+        // v3.5: pattern-evidence materializer — writes the evidence rows the
+        // pattern detectors count (inferred regions, gank deaths, death audits,
+        // review-signal anchors). Hooked at game end, death classify/clear,
+        // review save, and the startup window backfill.
+        services.AddSingleton<IPatternEvidenceMaterializer, PatternEvidenceMaterializer>();
+
         // ── Live game-end capture (Batch 5 / LCU) ─────────────────────────────
         // The hosted GameMonitorService captures end-of-game stats and fires a
         // GameEndedMessage; the SidecarGameFlowCoordinator runs the SAME game-save
@@ -218,6 +224,10 @@ public sealed class WriteServices : IDisposable
     // pre-game practiced objectives and evaluates structured criteria — the exact
     // workflow the WinUI ShellViewModel invoked. Bound to the WRITE graph.
     public IGameLifecycleWorkflowService GameLifecycle => _provider.GetRequiredService<IGameLifecycleWorkflowService>();
+
+    // v3.5: pattern-evidence materializer (game-end hook, death classify/clear,
+    // review-save signals, startup window backfill).
+    public IPatternEvidenceMaterializer PatternMaterializer => _provider.GetRequiredService<IPatternEvidenceMaterializer>();
 
     public SessionBackupGuard BackupGuard => _provider.GetRequiredService<SessionBackupGuard>();
 

@@ -55,6 +55,29 @@ public interface IEvidenceRepository
     /// <summary>Count of distinct patterns the user has marked reviewed.</summary>
     Task<int> CountReviewedPatternsAsync();
 
-    /// <summary>The pattern keys already reviewed, so the dashboard nag can hide them.</summary>
-    Task<IReadOnlySet<string>> GetReviewedPatternKeysAsync();
+    /// <summary>
+    /// pattern_key → reviewed_at (unix seconds) for every reviewed pattern.
+    /// reviewed_at is the re-arm watermark: PatternReviewGate treats a pattern
+    /// with enough moments NEWER than its stamp as pending again.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, long>> GetReviewedPatternsAsync();
+
+    // ── Pattern-evidence materializer support ───────────────────────────────
+
+    /// <summary>A death-audit moment that was promoted to a clip (source key
+    /// rewritten; title and exact window preserved) for the death at this
+    /// second; null when none. Lets re-classify/clear retitle in place.</summary>
+    Task<long?> FindPromotedDeathAuditAsync(long gameId, int gameTimeSeconds);
+
+    /// <summary>A clip-promoted twin of a materialized moment (same title +
+    /// exact original window); null when none. Guards re-materialization from
+    /// duplicating promoted region/gank moments.</summary>
+    Task<long?> FindPromotedTwinAsync(long gameId, string title, int startTimeSeconds, int endTimeSeconds);
+
+    /// <summary>Rewrite an evidence row's title (detection keys off title).</summary>
+    Task UpdateTitleAsync(long evidenceId, string title);
+
+    /// <summary>Delete by dedupe identity; returns rows affected (0 when the
+    /// row was promoted/rekeyed — the user's clip survives).</summary>
+    Task<int> DeleteBySourceKeyAsync(long gameId, string sourceKind, string sourceKey);
 }

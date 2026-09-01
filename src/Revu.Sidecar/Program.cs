@@ -311,6 +311,36 @@ try
             migrateLogger.CreateLogger("Startup").LogWarning(
                 reconcileEx, "Back-catalog PUUID reconcile skipped (non-fatal)");
         }
+
+        // v3.5: pattern-evidence window backfill — materialize the pattern-
+        // feeding evidence rows for window games not yet stamped at the current
+        // materializer version (games.pattern_evidence_v, map_state_v shape).
+        // Restores the Patterns page for DBs that predate the materializer, and
+        // lights the dashboard nag without the Patterns page ever opening.
+        // Fire-and-forget so a large window never delays startup; idempotent and
+        // self-healing (a mid-pass crash leaves games unstamped for next launch).
+        // GET /api/patterns itself stays strictly read-only.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var w = app.Services.GetRequiredService<WriteServices>();
+                // Only trip the one-time session backup when there is actual
+                // work — an every-launch backup would rotate the 3-slot safety
+                // pool on quiet starts.
+                var pending = await w.Games.GetPatternEvidenceBackfillIdsAsync(
+                    Revu.Core.Services.PatternEvidenceMaterializer.Version);
+                if (pending.Count == 0) return;
+                await w.BackupGuard.EnsureBackedUpAsync();
+                await w.PatternMaterializer.BackfillWindowAsync();
+            }
+            catch (Exception backfillEx)
+            {
+                app.Services.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("Startup")
+                    .LogError(backfillEx, "Pattern-evidence window backfill failed at startup");
+            }
+        });
     }
     else
     {
@@ -1048,6 +1078,15 @@ app.MapPost("/api/review/save", async (SaveReviewBody body, WriteServices w, ILo
     var result = await w.ReviewWorkflow.SaveAsync(request, ct);
     if (!result.Success)
         return Results.Json(new { ok = false, error = result.ErrorMessage }, jsonOptions, statusCode: 422);
+    // v3.5: reviewing FEEDS patterns now — anchor the game's negative concept
+    // tags + rule break into the pattern-evidence ledger (best-effort; on
+    // failure un-stamp so the next startup backfill re-materializes the game).
+    try { await w.PatternMaterializer.MaterializeReviewSignalsAsync(body.GameId); }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Review-signal materialization failed for game {GameId}", body.GameId);
+        try { await w.Games.UpdatePatternEvidenceVersionAsync(body.GameId, 0); } catch { /* same outage; next launch retries */ }
+    }
     log.LogInformation("Review saved for game {GameId}", body.GameId);
     return Results.Json(new { ok = true, savedEnemyLaner = result.SavedEnemyLaner }, jsonOptions);
 });
@@ -1485,6 +1524,16 @@ app.MapPost("/api/death/classify", async (DeathClassifyBody body, WriteServices 
         return Results.BadRequest(new { error = "gameId and key required" });
     await w.BackupGuard.EnsureBackedUpAsync();
     await w.DeathClassifications.UpsertAsync(body.GameId, body.TimeS, body.Key.Trim());
+    // v3.5: mirror the classification into the pattern-evidence ledger so the
+    // death_class_mix detector counts it (best-effort; classification stands).
+    // On failure, un-stamp the game so the next startup backfill reconciles it
+    // — without this, a stamped game's failed mirror write would never heal.
+    try { await w.PatternMaterializer.UpsertClassifiedDeathAsync(body.GameId, body.TimeS, body.Key.Trim()); }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Death-audit evidence upsert failed for game {GameId}", body.GameId);
+        try { await w.Games.UpdatePatternEvidenceVersionAsync(body.GameId, 0); } catch { /* same outage; next launch retries */ }
+    }
     log.LogInformation("Death classified: game {GameId} @{TimeS}s -> {Key}", body.GameId, body.TimeS, body.Key);
     return Results.Json(new { ok = true }, jsonOptions);
 });
@@ -1496,6 +1545,16 @@ app.MapPost("/api/death/clear", async (DeathClearBody body, WriteServices w, ILo
         return Results.BadRequest(new { error = "gameId required" });
     await w.BackupGuard.EnsureBackedUpAsync();
     await w.DeathClassifications.ClearAsync(body.GameId, body.TimeS);
+    // v3.5: drop (or neutralize, when promoted/noted) the mirrored death-audit
+    // evidence row so the death_class_mix counts stay truthful. On failure,
+    // un-stamp the game — the backfill's orphan reconciliation removes the
+    // stale row on the next launch.
+    try { await w.PatternMaterializer.ClearClassifiedDeathAsync(body.GameId, body.TimeS); }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Death-audit evidence clear failed for game {GameId}", body.GameId);
+        try { await w.Games.UpdatePatternEvidenceVersionAsync(body.GameId, 0); } catch { /* same outage; next launch retries */ }
+    }
     log.LogInformation("Death classification cleared: game {GameId} @{TimeS}s", body.GameId, body.TimeS);
     return Results.Json(new { ok = true }, jsonOptions);
 });
@@ -1734,10 +1793,13 @@ app.MapPost("/api/pattern/mark-reviewed", async (MarkPatternReviewedBody body, W
     var kind = (body.Kind ?? "").Trim();
     var momentCount = body.MomentCount ?? 0;
 
-    // Resolve kind/momentCount from the live cards if the frontend didn't send them.
+    // Resolve kind/momentCount from the live cards if the frontend didn't send
+    // them (full candidate set — the pattern may sit beyond the display cap).
     if (kind.Length == 0 || body.MomentCount is null)
     {
-        var card = (await w.Evidence.GetPatternCardsAsync()).FirstOrDefault(c => c.PatternKey == key);
+        var card = (await w.Evidence.GetPatternCardsAsync(
+            limit: Revu.Core.Constants.PatternConstants.PatternCandidateLimit))
+            .FirstOrDefault(c => c.PatternKey == key);
         if (card is not null)
         {
             if (kind.Length == 0) kind = card.Kind;
@@ -1776,9 +1838,11 @@ app.MapPost("/api/pattern/moment/note", async (PatternMomentNoteBody body, Write
     string? clipPath = null;
 
     // Clip the moment's window once, only when there's a note + a playable VOD and
-    // it hasn't been clipped yet (mirror the VM's clipNeeded guard).
+    // it hasn't been clipped yet (mirror the VM's clipNeeded guard). A start-less
+    // moment (game-level anchor: recurring tag, rule break) saves its note but
+    // never extracts a clip — there is no in-game second to clip around.
     var hasVod = !string.IsNullOrWhiteSpace(body.VodPath);
-    if (text.Length > 0 && hasVod && !body.AlreadyClipped && body.GameId is > 0)
+    if (text.Length > 0 && hasVod && !body.AlreadyClipped && body.GameId is > 0 && body.StartTimeS is not null)
     {
         try
         {

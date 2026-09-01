@@ -4,12 +4,14 @@
   "hasPending": true,
   "pendingCount": 2,
   "emptyText": "",
+  "errorText": "",
+  "windowDays": 14,
   "patterns": [
     {
-      "patternKey": "isolated_death",
-      "kind": "isolated_death",
-      "title": "Dying alone in the side lane",
-      "detail": "You keep getting picked off solo on the bot side after 20 minutes: 4 deaths across 3 of your last games started this way.",
+      "patternKey": "death_class_mix:greed",
+      "kind": "death_class_mix",
+      "title": "Deaths to GREED",
+      "detail": "5 GREED deaths across 3 games — 42% of your classified deaths in the last 14 days. Overstayed — wave, tower dive, one more trade.",
       "gameId": null,
       "objectiveId": null,
       "severity": "high",
@@ -117,11 +119,12 @@
           "vodPath": "",
           "hasVod": false
         }
-      ]
+      ],
+      "newMomentCount": 0
     },
     {
-      "patternKey": "objective_skipped:obj7",
-      "kind": "objective_skipped",
+      "patternKey": "bad_objective_evidence:obj7",
+      "kind": "bad_objective_evidence",
       "title": "Skipping the dragon prep window",
       "detail": "On your Planning objective, dragons spawned with no ward or recall set up 3 of the last 5 tracked games.",
       "gameId": null,
@@ -183,13 +186,14 @@
           "vodPath": "C:\\Users\\chapy\\Videos\\Revu\\5581701721.mp4",
           "hasVod": true
         }
-      ]
+      ],
+      "newMomentCount": 0
     },
     {
-      "patternKey": "tilt_chain",
-      "kind": "tilt_chain",
-      "title": "Loss streaks snowball your mental",
-      "detail": "After two losses in a row your average mental drops to 4.1; you reviewed this pattern already.",
+      "patternKey": "gank_deaths",
+      "kind": "gank_deaths",
+      "title": "Dying to jungle ganks",
+      "detail": "3 laning-phase deaths to the enemy jungler across 2 games in the last 14 days.",
       "gameId": null,
       "objectiveId": null,
       "severity": "low",
@@ -225,7 +229,8 @@
           "vodPath": "",
           "hasVod": false
         }
-      ]
+      ],
+      "newMomentCount": 0
     }
   ]
 }

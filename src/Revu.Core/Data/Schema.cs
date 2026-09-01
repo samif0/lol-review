@@ -43,7 +43,12 @@ public static class Schema
     //               Games in a with_coach block leave the review queue (the
     //               coach reviews them outside Revu) without touching
     //               session_log, so mental stats and streaks stay intact.
-    public const int CurrentAppSchemaVersion = 12;
+    // v13 (2026-08): games.pattern_evidence_v — PatternEvidenceMaterializer
+    //               version that has produced this game's pattern-feeding
+    //               evidence rows (NULL = never). Same shape as map_state_v:
+    //               drives the startup backfill's missing-set query; bumping
+    //               the materializer version re-queues every window game.
+    public const int CurrentAppSchemaVersion = 13;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -1046,6 +1051,19 @@ public static class Schema
         "ALTER TABLE sessions ADD COLUMN with_coach INTEGER NOT NULL DEFAULT 0",
     ];
 
+    /// <summary>
+    /// v3.5 (schema v13): games.pattern_evidence_v — the
+    /// <c>PatternEvidenceMaterializer.Version</c> that last produced this game's
+    /// pattern-feeding evidence rows (inferred timeline regions, gank deaths,
+    /// death-audit moments, review-signal anchors). NULL = never processed
+    /// (queued for the startup backfill). Forward-only, additive; the exact
+    /// map_state_v shape.
+    /// </summary>
+    public static readonly string[] MigrateGamesPatternEvidenceVersion =
+    [
+        "ALTER TABLE games ADD COLUMN pattern_evidence_v INTEGER",
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -1183,6 +1201,9 @@ public static class Schema
         // v3.3 (schema v12): coaching stints — stint table + sessions stint /
         // with_coach columns for coach-reviewed blocks.
         new(12, "coaching-stints", MigrateCoachingStints),
+        // v3.5 (schema v13): games.pattern_evidence_v — pattern-evidence
+        // materializer backfill marker (map_state_v shape).
+        new(13, "games-pattern-evidence-version", MigrateGamesPatternEvidenceVersion),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

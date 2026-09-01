@@ -22,6 +22,28 @@ public sealed class TimelineInferenceServiceTests
         Assert.True(region.StartTimeSeconds <= 590);
         Assert.True(region.EndTimeSeconds >= 604);
         Assert.Contains("within 30s", region.Tooltip);
+        // A WON fight carries no pattern kind — only LOST fights are
+        // pattern-relevant for the materializer.
+        Assert.Equal("", region.Kind);
+    }
+
+    [Fact]
+    public void Infer_StampsLostObjectiveFightKind_OnLostFightsOnly()
+    {
+        var events = new List<GameEvent>
+        {
+            new() { EventType = GameEvent.EventTypes.Death, GameTimeS = 590 },
+            new() { EventType = GameEvent.EventTypes.Death, GameTimeS = 596 },
+            new() { EventType = GameEvent.EventTypes.Dragon, GameTimeS = 604 },
+        };
+
+        var regions = TimelineInferenceService.Infer(events);
+
+        var region = Assert.Single(regions);
+        Assert.Equal("Lost Dragon fight", region.Name);
+        // The structured kind is what the pattern materializer selects on —
+        // never the display name.
+        Assert.Equal(Revu.Core.Constants.PatternRegionKinds.LostObjectiveFight, region.Kind);
     }
 
     [Fact]
@@ -75,6 +97,7 @@ public sealed class TimelineInferenceServiceTests
         var region = Assert.Single(regions);
         Assert.Equal("Death before Baron", region.Name);
         Assert.Contains("60s before", region.Tooltip);
+        Assert.Equal(Revu.Core.Constants.PatternRegionKinds.DeathBeforeObjective, region.Kind);
     }
 
     [Fact]

@@ -35,7 +35,12 @@ public sealed record PatternsSnapshotDto(
     int PendingCount,
     // Empty-state copy shown when there are no pattern cards at all.
     string EmptyText,
-    IReadOnlyList<PatternCardDto> Patterns);
+    IReadOnlyList<PatternCardDto> Patterns,
+    // Non-empty when the card build threw: the page renders it in the error
+    // panel instead of passing a backend failure off as "no patterns yet".
+    string ErrorText = "",
+    // Recency window (days) every count above was computed over.
+    int WindowDays = 0);
 
 /// <summary>
 /// One cross-game pattern card with its ordered moment playlist. Mirrors
@@ -66,7 +71,10 @@ public sealed record PatternCardDto(
     // Carry-forward note placeholder — display only; the write that sets it is
     // DEFERRED. Always "" for now so the field is stable in the contract.
     string CarryForwardNote,
-    IReadOnlyList<PatternMomentDto> Moments);
+    IReadOnlyList<PatternMomentDto> Moments,
+    // Moments created after this pattern's last review — non-zero only on a
+    // pattern that re-armed (PatternReviewGate hysteresis).
+    int NewMomentCount = 0);
 
 /// <summary>
 /// One moment composing a pattern — an evidence item joined to its game's
