@@ -302,12 +302,15 @@ public sealed record ObjectivePatternCard(
     /// <summary>
     /// Stable identity of this pattern for review-tracking. Kind alone for
     /// game/global patterns; kind + objective id for objective-scoped ones;
-    /// kind + discriminator for per-signal kinds. Legacy keys are unchanged.
+    /// kind + discriminator for per-signal kinds; all three for per-signal
+    /// objective kinds (e.g. objective_events:obj3:DEATH). Legacy keys are
+    /// unchanged.
     /// </summary>
     public string PatternKey =>
-        ObjectiveId is long oid ? $"{Kind}:obj{oid}"
-        : Discriminator.Length > 0 ? $"{Kind}:{Discriminator}"
-        : Kind;
+        ObjectiveId is long oid
+            ? Discriminator.Length > 0 ? $"{Kind}:obj{oid}:{Discriminator}" : $"{Kind}:obj{oid}"
+            : Discriminator.Length > 0 ? $"{Kind}:{Discriminator}"
+            : Kind;
 }
 
 /// <summary>

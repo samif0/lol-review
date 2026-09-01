@@ -142,9 +142,9 @@ public sealed class PatternsSnapshotBuilder
             HasPending: pendingCount > 0,
             PendingCount: pendingCount,
             EmptyText: cards.Count == 0 && errorText.Length == 0
-                ? $"No recurring patterns in your last {PatternConstants.WindowDays} days of ranked games. "
-                  + "They build as you play and review — deaths you classify, jungle ganks, "
-                  + "lost objective fights, clips you mark bad, negative tags, and rule breaks."
+                ? $"No recurring patterns on your learning objectives in the last {PatternConstants.WindowDays} days of ranked games. "
+                  + "Patterns build from the objectives you set — clips you mark bad on them, "
+                  + "structured criteria that keep failing, and recurrences of the events they track."
                 : "",
             Patterns: cards,
             ErrorText: errorText,

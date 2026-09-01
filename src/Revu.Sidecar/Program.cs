@@ -1078,9 +1078,9 @@ app.MapPost("/api/review/save", async (SaveReviewBody body, WriteServices w, ILo
     var result = await w.ReviewWorkflow.SaveAsync(request, ct);
     if (!result.Success)
         return Results.Json(new { ok = false, error = result.ErrorMessage }, jsonOptions, statusCode: 422);
-    // v3.5: reviewing FEEDS patterns now — anchor the game's negative concept
-    // tags + rule break into the pattern-evidence ledger (best-effort; on
-    // failure un-stamp so the next startup backfill re-materializes the game).
+    // v3.6: refresh the game's failed-criterion anchors — a review save can
+    // change objective practices/criteria outcomes (best-effort; on failure
+    // un-stamp so the next startup backfill re-materializes the game).
     try { await w.PatternMaterializer.MaterializeReviewSignalsAsync(body.GameId); }
     catch (Exception ex)
     {
@@ -1524,16 +1524,6 @@ app.MapPost("/api/death/classify", async (DeathClassifyBody body, WriteServices 
         return Results.BadRequest(new { error = "gameId and key required" });
     await w.BackupGuard.EnsureBackedUpAsync();
     await w.DeathClassifications.UpsertAsync(body.GameId, body.TimeS, body.Key.Trim());
-    // v3.5: mirror the classification into the pattern-evidence ledger so the
-    // death_class_mix detector counts it (best-effort; classification stands).
-    // On failure, un-stamp the game so the next startup backfill reconciles it
-    // — without this, a stamped game's failed mirror write would never heal.
-    try { await w.PatternMaterializer.UpsertClassifiedDeathAsync(body.GameId, body.TimeS, body.Key.Trim()); }
-    catch (Exception ex)
-    {
-        log.LogWarning(ex, "Death-audit evidence upsert failed for game {GameId}", body.GameId);
-        try { await w.Games.UpdatePatternEvidenceVersionAsync(body.GameId, 0); } catch { /* same outage; next launch retries */ }
-    }
     log.LogInformation("Death classified: game {GameId} @{TimeS}s -> {Key}", body.GameId, body.TimeS, body.Key);
     return Results.Json(new { ok = true }, jsonOptions);
 });
@@ -1545,16 +1535,6 @@ app.MapPost("/api/death/clear", async (DeathClearBody body, WriteServices w, ILo
         return Results.BadRequest(new { error = "gameId required" });
     await w.BackupGuard.EnsureBackedUpAsync();
     await w.DeathClassifications.ClearAsync(body.GameId, body.TimeS);
-    // v3.5: drop (or neutralize, when promoted/noted) the mirrored death-audit
-    // evidence row so the death_class_mix counts stay truthful. On failure,
-    // un-stamp the game — the backfill's orphan reconciliation removes the
-    // stale row on the next launch.
-    try { await w.PatternMaterializer.ClearClassifiedDeathAsync(body.GameId, body.TimeS); }
-    catch (Exception ex)
-    {
-        log.LogWarning(ex, "Death-audit evidence clear failed for game {GameId}", body.GameId);
-        try { await w.Games.UpdatePatternEvidenceVersionAsync(body.GameId, 0); } catch { /* same outage; next launch retries */ }
-    }
     log.LogInformation("Death classification cleared: game {GameId} @{TimeS}s", body.GameId, body.TimeS);
     return Results.Json(new { ok = true }, jsonOptions);
 });

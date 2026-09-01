@@ -1,5 +1,7 @@
 #nullable enable
 
+using Revu.Core.Models;
+
 namespace Revu.Core.Constants;
 
 /// <summary>
@@ -8,138 +10,171 @@ namespace Revu.Core.Constants;
 /// (<c>EvidenceRepository.GetPatternCardsAsync</c> / <c>GetPatternMomentsAsync</c>).
 ///
 /// <para>
-/// HISTORY: the original detectors string-matched evidence titles that only the
-/// removed WinUI app ever wrote (its deletion in the Tauri migration severed the
-/// producer), so the Patterns page sat empty for months while its tests passed on
-/// hand-fed legacy fixtures. Keeping every matched title, source key, threshold,
-/// and window here — and pinning materializer output against the queries in
-/// tests — is what prevents that reader/writer drift from recurring.
+/// v3.6: patterns are OBJECTIVE-DRIVEN ONLY. The v3.5 predefined heuristics
+/// (death-class mix, gank deaths, lost objective fights, deaths before
+/// objectives, recurring tags, rule breaks) were retired by explicit product
+/// decision — a pattern is only worth surfacing when it concerns something the
+/// player chose to work on. Three kinds remain, all anchored to learning
+/// objectives: bad-tagged clips per objective, a structured criterion failing
+/// across recent games, and recurrences of the event tokens an objective
+/// tracks. Exploratory "novel pattern" discovery away from objectives is an
+/// intended future direction — new kinds slot in beside these.
 /// </para>
 ///
 /// <para>
-/// Titles double as detection keys because <c>title</c> is the ONE column that
-/// survives the note-flow clip promotion (<c>AttachClipToEvidenceAsync</c>
-/// rewrites source_kind/source_key/times but preserves title), so a moment the
-/// user annotated stays in its pattern playlist.
+/// HISTORY: the original (pre-v3.5) detectors string-matched evidence titles
+/// only the removed WinUI app ever wrote, so the page sat empty for months
+/// while its tests passed on hand-fed fixtures. Keeping every matched key,
+/// threshold, and window here — and pinning materializer output against the
+/// queries in tests — is what prevents that reader/writer drift recurring.
 /// </para>
 /// </summary>
 public static class PatternConstants
 {
     /// <summary>
     /// Recency window (days) shared by every card count, every moment playlist,
-    /// and the materializer backfill. At 2-5 games/day this holds ~30-70 games:
-    /// every threshold is reachable within days of normal play, old habits age
-    /// out instead of accumulating forever, and WinUI-era legacy rows stay fenced
-    /// off. games.timestamp is unix seconds (same comparison
-    /// DeathClassificationsRepository.CutoffFor ships).
+    /// and the materializer backfill. games.timestamp is unix seconds.
     /// </summary>
     public const int WindowDays = 14;
 
     /// <summary>
     /// Re-arm hysteresis: a reviewed pattern comes back as pending only once at
-    /// least this many NEW moments (created after the review instant) accrue —
-    /// one fresh moment must not re-nag a pattern the user just worked through.
+    /// least this many NEW moments (created after the review instant) accrue.
     /// </summary>
     public const int ReArmNewMoments = 2;
 
-    /// <summary>Max cards in a patterns snapshot (severity-then-count ordered).</summary>
+    /// <summary>Max cards in a patterns snapshot (pending first, then severity/count).</summary>
     public const int PatternCardLimit = 6;
 
     /// <summary>
-    /// Candidate fetch size for the snapshot builders — every card the seven
-    /// detectors can emit (at most 11 under their per-kind limits), so the
+    /// Candidate fetch size for the snapshot builders — every card the
+    /// detectors can emit (at most 9 under their per-kind limits), so the
     /// review gate runs over the FULL candidate set and a reviewed-closed card
     /// can never crowd a pending one out of the display cap.
     /// </summary>
     public const int PatternCandidateLimit = 12;
 
-    // ── Per-kind thresholds ─────────────────────────────────────────────────
-    // All counts are within the window. "Share" thresholds divide by a window
-    // denominator so heavy weeks don't spuriously fire and light weeks still can.
-
-    public const int DeathClassMinCount = 4;
-    public const int DeathClassMinGames = 2;
-    public const double DeathClassMinShare = 0.30;   // of classified deaths in window
-    public const int DeathClassHighCount = 8;
-    public const double DeathClassHighShare = 0.50;
-    public const int DeathClassCardLimit = 2;
-
-    public const int GankMinCount = 3;
-    public const int GankMinGames = 2;
-
-    public const int LostFightMinCount = 3;
-    public const int LostFightMinGames = 2;
-
-    public const int DeathBeforeObjMinCount = 3;
-    public const int DeathBeforeObjMinGames = 2;
+    // ── Per-kind thresholds (window-scoped counts) ──────────────────────────
 
     public const int BadObjectiveMinBad = 2;
     public const int BadObjectiveHighBad = 5;
     public const int BadObjectiveCardLimit = 3;
 
-    public const int TagMinCount = 3;
-    public const double TagMinShare = 0.30;          // of reviewed games in window
-    public const double TagHighShare = 0.50;
-    public const int TagCardLimit = 2;
+    /// <summary>objective_criteria: an ACTIVE objective's structured criterion
+    /// evaluated false in ≥ MinFails window games AND failing in ≥ MinFailShare
+    /// of its evaluated window games.</summary>
+    public const int ObjCritMinFails = 3;
+    public const double ObjCritMinFailShare = 0.5;
+    public const double ObjCritHighFailShare = 0.75;
+    public const int ObjCritCardLimit = 3;
 
-    public const int RuleBreakMinCount = 3;
-    public const int RuleBreakHighCount = 5;
+    /// <summary>objective_events: a token an ACTIVE objective tracks recurring
+    /// across the window.</summary>
+    public const int ObjEventMinCount = 5;
+    public const int ObjEventMinGames = 3;
+    public const int ObjEventHighCount = 10;
+    public const int ObjEventCardLimit = 3;
 
     // ── Detected pattern kinds (card.Kind / pattern_reviews.kind values) ────
 
-    public const string KindDeathClassMix = "death_class_mix";
-    public const string KindGankDeaths = "gank_deaths";
-    public const string KindLostObjectiveFights = "lost_objective_fights";
-    public const string KindDeathsBeforeObjectives = "deaths_before_objectives";
     public const string KindBadObjectiveEvidence = "bad_objective_evidence";
-    public const string KindRecurringConceptTag = "recurring_concept_tag";
-    public const string KindRuleBreaks = "rule_breaks";
-
-    // ── Titles the materializer writes and the detectors match ──────────────
-    // The two legacy LIKE families ('Lost % fight%', 'Death before %') are also
-    // written by TimelineInferenceService region names; the exact-title kinds
-    // below belong entirely to the materializer.
-
-    /// <summary>Laning-phase death with the enemy jungler on the kill
-    /// (game_events DEATH with Details.jungle_gank stamped at capture).</summary>
-    public const string GankDeathTitle = "Death to gank";
-
-    /// <summary>Prefix of a death-audit moment title; the full title is
-    /// <c>"Death: {chip label}"</c> (e.g. "Death: GREED") — no timestamp, so the
-    /// death_class_mix GROUP BY title works.</summary>
-    public const string DeathAuditTitlePrefix = "Death: ";
-
-    /// <summary>Title a promoted death-audit clip is renamed to when the user
-    /// CLEARS the classification: keeps their clip + note, leaves every count.</summary>
-    public const string ClearedDeathAuditTitle = "Death";
-
-    /// <summary>Game-level rule-break anchor title (one per rule-broken game).</summary>
-    public const string RuleBreakTitle = "Broke a queue rule";
-
-    public static string DeathAuditTitle(string chipLabel) => $"{DeathAuditTitlePrefix}{chipLabel}";
+    public const string KindObjectiveCriteria = "objective_criteria";
+    public const string KindObjectiveEvents = "objective_events";
 
     // ── Source keys (dedupe identity under idx_evidence_items_source_key) ───
 
-    public const string RuleBreakSourceKey = "rulebreak";
-    public const string DeathAuditSourceKeyPrefix = "death-audit:";
-    public const string GankDeathSourceKeyPrefix = "gank-death:";
-    public const string TagSourceKeyPrefix = "tag:";
+    /// <summary>One anchor per (game, tracked token, event second):
+    /// <c>objev:{TOKEN}:{timeS}</c>. Objective-agnostic — the detectors join the
+    /// LIVE objective_event_types tie, so untracking a token drops its cards
+    /// and playlists without any reconciliation pass.</summary>
+    public const string ObjEventSourceKeyPrefix = "objev:";
 
-    public static string DeathAuditSourceKey(int gameTimeSeconds) => $"{DeathAuditSourceKeyPrefix}{gameTimeSeconds}";
-    public static string GankDeathSourceKey(int gameTimeSeconds) => $"{GankDeathSourceKeyPrefix}{gameTimeSeconds}";
-    public static string TagSourceKey(long tagId) => $"{TagSourceKeyPrefix}{tagId}";
+    /// <summary>One anchor per (game, objective) failed structured criterion:
+    /// <c>objcrit:{objectiveId}</c>. Gated on the LIVE game_objectives row
+    /// (criteria_met = 0), so a re-evaluation that passes drops it everywhere.</summary>
+    public const string ObjCritSourceKeyPrefix = "objcrit:";
 
-    /// <summary>Padding around a point death for its moment window (mirrors the
-    /// first-combat region shape: 6s lead / 8s trail).</summary>
-    public const int DeathMomentLeadSeconds = 6;
-    public const int DeathMomentTrailSeconds = 8;
+    public static string ObjEventSourceKeyForToken(string token) =>
+        $"{ObjEventSourceKeyPrefix}{Canonical(token)}:";
+
+    public static string ObjEventSourceKey(string token, int gameTimeSeconds) =>
+        $"{ObjEventSourceKeyForToken(token)}{gameTimeSeconds}";
+
+    public static string ObjCritSourceKey(long objectiveId) => $"{ObjCritSourceKeyPrefix}{objectiveId}";
+
+    /// <summary>Canonical token spelling (UPPER, trimmed) — objective_event_types
+    /// stores tokens this way and source keys must match it exactly.</summary>
+    public static string Canonical(string token) => (token ?? "").Trim().ToUpperInvariant();
+
+    /// <summary>
+    /// Display label (and evidence title) for a trackable token, from the one
+    /// token catalog the timeline uses. Titles matter beyond display: a moment
+    /// the note flow promotes to a clip keeps its title but loses its source
+    /// key, and the objective_events queries count promoted clips back in BY
+    /// this exact title.
+    /// </summary>
+    public static string TokenLabel(string token)
+    {
+        var canonical = Canonical(token);
+        foreach (var entry in GameEvent.TrackableTokens.Catalog)
+        {
+            if (string.Equals(entry.Token, canonical, StringComparison.OrdinalIgnoreCase))
+            {
+                return entry.Label;
+            }
+        }
+        if (canonical.StartsWith(GameEvent.TrackableTokens.SpellPrefix, StringComparison.Ordinal))
+        {
+            // Legacy per-spell tokens dropped from the Catalog but still valid.
+            var spell = canonical[GameEvent.TrackableTokens.SpellPrefix.Length..];
+            return spell.Length == 0 ? "Spell cast"
+                : char.ToUpperInvariant(spell[0]) + spell[1..].ToLowerInvariant() + " cast";
+        }
+        return canonical.Length == 0 ? "" : char.ToUpperInvariant(canonical[0]) + canonical[1..].ToLowerInvariant();
+    }
+
+    /// <summary>Anchor title for a failed-criterion moment (display only — the
+    /// detectors key these anchors by source key + live criteria state).</summary>
+    public static string ObjCritTitle(string objectiveTitle) => $"Missed: {objectiveTitle}";
+
+    /// <summary>Padding around a point event for its moment window.</summary>
+    public const int MomentLeadSeconds = 6;
+    public const int MomentTrailSeconds = 8;
+
+    /// <summary>Teamfight-cluster anchor shape (mirrors ObjectiveEventTieResolver's
+    /// membership rule: ≥3 combat events chained within 14s gaps).</summary>
+    public const int TeamfightGapSeconds = 14;
+    public const int TeamfightMinEvents = 3;
+    public const int TeamfightLeadSeconds = 4;
+    public const int TeamfightTrailSeconds = 6;
+
+    /// <summary>
+    /// Source-key prefixes of the RETIRED v3.5 materialized rows (gank deaths,
+    /// death audits, tag anchors, rule breaks, inferred regions). Materializer
+    /// v2 deletes un-promoted, un-noted rows under these keys so the retired
+    /// kinds don't linger in per-game evidence lists; anything the user noted
+    /// or promoted to a clip is preserved.
+    /// </summary>
+    public static readonly string[] RetiredSourceKeyPrefixes =
+    [
+        "gank-death:",
+        "death-audit:",
+        "tag:",
+        "objective:",
+        "objective-death:",
+    ];
+
+    /// <summary>Exact retired source keys (no prefix family).</summary>
+    public static readonly string[] RetiredSourceKeys = ["rulebreak"];
 }
 
 /// <summary>
-/// Structured kinds stamped onto <c>InferredTimelineRegion</c>s so the
-/// materializer selects pattern-relevant regions STRUCTURALLY instead of parsing
-/// display names (the parse-the-name approach is how the reader and writer
-/// drifted apart last time).
+/// Structured kinds stamped onto <c>InferredTimelineRegion</c>s. The v3.6
+/// objective-only detectors no longer consume them, but the stamps stay: they
+/// are the obvious structured feeder for the planned exploratory ("novel
+/// pattern") detection away from learning objectives, and selecting regions by
+/// Kind — never by parsing display names — is the discipline that keeps a
+/// future reader from drifting away from this writer.
 /// </summary>
 public static class PatternRegionKinds
 {
