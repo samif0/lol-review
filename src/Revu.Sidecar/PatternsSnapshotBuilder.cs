@@ -174,8 +174,26 @@ public sealed class PatternsSnapshotBuilder
 
     private static IReadOnlyList<PatternMomentDto> MapMoments(IReadOnlyList<PatternMoment> moments)
     {
+        // vod_files rows outlive the recordings they point at (Ascent retention
+        // prunes old files), so probe the disk before advertising a playable
+        // VOD — same File.Exists shape as GamesSnapshotBuilder — and degrade a
+        // pruned one to the graceful no-VOD state instead of a player that
+        // errors with "Could not load this clip". One probe per distinct path:
+        // a playlist's moments mostly share their game's VOD.
+        var onDisk = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        bool VodOnDisk(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            if (!onDisk.TryGetValue(path, out var exists))
+            {
+                exists = File.Exists(path);
+                onDisk[path] = exists;
+            }
+            return exists;
+        }
+
         var ordinal = 0;
-        return moments.Select(m => MapMoment(m, ++ordinal)).ToList();
+        return moments.Select(m => MapMoment(m, ++ordinal, VodOnDisk(m.VodPath))).ToList();
     }
 
     /// <summary>Mirror of PatternReviewViewModel.PatternSubtitle.</summary>
@@ -191,7 +209,7 @@ public sealed class PatternsSnapshotBuilder
     }
 
     /// <summary>Mirror of PatternMomentItem's display projection (no brushes).</summary>
-    private static PatternMomentDto MapMoment(PatternMoment m, int ordinal)
+    private static PatternMomentDto MapMoment(PatternMoment m, int ordinal, bool vodOnDisk)
     {
         var championLabel = string.IsNullOrWhiteSpace(m.ChampionName) ? "Game" : m.ChampionName;
         var resultLabel = m.Win ? "WIN" : "LOSS";
@@ -227,8 +245,10 @@ public sealed class PatternsSnapshotBuilder
             PolarityLabel: PolarityLabel(polarity),
             AccentHex: PolarityHex(polarity),
             SourceKind: m.SourceKind,
-            VodPath: m.VodPath,
-            HasVod: !string.IsNullOrWhiteSpace(m.VodPath));
+            // An empty VodPath also keeps the note flow from attempting a clip
+            // extraction against the missing file (the endpoint's hasVod gate).
+            VodPath: vodOnDisk ? m.VodPath : "",
+            HasVod: vodOnDisk);
     }
 
     /// <summary>Mirror of PatternMomentItem.PolarityLabel.</summary>

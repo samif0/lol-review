@@ -163,6 +163,59 @@ public sealed class PatternsSnapshotContractTests
     }
 
     [Fact]
+    public async Task BuildAsync_PrunedVodFile_DegradesToNoVod_InsteadOfABrokenPlayer()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var prunedGame = (await scope.SeedGameAsync(gameId: 6501, timestamp: now - 7200)).GameId;
+        var freshGame = (await scope.SeedGameAsync(gameId: 6502, timestamp: now - 3600)).GameId;
+
+        // The pruned game's vod_files row outlived its recording (Ascent
+        // retention deleted the file); the fresh game's recording exists.
+        var realVod = Path.Combine(Path.GetTempPath(), $"revu-test-vod-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllBytesAsync(realVod, new byte[] { 0 });
+        try
+        {
+            await scope.Vod.LinkVodAsync(prunedGame, Path.Combine(Path.GetTempPath(), "definitely-deleted.mp4"));
+            await scope.Vod.LinkVodAsync(freshGame, realVod);
+
+            foreach (var (game, t) in new[] { (prunedGame, 300), (prunedGame, 700), (freshGame, 400) })
+            {
+                await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+                    GameId: game,
+                    SourceKind: EvidenceKinds.TimelineRegion,
+                    SourceId: null,
+                    SourceKey: PatternConstants.GankDeathSourceKey(t),
+                    StartTimeSeconds: t - PatternConstants.DeathMomentLeadSeconds,
+                    EndTimeSeconds: t + PatternConstants.DeathMomentTrailSeconds,
+                    Title: PatternConstants.GankDeathTitle,
+                    Polarity: EvidencePolarities.Bad,
+                    Status: EvidenceStatuses.Evidence));
+            }
+
+            var snapshot = await Builder(scope).BuildAsync();
+            var card = Assert.Single(snapshot.Patterns, p => p.Kind == PatternConstants.KindGankDeaths);
+
+            // Missing recording → the graceful no-VOD state (moment still
+            // listed, notes still work, no player that errors on load).
+            foreach (var m in card.Moments.Where(m => m.GameId == prunedGame))
+            {
+                Assert.False(m.HasVod);
+                Assert.Equal("", m.VodPath);
+            }
+            var playable = Assert.Single(card.Moments, m => m.GameId == freshGame);
+            Assert.True(playable.HasVod);
+            Assert.Equal(realVod, playable.VodPath);
+        }
+        finally
+        {
+            File.Delete(realVod);
+        }
+    }
+
+    [Fact]
     public async Task BuildAsync_EmptyDatabase_TellsTheTruthAboutHowPatternsBuild()
     {
         using var scope = new SidecarWriteScope();
