@@ -36,6 +36,22 @@ public interface ILcuClient
     Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// v3.7 (hard stop): leave the matchmaking queue — the same request the
+    /// client's own Cancel button makes (DELETE /lol-lobby/v2/lobby/matchmaking/search).
+    /// Acts only on the user's own client; touches no game data. Returns false
+    /// when the LCU rejects it (already out of queue, etc.).
+    /// </summary>
+    Task<bool> CancelMatchmakingAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// v3.7 (hard stop): decline a pending ready check
+    /// (POST /lol-matchmaking/v1/ready-check/decline). Used only when a match pops
+    /// inside the monitor's poll window before the search could be cancelled.
+    /// Returns false when the LCU rejects it.
+    /// </summary>
+    Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Get the queue ID from the current lobby/session. Returns -1 if unavailable.
     /// </summary>
     Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default);

@@ -62,6 +62,8 @@ public sealed class WriteServices : IDisposable
         // the WRITE factory here. The read graph (Program.cs) has its own
         // read-only IRulesRepository for the GET /api/rules snapshot.
         services.AddSingleton<IRulesRepository, RulesRepository>();
+        // v3.7: the hard-stop intervention log (enforcer writes, override writes).
+        services.AddSingleton<IHardStopsRepository, HardStopsRepository>();
         services.AddSingleton<ITiltCheckRepository, TiltCheckRepository>();
         services.AddSingleton<IMatchupNotesRepository, MatchupNotesRepository>();
         services.AddSingleton<IConceptTagRepository, ConceptTagRepository>();
@@ -138,6 +140,7 @@ public sealed class WriteServices : IDisposable
     public ICoachingStintsRepository CoachingStints => _provider.GetRequiredService<ICoachingStintsRepository>();
     public IObjectivesRepository Objectives => _provider.GetRequiredService<IObjectivesRepository>();
     public ITiltCheckRepository TiltChecks => _provider.GetRequiredService<ITiltCheckRepository>();
+    public IHardStopsRepository HardStops => _provider.GetRequiredService<IHardStopsRepository>();
     public IReviewWorkflowService ReviewWorkflow => _provider.GetRequiredService<IReviewWorkflowService>();
     // Skip needs to discard any autosaved draft (a skipped game must not
     // resurrect abandoned text on its next open); save/delete clear the draft

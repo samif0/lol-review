@@ -3143,3 +3143,57 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 
 /* IN-GAME no-active card. */
 .noactive-p{font-family:var(--fb);font-size:13px;color:var(--t3);line-height:1.5}
+
+/* ── HARD STOP (v3.7) — the lock screen + slim lock bar on the persistent shell.
+   Shown when the sidecar cancelled the queue for an ENFORCED rule. One loud
+   card, gold-rimmed like the RULE CHECK banner; the rest of the app dims but
+   stays reachable after OK (the bar keeps the countdown in view). */
+.hardstop{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;
+  padding:40px 24px;background:rgba(6,4,18,0.72);backdrop-filter:blur(10px)}
+.hardstop[hidden]{display:none}
+.hardstop-card{width:min(560px,100%);padding:26px 28px 22px;border-radius:20px;background:var(--glass2);
+  border:2px solid rgba(243,199,148,0.6);position:relative;overflow:hidden;
+  box-shadow:0 30px 80px -30px rgba(0,0,0,0.9),0 0 70px -30px rgba(243,199,148,0.55) inset}
+.hardstop-card::before{content:'';position:absolute;inset:0 0 auto 0;height:40%;
+  background:linear-gradient(180deg,rgba(255,255,255,0.07),transparent);pointer-events:none}
+.hardstop-k{font-family:var(--fm);font-size:11px;letter-spacing:2.2px;text-transform:uppercase;font-weight:700;color:var(--gold)}
+.hardstop-h{font-family:var(--fo);font-size:24px;font-weight:600;color:#fff;margin-top:8px;line-height:1.2}
+.hardstop-rule{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;margin-top:12px;font-size:13.5px;line-height:1.5}
+.hardstop-rule-name{font-family:var(--fo);font-weight:600;color:var(--t1)}
+.hardstop-reason{color:var(--t3)}
+.hardstop-plan{margin-top:16px;padding:12px 14px;border-radius:12px;border-left:3px solid var(--win);
+  background:rgba(142,231,186,0.06)}
+.hardstop-plan[hidden]{display:none}
+.hardstop-plan-k{font-family:var(--fm);font-size:9.5px;letter-spacing:1.6px;font-weight:700;color:var(--win)}
+.hardstop-plan-t{font-size:14.5px;color:var(--t1);line-height:1.5;margin-top:5px}
+.hardstop-count{font-family:var(--fm);font-size:11px;letter-spacing:1px;color:var(--gold);margin-top:16px}
+.hardstop-count[hidden]{display:none}
+.hardstop-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}
+.hardstop-ok{margin-top:0}
+.hardstop-override{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);
+  background:transparent;border:1px solid var(--gline2);border-radius:9px;padding:11px 16px;cursor:pointer;white-space:nowrap;
+  transition:color .16s ease,border-color .16s ease,background .16s ease}
+.hardstop-override:hover:not(:disabled){color:var(--loss);border-color:rgba(243,163,168,0.5);background:rgba(243,163,168,0.07)}
+.hardstop-override:disabled{opacity:0.45;cursor:default}
+.hardstop-foot{font-size:12px;color:var(--t4);line-height:1.5;margin-top:14px}
+
+/* Slim lock bar — same slot as the update bar; only one is ever up at a time. */
+.hardbar{position:fixed;left:0;right:0;top:34px;height:36px;z-index:48;display:flex;align-items:center;gap:10px;
+  padding:0 16px;background:rgba(243,199,148,0.10);border-bottom:1px solid rgba(243,199,148,0.35);backdrop-filter:blur(12px)}
+.hardbar[hidden]{display:none}
+.hardbar-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--gold);box-shadow:0 0 10px var(--gold)}
+.hardbar-txt{flex:1;min-width:0;font-family:var(--fm);font-size:11px;letter-spacing:0.8px;color:var(--gold);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hardbar-btn{flex-shrink:0;font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--t2);
+  background:rgba(255,255,255,0.05);border:1px solid var(--gline2);border-radius:8px;padding:6px 12px;cursor:pointer}
+.hardbar-btn:hover{color:#fff;border-color:rgba(243,199,148,0.5)}
+
+/* Rules page — the ENFORCED pill, the enforcer's record line, the toggle. */
+.rule-enforced{font-family:var(--fm);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;
+  color:#2a1d0a;background:var(--gold);border-radius:6px;padding:3px 7px;margin-left:6px}
+.rule-enforced[hidden]{display:none}
+.rule-card.off .rule-enforced{display:none}
+.rule-hardstop{font-family:var(--fm);font-size:9.5px;color:var(--gold);opacity:0.9;letter-spacing:0.6px;
+  line-height:1.5;margin-top:6px}
+.rule-hardstop[hidden]{display:none}
+.rule-act-enforce[hidden]{display:none}

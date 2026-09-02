@@ -143,6 +143,14 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         var plan = _transitionEvaluator.Evaluate(_state, phase);
 
+        // v3.7 (hard stop): report the queue phases on every tick they hold. The
+        // enforcement decision lives in the sidecar (it needs the rules + today's
+        // games); the monitor only says "you are in queue right now".
+        if (phase is GamePhase.Matchmaking or GamePhase.ReadyCheck)
+        {
+            _messenger.Send(new QueueDetectedMessage(phase));
+        }
+
         if (plan.ReconcileOnStartup)
         {
             CoreDiagnostics.WriteVerbose($"LCU: Startup reconcile triggered at connectedTicks={_state.ConnectedTicks} phase={phase}");

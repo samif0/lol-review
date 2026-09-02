@@ -104,4 +104,15 @@ public sealed record RuleRowDto(
     // rules and when the evidence query fails (best-effort). e.g.
     // "TRIPPED 3× (1W–2L) · BASELINE WR 52% · LAST 2026-06-10".
     string EvidenceLine,
-    bool HasEvidenceLine);
+    bool HasEvidenceLine,
+    // ── v3.7 hard stop ──────────────────────────────────────────────────────
+    // True when a trip of this rule is ENFORCED: the sidecar cancels the queue
+    // while it holds. Drives the ENFORCED pill + the toggle button label.
+    bool IsEnforced = false,
+    // False for types the enforcer can never act on (custom, min_mental); the
+    // frontend hides the toggle for those.
+    bool CanEnforce = false,
+    // Behavioral record of the enforcer over the last 7 days, e.g.
+    // "HELD 3× THIS WEEK · OVERRIDDEN 1×". Empty when nothing happened.
+    string HardStopLine = "",
+    bool HasHardStopLine = false);

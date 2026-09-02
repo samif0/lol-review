@@ -6,6 +6,8 @@ A Windows desktop app that helps you review your League of Legends games.
 
 Revu sits alongside the League client and turns each game into a short, structured review. It detects champ select and prompts you for a pre-game intention, captures your post-game stats, and walks you through a reflection: what went well, what went wrong, and what to focus on next. Objectives you set are journaled across the games where you practiced them, and optional VOD recording (via [Ascent](https://tryascent.gg)) auto-links so your notes are timestamped to the moment.
 
+Rules you set (a daily game cap, a loss-streak cool-off, a curfew) can be flagged as **hard stops**: while one is tripped, Revu cancels the League client's own queue instead of just showing you a warning, and shows you the plan you wrote for that moment. An override is one click, but only after a 60-second hold, and it's counted.
+
 Your data stays local — a SQLite database under `%LOCALAPPDATA%`, no cloud sync and no telemetry. Your Riot ID and region are sent only to a Cloudflare Worker proxy for Match-V5 lookups.
 
 ## Install

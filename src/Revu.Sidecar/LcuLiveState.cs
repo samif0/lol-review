@@ -48,6 +48,11 @@ public sealed class LcuLiveState
     private bool _intentCleared;
     private IReadOnlyList<long> _practicedObjectiveIds = Array.Empty<long>();
 
+    // v3.7 (hard stop): the most recent enforcement, replayed to a webview that
+    // (re)connects mid-lockout so the banner survives a reload. Cleared when a
+    // game actually starts (the player overrode, or the rule stopped holding).
+    private HardStopSnapshot? _hardStop;
+
     public string MyChampion { get { lock (_gate) return _myChampion; } }
     public string EnemyChampion { get { lock (_gate) return _enemyChampion; } }
     public string MyPosition { get { lock (_gate) return _myPosition; } }
@@ -61,6 +66,7 @@ public sealed class LcuLiveState
     public string IntentionSource { get { lock (_gate) return _intentionSource; } }
     public bool IntentCleared { get { lock (_gate) return _intentCleared; } }
     public IReadOnlyList<long> PracticedObjectiveIds { get { lock (_gate) return _practicedObjectiveIds; } }
+    public HardStopSnapshot? HardStop { get { lock (_gate) return _hardStop; } }
 
     /// <summary>Champ select began — reset the champ context and mint a fresh
     /// session key (and clear the prior game's deferred snapshots).</summary>
@@ -101,6 +107,11 @@ public sealed class LcuLiveState
     public void SetGameInProgress(bool inProgress)
     {
         lock (_gate) _isGameInProgress = inProgress;
+    }
+
+    public void SetHardStop(HardStopSnapshot? snapshot)
+    {
+        lock (_gate) _hardStop = snapshot;
     }
 
     public void SetLcuConnected(bool connected)
@@ -166,3 +177,25 @@ public sealed class LcuLiveState
         }
     }
 }
+
+/// <summary>
+/// v3.7: the SSE <c>hardStop</c> payload — one enforcement of one rule. Also the
+/// <c>liveState.hardStop</c> replay value. camelCase on the wire. Everything the
+/// lock screen shows comes from here so it never has to fetch the Rules page.
+/// </summary>
+public sealed record HardStopSnapshot(
+    long RuleId,
+    string RuleName,
+    // The live trip reason, e.g. "Already played 6/6 games today".
+    string Reason,
+    // The rule's IF leg as the Rules page words it ("Max 6 games per day").
+    string ConditionCue,
+    // The player's own THEN plan; may be empty.
+    string ReplacementPlan,
+    bool HasPlan,
+    // "cancelled_queue" | "declined_ready_check" (HardStopActions).
+    string Action,
+    // Unix second the rule stops holding (countdown), null when unknown.
+    long? UnlockAt,
+    // Unix second of this enforcement.
+    long At);

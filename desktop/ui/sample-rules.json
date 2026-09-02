@@ -27,7 +27,11 @@
       "hasViolationReason": false,
       "isOk": true,
       "evidenceLine": "TRIPPED 3× (1W–2L) · BASELINE WR 54% · LAST 2026-06-10",
-      "hasEvidenceLine": true
+      "hasEvidenceLine": true,
+      "isEnforced": false,
+      "canEnforce": true,
+      "hardStopLine": "",
+      "hasHardStopLine": false
     },
     {
       "id": 2,
@@ -50,7 +54,11 @@
       "hasViolationReason": true,
       "isOk": false,
       "evidenceLine": "TRIPPED 7× · WR WHEN TRIPPED 38% VS 52% BASELINE · LAST 2026-06-13",
-      "hasEvidenceLine": true
+      "hasEvidenceLine": true,
+      "isEnforced": true,
+      "canEnforce": true,
+      "hardStopLine": "HELD 3× THIS WEEK · OVERRIDDEN 1×",
+      "hasHardStopLine": true
     },
     {
       "id": 3,
@@ -73,7 +81,11 @@
       "hasViolationReason": false,
       "isOk": true,
       "evidenceLine": "NO TRIPS ON RECORD",
-      "hasEvidenceLine": true
+      "hasEvidenceLine": true,
+      "isEnforced": false,
+      "canEnforce": false,
+      "hardStopLine": "",
+      "hasHardStopLine": false
     },
     {
       "id": 4,
@@ -96,7 +108,11 @@
       "hasViolationReason": false,
       "isOk": false,
       "evidenceLine": "",
-      "hasEvidenceLine": false
+      "hasEvidenceLine": false,
+      "isEnforced": false,
+      "canEnforce": false,
+      "hardStopLine": "",
+      "hasHardStopLine": false
     }
   ],
   "inactiveRules": [
@@ -121,7 +137,11 @@
       "hasViolationReason": false,
       "isOk": false,
       "evidenceLine": "TRIPPED 2× (0W–2L) · BASELINE WR 50% · LAST 2026-06-08",
-      "hasEvidenceLine": true
+      "hasEvidenceLine": true,
+      "isEnforced": false,
+      "canEnforce": true,
+      "hardStopLine": "",
+      "hasHardStopLine": false
     }
   ],
   "hasViolations": true,

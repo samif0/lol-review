@@ -548,6 +548,51 @@ public sealed class GameMonitorServiceTests
         Assert.Single(collector.GameStarted);
     }
 
+    [Fact]
+    public async Task TickOnceAsync_ReportsQueuePhases_EveryTickTheyHold()
+    {
+        // v3.7 (hard stop): Matchmaking and ReadyCheck are reported on EVERY tick,
+        // not just the transition, so a re-queue right after an enforced cancel is
+        // caught again. Lobby reports nothing.
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var credentialDiscovery = new FakeCredentialDiscovery(new LcuCredentials { Port = 2999, Password = "pw" });
+        var lcuClient = new FakeLcuClient
+        {
+            IsConnected = true,
+            Phases = new Queue<GamePhase>([GamePhase.Matchmaking, GamePhase.Matchmaking, GamePhase.ReadyCheck, GamePhase.Lobby]),
+        };
+
+        var service = CreateService(
+            credentialDiscovery,
+            lcuClient,
+            messenger,
+            new FakeGameEndCaptureService(),
+            new FakeMatchHistoryReconciliationService());
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+
+        Assert.Equal(3, collector.QueueDetected.Count);
+        Assert.Equal(GamePhase.Matchmaking, collector.QueueDetected[0].Phase);
+        Assert.Equal(GamePhase.Matchmaking, collector.QueueDetected[1].Phase);
+        Assert.Equal(GamePhase.ReadyCheck, collector.QueueDetected[2].Phase);
+        // The monitor never cancels on its own — that is the sidecar's call.
+        Assert.Equal(0, lcuClient.CancelMatchmakingCalls);
+        Assert.Empty(collector.ChampSelectStarted);
+        Assert.Empty(collector.GameStarted);
+    }
+
+    [Fact]
+    public void ParsePhase_MapsMatchmaking()
+    {
+        Assert.Equal(GamePhase.Matchmaking, GamePhaseExtensions.ParsePhase("Matchmaking"));
+        Assert.Equal(GamePhase.ReadyCheck, GamePhaseExtensions.ParsePhase("ReadyCheck"));
+        Assert.Equal(GamePhase.None, GamePhaseExtensions.ParsePhase("SomethingNew"));
+    }
+
     private static GameMonitorService CreateService(
         FakeCredentialDiscovery credentialDiscovery,
         FakeLcuClient lcuClient,
@@ -577,6 +622,7 @@ public sealed class GameMonitorServiceTests
             messenger.Register<GameInProgressMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).GameInProgress.Add(message));
             messenger.Register<GameEndedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).GameEnded.Add(message));
             messenger.Register<MissedReviewsDetectedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).MissedGamesDetected.Add(message));
+            messenger.Register<QueueDetectedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).QueueDetected.Add(message));
         }
 
         public List<LcuConnectionChangedMessage> ConnectionChanges { get; } = [];
@@ -592,6 +638,8 @@ public sealed class GameMonitorServiceTests
         public List<GameEndedMessage> GameEnded { get; } = [];
 
         public List<MissedReviewsDetectedMessage> MissedGamesDetected { get; } = [];
+
+        public List<QueueDetectedMessage> QueueDetected { get; } = [];
     }
 
     private sealed class FakeCredentialDiscovery : ILcuCredentialDiscovery
@@ -650,6 +698,16 @@ public sealed class GameMonitorServiceTests
 
         public Task<System.Text.Json.JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default) =>
             Task.FromResult<System.Text.Json.JsonElement?>(null);
+
+        public int CancelMatchmakingCalls { get; private set; }
+
+        public Task<bool> CancelMatchmakingAsync(CancellationToken ct = default)
+        {
+            CancelMatchmakingCalls++;
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) => Task.FromResult(QueueId);
 

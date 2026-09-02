@@ -93,7 +93,7 @@ internal sealed class GameMonitorTransitionEvaluator
     }
 
     private static bool IsIdlePhase(GamePhase phase) =>
-        phase is GamePhase.Lobby or GamePhase.None or GamePhase.ReadyCheck or GamePhase.ChampSelect;
+        phase is GamePhase.Lobby or GamePhase.None or GamePhase.Matchmaking or GamePhase.ReadyCheck or GamePhase.ChampSelect;
 
     private static bool IsPostGamePhase(GamePhase phase) =>
         phase is GamePhase.WaitingForStats or GamePhase.PreEndOfGame or GamePhase.EndOfGame;

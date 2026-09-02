@@ -175,6 +175,19 @@ public sealed class RulesRepository : IRulesRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task SetEnforceAsync(long ruleId, bool enforce)
+    {
+        using var conn = _factory.CreateConnection();
+        var schema = await GetSchemaAsync(conn);
+        if (!schema.HasEnforce) return; // pre-v14 DB: nothing to enforce with
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE rules SET enforce = @enforce WHERE id = @id";
+        cmd.Parameters.AddWithValue("@enforce", enforce ? 1 : 0);
+        cmd.Parameters.AddWithValue("@id", ruleId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task DeleteAsync(long ruleId)
     {
         using var conn = _factory.CreateConnection();
@@ -581,7 +594,8 @@ public sealed class RulesRepository : IRulesRepository
                 {BuildConditionValueExpression(schema)} AS condition_value,
                 {BuildIsActiveExpression(schema)} AS is_active,
                 {BuildCreatedAtExpression(schema)} AS created_at,
-                {BuildReplacementPlanExpression(schema)} AS replacement_plan
+                {BuildReplacementPlanExpression(schema)} AS replacement_plan,
+                {BuildEnforceExpression(schema)} AS enforce
             FROM rules
             """;
     }
@@ -589,6 +603,11 @@ public sealed class RulesRepository : IRulesRepository
     private static string BuildReplacementPlanExpression(RulesSchema schema)
     {
         return schema.HasReplacementPlan ? "COALESCE(replacement_plan, '')" : "''";
+    }
+
+    private static string BuildEnforceExpression(RulesSchema schema)
+    {
+        return schema.HasEnforce ? "COALESCE(enforce, 0)" : "0";
     }
 
     private static string BuildNameExpression(RulesSchema schema)
@@ -678,7 +697,8 @@ public sealed class RulesRepository : IRulesRepository
             HasConditionValue: columns.Contains("condition_value"),
             HasIsActive: columns.Contains("is_active"),
             HasCreatedAt: columns.Contains("created_at"),
-            HasReplacementPlan: columns.Contains("replacement_plan"));
+            HasReplacementPlan: columns.Contains("replacement_plan"),
+            HasEnforce: columns.Contains("enforce"));
 
         return _cachedSchema;
     }
@@ -711,7 +731,8 @@ public sealed class RulesRepository : IRulesRepository
             ConditionValue: reader.IsDBNull(reader.GetOrdinal("condition_value")) ? "" : reader.GetString(reader.GetOrdinal("condition_value")),
             IsActive: !reader.IsDBNull(reader.GetOrdinal("is_active")) && reader.GetInt64(reader.GetOrdinal("is_active")) != 0,
             CreatedAt: reader.IsDBNull(reader.GetOrdinal("created_at")) ? null : reader.GetInt64(reader.GetOrdinal("created_at")),
-            ReplacementPlan: reader.IsDBNull(reader.GetOrdinal("replacement_plan")) ? "" : reader.GetString(reader.GetOrdinal("replacement_plan")));
+            ReplacementPlan: reader.IsDBNull(reader.GetOrdinal("replacement_plan")) ? "" : reader.GetString(reader.GetOrdinal("replacement_plan")),
+            Enforce: !reader.IsDBNull(reader.GetOrdinal("enforce")) && reader.GetInt64(reader.GetOrdinal("enforce")) != 0);
     }
 
     private sealed record RulesSchema(
@@ -723,5 +744,6 @@ public sealed class RulesRepository : IRulesRepository
         bool HasConditionValue,
         bool HasIsActive,
         bool HasCreatedAt,
-        bool HasReplacementPlan);
+        bool HasReplacementPlan,
+        bool HasEnforce);
 }

@@ -40,6 +40,10 @@ public interface IRulesRepository
 
     Task ToggleAsync(long ruleId);
 
+    /// <summary>v3.7: flip a rule between display-only (false) and ENFORCED
+    /// (true — the sidecar cancels the queue while it is tripped).</summary>
+    Task SetEnforceAsync(long ruleId, bool enforce);
+
     Task DeleteAsync(long ruleId);
 
     /// <summary>

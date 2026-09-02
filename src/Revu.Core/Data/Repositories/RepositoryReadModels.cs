@@ -141,7 +141,9 @@ public sealed record RuleRecord(
     string ConditionValue,
     bool IsActive,
     long? CreatedAt,
-    string ReplacementPlan = "");
+    string ReplacementPlan = "",
+    // v3.7: true when a trip is ENFORCED (queue cancelled), not just displayed.
+    bool Enforce = false);
 
 public sealed record RuleCheckGame(
     long GameId,
