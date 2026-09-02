@@ -537,14 +537,22 @@ public sealed partial class VodService : IVodService
         }
     }
 
+    /// <summary>
+    /// Maximum subdirectory depth the VOD scan descends below the chosen folder.
+    /// Real recording folders are shallow; the cap bounds the walk on pathological
+    /// trees (deep nesting, junction chains) instead of running until the OS
+    /// rejects the path.
+    /// </summary>
+    private const int MaxScanDepth = 32;
+
     private static IEnumerable<FileInfo> EnumerateVideoFilesSafe(string rootFolder)
     {
-        var pending = new Stack<string>();
-        pending.Push(rootFolder);
+        var pending = new Stack<(string Path, int Depth)>();
+        pending.Push((rootFolder, 0));
 
         while (pending.Count > 0)
         {
-            var current = pending.Pop();
+            var (current, depth) = pending.Pop();
             DirectoryInfo currentDir;
             try
             {
@@ -583,9 +591,17 @@ public sealed partial class VodService : IVodService
                 directories = [];
             }
 
+            if (depth >= MaxScanDepth)
+                continue;
+
             foreach (var directory in directories)
             {
-                pending.Push(directory.FullName);
+                // Junctions and directory symlinks can point back at an ancestor
+                // or outside the scan root; only walk real subdirectories.
+                if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
+                    continue;
+
+                pending.Push((directory.FullName, depth + 1));
             }
         }
     }
