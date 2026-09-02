@@ -226,6 +226,191 @@ wireWindowControls();
 // Same contract as the old per-page shell.js, but it navigates the CONTENT IFRAME
 // instead of the top document, and lives ONCE on the persistent shell (so there's
 // exactly one SSE listener for the app's lifetime — no per-navigation re-subscribe).
+// ── HARD STOP (v3.7) ─────────────────────────────────────────────────────────
+// The lock screen + slim lock bar for an ENFORCED rule the sidecar just acted on
+// (it cancelled the League client's queue). Driven by the 'hardStop' SSE event
+// (fresh enforcement → modal, window brought to the front) and by the liveState
+// replay (reload mid-lockout → bar only, so the lock survives navigation).
+//
+// Deliberately NOT a form. The player set the rule while calm; this surface only
+// shows them the plan they wrote for this moment and a countdown. OK collapses it
+// to the bar. "Queue anyway" is the one escape hatch and it only unlocks after a
+// 60-second hold — long enough to be a decision, short enough that nobody closes
+// the app to get around it. An override is logged (override_hard_stop) and
+// silences that rule for the rest of the day; the Rules page counts it.
+// Every server string goes through textContent.
+const HARDSTOP_HOLD_S = 60;
+const hardStop = { snap: null, holdStartedAt: 0, timer: null };
+const hsEl = (id) => document.getElementById(id);
+
+function hardStopHolds(s) {
+  if (!s) return false;
+  const unlock = Number(s.unlockAt);
+  return !(unlock > 0) || unlock * 1000 > Date.now();
+}
+
+function hardStopCountText(s) {
+  const unlock = Number(s && s.unlockAt);
+  if (!(unlock > 0)) return 'Holds for the rest of today.';
+  const ms = unlock * 1000 - Date.now();
+  if (ms <= 0) return '';
+  const totalMin = Math.ceil(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  const at = new Date(unlock * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const span = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  return `Unlocks in ${span} · at ${at}`;
+}
+
+async function getShellWindow() {
+  try {
+    const w = await import('@tauri-apps/api/window');
+    if (w && typeof w.getCurrentWindow === 'function') return w.getCurrentWindow();
+  } catch (_) { /* fall through */ }
+  if (window.__TAURI__?.window?.getCurrentWindow) return window.__TAURI__.window.getCurrentWindow();
+  return null;
+}
+
+// A fresh enforcement is the one moment the app is allowed to take the screen:
+// the player is looking at the League client, which just dropped them out of
+// queue with no explanation. Bring Revu forward so the reason is in view.
+async function bringShellForward() {
+  try {
+    const win = await getShellWindow();
+    if (!win) return;
+    try { await win.unminimize(); } catch (_) { /* not minimized */ }
+    try { await win.show(); } catch (_) { /* already shown */ }
+    try { await win.setFocus(); } catch (_) { /* focus denied by the OS — the bar still shows */ }
+  } catch (_) { /* preview — no window API */ }
+}
+
+function fillHardStop(s) {
+  const name = hsEl('hardstop-rule');
+  const reason = hsEl('hardstop-reason');
+  const plan = hsEl('hardstop-plan');
+  const planT = hsEl('hardstop-plan-t');
+  if (name) name.textContent = s.ruleName || 'Rule';
+  if (reason) reason.textContent = s.reason || s.conditionCue || '';
+  if (plan && planT) {
+    if (s.hasPlan && s.replacementPlan) { planT.textContent = s.replacementPlan; plan.hidden = false; }
+    else plan.hidden = true;
+  }
+  const h = hsEl('hardstop-h');
+  if (h) {
+    h.textContent = s.action === 'declined_ready_check'
+      ? 'Revu declined the match.'
+      : 'Revu cancelled your queue.';
+  }
+  tickHardStop();
+}
+
+function tickHardStop() {
+  const s = hardStop.snap;
+  if (!s) return;
+  if (!hardStopHolds(s)) { clearHardStop(); return; }
+
+  const count = hsEl('hardstop-count');
+  const text = hardStopCountText(s);
+  if (count) { count.textContent = text; count.hidden = !text; }
+  const barTxt = hsEl('hardbar-txt');
+  if (barTxt) barTxt.textContent = text ? `${s.ruleName || 'Hard stop'} · ${text}` : (s.ruleName || 'Hard stop');
+
+  // The override hold: counts down from the moment THIS enforcement first showed.
+  const btn = hsEl('hardstop-override');
+  if (btn) {
+    const held = Math.floor((Date.now() - hardStop.holdStartedAt) / 1000);
+    const left = HARDSTOP_HOLD_S - held;
+    if (left > 0) { btn.disabled = true; btn.textContent = `Queue anyway (${left})`; }
+    else { btn.disabled = false; btn.textContent = 'Queue anyway'; }
+  }
+}
+
+function startHardStopTimer() {
+  if (hardStop.timer) return;
+  hardStop.timer = setInterval(tickHardStop, 1000);
+}
+function stopHardStopTimer() {
+  if (hardStop.timer) { clearInterval(hardStop.timer); hardStop.timer = null; }
+}
+
+// fresh=true: a new enforcement just happened (modal + bring forward, new hold).
+// fresh=false: replayed from liveState — bar only, no window grab, no hold reset.
+function showHardStop(snap, fresh) {
+  if (!snap || !hardStopHolds(snap)) return;
+  const isNew = !hardStop.snap || hardStop.snap.at !== snap.at || hardStop.snap.ruleId !== snap.ruleId;
+  hardStop.snap = snap;
+  if (fresh || isNew) hardStop.holdStartedAt = Date.now();
+  fillHardStop(snap);
+  const modal = hsEl('hardstop');
+  const bar = hsEl('hardbar');
+  if (fresh) {
+    if (modal) modal.hidden = false;
+    if (bar) bar.hidden = true;
+    bringShellForward();
+    const ok = hsEl('hardstop-ok');
+    if (ok) { try { ok.focus(); } catch (_) { /* ignore */ } }
+  } else {
+    if (modal && modal.hidden) { if (bar) bar.hidden = false; }
+  }
+  startHardStopTimer();
+}
+
+function collapseHardStop() {
+  const modal = hsEl('hardstop');
+  const bar = hsEl('hardbar');
+  if (modal) modal.hidden = true;
+  if (bar) bar.hidden = !hardStop.snap;
+}
+
+function expandHardStop() {
+  if (!hardStop.snap) return;
+  fillHardStop(hardStop.snap);
+  const modal = hsEl('hardstop');
+  const bar = hsEl('hardbar');
+  if (modal) modal.hidden = false;
+  if (bar) bar.hidden = true;
+}
+
+function clearHardStop() {
+  hardStop.snap = null;
+  stopHardStopTimer();
+  const modal = hsEl('hardstop');
+  const bar = hsEl('hardbar');
+  if (modal) modal.hidden = true;
+  if (bar) bar.hidden = true;
+}
+
+async function overrideHardStop() {
+  const s = hardStop.snap;
+  if (!s) { clearHardStop(); return; }
+  const btn = hsEl('hardstop-override');
+  if (btn && btn.disabled) return; // hold not over
+  const invoke = await getShellInvoke();
+  if (!invoke) { clearHardStop(); return; } // preview
+  if (btn) btn.disabled = true;
+  try {
+    await invoke('override_hard_stop', { payload: { ruleId: Number(s.ruleId) } });
+    clearHardStop();
+  } catch (err) {
+    console.error('[shell] override_hard_stop failed:', err);
+    if (btn) btn.disabled = false;
+  }
+}
+
+function wireHardStop() {
+  const ok = hsEl('hardstop-ok');
+  const more = hsEl('hardbar-btn');
+  const over = hsEl('hardstop-override');
+  if (ok) ok.addEventListener('click', collapseHardStop);
+  if (more) more.addEventListener('click', expandHardStop);
+  if (over) over.addEventListener('click', () => { overrideHardStop(); });
+  document.addEventListener('keydown', (ev) => {
+    const modal = hsEl('hardstop');
+    if (ev.key === 'Escape' && modal && !modal.hidden) { ev.preventDefault(); collapseHardStop(); }
+  });
+}
+wireHardStop();
+
 async function wireLiveAutoShow() {
   let invoke = null;
   try {
@@ -328,6 +513,11 @@ async function wireLiveAutoShow() {
         // The replayed snapshot carries the current client state — seed the LCU
         // indicator from it (live changes arrive via 'lcuConnection' below).
         setLcuIndicator(!!p.lcuConnected);
+        // v3.7: a lock that still holds comes back as the slim bar (no window
+        // grab — the player may be mid-navigation); a null replay means the
+        // sidecar cleared it (game started / override), so drop ours too.
+        if (p.hardStop && hardStopHolds(p.hardStop)) showHardStop(p.hardStop, false);
+        else if (hardStop.snap) clearHardStop();
         if (!sawFirstLiveState) {
           sawFirstLiveState = true;
           if (p.isGameInProgress) liveGoto('ingame.html');
@@ -341,6 +531,10 @@ async function wireLiveAutoShow() {
           leaveLiveSurface();
         }
         break;
+      // v3.7 hard stop: a fresh enforcement takes the screen; an override
+      // (from any surface) clears it.
+      case 'hardStop': showHardStop(p, true); break;
+      case 'hardStopOverridden': clearHardStop(); break;
       case 'lcuConnection': setLcuIndicator(!!p.connected); break;
       default: break;
     }

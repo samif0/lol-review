@@ -48,7 +48,7 @@ public static class Schema
     //               evidence rows (NULL = never). Same shape as map_state_v:
     //               drives the startup backfill's missing-set query; bumping
     //               the materializer version re-queues every window game.
-    public const int CurrentAppSchemaVersion = 13;
+    public const int CurrentAppSchemaVersion = 14;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -1064,6 +1064,39 @@ public static class Schema
         "ALTER TABLE games ADD COLUMN pattern_evidence_v INTEGER",
     ];
 
+    /// <summary>
+    /// v3.7 (schema v14): hard stops. A rule with <c>enforce = 1</c> is not just
+    /// displayed when it trips — while it is tripped the sidecar cancels the
+    /// League client's own matchmaking queue (and declines a ready check that
+    /// pops inside the poll window). Each intervention is one row here, as is
+    /// each explicit override, so the Rules page can show "HELD 3× · OVERRIDDEN
+    /// 1×" and the enforcer can honor an override for the rest of the day.
+    /// Behavioral record only — nothing here is a score.
+    /// </summary>
+    public const string CreateHardStopsTable = """
+        CREATE TABLE IF NOT EXISTS hard_stops (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id     INTEGER NOT NULL,
+            action      TEXT NOT NULL,
+            reason      TEXT DEFAULT '',
+            created_at  INTEGER NOT NULL
+        );
+        """;
+
+    public const string CreateHardStopsIndex = """
+        CREATE INDEX IF NOT EXISTS idx_hard_stops_created ON hard_stops(created_at);
+        """;
+
+    /// <summary>v3.7 (schema v14): rules.enforce — 1 when a tripped rule must be
+    /// ENFORCED (queue cancelled), 0 when it is display-only (the default and the
+    /// pre-v14 behavior for every existing rule). Forward-only, additive.</summary>
+    public static readonly string[] MigrateRulesEnforce =
+    [
+        "ALTER TABLE rules ADD COLUMN enforce INTEGER DEFAULT 0",
+        CreateHardStopsTable,
+        CreateHardStopsIndex,
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -1097,6 +1130,8 @@ public static class Schema
         CreateConceptTagsTable,
         CreateGameConceptTagsTable,
         CreateRulesTable,
+        CreateHardStopsTable,
+        CreateHardStopsIndex,
         CreateDerivedEventDefinitionsTable,
         CreateDerivedEventInstancesTable,
         CreateObjectivePromptsTable,
@@ -1204,6 +1239,8 @@ public static class Schema
         // v3.5 (schema v13): games.pattern_evidence_v — pattern-evidence
         // materializer backfill marker (map_state_v shape).
         new(13, "games-pattern-evidence-version", MigrateGamesPatternEvidenceVersion),
+        // v3.7 (schema v14): rules.enforce + the hard_stops intervention log.
+        new(14, "rules-enforce-hard-stops", MigrateRulesEnforce),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

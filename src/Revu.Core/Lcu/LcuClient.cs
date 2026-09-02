@@ -489,6 +489,36 @@ public sealed class LcuClient : ILcuClient
         };
     }
 
+    /// <inheritdoc />
+    public async Task<bool> CancelMatchmakingAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await SendNoContentAsync(HttpMethod.Delete, "/lol-lobby/v2/lobby/matchmaking/search", ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogDebug(ex, "LCU: cancel matchmaking rejected");
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await SendNoContentAsync(HttpMethod.Post, "/lol-matchmaking/v1/ready-check/decline", ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogDebug(ex, "LCU: decline ready check rejected");
+            return false;
+        }
+    }
+
     // ── Internal helper ─────────────────────────────────────────────────
 
     private async Task<JsonElement?> GetAsync(string endpoint, CancellationToken ct)
@@ -507,5 +537,21 @@ public sealed class LcuClient : ILcuClient
         var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
         return doc.RootElement.Clone();
+    }
+
+    /// <summary>A body-less write against the LCU (DELETE / POST with no payload).
+    /// Throws HttpRequestException on a non-2xx, exactly like <see cref="GetAsync"/>.</summary>
+    private async Task SendNoContentAsync(HttpMethod method, string endpoint, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(_authHeaderValue))
+        {
+            throw new InvalidOperationException("LCU client has not been configured.");
+        }
+
+        using var request = new HttpRequestMessage(method, new Uri(new Uri(_baseUrl), endpoint));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", _authHeaderValue);
+
+        using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
     }
 }

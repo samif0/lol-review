@@ -9,6 +9,9 @@ public enum GamePhase
 {
     None,
     Lobby,
+    // v3.7 (hard stop): searching for a match. Parsed to None before, which
+    // hid the one phase an enforced rule needs to see.
+    Matchmaking,
     ReadyCheck,
     ChampSelect,
     GameStart,
@@ -36,6 +39,7 @@ public static class GamePhaseExtensions
         {
             "None" => GamePhase.None,
             "Lobby" => GamePhase.Lobby,
+            "Matchmaking" => GamePhase.Matchmaking,
             "ReadyCheck" => GamePhase.ReadyCheck,
             "ChampSelect" => GamePhase.ChampSelect,
             "GameStart" => GamePhase.GameStart,

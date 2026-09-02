@@ -70,6 +70,39 @@
   <!-- The content viewport. Pages load here; only this reloads on navigation. The
        initial page is the dashboard; a #hash on the shell URL can deep-link a page
        (e.g. index.html#vodplayer.html?gameId=5) — see shell-outer.js. -->
+  <!-- HARD STOP (v3.7) — shown when the sidecar cancelled the queue because an
+       ENFORCED rule is tripped (SSE 'hardStop'), and re-shown as the slim bar
+       from the liveState replay while the lock still holds. Not a form: the plan
+       the player wrote while calm, a countdown, OK, and an override that only
+       unlocks after a 60-second hold. Lives on the persistent shell (not the
+       iframe) so it survives page navigation. Every string is set via
+       textContent in shell-outer.js. -->
+  <div class="hardstop" id="hardstop" hidden role="dialog" aria-modal="true" aria-labelledby="hardstop-h">
+    <div class="hardstop-card">
+      <div class="hardstop-k">Hard stop</div>
+      <h2 class="hardstop-h" id="hardstop-h">Revu cancelled your queue.</h2>
+      <div class="hardstop-rule">
+        <span class="hardstop-rule-name" id="hardstop-rule"></span>
+        <span class="hardstop-reason" id="hardstop-reason"></span>
+      </div>
+      <div class="hardstop-plan" id="hardstop-plan" hidden>
+        <div class="hardstop-plan-k">YOUR PLAN INSTEAD</div>
+        <div class="hardstop-plan-t" id="hardstop-plan-t"></div>
+      </div>
+      <div class="hardstop-count" id="hardstop-count" hidden></div>
+      <div class="hardstop-bar">
+        <button class="cta cta-sm hardstop-ok" id="hardstop-ok" type="button">OK</button>
+        <button class="hardstop-override" id="hardstop-override" type="button" disabled>Queue anyway (60)</button>
+      </div>
+      <div class="hardstop-foot">You set this while calm. Revu keeps cancelling the queue until it unlocks or you override it.</div>
+    </div>
+  </div>
+  <div class="hardbar" id="hardbar" hidden>
+    <span class="hardbar-dot"></span>
+    <span class="hardbar-txt" id="hardbar-txt"></span>
+    <button class="hardbar-btn" id="hardbar-btn" type="button">Details</button>
+  </div>
+
   <iframe id="app-frame" class="app-frame" title="Revu" src="dashboard.html"></iframe>
 
   <script type="module" src="./shell-outer.js"></script>

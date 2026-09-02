@@ -100,6 +100,9 @@ services.AddSingleton<IObjectivesRepository, ObjectivesRepository>();
 services.AddSingleton<IPromptsRepository, PromptsRepository>();
 services.AddSingleton<IDeathClassificationsRepository, DeathClassificationsRepository>();
 services.AddSingleton<IRulesRepository, RulesRepository>();
+// v3.7: hard-stop record (held / overridden per rule) for the Rules snapshot.
+// Read-only here; the enforcer + override route write through WriteServices.
+services.AddSingleton<IHardStopsRepository, HardStopsRepository>();
 services.AddSingleton<IVodRepository, VodRepository>();
 services.AddSingleton<ISessionLogRepository, SessionLogRepository>();
 // v3.3: active coaching stint + block counts for the dashboard snapshot.
@@ -235,6 +238,22 @@ services.AddHostedService(sp => sp.GetRequiredService<GameMonitorService>());
 
 // The shell-equivalent message consumer: LCU → SSE + the EOG write. Hosted so it
 // registers for messages on startup and unregisters on shutdown.
+// v3.7: the hard stop. Decides over the WRITE graph's rules / games / hard_stops
+// (it records each intervention), cancels the queue through the same configured
+// ILcuClient the monitor uses, and publishes to the SSE hub. Kept off the
+// monitor itself so Core's LCU loop stays a pure reader.
+services.AddSingleton<HardStopEnforcer>(sp =>
+{
+    var write = sp.GetRequiredService<WriteServices>();
+    return new HardStopEnforcer(
+        write.Rules,
+        write.Games,
+        write.HardStops,
+        sp.GetRequiredService<ILcuClient>(),
+        sp.GetRequiredService<SidecarEventHub>(),
+        sp.GetRequiredService<LcuLiveState>(),
+        sp.GetRequiredService<ILogger<HardStopEnforcer>>());
+});
 services.AddSingleton<SidecarGameFlowCoordinator>();
 services.AddHostedService(sp => sp.GetRequiredService<SidecarGameFlowCoordinator>());
 
@@ -526,6 +545,8 @@ app.MapGet("/api/events", async (HttpContext ctx, SidecarEventHub hub, LcuLiveSt
             intentionSource = live.IntentionSource,
             intentCleared = live.IntentCleared,
             practicedObjectiveIds = live.PracticedObjectiveIds,
+            // v3.7: the latest enforcement, so a reload mid-lockout keeps the banner.
+            hardStop = live.HardStop,
         });
 
         // 2) Stream events until the client disconnects. A periodic comment frame
@@ -771,6 +792,34 @@ app.MapPost("/api/rule/toggle", async (RuleIdBody body, WriteServices w, ILogger
     await w.BackupGuard.EnsureBackedUpAsync();
     await w.Rules.ToggleAsync(body.Id);
     log.LogInformation("Rule toggled: {Id}", body.Id);
+    return Results.Json(new { ok = true }, jsonOptions);
+});
+
+// POST /api/rule/enforce  { id, enforce } — v3.7: flip a rule between display-only
+// and ENFORCED (the sidecar cancels the queue while it is tripped). Types the
+// enforcer can never act on (custom, min_mental) are rejected so a rule can't be
+// flagged into a state it can never hold.
+app.MapPost("/api/rule/enforce", async (RuleEnforceBody body, WriteServices w, ILogger<Program> log) =>
+{
+    if (body is null || body.Id <= 0) return Results.BadRequest(new { error = "id required" });
+    var rule = await w.Rules.GetAsync(body.Id);
+    if (rule is null) return Results.NotFound(new { error = "rule not found" });
+    if (body.Enforce && !HardStopPolicy.CanEnforce(rule.RuleType))
+        return Results.BadRequest(new { error = $"a {rule.RuleType} rule cannot be enforced" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    await w.Rules.SetEnforceAsync(body.Id, body.Enforce);
+    log.LogInformation("Rule {Id} enforce = {Enforce}", body.Id, body.Enforce);
+    return Results.Json(new { ok = true }, jsonOptions);
+});
+
+// POST /api/hardstop/override  { ruleId } — v3.7: the player is queuing anyway.
+// Logs the override (silences that rule's enforcement for the rest of the local
+// day; the Rules page counts it) and clears the replayed lock snapshot.
+app.MapPost("/api/hardstop/override", async (HardStopOverrideBody body, WriteServices w, HardStopEnforcer enforcer, ILogger<Program> log) =>
+{
+    if (body is null || body.RuleId <= 0) return Results.BadRequest(new { error = "ruleId required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    await enforcer.OverrideAsync(body.RuleId);
     return Results.Json(new { ok = true }, jsonOptions);
 });
 
@@ -3011,6 +3060,11 @@ internal sealed record SaveReviewDraftBody(
 // optional cooldown as "threshold:minutes". ReplacementPlan is the P2c "then I
 // will…" plan (optional). All trimmed server-side.
 internal sealed record RuleIdBody(long Id);
+
+// v3.7 hard stop.
+internal sealed record RuleEnforceBody(long Id, bool Enforce);
+
+internal sealed record HardStopOverrideBody(long RuleId);
 
 internal sealed record CreateRuleBody(
     string Name,

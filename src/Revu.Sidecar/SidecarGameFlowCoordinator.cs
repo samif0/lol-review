@@ -48,13 +48,16 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
     IRecipient<GameInProgressMessage>,
     IRecipient<GameEndedMessage>,
     IRecipient<MissedReviewsDetectedMessage>,
-    IRecipient<LcuConnectionChangedMessage>
+    IRecipient<LcuConnectionChangedMessage>,
+    IRecipient<QueueDetectedMessage>
 {
     private readonly IMessenger _messenger;
     private readonly SidecarEventHub _eventHub;
     private readonly LcuLiveState _liveState;
     private readonly GameMonitorService _gameMonitor;
     private readonly WriteServices _write;
+    // v3.7: the hard stop (queue cancel while an enforced rule holds).
+    private readonly HardStopEnforcer _hardStop;
     private readonly ILogger<SidecarGameFlowCoordinator> _logger;
 
     public SidecarGameFlowCoordinator(
@@ -63,6 +66,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         LcuLiveState liveState,
         GameMonitorService gameMonitor,
         WriteServices write,
+        HardStopEnforcer hardStop,
         ILogger<SidecarGameFlowCoordinator> logger)
     {
         _messenger = messenger;
@@ -70,6 +74,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         _liveState = liveState;
         _gameMonitor = gameMonitor;
         _write = write;
+        _hardStop = hardStop;
         _logger = logger;
     }
 
@@ -144,7 +149,21 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
 
     public void Receive(GameStartedMessage m)
     {
+        // A game is loading: whatever lock was showing is over for this game
+        // (the player overrode it, or the rule stopped holding). Don't replay it.
+        _liveState.SetHardStop(null);
         _eventHub.Publish("gameStarted", new { });
+    }
+
+    // ── Hard stop (v3.7) ──────────────────────────────────────────────────────
+
+    public void Receive(QueueDetectedMessage m)
+    {
+        // Off the messenger thread: the decision reads rules + today's games and
+        // may call the LCU. The enforcer debounces + serializes itself, so the
+        // per-tick re-sends while the phase holds are cheap when nothing trips.
+        var phase = m.Phase;
+        _ = Task.Run(() => _hardStop.HandleQueueAsync(phase));
     }
 
     public void Receive(GameInProgressMessage m)

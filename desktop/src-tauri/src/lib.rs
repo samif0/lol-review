@@ -545,6 +545,20 @@ async fn toggle_rule(payload: serde_json::Value) -> Result<serde_json::Value, St
     sidecar::post_json("/api/rule/toggle", payload).await
 }
 
+/// v3.7: flips a rule between display-only and ENFORCED ({ id, enforce }). While an
+/// enforced rule is tripped the sidecar cancels the queue. See POST /api/rule/enforce.
+#[tauri::command]
+async fn set_rule_enforce(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/rule/enforce", payload).await
+}
+
+/// v3.7: the player is queuing anyway ({ ruleId }). Logs the override and silences
+/// that rule's hard stop for the rest of the day. See POST /api/hardstop/override.
+#[tauri::command]
+async fn override_hard_stop(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/hardstop/override", payload).await
+}
+
 /// DESTRUCTIVE: hard-deletes a rule (id). The frontend MUST confirm first.
 /// See Revu.Sidecar POST /api/rule/delete.
 #[tauri::command]
@@ -1070,6 +1084,8 @@ pub fn run() {
             create_rule,
             update_rule,
             toggle_rule,
+            set_rule_enforce,
+            override_hard_stop,
             delete_rule,
             add_bookmark,
             update_bookmark_note,

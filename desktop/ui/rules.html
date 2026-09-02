@@ -152,6 +152,8 @@
         <span class="rule-badge"></span>
         <span class="rule-name"></span>
         <span class="rule-status" hidden></span>
+        <!-- v3.7: this rule is ENFORCED — Revu cancels the queue while it is tripped. -->
+        <span class="rule-enforced" hidden>ENFORCED</span>
       </div>
       <!-- Live violation reason — only on tripped rules. -->
       <div class="rule-vreason" hidden></div>
@@ -163,10 +165,14 @@
       </div>
       <!-- P2b behavioral record (mono, teal). Empty for custom rules. -->
       <div class="rule-evid" hidden></div>
-      <!-- Per-card actions: Edit / Enable-or-Disable / Delete. -->
+      <!-- v3.7 hard-stop record (mono, gold): "HELD 3× THIS WEEK · OVERRIDDEN 1×". -->
+      <div class="rule-hardstop" hidden></div>
+      <!-- Per-card actions: Edit / Enable-or-Disable / Hard stop / Delete. -->
       <div class="rule-actrow">
         <button class="rule-act" data-action="edit_rule" type="button">Edit</button>
         <button class="rule-act rule-act-toggle" data-action="toggle_rule" type="button">Disable</button>
+        <!-- v3.7: hidden for types the enforcer can never act on (custom, min mental). -->
+        <button class="rule-act rule-act-enforce" data-action="toggle_enforce" type="button" hidden>Hard stop: off</button>
         <button class="rule-act rule-act-del" data-action="delete_rule" type="button">Delete</button>
       </div>
     </div>

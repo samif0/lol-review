@@ -77,3 +77,14 @@ public sealed record GameReviewedMessage(long GameId);
 /// role-aware duo labels when participant maps become available.
 /// </summary>
 public sealed record GameMatchupsBackfilledMessage(int Updated);
+
+/// <summary>
+/// v3.7 (hard stop): the client is sitting in a queue — LCU gameflow phase
+/// <see cref="GamePhase.Matchmaking"/> (searching) or <see cref="GamePhase.ReadyCheck"/>
+/// (match found, accept pending). Sent on EVERY monitor tick while either phase
+/// holds, not just on the transition, so a player who re-queues straight after an
+/// enforced cancel is caught again. The monitor only reports "in queue right now";
+/// the sidecar's HardStopEnforcer owns the decision (it needs the rules and
+/// today's games) and the LCU cancel.
+/// </summary>
+public sealed record QueueDetectedMessage(GamePhase Phase);

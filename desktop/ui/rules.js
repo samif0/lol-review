@@ -184,6 +184,9 @@ function buildRule(r, opts) {
   const planT = el.querySelector('.rule-plan-t');
   const evid = el.querySelector('.rule-evid');
   const toggleBtn = el.querySelector('.rule-act-toggle');
+  const enforcedPill = el.querySelector('.rule-enforced');
+  const hardstop = el.querySelector('.rule-hardstop');
+  const enforceBtn = el.querySelector('.rule-act-enforce');
 
   // Type badge — text from the server; accent rim tinted by the per-rule hex.
   badge.textContent = r.typeBadge || (r.ruleType ? r.ruleType.toUpperCase() : 'RULE');
@@ -250,6 +253,31 @@ function buildRule(r, opts) {
     show(evid, true);
   } else {
     show(evid, false);
+  }
+
+  // v3.7 hard stop — ENFORCED pill (active rules only), the enforcer's own record
+  // line, and the Hard stop toggle (hidden for types it can never act on).
+  show(enforcedPill, !off && !!r.isEnforced);
+  if (r.hasHardStopLine && r.hardStopLine) {
+    hardstop.textContent = r.hardStopLine;
+    show(hardstop, true);
+  } else {
+    show(hardstop, false);
+  }
+  if (enforceBtn) {
+    if (r.canEnforce) {
+      const on = !!r.isEnforced;
+      enforceBtn.textContent = on ? 'Hard stop: on' : 'Hard stop: off';
+      enforceBtn.classList.toggle('rule-act-win', on);
+      // The NEXT state this click writes (the button is a flip).
+      enforceBtn.dataset.enforce = on ? '0' : '1';
+      enforceBtn.title = on
+        ? 'While this rule is tripped, Revu cancels your queue. Click to make it display-only.'
+        : 'Make Revu cancel your queue while this rule is tripped, instead of just showing it.';
+      show(enforceBtn, true);
+    } else {
+      show(enforceBtn, false);
+    }
   }
 
   // Toggle button label + intent: disabled rules read "Enable" (green), active
@@ -557,14 +585,15 @@ function ruleIdForTarget(target) {
 // Form submit:
 //   submit_form = create_rule / update_rule.
 // Per-rule mutations (carry {id}):
-//   toggle_rule, delete_rule (delete confirms first).
+//   toggle_rule, delete_rule (delete confirms first), toggle_enforce (v3.7:
+//   carries {id, enforce} → set_rule_enforce).
 // Empty-state preset:
 //   add_suggested = create_rule from a hardcoded SUGGESTED entry.
 const LOCAL_ACTIONS = new Set(['new_rule', 'edit_rule', 'cancel_form']);
-const ID_ACTIONS = new Set(['toggle_rule', 'delete_rule']);
+const ID_ACTIONS = new Set(['toggle_rule', 'delete_rule', 'toggle_enforce']);
 const ACTIONS = new Set([
   'new_rule', 'edit_rule', 'cancel_form', 'submit_form',
-  'toggle_rule', 'delete_rule', 'add_suggested',
+  'toggle_rule', 'delete_rule', 'add_suggested', 'toggle_enforce',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -615,11 +644,14 @@ document.addEventListener('click', async (ev) => {
     const id = ruleIdForTarget(target);
     if (id == null) return;
     payload = { id: Number(id) };
+    if (action === 'toggle_enforce') payload.enforce = target.dataset.enforce === '1';
   } else {
     payload = {};
   }
 
-  const cmd = action === 'add_suggested' ? 'create_rule' : action;
+  const cmd = action === 'add_suggested' ? 'create_rule'
+    : action === 'toggle_enforce' ? 'set_rule_enforce'
+    : action;
 
   const canDisable = 'disabled' in target;
   if (canDisable) target.disabled = true;

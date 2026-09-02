@@ -2,6 +2,7 @@
 
 using Microsoft.Extensions.Logging;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Services;
 
 namespace Revu.Sidecar;
 
@@ -42,7 +43,12 @@ public sealed class RulesSnapshotBuilder
     private const string AccentHex = "#9d8bff";
     private const string NeutralHex = "#7B8494";
 
+    /// <summary>v3.7: window for the per-rule hard-stop record line.</summary>
+    private const int HardStopWindowDays = 7;
+
     private readonly IRulesRepository _rulesRepo;
+    // v3.7: the enforcer's intervention log (held / overridden per rule).
+    private readonly IHardStopsRepository _hardStopsRepo;
     // Today's games drive the live violation check (mirror RulesViewModel's
     // IGameRepository dependency). GetTodaysGamesAsync is a READ.
     private readonly IGameRepository _gameRepo;
@@ -51,10 +57,12 @@ public sealed class RulesSnapshotBuilder
     public RulesSnapshotBuilder(
         IRulesRepository rulesRepo,
         IGameRepository gameRepo,
+        IHardStopsRepository hardStopsRepo,
         ILogger<RulesSnapshotBuilder> logger)
     {
         _rulesRepo = rulesRepo;
         _gameRepo = gameRepo;
+        _hardStopsRepo = hardStopsRepo;
         _logger = logger;
     }
 
@@ -80,12 +88,16 @@ public sealed class RulesSnapshotBuilder
             // ── P2b behavioral evidence (best-effort) ───────────────────────
             var evidenceMap = await BuildEvidenceMapAsync(rules);
 
+            // ── v3.7 hard-stop record (best-effort, 7-day window) ────────────
+            var hardStopMap = await BuildHardStopMapAsync();
+
             foreach (var rule in rules)
             {
                 violationMap.TryGetValue(rule.Id, out var violation);
                 evidenceMap.TryGetValue(rule.Id, out var evidence);
+                hardStopMap.TryGetValue(rule.Id, out var hardStop);
 
-                var row = MapRule(rule, violation, evidence);
+                var row = MapRule(rule, violation, evidence, hardStop);
                 if (rule.IsActive)
                 {
                     active.Add(row);
@@ -184,10 +196,39 @@ public sealed class RulesSnapshotBuilder
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // v3.7 hard-stop record (best-effort)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task<IReadOnlyDictionary<long, HardStopCounts>> BuildHardStopMapAsync()
+    {
+        try
+        {
+            var since = DateTimeOffset.UtcNow.AddDays(-HardStopWindowDays).ToUnixTimeSeconds();
+            return await _hardStopsRepo.GetCountsAsync(since);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Rules: hard-stop record load failed (degrading)");
+            return new Dictionary<long, HardStopCounts>();
+        }
+    }
+
+    /// <summary>"HELD 3× THIS WEEK · OVERRIDDEN 1×" — the enforcer's own record
+    /// for one rule. Empty when nothing happened in the window. Neutral wording,
+    /// same register as the P2b evidence line: a count, never a verdict.</summary>
+    public static string BuildHardStopLine(HardStopCounts? counts)
+    {
+        if (counts is null || (counts.Held == 0 && counts.Overridden == 0)) return "";
+        var line = $"HELD {counts.Held}× THIS WEEK";
+        if (counts.Overridden > 0) line += $" · OVERRIDDEN {counts.Overridden}×";
+        return line;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Rule mapping (mirror Revu.App.ViewModels.RuleDisplayItem)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static RuleRowDto MapRule(RuleRecord rule, RuleViolation? violation, RuleEvidence? evidence)
+    private static RuleRowDto MapRule(RuleRecord rule, RuleViolation? violation, RuleEvidence? evidence, HardStopCounts? hardStop)
     {
         var isCustom = rule.RuleType == "custom";
         var typeBadge = TypeBadge(rule.RuleType);
@@ -206,6 +247,10 @@ public sealed class RulesSnapshotBuilder
 
         var evidenceLine = BuildEvidenceLine(evidence);
         var hasEvidenceLine = !string.IsNullOrWhiteSpace(evidenceLine);
+
+        // v3.7: only replayable conditions can be enforced (HardStopPolicy).
+        var canEnforce = HardStopPolicy.CanEnforce(rule.RuleType);
+        var hardStopLine = BuildHardStopLine(hardStop);
 
         return new RuleRowDto(
             Id: rule.Id,
@@ -228,7 +273,11 @@ public sealed class RulesSnapshotBuilder
             HasViolationReason: hasViolationReason,
             IsOk: isOk,
             EvidenceLine: evidenceLine,
-            HasEvidenceLine: hasEvidenceLine);
+            HasEvidenceLine: hasEvidenceLine,
+            IsEnforced: rule.Enforce && canEnforce,
+            CanEnforce: canEnforce,
+            HardStopLine: hardStopLine,
+            HasHardStopLine: !string.IsNullOrWhiteSpace(hardStopLine));
     }
 
     /// <summary>
@@ -268,7 +317,10 @@ public sealed class RulesSnapshotBuilder
     };
 
     /// <summary>Mirror of RuleDisplayItem.ConditionText.</summary>
-    private static string ConditionText(string ruleType, string conditionValue)
+    /// <summary>Internal (not private) since v3.7: the hard-stop lock screen shows
+    /// the same IF leg the Rules page does (HardStopEnforcer builds its snapshot
+    /// from this), so the two can never word a condition differently.</summary>
+    internal static string ConditionText(string ruleType, string conditionValue)
     {
         if (string.IsNullOrEmpty(conditionValue)) return "";
         return ruleType switch
