@@ -83,4 +83,15 @@ public sealed partial class GameRepository
         cmd.Parameters.AddWithValue("@gameId", gameId);
         await cmd.ExecuteNonQueryAsync();
     }
+
+    /// <summary>Re-queue a game for the map-state pass (a capture-time re-save wiped
+    /// its derived rows and death stamps; NULL puts it back in the missing set).</summary>
+    public async Task ClearMapStateVersionAsync(long gameId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE games SET map_state_v = NULL WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        await cmd.ExecuteNonQueryAsync();
+    }
 }

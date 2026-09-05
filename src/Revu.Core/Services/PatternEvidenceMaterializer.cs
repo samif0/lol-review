@@ -79,59 +79,127 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
     /// <summary>
     /// One anchor per (tracked token, event second), for tokens any ACTIVE
     /// objective tracks — tie semantics via ObjectiveEventTieResolver.EventTokens
-    /// so patterns match exactly what the objective timeline highlights. When
-    /// TEAMFIGHT is tracked, one anchor per combat CLUSTER (≥3 combat events
-    /// chained within 14s), not per member event.
+    /// so patterns match exactly what the objective timeline highlights. Fights
+    /// anchor once per FIGHT (the shared <see cref="TeamfightClustering.Resolve"/> set:
+    /// stored post-game rows with numbers, else the synthetic combat clusters), under
+    /// every fight token the fight matches that an objective tracks — never per
+    /// member event. Stale fight anchors (a fight the post-game pass moved or
+    /// dropped) are removed so a re-run converges.
     /// </summary>
     private async Task MaterializeTrackedEventAnchorsAsync(long gameId)
     {
         var ties = await _objectives.GetActiveObjectiveEventTokensAsync();
-        if (ties.Count == 0)
-        {
-            return;
-        }
         var trackedTokens = new HashSet<string>(
             ties.Select(static t => PatternConstants.Canonical(t.Token)).Where(static t => t.Length > 0),
             StringComparer.Ordinal);
-        if (trackedTokens.Count == 0)
-        {
-            return;
-        }
 
         var events = await _gameEvents.GetEventsAsync(gameId);
+        var fightKeys = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var e in events)
+        if (trackedTokens.Count > 0)
         {
-            foreach (var rawToken in ObjectiveEventTieResolver.EventTokens(e))
+            foreach (var e in events)
+            {
+                if (TeamfightClustering.IsStoredTeamfight(e))
+                {
+                    continue; // a fight anchors once, per span, below
+                }
+                foreach (var rawToken in ObjectiveEventTieResolver.EventTokens(e))
+                {
+                    var token = PatternConstants.Canonical(rawToken);
+                    if (!trackedTokens.Contains(token))
+                    {
+                        continue;
+                    }
+                    await UpsertAnchorAsync(
+                        gameId,
+                        sourceKey: PatternConstants.ObjEventSourceKey(token, e.GameTimeS),
+                        title: PatternConstants.TokenLabel(token),
+                        startS: Math.Max(0, e.GameTimeS - PatternConstants.MomentLeadSeconds),
+                        endS: e.GameTimeS + PatternConstants.MomentTrailSeconds,
+                        polarity: PolarityFor(token));
+                }
+            }
+
+        }
+
+        // Fights the player was NOT in never anchor: an anchor is a review moment in
+        // the evidence inbox and a pattern-card count, and a fight elsewhere on the
+        // map is neither — it is a timeline pin (and a marker for an objective
+        // tracking ABSENT_TEAMFIGHT) and nothing more. Every key a fight COULD carry
+        // counts as live (tracked or not) so the cleanup below removes only anchors
+        // of fights that moved or vanished — never the history of a token an
+        // objective merely stopped tracking, which every other anchor kind keeps.
+        var claimedAnchors = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var span in TeamfightClustering.Resolve(events).Where(static s => s.IsOwn))
+        {
+            var anchor = TeamfightClustering.KeyAnchor(span, claimedAnchors);
+            foreach (var rawToken in FightTokens(span))
             {
                 var token = PatternConstants.Canonical(rawToken);
+                var key = PatternConstants.ObjEventSourceKeyForToken(token) + anchor;
+                fightKeys.Add(key);
                 if (!trackedTokens.Contains(token))
                 {
                     continue;
                 }
                 await UpsertAnchorAsync(
                     gameId,
-                    sourceKey: PatternConstants.ObjEventSourceKey(token, e.GameTimeS),
+                    sourceKey: key,
                     title: PatternConstants.TokenLabel(token),
-                    startS: Math.Max(0, e.GameTimeS - PatternConstants.MomentLeadSeconds),
-                    endS: e.GameTimeS + PatternConstants.MomentTrailSeconds,
+                    startS: Math.Max(0, span.StartS - PatternConstants.TeamfightLeadSeconds),
+                    endS: span.EndS + PatternConstants.TeamfightTrailSeconds,
                     polarity: PolarityFor(token));
             }
         }
 
-        if (trackedTokens.Contains(GameEvent.TrackableTokens.TeamfightToken))
+        await CleanupStaleFightAnchorsAsync(gameId, fightKeys);
+    }
+
+    // The fight tokens a span matches: a stored row's own tokens (verdict + TEAMFIGHT,
+    // or ABSENT_TEAMFIGHT), the plain TEAMFIGHT for a synthetic cluster.
+    private static IReadOnlyList<string> FightTokens(TeamfightSpan span) =>
+        span.Stored is { } stored
+            ? ObjectiveEventTieResolver.EventTokens(stored)
+            : [GameEvent.TrackableTokens.TeamfightToken];
+
+    // Drop this game's fight anchors whose key no fight produces any more (the fight
+    // moved when the post-game pass replaced the synthetic cluster, or vanished).
+    // Only untouched default rows go: anything the user noted, triaged (dismissed /
+    // highlighted), or attached to an objective, prompt or tag is theirs to keep.
+    private async Task CleanupStaleFightAnchorsAsync(long gameId, IReadOnlySet<string> liveKeys)
+    {
+        foreach (var row in await _evidence.GetForGameAsync(gameId, includeDismissed: true))
         {
-            foreach (var (start, end) in TeamfightClusters(events))
+            if (row.SourceKind != EvidenceKinds.TimelineRegion
+                || liveKeys.Contains(row.SourceKey)
+                || !IsFightAnchorKey(row.SourceKey)
+                || !string.IsNullOrWhiteSpace(row.Note)
+                || row.Status != EvidenceStatuses.Evidence
+                || row.ObjectiveId is not null
+                || row.PromptId is not null
+                || row.ConceptTagId is not null)
             {
-                await UpsertAnchorAsync(
-                    gameId,
-                    sourceKey: PatternConstants.ObjEventSourceKey(GameEvent.TrackableTokens.TeamfightToken, start),
-                    title: PatternConstants.TokenLabel(GameEvent.TrackableTokens.TeamfightToken),
-                    startS: Math.Max(0, start - PatternConstants.TeamfightLeadSeconds),
-                    endS: end + PatternConstants.TeamfightTrailSeconds,
-                    polarity: EvidencePolarities.Neutral);
+                continue;
             }
+            await _evidence.DeleteBySourceKeyAsync(gameId, EvidenceKinds.TimelineRegion, row.SourceKey);
         }
+    }
+
+    // objev:{TOKEN}:{t} where TOKEN is a fight token (they all end in TEAMFIGHT).
+    private static bool IsFightAnchorKey(string sourceKey)
+    {
+        if (!sourceKey.StartsWith(PatternConstants.ObjEventSourceKeyPrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        var rest = sourceKey.AsSpan(PatternConstants.ObjEventSourceKeyPrefix.Length);
+        var colon = rest.IndexOf(':');
+        if (colon <= 0)
+        {
+            return false;
+        }
+        return rest[..colon].EndsWith(GameEvent.TrackableTokens.TeamfightToken, StringComparison.Ordinal);
     }
 
     public async Task MaterializeReviewSignalsAsync(long gameId)
@@ -255,39 +323,8 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
         GameEvent.EventTypes.Death => EvidencePolarities.Bad,
         GameEvent.TrackableTokens.JungleGankToken => EvidencePolarities.Bad,
         GameEvent.TrackableTokens.FogDeathToken => EvidencePolarities.Bad,
+        // Committing while outnumbered is the decision the numbers filter exists to catch.
+        GameEvent.TrackableTokens.OutnumberedTeamfightToken => EvidencePolarities.Bad,
         _ => EvidencePolarities.Neutral,
     };
-
-    /// <summary>Combat clusters per the teamfight membership rule the tie
-    /// resolver applies (≥3 combat events, consecutive gaps ≤14s, t&gt;0).</summary>
-    private static IEnumerable<(int Start, int End)> TeamfightClusters(IReadOnlyList<GameEvent> events)
-    {
-        var combat = events
-            .Where(static e => IsCombat(e.EventType) && e.GameTimeS > 0)
-            .Select(static e => e.GameTimeS)
-            .OrderBy(static t => t)
-            .ToList();
-
-        var i = 0;
-        while (i < combat.Count)
-        {
-            var j = i;
-            while (j + 1 < combat.Count && combat[j + 1] - combat[j] <= PatternConstants.TeamfightGapSeconds)
-            {
-                j++;
-            }
-            if (j - i + 1 >= PatternConstants.TeamfightMinEvents)
-            {
-                yield return (combat[i], combat[j]);
-            }
-            i = j + 1;
-        }
-    }
-
-    private static bool IsCombat(string eventType) =>
-        eventType.Equals(GameEvent.EventTypes.Kill, StringComparison.OrdinalIgnoreCase)
-        || eventType.Equals(GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase)
-        || eventType.Equals(GameEvent.EventTypes.Assist, StringComparison.OrdinalIgnoreCase)
-        || eventType.Equals(GameEvent.EventTypes.FirstBlood, StringComparison.OrdinalIgnoreCase)
-        || eventType.Equals(GameEvent.EventTypes.MultiKill, StringComparison.OrdinalIgnoreCase);
 }

@@ -3,17 +3,24 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Revu.Core.Models;
+using static Revu.Core.Services.TimelineJson;
+using static Revu.Core.Services.TimelineTracks;
 
 namespace Revu.Core.Services;
 
 /// <summary>Result of one game's map-state pass: new JUNGLE_PROXIMITY rows to insert
-/// (GameId left 0 — the caller owns row identity) and the stored DEATH rows whose
-/// Details were stamped in place (so the caller can persist exactly those).</summary>
+/// (GameId left 0 — the caller owns row identity), the stored DEATH rows whose
+/// Details were stamped in place (so the caller can persist exactly those), and
+/// (v3) the TEAMFIGHT rows with numbers from <see cref="TeamfightAnalyzer"/>.</summary>
 public sealed record MapStateAnalysis(
     IReadOnlyList<GameEvent> ProximityEvents,
-    IReadOnlyList<GameEvent> StampedDeaths)
+    IReadOnlyList<GameEvent> StampedDeaths,
+    IReadOnlyList<GameEvent> TeamfightEvents)
 {
-    public static readonly MapStateAnalysis Empty = new([], []);
+    public static readonly MapStateAnalysis Empty = new([], [], []);
+
+    /// <summary>Nothing derivable for this game (ARAM, remake, no kills, no jungler).</summary>
+    public bool IsEmpty => ProximityEvents.Count == 0 && StampedDeaths.Count == 0 && TeamfightEvents.Count == 0;
 }
 
 /// <summary>
@@ -55,8 +62,10 @@ public static class MapStateAnalyzer
     /// v2: proximity moved from frame-instant checks to the interpolated-track
     /// sweep with closest-approach clustering — a gank arriving BETWEEN frames
     /// (observed live: enemy jungler collapsed on the lane mid-minute and v1 saw
-    /// nothing) is caught whenever a positioned event pins the jungler's path.</summary>
-    public const int Version = 2;
+    /// nothing) is caught whenever a positioned event pins the jungler's path.
+    /// v3: the pass also writes TEAMFIGHT rows carrying each fight's NUMBERS
+    /// (<see cref="TeamfightAnalyzer"/>), so every review-queue game re-runs once.</summary>
+    public const int Version = 3;
 
     /// <summary>Gank-threat radius in map units (the map is ~14,870 units square; a
     /// screen is ~2,400). Inside this, a jungler is one rotation from being on you.</summary>
@@ -74,38 +83,55 @@ public static class MapStateAnalyzer
     // (server clock) within this many seconds — the two clocks skew slightly.
     private const int DeathMatchToleranceS = 25;
 
-    // Max distance in time from the nearest position sample before interpolation
-    // gives up and reports no distance (1.5 frame intervals). Death-stamp only —
-    // the proximity sweep uses strict bracketing instead (see PositionAtStrict).
-    private const long MaxSampleGapMs = 90_000;
-
     // v2 sweep: evaluate the interpolated self↔jungler distance on this grid (plus
     // every frame/event knot), and merge hits within this gap into one visit.
     private const long SweepStepMs = 15_000;
     private const long ClusterGapMs = 30_000;
 
-    private readonly record struct Sample(long TMs, double X, double Y);
     private readonly record struct SweepHit(long TMs, double Dist, double SelfX, double SelfY, double JgX, double JgY);
     private sealed record TimelineDeath(long TMs, double X, double Y, int KillerId, IReadOnlyList<int> AssistIds);
     private sealed record Roster(int SelfId, int? EnemyJgId, string EnemyJgChampion, int? AllyJgId, string AllyJgChampion);
 
     /// <summary>
-    /// Run the full pass. Returns <see cref="MapStateAnalysis.Empty"/> (and stamps
-    /// nothing) when the player isn't in the match, the timeline has no frames, or no
-    /// jungler can be identified (ARAM, remakes) — better to derive nothing than to
-    /// guess. DEATH rows in <paramref name="storedEvents"/> are mutated in place.
+    /// Run the full pass. The jungle leg derives nothing when the player isn't in the
+    /// match, the timeline has no frames, or no jungler can be identified (ARAM,
+    /// remakes) — better to derive nothing than to guess; the teamfight leg (v3) only
+    /// needs the player and the kills. DEATH rows in <paramref name="storedEvents"/>
+    /// are mutated in place by both legs.
     /// </summary>
     public static MapStateAnalysis Analyze(
         JsonElement match, JsonElement timeline, string puuid, IReadOnlyList<GameEvent> storedEvents)
     {
+        // v3: the teamfight leg runs first and on its own (a fault in it must never
+        // cost the game its proximity rows); the jungle leg then re-parses each death's
+        // current Details, so both stamp families land on the same row instance.
+        var fights = SafeTeamfights(match, timeline, puuid, storedEvents);
+        var (proximity, jungleStamped) = AnalyzeJungle(match, timeline, puuid, storedEvents);
+        var stamped = new List<GameEvent>(fights.StampedDeaths);
+        foreach (var d in jungleStamped)
+            if (!stamped.Contains(d)) stamped.Add(d);
+        return new MapStateAnalysis(proximity, stamped, fights.Fights);
+    }
+
+    private static TeamfightAnalysis SafeTeamfights(
+        JsonElement match, JsonElement timeline, string puuid, IReadOnlyList<GameEvent> storedEvents)
+    {
+        try { return TeamfightAnalyzer.Analyze(match, timeline, puuid, storedEvents); }
+        catch { return TeamfightAnalysis.Empty; }
+    }
+
+    // The v2 jungle pass, unchanged: proximity visits + death map-state stamps.
+    private static (IReadOnlyList<GameEvent> Proximity, IReadOnlyList<GameEvent> Stamped) AnalyzeJungle(
+        JsonElement match, JsonElement timeline, string puuid, IReadOnlyList<GameEvent> storedEvents)
+    {
         var roster = ResolveRoster(match, puuid);
         if (roster is null || (roster.EnemyJgId is null && roster.AllyJgId is null))
-            return MapStateAnalysis.Empty;
+            return ([], []);
 
         if (!timeline.TryGetProperty("info", out var info)
             || !info.TryGetProperty("frames", out var frames)
             || frames.ValueKind != JsonValueKind.Array)
-            return MapStateAnalysis.Empty;
+            return ([], []);
 
         var samples = new Dictionary<int, List<Sample>>();
         var frameTimes = new List<long>();
@@ -130,7 +156,7 @@ public static class MapStateAnalyzer
         var blackouts = BuildBlackouts(trackedDeaths, frameTimes);
         var proximity = SweepProximity(roster, samples, blackouts, frameTimes);
         var stamped = StampDeaths(storedEvents, roster, samples, enemyReveals, timelineDeaths);
-        return new MapStateAnalysis(proximity, stamped);
+        return (proximity, stamped);
     }
 
     // ── roster ──────────────────────────────────────────────────────────────
@@ -238,22 +264,6 @@ public static class MapStateAnalyzer
     private static bool IsTracked(Roster roster, int pid) =>
         pid == roster.SelfId || pid == roster.EnemyJgId || pid == roster.AllyJgId;
 
-    // TryReadPosition helper split out so a frame's participantFrames entry (position
-    // nested under "position") and an event (same shape) share one parser.
-    private static bool TryReadPosition(JsonElement holder, out double x, out double y)
-    {
-        x = y = 0;
-        var pos = holder;
-        if (holder.ValueKind == JsonValueKind.Object && holder.TryGetProperty("position", out var nested))
-            pos = nested;
-        if (pos.ValueKind != JsonValueKind.Object) return false;
-        if (!pos.TryGetProperty("x", out var xEl) || xEl.ValueKind != JsonValueKind.Number) return false;
-        if (!pos.TryGetProperty("y", out var yEl) || yEl.ValueKind != JsonValueKind.Number) return false;
-        x = xEl.GetDouble();
-        y = yEl.GetDouble();
-        return true;
-    }
-
     private static void RecordParticipantAt(
         Roster roster, Dictionary<int, List<Sample>> samples, List<long> enemyReveals,
         int pid, long ts, double x, double y)
@@ -266,35 +276,6 @@ public static class MapStateAnalyzer
     }
 
     // ── proximity sweep (v2) ────────────────────────────────────────────────
-
-    // After a tracked participant dies, his next sample is the respawn fountain —
-    // interpolating across that teleport would sweep a phantom track through the
-    // middle of the map. Black out from each death until the next frame pins the
-    // participant again (fallback: one frame interval).
-    private static Dictionary<int, List<(long Start, long End)>> BuildBlackouts(
-        Dictionary<int, List<long>> trackedDeaths, List<long> frameTimes)
-    {
-        var result = new Dictionary<int, List<(long, long)>>();
-        foreach (var (pid, deathTimes) in trackedDeaths)
-        {
-            var windows = new List<(long, long)>();
-            foreach (var d in deathTimes)
-            {
-                var end = d + 60_000;
-                foreach (var ft in frameTimes)
-                {
-                    if (ft > d) { end = ft; break; }
-                }
-                windows.Add((d, end));
-            }
-            result[pid] = windows;
-        }
-        return result;
-    }
-
-    private static bool InBlackout(
-        Dictionary<int, List<(long Start, long End)>> blackouts, int pid, long t) =>
-        blackouts.TryGetValue(pid, out var windows) && windows.Any(w => t > w.Start && t < w.End);
 
     // Evaluate self↔jungler distance across the laning window on the sweep grid plus
     // every frame/event knot, then merge consecutive in-radius instants into ONE
@@ -378,25 +359,6 @@ public static class MapStateAnalyzer
             GameTimeS = (int)(hits[from].TMs / 1000),
             Details = details.ToJsonString(),
         });
-    }
-
-    // Strict interpolation for the sweep: the instant must sit INSIDE the sample
-    // span (bracketing samples; an exact knot answers as itself). No nearest-clamp
-    // extrapolation — a lone sighting must not smear across ±90s of sweep. The
-    // clamped PositionAt below stays for death stamping, where a nearest sample
-    // is an acceptable answer for a single instant.
-    private static (double X, double Y)? PositionAtStrict(List<Sample> sorted, long tMs)
-    {
-        Sample? before = null, after = null;
-        foreach (var s in sorted)
-        {
-            if (s.TMs <= tMs) before = s;
-            if (s.TMs >= tMs) { after = s; break; }
-        }
-        if (before is not { } b || after is not { } a) return null;
-        if (a.TMs == b.TMs) return (b.X, b.Y);
-        var f = (double)(tMs - b.TMs) / (a.TMs - b.TMs);
-        return (b.X + (a.X - b.X) * f, b.Y + (a.Y - b.Y) * f);
     }
 
     // ── death stamping ──────────────────────────────────────────────────────
@@ -484,66 +446,4 @@ public static class MapStateAnalyzer
         if (PositionAt(list, at.TMs) is not { } pos) return null;
         return (int)Math.Round(Distance((at.X, at.Y), pos));
     }
-
-    // Piecewise-linear position at tMs from the sorted samples; nearest-sample
-    // fallback at the edges within MaxSampleGapMs, null beyond that. Linear
-    // interpolation across the jungler's own death/respawn is a known, bounded
-    // approximation — the distances are god-view review anchors, not measurements.
-    private static (double X, double Y)? PositionAt(List<Sample> sorted, long tMs)
-    {
-        if (sorted.Count == 0) return null;
-
-        Sample? before = null, after = null;
-        foreach (var s in sorted)
-        {
-            if (s.TMs <= tMs) before = s;
-            else { after = s; break; }
-        }
-        if (before is { } b && after is { } a)
-        {
-            if (a.TMs == b.TMs) return (b.X, b.Y);
-            var f = (double)(tMs - b.TMs) / (a.TMs - b.TMs);
-            return (b.X + (a.X - b.X) * f, b.Y + (a.Y - b.Y) * f);
-        }
-        if (before is { } last && tMs - last.TMs <= MaxSampleGapMs) return (last.X, last.Y);
-        if (after is { } next && next.TMs - tMs <= MaxSampleGapMs) return (next.X, next.Y);
-        return null;
-    }
-
-    // ── small helpers ───────────────────────────────────────────────────────
-
-    private static void AddSample(Dictionary<int, List<Sample>> samples, int pid, Sample s)
-    {
-        if (!samples.TryGetValue(pid, out var list)) { list = []; samples[pid] = list; }
-        list.Add(s);
-    }
-
-    private static double Distance((double X, double Y) a, (double X, double Y) b)
-    {
-        var dx = a.X - b.X;
-        var dy = a.Y - b.Y;
-        return Math.Sqrt(dx * dx + dy * dy);
-    }
-
-    private static IReadOnlyList<int> ReadIntArray(JsonElement el, string property)
-    {
-        if (!el.TryGetProperty(property, out var arr) || arr.ValueKind != JsonValueKind.Array)
-            return [];
-        var result = new List<int>();
-        foreach (var item in arr.EnumerateArray())
-            if (item.ValueKind == JsonValueKind.Number) result.Add(item.GetInt32());
-        return result;
-    }
-
-    private static string Str(JsonElement el, string property) =>
-        el.TryGetProperty(property, out var v) && v.ValueKind == JsonValueKind.String
-            ? v.GetString() ?? "" : "";
-
-    private static int Int(JsonElement el, string property) =>
-        el.TryGetProperty(property, out var v) && v.ValueKind == JsonValueKind.Number
-            ? v.GetInt32() : 0;
-
-    private static long Long(JsonElement el, string property) =>
-        el.TryGetProperty(property, out var v) && v.ValueKind == JsonValueKind.Number
-            ? v.GetInt64() : 0;
 }

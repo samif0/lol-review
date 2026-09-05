@@ -148,6 +148,14 @@ public static class PatternConstants
     public const int TeamfightLeadSeconds = 4;
     public const int TeamfightTrailSeconds = 6;
 
+    /// <summary>Stored-fight detection over the Match-V5 timeline (TeamfightAnalyzer):
+    /// a cluster needs this many champion kills, and a kill joins a cluster only when
+    /// it lands within this many map units of a kill already in it (the map is
+    /// ~14,870 units square; 3,000 is ~14 s of walking, so two skirmishes on opposite
+    /// sides of the map at the same second stay two fights).</summary>
+    public const int TeamfightMinKills = 3;
+    public const int TeamfightLinkRadiusUnits = 3000;
+
     /// <summary>
     /// Source-key prefixes of the RETIRED v3.5 materialized rows (gank deaths,
     /// death audits, tag anchors, rule breaks, inferred regions). Materializer

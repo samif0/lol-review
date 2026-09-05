@@ -149,6 +149,10 @@ public sealed class GameService : IGameService
                 _logger.LogInformation(
                     "Saved {Count} live events for game {GameId}",
                     stats.LiveEvents.Count, stats.GameId);
+                // The save replaced every derived row (JUNGLE_PROXIMITY, TEAMFIGHT) and
+                // every death stamp for this game. A re-captured game must not stay
+                // marked "processed" with nothing derived — re-queue the map-state pass.
+                await _games.ClearMapStateVersionAsync(stats.GameId).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

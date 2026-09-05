@@ -187,6 +187,11 @@ public interface IGameWriter
     /// at the given analyzer version.</summary>
     Task UpdateMapStateVersionAsync(long gameId, int version);
 
+    /// <summary>Re-queue a game for the map-state pass (map_state_v back to NULL):
+    /// a capture-time re-save wipes the derived rows and death stamps, so the next
+    /// post-game pass or Settings backfill must derive them again.</summary>
+    Task ClearMapStateVersionAsync(long gameId);
+
     /// <summary>v3.5 (schema v13): game_ids in the pattern window not yet
     /// processed by the pattern-evidence materializer at the given version.
     /// Excludes hidden + casual games; newest first.</summary>
