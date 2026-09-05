@@ -574,6 +574,11 @@ async fn delete_rule(payload: serde_json::Value) -> Result<serde_json::Value, St
 /// Adds a quick note-bookmark at a video time ({gameId, timeS, note?, objectiveId?,
 /// promptId?}); returns the new bookmark id. See Revu.Sidecar POST /api/bookmark/add.
 #[tauri::command]
+async fn save_encounter(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/encounter/save", payload).await
+}
+
+#[tauri::command]
 async fn add_bookmark(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     sidecar::post_json("/api/bookmark/add", payload).await
 }
@@ -1088,6 +1093,7 @@ pub fn run() {
             override_hard_stop,
             delete_rule,
             add_bookmark,
+            save_encounter,
             update_bookmark_note,
             delete_bookmark,
             set_bookmark_objective,

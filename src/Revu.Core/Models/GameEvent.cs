@@ -47,6 +47,9 @@ public class GameEvent
         // reads extended. Heuristic, hence Details.detected = true. Replaces the
         // un-ingestible summoner-spell tokens in the objective picker.
         public const string Trade = "TRADE";
+        // Commitment is separate from trade duration; populated by explicit review.
+        public const string AllIn = "ALL_IN";
+        public const string UncertainCombat = "UNCERTAIN_COMBAT";
         // v3.2: jungle proximity, DERIVED post-game from the Match-V5 timeline
         // (participantFrames carry every player's x/y once a minute, refined by
         // exact-positioned kill/objective events). One event per LANING-PHASE
@@ -80,6 +83,8 @@ public class GameEvent
                 { EventTypes.Flash,         ("#06b6d4", "\u26a1", "Flash") },
                 { EventTypes.SummonerSpell, ("#0099ff", "\u26a1", "Summoner Spell") },
                 { EventTypes.Recall,        ("#a9c8ff", "\u21ba", "Recall") },
+                { EventTypes.AllIn,         ("#f87171", "\u2694", "All-in") },
+                { EventTypes.UncertainCombat, ("#9ca3af", "?", "Uncertain combat") },
                 { EventTypes.Trade,         ("#ffb86b", "\u2694", "Trade") },
                 { EventTypes.JungleProximity, ("#b07cd8", "\u25ce", "Jungle Proximity") },
             };
@@ -107,6 +112,7 @@ public class GameEvent
         /// just one severity. (Mirrors how a summoner cast matched both a generic and
         /// a per-spell token before the Summoners group was retired.)</summary>
         public const string TradeToken = EventTypes.Trade;        // "TRADE"
+        public const string AllInToken = EventTypes.AllIn;
         public const string ShortTradeToken = "SHORT_TRADE";
         public const string ExtendedTradeToken = "EXTENDED_TRADE";
 
@@ -164,6 +170,7 @@ public class GameEvent
             // to live here (one token per spell) but summoner-cast timing can't be
             // ingested from any ToS-safe source, so it was retired (v3.1.8).
             (EventTypes.Recall,  "Lane", "Recall",         "#a9c8ff"),
+            (AllInToken,         "Lane", "All-in",         "#f87171"),
             (TradeToken,         "Lane", "Trade",          "#ffb86b"),
             (ShortTradeToken,    "Lane", "Short Trade",    "#ffd9a3"),
             (ExtendedTradeToken, "Lane", "Extended Trade", "#ff9248"),

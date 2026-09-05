@@ -443,6 +443,7 @@ function renderObjBar() {
 }
 
 function renderAutoClipPanel() {
+  renderEncounterOptions();
   const host = $('vp-autoclip-tools');
   const btn = $('vp-autoclip-btn');
   const meta = $('vp-autoclip-meta');
@@ -1334,6 +1335,64 @@ function bmHint(msg, isErr) {
   show(h, !!msg);
 }
 
+let _encounterRequestId = null;
+function renderEncounterOptions() {
+  const select = $('vp-encounter-existing');
+  if (!select) return;
+  const selected = select.value;
+  select.replaceChildren(new Option('New moment', ''));
+  for (const event of (_vod?.gameEvents || [])) {
+    if (!['TRADE', 'ALL_IN', 'UNCERTAIN_COMBAT'].includes(event.eventType)) continue;
+    select.add(new Option(`${event.timeLabel} · ${event.summary || event.label}${event.reviewedEncounter ? ' · reviewed' : ''}`, String(event.id)));
+  }
+  select.value = selected;
+  if (select.selectedIndex < 0) select.value = '';
+  $('vp-encounter-save').disabled = !_core;
+}
+function encounterTime(value) {
+  const match = /^(\d{1,4}):([0-5]\d)$/.exec(value.trim());
+  return match ? Number(match[1]) * 60 + Number(match[2]) : NaN;
+}
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'vp-encounter-existing') return;
+  _encounterRequestId = null;
+  const event = (_vod?.gameEvents || []).find(e => String(e.id) === ev.target.value);
+  $('vp-encounter-note').value = event?.encounterNote || '';
+  if (!event) return;
+  $('vp-encounter-start').value = clock(event.gameTimeSeconds);
+  $('vp-encounter-end').value = clock(event.encounterEndSeconds ?? event.gameTimeSeconds);
+  $('vp-encounter-class').value = event.encounterClassification
+    || (event.eventType === 'ALL_IN' ? 'all_in' : event.eventType === 'TRADE' ? 'short' : 'uncertain');
+});
+async function saveEncounter() {
+  const hint = $('vp-encounter-hint');
+  if (!_core || !_gameId) { hint.textContent = 'Preview only; no backend to save to.'; return; }
+  const startS = encounterTime($('vp-encounter-start').value);
+  const endS = encounterTime($('vp-encounter-end').value);
+  if (!Number.isFinite(startS) || !Number.isFinite(endS) || endS < startS
+      || (_vod.gameDurationSeconds > 0 && endS > _vod.gameDurationSeconds)) {
+    hint.textContent = 'Enter a valid game-time range as m:ss within this game.';
+    return;
+  }
+  const button = $('vp-encounter-save');
+  button.disabled = true;
+  // Retain identity after an uncertain network result to avoid adding twice on retry.
+  _encounterRequestId ||= crypto.randomUUID();
+  try {
+    const result = await _core.invoke('save_encounter', { payload: {
+      gameId: _gameId, eventId: Number($('vp-encounter-existing').value) || null,
+      requestId: _encounterRequestId, startS, endS,
+      classification: $('vp-encounter-class').value, note: $('vp-encounter-note').value.trim(),
+    }});
+    await reloadBookmarks();
+    $('vp-encounter-existing').value = String(result.id);
+    _encounterRequestId = null;
+    hint.textContent = 'Reviewed moment saved. Objective tags follow its classification.';
+  } catch (err) {
+    hint.textContent = `Could not save the moment: ${String(err)}`;
+  } finally { button.disabled = false; }
+}
+
 async function addBookmark() {
   if (!_core || _gameId <= 0) { bmHint('Preview only; no backend to save to.', false); return; }
   const v = video();
@@ -1938,7 +1997,15 @@ document.addEventListener('click', async (ev) => {
   const t = ev.target.closest('[data-action]');
   if (!t) return;
   const action = t.dataset.action;
-  if (action === 'add_bookmark') {
+  if (action === 'save_encounter') {
+    ev.preventDefault();
+    await saveEncounter();
+  } else if (action === 'encounter_now') {
+    ev.preventDefault();
+    const now = clock(video()?.currentTime || 0);
+    $('vp-encounter-start').value = now;
+    $('vp-encounter-end').value = now;
+  } else if (action === 'add_bookmark') {
     ev.preventDefault();
     await addBookmark();
   } else if (action === 'delete_bookmark') {

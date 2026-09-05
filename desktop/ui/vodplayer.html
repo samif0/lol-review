@@ -168,6 +168,30 @@
            </div>
           </div>
 
+          <details class="mini" id="vp-encounter-editor">
+            <summary class="mtitle">Add or correct a combat moment</summary>
+            <p>Short and extended describe a trade's duration. All-in describes commitment to a kill attempt.</p>
+            <label for="vp-encounter-existing">Moment</label>
+            <select class="inp" id="vp-encounter-existing"><option value="">New moment</option></select>
+            <label for="vp-encounter-class">Classification</label>
+            <select class="inp" id="vp-encounter-class">
+              <option value="short">Short trade</option>
+              <option value="extended">Extended trade</option>
+              <option value="all_in">All-in</option>
+              <option value="uncertain">Uncertain combat</option>
+            </select>
+            <div class="row">
+              <label>Game start (m:ss)<input class="inp" id="vp-encounter-start" value="0:00" inputmode="numeric"></label>
+              <label>Game end (m:ss)<input class="inp" id="vp-encounter-end" value="0:00" inputmode="numeric"></label>
+              <button class="key" type="button" data-action="encounter_now">Use playback time</button>
+            </div>
+            <p>Use the in-game clock if the recording starts late. For a trade that becomes an all-in, save each segment separately.</p>
+            <label for="vp-encounter-note">Evidence / note</label>
+            <input class="inp" id="vp-encounter-note" maxlength="2000" placeholder="What happened?" autocomplete="off">
+            <button class="addbtn" id="vp-encounter-save" type="button" data-action="save_encounter">Save reviewed moment</button>
+            <div class="vp-bm-hint" id="vp-encounter-hint" role="status"></div>
+          </details>
+
           <!-- quick bookmark (live write) + clip tools (clips deferred to Batch 3) -->
           <div class="duo">
             <div class="mini">

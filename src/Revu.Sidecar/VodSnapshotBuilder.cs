@@ -331,6 +331,8 @@ public sealed class VodSnapshotBuilder
             "FLASH" or "SUMMONER_SPELL" => ("summoner", SummonerHex),
             "RECALL" => ("recall", RecallHex),
             "TRADE" => ("trade", TradeHex),
+            "ALL_IN" => ("all-in", "#f87171"),
+            "UNCERTAIN_COMBAT" => ("neutral", "#9ca3af"),
             "JUNGLE_PROXIMITY" => ("neutral", ProximityHex), // hue refined by Details.who in MapEvent
             _ => ("neutral", NeutralHex),
         };
@@ -352,6 +354,8 @@ public sealed class VodSnapshotBuilder
         "SUMMONER_SPELL" => "SUM",
         "RECALL" => "RCL",
         "TRADE" => "TRD",
+        "ALL_IN" => "ALL",
+        "UNCERTAIN_COMBAT" => "?",
         "JUNGLE_PROXIMITY" => "JPX",
         _ => "EVT",
     };
@@ -373,6 +377,8 @@ public sealed class VodSnapshotBuilder
         "SUMMONER_SPELL" => "Summoner Spell",
         "RECALL" => "Recall",
         "TRADE" => "Trade",
+        "ALL_IN" => "All-in",
+        "UNCERTAIN_COMBAT" => "Uncertain combat",
         "JUNGLE_PROXIMITY" => "Jungle Proximity",
         _ => eventType ?? "",
     };
@@ -399,6 +405,7 @@ public sealed class VodSnapshotBuilder
                     ? $"spent {gs}g"
                     : "detected",
                 "TRADE" => TradeSummary(root),
+                "ALL_IN" or "UNCERTAIN_COMBAT" => ReadJsonString(root, "note"),
                 "JUNGLE_PROXIMITY" => ProximitySummary(root),
                 _ => "",
             };

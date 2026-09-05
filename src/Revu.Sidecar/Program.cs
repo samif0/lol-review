@@ -1627,6 +1627,19 @@ app.MapPost("/api/focus-adherence", async (FocusAdherenceBody body, WriteService
 // Quick note-bookmark at the current video time (B key / Add button). Returns the
 // new bookmark id so the frontend can optimistically render the row. Mirrors
 // VodPlayerViewModel.AddBookmarkCommand (sans the clip fields).
+app.MapPost("/api/encounter/save", async (SaveEncounterBody body, WriteServices w) =>
+{
+    if (body is null) return Results.BadRequest(new { error = "Encounter required." });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    try
+    {
+        var id = await w.ReviewedEncounters.SaveAsync(body.GameId, body.EventId,
+            body.RequestId, body.StartS, body.EndS, body.Classification, body.Note);
+        return Results.Json(new { ok = true, id }, jsonOptions);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
 app.MapPost("/api/bookmark/add", async (AddBookmarkBody body, WriteServices w, ILogger<Program> log) =>
 {
     if (body is null || body.GameId <= 0)
@@ -3149,3 +3162,5 @@ internal sealed record PreGameIntentBody(string? Intention, string? Source, bool
 internal sealed record PreGamePracticedBody(List<long>? ObjectiveIds);
 internal sealed record PreGameDraftBody(long PromptId, string? Text);
 internal sealed record PreGameIfThenBody(string? Plan);
+
+internal sealed record SaveEncounterBody(long GameId, int? EventId, string RequestId, int StartS, int EndS, string Classification, string? Note);
