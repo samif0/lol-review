@@ -60,7 +60,7 @@ function markersForObjective(objId) {
     const hit = Array.isArray(e.objectiveIds)
       ? e.objectiveIds.some((x) => Number(x) === id)
       : (e.objectiveId != null && Number(e.objectiveId) === id);
-    if (hit) out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '' });
+    if (hit) out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '', kind: e.kind || '' });
   }
   return out.sort((a, b) => a.seconds - b.seconds);
 }
@@ -71,13 +71,28 @@ function markerCountForObjective(objId) {
   return markersForObjective(objId).length;
 }
 
+// The CLIPPABLE subset of those markers. The sidecar auto-clipper never clips a fight
+// you were NOT in (kind "teamfight-away"), so an away pin is a real marker to step to
+// but must not be promised as a clip: an objective tracking only ABSENT_TEAMFIGHT
+// would otherwise offer "Auto-clip N fights" and then report "Nothing new to clip".
+// Every auto-clip gate/count below uses this; the stepper + tab count keep all markers.
+function isClippableMarker(m) {
+  return String((m && m.kind) || '') !== 'teamfight-away';
+}
+
+function clippableMarkerCountForObjective(objId) {
+  return markersForObjective(objId).filter(isClippableMarker).length;
+}
+
 function hasObjectiveTie(e) {
   return (Array.isArray(e.objectiveIds) && e.objectiveIds.length > 0) || e.objectiveId != null;
 }
 
+// Game-wide count of objective-tied events the auto-clipper WILL clip (drives the
+// unscoped "Auto-clip N objective events" panel), so away fights are excluded here too.
 function objectiveTiedEventCount() {
   const v = _vod || {};
-  return (v.gameEvents || []).filter(hasObjectiveTie).length;
+  return (v.gameEvents || []).filter((e) => hasObjectiveTie(e) && isClippableMarker(e)).length;
 }
 
 function objectiveTitle(objId) {
@@ -86,15 +101,20 @@ function objectiveTitle(objId) {
   return (o && o.title) ? o.title : 'focused objective';
 }
 
-// Does the currently-focused objective track the synthetic TEAMFIGHT token? Gates
+// Does the currently-focused objective track a fight-you-were-in token? Gates
 // whether teamfight zones stay loud under the frame. Reads tracksTeamfight (from the
-// active-objectives endpoint); falls back to scanning trackedTokens. Defaults false
-// when unknown (older snapshot) so TF zones dim rather than falsely prioritize.
+// active-objectives endpoint); falls back to scanning trackedTokens for any token in
+// the TEAMFIGHT family (TEAMFIGHT + the verdict tokens) EXCEPT ABSENT_TEAMFIGHT, which
+// tracks fights without you and never earns a band. Defaults false when unknown
+// (older snapshot) so TF zones dim rather than falsely prioritize.
 function objTracksTeamfight(o) {
   if (!o) return false;
   if (typeof o.tracksTeamfight === 'boolean') return o.tracksTeamfight;
   const toks = o.trackedTokens || o.tokens || [];
-  return Array.isArray(toks) && toks.some((t) => String(t).toUpperCase() === 'TEAMFIGHT');
+  return Array.isArray(toks) && toks.some((t) => {
+    const tok = String(t).toUpperCase();
+    return tok.endsWith('TEAMFIGHT') && tok !== 'ABSENT_TEAMFIGHT';
+  });
 }
 
 function focusedTracksTeamfight() {
@@ -120,7 +140,12 @@ function objTokenChips(o) {
   return arr.slice(0, 6).map((raw) => {
     const tok = String(raw && (raw.code || raw.label) || raw).toUpperCase();
     let code, fam = '';
-    if (tok === 'TEAMFIGHT') { code = 'TF'; fam = 'tok-loss'; }
+    if (tok.endsWith('TEAMFIGHT')) {
+      // The fight family: TF/OTF/ETF/UTF/ATF. Numbers-up reads as a win, the rest as
+      // a loss; ABSENT (fights without you) stays on the neutral default.
+      code = deriveShortLabel(tok, tok);
+      fam = tok === 'NUMBERS_UP_TEAMFIGHT' ? 'tok-win' : tok === 'ABSENT_TEAMFIGHT' ? '' : 'tok-loss';
+    }
     else if (tok.startsWith('SPELL_')) { code = tok.slice(6, 9); fam = 'tok-summoner'; }
     else { code = deriveShortLabel(tok, tok); }
     // Color family by the canonical token (so DRG/HLD/BAR read gold, DTH red, etc.).
@@ -181,9 +206,11 @@ async function fetchVod() {
 // mapStateUpdated SSE into this iframe). If it's THE game on screen, soft-refresh the
 // timeline so the fresh jungle-proximity / fog-death markers appear without a reload —
 // reloadBookmarks() already re-renders every marker lane and never touches playback.
+// gameId 0 is the backfill's broadcast (many games stamped at once): refresh whatever
+// game is open; reloadBookmarks() is a no-op without a real game.
 window.addEventListener('revu:map-state-updated', (ev) => {
   const gid = Number(ev && ev.detail && ev.detail.gameId);
-  if (gid > 0 && gid === _gameId) reloadBookmarks();
+  if (gid === 0 || (gid > 0 && gid === _gameId)) reloadBookmarks();
 });
 
 // Re-fetch the VOD snapshot after a write and re-render the bookmark/marker UI
@@ -412,7 +439,11 @@ function renderObjBar() {
       // Auto-clip button for THIS objective. Shown only when the Settings toggle is on,
       // there's a recording on disk, and this objective has markers this game. One click
       // saves a ~45s clip (30s before to 15s after) around each of its events. Idempotent.
-      if (_autoClipEnabled && _vod && _vod.hasVod && _vod.filePath && count > 0) {
+      // Gate + count on the CLIPPABLE markers only: away fights (kind "teamfight-away")
+      // are steppable pins the sidecar never clips, so `count` above may be > 0 while
+      // there is nothing to clip (an ABSENT_TEAMFIGHT-only objective shows no button).
+      const clipCount = clippableMarkerCountForObjective(id);
+      if (_autoClipEnabled && _vod && _vod.hasVod && _vod.filePath && clipCount > 0) {
         const acRow = document.createElement('div');
         acRow.className = 'vp-objtab-autoclip';
         const acBtn = document.createElement('button');
@@ -426,8 +457,8 @@ function renderObjBar() {
         // label it as fights. Other objectives keep the per-event wording.
         const tfLabel = objTracksTeamfight(o);
         acBtn.textContent = _autoClipBusy ? 'Auto-clipping…'
-          : (tfLabel ? `⬇ Auto-clip ${count} fight${count === 1 ? '' : 's'}`
-                     : `⬇ Auto-clip ${count} event${count === 1 ? '' : 's'}`);
+          : (tfLabel ? `⬇ Auto-clip ${clipCount} fight${clipCount === 1 ? '' : 's'}`
+                     : `⬇ Auto-clip ${clipCount} event${clipCount === 1 ? '' : 's'}`);
         acRow.appendChild(acBtn);
         const acHint = document.createElement('div');
         acHint.className = 'vp-objclip-hint';
@@ -443,6 +474,7 @@ function renderObjBar() {
 }
 
 function renderAutoClipPanel() {
+  renderEncounterOptions();
   const host = $('vp-autoclip-tools');
   const btn = $('vp-autoclip-btn');
   const meta = $('vp-autoclip-meta');
@@ -454,7 +486,8 @@ function renderAutoClipPanel() {
 
   const scoped = _framed && _focusedObjId != null;
   const objId = scoped ? Number(_focusedObjId) : null;
-  const count = scoped ? markerCountForObjective(objId) : objectiveTiedEventCount();
+  // Clippable markers only: away fights are never clipped by the sidecar.
+  const count = scoped ? clippableMarkerCountForObjective(objId) : objectiveTiedEventCount();
   const eventWord = count === 1 ? 'event' : 'events';
   const title = scoped ? objectiveTitle(objId) : '';
 
@@ -606,7 +639,11 @@ function placeMarkers(dur) {
     band.className = 'evtf' + (tfFocused ? '' : ' evtf-dim');
     band.style.left = `${pctOf(tf.startS)}%`;
     band.style.width = `${Math.max(0.8, pctOf(tf.endS) - pctOf(tf.startS))}%`;
-    band.title = `Teamfight ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} events`;
+    // A stored fight carries the numbers at your commitment ("3v2") and counts kills;
+    // a synthetic cluster keeps the event count.
+    band.title = tf.numbers
+      ? `Teamfight ${tf.numbers} ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} kill${tf.count === 1 ? '' : 's'}`
+      : `Teamfight ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} events`;
     // The band is the soft BACKDROP spanning the fight. The labeled "TF" pin is now a
     // real synthetic TEAMFIGHT event (rendered in the events pass below) so it's
     // countable/steppable/clickable; the band no longer draws its own TF text, which
@@ -624,11 +661,22 @@ function placeMarkers(dur) {
     .slice()
     .sort((a, b) => (a.gameTimeSeconds || 0) - (b.gameTimeSeconds || 0));
 
-  // Track the last label x-position per tier so near-duplicates drop their label.
-  const lastLabelPctByTier = { objective: -99, major: -99, medium: -99, summoner: -99, recall: -99, minor: -99 };
+  // Track the last label x-position per COLLISION BUCKET so near-duplicates drop their
+  // label. A bucket is a label ROW: .evbar-code hangs at bottom:calc(var(--evh) + 4px),
+  // so tiers sharing a bar height share a row. 'fight' (--evh:34px, same as 'major')
+  // therefore collides in the major bucket; giving it its own bucket let a "3v2" and a
+  // "DRG" a few pixels apart both draw, overprinting each other.
+  const labelBucket = (tier) => (tier === 'fight' ? 'major' : tier);
+  const lastLabelPctByBucket = { objective: -99, major: -99, medium: -99, summoner: -99, recall: -99, minor: -99 };
+  // The tier that wrote the last label in each bucket (decides the fight-vs-fight gap).
+  const lastLabelTierByBucket = {};
   // Wider than a bare code's width so labels get real breathing room and the
   // timeline never turns into a wall of text (the dense-text complaint).
   const MIN_LABEL_GAP_PCT = 5.5;
+  // Fights cluster around objectives and their "3v2" numbers are the whole point, so
+  // a fight following ANOTHER FIGHT keeps a tighter gap. A fight following an
+  // objective code (or vice versa) keeps the full gap: they share a label row.
+  const FIGHT_LABEL_GAP_PCT = 2.5;
   // Objective-tied labels reserve a wider exclusion so neighboring NON-objective
   // labels yield around them (objective takes priority + no overlap).
   const OBJ_RESERVE_PCT = 4.0;
@@ -661,7 +709,7 @@ function placeMarkers(dur) {
     // FRAMED + not focused → a faint dim tick (still clickable, code on hover).
     const dimmed = _framed && !focused;
     // Focused events ride a dedicated 'objective' lane (tall, own row, distinct ring).
-    const tier = focused ? 'objective' : eventTier(e.eventType, e.label);
+    const tier = focused ? 'objective' : eventTier(e.eventType, e.label, e.kind);
     const leftPct = pctOf(e.gameTimeSeconds);
 
     const bar = document.createElement('span');
@@ -692,6 +740,7 @@ function placeMarkers(dur) {
     // point of dimming). Unframed untied events label when clear of their tier
     // neighbor AND clear of every focused reservation.
     const labellessTier = tier === 'minor' || tier === 'recall';
+    const bucket = labelBucket(tier);
     let showLabel;
     if (focused) {
       showLabel = true;
@@ -699,7 +748,11 @@ function placeMarkers(dur) {
     } else if (dimmed) {
       showLabel = false;
     } else {
-      const clearOfTier = leftPct - lastLabelPctByTier[tier] >= MIN_LABEL_GAP_PCT;
+      // Read AND write the shared bucket (fight → major) so labels on one row never
+      // stack; the tight fight gap applies only when the row's last label was a fight.
+      const fightAfterFight = tier === 'fight' && lastLabelTierByBucket[bucket] === 'fight';
+      const gapPct = fightAfterFight ? FIGHT_LABEL_GAP_PCT : MIN_LABEL_GAP_PCT;
+      const clearOfTier = leftPct - lastLabelPctByBucket[bucket] >= gapPct;
       const clearOfObjective = objectiveLabelXs.every((x) => Math.abs(leftPct - x) >= OBJ_RESERVE_PCT);
       showLabel = !labellessTier && clearOfTier && clearOfObjective;
     }
@@ -708,7 +761,8 @@ function placeMarkers(dur) {
       lbl.className = 'evbar-code';
       lbl.textContent = code;
       bar.appendChild(lbl);
-      lastLabelPctByTier[tier] = leftPct;
+      lastLabelPctByBucket[bucket] = leftPct;
+      lastLabelTierByBucket[bucket] = tier;
     } else {
       // Keep the code available on hover even when the static label is suppressed.
       bar.classList.add('evbar-nolabel');
@@ -733,12 +787,16 @@ function placeMarkers(dur) {
 }
 
 // Importance tier for an event → drives the bar height + label policy. Major =
-// map objectives (decisive), medium = kills/deaths (player-relevant), summoner =
-// flash/summoner casts (always labeled so the user can spot spell usage), minor =
-// everything else. Keeps the busiest timelines readable.
-function eventTier(eventType, label) {
+// map objectives (decisive), fight = a teamfight you were in (as tall as major, so its
+// "3v2" label shares the major row and placeMarkers collides it there), medium =
+// kills/deaths (player-relevant), summoner = flash/summoner casts (always labeled so
+// the user can spot spell usage), minor = everything else, including a fight you
+// were NOT in (kind "teamfight-away": a dim, label-less pin). Keeps the busiest
+// timelines readable.
+function eventTier(eventType, label, kind) {
+  if (String(kind || '') === 'teamfight-away') return 'minor';
   const t = String(eventType || label || '').toUpperCase().replace(/[^A-Z]/g, '');
-  if (/TEAMFIGHT/.test(t)) return 'major'; // the synthetic per-fight TF pin reads as a major moment
+  if (/TEAMFIGHT/.test(t)) return 'fight';
   if (/BARON|DRAGON|ELDER|HERALD|RIFT|TOWER|TURRET|INHIB|NEXUS|ACE|OBJECTIVE|CONTEST/.test(t)) return 'major';
   if (/KILL|DEATH|MULTIKILL|FIRSTBLOOD|PENTA|QUADRA|TRIPLE|DOUBLE|GANK|JUNGLEGANK|SKIRMISH/.test(t)) return 'medium';
   if (/FLASH|SUMMONER|SPELL|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(t)) return 'summoner';
@@ -747,23 +805,41 @@ function eventTier(eventType, label) {
   return 'minor';
 }
 
-// Derive teamfight zones from the event stream. A teamfight = a cluster of combat
-// events (kills/deaths/assists/multikills/first-blood) where consecutive events are
-// within GAP seconds of each other and the cluster holds at least MIN_EVENTS. Each
-// zone is { startS, endS, count } spanning the first→last event of the cluster.
+// Derive teamfight zones from the event stream, as { startS, endS, count, numbers }.
+//  1. Stored fights YOU were in (a post-game TEAMFIGHT row: e.teamfight.stored with
+//     self "in") are authoritative: the zone is the fight's own window, count = its
+//     kills, numbers = the count at your commitment ("3v2"). Fights without you
+//     (self "away") never draw a band; they stay a dim pin.
+//  2. Today's combat clustering (kills/deaths/assists/multikills/first-blood where
+//     consecutive events are within GAP seconds and the cluster holds at least
+//     MIN_EVENTS) fills in fights the server has not stamped yet. A cluster that
+//     overlaps a stored own fight (GAP pad either side) is dropped so no fight ever
+//     gets two bands. Synthetic zones carry numbers "".
 function teamfightZones(events) {
   const GAP = 14;        // seconds between consecutive combat events to stay one fight
   const MIN_EVENTS = 3;  // a fight needs at least this many combat events
+  const stored = [];
+  for (const e of events) {
+    const tf = e && e.teamfight;
+    if (!tf || String(e.eventType || '').toUpperCase() !== 'TEAMFIGHT') continue;
+    if (!tf.stored || tf.self !== 'in') continue;
+    const startS = Math.max(0, Number(tf.startSeconds) || 0);
+    const endS = Math.max(startS, Number(tf.endSeconds) || 0);
+    stored.push({ startS, endS, count: Number(tf.kills) || 0, numbers: String(tf.numbers || '') });
+  }
+  const overlapsStored = (a, b) => stored.some((z) => a <= z.endS + GAP && b >= z.startS - GAP);
   const combat = events
     .filter((e) => /KILL|DEATH|ASSIST|MULTI|FIRST/.test(String(e.eventType || e.label || '').toUpperCase()))
     .map((e) => e.gameTimeSeconds || 0)
     .filter((s) => s > 0)
     .sort((a, b) => a - b);
-  const zones = [];
+  const zones = stored.slice();
   let cluster = [];
   const flush = () => {
     if (cluster.length >= MIN_EVENTS) {
-      zones.push({ startS: cluster[0], endS: cluster[cluster.length - 1], count: cluster.length });
+      const startS = cluster[0];
+      const endS = cluster[cluster.length - 1];
+      if (!overlapsStored(startS, endS)) zones.push({ startS, endS, count: cluster.length, numbers: '' });
     }
     cluster = [];
   };
@@ -776,7 +852,7 @@ function teamfightZones(events) {
     }
   }
   flush();
-  return zones;
+  return zones.sort((a, b) => a.startS - b.startS);
 }
 
 // Clamp any label to a compact track code: strip to letters/digits, upper-case,
@@ -786,6 +862,8 @@ function teamfightZones(events) {
 function shortCode(raw) {
   const s = String(raw || '').trim();
   if (!s) return 'EVT';
+  // Teamfight numbers ("3v2") keep their lowercase v: "3V2" would read as a code.
+  if (/^\d+v\d+$/.test(s)) return s;
   // Already a tidy code (<= 5 chars, no spaces): use as-is, upper-cased.
   if (!/\s/.test(s) && s.length <= 5) return s.toUpperCase();
   const words = s.split(/\s+/).filter(Boolean);
@@ -807,6 +885,8 @@ function deriveShortLabel(eventType, label) {
     FLASH: 'FLS', SUMMONERSPELL: 'SUM', LEVELUP: 'LVL',
     TRADE: 'TRD', SHORT_TRADE: 'STR', EXTENDED_TRADE: 'XTR',
     JUNGLE_GANK: 'GNK', JUNGLE_PROXIMITY: 'JPX',
+    TEAMFIGHT: 'TF', OUTNUMBERED_TEAMFIGHT: 'OTF', EVEN_TEAMFIGHT: 'ETF',
+    NUMBERS_UP_TEAMFIGHT: 'UTF', ABSENT_TEAMFIGHT: 'ATF',
   };
   if (map[t]) return map[t];
   // Generic: first three letters of the type, upper-cased.
@@ -1332,6 +1412,64 @@ function bmHint(msg, isErr) {
   h.textContent = msg || '';
   h.classList.toggle('err', !!isErr);
   show(h, !!msg);
+}
+
+let _encounterRequestId = null;
+function renderEncounterOptions() {
+  const select = $('vp-encounter-existing');
+  if (!select) return;
+  const selected = select.value;
+  select.replaceChildren(new Option('New moment', ''));
+  for (const event of (_vod?.gameEvents || [])) {
+    if (!['TRADE', 'ALL_IN', 'UNCERTAIN_COMBAT'].includes(event.eventType)) continue;
+    select.add(new Option(`${event.timeLabel} · ${event.summary || event.label}${event.reviewedEncounter ? ' · reviewed' : ''}`, String(event.id)));
+  }
+  select.value = selected;
+  if (select.selectedIndex < 0) select.value = '';
+  $('vp-encounter-save').disabled = !_core;
+}
+function encounterTime(value) {
+  const match = /^(\d{1,4}):([0-5]\d)$/.exec(value.trim());
+  return match ? Number(match[1]) * 60 + Number(match[2]) : NaN;
+}
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'vp-encounter-existing') return;
+  _encounterRequestId = null;
+  const event = (_vod?.gameEvents || []).find(e => String(e.id) === ev.target.value);
+  $('vp-encounter-note').value = event?.encounterNote || '';
+  if (!event) return;
+  $('vp-encounter-start').value = clock(event.gameTimeSeconds);
+  $('vp-encounter-end').value = clock(event.encounterEndSeconds ?? event.gameTimeSeconds);
+  $('vp-encounter-class').value = event.encounterClassification
+    || (event.eventType === 'ALL_IN' ? 'all_in' : event.eventType === 'TRADE' ? 'short' : 'uncertain');
+});
+async function saveEncounter() {
+  const hint = $('vp-encounter-hint');
+  if (!_core || !_gameId) { hint.textContent = 'Preview only; no backend to save to.'; return; }
+  const startS = encounterTime($('vp-encounter-start').value);
+  const endS = encounterTime($('vp-encounter-end').value);
+  if (!Number.isFinite(startS) || !Number.isFinite(endS) || endS < startS
+      || (_vod.gameDurationSeconds > 0 && endS > _vod.gameDurationSeconds)) {
+    hint.textContent = 'Enter a valid game-time range as m:ss within this game.';
+    return;
+  }
+  const button = $('vp-encounter-save');
+  button.disabled = true;
+  // Retain identity after an uncertain network result to avoid adding twice on retry.
+  _encounterRequestId ||= crypto.randomUUID();
+  try {
+    const result = await _core.invoke('save_encounter', { payload: {
+      gameId: _gameId, eventId: Number($('vp-encounter-existing').value) || null,
+      requestId: _encounterRequestId, startS, endS,
+      classification: $('vp-encounter-class').value, note: $('vp-encounter-note').value.trim(),
+    }});
+    await reloadBookmarks();
+    $('vp-encounter-existing').value = String(result.id);
+    _encounterRequestId = null;
+    hint.textContent = 'Reviewed moment saved. Objective tags follow its classification.';
+  } catch (err) {
+    hint.textContent = `Could not save the moment: ${String(err)}`;
+  } finally { button.disabled = false; }
 }
 
 async function addBookmark() {
@@ -1938,7 +2076,15 @@ document.addEventListener('click', async (ev) => {
   const t = ev.target.closest('[data-action]');
   if (!t) return;
   const action = t.dataset.action;
-  if (action === 'add_bookmark') {
+  if (action === 'save_encounter') {
+    ev.preventDefault();
+    await saveEncounter();
+  } else if (action === 'encounter_now') {
+    ev.preventDefault();
+    const now = clock(video()?.currentTime || 0);
+    $('vp-encounter-start').value = now;
+    $('vp-encounter-end').value = now;
+  } else if (action === 'add_bookmark') {
     ev.preventDefault();
     await addBookmark();
   } else if (action === 'delete_bookmark') {
@@ -2222,7 +2368,9 @@ async function runAutoClipForObjective(objId) {
   if (!_vod || !_vod.filePath) { setAutoClipHint('No recording on disk to clip from.', true); return; }
   if (!_autoClipEnabled) { setAutoClipHint('Turn on "Auto-clip objective events" in Settings first.', true); return; }
 
-  const count = oid ? markerCountForObjective(oid) : objectiveTiedEventCount();
+  // Same clippable count the button/panel showed (away fights excluded), so this
+  // pre-check agrees with what the sidecar will actually clip.
+  const count = oid ? clippableMarkerCountForObjective(oid) : objectiveTiedEventCount();
   if (count <= 0) {
     setAutoClipHint(oid ? 'No tied events for the focused objective in this game.' : 'No objective-tied events in this game.', false);
     return;

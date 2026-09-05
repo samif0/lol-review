@@ -1627,6 +1627,19 @@ app.MapPost("/api/focus-adherence", async (FocusAdherenceBody body, WriteService
 // Quick note-bookmark at the current video time (B key / Add button). Returns the
 // new bookmark id so the frontend can optimistically render the row. Mirrors
 // VodPlayerViewModel.AddBookmarkCommand (sans the clip fields).
+app.MapPost("/api/encounter/save", async (SaveEncounterBody body, WriteServices w) =>
+{
+    if (body is null) return Results.BadRequest(new { error = "Encounter required." });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    try
+    {
+        var id = await w.ReviewedEncounters.SaveAsync(body.GameId, body.EventId,
+            body.RequestId, body.StartS, body.EndS, body.Classification, body.Note);
+        return Results.Json(new { ok = true, id }, jsonOptions);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
 app.MapPost("/api/bookmark/add", async (AddBookmarkBody body, WriteServices w, ILogger<Program> log) =>
 {
     if (body is null || body.GameId <= 0)
@@ -1995,9 +2008,12 @@ app.MapGet("/api/objectives/active", async (WriteServices w, ILogger<Program> lo
                 isPriority = o.IsPriority,
                 isMini = o.IsMini,
                 // Tracked tokens → viewer token chips; tracksTeamfight gates whether
-                // teamfight zones stay loud when this objective is focused.
+                // teamfight zones stay loud when this objective is focused. Any fight
+                // token the player was IN counts (TEAMFIGHT or a numbers verdict); a
+                // fight without the player is a pin, never a band.
                 trackedTokens = toks,
-                tracksTeamfight = toks.Contains(Revu.Core.Models.GameEvent.TrackableTokens.TeamfightToken),
+                tracksTeamfight = toks.Any(t => t.EndsWith("TEAMFIGHT", StringComparison.Ordinal)
+                    && t != Revu.Core.Models.GameEvent.TrackableTokens.AbsentTeamfightToken),
                 prompts,
             });
         }
@@ -2545,7 +2561,7 @@ static bool IsDeletableClipFile(string clipPath)
 // completes before the response (the 5-min sidecar request timeout covers small-
 // to-moderate backlogs; a huge backlog can be re-run to drain the rest).
 // ─────────────────────────────────────────────────────────────────────────────
-app.MapPost("/api/backfill/start", async (WriteServices w, ILogger<Program> log, CancellationToken ct) =>
+app.MapPost("/api/backfill/start", async (WriteServices w, SidecarEventHub hub, ILogger<Program> log, CancellationToken ct) =>
 {
     var cfg = await w.Config.LoadAsync();
     var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -2600,6 +2616,12 @@ app.MapPost("/api/backfill/start", async (WriteServices w, ILogger<Program> log,
         log.LogDebug(ex, "Backfill: map-state leg failed (degraded, non-fatal)");
     }
 
+    // The fights and proximity rows that just landed change what an open VOD timeline
+    // shows. Same event the post-game coordinator publishes; gameId 0 means "any game",
+    // so a viewer refreshes whichever game it has open.
+    if (mapState.Updated > 0)
+        hub.Publish("mapStateUpdated", new { gameId = 0L, updated = mapState.Updated });
+
     // Laning leg degrades silently on a proxy 404 (mirror the VM try/catch).
     LaningBackfillResult laning = new(0, 0, 0, 0);
     try
@@ -2617,7 +2639,7 @@ app.MapPost("/api/backfill/start", async (WriteServices w, ILogger<Program> log,
 
     var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
     var text = totalUpdated > 0
-        ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state: {mapState.Updated}/{mapState.Scanned}."
+        ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state and teamfights: {mapState.Updated}/{mapState.Scanned}."
         : "Nothing to backfill — every game already has its matchup data.";
 
     log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}, map-state {MU}/{MS}",
@@ -3149,3 +3171,5 @@ internal sealed record PreGameIntentBody(string? Intention, string? Source, bool
 internal sealed record PreGamePracticedBody(List<long>? ObjectiveIds);
 internal sealed record PreGameDraftBody(long PromptId, string? Text);
 internal sealed record PreGameIfThenBody(string? Plan);
+
+internal sealed record SaveEncounterBody(long GameId, int? EventId, string RequestId, int StartS, int EndS, string Classification, string? Note);

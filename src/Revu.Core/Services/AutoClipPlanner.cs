@@ -71,13 +71,18 @@ public static class AutoClipPlanner
         // dedupe / min-gap / cap uniformly across the merged, time-ordered set.
         var candidates = new List<PlannedClip>();
 
-        // 1) One clip per teamfight cluster, spanning the whole fight.
+        // 1) One clip per teamfight cluster, spanning the whole fight. Fights the player
+        //    was NOT in (stored self = "away") are never clipped: the recording shows
+        //    the player's own screen, and a fight elsewhere would only burn the cap.
         var clusters = tieResolver.ResolveTeamfightClusters(events);
         // Event ids covered by a fight, PER objective — so a combat event tied to obj X by
         // teamfight membership isn't also clipped individually under X.
         var coveredByFight = new Dictionary<long, HashSet<int>>();
+        var claimedAnchors = new HashSet<string>(StringComparer.Ordinal);
         foreach (var c in clusters)
         {
+            if (c.Self != TeamfightClustering.SelfIn) continue;
+            var anchor = TeamfightKeyAnchor(c, claimedAnchors);
             foreach (var tie in c.Objectives)
             {
                 if (!coveredByFight.TryGetValue(tie.ObjectiveId, out var set))
@@ -98,15 +103,17 @@ public static class AutoClipPlanner
                     EndS: endS,
                     ObjectiveId: tie.ObjectiveId,
                     ObjectiveTitle: tie.Title,
-                    SourceKey: TeamfightSourceKey(gameId, c.StartS),
+                    SourceKey: TeamfightSourceKey(gameId, anchor),
                     IsTeamfight: true));
             }
         }
 
         // 2) Per-event clips — ONLY for events tied by their own token (not teamfight),
-        //    and not already inside a fight of the same objective.
+        //    and not already inside a fight of the same objective. A stored TEAMFIGHT
+        //    row IS its fight: it is clipped by the cluster pass above and never here.
         foreach (var e in events)
         {
+            if (TeamfightClustering.IsStoredTeamfight(e)) continue;
             foreach (var tie in tieResolver.TokenTiesForEvent(e))
             {
                 if (!WantsObjective(tie.ObjectiveId)) continue;
@@ -178,5 +185,17 @@ public static class AutoClipPlanner
 
     /// <summary>The stable dedupe key for a per-teamfight auto-clip (anchored on the
     /// cluster's start second, which is stable across re-runs of the same game).</summary>
-    public static string TeamfightSourceKey(long gameId, int clusterStartS) => $"autoclip-tf:{gameId}:{clusterStartS}";
+    public static string TeamfightSourceKey(long gameId, int clusterStartS) => TeamfightSourceKey(gameId, clusterStartS.ToString());
+
+    /// <summary>Key from a pre-computed anchor ("{start}" or, for a second fight that
+    /// begins in the same second, "{start}-{end}" — see
+    /// <see cref="TeamfightClustering.KeyAnchor"/>).</summary>
+    public static string TeamfightSourceKey(long gameId, string anchor) => $"autoclip-tf:{gameId}:{anchor}";
+
+    private static string TeamfightKeyAnchor(TeamfightCluster c, ISet<string> claimed)
+    {
+        var anchor = c.StartS.ToString();
+        if (!claimed.Add(anchor)) anchor = $"{c.StartS}-{c.EndS}";
+        return anchor;
+    }
 }

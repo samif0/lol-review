@@ -79,7 +79,14 @@ public sealed record VodEventDto(
     // viewer lights an event up when the FOCUSED objective is in this list — so a
     // shared token (DEATH, SPELL_FLASH) shows for every objective that tracks it, not
     // just the first-wins winner. Empty = untied. Additive; ObjectiveId still set.
-    IReadOnlyList<long>? ObjectiveIds = null);
+    IReadOnlyList<long>? ObjectiveIds = null,
+    string EncounterClassification = "",
+    int? EncounterEndSeconds = null,
+    string EncounterNote = "",
+    bool ReviewedEncounter = false,
+    // v3.8: the fight this TEAMFIGHT pin stands for (numbers, window, roster). Set only
+    // on TEAMFIGHT entries; a synthetic own-event cluster carries Stored = false.
+    VodTeamfightDto? Teamfight = null);
 
 /// <summary>
 /// An evidence-inbox moment (auto-detected timeline region OR a saved clip) for
@@ -110,3 +117,27 @@ public sealed record VodEvidenceDto(
     // when untagged. Lets the VOD row's picker re-select the saved prompt and the
     // '↳ prompt' badge render after a reload.
     long? PromptId = null);
+
+/// <summary>
+/// The fight behind a TEAMFIGHT timeline pin (v3.8 teamfight numbers). Start/End are the
+/// fight's own window (the band); Numbers/Verdict are the count at the player's commitment
+/// instant ("3v2" / "up" | "even" | "down"); Became is the whole-fight count. Allies/
+/// Enemies are the display names of the champions counted in Numbers. Stored is false
+/// for a synthetic own-event cluster (no post-game row yet), in which case the numbers
+/// fields are empty.
+/// </summary>
+public sealed record VodTeamfightDto(
+    int StartSeconds,
+    int EndSeconds,
+    string Numbers,
+    string Verdict,
+    string Self,
+    string Became,
+    int? EntrySeconds,
+    int Kills,
+    int KillsFor,
+    int KillsAgainst,
+    string Outcome,
+    IReadOnlyList<string> Allies,
+    IReadOnlyList<string> Enemies,
+    bool Stored);

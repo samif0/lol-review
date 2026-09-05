@@ -32,6 +32,8 @@ public sealed class WriteServices : IDisposable
 {
     private readonly ServiceProvider _provider;
 
+    public ReviewedEncountersRepository ReviewedEncounters => _provider.GetRequiredService<ReviewedEncountersRepository>();
+
     public WriteServices(ILoggerFactory loggerFactory)
     {
         var services = new ServiceCollection();
@@ -107,6 +109,7 @@ public sealed class WriteServices : IDisposable
         //     the kill-feed + derived-event rows for the captured game.
         //   • IMissedGameDecisionRepository — reconcile dismissals.
         services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
+        services.AddSingleton<ReviewedEncountersRepository>();
         services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
         services.AddSingleton<IMissedGameDecisionRepository, MissedGameDecisionRepository>();
         services.AddSingleton<IGameService, GameService>();

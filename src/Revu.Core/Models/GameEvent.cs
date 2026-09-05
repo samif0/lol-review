@@ -47,6 +47,9 @@ public class GameEvent
         // reads extended. Heuristic, hence Details.detected = true. Replaces the
         // un-ingestible summoner-spell tokens in the objective picker.
         public const string Trade = "TRADE";
+        // Commitment is separate from trade duration; populated by explicit review.
+        public const string AllIn = "ALL_IN";
+        public const string UncertainCombat = "UNCERTAIN_COMBAT";
         // v3.2: jungle proximity, DERIVED post-game from the Match-V5 timeline
         // (participantFrames carry every player's x/y once a minute, refined by
         // exact-positioned kill/objective events). One event per LANING-PHASE
@@ -80,6 +83,8 @@ public class GameEvent
                 { EventTypes.Flash,         ("#06b6d4", "\u26a1", "Flash") },
                 { EventTypes.SummonerSpell, ("#0099ff", "\u26a1", "Summoner Spell") },
                 { EventTypes.Recall,        ("#a9c8ff", "\u21ba", "Recall") },
+                { EventTypes.AllIn,         ("#f87171", "\u2694", "All-in") },
+                { EventTypes.UncertainCombat, ("#9ca3af", "?", "Uncertain combat") },
                 { EventTypes.Trade,         ("#ffb86b", "\u2694", "Trade") },
                 { EventTypes.JungleProximity, ("#b07cd8", "\u25ce", "Jungle Proximity") },
             };
@@ -98,6 +103,18 @@ public class GameEvent
     public static class TrackableTokens
     {
         public const string TeamfightToken = "TEAMFIGHT";
+
+        /// <summary>The fight-numbers family (post-game Match-V5 teamfight pass). A stored
+        /// TEAMFIGHT row the player fought in matches the generic <see cref="TeamfightToken"/>
+        /// AND the token for its numbers verdict at the player's commitment instant
+        /// (Details.verdict: "down" → <see cref="OutnumberedTeamfightToken"/>, "even" →
+        /// <see cref="EvenTeamfightToken"/>, "up" → <see cref="NumbersUpTeamfightToken"/>).
+        /// A fight the player was NOT in (Details.self = "away") matches only
+        /// <see cref="AbsentTeamfightToken"/>: the evidence for the avoid decision.</summary>
+        public const string OutnumberedTeamfightToken = "OUTNUMBERED_TEAMFIGHT";
+        public const string EvenTeamfightToken = "EVEN_TEAMFIGHT";
+        public const string NumbersUpTeamfightToken = "NUMBERS_UP_TEAMFIGHT";
+        public const string AbsentTeamfightToken = "ABSENT_TEAMFIGHT";
         public const string SpellPrefix = "SPELL_";
 
         /// <summary>The trade family. A stored TRADE row matches the generic
@@ -107,6 +124,7 @@ public class GameEvent
         /// just one severity. (Mirrors how a summoner cast matched both a generic and
         /// a per-spell token before the Summoners group was retired.)</summary>
         public const string TradeToken = EventTypes.Trade;        // "TRADE"
+        public const string AllInToken = EventTypes.AllIn;
         public const string ShortTradeToken = "SHORT_TRADE";
         public const string ExtendedTradeToken = "EXTENDED_TRADE";
 
@@ -164,6 +182,7 @@ public class GameEvent
             // to live here (one token per spell) but summoner-cast timing can't be
             // ingested from any ToS-safe source, so it was retired (v3.1.8).
             (EventTypes.Recall,  "Lane", "Recall",         "#a9c8ff"),
+            (AllInToken,         "Lane", "All-in",         "#f87171"),
             (TradeToken,         "Lane", "Trade",          "#ffb86b"),
             (ShortTradeToken,    "Lane", "Short Trade",    "#ffd9a3"),
             (ExtendedTradeToken, "Lane", "Extended Trade", "#ff9248"),
@@ -171,8 +190,15 @@ public class GameEvent
             (JungleProximityToken,      "Map", "Jungler Near",       "#b07cd8"),
             (EnemyJungleProximityToken, "Map", "Enemy Jungler Near", "#ff7a9e"),
             (AllyJungleProximityToken,  "Map", "Ally Jungler Near",  "#6bd6c8"),
-            // Fights (synthetic derived token)
-            (TeamfightToken,   "Fights",    "Teamfight", "#f3a3a8"),
+            // Fights: TEAMFIGHT = any fight you were in (a stored post-game row with
+            // numbers, or the synthetic own-event cluster before the pass runs); the
+            // numbers family splits those by the verdict when you committed; ABSENT
+            // = a fight that happened without you.
+            (TeamfightToken,             "Fights", "Teamfight",          "#f3a3a8"),
+            (OutnumberedTeamfightToken,  "Fights", "Outnumbered Fight",  "#f26d7d"),
+            (EvenTeamfightToken,         "Fights", "Even-Numbers Fight", "#f3a3a8"),
+            (NumbersUpTeamfightToken,    "Fights", "Numbers-Up Fight",   "#8ee7ba"),
+            (AbsentTeamfightToken,       "Fights", "Fight Without You",  "#9fb0c3"),
         ];
 
         /// <summary>Legacy per-spell tokens (SPELL_FLASH, …) that are NO LONGER in the

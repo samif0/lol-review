@@ -15,9 +15,11 @@ namespace Revu.Core.Services;
 /// Two tie sources, matching the timeline:
 ///   1. TOKEN match — the event's own trackable token (raw type, or SPELL_&lt;name&gt;
 ///      parsed from Details.spell for summoner casts) is tracked by an objective.
-///   2. TEAMFIGHT membership — when an objective tracks TEAMFIGHT, every combat
-///      event inside a cluster (&ge;3 combat events within 14s, t&gt;0) ties to it,
-///      even though no single row IS a teamfight.
+///   2. TEAMFIGHT membership — when an objective tracks a fight token (TEAMFIGHT,
+///      one of the numbers verdicts, or ABSENT_TEAMFIGHT), every combat event
+///      inside that fight ties to it. Fights come from <see cref="TeamfightClustering"/>:
+///      stored post-game TEAMFIGHT rows with numbers, or the synthetic own-event
+///      cluster (&ge;3 combat events within 14s, t&gt;0) before the pass has run.
 /// </para>
 ///
 /// Stateless and DB-free: callers fetch the active ties once
@@ -26,23 +28,37 @@ namespace Revu.Core.Services;
 /// </summary>
 public sealed class ObjectiveEventTieResolver
 {
-    private const int TeamfightGapSeconds = 14;
-    private const int TeamfightMinEvents = 3;
-
     // token (UPPER) → ordered list of active objectives tracking it. First entry is
     // the back-compat priority-lane winner (query order, de-duped per objective).
     private readonly Dictionary<string, List<ObjectiveTie>> _tokenMap;
 
-    // The objectives that track TEAMFIGHT (empty when none do), in the same order.
+    // The objectives that track the generic TEAMFIGHT token (empty when none do), the
+    // ones tracking ABSENT_TEAMFIGHT, and the ones tracking each numbers verdict.
     private readonly IReadOnlyList<ObjectiveTie> _teamfightObjectives;
+    private readonly IReadOnlyList<ObjectiveTie> _absentObjectives;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<ObjectiveTie>> _verdictObjectives;
 
-    private ObjectiveEventTieResolver(
-        Dictionary<string, List<ObjectiveTie>> tokenMap,
-        IReadOnlyList<ObjectiveTie> teamfightObjectives)
+    private ObjectiveEventTieResolver(Dictionary<string, List<ObjectiveTie>> tokenMap)
     {
         _tokenMap = tokenMap;
-        _teamfightObjectives = teamfightObjectives;
+        _teamfightObjectives = Ties(GameEvent.TrackableTokens.TeamfightToken);
+        _absentObjectives = Ties(GameEvent.TrackableTokens.AbsentTeamfightToken);
+        _verdictObjectives = new Dictionary<string, IReadOnlyList<ObjectiveTie>>(StringComparer.Ordinal)
+        {
+            [TeamfightClustering.VerdictDown] = Ties(GameEvent.TrackableTokens.OutnumberedTeamfightToken),
+            [TeamfightClustering.VerdictEven] = Ties(GameEvent.TrackableTokens.EvenTeamfightToken),
+            [TeamfightClustering.VerdictUp] = Ties(GameEvent.TrackableTokens.NumbersUpTeamfightToken),
+        };
+
+        IReadOnlyList<ObjectiveTie> Ties(string token) =>
+            tokenMap.TryGetValue(token, out var list) ? list : Array.Empty<ObjectiveTie>();
     }
+
+    // True when any active objective tracks any fight token — the only case the
+    // cluster pass has work to do.
+    private bool TracksAnyFight =>
+        _teamfightObjectives.Count > 0 || _absentObjectives.Count > 0
+        || _verdictObjectives.Values.Any(v => v.Count > 0);
 
     /// <summary>
     /// Build a resolver from the active (token, objectiveId, title) ties. Color is
@@ -62,10 +78,7 @@ public sealed class ObjectiveEventTieResolver
             list.Add(new ObjectiveTie(objId, title ?? "", color));
         }
 
-        map.TryGetValue(GameEvent.TrackableTokens.TeamfightToken, out var tfList);
-        return new ObjectiveEventTieResolver(
-            map,
-            (IReadOnlyList<ObjectiveTie>?)tfList ?? Array.Empty<ObjectiveTie>());
+        return new ObjectiveEventTieResolver(map);
     }
 
     /// <summary>True if no active objective ties to any event token (UI can skip work).</summary>
@@ -196,50 +209,93 @@ public sealed class ObjectiveEventTieResolver
                 _       => [GameEvent.TrackableTokens.JungleProximityToken],
             };
         }
+        if (type == GameEvent.TrackableTokens.TeamfightToken)
+        {
+            // A stored post-game fight row. Verdict-specific token first (priority-lane
+            // winner), generic TEAMFIGHT second — but ONLY for a fight the player was
+            // in. A fight that happened without the player matches ABSENT_TEAMFIGHT
+            // alone; a row with no readable self state ties to nothing (never guess).
+            var self = ReadDetailsString(e, "self").Trim().ToLowerInvariant();
+            if (self == TeamfightClustering.SelfAway) return [GameEvent.TrackableTokens.AbsentTeamfightToken];
+            if (self != TeamfightClustering.SelfIn) return [];
+            var verdictToken = VerdictToken(ReadDetailsString(e, "verdict"));
+            return verdictToken is null
+                ? [GameEvent.TrackableTokens.TeamfightToken]
+                : [verdictToken, GameEvent.TrackableTokens.TeamfightToken];
+        }
         return type.Length > 0 ? [type] : [];
     }
 
+    /// <summary>The numbers-family token for a stored fight's verdict, null when unknown.</summary>
+    public static string? VerdictToken(string? verdict) => (verdict ?? "").Trim().ToLowerInvariant() switch
+    {
+        TeamfightClustering.VerdictDown => GameEvent.TrackableTokens.OutnumberedTeamfightToken,
+        TeamfightClustering.VerdictEven => GameEvent.TrackableTokens.EvenTeamfightToken,
+        TeamfightClustering.VerdictUp => GameEvent.TrackableTokens.NumbersUpTeamfightToken,
+        _ => null,
+    };
+
     /// <summary>
-    /// The teamfight CLUSTERS in a game (≥3 combat events within 14s of each other, t&gt;0
-    /// — the same definition the client timeline band uses), each tagged with the active
-    /// objectives that track TEAMFIGHT. Empty when no objective tracks teamfights. Used by
-    /// the auto-clipper to make ONE clip per fight (spanning first→last member) instead of
-    /// one per kill/death/assist inside it.
+    /// The teamfights in a game that some active objective tracks, each tagged with the
+    /// objectives it ties to. Fights are the shared <see cref="TeamfightClustering.Resolve"/>
+    /// set (stored post-game rows with numbers, else the synthetic own-event clusters —
+    /// the same definition the client timeline band uses). A fight the player was in
+    /// ties to the TEAMFIGHT trackers plus the trackers of its numbers verdict; a fight
+    /// without the player ties to the ABSENT_TEAMFIGHT trackers only. Fights nobody
+    /// tracks are omitted; empty when no objective tracks any fight token. Used by the
+    /// auto-clipper to make ONE clip per fight instead of one per kill/death/assist.
     /// </summary>
     public IReadOnlyList<TeamfightCluster> ResolveTeamfightClusters(IReadOnlyList<GameEvent> events)
     {
         var result = new List<TeamfightCluster>();
-        if (_teamfightObjectives.Count == 0) return result;
+        if (!TracksAnyFight) return result;
 
-        static bool IsCombat(string? t) =>
-            (t ?? "").ToUpperInvariant() is "KILL" or "DEATH" or "ASSIST" or "MULTI_KILL" or "FIRST_BLOOD";
+        foreach (var span in TeamfightClustering.Resolve(events))
+        {
+            var objectives = ObjectivesFor(span);
+            if (objectives.Count == 0) continue;
 
-        // t>0 mirrors the client teamfightZones() filter: a t=0 combat event
-        // (unresolved EventTime) is dropped client-side, so drop it here too to keep
-        // the clusters aligned with the visible band.
-        var combat = events.Where(e => IsCombat(e.EventType) && e.GameTimeS > 0)
-            .OrderBy(e => e.GameTimeS).ToList();
-        var cluster = new List<GameEvent>();
-        void Flush()
-        {
-            if (cluster.Count >= TeamfightMinEvents)
-            {
-                result.Add(new TeamfightCluster(
-                    StartS: cluster[0].GameTimeS,
-                    EndS: cluster[^1].GameTimeS,
-                    MemberEventIds: cluster.Select(m => m.Id).ToList(),
-                    Objectives: _teamfightObjectives));
-            }
-            cluster = new List<GameEvent>();
+            // The stored row's own id leads the member list so every consumer that keys
+            // coverage on MemberEventIds treats the row as part of its fight.
+            var memberIds = new List<int>(span.Members.Count + 1);
+            if (span.Stored is { } stored) memberIds.Add(stored.Id);
+            memberIds.AddRange(span.Members.Select(m => m.Id));
+
+            result.Add(new TeamfightCluster(
+                StartS: span.StartS,
+                EndS: span.EndS,
+                MemberEventIds: memberIds,
+                Objectives: objectives,
+                StoredEventId: span.Stored?.Id,
+                Self: span.Stored is null ? TeamfightClustering.SelfIn : span.Self,
+                Numbers: span.Numbers,
+                Verdict: span.Verdict,
+                FightStartS: span.FightStartS,
+                FightEndS: span.FightEndS));
         }
-        foreach (var e in combat)
-        {
-            if (cluster.Count == 0 || e.GameTimeS - cluster[^1].GameTimeS <= TeamfightGapSeconds)
-                cluster.Add(e);
-            else { Flush(); cluster.Add(e); }
-        }
-        Flush();
         return result;
+    }
+
+    // Objectives a fight ties to: TEAMFIGHT trackers first (the back-compat priority
+    // lane), then the trackers of the stored verdict; away fights → ABSENT trackers.
+    private IReadOnlyList<ObjectiveTie> ObjectivesFor(TeamfightSpan span)
+    {
+        var list = new List<ObjectiveTie>();
+        void AddAll(IReadOnlyList<ObjectiveTie> ties)
+        {
+            foreach (var t in ties)
+                if (!list.Any(x => x.ObjectiveId == t.ObjectiveId)) list.Add(t);
+        }
+
+        if (span.Stored is not null)
+        {
+            if (span.Self == TeamfightClustering.SelfAway) { AddAll(_absentObjectives); return list; }
+            if (span.Self != TeamfightClustering.SelfIn) return list; // unreadable self state: never guess
+        }
+        AddAll(_teamfightObjectives);
+        if (span.Stored is not null && _verdictObjectives.TryGetValue(span.Verdict, out var byVerdict))
+            AddAll(byVerdict);
+        return list;
     }
 
     // If any active objective tracks TEAMFIGHT, tie every cluster member to those
@@ -294,11 +350,21 @@ public readonly record struct ObjectiveTie(long ObjectiveId, string Title, strin
 
 /// <summary>
 /// A detected teamfight: the game-time span of its combat-event cluster (first→last),
-/// the ids of the member events, and the TEAMFIGHT-tracking objectives it ties to. The
-/// auto-clipper makes one clip per cluster spanning <see cref="StartS"/>→<see cref="EndS"/>.
+/// the ids of the member events (the stored TEAMFIGHT row's own id first, when there is
+/// one), and the fight-tracking objectives it ties to. The auto-clipper makes one clip
+/// per cluster spanning <see cref="StartS"/>→<see cref="EndS"/>. <see cref="Numbers"/> /
+/// <see cref="Verdict"/> / <see cref="Self"/> come from the stored row ("" / "in" for a
+/// synthetic cluster); <see cref="FightStartS"/>→<see cref="FightEndS"/> is the fight's
+/// own window (the band), null when it is just the span.
 /// </summary>
 public sealed record TeamfightCluster(
     int StartS,
     int EndS,
     IReadOnlyList<int> MemberEventIds,
-    IReadOnlyList<ObjectiveTie> Objectives);
+    IReadOnlyList<ObjectiveTie> Objectives,
+    int? StoredEventId = null,
+    string Self = TeamfightClustering.SelfIn,
+    string Numbers = "",
+    string Verdict = "",
+    int? FightStartS = null,
+    int? FightEndS = null);

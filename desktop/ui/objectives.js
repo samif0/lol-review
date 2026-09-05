@@ -94,6 +94,10 @@ const FALLBACK_EVENT_TOKENS = [
   { token: 'ENEMY_JUNGLE_PROXIMITY', group: 'Map', label: 'Enemy Jungler Near', color: '#ff7a9e' },
   { token: 'ALLY_JUNGLE_PROXIMITY', group: 'Map', label: 'Ally Jungler Near', color: '#6bd6c8' },
   { token: 'TEAMFIGHT', group: 'Fights', label: 'Teamfight', color: '#f3a3a8' },
+  { token: 'OUTNUMBERED_TEAMFIGHT', group: 'Fights', label: 'Outnumbered Fight', color: '#f26d7d' },
+  { token: 'EVEN_TEAMFIGHT', group: 'Fights', label: 'Even-Numbers Fight', color: '#f3a3a8' },
+  { token: 'NUMBERS_UP_TEAMFIGHT', group: 'Fights', label: 'Numbers-Up Fight', color: '#8ee7ba' },
+  { token: 'ABSENT_TEAMFIGHT', group: 'Fights', label: 'Fight Without You', color: '#9fb0c3' },
 ];
 
 // ── data fetch ──────────────────────────────────────────────────────────────

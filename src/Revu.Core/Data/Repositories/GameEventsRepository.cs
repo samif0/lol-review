@@ -17,9 +17,31 @@ public sealed class GameEventsRepository : IGameEventsRepository
         using var conn = _factory.CreateConnection();
         using var transaction = conn.BeginTransaction();
 
+        // Explicit review corrections survive capture replacement and keep their IDs.
+        var reviewed = new List<(string OriginalType, int OriginalTime, int Start, int End)>();
+        using (var read = conn.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT event_type, game_time_s, details FROM game_events WHERE game_id=@game";
+            read.Parameters.AddWithValue("@game", gameId);
+            using var reader = await read.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var data = ReviewedEncountersRepository.ReviewDetails(reader.GetString(2));
+                if (data is null) continue;
+                var time = reader.GetInt32(1);
+                reviewed.Add((data["original_type"]?.GetValue<string>() ?? reader.GetString(0),
+                    data["original_time_s"]?.GetValue<int>() ?? time,
+                    data["start_s"]?.GetValue<int>() ?? time, data["end_s"]?.GetValue<int>() ?? time));
+            }
+        }
+
         using (var deleteCommand = conn.CreateCommand())
         {
-            deleteCommand.CommandText = "DELETE FROM game_events WHERE game_id = @gameId";
+            deleteCommand.CommandText = """
+                DELETE FROM game_events WHERE game_id = @gameId
+                AND (CASE WHEN json_valid(details) THEN json_extract(details, '$.source') END) IS NOT 'reviewed_encounter'
+                """;
             deleteCommand.Parameters.AddWithValue("@gameId", gameId);
             deleteCommand.Transaction = transaction;
             await deleteCommand.ExecuteNonQueryAsync();
@@ -39,6 +61,10 @@ public sealed class GameEventsRepository : IGameEventsRepository
 
         foreach (var gameEvent in events)
         {
+            if (ReviewedEncountersRepository.ReviewDetails(gameEvent.Details) is not null) continue;
+            if (ReviewedEncountersRepository.IsEncounter(gameEvent.EventType)
+                && reviewed.Any(r => (r.OriginalType == gameEvent.EventType && r.OriginalTime == gameEvent.GameTimeS)
+                    || (gameEvent.GameTimeS >= r.Start && gameEvent.GameTimeS <= r.End))) continue;
             gameIdParameter.Value = gameId;
             eventTypeParameter.Value = gameEvent.EventType;
             gameTimeParameter.Value = gameEvent.GameTimeS;
@@ -141,7 +167,10 @@ public sealed class GameEventsRepository : IGameEventsRepository
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM game_events WHERE game_id = @gameId AND event_type = @eventType";
+        cmd.CommandText = """
+            DELETE FROM game_events WHERE game_id = @gameId AND event_type = @eventType
+            AND (CASE WHEN json_valid(details) THEN json_extract(details, '$.source') END) IS NOT 'reviewed_encounter'
+            """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
         cmd.Parameters.AddWithValue("@eventType", eventType);
         await cmd.ExecuteNonQueryAsync();

@@ -246,15 +246,16 @@
     </div>
 
     <!-- MATCH DATA BACKFILL — walks past games missing Riot match data and fills
-         enemy laners, laning@10, and map-state events (jungle proximity + fog
-         deaths) from the Match-V5 timeline. Long-running (throttled); needs a
-         signed-in account so the proxy accepts the calls. -->
+         enemy laners, laning@10, and map-state events (jungle proximity, fog
+         deaths, teamfight numbers) from the Match-V5 timeline; the map-state leg
+         covers the last 14 days of unreviewed ranked games. Long-running
+         (throttled); needs a signed-in account so the proxy accepts the calls. -->
     <div class="card set-card">
       <div class="seclabel">Match Data Backfill</div>
       <div class="set-row-s">Fills missing Riot match data: map-state timeline events (jungle
-        proximity, fog deaths) for your unreviewed games from the last two weeks, plus enemy laners
-        and laning@10 for any game still missing them. Throttled to the Riot API budget, so a deep
-        backlog takes a while. Requires sign-in.</div>
+        proximity, fog deaths, teamfight numbers) for your unreviewed ranked games from the last
+        14 days, plus enemy laners and laning@10 for any game still missing them. Throttled to the
+        Riot API budget, so a deep backlog takes a while. Requires sign-in.</div>
       <div class="set-btnrow">
         <button class="rule-act set-act-primary" type="button" data-action="run_backfill" id="backfill-btn">Run backfill</button>
       </div>

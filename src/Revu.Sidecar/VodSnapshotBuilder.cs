@@ -34,8 +34,6 @@ public sealed class VodSnapshotBuilder
     // Jungle-ganked death — a deeper, more saturated red than a plain death so a gank
     // stands out from a normal loss marker. Matches the JUNGLE_GANK catalog color.
     private const string JungleGankHex = "#d6455e";
-    // Teamfight pin — matches the TEAMFIGHT catalog color (the soft red the band uses).
-    private const string TeamfightHex = "#f3a3a8";
     // Jungle proximity (map-state backfill) — threat pink for the enemy jungler, calm
     // teal for the ally, violet fallback. Match the Map-group catalog colors.
     private const string EnemyProximityHex = "#ff7a9e";
@@ -142,24 +140,31 @@ public sealed class VodSnapshotBuilder
             // event's OWN token — NOT for objectives that merely track TEAMFIGHT and happen
             // to contain it. Otherwise a teamfight-only objective lit up every KIL/DTH/AST
             // inside each fight (un-actionable individually, and over-clipped). So combat
-            // markers use TokenTiesForEvent (direct token ties only).
+            // markers use TokenTiesForEvent (direct token ties only). A stored TEAMFIGHT
+            // row is its fight: it renders ONLY through the fight pass below, never as a
+            // generic marker (that would put two pins on one fight).
             foreach (var e in raw)
             {
+                if (TeamfightClustering.IsStoredTeamfight(e)) continue;
                 gameEvents.Add(MapEvent(e, tieResolver.TokenTiesForEvent(e)));
             }
 
-            // …and the teamfight itself becomes ONE synthetic TEAMFIGHT event per cluster,
-            // tagged with the objective(s) that track TEAMFIGHT. This is what a teamfight-
-            // tracking objective counts/steps/clips as its events (one per fight), instead
-            // of either every combat member (the over-count/over-clip bug) or nothing (the
-            // "TF isn't marked as an event" bug). Anchored at the cluster start so the loud
-            // TF pin sits at the band's left edge. Negative ids so they never collide with
-            // real DB event ids (used as marker keys / jump anchors).
+            // …and every fight becomes exactly ONE TEAMFIGHT event: a stored post-game row
+            // (numbers, verdict, roster — in AND away fights, keyed by the row's own id) or,
+            // for a game the pass has not reached, the synthetic own-event cluster it has
+            // always been (negative id, only when some objective tracks it, as today).
+            // Ties come from the shared resolver so the pin, the auto-clipper and the
+            // pattern anchors can never disagree about which objectives a fight belongs to.
+            var ties = tieResolver.ResolveTeamfightClusters(raw);
             var synthId = -1L;
-            foreach (var c in tieResolver.ResolveTeamfightClusters(raw))
+            foreach (var span in TeamfightClustering.Resolve(raw))
             {
-                gameEvents.Add(MapTeamfightCluster(c, synthId));
-                synthId--;
+                var cluster = ties.FirstOrDefault(c => span.Stored is not null
+                    ? c.StoredEventId == span.Stored.Id
+                    : c.StoredEventId is null && c.StartS == span.StartS);
+                var objectives = cluster?.Objectives ?? Array.Empty<ObjectiveTie>();
+                if (span.Stored is null && objectives.Count == 0) continue;
+                gameEvents.Add(VodTeamfightMapper.Map(span, objectives, span.Stored?.Id ?? synthId--));
             }
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: game events load failed for {GameId}", gameId); }
@@ -265,31 +270,35 @@ public sealed class VodSnapshotBuilder
             ObjectiveId: objId,
             ObjectiveTitle: objTitle,
             ObjectiveColorHex: objColor,
-            ObjectiveIds: objIds);
+            ObjectiveIds: objIds,
+            EncounterClassification: EncounterProperty(e, "classification") is { Length: > 0 } classification
+                ? classification : EncounterProperty(e, "kind"),
+            EncounterEndSeconds: EncounterEnd(e),
+            EncounterNote: EncounterProperty(e, "note"),
+            ReviewedEncounter: EncounterProperty(e, "source") == "reviewed_encounter");
     }
 
-    // A teamfight cluster → one synthetic TEAMFIGHT timeline event (the loud "TF" pin),
-    // tagged with the objective(s) that track teamfights. Anchored at the fight's start;
-    // the Summary carries the span + member count for the hover.
-    private static VodEventDto MapTeamfightCluster(TeamfightCluster c, long syntheticId)
+    private static string EncounterProperty(GameEvent e, string property)
     {
-        var first = c.Objectives.Count > 0 ? c.Objectives[0] : default;
-        var objIds = c.Objectives.Count > 0 ? c.Objectives.Select(o => o.ObjectiveId).ToList() : null;
-        var memberCount = c.MemberEventIds.Count;
-        return new VodEventDto(
-            Id: syntheticId,
-            EventType: GameEvent.TrackableTokens.TeamfightToken, // "TEAMFIGHT"
-            GameTimeSeconds: c.StartS,
-            TimeLabel: FormatClock(c.StartS),
-            ShortLabel: "TF",
-            Label: "Teamfight",
-            Summary: $"{FormatClock(c.StartS)}–{FormatClock(c.EndS)} · {memberCount} events",
-            Kind: "teamfight",
-            ColorHex: TeamfightHex,
-            ObjectiveId: c.Objectives.Count > 0 ? first.ObjectiveId : null,
-            ObjectiveTitle: c.Objectives.Count > 0 ? first.Title : "",
-            ObjectiveColorHex: c.Objectives.Count > 0 ? first.Color : "",
-            ObjectiveIds: objIds);
+        if (!ReviewedEncountersRepository.IsEncounter(e.EventType)) return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(e.Details);
+            return ReadJsonString(doc.RootElement, property);
+        }
+        catch { return ""; }
+    }
+
+    private static int? EncounterEnd(GameEvent e)
+    {
+        if (!ReviewedEncountersRepository.IsEncounter(e.EventType)) return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(e.Details);
+            return doc.RootElement.TryGetProperty("end_s", out var end) && end.TryGetInt32(out var seconds)
+                ? seconds : e.GameTimeS;
+        }
+        catch { return e.GameTimeS; }
     }
 
     private static bool IsDeathEvent(string? eventType) =>
@@ -331,6 +340,8 @@ public sealed class VodSnapshotBuilder
             "FLASH" or "SUMMONER_SPELL" => ("summoner", SummonerHex),
             "RECALL" => ("recall", RecallHex),
             "TRADE" => ("trade", TradeHex),
+            "ALL_IN" => ("all-in", "#f87171"),
+            "UNCERTAIN_COMBAT" => ("neutral", "#9ca3af"),
             "JUNGLE_PROXIMITY" => ("neutral", ProximityHex), // hue refined by Details.who in MapEvent
             _ => ("neutral", NeutralHex),
         };
@@ -352,6 +363,8 @@ public sealed class VodSnapshotBuilder
         "SUMMONER_SPELL" => "SUM",
         "RECALL" => "RCL",
         "TRADE" => "TRD",
+        "ALL_IN" => "ALL",
+        "UNCERTAIN_COMBAT" => "?",
         "JUNGLE_PROXIMITY" => "JPX",
         _ => "EVT",
     };
@@ -373,6 +386,8 @@ public sealed class VodSnapshotBuilder
         "SUMMONER_SPELL" => "Summoner Spell",
         "RECALL" => "Recall",
         "TRADE" => "Trade",
+        "ALL_IN" => "All-in",
+        "UNCERTAIN_COMBAT" => "Uncertain combat",
         "JUNGLE_PROXIMITY" => "Jungle Proximity",
         _ => eventType ?? "",
     };
@@ -399,6 +414,7 @@ public sealed class VodSnapshotBuilder
                     ? $"spent {gs}g"
                     : "detected",
                 "TRADE" => TradeSummary(root),
+                "ALL_IN" or "UNCERTAIN_COMBAT" => ReadJsonString(root, "note"),
                 "JUNGLE_PROXIMITY" => ProximitySummary(root),
                 _ => "",
             };
