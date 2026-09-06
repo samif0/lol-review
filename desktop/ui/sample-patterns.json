@@ -44,7 +44,7 @@
           "polarityLabel": "BAD",
           "accentHex": "#f3a3a8",
           "sourceKind": "clip",
-          "vodPath": "C:\\Users\\chapy\\Videos\\Revu\\5581655110.mp4",
+          "vodPath": "C:\\Users\\you\\Videos\\Revu\\5581655110.mp4",
           "hasVod": true
         },
         {
@@ -68,7 +68,7 @@
           "polarityLabel": "BAD",
           "accentHex": "#f3a3a8",
           "sourceKind": "moment",
-          "vodPath": "C:\\Users\\chapy\\Videos\\Revu\\5581701721.mp4",
+          "vodPath": "C:\\Users\\you\\Videos\\Revu\\5581701721.mp4",
           "hasVod": true
         },
         {
@@ -92,7 +92,7 @@
           "polarityLabel": "BAD",
           "accentHex": "#f3a3a8",
           "sourceKind": "moment",
-          "vodPath": "C:\\Users\\chapy\\Videos\\Revu\\5581701721.mp4",
+          "vodPath": "C:\\Users\\you\\Videos\\Revu\\5581701721.mp4",
           "hasVod": true
         },
         {
@@ -159,7 +159,7 @@
           "polarityLabel": "BAD",
           "accentHex": "#f3a3a8",
           "sourceKind": "clip",
-          "vodPath": "C:\\Users\\chapy\\Videos\\Revu\\5581655110.mp4",
+          "vodPath": "C:\\Users\\you\\Videos\\Revu\\5581655110.mp4",
           "hasVod": true
         },
         {
@@ -183,7 +183,7 @@
           "polarityLabel": "GOOD",
           "accentHex": "#8ee7ba",
           "sourceKind": "moment",
-          "vodPath": "C:\\Users\\chapy\\Videos\\Revu\\5581701721.mp4",
+          "vodPath": "C:\\Users\\you\\Videos\\Revu\\5581701721.mp4",
           "hasVod": true
         }
       ],
