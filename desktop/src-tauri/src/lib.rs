@@ -232,7 +232,7 @@ async fn get_games(
     let mut query: Vec<String> = Vec::new();
     if let Some(v) = view.as_deref() {
         if !v.is_empty() {
-            query.push(format!("view={}", v));
+            query.push(format!("view={}", urlencode(v)));
         }
     }
     if let Some(p) = page {
@@ -879,7 +879,10 @@ fn app_version(app: tauri::AppHandle) -> String {
 // ── Native ops (Tauri dialog / fs / shell plugins) ────────────────────────────
 // The app routes everything through invoke(), so these native interactions live
 // in Rust commands (using the plugins' Rust APIs) rather than the plugins' JS
-// surface. Mirrors the WinUI FolderPicker / MarkdownExportPicker / Open-log-folder.
+// surface. The plugins are registered in run() below, but capabilities/default.json
+// grants none of their JS permissions (shell:* / dialog:* / fs:*) to the webview —
+// page scripts reach these only via the commands here, which own the scope.
+// Mirrors the WinUI FolderPicker / MarkdownExportPicker / Open-log-folder.
 
 /// Opens a native folder picker and returns the chosen path (or null if the user
 /// cancelled). Used by the Ascent / Clips / Backup "Browse" buttons; the frontend

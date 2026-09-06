@@ -1,16 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core defaults plus the Settings page native ops (shell-open the log folder, folder/save-file dialogs, Markdown export) and the frameless title bar's custom window controls (minimize / toggle-maximize / close / drag). The app drives the native ops from Rust commands; the window controls call the JS window API, so those permissions are granted explicitly.",
+  "description": "Core defaults plus the frameless title bar's custom window controls (minimize / toggle-maximize / close / drag), which call the JS window API. The Settings page native ops (shell-open the log folder, folder/save-file dialogs, Markdown export) are driven from Rust commands using the plugins' Rust APIs, so the shell / dialog / fs JS surfaces are deliberately NOT granted to the webview (least privilege — see test/capabilities.test.mjs).",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
-    "core:window:allow-start-dragging",
-    "shell:allow-open",
-    "dialog:default",
-    "fs:default"
+    "core:window:allow-start-dragging"
   ]
 }

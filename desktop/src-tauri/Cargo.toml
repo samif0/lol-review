@@ -17,8 +17,9 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-shell = "2"
 # Settings page native ops (Batch 6): folder/save-file dialogs + writing the
 # Markdown export to the chosen path. We drive these from Rust commands (the app
-# routes everything through invoke()), so the plugins' Rust APIs are used; the
-# capabilities file also grants their JS surface for completeness.
+# routes everything through invoke()), so only the plugins' Rust APIs are used;
+# the capabilities file deliberately does NOT grant their JS surface to the
+# webview (least privilege — see capabilities/default.json + test/).
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
