@@ -2748,14 +2748,10 @@ static void WriteSidecarHandshake(int port, string token, ILogger logger)
     // Derived from AppDataPaths so the REVU_DATA_ROOT dev/e2e override isolates
     // the handshake too — a scratch-rooted sidecar must never clobber the
     // installed app's real sidecar.json (the Tauri host would reconnect to it).
-    var dir = AppDataPaths.SidecarHandshakeDirectory;
-    Directory.CreateDirectory(dir); // sidecar handshake dir — NOT the DB data dir.
-
-    var file = Path.Combine(dir, "sidecar.json");
-    var payload = JsonSerializer.Serialize(new { port, token });
-
-    // Best-effort lock-down: write then restrict to current user on Windows.
-    File.WriteAllText(file, payload);
+    // SidecarHandshakeFile creates the file locked down to the current user
+    // (explicit non-inheriting DACL on Windows; 0600 elsewhere) — the token
+    // inside is the bearer for every endpoint.
+    var file = SidecarHandshakeFile.Write(AppDataPaths.SidecarHandshakeDirectory, port, token);
     logger.LogInformation("Wrote sidecar handshake to {File}", file);
 }
 
