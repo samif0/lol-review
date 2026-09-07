@@ -132,6 +132,57 @@ public sealed class MatchupsRepositoryTests
     }
 
     [Fact]
+    public async Task UpdateNotes_RejectsOverlongNote_AndLeavesBothNotesUnchanged()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var id = await scope.Matchups.CreateAsync("top", ["Aatrox"], ["Sett"], prior: "keep", observed: "also keep");
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            scope.Matchups.UpdateNotesAsync(id, null, new string('x', MatchupsRepository.MaxNoteLength + 1)));
+
+        var card = await scope.Matchups.GetAsync(id);
+        Assert.Equal("keep", card!.Prior);
+        Assert.Equal("also keep", card.Observed);
+    }
+
+    [Fact]
+    public async Task Update_CanonicalizesChampionNames_LikeCreate()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var id = await scope.Matchups.CreateAsync("top", ["Aatrox"], ["Sett"]);
+
+        Assert.True(await scope.Matchups.UpdateAsync(id, "bot", ["Kaisa", " Nautilus "], ["Tristana", "Renata"], "", ""));
+
+        var card = await scope.Matchups.GetAsync(id);
+        Assert.Equal(new[] { "Kai'Sa", "Nautilus" }, card!.AllyChamps);
+        Assert.Equal(new[] { "Tristana", "Renata Glasc" }, card.EnemyChamps);
+        Assert.Equal("bot|kaisa+nautilus|tristana+renataglasc", Revu.Core.Services.MatchupLanes.Key(card.Lane, card.AllyChamps, card.EnemyChamps));
+    }
+
+    [Fact]
+    public async Task MalformedChampionCell_ReadsAsEmpty_NeverThrows()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var id = await scope.Matchups.CreateAsync("mid", ["Ahri"], ["Syndra"]);
+        using (var conn = scope.OpenConnection())
+        {
+            using var cmd = conn.CreateCommand();
+            // (the columns are NOT NULL, so the two malformed shapes are bad JSON and blank)
+            cmd.CommandText = "UPDATE matchups SET ally_champs = '{not json', enemy_champs = '' WHERE id = @id";
+            cmd.Parameters.AddWithValue("@id", id);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var card = Assert.Single(await scope.Matchups.GetAllAsync());
+        Assert.Empty(card.AllyChamps);
+        Assert.Empty(card.EnemyChamps);
+        Assert.Equal("? vs ?", Revu.Core.Services.MatchupLanes.Title(card.AllyChamps, card.EnemyChamps));
+    }
+
+    [Fact]
     public async Task Update_ReplacesLaneAndChampions_AndEnforcesTheLaneConvention()
     {
         using var scope = new TestDatabaseScope();
@@ -192,8 +243,11 @@ public sealed class MatchupsRepositoryTests
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
         const long gameId = 7001;
+        const long otherGameId = 7002;
         await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Ahri"));
+        await scope.Games.SaveAsync(TestGameStatsFactory.Create(otherGameId, champion: "Ahri"));
         var id = await scope.Matchups.CreateAsync("mid", ["Ahri"], ["Syndra"], prior: "Dodge E with W.", gameId: gameId);
+        var otherId = await scope.Matchups.CreateAsync("mid", ["Ahri"], ["Zed"], prior: "Stay out of shadow range.", gameId: otherGameId);
 
         await scope.Games.DeleteAsync(gameId);
 
@@ -202,5 +256,11 @@ public sealed class MatchupsRepositoryTests
         Assert.Null(card!.GameId);
         Assert.Equal("Dodge E with W.", card.Prior);
         Assert.Null(await scope.Games.GetAsync(gameId));
+        Assert.Null(await scope.Matchups.GetForGameAsync(gameId));
+
+        // Another game's card is untouched.
+        var other = await scope.Matchups.GetAsync(otherId);
+        Assert.Equal(otherGameId, other!.GameId);
+        Assert.Equal(otherId, (await scope.Matchups.GetForGameAsync(otherGameId))!.Id);
     }
 }

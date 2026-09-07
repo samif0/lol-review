@@ -91,16 +91,22 @@ public sealed class MatchupsSnapshotBuilder
     /// GET /api/matchups/export: the journal as Markdown after the optional
     /// lane / last-N filters, plus how many cards it covers.
     /// </summary>
-    public async Task<(string Markdown, int Count)> BuildExportAsync(string? lane, int? last)
+    public async Task<(string Markdown, int Count)> BuildExportAsync(string? lane, long? last)
     {
-        var cards = MatchupJournalExporter.Filter(await _matchups.GetAllAsync(), lane, last);
+        // The query param binds as long so an absurd value can't 400 the route;
+        // anything past int.MaxValue simply means "all".
+        var take = last is > 0 ? (int)Math.Min(last.Value, int.MaxValue) : (int?)null;
+        var cards = MatchupJournalExporter.Filter(await _matchups.GetAllAsync(), lane, take);
         return (MatchupJournalExporter.Build(cards), cards.Count);
     }
 
     /// <summary>
-    /// The most recent ranked / manual game and its pre-fill. Shared by this
-    /// read snapshot and the POST /api/matchup/from-last-game write so both see
-    /// the same game, the same champions, and the same existing-card check.
+    /// The most recent game and its pre-fill. "Most recent" is the newest
+    /// ranked / manual, non-hidden game — <see cref="IGameHistoryQuery.GetRecentAsync"/>'s
+    /// scope, the same one every games list and the review queue use — so a
+    /// casual game never seeds a card. Shared by this read snapshot and the
+    /// POST /api/matchup/from-last-game write so both see the same game, the
+    /// same champions, and the same existing-card check.
     /// </summary>
     public static async Task<LastGameResolution> ResolveLastGameAsync(IGameHistoryQuery games, IMatchupsRepository matchups)
     {
@@ -173,8 +179,10 @@ public sealed class MatchupsSnapshotBuilder
                         LatestCreatedAt: newest.CreatedAt,
                         Cards: ordered.Select(c => MapCard(c, gameLabels)).ToList());
                 })
+                // Same tie-break as MatchupJournalExporter so the page and the
+                // export never disagree on which group leads.
                 .OrderByDescending(g => g.LatestCreatedAt)
-                .ThenByDescending(g => g.Cards[0].Id)
+                .ThenByDescending(g => g.Cards.Max(c => c.Id))
                 .ToList();
 
             lanes.Add(new MatchupLaneDto(

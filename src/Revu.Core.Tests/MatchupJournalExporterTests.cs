@@ -107,6 +107,39 @@ public sealed class MatchupJournalExporterTests
     }
 
     [Fact]
+    public void Filter_UnknownLane_MatchesNothing()
+    {
+        var cards = new[]
+        {
+            Card(1, "top", "Aatrox", "Sett", T1),
+            Card(2, "bot", "Kai'Sa,Nautilus", "Tristana,Renata Glasc", T2),
+        };
+
+        Assert.Empty(MatchupJournalExporter.Filter(cards, "toplane", null));
+        Assert.Empty(MatchupJournalExporter.Filter(cards, "jg", null));
+        Assert.Equal(2, MatchupJournalExporter.Filter(cards, "  ", null).Count);
+    }
+
+    [Fact]
+    public void EqualTimestamps_TieBreakOnId_ForGroupsAndLastN()
+    {
+        var cards = new[]
+        {
+            Card(10, "bot", "Kai'Sa,Nautilus", "Tristana,Renata Glasc", T1),
+            Card(11, "bot", "Jinx,Lulu", "Draven,Thresh", T1),
+            Card(12, "bot", "Kai'Sa,Nautilus", "Tristana,Renata Glasc", T1),
+        };
+
+        // The group holding the highest id leads; the highest id is "newest".
+        var md = MatchupJournalExporter.Build(cards, ExportedAt);
+        var kaisa = md.IndexOf("### Kai'Sa + Nautilus", StringComparison.Ordinal);
+        var jinx = md.IndexOf("### Jinx + Lulu", StringComparison.Ordinal);
+        Assert.True(kaisa > 0 && jinx > kaisa, md);
+        Assert.Equal(new long[] { 12 }, MatchupJournalExporter.Filter(cards, null, 1).Select(c => c.Id).ToArray());
+        Assert.Equal(new long[] { 12, 11, 10 }, MatchupJournalExporter.Filter(cards, "bot", null).Select(c => c.Id).ToArray());
+    }
+
+    [Fact]
     public void Filter_LastN_TakesTheNewestAfterTheLaneFilter()
     {
         var cards = new[]

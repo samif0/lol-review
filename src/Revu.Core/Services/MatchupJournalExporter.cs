@@ -22,8 +22,10 @@ public static class MatchupJournalExporter
     /// <summary>
     /// Apply the optional filters: <paramref name="lane"/> keeps one lane;
     /// <paramref name="last"/> keeps that many newest cards (after the lane
-    /// filter). Null / blank / non-positive values mean "no filter". Output is
-    /// newest first regardless of input order.
+    /// filter). A null / blank lane and a non-positive <paramref name="last"/>
+    /// mean "no filter"; a lane that is not one of <see cref="MatchupLanes.All"/>
+    /// matches nothing rather than silently meaning "all". Output is newest
+    /// first regardless of input order.
     /// </summary>
     public static IReadOnlyList<MatchupCard> Filter(IReadOnlyList<MatchupCard> cards, string? lane, int? last)
     {
@@ -31,10 +33,12 @@ public static class MatchupJournalExporter
             .OrderByDescending(c => c.CreatedAt)
             .ThenByDescending(c => c.Id);
 
-        var wanted = MatchupLanes.Normalize(lane);
-        if (wanted is not null)
+        if (!string.IsNullOrWhiteSpace(lane))
         {
-            query = query.Where(c => MatchupLanes.Normalize(c.Lane) == wanted);
+            var wanted = MatchupLanes.Normalize(lane);
+            query = wanted is null
+                ? Enumerable.Empty<MatchupCard>()
+                : query.Where(c => MatchupLanes.Normalize(c.Lane) == wanted);
         }
 
         if (last is > 0)

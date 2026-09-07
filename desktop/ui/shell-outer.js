@@ -464,8 +464,10 @@ async function wireLiveAutoShow() {
   // that actually runs in-app (shell.js's copy is gated !FRAMED, off for the iframe).
   // onboarding (email/OTP entry), rules (create/edit form) and patterns
   // (moment-note autosave) are form-bearing too — a champ-select tick reloading
-  // the iframe from any of them wiped half-typed OTP codes / rule text.
-  const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html', 'onboarding.html', 'rules.html', 'patterns.html'];
+  // the iframe from any of them wiped half-typed OTP codes / rule text. matchups
+  // (card form + inline prior/observed autosave) is the page whose whole point
+  // is writing a prior WHILE queuing — champ select must never reload it.
+  const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html', 'onboarding.html', 'rules.html', 'patterns.html', 'matchups.html'];
   const onActiveWorkPage = () => ACTIVE_WORK_PAGES.some((f) => frameHas(f));
   // Some pages aren't whole-page forms but still have a transient mid-edit state —
   // the dashboard's inline Start/End-Block editors. Those set window.__revuActiveWork

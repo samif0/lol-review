@@ -79,6 +79,56 @@ public sealed class MatchupsSnapshotContractTests
         Assert.Equal("", last.UnavailableReason);
     }
 
+    /// <summary>"Last game" is the newest RANKED / MANUAL, non-hidden game — the
+    /// scope every games list uses — so a newer casual or hidden game never
+    /// seeds a card.</summary>
+    [Fact]
+    public async Task BuildAsync_LastGame_SkipsCasualAndHiddenGames()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var matchups = new MatchupsRepository(scope.ConnectionFactory);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        await SeedGameAsync(scope, 6101, "TOP", now - 3600, champion: "Aatrox");
+        await SeedGameAsync(scope, 6102, "MIDDLE", now - 120, champion: "Ahri");   // will be re-queued as casual
+        await SeedGameAsync(scope, 6103, "JUNGLE", now - 60, champion: "Lee Sin"); // will be hidden
+        using (var conn = scope.OpenConnection())
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE games SET queue_type = 'Ranked Flex' WHERE game_id = 6102";
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await scope.Games.SetHiddenAsync(6103, hidden: true);
+
+        var snapshot = await Builder(scope, matchups).BuildAsync();
+
+        Assert.True(snapshot.LastGame.Available);
+        Assert.Equal(6101, snapshot.LastGame.GameId);
+        Assert.Equal("top", snapshot.LastGame.Lane);
+        Assert.Equal("Aatrox vs Sett", snapshot.LastGame.MatchupTitle);
+    }
+
+    [Fact]
+    public async Task BuildAsync_GroupsWithEqualTimestamps_LeadWithTheHighestId_LikeTheExport()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var matchups = new MatchupsRepository(scope.ConnectionFactory);
+        var first = await matchups.CreateAsync("bot", ["Kai'Sa", "Nautilus"], ["Tristana", "Renata Glasc"], createdAt: 500);
+        var second = await matchups.CreateAsync("bot", ["Jinx", "Lulu"], ["Draven", "Thresh"], createdAt: 500);
+        var third = await matchups.CreateAsync("bot", ["Kai'Sa", "Nautilus"], ["Tristana", "Renata Glasc"], createdAt: 500);
+
+        var snapshot = await Builder(scope, matchups).BuildAsync();
+        var (markdown, _) = await Builder(scope, matchups).BuildExportAsync(null, null);
+
+        var groups = Assert.Single(snapshot.Lanes).Groups;
+        Assert.Equal(new[] { third, first }, groups[0].Cards.Select(c => c.Id).ToArray());
+        Assert.Equal(second, Assert.Single(groups[1].Cards).Id);
+        Assert.True(
+            markdown.IndexOf("### Kai'Sa + Nautilus", StringComparison.Ordinal) < markdown.IndexOf("### Jinx + Lulu", StringComparison.Ordinal),
+            markdown);
+    }
+
     [Fact]
     public async Task BuildAsync_LastGameWithoutMatchupData_ExplainsWhyTheButtonIsOff()
     {

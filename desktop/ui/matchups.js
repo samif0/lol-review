@@ -212,6 +212,9 @@ function playEntrance() {
 // save shows the error inline on the card and leaves the text in place.
 const _notes = new Map();
 const _savedTimers = new WeakMap();
+// save_matchup_notes calls still in flight — a refetch waits for them so the
+// rebuilt textareas show what the user just typed, not the pre-edit copy.
+const _pendingSaves = new Set();
 const NOTE_FIELDS = new Set(['prior', 'observed']);
 const SAVED_FLASH_MS = 1200;
 
@@ -266,8 +269,10 @@ async function saveNote(ta) {
   }
 
   ta.dataset.busy = '1';
+  const write = invoke('save_matchup_notes', { payload: { id, [field]: text } });
+  _pendingSaves.add(write);
   try {
-    await invoke('save_matchup_notes', { payload: { id, [field]: text } });
+    await write;
     known[field] = text;
     _notes.set(id, known);
     setCardError(card, '');
@@ -276,6 +281,7 @@ async function saveNote(ta) {
     setCardError(card, errText(err));
     console.error('[matchups] save_matchup_notes failed:', err);
   } finally {
+    _pendingSaves.delete(write);
     delete ta.dataset.busy;
     if (ta.dataset.dirty === '1') {
       delete ta.dataset.dirty;
@@ -387,29 +393,37 @@ function closeForm() {
 }
 
 // Assemble the create/update payload from the form. Only the VISIBLE champion
-// inputs for the selected lane count; every one of them is required. Returns
-// null (+ inline error) when one is blank.
+// inputs for the selected lane count (slot 2 on a 1v1 lane is hidden and never
+// read, so a stale value can't leak through). Slot 1 on each side is required;
+// slot 2 (2v2 lanes) is optional — a card pre-filled from a thin participant
+// map legitimately holds one champion per side, and the sidecar accepts 1..2.
+// Returns null (+ inline error) when a required slot is blank.
 function readFormPayload() {
   const meta = LANE_BY[$('f-lane').value] || LANES[0];
   const allyIds = ALLY_IDS.slice(0, meta.slots);
   const enemyIds = ENEMY_IDS.slice(0, meta.slots);
-  const firstEmpty = allyIds.concat(enemyIds).find((id) => !getVal(id));
+  const firstEmpty = [allyIds[0], enemyIds[0]].find((id) => !getVal(id));
   if (firstEmpty) {
-    setFormError('Fill in every champion.');
+    setFormError('Fill in your champion and the enemy champion.');
     $(firstEmpty).focus();
     return null;
   }
   return {
     lane: meta.value,
-    allyChamps: allyIds.map(getVal),
-    enemyChamps: enemyIds.map(getVal),
+    allyChamps: allyIds.map(getVal).filter(Boolean),
+    enemyChamps: enemyIds.map(getVal).filter(Boolean),
     prior: getVal('f-prior'),
     observed: getVal('f-observed'),
   };
 }
 
-// Submit the form → create_matchup or update_matchup, then reload.
+// Submit the form → create_matchup or update_matchup, then reload. One write at
+// a time: disabling the button stops clicks, but the Ctrl/Cmd+Enter chord (and
+// key repeat) reaches submitForm directly and would land a duplicate card while
+// the first create_matchup is still in flight — hence the flag.
+let _submitting = false;
 async function submitForm(submitBtn) {
+  if (_submitting) return;
   const payload = readFormPayload();
   if (!payload) return;
 
@@ -423,6 +437,7 @@ async function submitForm(submitBtn) {
   if (_editId != null) payload.id = _editId;
   const cmd = _editId != null ? 'update_matchup' : 'create_matchup';
 
+  _submitting = true;
   if (submitBtn) submitBtn.disabled = true;
   try {
     await invoke(cmd, { payload });
@@ -432,6 +447,7 @@ async function submitForm(submitBtn) {
     setFormError(errText(err));
     console.error(`[matchups] ${cmd} failed:`, err);
   } finally {
+    _submitting = false;
     if (submitBtn) submitBtn.disabled = false;
   }
 }
@@ -494,7 +510,9 @@ function buildPreviewMarkdown(d, lane, last) {
     keep = new Set(newest.slice(0, last).map((c) => c.id));
   }
 
-  const lines = ['# Matchup Journal', ''];
+  // Mirrors MatchupJournalExporter.Build: heading, count line, ## lane, ### title,
+  // **yyyy-mm-dd**, #### Prior / #### Observed with the same empty-note marker.
+  const body = [];
   let count = 0;
   for (const l of lanes) {
     const groups = [];
@@ -503,25 +521,27 @@ function buildPreviewMarkdown(d, lane, last) {
       if (cards.length) groups.push({ g, cards });
     }
     if (!groups.length) continue;
-    lines.push(`## ${l.laneLabel || l.lane}`, '');
+    body.push('', `## ${l.laneLabel || l.lane}`);
     for (const { g, cards } of groups) {
-      lines.push(`### ${g.title || ''}`, '');
+      body.push('', `### ${g.title || ''}`);
       for (const c of cards) {
-        const date = c.createdAtText || c.dateText || '';
-        lines.push(`**${date}**${c.gameLabel ? ` · ${c.gameLabel}` : ''}`, '');
-        lines.push('#### Prior', '', c.prior || '_(none)_', '');
-        lines.push('#### Observed', '', c.observed || '_(none)_', '');
+        body.push('', `**${c.dateText || c.createdAtText || ''}**`, '');
+        body.push('#### Prior', '', c.prior || '_(not written yet)_', '');
+        body.push('#### Observed', '', c.observed || '_(not written yet)_');
         count++;
       }
     }
   }
-  return { ok: true, markdown: lines.join('\n'), count, fileName: 'revu-matchups-preview.md' };
+  const head = ['# Matchup Journal', '', count ? `${plural(count, 'card')} · exported (preview)` : '_No cards._'];
+  return { ok: true, markdown: head.concat(body).join('\n') + '\n', count, fileName: 'revu-matchups-preview.md' };
 }
 
 async function copyMarkdown(btn) {
   const lane = $('x-lane').value || '';
-  const lastN = parseInt(getVal('x-last'), 10);
-  const last = Number.isFinite(lastN) && lastN > 0 ? lastN : null;
+  // Number(), not parseInt: a type=number box hands back "1e3" verbatim, which
+  // parseInt would silently read as 1. Blank / 0 / junk → no limit.
+  const lastN = Number(getVal('x-last'));
+  const last = Number.isInteger(lastN) && lastN > 0 ? lastN : null;
 
   if (btn) btn.disabled = true;
   setExportMsg('Copying…', null);
@@ -573,11 +593,27 @@ function render(d) {
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────
+// Concurrent callers are COALESCED, never dropped: a write that lands while a
+// fetch is already in flight (delete → refetch, then "from last game" →
+// refetch) is promised one follow-up fetch that starts after its own write, so
+// scrollToCard(res.id) always finds the new card in the rendered snapshot.
 let _lastData = null;
-let _loading = false;
-async function loadMatchups() {
-  if (_loading) return;
-  _loading = true;
+let _loadPromise = null;   // the fetch in flight
+let _loadFollowUp = null;  // the ONE queued re-fetch shared by everyone who arrives mid-flight
+function loadMatchups() {
+  if (_loadPromise) {
+    if (!_loadFollowUp) {
+      _loadFollowUp = _loadPromise.then(() => { _loadFollowUp = null; return loadMatchups(); });
+    }
+    return _loadFollowUp;
+  }
+  _loadPromise = runLoad().finally(() => { _loadPromise = null; });
+  return _loadPromise;
+}
+async function runLoad() {
+  // Let inline note saves still in flight land first — the re-render rebuilds
+  // every textarea from the snapshot, which must already carry the new text.
+  if (_pendingSaves.size) await Promise.allSettled(Array.from(_pendingSaves));
   try {
     const data = await fetchMatchups();
     _lastData = data;
@@ -585,8 +621,6 @@ async function loadMatchups() {
   } catch (err) {
     renderError(err);
     console.error('[matchups] load failed:', err);
-  } finally {
-    _loading = false;
   }
 }
 
@@ -696,6 +730,15 @@ document.addEventListener('keydown', (ev) => {
     ev.preventDefault();
     submitForm($('form-submit'));
   }
+});
+
+// Best-effort flush when the page is torn down (navigation, app close): a note
+// box that still has focus never blurred, so push it now (mirrors review.js's
+// pagehide draft flush). The shell also lists this page as active work, so the
+// LCU auto-show never reloads it mid-edit — this covers the user's own exits.
+window.addEventListener('pagehide', () => {
+  const el = document.activeElement;
+  if (el && el.classList && el.classList.contains('mj-note-in')) saveNote(el);
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────

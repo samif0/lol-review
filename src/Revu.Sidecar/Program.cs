@@ -862,7 +862,7 @@ app.MapGet("/api/matchups", async (MatchupsSnapshotBuilder b, CancellationToken 
 // lane, last keeps the N newest cards (after the lane filter). Returns the
 // Markdown (one H2 per lane, one H3 per matchup, Prior / Observed per card with
 // its date) plus the card count it covers; the page copies it to the clipboard.
-app.MapGet("/api/matchups/export", async (string? lane, int? last, MatchupsSnapshotBuilder b, ILogger<Program> log) =>
+app.MapGet("/api/matchups/export", async (string? lane, long? last, MatchupsSnapshotBuilder b, ILogger<Program> log) =>
 {
     if (!string.IsNullOrWhiteSpace(lane) && !MatchupLanes.IsValid(lane))
         return Results.BadRequest(new { error = "Pick a lane: top, jungle, mid, bot or support." });
@@ -892,7 +892,8 @@ app.MapPost("/api/matchup/create", async (CreateMatchupBody body, WriteServices 
 });
 
 // POST /api/matchup/from-last-game  {} — pre-fill lane + champions from the most
-// recent game's participants, prior / observed left empty for the player to
+// recent game's participants (the newest ranked / manual game — the same scope
+// every games list uses), prior / observed left empty for the player to
 // write. Idempotent per game: when a card already links to that game its id
 // comes back with created=false instead of a duplicate. 422 when there is no
 // game, or its lane / champions can't be resolved (same sentences the read
@@ -908,10 +909,14 @@ app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Progr
         return Results.Json(new { ok = false, error = MatchupsSnapshotBuilder.NoPrefillReason }, jsonOptions, statusCode: 422);
 
     await w.BackupGuard.EnsureBackedUpAsync();
-    var id = await w.Matchups.CreateAsync(
-        last.Prefill.Lane, last.Prefill.AllyChamps, last.Prefill.EnemyChamps, gameId: last.Game.GameId);
-    log.LogInformation("Matchup card {Id} pre-filled from game {GameId} ({Title})", id, last.Game.GameId, last.Prefill.Title);
-    return Results.Json(new { ok = true, id, created = true }, jsonOptions);
+    try
+    {
+        var id = await w.Matchups.CreateAsync(
+            last.Prefill.Lane, last.Prefill.AllyChamps, last.Prefill.EnemyChamps, gameId: last.Game.GameId);
+        log.LogInformation("Matchup card {Id} pre-filled from game {GameId} ({Title})", id, last.Game.GameId, last.Prefill.Title);
+        return Results.Json(new { ok = true, id, created = true }, jsonOptions);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
 });
 
 // POST /api/matchup/update  { id, lane, allyChamps[], enemyChamps[], prior?, observed? }

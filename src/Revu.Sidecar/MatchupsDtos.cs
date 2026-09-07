@@ -79,7 +79,9 @@ public sealed record MatchupCardDto(
 /// <summary>
 /// Read-side preview of "New card from last game": the lane + champions the
 /// write would pre-fill from the most recent game's participants, or the
-/// reason it can't (no games yet / lane or champions unresolvable).
+/// reason it can't (no games yet / lane or champions unresolvable). "Most
+/// recent" is the newest ranked / manual, non-hidden game — the scope every
+/// games list uses — never a casual game.
 /// </summary>
 public sealed record LastGamePrefillDto(
     bool Available,
