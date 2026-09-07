@@ -8,6 +8,24 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Revu.Sidecar.Tests;
 
 /// <summary>
+/// A [Fact] that runs only on Windows. Revu ships Windows-only and CI runs on
+/// windows-latest, but a few tests pin Win32 file semantics (FileShare.None
+/// sharing violations — SQLite on Unix uses advisory locks and opens the file
+/// regardless) that Unix cannot express — on a Linux dev box those are
+/// skipped, not failed. Mirrors Revu.Core.Tests' copy (internal there).
+/// </summary>
+public sealed class WindowsFactAttribute : Xunit.FactAttribute
+{
+    public WindowsFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Skip = "Pins Windows file-system semantics; runs on the windows-latest CI job.";
+        }
+    }
+}
+
+/// <summary>
 /// Integration-test harness for the sidecar's WRITE seam.
 ///
 /// The sidecar's write endpoints (save_review, save_config, set_*_objective,

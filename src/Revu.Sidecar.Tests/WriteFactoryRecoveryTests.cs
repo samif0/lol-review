@@ -339,7 +339,11 @@ public sealed class WriteFactoryRecoveryTests : IDisposable
         Assert.Equal(13, ScalarLong(conn, "PRAGMA user_version;"));
     }
 
-    [Fact]
+    // Windows-only: FileShare.None is a mandatory sharing violation on Win32, so
+    // SQLite's open fails and the factory diagnoses the lock. On Unix the share
+    // mode is advisory (flock) and SQLite's fcntl locks don't see it — the open
+    // simply succeeds, so there is nothing to diagnose.
+    [WindowsFact]
     public void ExclusivelyLockedDb_FailsWithLockDiagnosis_AndIsNotTouched()
     {
         var dbPath = NewDbPath();
