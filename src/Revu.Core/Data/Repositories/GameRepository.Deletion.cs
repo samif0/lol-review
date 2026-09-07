@@ -90,6 +90,11 @@ public sealed partial class GameRepository
                 await DeleteByGameIdAsync(conn, tx, table, gameId, gamePk).ConfigureAwait(false);
             }
 
+            // v3.9 (schema v15): matchup journal cards are the player's own
+            // writing, not derived data — detach them from the deleted game
+            // instead of dropping them, so the prior/observed text survives.
+            await DetachMatchupsAsync(conn, tx, gameId, gamePk).ConfigureAwait(false);
+
             // Tombstone: mark the game_id as permanently dismissed in
             // missed_game_decisions. Without this, the next startup's
             // reconciler would see Riot still listing this match and
@@ -230,6 +235,36 @@ public sealed partial class GameRepository
         cmd.CommandText = gamePk.HasValue
             ? $"DELETE FROM {table} WHERE game_id = @gameId OR game_id = @gamePk"
             : $"DELETE FROM {table} WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        if (gamePk.HasValue)
+        {
+            cmd.Parameters.AddWithValue("@gamePk", gamePk.Value);
+        }
+
+        await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// v3.9: NULL out <c>matchups.game_id</c> for the deleted game (both the
+    /// Riot game_id and the row pk, mirroring <see cref="DeleteByGameIdAsync"/>'s
+    /// two-key match). Tolerates a DB that predates the matchups table.
+    /// </summary>
+    private static async Task DetachMatchupsAsync(
+        Microsoft.Data.Sqlite.SqliteConnection conn,
+        Microsoft.Data.Sqlite.SqliteTransaction tx,
+        long gameId,
+        long? gamePk)
+    {
+        if (!await TableExistsAsync(conn, tx, "matchups").ConfigureAwait(false))
+        {
+            return;
+        }
+
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = gamePk.HasValue
+            ? "UPDATE matchups SET game_id = NULL WHERE game_id = @gameId OR game_id = @gamePk"
+            : "UPDATE matchups SET game_id = NULL WHERE game_id = @gameId";
         cmd.Parameters.AddWithValue("@gameId", gameId);
         if (gamePk.HasValue)
         {

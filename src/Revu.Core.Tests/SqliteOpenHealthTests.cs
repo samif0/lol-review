@@ -106,7 +106,9 @@ public sealed class SqliteOpenHealthTests : IDisposable
         Assert.False(SqliteOpenHealth.TryHeal(dbPath, NullLogger.Instance));
     }
 
-    [Fact]
+    // Windows-only: FileAttributes.Hidden is an NTFS attribute; on Unix "hidden"
+    // is a dot-prefixed name and File.SetAttributes cannot express it.
+    [WindowsFact]
     public void TryHeal_PreservesOtherAttributes_WhenClearingReadOnly()
     {
         var dbPath = DbPath();

@@ -122,7 +122,7 @@ async function wireLiveAutoShow() {
   // wiping the form — "the page refreshes on save review"). Auto-show to a live
   // surface only happens from a passive page (dashboard/games/etc.). The live
   // surfaces themselves are fine to switch BETWEEN (pregame↔ingame).
-  const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html'];
+  const ACTIVE_WORK_PAGES = ['review.html', 'objectives.html', 'manualentry.html', 'settings.html', 'vodplayer.html', 'matchups.html'];
   const onActiveWorkPage = () => ACTIVE_WORK_PAGES.some((p) => here(p));
   // Auto-show to a live surface, but never interrupt an active-work page (unless
   // we're already on a live surface, e.g. pregame→ingame, which we always honor).

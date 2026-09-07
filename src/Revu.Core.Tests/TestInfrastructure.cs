@@ -7,6 +7,24 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Revu.Core.Tests;
 
+/// <summary>
+/// A [Fact] that runs only on Windows. Revu ships Windows-only and CI runs on
+/// windows-latest, but a few tests pin NTFS / Win32 file semantics (the Hidden
+/// attribute, FileShare.None sharing violations) that Unix cannot express —
+/// on a Linux dev box those are skipped, not failed, so the rest of the suite
+/// stays a meaningful signal there.
+/// </summary>
+public sealed class WindowsFactAttribute : FactAttribute
+{
+    public WindowsFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Skip = "Pins Windows file-system semantics; runs on the windows-latest CI job.";
+        }
+    }
+}
+
 internal sealed class TestDatabaseScope : IDisposable
 {
     private readonly string _rootDirectory;
@@ -27,6 +45,7 @@ internal sealed class TestDatabaseScope : IDisposable
         Objectives = new ObjectivesRepository(ConnectionFactory);
         Prompts = new PromptsRepository(ConnectionFactory);
         MatchupNotes = new MatchupNotesRepository(ConnectionFactory);
+        Matchups = new MatchupsRepository(ConnectionFactory);
         Vod = new VodRepository(ConnectionFactory);
         SessionLog = new SessionLogRepository(ConnectionFactory);
         CoachingStints = new CoachingStintsRepository(ConnectionFactory);
@@ -54,6 +73,8 @@ internal sealed class TestDatabaseScope : IDisposable
     public PromptsRepository Prompts { get; }
 
     public MatchupNotesRepository MatchupNotes { get; }
+
+    public MatchupsRepository Matchups { get; }
 
     public VodRepository Vod { get; }
 
