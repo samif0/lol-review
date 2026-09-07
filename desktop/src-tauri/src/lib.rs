@@ -566,6 +566,88 @@ async fn delete_rule(payload: serde_json::Value) -> Result<serde_json::Value, St
     sidecar::post_json("/api/rule/delete", payload).await
 }
 
+// ── Matchup journal ───────────────────────────────────────────────────────────
+// Prior-before-you-queue / observed-after cards keyed by lane + champions. One
+// read snapshot, one Markdown export, and five JSON writes; the Matchups page
+// re-fetches get_matchups after every write. delete_matchup is a HARD delete —
+// the frontend confirms before invoking it.
+
+/// Returns the matchup-journal snapshot JSON (lanes → matchup groups → cards,
+/// plus the last-game hint). See Revu.Sidecar GET /api/matchups.
+#[tauri::command]
+async fn get_matchups() -> Result<serde_json::Value, String> {
+    sidecar::get_json("/api/matchups").await
+}
+
+/// Builds the Markdown export of the matchup journal and returns
+/// { ok, markdown, count, fileName }. `lane` restricts to one lane
+/// (top | jungle | mid | bot | support; empty/None → all); `last` keeps only
+/// the N newest cards after the lane filter (None / <=0 → all).
+/// See Revu.Sidecar GET /api/matchups/export.
+#[tauri::command]
+async fn get_matchups_export_markdown(
+    lane: Option<String>,
+    last: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let mut query: Vec<String> = Vec::new();
+    if let Some(l) = lane.as_deref() {
+        if !l.is_empty() {
+            query.push(format!("lane={}", urlencode(l)));
+        }
+    }
+    if let Some(n) = last {
+        if n > 0 {
+            query.push(format!("last={}", n));
+        }
+    }
+    let path = if query.is_empty() {
+        "/api/matchups/export".to_string()
+    } else {
+        format!("/api/matchups/export?{}", query.join("&"))
+    };
+    sidecar::get_json(&path).await
+}
+
+/// Creates a matchup card (lane + allyChamps[] + enemyChamps[] + prior? +
+/// observed? + gameId?). Returns {ok:true, id}. See Revu.Sidecar
+/// POST /api/matchup/create.
+#[tauri::command]
+async fn create_matchup(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/matchup/create", payload).await
+}
+
+/// Creates a matchup card pre-filled from the player's most recent game (empty
+/// payload). Returns {ok:true, id, created} — created:false means a card for
+/// that game already existed and its id is returned; HTTP 422 when there is no
+/// usable last game. See Revu.Sidecar POST /api/matchup/from-last-game.
+#[tauri::command]
+async fn create_matchup_from_last_game(
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/matchup/from-last-game", payload).await
+}
+
+/// Updates an existing matchup card (id + the same fields create takes, minus
+/// gameId). See Revu.Sidecar POST /api/matchup/update.
+#[tauri::command]
+async fn update_matchup(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/matchup/update", payload).await
+}
+
+/// Inline-autosaves a card's notes ({ id, prior?, observed? }); a null/absent
+/// field is left unchanged. See Revu.Sidecar POST /api/matchup/notes.
+#[tauri::command]
+async fn save_matchup_notes(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/matchup/notes", payload).await
+}
+
+/// DESTRUCTIVE: hard-deletes a matchup card (id). The frontend MUST confirm first.
+/// See Revu.Sidecar POST /api/matchup/delete.
+#[tauri::command]
+async fn delete_matchup(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/matchup/delete", payload).await
+}
+
 // ── VOD bookmark CRUD (Batch 2) ───────────────────────────────────────────────
 // Quick Bookmark tool + bookmark-list edit/delete/tag/quality. Each POSTs a JSON
 // payload and returns {ok:true(,id)}; the VOD player re-fetches get_vod after.
@@ -1092,6 +1174,13 @@ pub fn run() {
             set_rule_enforce,
             override_hard_stop,
             delete_rule,
+            get_matchups,
+            get_matchups_export_markdown,
+            create_matchup,
+            create_matchup_from_last_game,
+            update_matchup,
+            save_matchup_notes,
+            delete_matchup,
             add_bookmark,
             save_encounter,
             update_bookmark_note,

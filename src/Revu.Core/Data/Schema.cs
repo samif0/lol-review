@@ -48,7 +48,14 @@ public static class Schema
     //               evidence rows (NULL = never). Same shape as map_state_v:
     //               drives the startup backfill's missing-set query; bumping
     //               the materializer version re-queues every window game.
-    public const int CurrentAppSchemaVersion = 14;
+    // v14 (2026-08): rules.enforce + the hard_stops intervention log — a tripped
+    //               rule can be ENFORCED (queue cancelled), not just displayed.
+    // v15 (2026-09): matchups — the matchup journal. One card per lane matchup
+    //               (1v1 for top/mid, 2v2 for jungle/bot/support) holding a
+    //               prior written before queuing and what was observed after.
+    //               game_id is a nullable link to the game the card was
+    //               pre-filled from. Forward-only, additive (CREATE IF NOT EXISTS).
+    public const int CurrentAppSchemaVersion = 15;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -1097,6 +1104,46 @@ public static class Schema
         CreateHardStopsIndex,
     ];
 
+    /// <summary>
+    /// v3.9 (schema v15): the matchup journal. One row per card: a lane
+    /// (top / jungle / mid / bot / support), the 1–2 ally and 1–2 enemy
+    /// champions as JSON arrays of display names in slot order (top and mid are
+    /// 1v1; jungle is jungler + mid; bot and support are adc + support), the
+    /// player's <c>prior</c> (written before queuing) and what they
+    /// <c>observed</c> (written after). <c>game_id</c> optionally links the card
+    /// to the game it was pre-filled from; deleting that game detaches the link
+    /// rather than dropping the card — the card is the player's own writing and
+    /// outlives the game row. Never scored.
+    /// </summary>
+    public const string CreateMatchupsTable = """
+        CREATE TABLE IF NOT EXISTS matchups (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            lane          TEXT NOT NULL,
+            ally_champs   TEXT NOT NULL DEFAULT '[]',
+            enemy_champs  TEXT NOT NULL DEFAULT '[]',
+            prior         TEXT NOT NULL DEFAULT '',
+            observed      TEXT NOT NULL DEFAULT '',
+            game_id       INTEGER,
+            created_at    INTEGER NOT NULL,
+            FOREIGN KEY (game_id) REFERENCES games(game_id)
+        );
+        """;
+
+    /// <summary>The journal page and its export read every card grouped by lane,
+    /// newest first — one index serves both.</summary>
+    public const string CreateMatchupsLaneIndex = """
+        CREATE INDEX IF NOT EXISTS idx_matchups_lane_created ON matchups(lane, created_at DESC);
+        """;
+
+    /// <summary>v3.9 (schema v15): the matchups table + its lane index. Forward-only,
+    /// additive (CREATE IF NOT EXISTS), so a v14 DB gains the table without touching
+    /// any existing data.</summary>
+    public static readonly string[] MigrateMatchups =
+    [
+        CreateMatchupsTable,
+        CreateMatchupsLaneIndex,
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -1146,6 +1193,8 @@ public static class Schema
         // NormalizeObjectivePromptsTableAsync has run. They're applied
         // separately from DatabaseInitializer after normalize completes.
         CreateMatchupNotesTable,
+        CreateMatchupsTable,
+        CreateMatchupsLaneIndex,
         CreateSessionsTable,
         CreateTiltChecksTable,
         CreateMissedGameDecisionsTable,
@@ -1241,6 +1290,8 @@ public static class Schema
         new(13, "games-pattern-evidence-version", MigrateGamesPatternEvidenceVersion),
         // v3.7 (schema v14): rules.enforce + the hard_stops intervention log.
         new(14, "rules-enforce-hard-stops", MigrateRulesEnforce),
+        // v3.9 (schema v15): matchups — the matchup journal table + lane index.
+        new(15, "matchups-journal", MigrateMatchups),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

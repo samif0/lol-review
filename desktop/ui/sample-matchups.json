@@ -1,0 +1,179 @@
+{
+  "generatedAt": "2026-09-07T10:00:00",
+  "totalCount": 5,
+  "isEmpty": false,
+  "emptyMessage": "No matchup cards yet. Write a prior before you queue, then what you actually saw after.",
+  "lanes": [
+    {
+      "lane": "top",
+      "laneLabel": "Top",
+      "champSlots": 1,
+      "cardCount": 3,
+      "groups": [
+        {
+          "key": "top|aatrox|fiora",
+          "title": "Aatrox vs Fiora",
+          "allyChamps": ["Aatrox"],
+          "enemyChamps": ["Fiora"],
+          "cardCount": 2,
+          "latestCreatedAt": 1788727000,
+          "cards": [
+            {
+              "id": 9,
+              "lane": "top",
+              "laneLabel": "Top",
+              "allyChamps": ["Aatrox"],
+              "enemyChamps": ["Fiora"],
+              "matchupKey": "top|aatrox|fiora",
+              "matchupTitle": "Aatrox vs Fiora",
+              "prior": "Don't Q3 into her parry window; wait for Riposte before committing W. Freeze near tower — she wins extended trades pre-6.",
+              "observed": "",
+              "hasPrior": true,
+              "hasObserved": false,
+              "gameId": 5581743310,
+              "hasGame": true,
+              "gameLabel": "Sep 6, 2026 · Loss",
+              "createdAt": 1788727000,
+              "createdAtText": "Sep 6, 2026",
+              "dateText": "2026-09-06"
+            },
+            {
+              "id": 3,
+              "lane": "top",
+              "laneLabel": "Top",
+              "allyChamps": ["Aatrox"],
+              "enemyChamps": ["Fiora"],
+              "matchupKey": "top|aatrox|fiora",
+              "matchupTitle": "Aatrox vs Fiora",
+              "prior": "Bait Riposte with W, then Q1-Q2 chain. Ask jungle for a level-3 gank; she has no escape before Q comes back.",
+              "observed": "Parry bait worked twice. Lost the level-1 trade by walking up for the first melee minion — she just Q'd the vital and backed off.",
+              "hasPrior": true,
+              "hasObserved": true,
+              "gameId": 5580912447,
+              "hasGame": true,
+              "gameLabel": "Aug 28, 2026 · Win",
+              "createdAt": 1787940000,
+              "createdAtText": "Aug 28, 2026",
+              "dateText": "2026-08-28"
+            }
+          ]
+        },
+        {
+          "key": "top|gnar|darius",
+          "title": "Gnar vs Darius",
+          "allyChamps": ["Gnar"],
+          "enemyChamps": ["Darius"],
+          "cardCount": 1,
+          "latestCreatedAt": 1788260000,
+          "cards": [
+            {
+              "id": 5,
+              "lane": "top",
+              "laneLabel": "Top",
+              "allyChamps": ["Gnar"],
+              "enemyChamps": ["Darius"],
+              "matchupKey": "top|gnar|darius",
+              "matchupTitle": "Gnar vs Darius",
+              "prior": "Kite with mini Gnar, never let him E-pull me inside my own wave. Transform on cooldown when his Q is down.",
+              "observed": "Got pulled once at level 4 by standing in the wave. Otherwise fine — he never reached five stacks.",
+              "hasPrior": true,
+              "hasObserved": true,
+              "gameId": null,
+              "hasGame": false,
+              "gameLabel": "",
+              "createdAt": 1788260000,
+              "createdAtText": "Sep 1, 2026",
+              "dateText": "2026-09-01"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "lane": "jungle",
+      "laneLabel": "Jungle",
+      "champSlots": 2,
+      "cardCount": 1,
+      "groups": [
+        {
+          "key": "jungle|leesin+ahri|viego+sylas",
+          "title": "Lee Sin + Ahri vs Viego + Sylas",
+          "allyChamps": ["Lee Sin", "Ahri"],
+          "enemyChamps": ["Viego", "Sylas"],
+          "cardCount": 1,
+          "latestCreatedAt": 1788520000,
+          "cards": [
+            {
+              "id": 8,
+              "lane": "jungle",
+              "laneLabel": "Jungle",
+              "allyChamps": ["Lee Sin", "Ahri"],
+              "enemyChamps": ["Viego", "Sylas"],
+              "matchupKey": "jungle|leesin+ahri|viego+sylas",
+              "matchupTitle": "Lee Sin + Ahri vs Viego + Sylas",
+              "prior": "Viego wants scuttle at 3:15 — meet him with Ahri E up. Track his first clear from raptors and mirror on the opposite side.",
+              "observed": "He went red → krugs → gromp and showed bot at 3:30. Took both scuttles for free. Sylas stole Ahri R twice in mid-game fights.",
+              "hasPrior": true,
+              "hasObserved": true,
+              "gameId": 5581602288,
+              "hasGame": true,
+              "gameLabel": "Sep 4, 2026 · Win",
+              "createdAt": 1788520000,
+              "createdAtText": "Sep 4, 2026",
+              "dateText": "2026-09-04"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "lane": "bot",
+      "laneLabel": "Bot",
+      "champSlots": 2,
+      "cardCount": 1,
+      "groups": [
+        {
+          "key": "bot|kaisa+nautilus|tristana+renataglasc",
+          "title": "Kai'Sa + Nautilus vs Tristana + Renata Glasc",
+          "allyChamps": ["Kai'Sa", "Nautilus"],
+          "enemyChamps": ["Tristana", "Renata Glasc"],
+          "cardCount": 1,
+          "latestCreatedAt": 1788600000,
+          "cards": [
+            {
+              "id": 12,
+              "lane": "bot",
+              "laneLabel": "Bot",
+              "allyChamps": ["Kai'Sa", "Nautilus"],
+              "enemyChamps": ["Tristana", "Renata Glasc"],
+              "matchupKey": "bot|kaisa+nautilus|tristana+renataglasc",
+              "matchupTitle": "Kai'Sa + Nautilus vs Tristana + Renata Glasc",
+              "prior": "Respect Renata W flip; trade when her E is down.",
+              "observed": "Nautilus hook onto Renata while her E was down won every trade; the W flip never mattered.",
+              "hasPrior": true,
+              "hasObserved": true,
+              "gameId": 5581701721,
+              "hasGame": true,
+              "gameLabel": "Sep 5, 2026 · Win",
+              "createdAt": 1788600000,
+              "createdAtText": "Sep 5, 2026",
+              "dateText": "2026-09-05"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "lastGame": {
+    "available": true,
+    "gameId": 5581790011,
+    "lane": "mid",
+    "laneLabel": "Mid",
+    "allyChamps": ["Ahri"],
+    "enemyChamps": ["Syndra"],
+    "matchupTitle": "Ahri vs Syndra",
+    "gameLabel": "Sep 7, 2026 · Win",
+    "existingCardId": null,
+    "unavailableReason": ""
+  }
+}

@@ -121,6 +121,9 @@ services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
 services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
 // Review page matchup-note history (same champ vs enemy, past notes). Read-only.
 services.AddSingleton<IMatchupNotesRepository, MatchupNotesRepository>();
+// v3.9: the matchup journal (GET /api/matchups + /api/matchups/export). Read-only
+// here; card writes go through WriteServices.Matchups.
+services.AddSingleton<IMatchupsRepository, MatchupsRepository>();
 // Review draft hydration (GetAsync is a plain SELECT): the review form prefills
 // from an unsaved draft so autosaved edits survive navigation/reload. Draft
 // WRITES go through WriteServices.ReviewWorkflow.SaveDraftAsync.
@@ -157,6 +160,7 @@ services.AddSingleton<ObjectiveEditSnapshotBuilder>();
 services.AddSingleton<ReviewSnapshotBuilder>();
 services.AddSingleton<RulesSnapshotBuilder>();
 services.AddSingleton<TiltCheckSnapshotBuilder>();
+services.AddSingleton<MatchupsSnapshotBuilder>();
 services.AddSingleton<PatternsSnapshotBuilder>();
 // Config read snapshot (Settings page + cross-page config reads). Reuses the
 // read-graph IConfigService registered above; BuildAsync forces a disk re-read
@@ -840,6 +844,118 @@ app.MapPost("/api/rule/delete", async (RuleIdBody body, WriteServices w, ILogger
 // invoke('run_reset', …) → POST /api/reset; this snapshot is READ-ONLY.
 app.MapGet("/api/tiltcheck", async (TiltCheckSnapshotBuilder b, CancellationToken ct) =>
     Results.Json(await b.BuildAsync(ct), jsonOptions));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v3.9 Matchup journal. GET /api/matchups is the read half (cards grouped by
+// lane → matchup key, newest first, plus the "New card from last game" preview);
+// GET /api/matchups/export renders the Markdown the page copies to the
+// clipboard. The POST /api/matchup/* writes reuse MatchupsRepository's
+// validation verbatim — its ArgumentException IS the user-facing sentence, so
+// it surfaces as a 400 {error}. The page refetches GET /api/matchups after
+// every write except the inline note autosave.
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.MapGet("/api/matchups", async (MatchupsSnapshotBuilder b, CancellationToken ct) =>
+    Results.Json(await b.BuildAsync(ct), jsonOptions));
+
+// GET /api/matchups/export?lane=<lane>&last=<n> — both optional: lane keeps one
+// lane, last keeps the N newest cards (after the lane filter). Returns the
+// Markdown (one H2 per lane, one H3 per matchup, Prior / Observed per card with
+// its date) plus the card count it covers; the page copies it to the clipboard.
+app.MapGet("/api/matchups/export", async (string? lane, int? last, MatchupsSnapshotBuilder b, ILogger<Program> log) =>
+{
+    if (!string.IsNullOrWhiteSpace(lane) && !MatchupLanes.IsValid(lane))
+        return Results.BadRequest(new { error = "Pick a lane: top, jungle, mid, bot or support." });
+    var (markdown, count) = await b.BuildExportAsync(lane, last);
+    var fileName = $"revu-matchups-{DateTime.Now:yyyyMMdd-HHmm}.md";
+    log.LogInformation("Matchup journal export built ({Count} cards, {Chars} chars)", count, markdown.Length);
+    return Results.Json(new { ok = true, markdown, count, fileName }, jsonOptions);
+});
+
+// POST /api/matchup/create  { lane, allyChamps[], enemyChamps[], prior?, observed?, gameId? }
+app.MapPost("/api/matchup/create", async (CreateMatchupBody body, WriteServices w, ILogger<Program> log) =>
+{
+    if (body is null) return Results.BadRequest(new { error = "body required" });
+    // games.game_id is a real FOREIGN KEY target: a link to a game that isn't on
+    // record would fail inside SQLite as an opaque 500, so say it plainly first.
+    if (body.GameId is > 0 && await w.Games.GetAsync(body.GameId.Value) is null)
+        return Results.BadRequest(new { error = "That game is not on record." });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    try
+    {
+        var id = await w.Matchups.CreateAsync(
+            body.Lane, body.AllyChamps, body.EnemyChamps, body.Prior, body.Observed, body.GameId);
+        log.LogInformation("Matchup card created: {Id} ({Lane})", id, body.Lane);
+        return Results.Json(new { ok = true, id }, jsonOptions);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
+// POST /api/matchup/from-last-game  {} — pre-fill lane + champions from the most
+// recent game's participants, prior / observed left empty for the player to
+// write. Idempotent per game: when a card already links to that game its id
+// comes back with created=false instead of a duplicate. 422 when there is no
+// game, or its lane / champions can't be resolved (same sentences the read
+// snapshot shows on the disabled button).
+app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Program> log) =>
+{
+    var last = await MatchupsSnapshotBuilder.ResolveLastGameAsync(w.Games, w.Matchups);
+    if (last.Game is null)
+        return Results.Json(new { ok = false, error = MatchupsSnapshotBuilder.NoGamesReason }, jsonOptions, statusCode: 422);
+    if (last.Existing is not null)
+        return Results.Json(new { ok = true, id = last.Existing.Id, created = false }, jsonOptions);
+    if (last.Prefill is null)
+        return Results.Json(new { ok = false, error = MatchupsSnapshotBuilder.NoPrefillReason }, jsonOptions, statusCode: 422);
+
+    await w.BackupGuard.EnsureBackedUpAsync();
+    var id = await w.Matchups.CreateAsync(
+        last.Prefill.Lane, last.Prefill.AllyChamps, last.Prefill.EnemyChamps, gameId: last.Game.GameId);
+    log.LogInformation("Matchup card {Id} pre-filled from game {GameId} ({Title})", id, last.Game.GameId, last.Prefill.Title);
+    return Results.Json(new { ok = true, id, created = true }, jsonOptions);
+});
+
+// POST /api/matchup/update  { id, lane, allyChamps[], enemyChamps[], prior?, observed? }
+// Full edit; the game link is not part of it.
+app.MapPost("/api/matchup/update", async (UpdateMatchupBody body, WriteServices w, ILogger<Program> log) =>
+{
+    if (body is null || body.Id <= 0) return Results.BadRequest(new { error = "id required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    try
+    {
+        var found = await w.Matchups.UpdateAsync(
+            body.Id, body.Lane, body.AllyChamps, body.EnemyChamps, body.Prior, body.Observed);
+        if (!found) return Results.NotFound(new { error = "That matchup card no longer exists." });
+        log.LogInformation("Matchup card updated: {Id}", body.Id);
+        return Results.Json(new { ok = true }, jsonOptions);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
+// POST /api/matchup/notes  { id, prior?, observed? } — the inline autosave. A
+// null / absent field is left unchanged, so the page sends only what changed.
+app.MapPost("/api/matchup/notes", async (MatchupNotesBody body, WriteServices w) =>
+{
+    if (body is null || body.Id <= 0) return Results.BadRequest(new { error = "id required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    try
+    {
+        var found = await w.Matchups.UpdateNotesAsync(body.Id, body.Prior, body.Observed);
+        if (!found) return Results.NotFound(new { error = "That matchup card no longer exists." });
+        return Results.Json(new { ok = true }, jsonOptions);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
+// POST /api/matchup/delete  { id } — HARD delete (DELETE FROM matchups). The
+// page confirms before calling; the first-write safety backup is the net here.
+app.MapPost("/api/matchup/delete", async (MatchupIdBody body, WriteServices w, ILogger<Program> log) =>
+{
+    if (body is null || body.Id <= 0) return Results.BadRequest(new { error = "id required" });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    await w.Matchups.DeleteAsync(body.Id);
+    log.LogInformation("Matchup card deleted: {Id}", body.Id);
+    return Results.Json(new { ok = true }, jsonOptions);
+});
 
 // ── GET /api/patterns (token-gated): read-only cross-game pattern cards ───────
 // Pattern cards + their ordered moment playlists. Mark-reviewed (and the
@@ -3173,3 +3289,28 @@ internal sealed record PreGameDraftBody(long PromptId, string? Text);
 internal sealed record PreGameIfThenBody(string? Plan);
 
 internal sealed record SaveEncounterBody(long GameId, int? EventId, string RequestId, int StartS, int EndS, string Classification, string? Note);
+
+// ── v3.9 Matchup journal bodies ──────────────────────────────────────────────
+// Champion lists arrive as JSON arrays of display names in slot order (1v1 for
+// top / mid, jungler + mid for jungle, adc + support for bot / support); the
+// repository canonicalizes and validates them. Prior / Observed null = empty on
+// create / update, and "leave unchanged" on the inline notes write.
+internal sealed record CreateMatchupBody(
+    string? Lane,
+    List<string?>? AllyChamps,
+    List<string?>? EnemyChamps,
+    string? Prior,
+    string? Observed,
+    long? GameId);
+
+internal sealed record UpdateMatchupBody(
+    long Id,
+    string? Lane,
+    List<string?>? AllyChamps,
+    List<string?>? EnemyChamps,
+    string? Prior,
+    string? Observed);
+
+internal sealed record MatchupNotesBody(long Id, string? Prior, string? Observed);
+
+internal sealed record MatchupIdBody(long Id);

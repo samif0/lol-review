@@ -27,6 +27,7 @@ internal sealed class TestDatabaseScope : IDisposable
         Objectives = new ObjectivesRepository(ConnectionFactory);
         Prompts = new PromptsRepository(ConnectionFactory);
         MatchupNotes = new MatchupNotesRepository(ConnectionFactory);
+        Matchups = new MatchupsRepository(ConnectionFactory);
         Vod = new VodRepository(ConnectionFactory);
         SessionLog = new SessionLogRepository(ConnectionFactory);
         CoachingStints = new CoachingStintsRepository(ConnectionFactory);
@@ -54,6 +55,8 @@ internal sealed class TestDatabaseScope : IDisposable
     public PromptsRepository Prompts { get; }
 
     public MatchupNotesRepository MatchupNotes { get; }
+
+    public MatchupsRepository Matchups { get; }
 
     public VodRepository Vod { get; }
 

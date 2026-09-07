@@ -3203,3 +3203,133 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
   line-height:1.5;margin-top:6px}
 .rule-hardstop[hidden]{display:none}
 .rule-act-enforce[hidden]{display:none}
+
+/* ── MATCHUPS PAGE ────────────────────────────────────────────────────────────
+   Matchup journal: a prior written before you queue, what you observed after.
+   Reuses the shared kit: .eyebrow / .hero / .statusline, .seclabel, .glass +
+   .card chrome, the .obj-form-* create/edit primitives, .cta / .cta-sm,
+   .errpanel and the motion classes (.anim-rise). Page-specific bits below: the
+   hero row (title + the two card actions + the last-game mono line), the
+   export row, the lane → group → card stack with its inline Prior / Observed
+   textareas + "Saved" flash, and the empty state. All classes mj-* prefixed. */
+
+/* HERO ROW — title left, the two card actions right (mirrors .rules-hero). */
+.mj-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.mj-subt{font-family:var(--fm);font-size:11px;color:var(--t3);letter-spacing:1.5px;margin-top:11px;text-shadow:var(--tsh)}
+.mj-actions{display:flex;flex-direction:column;align-items:flex-end;gap:9px;margin-top:4px}
+.mj-actions-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.mj-new-btn{margin-top:0;align-self:center}
+/* "From last game" — the quieter gold-outline sibling of the loud + NEW CARD.
+   Disabled (with the sidecar's reason as its title) when no last game resolves. */
+.mj-btn-last{font-family:var(--fm);font-size:11px;letter-spacing:1.5px;font-weight:700;color:var(--gold);
+  border:1px solid rgba(243,199,148,0.45);border-radius:11px;padding:13px 20px;cursor:pointer;white-space:nowrap;
+  background:rgba(243,199,148,0.07);
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease,border-color .16s ease,box-shadow .16s ease}
+.mj-btn-last:hover:not(:disabled){transform:translateY(-1px);background:rgba(243,199,148,0.13);border-color:rgba(243,199,148,0.7);
+  box-shadow:0 8px 20px -12px rgba(243,199,148,0.6)}
+.mj-btn-last:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
+.mj-btn-last:disabled{opacity:0.45;cursor:not-allowed}
+/* The last game's matchup + result — small mono line under the buttons. */
+.mj-lastgame{font-family:var(--fm);font-size:10px;letter-spacing:0.8px;color:var(--t4);text-align:right;
+  display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;justify-content:flex-end;text-shadow:var(--tsh)}
+.mj-lastgame[hidden]{display:none}
+.mj-lastgame-k{letter-spacing:1.5px;font-weight:700;color:var(--t4)}
+.mj-lastgame b{color:var(--t2);font-weight:500}
+.mj-lastgame-g{color:var(--gold)}
+
+/* EXPORT ROW — lane filter + last-N + COPY AS MARKDOWN, with the status line
+   dropping onto its own row underneath. Children sit above the .card sheen. */
+.mj-export{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;padding:16px 18px;margin:0 0 8px}
+.mj-export-lead{flex:1 1 220px;min-width:0;align-self:center;position:relative}
+.mj-export-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:#c3b6ff}
+.mj-export-p{font-size:12.5px;color:var(--t3);margin-top:4px;line-height:1.4}
+.mj-export-field{position:relative;flex:0 0 auto}
+.mj-export-field .obj-input{width:150px}
+.mj-export-last .obj-input{width:112px;appearance:textfield;-moz-appearance:textfield}
+.mj-export-last .obj-input::-webkit-inner-spin-button,.mj-export-last .obj-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.mj-export-btn{position:relative;margin-top:0;align-self:flex-end}
+.mj-export-msg{flex-basis:100%;position:relative;font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3)}
+.mj-export-msg[hidden]{display:none}
+.mj-export-msg.ok{color:var(--win)}
+.mj-export-msg.err{color:var(--loss)}
+
+/* CREATE / EDIT FORM — blue-rimmed glass panel (reuses .obj-form-* layout).
+   Lane select capped so it doesn't stretch; the champion grid is your side
+   (left) vs the enemy side (right), each a column of up to two inputs. */
+.mj-form{margin:18px 0 8px}
+.mj-form .obj-field[hidden]{display:none}
+.mj-form-lane{max-width:260px}
+.mj-side{display:flex;flex-direction:column;gap:14px;min-width:0}
+.mj-k-prior{color:var(--gold)}
+.mj-k-observed{color:var(--win)}
+/* Read-only linked-game line (edit mode, linked cards only). */
+.mj-form-game{font-family:var(--fm);font-size:11px;letter-spacing:0.6px;color:var(--gold);
+  background:rgba(8,6,20,0.45);border-left:2px solid var(--gold);padding:9px 12px;border-radius:0 8px 8px 0}
+
+/* LANE SECTIONS — a .seclabel per lane, then that lane's matchup groups. */
+.mj-lane{margin-top:22px}
+.mj-lane:first-child{margin-top:8px}
+.mj-lane-groups{display:flex;flex-direction:column;gap:0}
+
+/* MATCHUP GROUP — one glass card per matchup: title + count, then its cards
+   (newest first). Inner blocks are positioned so they sit above the sheen. */
+.mj-group{padding:16px 18px}
+.mj-group-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:12px;position:relative}
+.mj-group-title{font-family:var(--fo);font-size:16px;font-weight:600;color:#fff;letter-spacing:0.2px;min-width:0}
+.mj-group-n{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--t4)}
+.mj-group-cards{display:flex;flex-direction:column;gap:10px;position:relative}
+
+/* MATCHUP CARD — a darker inset tile inside the group; the "from last game"
+   jump rings it briefly (.mj-card-hi). */
+.mj-card{padding:13px 15px;border-radius:13px;background:rgba(10,8,24,0.32);border:1px solid var(--gline2);
+  position:relative;transition:border-color .22s ease,box-shadow .22s ease}
+.mj-card-hi{border-color:rgba(157,139,255,0.7);box-shadow:0 0 0 3px rgba(157,139,255,0.16),0 12px 30px -18px rgba(157,139,255,0.7)}
+.mj-card-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.mj-card-date{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t2)}
+.mj-card-game{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--gold)}
+.mj-card-game::before{content:'· ';color:var(--t4)}
+.mj-card-game[hidden]{display:none}
+/* Per-card actions — calm ghost chips pushed to the right (mirrors .rule-act). */
+.mj-card-acts{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+.mj-act{font-family:var(--fm);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--t2);
+  background:rgba(255,255,255,0.04);border:1px solid var(--gline2);border-radius:8px;padding:6px 11px;cursor:pointer;white-space:nowrap;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease,border-color .16s ease,box-shadow .16s ease,color .16s ease}
+.mj-act:hover{transform:translateY(-1px);color:#fff;background:rgba(157,139,255,0.10);border-color:rgba(157,139,255,0.4);box-shadow:0 8px 20px -12px rgba(157,139,255,0.55)}
+.mj-act:active{transform:translateY(0);transition-duration:.06s}
+.mj-act:disabled{opacity:0.5;cursor:default;transform:none;box-shadow:none}
+.mj-act-del{color:var(--loss);border-color:rgba(243,163,168,0.38);background:rgba(243,163,168,0.06)}
+.mj-act-del:hover{color:#2a0e10;background:linear-gradient(180deg,#f6b9bd,var(--loss));border-color:transparent;box-shadow:0 8px 20px -10px rgba(243,163,168,0.6)}
+
+/* INLINE NOTES — Prior (gold caption) beside Observed (green caption). Each is
+   a glass textarea that autosaves on blur / Ctrl+Enter; the "Saved" mark flashes
+   next to the caption for ~1.2s after a successful write. */
+.mj-notes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:720px){.mj-notes{grid-template-columns:1fr}}
+.mj-note{display:flex;flex-direction:column;gap:5px;min-width:0}
+.mj-note-head{display:flex;align-items:center;gap:8px;min-height:14px}
+.mj-note-k{font-family:var(--fm);font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--label-bright)}
+.mj-note-prior .mj-note-k{color:var(--gold)}
+.mj-note-observed .mj-note-k{color:var(--win)}
+.mj-note-in{width:100%;resize:vertical;min-height:60px;font-family:var(--fb);font-size:13px;line-height:1.5;color:var(--t2);
+  background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:9px;padding:9px 11px;cursor:text;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
+.mj-note-in::placeholder{color:var(--t4)}
+.mj-note-in:focus{outline:none;border-color:rgba(157,139,255,0.6);background:rgba(157,139,255,0.05);box-shadow:0 0 0 3px rgba(157,139,255,0.12)}
+@keyframes mj-saved-in{from{opacity:0;transform:translateX(-3px)}to{opacity:1;transform:translateX(0)}}
+.mj-saved{font-family:var(--fm);font-size:8.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;color:var(--win);
+  animation:mj-saved-in .18s ease-out}
+.mj-saved[hidden]{display:none}
+/* Inline save failure — loss-tinted line under the notes; the text stays put. */
+.mj-card-err{font-family:var(--fb);font-size:12px;color:var(--loss);line-height:1.45;margin-top:8px}
+.mj-card-err[hidden]{display:none}
+
+/* EMPTY STATE — calm, centered (no cards at all). */
+.mj-empty{text-align:center;padding:40px 20px 8px;color:var(--t3)}
+.mj-empty-h{font-family:var(--fo);font-size:18px;font-weight:600;color:var(--t2)}
+.mj-empty-p{font-size:13px;color:var(--t4);margin-top:8px;max-width:460px;margin-left:auto;margin-right:auto;line-height:1.5}
+.mj-empty-p b{font-family:var(--fm);font-size:11px;letter-spacing:1px;font-weight:700;color:var(--t2)}
+
+@media (prefers-reduced-motion: reduce){
+  .mj-card,.mj-act,.mj-btn-last,.mj-note-in{transition:none}
+  .mj-saved{animation:none}
+}

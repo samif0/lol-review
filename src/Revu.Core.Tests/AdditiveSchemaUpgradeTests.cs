@@ -125,6 +125,46 @@ public sealed class AdditiveSchemaUpgradeTests
         }
     }
 
+    /// <summary>
+    /// v15 (matchup journal): a DB last migrated at v14 must gain the matchups
+    /// table (and its lane index), record version 15, and accept a card.
+    /// </summary>
+    [Fact]
+    public async Task ApplyAdditiveSchemaAsync_BringsV14DatabaseToV15()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        using (var conn = scope.OpenConnection())
+        {
+            await Exec(conn, "DROP TABLE IF EXISTS matchups");
+            await Exec(conn,
+                "INSERT INTO schema_metadata (key, value, updated_at) VALUES ('app_schema_version','14',0) "
+                + "ON CONFLICT(key) DO UPDATE SET value='14'");
+        }
+        Assert.False(await TableExists(scope, "matchups"));
+
+        await scope.Initializer.ApplyAdditiveSchemaAsync();
+
+        Assert.True(await TableExists(scope, "matchups"));
+        using (var conn = scope.OpenConnection())
+        {
+            using var versionCmd = conn.CreateCommand();
+            versionCmd.CommandText = "SELECT value FROM schema_metadata WHERE key='app_schema_version'";
+            Assert.Equal(Schema.CurrentAppSchemaVersion.ToString(), (string?)await versionCmd.ExecuteScalarAsync());
+
+            using var indexCmd = conn.CreateCommand();
+            indexCmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_matchups_lane_created'";
+            Assert.NotNull(await indexCmd.ExecuteScalarAsync());
+        }
+
+        // The round-trip the write endpoint performs now works.
+        var id = await scope.Matchups.CreateAsync("top", ["Aatrox"], ["Sett"], prior: "Respect level 2.");
+        var card = await scope.Matchups.GetAsync(id);
+        Assert.NotNull(card);
+        Assert.Equal("Respect level 2.", card!.Prior);
+    }
+
     [Fact]
     public async Task ApplyAdditiveSchemaAsync_IsIdempotent_PreservesExistingData()
     {

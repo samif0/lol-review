@@ -68,6 +68,8 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IHardStopsRepository, HardStopsRepository>();
         services.AddSingleton<ITiltCheckRepository, TiltCheckRepository>();
         services.AddSingleton<IMatchupNotesRepository, MatchupNotesRepository>();
+        // v3.9: matchup journal cards (POST /api/matchup/*).
+        services.AddSingleton<IMatchupsRepository, MatchupsRepository>();
         services.AddSingleton<IConceptTagRepository, ConceptTagRepository>();
         services.AddSingleton<IReviewDraftRepository, ReviewDraftRepository>();
         services.AddSingleton<IEvidenceRepository, EvidenceRepository>();
@@ -161,6 +163,10 @@ public sealed class WriteServices : IDisposable
     // schema-tolerant RulesRepository write methods verbatim. Delete is a hard
     // DELETE FROM rules — the frontend confirms before calling.
     public IRulesRepository Rules => _provider.GetRequiredService<IRulesRepository>();
+    // v3.9: matchup journal cards (POST /api/matchup/create, /from-last-game,
+    // /update, /notes, /delete). Validation lives in the repository; the routes
+    // turn its ArgumentException into the 400 the page shows inline.
+    public IMatchupsRepository Matchups => _provider.GetRequiredService<IMatchupsRepository>();
 
     // ── Review-page write slices (Batch 2) ───────────────────────────────────
     // Shared evidence triage (Review + VOD both POST these): polarity, objective

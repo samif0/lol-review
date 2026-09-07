@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revu: Matchups</title>
+<script src="./nav-prepaint.js"></script>
+<script src="./framed.js"></script>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="grain"></div>
+  <script type="module" src="./shell.js" data-page="matchups"></script>
+
+  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
+  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
+  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
+  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
+  <nav class="nav nav-ready">
+    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
+    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
+    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
+    <a class="nav-i active" data-nav="matchups" href="matchups.html" aria-label="Matchups"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 5h4M5 5v4M19 5h-4M19 5v4M5 19h4M5 19v-4M19 19h-4M19 19v-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Matchups</span></a>
+    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
+    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    <div class="nav-spacer"></div>
+    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
+    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  </nav>
+  <div class="shell">
+    <!-- HERO — eyebrow / title / subtitle + the two card actions ("+ New card"
+         opens the blank form; "New card from last game" asks the sidecar to
+         build one from the most recent recorded game). The mono line under the
+         buttons names that last game when the sidecar could resolve it. -->
+    <div class="mj-hero">
+      <div class="hero">
+        <div class="eyebrow">Matchup journal</div>
+        <h1>Matchups</h1>
+        <div class="mj-subt" id="mj-subt">PRIOR BEFORE YOU QUEUE · OBSERVED AFTER</div>
+      </div>
+      <div class="mj-actions">
+        <div class="mj-actions-row">
+          <button class="mj-btn-last" id="from-last" data-action="from_last_game" type="button" disabled>NEW CARD FROM LAST GAME</button>
+          <button class="cta mj-new-btn" id="new-card" data-action="new_card" type="button">+ NEW CARD</button>
+        </div>
+        <div class="mj-lastgame" id="mj-lastgame" hidden>
+          <span class="mj-lastgame-k">LAST GAME</span>
+          <b id="mj-lastgame-title"></b>
+          <span class="mj-lastgame-g" id="mj-lastgame-game"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+
+    <!-- CREATE / EDIT FORM — hidden until "+ New card" or "Edit" opens it. A
+         single form serves both: create_matchup (no id) and update_matchup (id
+         set). The Lane select drives how many champion inputs show per side
+         (1 for top/mid, 2 for jungle/bot/support) and their captions — see
+         matchups.js LANES. Hidden inputs are ignored on submit. -->
+    <form class="glass card obj-form mj-form" id="mj-form" hidden novalidate>
+      <div class="obj-form-head">
+        <span class="obj-form-title" id="form-title">New Card</span>
+        <button class="obj-form-x" id="form-cancel" data-action="cancel_form" type="button" aria-label="Cancel">✕</button>
+      </div>
+      <div class="obj-form-grid">
+        <label class="obj-field mj-form-lane">
+          <span class="obj-field-k">Lane</span>
+          <select class="obj-input obj-select" id="f-lane">
+            <option value="top">Top</option>
+            <option value="jungle">Jungle</option>
+            <option value="mid">Mid</option>
+            <option value="bot">Bot</option>
+            <option value="support">Support</option>
+          </select>
+        </label>
+        <!-- Champions — your side (left) vs the enemy side (right). Slot 2 on
+             each side is only revealed for the two-champion lanes. -->
+        <div class="obj-field-row2">
+          <div class="mj-side">
+            <label class="obj-field">
+              <span class="obj-field-k"><span id="f-ally1-k">Your champion</span> <i>*</i></span>
+              <input class="obj-input" id="f-ally1" type="text" placeholder="e.g., Aatrox" maxlength="40" autocomplete="off">
+            </label>
+            <label class="obj-field" id="f-ally2-wrap" hidden>
+              <span class="obj-field-k"><span id="f-ally2-k">Your support</span> <i>*</i></span>
+              <input class="obj-input" id="f-ally2" type="text" placeholder="e.g., Nautilus" maxlength="40" autocomplete="off">
+            </label>
+          </div>
+          <div class="mj-side">
+            <label class="obj-field">
+              <span class="obj-field-k"><span id="f-enemy1-k">Enemy champion</span> <i>*</i></span>
+              <input class="obj-input" id="f-enemy1" type="text" placeholder="e.g., Fiora" maxlength="40" autocomplete="off">
+            </label>
+            <label class="obj-field" id="f-enemy2-wrap" hidden>
+              <span class="obj-field-k"><span id="f-enemy2-k">Enemy support</span> <i>*</i></span>
+              <input class="obj-input" id="f-enemy2" type="text" placeholder="e.g., Renata Glasc" maxlength="40" autocomplete="off">
+            </label>
+          </div>
+        </div>
+        <label class="obj-field">
+          <span class="obj-field-k mj-k-prior">Prior</span>
+          <textarea class="obj-input obj-textarea" id="f-prior" placeholder="Before you queue: how do you expect this matchup to go, and what's the plan?" maxlength="4000" rows="3"></textarea>
+        </label>
+        <label class="obj-field">
+          <span class="obj-field-k mj-k-observed">Observed</span>
+          <textarea class="obj-input obj-textarea" id="f-observed" placeholder="After the game: what actually happened? Where did the prior hold, where did it break?" maxlength="4000" rows="3"></textarea>
+        </label>
+        <!-- Read-only: the game this card is linked to (edit mode, hasGame only). -->
+        <div class="obj-field" id="f-game-wrap" hidden>
+          <span class="obj-field-k">Linked game</span>
+          <div class="mj-form-game" id="f-game"></div>
+        </div>
+        <div class="obj-form-err" id="form-err" hidden></div>
+        <div class="obj-form-act">
+          <button class="obj-ghost" data-action="cancel_form" type="button">Cancel</button>
+          <button class="cta obj-form-submit" id="form-submit" data-action="submit_form" type="button">Create</button>
+        </div>
+      </div>
+    </form>
+
+    <!-- EXPORT ROW — lane filter + "last N" + COPY AS MARKDOWN (clipboard). The
+         status message reports the copied count or the failure. Hidden while
+         the journal is empty. -->
+    <div class="glass card mj-export" id="mj-export" hidden>
+      <div class="mj-export-lead">
+        <div class="mj-export-k">Export</div>
+        <div class="mj-export-p">Copy your cards as Markdown to paste into your notes.</div>
+      </div>
+      <label class="obj-field mj-export-field">
+        <span class="obj-field-k">Lane</span>
+        <select class="obj-input obj-select" id="x-lane">
+          <option value="">All lanes</option>
+          <option value="top">Top</option>
+          <option value="jungle">Jungle</option>
+          <option value="mid">Mid</option>
+          <option value="bot">Bot</option>
+          <option value="support">Support</option>
+        </select>
+      </label>
+      <label class="obj-field mj-export-field mj-export-last">
+        <span class="obj-field-k">Last N cards</span>
+        <input class="obj-input" id="x-last" type="number" min="1" step="1" placeholder="All" inputmode="numeric">
+      </label>
+      <button class="cta cta-sm mj-export-btn" id="x-copy" data-action="copy_markdown" type="button">COPY AS MARKDOWN</button>
+      <span class="mj-export-msg" id="x-msg" hidden></span>
+    </div>
+
+    <!-- LANE → GROUP → CARD stack. Built from the templates below: one .seclabel
+         per lane, one glass group card per matchup, the cards newest first. -->
+    <div id="mj-lanes"></div>
+
+    <!-- EMPTY STATE — no cards at all. -->
+    <div class="mj-empty" id="mj-empty" hidden>
+      <div class="mj-empty-h" id="mj-empty-h">No matchup cards yet.</div>
+      <div class="mj-empty-p" id="mj-empty-p">Use <b>+ NEW CARD</b> to write a prior before you queue, or <b>NEW CARD FROM LAST GAME</b> to start from the game you just played.</div>
+    </div>
+
+    <!-- ERROR PANEL -->
+    <div class="card errpanel" id="errpanel" hidden>
+      <div class="crow">
+        <div>
+          <div class="vline" id="err-line">Couldn't load your matchups.</div>
+          <div class="vsmall" id="err-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPEATING-CELL TEMPLATE: one lane section (label + its groups) ── -->
+  <template id="tpl-lane">
+    <div class="mj-lane" data-lane="">
+      <div class="seclabel"><span class="mj-lane-name"></span> <span class="n mj-lane-n"></span></div>
+      <div class="mj-lane-groups"></div>
+    </div>
+  </template>
+
+  <!-- ── one matchup group (glass card): title + count, then its cards ── -->
+  <template id="tpl-group">
+    <div class="glass card mj-group" data-group-key="">
+      <div class="mj-group-head">
+        <span class="mj-group-title"></span>
+        <span class="mj-group-n"></span>
+      </div>
+      <div class="mj-group-cards"></div>
+    </div>
+  </template>
+
+  <!-- ── one matchup card: date + game label + Edit/Delete, then the two
+          inline-editable notes (autosave on blur / Ctrl+Enter) ── -->
+  <template id="tpl-card">
+    <div class="mj-card" data-card-id="">
+      <div class="mj-card-top">
+        <span class="mj-card-date"></span>
+        <span class="mj-card-game" hidden></span>
+        <div class="mj-card-acts">
+          <button class="mj-act" data-action="edit_card" type="button">Edit</button>
+          <button class="mj-act mj-act-del" data-action="delete_card" type="button">Delete</button>
+        </div>
+      </div>
+      <div class="mj-notes">
+        <label class="mj-note mj-note-prior">
+          <span class="mj-note-head"><span class="mj-note-k">Prior</span><span class="mj-saved" hidden>Saved</span></span>
+          <textarea class="mj-note-in" data-field="prior" rows="2" maxlength="4000" placeholder="What did you expect going in?"></textarea>
+        </label>
+        <label class="mj-note mj-note-observed">
+          <span class="mj-note-head"><span class="mj-note-k">Observed</span><span class="mj-saved" hidden>Saved</span></span>
+          <textarea class="mj-note-in" data-field="observed" rows="2" maxlength="4000" placeholder="What actually happened?"></textarea>
+        </label>
+      </div>
+      <div class="mj-card-err" hidden></div>
+    </div>
+  </template>
+
+  <script type="module" src="./matchups.js"></script>
+</body>
+</html>
