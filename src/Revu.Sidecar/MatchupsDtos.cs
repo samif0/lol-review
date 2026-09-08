@@ -79,20 +79,32 @@ public sealed record MatchupCardDto(
 /// <summary>
 /// Read-side preview of "New card from last game": the lane + champions the
 /// write would pre-fill from the most recent game's participants, or the
-/// reason it can't (no games yet / lane or champions unresolvable). "Most
-/// recent" is the newest ranked / manual, non-hidden game — the scope every
-/// games list uses — never a casual game.
+/// reason it can't (no games yet / lane unresolvable). "Most recent" is the
+/// newest ranked / manual, non-hidden game — the scope every games list uses —
+/// never a casual game.
+///
+/// <para>v3.9.2: <c>available</c> means the lane and the player's OWN side are
+/// known. A game recovered from the client's match history can lack the
+/// opponents; then <c>enemyKnown</c> is false, <c>enemyChamps</c> is empty and
+/// <c>hint</c> says what the click will do (look them up from Riot when signed
+/// in, otherwise open the form for the player to add them).</para>
 /// </summary>
 public sealed record LastGamePrefillDto(
     bool Available,
-    // 0 when unavailable.
+    // 0 when there is no game at all.
     long GameId,
     string Lane,
     string LaneLabel,
     IReadOnlyList<string> AllyChamps,
     IReadOnlyList<string> EnemyChamps,
+    // False when the opponents weren't recorded for this game (see Hint).
+    bool EnemyKnown,
     string MatchupTitle,
+    // "Sep 8, 2026 · Win" — also set when unavailable but a game exists, so the
+    // reason line can name the game it is talking about.
     string GameLabel,
+    // Only when EnemyKnown is false: what clicking the button will do.
+    string Hint,
     // Set when a card already links to that game — the page opens it instead of
     // creating a second one.
     long? ExistingCardId,

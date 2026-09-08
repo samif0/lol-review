@@ -8,6 +8,19 @@ namespace Revu.Core.Services;
 
 public sealed record EnemyLanerBackfillResult(int Scanned, int Updated, int Skipped, int Failed);
 
+/// <summary>v3.9.2: outcome of a single-game lookup (<see cref="EnemyLanerBackfillService.BackfillGameAsync"/>).</summary>
+public enum EnemyLanerBackfillOutcome
+{
+    /// <summary>No Riot region / PUUID configured — nothing was attempted.</summary>
+    NotConfigured,
+    /// <summary>Match-V5 answered and the row gained an enemy laner and/or a participant map.</summary>
+    Updated,
+    /// <summary>Match-V5 answered but nothing usable was in it (no positions, self not found).</summary>
+    Skipped,
+    /// <summary>The lookup itself failed (proxy / network / unknown match).</summary>
+    Failed,
+}
+
 /// <summary>v2.16: live progress payload for the Settings backfill card.</summary>
 public sealed record EnemyLanerBackfillProgress(int Scanned, int Total, int Updated, int Skipped, int Failed);
 
@@ -88,33 +101,7 @@ public sealed class EnemyLanerBackfillService
                 continue;
             }
 
-            var enemy = ExtractEnemyLaner(match, puuid);
-            string mapJson = "";
-            try
-            {
-                mapJson = ExtractParticipantMap(match, puuid);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Backfill: participant map extraction failed for game {GameId}", gameId);
-            }
-
-            // v2.16: a game counts as "updated" if EITHER enemy_laner or the
-            // role→champion map got new data. Pre-v2.16 rows often have
-            // enemy_laner already and only need the map.
-            var wroteAnything = false;
-            if (!string.IsNullOrEmpty(enemy))
-            {
-                await _games.UpdateEnemyLanerAsync(gameId, enemy).ConfigureAwait(false);
-                wroteAnything = true;
-            }
-            if (!string.IsNullOrEmpty(mapJson))
-            {
-                await _games.UpdateParticipantMapAsync(gameId, mapJson).ConfigureAwait(false);
-                wroteAnything = true;
-            }
-
-            if (!wroteAnything)
+            if (!await ApplyMatchAsync(gameId, match, puuid).ConfigureAwait(false))
             {
                 skipped++;
                 _logger.LogDebug("Backfill: nothing resolved for game {GameId}", gameId);
@@ -123,9 +110,6 @@ public sealed class EnemyLanerBackfillService
             }
 
             updated++;
-            _logger.LogDebug("Backfill: game {GameId} → enemy='{Enemy}' map={MapLen}",
-                gameId, enemy, mapJson.Length);
-
             await Throttle(ct).ConfigureAwait(false);
         }
 
@@ -133,6 +117,78 @@ public sealed class EnemyLanerBackfillService
             "Backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed}",
             scanned, updated, skipped, failed);
         return new EnemyLanerBackfillResult(scanned, updated, skipped, failed);
+    }
+
+    /// <summary>
+    /// v3.9.2: resolve ONE game's lane opponent + participant map from Match-V5
+    /// right now. The matchup journal's "New card from last game" calls this
+    /// when the game's row lacks the enemy side (a game recovered from the
+    /// client's match history without positions), so the player gets a full
+    /// card instead of a form to finish by hand. Same lookup and writes as
+    /// <see cref="RunAsync"/>, minus the throttle (it is a single call).
+    /// </summary>
+    public async Task<EnemyLanerBackfillOutcome> BackfillGameAsync(long gameId, CancellationToken ct = default)
+    {
+        var region = _config.RiotRegion;
+        var puuid = _config.RiotPuuid;
+        if (string.IsNullOrWhiteSpace(region) || string.IsNullOrWhiteSpace(puuid))
+        {
+            _logger.LogDebug("Backfill: game {GameId} skipped — missing RiotRegion or RiotPuuid", gameId);
+            return EnemyLanerBackfillOutcome.NotConfigured;
+        }
+
+        var matchId = $"{region.ToUpperInvariant()}_{gameId}";
+        var doc = await _matchClient.GetMatchAsync(matchId, region, ct).ConfigureAwait(false);
+        if (doc is not JsonElement match)
+        {
+            _logger.LogDebug("Backfill: Match-V5 lookup failed for game {GameId}", gameId);
+            return EnemyLanerBackfillOutcome.Failed;
+        }
+
+        return await ApplyMatchAsync(gameId, match, puuid).ConfigureAwait(false)
+            ? EnemyLanerBackfillOutcome.Updated
+            : EnemyLanerBackfillOutcome.Skipped;
+    }
+
+    /// <summary>
+    /// Extract the lane opponent + role→champion map from a Match-V5 document
+    /// and write whatever resolved onto the game row. True when either column
+    /// gained data. Shared by the full sweep and the single-game lookup.
+    /// </summary>
+    private async Task<bool> ApplyMatchAsync(long gameId, JsonElement match, string puuid)
+    {
+        var enemy = ExtractEnemyLaner(match, puuid);
+        string mapJson = "";
+        try
+        {
+            mapJson = ExtractParticipantMap(match, puuid);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Backfill: participant map extraction failed for game {GameId}", gameId);
+        }
+
+        // v2.16: a game counts as "updated" if EITHER enemy_laner or the
+        // role→champion map got new data. Pre-v2.16 rows often have
+        // enemy_laner already and only need the map.
+        var wroteAnything = false;
+        if (!string.IsNullOrEmpty(enemy))
+        {
+            await _games.UpdateEnemyLanerAsync(gameId, enemy).ConfigureAwait(false);
+            wroteAnything = true;
+        }
+        if (!string.IsNullOrEmpty(mapJson))
+        {
+            await _games.UpdateParticipantMapAsync(gameId, mapJson).ConfigureAwait(false);
+            wroteAnything = true;
+        }
+
+        if (wroteAnything)
+        {
+            _logger.LogDebug("Backfill: game {GameId} → enemy='{Enemy}' map={MapLen}",
+                gameId, enemy, mapJson.Length);
+        }
+        return wroteAnything;
     }
 
     /// <summary>

@@ -6,12 +6,21 @@ using Revu.Core.Models;
 
 namespace Revu.Core.Services;
 
-/// <summary>Lane + champion lists a matchup card can be pre-filled with from a game.</summary>
+/// <summary>
+/// Lane + champion lists a matchup card can be pre-filled with from a game.
+/// <see cref="IsComplete"/> is false when the enemy side is unknown (a game
+/// recovered from the client's match history without positions): the lane and
+/// the player's own side still pre-fill the form, and the sidecar can try to
+/// look the opponents up from Match-V5 before falling back to the form.
+/// </summary>
 public sealed record MatchupPrefillResult(
     string Lane,
     IReadOnlyList<string> AllyChamps,
     IReadOnlyList<string> EnemyChamps)
 {
+    /// <summary>Both sides known — the card can be created outright.</summary>
+    public bool IsComplete => AllyChamps.Count > 0 && EnemyChamps.Count > 0;
+
     public string Title => MatchupLanes.Title(AllyChamps, EnemyChamps);
 }
 
@@ -26,19 +35,22 @@ public sealed record MatchupPrefillResult(
 /// <para>Convention is the journal's, not <see cref="MatchupDisplay"/>'s: top
 /// and mid are 1v1; jungle is jungler + mid; bot and support are adc +
 /// support. Degrades gracefully — the game's own <c>champion_name</c> /
-/// <c>enemy_laner</c> fill a side the map lacks, and a game with no position
-/// still resolves its lane from whichever own-side slot holds the played
-/// champion — so a card is offered whenever at least one champion is known on
-/// each side. Null when nothing usable is stored.</para>
+/// <c>enemy_laner</c> fill a side the map lacks; a game with no position
+/// resolves its lane from whichever own-side slot holds the played champion,
+/// then from the caller's <c>fallbackPosition</c> (the player's configured
+/// primary role); and an unknown enemy side yields a PARTIAL result rather
+/// than nothing. Null only when the lane can't be told at all.</para>
 /// </summary>
 public static class MatchupPrefill
 {
-    public static MatchupPrefillResult? FromGame(GameStats? game)
+    public static MatchupPrefillResult? FromGame(GameStats? game, string? fallbackPosition = null)
     {
         if (game is null) return null;
 
         var map = ParseMap(game.ParticipantMap);
-        var lane = MatchupLanes.FromPosition(game.Position) ?? InferLane(map, game.ChampionName);
+        var lane = MatchupLanes.FromPosition(game.Position)
+            ?? InferLane(map, game.ChampionName)
+            ?? MatchupLanes.FromPosition(fallbackPosition);
         if (lane is null) return null;
 
         var (ownSlots, enemySlots) = SlotKeys(lane);
@@ -47,7 +59,7 @@ public static class MatchupPrefill
         var fallbackIsSecondSlot = lane == MatchupLanes.Support;
         var ally = Side(map, ownSlots, game.ChampionName, fallbackIsSecondSlot);
         var enemy = Side(map, enemySlots, game.EnemyLaner, fallbackIsSecondSlot);
-        if (ally.Count == 0 || enemy.Count == 0) return null;
+        if (ally.Count == 0) return null;
 
         return new MatchupPrefillResult(lane, ally, enemy);
     }

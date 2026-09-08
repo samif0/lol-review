@@ -171,8 +171,10 @@
     "laneLabel": "Mid",
     "allyChamps": ["Ahri"],
     "enemyChamps": ["Syndra"],
+    "enemyKnown": true,
     "matchupTitle": "Ahri vs Syndra",
     "gameLabel": "Sep 7, 2026 · Win",
+    "hint": "",
     "existingCardId": null,
     "unavailableReason": ""
   }

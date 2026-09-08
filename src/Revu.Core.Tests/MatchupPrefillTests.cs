@@ -78,9 +78,62 @@ public sealed class MatchupPrefillTests
     }
 
     [Fact]
-    public void FromGame_NoMapAndNoEnemyLaner_IsUnavailable()
+    public void FromGame_NoMapAndNoEnemyLaner_IsPartial_LaneAndOwnSideOnly()
     {
-        Assert.Null(MatchupPrefill.FromGame(Game("MIDDLE", map: null, champion: "Ahri", enemyLaner: "")));
+        var result = MatchupPrefill.FromGame(Game("MIDDLE", map: null, champion: "Ahri", enemyLaner: ""));
+
+        Assert.NotNull(result);
+        Assert.False(result!.IsComplete);
+        Assert.Equal("mid", result.Lane);
+        Assert.Equal(new[] { "Ahri" }, result.AllyChamps);
+        Assert.Empty(result.EnemyChamps);
+        Assert.Equal("Ahri vs ?", result.Title);
+    }
+
+    /// <summary>The user's report: a bot-lane game recovered from the client's
+    /// match history by a pre-3.9.2 build — position BOTTOM, a map with only the
+    /// solo lanes, no enemy laner. Lane + own side pre-fill; the enemy side is
+    /// left for the Match-V5 lookup or the form.</summary>
+    [Fact]
+    public void FromGame_RecoveredBotGameWithoutBotKeys_IsPartial()
+    {
+        var map = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["ownTop"] = "Aatrox", ["ownJg"] = "Lee Sin", ["ownMid"] = "Ahri",
+            ["enemyTop"] = "Sett", ["enemyJg"] = "Graves", ["enemyMid"] = "Syndra",
+        });
+
+        var result = MatchupPrefill.FromGame(Game("BOTTOM", map, champion: "Miss Fortune", enemyLaner: ""));
+
+        Assert.NotNull(result);
+        Assert.False(result!.IsComplete);
+        Assert.Equal("bot", result.Lane);
+        Assert.Equal(new[] { "Miss Fortune" }, result.AllyChamps);
+        Assert.Empty(result.EnemyChamps);
+    }
+
+    [Theory]
+    [InlineData("adc", "bot")]
+    [InlineData("supp", "support")]
+    [InlineData("jg", "jungle")]
+    [InlineData("TOP", "top")]
+    public void FromGame_NoPositionAnywhere_UsesTheFallbackRole(string fallback, string lane)
+    {
+        var result = MatchupPrefill.FromGame(Game("", map: null, champion: "Kai'Sa", enemyLaner: "Tristana"), fallback);
+
+        Assert.NotNull(result);
+        Assert.Equal(lane, result!.Lane);
+        Assert.Equal(new[] { "Kai'Sa" }, result.AllyChamps);
+        Assert.Equal(new[] { "Tristana" }, result.EnemyChamps);
+        Assert.True(result.IsComplete);
+    }
+
+    [Fact]
+    public void FromGame_RowPositionBeatsTheFallbackRole()
+    {
+        var result = MatchupPrefill.FromGame(Game("MIDDLE", FullMap(), champion: "Ahri"), fallbackPosition: "adc");
+
+        Assert.Equal("mid", result!.Lane);
     }
 
     [Fact]
@@ -95,9 +148,11 @@ public sealed class MatchupPrefillTests
     }
 
     [Fact]
-    public void FromGame_NoPositionAndNoMap_IsUnavailable()
+    public void FromGame_NoLaneAnywhere_IsUnavailable()
     {
         Assert.Null(MatchupPrefill.FromGame(Game("", map: null, champion: "Ahri", enemyLaner: "Syndra")));
+        Assert.Null(MatchupPrefill.FromGame(Game("", map: null, champion: "Ahri", enemyLaner: "Syndra"), fallbackPosition: ""));
+        Assert.Null(MatchupPrefill.FromGame(Game("", map: null, champion: "Ahri", enemyLaner: "Syndra"), fallbackPosition: "fill"));
         Assert.Null(MatchupPrefill.FromGame(null));
     }
 

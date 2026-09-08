@@ -486,6 +486,14 @@ public static class StatsExtractor
                 role = timeline.Value.GetPropertyOrDefault("role", "");
             }
 
+            // v3.9.2: the match-history payload carries no per-player position,
+            // only the timeline lane — and BOTTOM covers both the ADC and the
+            // support. The timeline ROLE (DUO_CARRY / DUO_SUPPORT) tells them
+            // apart, so a recovered bot-lane game stores the same position the
+            // live EOG capture would (BOTTOM / UTILITY) instead of a bare
+            // "BOTTOM" for both players. Anything less definite keeps the lane.
+            var position = ResolvePositionFromLaneAndRole(lane, role) ?? lane;
+
             var gs = new GameStats
             {
                 GameId = gameId,
@@ -499,7 +507,7 @@ public static class StatsExtractor
                 ChampionName = GameConstants.CanonicalChampionName(championName),
                 ChampionId = p.GetPropertyIntOrDefault("championId", 0),
                 TeamId = teamId,
-                Position = lane,
+                Position = position,
                 Role = role,
                 Win = stats.GetPropertyBoolOrDefault("win", false),
                 Kills = kills,
@@ -585,11 +593,28 @@ public static class StatsExtractor
                         {
                             var partTimeline = part.GetPropertyObjectOrDefault("timeline");
                             var partLane = partTimeline?.GetPropertyOrDefault("lane", "") ?? "";
-                            roleKey = ResolveParticipantRoleKey(prefix, partLane);
+                            var partRole = partTimeline?.GetPropertyOrDefault("role", "") ?? "";
+                            // v3.9.2: lane + role. BOTTOM resolves to Bot / Supp only
+                            // when the role is definite (DUO_CARRY / DUO_SUPPORT); a
+                            // bare BOTTOM is still omitted rather than guessed.
+                            roleKey = ResolveRoleKeyFromLaneAndRole(prefix, partLane, partRole);
                         }
                         if (roleKey is not null) map[roleKey] = partChamp;
                     }
                     if (map.Count > 0) gs.ParticipantMap = JsonSerializer.Serialize(map);
+
+                    // v3.9.2: the lane opponent, the way the EOG path records it —
+                    // the champion in the enemy-side key of the player's OWN slot.
+                    // Only when the player's own slot is definite (so a support
+                    // whose role the timeline couldn't settle never gets the enemy
+                    // ADC). The Match-V5 backfill overwrites it later if it differs.
+                    var ownKey = ResolveRoleKeyFromLaneAndRole("own", lane, role);
+                    if (ownKey is not null
+                        && map.TryGetValue("enemy" + ownKey["own".Length..], out var laneOpponent)
+                        && !string.IsNullOrEmpty(laneOpponent))
+                    {
+                        gs.EnemyLaner = laneOpponent;
+                    }
                 }
             }
             catch
@@ -646,6 +671,39 @@ public static class StatsExtractor
             _ => null,
         };
         return roleSuffix is null ? null : $"{prefix}{roleSuffix}";
+    }
+
+    /// <summary>
+    /// v3.9.2: LCU-form position for a match-history participant on the BOTTOM
+    /// lane, using the timeline role to tell the ADC (BOTTOM) from the support
+    /// (UTILITY). Null when the lane isn't BOTTOM or the role isn't definite
+    /// (Riot also emits DUO / SOLO / NONE when its heuristic is unsure) — callers
+    /// keep the lane as-is rather than guess.
+    /// </summary>
+    internal static string? ResolvePositionFromLaneAndRole(string lane, string role)
+    {
+        if (!string.Equals(lane, "BOTTOM", StringComparison.OrdinalIgnoreCase)) return null;
+        return (role ?? "").ToUpperInvariant() switch
+        {
+            "DUO_CARRY" => "BOTTOM",
+            "DUO_SUPPORT" => "UTILITY",
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// v3.9.2: role key from a timeline lane + role. TOP / JUNGLE / MIDDLE resolve
+    /// on the lane alone (as <see cref="ResolveParticipantRoleKey"/> does); BOTTOM
+    /// needs a definite role — DUO_CARRY → Bot, DUO_SUPPORT → Supp — and is
+    /// otherwise omitted, so a recovered game never carries a confidently-wrong
+    /// bot/support pairing.
+    /// </summary>
+    internal static string? ResolveRoleKeyFromLaneAndRole(string prefix, string lane, string role)
+    {
+        var position = ResolvePositionFromLaneAndRole(lane, role);
+        return position is not null
+            ? ResolveRoleKeyFromAssignedPosition(prefix, position)
+            : ResolveParticipantRoleKey(prefix, lane);
     }
 
     /// <summary>
