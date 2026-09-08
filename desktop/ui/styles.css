@@ -3236,6 +3236,8 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .mj-lastgame-k{letter-spacing:1.5px;font-weight:700;color:var(--t4)}
 .mj-lastgame b{color:var(--t2);font-weight:500}
 .mj-lastgame-g{color:var(--gold)}
+/* Button off: the line carries the sidecar's reason instead of a matchup — dim, not gold. */
+.mj-lastgame-off .mj-lastgame-g{color:var(--t4)}
 
 /* EXPORT ROW — lane filter + last-N + COPY AS MARKDOWN, with the status line
    dropping onto its own row underneath. Children sit above the .card sheen. */

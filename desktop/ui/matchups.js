@@ -14,6 +14,10 @@
 //   • After every write we refetch get_matchups — EXCEPT the inline note saves,
 //     which update the in-memory copy and flash "Saved" (no re-render, so the
 //     textarea under the cursor is never rebuilt mid-edit).
+//   • The page also refetches on its own when the sidecar SAVES a game (the LCU
+//     'gameEnded' event over the same stream pregame.js uses) and when the window
+//     comes back into view — deferred while you are mid-edit — so "New card from
+//     last game" points at the game you just played without a manual reload.
 
 // ── invoke resolver ────────────────────────────────────────────────────────
 let _invoke = null;
@@ -31,6 +35,19 @@ async function getInvoke() {
   if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
     _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
     return _invoke;
+  }
+  return null;
+}
+
+// Tauri event listener (the Rust host re-emits the sidecar's SSE stream as
+// 'lcu-event'). Same resolver shape as pregame.js; null outside Tauri.
+async function getListen() {
+  try {
+    const mod = await import('@tauri-apps/api/event');
+    if (mod && typeof mod.listen === 'function') return mod.listen;
+  } catch (_) { /* fall through */ }
+  if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
+    return window.__TAURI__.event.listen.bind(window.__TAURI__.event);
   }
   return null;
 }
@@ -128,6 +145,15 @@ function renderLastGame(d) {
   if (available && (lg.matchupTitle || lg.gameLabel)) {
     $('mj-lastgame-title').textContent = lg.matchupTitle || '';
     $('mj-lastgame-game').textContent = lg.gameLabel || '';
+    line.classList.remove('mj-lastgame-off');
+    show(line, true);
+  } else if (!available) {
+    // Say WHY the button is off in the page itself — a disabled button's
+    // tooltip is easy to miss, and the reason ("No games recorded yet." /
+    // "Couldn't tell the lane or champions…") is what the player needs.
+    $('mj-lastgame-title').textContent = '';
+    $('mj-lastgame-game').textContent = (lg && lg.unavailableReason) || 'Not available yet.';
+    line.classList.add('mj-lastgame-off');
     show(line, true);
   } else {
     show(line, false);
@@ -741,9 +767,73 @@ window.addEventListener('pagehide', () => {
   if (el && el.classList && el.classList.contains('mj-note-in')) saveNote(el);
 });
 
-// ── boot ────────────────────────────────────────────────────────────────────
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', loadMatchups);
-} else {
+// ── live refresh: pick up the game you just played ──────────────────────────
+// Because the shell treats this page as active work, champ select never reloads
+// it — and so nothing reloads it when the game ENDS either: the page kept showing
+// its pre-game state (v3.9.0 bug — "New card from last game" stayed off after a
+// game). Listen to the LCU stream and refetch once the sidecar has SAVED the
+// game. A refetch rebuilds every card, so while you are mid-edit (form open, a
+// note focused, a save or submit in flight) it waits and re-checks each second
+// until you are idle. Returning to the window (the app minimizes during a game)
+// triggers the same idle-aware refresh.
+let _refreshWhenIdle = false;
+let _idleRefreshTimer = null;
+const IDLE_RECHECK_MS = 1000;
+
+function isEditing() {
+  const form = $('mj-form');
+  if (form && !form.hidden) return true;
+  const el = document.activeElement;
+  if (el && el.classList && el.classList.contains('mj-note-in')) return true;
+  return _pendingSaves.size > 0 || _submitting;
+}
+
+function requestRefresh() {
+  _refreshWhenIdle = true;
+  tryIdleRefresh();
+}
+
+function tryIdleRefresh() {
+  clearTimeout(_idleRefreshTimer);
+  _idleRefreshTimer = null;
+  if (!_refreshWhenIdle) return;
+  if (isEditing()) {
+    _idleRefreshTimer = setTimeout(tryIdleRefresh, IDLE_RECHECK_MS);
+    return;
+  }
+  _refreshWhenIdle = false;
   loadMatchups();
+}
+
+async function wireLiveChannel() {
+  const listen = await getListen();
+  const invoke = await getInvoke();
+  if (!listen || !invoke) return; // plain-browser preview: no live channel
+
+  await listen('lcu-event', (event) => {
+    const msg = event.payload || {};
+    // Only a SAVED game changes what this page shows (a skipped casual game or
+    // a remake leaves the journal's "last game" exactly where it was).
+    if (msg.type === 'gameEnded' && msg.payload && msg.payload.saved === true) requestRefresh();
+  });
+
+  // Ask the Rust host to open (or join) the SSE stream — idempotent; the shell
+  // normally already has it running.
+  try { await invoke('start_lcu_events'); }
+  catch (err) { console.error('[matchups] start_lcu_events failed:', err); }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') requestRefresh();
+});
+
+// ── boot ────────────────────────────────────────────────────────────────────
+function boot() {
+  loadMatchups();
+  wireLiveChannel();
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
 }
