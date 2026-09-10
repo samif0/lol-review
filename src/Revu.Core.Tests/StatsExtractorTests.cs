@@ -228,9 +228,11 @@ public sealed class StatsExtractorTests
     // ── v3.9.2: match-history bot lane — the timeline ROLE separates ADC from support ──
     // The LCU match-history payload has no per-player position, only timeline
     // lane + role. BOTTOM alone can't tell the ADC from the support, so the
-    // extractor used to drop both from the participant map and never set the
-    // enemy laner — a recovered bot-lane game had no opponents at all (the
-    // Matchups "new card from last game" button went dark for bot/support players).
+    // extractor used to drop both from the participant map — a recovered
+    // bot-lane game had no opponents at all (the Matchups "new card from last
+    // game" button went dark for bot/support players). EnemyLaner stays blank
+    // on this path on purpose: it is what keeps the row in the Match-V5
+    // backfill sweep so the heuristic map gets replaced by teamPosition data.
 
     private static JsonElement MatchHistoryPayload(int currentParticipantId, params (int Id, int Team, string Champ, string Lane, string Role)[] rows)
     {
@@ -264,7 +266,7 @@ public sealed class StatsExtractorTests
         Assert.NotNull(stats);
         Assert.Equal("Kai'Sa", stats!.ChampionName);
         Assert.Equal("BOTTOM", stats.Position);
-        Assert.Equal("Tristana", stats.EnemyLaner);
+        Assert.Equal("", stats.EnemyLaner); // left to the Match-V5 backfill (see above)
         var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap)!;
         Assert.Equal("Kai'Sa", map["ownBot"]);
         Assert.Equal("Nautilus", map["ownSupp"]);
@@ -291,8 +293,14 @@ public sealed class StatsExtractorTests
         Assert.Equal("Nautilus", stats!.ChampionName);
         // Same position the live EOG capture stores for a support.
         Assert.Equal("UTILITY", stats.Position);
-        Assert.Equal("Renata", stats.EnemyLaner);
-        Assert.Equal("support", MatchupPrefill.FromGame(stats)!.Lane);
+        Assert.Equal("", stats.EnemyLaner);
+        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap)!;
+        Assert.Equal("Nautilus", map["ownSupp"]);
+        Assert.Equal("Renata", map["enemySupp"]);
+        var prefill = MatchupPrefill.FromGame(stats)!;
+        Assert.Equal("support", prefill.Lane);
+        Assert.Equal(new[] { "Kai'Sa", "Nautilus" }, prefill.AllyChamps);
+        Assert.Equal(new[] { "Tristana", "Renata Glasc" }, prefill.EnemyChamps);
     }
 
     [Fact]
@@ -303,7 +311,7 @@ public sealed class StatsExtractorTests
 
         Assert.NotNull(stats);
         Assert.Equal("BOTTOM", stats!.Position); // the lane, unchanged
-        Assert.Equal("", stats.EnemyLaner);      // own slot indefinite → no opponent claimed
+        Assert.Equal("", stats.EnemyLaner);
         var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap)!;
         Assert.False(map.ContainsKey("ownBot"));
         Assert.False(map.ContainsKey("ownSupp"));
@@ -312,13 +320,16 @@ public sealed class StatsExtractorTests
     }
 
     [Fact]
-    public void ExtractFromMatchHistory_MidLane_RecordsTheLaneOpponent()
+    public void ExtractFromMatchHistory_MidLane_LeavesTheOpponentToTheBackfill_ButTheMapHasIt()
     {
         var stats = StatsExtractor.ExtractFromMatchHistory(MatchHistoryPayload(3, FullLobby()), NullLogger.Instance);
 
         Assert.NotNull(stats);
         Assert.Equal("MIDDLE", stats!.Position);
-        Assert.Equal("Syndra", stats.EnemyLaner);
+        Assert.Equal("", stats.EnemyLaner);
+        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap)!;
+        Assert.Equal("Syndra", map["enemyMid"]);
+        Assert.Equal(new[] { "Syndra" }, MatchupPrefill.FromGame(stats)!.EnemyChamps);
     }
 
     [Theory]

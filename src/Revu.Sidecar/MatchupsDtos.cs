@@ -87,7 +87,8 @@ public sealed record MatchupCardDto(
 /// known. A game recovered from the client's match history can lack the
 /// opponents; then <c>enemyKnown</c> is false, <c>enemyChamps</c> is empty and
 /// <c>hint</c> says what the click will do (look them up from Riot when signed
-/// in, otherwise open the form for the player to add them).</para>
+/// in, otherwise open the form for the player to add them). When a card already
+/// links to the game (<c>existingCardId</c>), the fields describe that card.</para>
 /// </summary>
 public sealed record LastGamePrefillDto(
     bool Available,
@@ -103,7 +104,9 @@ public sealed record LastGamePrefillDto(
     // "Sep 8, 2026 · Win" — also set when unavailable but a game exists, so the
     // reason line can name the game it is talking about.
     string GameLabel,
-    // Only when EnemyKnown is false: what clicking the button will do.
+    // Non-empty when the click opens the form instead of creating the card
+    // outright: what it will do (look the opponents up / have you add them /
+    // have you check a lane guessed from your primary role).
     string Hint,
     // Set when a card already links to that game — the page opens it instead of
     // creating a second one.

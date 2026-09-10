@@ -899,12 +899,13 @@ app.MapPost("/api/matchup/create", async (CreateMatchupBody body, WriteServices 
 // game, or its lane / champions can't be resolved (same sentences the read
 // snapshot shows on the disabled button).
 // v3.9.2: a game recovered from the client's match history can lack the
-// opponents (no per-player positions in that payload). When it does and the
-// player is signed in, the route first resolves the game from Match-V5 (the
-// same single-game lookup the Settings backfill does in bulk) and re-reads the
-// row; if the opponents are STILL unknown it answers 200 { partial: true } with
-// the lane, the player's side and the game link, and the page opens the form
-// for the player to add them instead of creating a half-empty card.
+// opponents (no per-player positions in that payload). MatchupFromLastGame
+// first resolves such a game from Match-V5 when the player is signed in (a
+// bounded single-game lookup) and re-reads the row; then, if both sides are
+// known and the lane came from the game itself, the card is created —
+// otherwise the route answers 200 { partial: true } with the lane, the
+// player's side BY SLOT and the game link, and the page opens the form for
+// the player to finish instead of creating a half-empty card.
 app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Program> log, CancellationToken ct) =>
 {
     var last = await MatchupsSnapshotBuilder.ResolveLastGameAsync(w.Games, w.Matchups, w.Config.PrimaryRole);
@@ -915,34 +916,11 @@ app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Progr
     if (last.Prefill is null)
         return Results.Json(new { ok = false, error = MatchupsSnapshotBuilder.NoPrefillReason }, jsonOptions, statusCode: 422);
 
-    var game = last.Game;
-    var prefill = last.Prefill;
     await w.BackupGuard.EnsureBackedUpAsync();
+    var (game, prefill) = await MatchupFromLastGame.HealAsync(
+        last.Game, last.Prefill, w.Config, w.EnemyLanerBackfill, w.Games, log, ct: ct);
 
-    if (!prefill.IsComplete && w.Config.RiotProxyEnabled)
-    {
-        try
-        {
-            var outcome = await w.EnemyLanerBackfill.BackfillGameAsync(game.GameId, ct);
-            log.LogInformation("Matchup pre-fill: Match-V5 lookup for game {GameId} → {Outcome}", game.GameId, outcome);
-            if (outcome == EnemyLanerBackfillOutcome.Updated)
-            {
-                var refreshed = await w.Games.GetAsync(game.GameId);
-                if (refreshed is not null)
-                {
-                    game = refreshed;
-                    prefill = MatchupPrefill.FromGame(refreshed, w.Config.PrimaryRole) ?? prefill;
-                }
-            }
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            log.LogDebug(ex, "Matchup pre-fill: Match-V5 lookup failed for game {GameId} (degrading to the form)", game.GameId);
-        }
-    }
-
-    if (!prefill.IsComplete)
+    if (!prefill.CanCreateOutright)
     {
         return Results.Json(new
         {
@@ -952,8 +930,10 @@ app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Progr
             gameId = game.GameId,
             gameLabel = MatchupsSnapshotBuilder.GameLabel(game),
             lane = prefill.Lane,
-            allyChamps = prefill.AllyChamps,
-            enemyChamps = prefill.EnemyChamps,
+            laneIsGuess = prefill.LaneIsGuess,
+            // By form slot ("" = unknown), so a lone support lands in the support field.
+            allyChamps = prefill.AllySlots,
+            enemyChamps = prefill.EnemySlots,
         }, jsonOptions);
     }
 

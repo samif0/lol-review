@@ -47,6 +47,8 @@ public sealed class MatchupsSnapshotBuilder
     public const string EnemyLookupHint = "Opponents weren't recorded for this game — Revu will look them up from Riot when you click.";
     /// <summary>Opponents missing and no Riot session: the click opens the form to add them.</summary>
     public const string EnemyManualHint = "Opponents weren't recorded for this game — you'll add them when the card opens.";
+    /// <summary>The game carries no lane; the pre-fill used the configured primary role, so the form opens for a check.</summary>
+    public const string LaneGuessHint = "Lane guessed from your primary role — check it when the card opens.";
 
     private readonly IMatchupsRepository _matchups;
     private readonly IGameHistoryQuery _games;
@@ -228,11 +230,43 @@ public sealed class MatchupsSnapshotBuilder
     {
         try
         {
+            // The read graph owns its own IConfigService instance; like
+            // ConfigSnapshotBuilder, force a disk re-read so a sign-in or an
+            // onboarding primary role saved via WriteServices.Config since the
+            // last read shapes the hint and the lane fallback below.
+            try { await _config.LoadAsync(); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Matchups: config re-read failed; using the cached copy"); }
+
             var last = await ResolveLastGameAsync(_games, _matchups, _config.PrimaryRole);
             if (last.Game is null) return Unavailable(NoGamesReason);
-            if (last.Prefill is null) return Unavailable(NoPrefillReason, last.Game.GameId, GameLabel(last.Game));
+            var gameLabel = GameLabel(last.Game);
+
+            // A card already links to the game: the button opens it, and the
+            // line describes THAT card (not a re-derived, possibly partial,
+            // pre-fill) — the same order the write route checks in.
+            if (last.Existing is { } card)
+            {
+                return new LastGamePrefillDto(
+                    Available: true,
+                    GameId: last.Game.GameId,
+                    Lane: card.Lane,
+                    LaneLabel: MatchupLanes.Label(card.Lane),
+                    AllyChamps: card.AllyChamps,
+                    EnemyChamps: card.EnemyChamps,
+                    EnemyKnown: true,
+                    MatchupTitle: MatchupLanes.Title(card.AllyChamps, card.EnemyChamps),
+                    GameLabel: gameLabel,
+                    Hint: "",
+                    ExistingCardId: card.Id,
+                    UnavailableReason: "");
+            }
+
+            if (last.Prefill is null) return Unavailable(NoPrefillReason, last.Game.GameId, gameLabel);
 
             var complete = last.Prefill.IsComplete;
+            var hint = !complete
+                ? (MatchupFromLastGame.CanLookUpMatches(_config) ? EnemyLookupHint : EnemyManualHint)
+                : last.Prefill.LaneIsGuess ? LaneGuessHint : "";
             return new LastGamePrefillDto(
                 Available: true,
                 GameId: last.Game.GameId,
@@ -242,9 +276,9 @@ public sealed class MatchupsSnapshotBuilder
                 EnemyChamps: last.Prefill.EnemyChamps,
                 EnemyKnown: complete,
                 MatchupTitle: last.Prefill.Title,
-                GameLabel: GameLabel(last.Game),
-                Hint: complete ? "" : (_config.RiotProxyEnabled ? EnemyLookupHint : EnemyManualHint),
-                ExistingCardId: last.Existing?.Id,
+                GameLabel: gameLabel,
+                Hint: hint,
+                ExistingCardId: null,
                 UnavailableReason: "");
         }
         catch (Exception ex)

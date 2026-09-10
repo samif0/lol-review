@@ -603,18 +603,14 @@ public static class StatsExtractor
                     }
                     if (map.Count > 0) gs.ParticipantMap = JsonSerializer.Serialize(map);
 
-                    // v3.9.2: the lane opponent, the way the EOG path records it —
-                    // the champion in the enemy-side key of the player's OWN slot.
-                    // Only when the player's own slot is definite (so a support
-                    // whose role the timeline couldn't settle never gets the enemy
-                    // ADC). The Match-V5 backfill overwrites it later if it differs.
-                    var ownKey = ResolveRoleKeyFromLaneAndRole("own", lane, role);
-                    if (ownKey is not null
-                        && map.TryGetValue("enemy" + ownKey["own".Length..], out var laneOpponent)
-                        && !string.IsNullOrEmpty(laneOpponent))
-                    {
-                        gs.EnemyLaner = laneOpponent;
-                    }
+                    // EnemyLaner stays blank on purpose. The map above comes from
+                    // Riot's lane/role heuristic; enemy_laner is written only by the
+                    // live EOG capture (selectedPosition) and the Match-V5 backfill
+                    // (teamPosition), and a BLANK enemy_laner is exactly what keeps
+                    // this row in the backfill sweep's scope
+                    // (GameRepository.GetGameIdsMissingEnemyLanerAsync) so the
+                    // authoritative data replaces the heuristic map later. The
+                    // matchup journal reads the opponents from the map directly.
                 }
             }
             catch
