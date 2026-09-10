@@ -266,6 +266,12 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                 // fog deaths) automatically, so the timeline markers appear without
                 // a manual Settings backfill. Fire-and-forget like the VOD link.
                 _ = Task.Run(() => TryMapStateWithRetryAsync(gameId));
+
+                // v3.10: heal the matchup (enemy laner + role→champion map) from
+                // Match-V5 when the LCU end-of-game payload left it blank, so the
+                // Review page and the Matchups journal show "you vs them" without
+                // the manual Settings backfill. Fire-and-forget like the others.
+                _ = Task.Run(() => TryMatchupWithRetryAsync(gameId));
             }
             else
             {
@@ -360,6 +366,65 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Post-game map-state attempt failed for game {GameId} (will retry/heal)", gameId);
+            }
+        }
+    }
+
+    // v3.10: run the enemy-laner / participant-map pass for the just-ended game.
+    // Same shape as the map-state pass: Match-V5 needs ~1–2 minutes after EOG, so
+    // attempts at +90s / +5min; the run is keyed on the rows still missing a
+    // matchup (newest first, so the fresh game is first in line) and a small
+    // maxGames keeps the deep drain on the Settings button. Publishes
+    // matchupUpdated when something landed so an open Review page or the
+    // Matchups journal can refresh its header instead of waiting for a reload.
+    private async Task TryMatchupWithRetryAsync(long gameId)
+    {
+        var delaysSeconds = new[] { 90, 300 };
+        foreach (var delay in delaysSeconds)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
+            try
+            {
+                if (!_write.Config.HasValidRiotSession)
+                {
+                    _logger.LogDebug("Post-game matchup pass skipped for game {GameId}: no Riot session", gameId);
+                    return;
+                }
+
+                var stillMissing = await _write.Games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
+                if (!stillMissing.Contains(gameId))
+                {
+                    return; // the LCU payload (or an earlier attempt) already filled it
+                }
+
+                var result = await _write.EnemyLanerBackfill.RunAsync(maxGames: 5).ConfigureAwait(false);
+                if (result.Updated > 0)
+                {
+                    // Older backlog rows may have healed even if the fresh one did not;
+                    // the Matchups journal refetches everything, so tell it either way.
+                    _eventHub.Publish("matchupUpdated", new { gameId, updated = result.Updated });
+                }
+
+                // Decide on THIS game, not on the pass: Updated counts any of the 5
+                // newest missing rows, so an older backlog row landing must not end
+                // the retry while the fresh match is still pending upstream.
+                var missingAfter = await _write.Games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
+                if (!missingAfter.Contains(gameId))
+                {
+                    _logger.LogInformation(
+                        "Post-game matchup pass done ({Updated} updated, {Failed} not yet available) after game {GameId}",
+                        result.Updated, result.Failed, gameId);
+                    return;
+                }
+                if (result.Failed == 0)
+                {
+                    return; // scanned, nothing resolvable upstream (manual game, unsupported queue)
+                }
+                // The fresh match isn't visible upstream yet — fall through to the longer delay.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Post-game matchup attempt failed for game {GameId} (will retry/heal)", gameId);
             }
         }
     }

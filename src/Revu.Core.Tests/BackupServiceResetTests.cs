@@ -298,6 +298,34 @@ public sealed class BackupServiceResetTests
         Assert.Empty(after);
     }
 
+    [Fact]
+    public async Task ResetAllDataAsync_WipesTheConfigBesideItsOwnDatabase_NeverTheProcessGlobalOne()
+    {
+        // 2026-09-05 / 2026-07-10: this method deleted AppDataPaths.ConfigPath —
+        // the developer's LIVE config.json — every time the Core suite ran with a
+        // temp database. The config that belongs to a database is the one beside it.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var scopedConfig = Path.Combine(Path.GetDirectoryName(scope.DatabasePath)!, "config.json");
+        await File.WriteAllTextAsync(scopedConfig, "{}");
+        await File.WriteAllTextAsync(scopedConfig + ".bak", "{}");
+        Directory.CreateDirectory(Path.GetDirectoryName(Revu.Core.Data.AppDataPaths.ConfigPath)!);
+        await File.WriteAllTextAsync(Revu.Core.Data.AppDataPaths.ConfigPath, "{\"sentinel\":true}");
+        try
+        {
+            var result = await CreateService(scope).ResetAllDataAsync();
+
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.False(File.Exists(scopedConfig), "the reset database's own config.json must be wiped");
+            Assert.False(File.Exists(scopedConfig + ".bak"), "the rolling backup must go too, or the next launch resurrects the old config");
+            Assert.True(File.Exists(Revu.Core.Data.AppDataPaths.ConfigPath), "a config.json that does not belong to the reset database must survive");
+        }
+        finally
+        {
+            try { File.Delete(Revu.Core.Data.AppDataPaths.ConfigPath); } catch { }
+        }
+    }
+
     // ─── Helpers ────────────────────────────────────────────────────
 
     private static BackupService CreateService(TestDatabaseScope scope)

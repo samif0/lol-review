@@ -133,6 +133,14 @@ public sealed class ReviewedEncountersTests
                     event_type TEXT, game_time_s INTEGER, details TEXT);
                 """;
             cmd.ExecuteNonQuery();
+            // v16: the encounter writer delegates to the corrections ledger, which needs
+            // game_events.event_key and the event_corrections table (open decision 7).
+            foreach (var statement in Schema.MigrateEventCorrections)
+            {
+                using var migrate = keeper.CreateCommand();
+                migrate.CommandText = statement;
+                migrate.ExecuteNonQuery();
+            }
         }
         public SqliteConnection CreateConnection()
         {

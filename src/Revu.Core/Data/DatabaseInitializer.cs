@@ -272,6 +272,16 @@ public sealed class DatabaseInitializer
             }
         }
 
+        // v16: the legacy reviewed-encounter rows become ledger rows exactly once per
+        // database, right after the ALTER and before the version is recorded, so both
+        // InitializeAsync and ApplyAdditiveSchemaAsync run it and a fresh DB is a no-op.
+        if (migrationSet.Version == Schema.EventCorrectionsSchemaVersion)
+        {
+            var imported = await EventCorrectionsLegacyImport.RunAsync(connection, cancellationToken);
+            if (imported > 0)
+                _logger.LogInformation("Imported {Count} legacy reviewed encounters into event_corrections", imported);
+        }
+
         _logger.LogInformation(
             "Applied schema migration set {MigrationName} version {Version}",
             migrationSet.Name,

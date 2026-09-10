@@ -58,6 +58,7 @@
       <div class="rv-vodbar">
         <button type="button" class="review rv-vodbtn" id="rv-vodbtn" data-action="review_vod">▶ Review VOD</button>
         <span class="rv-reviewed" id="rv-reviewed" hidden>Already reviewed</span>
+        <span class="rv-fixes" id="rv-fixes" hidden>Timeline fixes: <b id="rv-fixes-n">0</b></span>
       </div>
     </div>
 
@@ -284,6 +285,18 @@
         <span class="rv-death-time"></span>
         <span class="rv-death-cause" hidden></span>
         <button type="button" class="review rv-death-jump" data-action="view_moment" hidden>▶ Watch</button>
+        <!-- v3.11 timeline fixes: two quiet links that write a correction for this
+             DEATH (remove / retime) plus an inline m:ss field and an undo. -->
+        <span class="rv-death-fixes">
+          <button type="button" class="rv-death-fix" data-fix="remove">not a death</button>
+          <button type="button" class="rv-death-fix" data-fix="retime">wrong time</button>
+        </span>
+        <span class="rv-death-retime" hidden>
+          <input class="inp rv-death-retime-in" inputmode="numeric" autocomplete="off" aria-label="Corrected time, m:ss">
+          <button type="button" class="rv-death-fix" data-fix="retime_apply">apply</button>
+          <button type="button" class="rv-death-fix" data-fix="retime_cancel">cancel</button>
+        </span>
+        <button type="button" class="rv-death-fix rv-death-undo" data-fix="undo" hidden>undo</button>
       </div>
       <div class="rv-death-chips"></div>
     </div>

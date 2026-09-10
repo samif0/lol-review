@@ -258,5 +258,6 @@ public sealed class ReviewExportServiceTests
             scope.Vod,
             scope.MatchupNotes,
             scope.Evidence,
-            scope.SessionLog);
+            scope.SessionLog,
+            new TestConfigService());
 }

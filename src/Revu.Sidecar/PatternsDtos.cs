@@ -64,9 +64,10 @@ public sealed record PatternCardDto(
     // True once the user has marked this pattern reviewed (write deferred — read
     // state only). Mirrors PatternReviewViewModel.IsReviewed.
     bool IsReviewed,
+    // Moments in the playlist below (playable, capped at PatternMomentDisplayLimit).
     int MomentCount,
     int GameCount,
-    // "N moments across M games" / "No moments are still pending …".
+    // "N moments across M games" / "24 of 500 moments across 9 games" / "No moments …".
     string Subtitle,
     // Carry-forward note placeholder — display only; the write that sets it is
     // DEFERRED. Always "" for now so the field is stable in the contract.
@@ -74,7 +75,12 @@ public sealed record PatternCardDto(
     IReadOnlyList<PatternMomentDto> Moments,
     // Moments created after this pattern's last review — non-zero only on a
     // pattern that re-armed (PatternReviewGate hysteresis).
-    int NewMomentCount = 0);
+    int NewMomentCount = 0,
+    // Every moment the detector counted for this pattern, before the playable
+    // filter and the display cap. MomentCount <= TotalMomentCount.
+    int TotalMomentCount = 0,
+    // Counted moments with nothing left to watch (recording pruned, no clip kept).
+    int UnwatchableMomentCount = 0);
 
 /// <summary>
 /// One moment composing a pattern — an evidence item joined to its game's
@@ -113,4 +119,7 @@ public sealed record PatternMomentDto(
     string SourceKind,
     string VodPath,
     // True when this moment has a matched VOD on disk to play. Mirrors HasVod.
-    bool HasVod);
+    bool HasVod,
+    // The clip file this moment was promoted to, when it is still on disk ("" otherwise).
+    string ClipPath = "",
+    bool HasClip = false);

@@ -41,6 +41,9 @@ public sealed partial class GameRepository
             "session_log",
             "vod_files",
             "game_events",
+            // v3.11 (schema v16): the corrections ledger keys on game_id too; a
+            // deleted game must not leave dangling correction rows behind.
+            "event_corrections",
             "derived_event_instances",
             "game_objectives",
             "game_concept_tags",
@@ -204,7 +207,7 @@ public sealed partial class GameRepository
     // non-constant (or typo'd) table name throws instead of reaching SQLite.
     private static readonly HashSet<string> DeletableTables = new(StringComparer.Ordinal)
     {
-        "evidence_items", "session_log", "vod_files", "game_events",
+        "evidence_items", "session_log", "vod_files", "game_events", "event_corrections",
         "derived_event_instances", "game_objectives", "game_concept_tags",
         "prompt_answers", "matchup_notes", "tilt_checks", "review_drafts",
         "cleared_rule_breaks", "death_classifications", "game_summary",

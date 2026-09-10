@@ -42,6 +42,7 @@
       </div>
       <div class="mj-actions">
         <div class="mj-actions-row">
+          <button class="mj-btn-last" id="x-copy" data-action="copy_markdown" type="button" title="Copy every card as Markdown" hidden>COPY ALL</button>
           <button class="mj-btn-last" id="from-last" data-action="from_last_game" type="button" disabled>NEW CARD FROM LAST GAME</button>
           <button class="cta mj-new-btn" id="new-card" data-action="new_card" type="button">+ NEW CARD</button>
         </div>
@@ -121,32 +122,9 @@
       </div>
     </form>
 
-    <!-- EXPORT ROW — lane filter + "last N" + COPY AS MARKDOWN (clipboard). The
-         status message reports the copied count or the failure. Hidden while
-         the journal is empty. -->
-    <div class="glass card mj-export" id="mj-export" hidden>
-      <div class="mj-export-lead">
-        <div class="mj-export-k">Export</div>
-        <div class="mj-export-p">Copy your cards as Markdown to paste into your notes.</div>
-      </div>
-      <label class="obj-field mj-export-field">
-        <span class="obj-field-k">Lane</span>
-        <select class="obj-input obj-select" id="x-lane">
-          <option value="">All lanes</option>
-          <option value="top">Top</option>
-          <option value="jungle">Jungle</option>
-          <option value="mid">Mid</option>
-          <option value="bot">Bot</option>
-          <option value="support">Support</option>
-        </select>
-      </label>
-      <label class="obj-field mj-export-field mj-export-last">
-        <span class="obj-field-k">Last N cards</span>
-        <input class="obj-input" id="x-last" type="number" min="1" step="1" placeholder="All" inputmode="numeric">
-      </label>
-      <button class="cta cta-sm mj-export-btn" id="x-copy" data-action="copy_markdown" type="button">COPY AS MARKDOWN</button>
-      <span class="mj-export-msg" id="x-msg" hidden></span>
-    </div>
+    <!-- Copying: COPY ALL in the hero copies the whole journal as Markdown (GET
+         /api/matchups/export); each card's Copy button copies just that card in
+         the same shape. Both flash their result on the button itself. -->
 
     <!-- LANE → GROUP → CARD stack. Built from the templates below: one .seclabel
          per lane, one glass group card per matchup, the cards newest first. -->
@@ -196,6 +174,7 @@
         <span class="mj-card-date"></span>
         <span class="mj-card-game" hidden></span>
         <div class="mj-card-acts">
+          <button class="mj-act" data-action="copy_card" type="button" title="Copy this card as Markdown">Copy</button>
           <button class="mj-act" data-action="edit_card" type="button">Edit</button>
           <button class="mj-act mj-act-del" data-action="delete_card" type="button">Delete</button>
         </div>

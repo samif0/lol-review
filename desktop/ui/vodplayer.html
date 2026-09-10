@@ -163,35 +163,52 @@
               <div class="vp-mkstep-row">
                 <button class="vp-mkstep-btn" id="vp-mk-prev" type="button" aria-label="Previous marker">◀</button>
                 <button class="vp-mkstep-btn" id="vp-mk-next" type="button" aria-label="Next marker">▶</button>
+                <button class="vp-mkstep-btn" id="vp-mk-fix" type="button" data-action="fix_event" aria-label="Fix this marker" title="Fix this marker (E)">✎</button>
               </div>
               <span class="vp-mkstep-count" id="vp-mk-count">marker <b>0</b> / 0</span>
             </div>
            </div>
           </div>
 
-          <details class="mini" id="vp-encounter-editor">
-            <summary class="mtitle">Add or correct a combat moment</summary>
-            <p>Short and extended describe a trade's duration. All-in describes commitment to a kill attempt.</p>
-            <label for="vp-encounter-existing">Moment</label>
-            <select class="inp" id="vp-encounter-existing"><option value="">New moment</option></select>
-            <label for="vp-encounter-class">Classification</label>
-            <select class="inp" id="vp-encounter-class">
-              <option value="short">Short trade</option>
-              <option value="extended">Extended trade</option>
-              <option value="all_in">All-in</option>
-              <option value="uncertain">Uncertain combat</option>
-            </select>
-            <div class="row">
-              <label>Game start (m:ss)<input class="inp" id="vp-encounter-start" value="0:00" inputmode="numeric"></label>
-              <label>Game end (m:ss)<input class="inp" id="vp-encounter-end" value="0:00" inputmode="numeric"></label>
-              <button class="key" type="button" data-action="encounter_now">Use playback time</button>
+          <!-- Timeline corrections (v3.11 event corrections ledger). Select a marker on
+               the timeline, then the fast-path keys do the common fixes without the
+               form; the form covers retype / attributes / add. Driven by
+               vodcorrections.js; every write is one ledger row keyed on the event. -->
+          <div class="mini vp-fix" id="vp-fix">
+            <div class="mtitle">Add or correct a timeline event <span class="keycap">E</span></div>
+            <div class="vp-fix-keys">Click a marker to select it. <b>E</b> edit, <b>N</b> add at playhead, <b>Delete</b> remove, <b>[</b> and <b>]</b> nudge 1s (Shift 5s), <b>Z</b> undo.</div>
+            <div class="vp-fix-sel" id="vp-fix-sel">No event selected.</div>
+            <div class="vp-fix-form" id="vp-fix-form" hidden>
+              <div class="row">
+                <label>Action<select class="inp" id="vp-fix-op">
+                  <option value="retype">Change type</option>
+                  <option value="retime">Move in time</option>
+                  <option value="attr">Change attributes</option>
+                  <option value="confirm">Confirm as correct</option>
+                  <option value="remove">Remove (not real)</option>
+                  <option value="add">Add new event</option>
+                </select></label>
+                <label id="vp-fix-type-wrap">Event type<select class="inp" id="vp-fix-type"></select></label>
+              </div>
+              <div class="row" id="vp-fix-time-row">
+                <label>Time (m:ss)<input class="inp" id="vp-fix-start" value="0:00" inputmode="numeric" autocomplete="off"></label>
+                <label id="vp-fix-end-wrap" hidden>End (m:ss)<input class="inp" id="vp-fix-end" value="0:00" inputmode="numeric" autocomplete="off"></label>
+                <button class="key" type="button" data-action="fix_now">Use playback time</button>
+              </div>
+              <div class="vp-fix-attrs" id="vp-fix-attrs"></div>
+              <input class="inp" id="vp-fix-reason" maxlength="280" placeholder="Why? (optional, 280 characters)" autocomplete="off">
+              <div class="row">
+                <button class="addbtn" id="vp-fix-save" type="button" data-action="save_correction">Save correction</button>
+                <button class="key" type="button" data-action="fix_cancel">Cancel</button>
+              </div>
             </div>
-            <p>Use the in-game clock if the recording starts late. For a trade that becomes an all-in, save each segment separately.</p>
-            <label for="vp-encounter-note">Evidence / note</label>
-            <input class="inp" id="vp-encounter-note" maxlength="2000" placeholder="What happened?" autocomplete="off">
-            <button class="addbtn" id="vp-encounter-save" type="button" data-action="save_encounter">Save reviewed moment</button>
-            <div class="vp-bm-hint" id="vp-encounter-hint" role="status"></div>
-          </details>
+            <div class="vp-bm-hint" id="vp-fix-hint" role="status"></div>
+            <details class="vp-fix-list-wrap" id="vp-fix-list-wrap">
+              <summary class="vp-fix-list-title">Corrections in this game <span class="openbadge" id="vp-fix-count">0</span></summary>
+              <div class="vp-fix-list" id="vp-fix-list"></div>
+              <button class="key" type="button" id="vp-fix-export" data-action="export_corrections">Copy as JSON</button>
+            </details>
+          </div>
 
           <!-- quick bookmark (live write) + clip tools (clips deferred to Batch 3) -->
           <div class="duo">
@@ -298,6 +315,13 @@
         <div class="vsmall" id="err-detail"></div>
       </div></div>
     </div>
+
+    <!-- Undo toast for the one-shot correction keys (Delete / nudge). Auto-hides;
+         Undo (or Z) reverts the newest correction. -->
+    <div class="vp-toast" id="vp-toast" hidden role="status">
+      <span class="vp-toast-txt" id="vp-toast-txt"></span>
+      <button type="button" class="vp-toast-undo" id="vp-toast-undo" data-action="toast_undo">Undo</button>
+    </div>
   </div>
 
   <template id="tpl-bookmark">
@@ -344,6 +368,19 @@
         </select>
         <input class="inp vp-ev-note" type="text" placeholder="Add a note…" autocomplete="off">
       </div>
+    </div>
+  </template>
+
+  <!-- One row of the "Corrections in this game" list: time, what changed, the state
+       pill (applied / absorbed / orphaned), the reason when given, and Revert. The
+       row itself is a jump row (seeks to the corrected event). -->
+  <template id="tpl-fix-row">
+    <div class="vp-fix-row" data-action="jump" role="button" tabindex="0">
+      <span class="b time vp-fix-when"></span>
+      <span class="vp-fix-what"></span>
+      <span class="b vp-fix-state"></span>
+      <span class="vp-fix-reason" hidden></span>
+      <button type="button" class="key vp-fix-revert" data-action="revert_correction">Revert</button>
     </div>
   </template>
 

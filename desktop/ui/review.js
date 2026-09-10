@@ -65,7 +65,12 @@ async function postWrite(cmd, args) {
     return true;
   } catch (err) {
     console.error(`[review] ${cmd} failed:`, err);
-    showCommit((err && err.message) ? err.message : `${cmd} failed.`, 'err');
+    // A Tauri command that fails rejects with a plain STRING ("sidecar HTTP 400:
+    // <sentence>"), not an Error, so read both shapes and surface the sidecar's own
+    // sentence (the corrections routes answer with exact user-facing messages).
+    const raw = (err && err.message) ? err.message : (err == null ? '' : String(err));
+    const m = raw.match(/sidecar HTTP \d+(?:\s+[^:]+)?:\s*(.*)$/i);
+    showCommit((m ? m[1] : raw) || `${cmd} failed.`, 'err');
     return false;
   }
 }
@@ -181,7 +186,11 @@ function renderHeader(subject) {
 
   $('rv-gmode').textContent = h.gameMode || '';
   $('rv-gdur').textContent = h.duration || '';
-  $('rv-matchup').textContent = h.matchupHeading || '';
+  // The matchup line reads "you vs them". Without an opponent on record the
+  // builder degrades it to the bare champion name, which would just echo the
+  // title above it ("Qiyana" / "Qiyana") — show nothing until the matchup lands.
+  const matchup = h.matchupHeading || '';
+  $('rv-matchup').textContent = matchup === (h.championName || '') ? '' : matchup;
 
   // FULL LOBBY strip — one cell per lane (champions only, both teams) from the
   // participant map; hidden entirely when the game has no map yet.
@@ -215,6 +224,11 @@ function renderHeader(subject) {
 
   // "Already reviewed" marker replaces nothing — it's an inline note beside VOD.
   show($('rv-reviewed'), !!h.hasReview);
+  // v3.11: how many timeline corrections apply to this game (0 hides the note).
+  const fixes = Number(h.timelineFixes) || 0;
+  const fixesN = $('rv-fixes-n');
+  if (fixesN) fixesN.textContent = String(fixes);
+  show($('rv-fixes'), fixes > 0);
 
   // Statusline: the subject-source explanation (which game was chosen).
   const statusB = document.querySelector('#statusline b');
@@ -575,6 +589,11 @@ function renderDeaths(subject) {
     const timeS = Number(d.gameTimeSeconds);
     el.dataset.timeS = String(Number.isFinite(timeS) ? timeS : 0);
     el.querySelector('.rv-death-time').textContent = d.timeText || '';
+    // v3.11: the DEATH row's ledger identity, so the fix links can name it. An older
+    // snapshot carries neither, and then the links stay hidden.
+    el.dataset.eventKey = d.eventKey || '';
+    el.dataset.eventId = String(d.eventId || 0);
+    show(el.querySelector('.rv-death-fixes'), !!(d.eventKey || d.eventId));
 
     // "Watch" jumps to this game's VOD ~10s before the death so you can see it
     // before tagging the cause (P-006/P-010, brief 2026-06-17-15). Reuses the
@@ -640,6 +659,99 @@ async function onDeathChipClick(chip) {
   }
   // No re-render: the chip + cause label are already updated above. A loadReview()
   // would rebuild the form and discard unsaved debrief/tag text (same bug as focus).
+}
+
+// v3.11 timeline fixes on a death row: "not a death" removes the DEATH event,
+// "wrong time" retimes it (inline m:ss), "undo" reverts whichever landed. Each is
+// one correction row keyed on the event (save_event_correction / revert_event_
+// correction); the row updates in place and NOTHING re-renders (P-035), so unsaved
+// debrief text survives. postWrite surfaces failures through showCommit.
+const DEATH_CLOCK_RE = /^(\d{1,4}):([0-5]\d)$/;
+function deathClock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+// Correction ids this page wrote (added BEFORE the write: the sidecar publishes
+// eventsCorrected before it replies). The SSE listener refreshes the header count
+// for them but leaves the death rows alone, so the in-row undo survives its own
+// write instead of being rebuilt away with the fresh snapshot.
+const _ownFixIds = new Set();
+async function onDeathFixClick(btn) {
+  const row = btn.closest('.rv-death');
+  if (!row) return;
+  const gameId = Number(_subject && _subject.gameId);
+  const timeS = Number(row.dataset.timeS);
+  if (!(gameId > 0) || !Number.isFinite(timeS)) return;
+  const fix = String(btn.dataset.fix || '');
+  const retimeBox = row.querySelector('.rv-death-retime');
+  const retimeIn = row.querySelector('.rv-death-retime-in');
+  const fixes = row.querySelector('.rv-death-fixes');
+  const undo = row.querySelector('.rv-death-undo');
+  const chips = row.querySelector('.rv-death-chips');
+  const timeEl = row.querySelector('.rv-death-time');
+  const jump = row.querySelector('.rv-death-jump');
+  const subject = () => ({
+    eventKey: row.dataset.eventKey || null,
+    eventId: Number(row.dataset.eventId) || null,
+    type: 'DEATH',
+    timeS: Number(row.dataset.timeS),
+  });
+
+  if (fix === 'remove') {
+    const correctionId = crypto.randomUUID();
+    _ownFixIds.add(correctionId);
+    const ok = await postWrite('save_event_correction', { gameId, correctionId, op: 'remove', subject: subject(), patch: null, reason: 'Not a death' });
+    if (!ok) { _ownFixIds.delete(correctionId); return; }
+    row.dataset.correctionId = correctionId;
+    row.dataset.fixKind = 'remove';
+    row.classList.add('is-removed');
+    show(chips, false);
+    show(fixes, false);
+    show(retimeBox, false);
+    show(undo, true);
+    return;
+  }
+  if (fix === 'retime') {
+    if (retimeIn) retimeIn.value = deathClock(timeS);
+    show(retimeBox, true);
+    if (retimeIn) retimeIn.focus();
+    return;
+  }
+  if (fix === 'retime_cancel') { show(retimeBox, false); return; }
+  if (fix === 'retime_apply') {
+    const m = DEATH_CLOCK_RE.exec(String(retimeIn ? retimeIn.value : '').trim());
+    if (!m) { showCommit('Enter a time as m:ss.', 'err'); return; }
+    const newS = Number(m[1]) * 60 + Number(m[2]);
+    const correctionId = crypto.randomUUID();
+    _ownFixIds.add(correctionId);
+    const ok = await postWrite('save_event_correction', { gameId, correctionId, op: 'retime', subject: subject(), patch: { gameTimeS: newS }, reason: 'Wrong time' });
+    if (!ok) { _ownFixIds.delete(correctionId); return; }
+    row.dataset.correctionId = correctionId;
+    row.dataset.fixKind = 'retime';
+    row.dataset.prevTimeS = row.dataset.timeS;
+    row.dataset.prevTimeText = timeEl ? timeEl.textContent : '';
+    row.dataset.timeS = String(newS);
+    if (timeEl) timeEl.textContent = deathClock(newS);
+    if (jump) jump.dataset.seek = String(Math.max(0, newS - 10));
+    show(retimeBox, false);
+    show(undo, true);
+    return;
+  }
+  if (fix === 'undo') {
+    const correctionId = String(row.dataset.correctionId || '');
+    if (!correctionId) return;
+    _ownFixIds.add(correctionId); // the revert publishes the same correctionId; the row restores itself below
+    const ok = await postWrite('revert_event_correction', { gameId, correctionId });
+    if (!ok) { _ownFixIds.delete(correctionId); return; }
+    if (row.dataset.fixKind === 'retime' && row.dataset.prevTimeS != null) {
+      row.dataset.timeS = row.dataset.prevTimeS;
+      if (timeEl) timeEl.textContent = row.dataset.prevTimeText || deathClock(Number(row.dataset.prevTimeS));
+      if (jump) jump.dataset.seek = String(Math.max(0, Number(row.dataset.prevTimeS) - 10));
+    }
+    delete row.dataset.correctionId;
+    delete row.dataset.fixKind;
+    row.classList.remove('is-removed');
+    show(chips, true);
+    show(fixes, true);
+    show(undo, false);
+  }
 }
 
 // ── render: evidence triage (immediate writes) ──────────────────────────────
@@ -1050,6 +1162,46 @@ async function loadReview() {
   }
 }
 
+// v3.10: the post-game matchup pass filled this game's enemy laner / lobby map
+// (~90s after EOG, from Match-V5). Re-render ONLY the hero header from a fresh
+// snapshot — never the form, which may hold unsaved text (P-035).
+window.addEventListener('revu:matchup-updated', async (ev) => {
+  const gid = Number(ev && ev.detail && ev.detail.gameId);
+  const shown = Number(_subject && _subject.gameId) || 0;
+  if (!shown || (gid > 0 && gid !== shown)) return;
+  try {
+    const data = await fetchReview();
+    if (data && data.subject) renderHeader(data.subject);
+  } catch (err) {
+    console.error('[review] header refresh after matchup update failed:', err);
+  }
+});
+
+// v3.11: a timeline correction landed (this page's death links, the VOD panel, or
+// another window). Re-render ONLY the header count and the death rows from a fresh
+// snapshot; never the form (P-035). Skipped while an inline "wrong time" field is
+// open so the user's typing is not rebuilt away. A correction THIS page wrote has
+// already updated its row in place (with its undo button), so only the header count
+// refreshes for it; a rebuild would drop the row (remove) or its undo (retime).
+window.addEventListener('revu:events-corrected', async (ev) => {
+  const gid = Number(ev && ev.detail && ev.detail.gameId);
+  const shown = Number(_subject && _subject.gameId) || 0;
+  if (!shown || (gid > 0 && gid !== shown)) return;
+  const cid = String((ev && ev.detail && ev.detail.correctionId) || '');
+  const own = !!cid && _ownFixIds.has(cid);
+  if (own) _ownFixIds.delete(cid); // a later external correction on the same id still refreshes
+  if (!own && document.querySelector('#rv-deaths .rv-death-retime:not([hidden])')) return;
+  try {
+    const data = await fetchReview();
+    if (data && data.subject) {
+      renderHeader(data.subject);
+      if (!own) renderDeaths(data.subject);
+    }
+  } catch (err) {
+    console.error('[review] refresh after events corrected failed:', err);
+  }
+});
+
 // ── live form interactions: mental slider + tag input ───────────────────────
 // Mental slider mirrors its value into the readout as it moves (and counts as
 // a real answer from the first move). Any edit to a debrief textarea, objective
@@ -1128,6 +1280,9 @@ document.addEventListener('blur', (ev) => {
 //   • a concept-tag catalog chip (.rv-tagcat-chip) → toggle selection (local)
 // These coexist with the [data-action] handler below (save/skip/vod).
 document.addEventListener('click', (ev) => {
+  const fixBtn = ev.target.closest('.rv-death-fix');
+  if (fixBtn && fixBtn.closest('#rv-deaths')) { ev.preventDefault(); onDeathFixClick(fixBtn); return; }
+
   const chip = ev.target.closest('.rv-dchip');
   if (chip && chip.closest('#rv-deaths')) { ev.preventDefault(); onDeathChipClick(chip); return; }
 

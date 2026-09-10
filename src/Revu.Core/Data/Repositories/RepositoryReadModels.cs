@@ -335,4 +335,7 @@ public sealed record PatternMoment(
     string VodPath,
     // evidence_items.created_at (unix seconds, 0 when unset) — compared against
     // pattern_reviews.reviewed_at by PatternReviewGate for the re-arm rule.
-    long CreatedAt = 0);
+    long CreatedAt = 0,
+    // vod_bookmarks.clip_path of the clip this moment was promoted to (source_kind
+    // 'clip' → source_id is the bookmark). "" for auto anchors and clip-less rows.
+    string ClipPath = "");

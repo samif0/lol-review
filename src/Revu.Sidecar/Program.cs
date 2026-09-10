@@ -119,6 +119,10 @@ services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
 // VOD event timeline (kills/deaths/objectives → colored markers). Read-only.
 // Also feeds the Review death audit (DEATH events → cause-chip rows).
 services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
+// v3.11: the event corrections ledger (GET /api/corrections, /api/corrections/export,
+// the VOD snapshot's markers + list, the review header count). Read-only here; the
+// writes go through WriteServices.EventCorrections.
+services.AddSingleton<IEventCorrectionsRepository, EventCorrectionsRepository>();
 // Review page matchup-note history (same champ vs enemy, past notes). Read-only.
 services.AddSingleton<IMatchupNotesRepository, MatchupNotesRepository>();
 // v3.9: the matchup journal (GET /api/matchups + /api/matchups/export). Read-only
@@ -362,6 +366,33 @@ try
                 app.Services.GetRequiredService<ILoggerFactory>()
                     .CreateLogger("Startup")
                     .LogError(backfillEx, "Pattern-evidence window backfill failed at startup");
+            }
+        });
+
+        // v3.11: event corrections sweep (rule G). Stamp event_key on rows that predate
+        // the ledger and let corrections whose applied row vanished find their twin
+        // again. Same shape as the backfill above: only trips the session backup when
+        // there is work, capped per launch, never inserts game_events rows.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var w = app.Services.GetRequiredService<WriteServices>();
+                var pending = await w.EventCorrectionSweep.CountPendingAsync();
+                if (pending == 0) return;
+                await w.BackupGuard.EnsureBackedUpAsync();
+                var result = await w.EventCorrectionSweep.RunAsync(maxRows: 20_000);
+                app.Services.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("Startup")
+                    .LogInformation(
+                        "Event corrections sweep: {Keys} keys stamped, {Games} games touched, {Orphans} orphans resolved",
+                        result.KeysStamped, result.GamesTouched, result.OrphansResolved);
+            }
+            catch (Exception sweepEx)
+            {
+                app.Services.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("Startup")
+                    .LogError(sweepEx, "Event corrections sweep failed at startup");
             }
         });
     }
@@ -1776,7 +1807,7 @@ app.MapPost("/api/focus-adherence", async (FocusAdherenceBody body, WriteService
 // Quick note-bookmark at the current video time (B key / Add button). Returns the
 // new bookmark id so the frontend can optimistically render the row. Mirrors
 // VodPlayerViewModel.AddBookmarkCommand (sans the clip fields).
-app.MapPost("/api/encounter/save", async (SaveEncounterBody body, WriteServices w) =>
+app.MapPost("/api/encounter/save", async (SaveEncounterBody body, WriteServices w, SidecarEventHub hub) =>
 {
     if (body is null) return Results.BadRequest(new { error = "Encounter required." });
     await w.BackupGuard.EnsureBackedUpAsync();
@@ -1784,9 +1815,84 @@ app.MapPost("/api/encounter/save", async (SaveEncounterBody body, WriteServices 
     {
         var id = await w.ReviewedEncounters.SaveAsync(body.GameId, body.EventId,
             body.RequestId, body.StartS, body.EndS, body.Classification, body.Note);
+        // v3.11: the legacy encounter form writes through the corrections ledger now
+        // (kept one release as an alias of /api/event/correct). Run rule F and tell
+        // every open page the timeline changed.
+        await w.EventCorrections.RefreshDerivedAsync(body.GameId);
+        hub.Publish("eventsCorrected", new { gameId = body.GameId, correctionId = body.RequestId, op = "encounter" });
         return Results.Json(new { ok = true, id }, jsonOptions);
     }
     catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v3.11 EVENT CORRECTIONS LEDGER. A timeline fix (retype / retime / attr / remove /
+// add / confirm) is one append-only ledger row keyed on the event's stable event_key,
+// applied in place by Revu.Core (rules D and E) and followed by rule F here (derived
+// recompute + pattern re-materialize). Every validation message is the exact sentence
+// the panel shows (400 { error }). Both writes publish `eventsCorrected` so the VOD
+// player, the review page and the patterns page refetch without touching playback.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/event/correct  { gameId, correctionId, op, subject?, patch?, reason? }
+app.MapPost("/api/event/correct", async (SaveCorrectionBody body, WriteServices w, SidecarEventHub hub, UpdateService updates, ILogger<Program> log) =>
+{
+    if (body is null || body.GameId <= 0) return Results.BadRequest(new { error = "Correction required." });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    try
+    {
+        var request = CorrectionRequestMapper.From(body, updates.CurrentVersion);
+        var r = await w.EventCorrections.SaveAsync(request);
+        if (!r.Idempotent) hub.Publish("eventsCorrected", new { gameId = body.GameId, correctionId = r.CorrectionId, op = r.Op });
+        log.LogInformation("Event correction {Op} on game {GameId}: {Key} -> {State}", r.Op, body.GameId, r.EventKey, r.State);
+        return Results.Json(new { ok = true, id = r.Id, correctionId = r.CorrectionId, op = r.Op, state = r.State,
+            eventId = r.AppliedEventId, eventKey = r.EventKey, idempotent = r.Idempotent, message = r.Message }, jsonOptions);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
+// POST /api/correction/revert  { gameId, correctionId, reason? }
+app.MapPost("/api/correction/revert", async (RevertCorrectionBody body, WriteServices w, SidecarEventHub hub, UpdateService updates, ILogger<Program> log) =>
+{
+    if (body is null || body.GameId <= 0 || string.IsNullOrWhiteSpace(body.CorrectionId))
+        return Results.BadRequest(new { error = "Correction required." });
+    await w.BackupGuard.EnsureBackedUpAsync();
+    try
+    {
+        var r = await w.EventCorrections.RevertAsync(body.GameId, body.CorrectionId.Trim(), (body.Reason ?? "").Trim(), updates.CurrentVersion);
+        if (!r.Idempotent) hub.Publish("eventsCorrected", new { gameId = body.GameId, correctionId = r.CorrectionId, op = r.Op });
+        log.LogInformation("Event correction reverted on game {GameId}: {Key} -> {State}", body.GameId, r.EventKey, r.State);
+        return Results.Json(new { ok = true, id = r.Id, correctionId = r.CorrectionId, op = r.Op, state = r.State,
+            eventId = r.AppliedEventId, eventKey = r.EventKey, idempotent = r.Idempotent, message = r.Message }, jsonOptions);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
+// GET /api/corrections?gameId=N — every non-revert ledger row of the game, newest first.
+app.MapGet("/api/corrections", async (long? gameId, IEventCorrectionsRepository corrections) =>
+{
+    if (gameId is not > 0) return Results.BadRequest(new { error = "gameId required" });
+    var rows = await corrections.GetForGameAsync(gameId.Value);
+    return Results.Json(new { ok = true, gameId = gameId.Value, corrections = rows.Select(VodCorrectionMapper.Map).ToList() }, jsonOptions);
+});
+
+// GET /api/corrections/export[?gameId=N] — the phase-1 local JSON export (unredacted,
+// revert rows included; the panel copies it to the clipboard). gameId omitted = every game.
+app.MapGet("/api/corrections/export", async (long? gameId, IEventCorrectionsRepository corrections, UpdateService updates, ILogger<Program> log) =>
+{
+    long? scope = gameId is > 0 ? gameId : null;
+    var json = await corrections.ExportAsync(scope, updates.CurrentVersion);
+    var count = 0;
+    try
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+            count = items.GetArrayLength();
+    }
+    catch (JsonException) { /* count stays 0; the payload is still handed over */ }
+    var fileName = $"revu-corrections-{(scope is { } g ? g.ToString() : "all")}-{DateTime.Now:yyyyMMdd-HHmm}.json";
+    log.LogInformation("Corrections export built ({Count} rows, {Chars} chars)", count, json.Length);
+    return Results.Json(new { ok = true, json, count, fileName }, jsonOptions);
 });
 
 app.MapPost("/api/bookmark/add", async (AddBookmarkBody body, WriteServices w, ILogger<Program> log) =>
@@ -3322,6 +3428,17 @@ internal sealed record PreGameDraftBody(long PromptId, string? Text);
 internal sealed record PreGameIfThenBody(string? Plan);
 
 internal sealed record SaveEncounterBody(long GameId, int? EventId, string RequestId, int StartS, int EndS, string Classification, string? Note);
+
+// ── v3.11 Event corrections bodies ───────────────────────────────────────────
+// Subject = the event as the page saw it (event_key preferred, id as fallback, type +
+// time cross-checked server-side); Patch = the change (attrs is a JSON object of
+// scalar values). Both null for the ops that need none (add has no subject;
+// remove / confirm have no patch). Reason <= 280 characters after trim.
+internal sealed record CorrectionSubjectBody(string? EventKey, long? EventId, string? Type, int? TimeS);
+internal sealed record CorrectionPatchBody(string? EventType, int? GameTimeS, int? EndS, JsonElement? Attrs);
+internal sealed record SaveCorrectionBody(long GameId, string? CorrectionId, string? Op,
+    CorrectionSubjectBody? Subject, CorrectionPatchBody? Patch, string? Reason);
+internal sealed record RevertCorrectionBody(long GameId, string? CorrectionId, string? Reason);
 
 // ── v3.9 Matchup journal bodies ──────────────────────────────────────────────
 // Champion lists arrive as JSON arrays of display names in slot order (1v1 for

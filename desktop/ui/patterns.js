@@ -191,12 +191,16 @@ function renderPlayer() {
   $('m-title').textContent = m.title || '';
   $('m-glabel').textContent = [m.championLabel, m.timeLabel].filter(Boolean).join(' · ');
 
-  // VOD surface — header text + scrub endpoints; degrade gracefully with no VOD.
-  $('m-vhead').textContent = (m.videoHeaderText || '') + (m.hasVod ? ': MOMENT CLIP' : '');
-  show($('m-novod'), !m.hasVod);
-  show($('m-play'), !!m.hasVod);
+  // VOD surface — header text + scrub endpoints; degrade gracefully with nothing
+  // to play. A moment plays from the game's recording when it is on disk, else
+  // from the clip file it kept (the sidecar only admits moments with one of the
+  // two, or start-less game-level anchors).
+  const playable = playableSource(m) !== null;
+  $('m-vhead').textContent = (m.videoHeaderText || '') + (playable ? (m.hasVod ? ': MOMENT CLIP' : ': KEPT CLIP') : '');
+  show($('m-novod'), !playable);
+  show($('m-play'), playable);
   const surface = $('m-surface');
-  surface.classList.toggle('pat-surface-novod', !m.hasVod);
+  surface.classList.toggle('pat-surface-novod', !playable);
   if (m.gameId != null) surface.dataset.gameId = String(m.gameId);
   // Stamp the moment's start time so the VOD player can jump straight to it.
   if (m.startTimeSeconds != null) surface.dataset.startSeconds = String(m.startTimeSeconds);
@@ -219,7 +223,7 @@ function renderPlayer() {
   _suppressNoteSave = false;
   setMomentStatus('');
   // CLIP KEPT badge only once the moment actually has a saved clip.
-  show($('m-clipt'), !!m._clipped || m.sourceKind === 'clip');
+  show($('m-clipt'), !!m._clipped || !!m.hasClip || m.sourceKind === 'clip');
 
   // Prev / next bounds.
   const moms = activeMoments();
@@ -238,8 +242,12 @@ function buildMomRow(m, idx) {
 
   rg.textContent = [m.championLabel, m.timeLabel].filter(Boolean).join(' · ');
 
-  // CLIP badge only when this moment kept a clip / has a matched VOD.
-  show(clip, m.sourceKind === 'clip' || !!m.hasVod);
+  // CLIP badge when this moment kept a clip file (hasClip from the sidecar's disk
+  // probe; sourceKind for older snapshots / the browser-preview sample), VOD when
+  // only the game's recording is on disk.
+  const kept = !!m.hasClip || m.sourceKind === 'clip';
+  show(clip, kept || !!m.hasVod);
+  if (clip) clip.textContent = kept ? 'CLIP' : 'VOD';
 
   const polarity = m.polarity || 'neutral';
   pol.textContent = m.polarityLabel || polarity.toUpperCase();
@@ -268,8 +276,20 @@ function renderRail() {
   clear(host);
   const moms = activeMoments();
 
+  // "24 of 500" when the playlist is capped or some moments have nothing left to
+  // watch — the card still counts every instance the detector found.
   const sub = $('rail-sub');
-  if (sub) sub.textContent = `${moms.length} moment${moms.length === 1 ? '' : 's'}`;
+  const p = activePattern();
+  const total = Number(p && p.totalMomentCount) || moms.length;
+  if (sub) {
+    sub.textContent = total > moms.length
+      ? `${moms.length} of ${total} moments`
+      : `${moms.length} moment${moms.length === 1 ? '' : 's'}`;
+    const gone = Number(p && p.unwatchableMomentCount) || 0;
+    sub.title = gone > 0
+      ? `${gone} moment${gone === 1 ? '' : 's'} left out: recording gone and no clip kept.`
+      : '';
+  }
 
   moms.forEach((m, i) => host.appendChild(buildMomRow(m, i)));
 }
@@ -587,9 +607,20 @@ function resetInlineVideo() {
 // the asset URL from the moment's vodPath, reveals the <video> + transport bar, and
 // lets the core jump to the moment's start + play. Clicking the poster the first
 // time loads; once loaded, the transport bar (and clicking the video) controls it.
+// What to play for a moment: the game's recording seeked to the moment's start,
+// else the clip file the moment kept (a clip already starts at the moment, so it
+// plays from 0). null when neither is on disk.
+function playableSource(m) {
+  if (!m) return null;
+  if (m.hasVod && m.vodPath) return { path: m.vodPath, startSeconds: m.startTimeSeconds != null ? Number(m.startTimeSeconds) : 0 };
+  if (m.hasClip && m.clipPath) return { path: m.clipPath, startSeconds: 0 };
+  return null;
+}
+
 function playMoment() {
   const m = activeMoment();
-  if (!m || !m.hasVod) return;
+  const src = playableSource(m);
+  if (!m || !src) return;
   const vid = $('m-video');
   const surface = $('m-surface');
   if (!vid || !surface || !_T) return;
@@ -600,7 +631,7 @@ function playMoment() {
     return;
   }
 
-  const url = resolveAssetUrl(_core, m.vodPath);
+  const url = resolveAssetUrl(_core, src.path);
   if (!url) {
     // Browser preview (or asset protocol unavailable): can't stream a local file.
     setMomentStatus('Video preview is only available in the app.');
@@ -613,7 +644,7 @@ function playMoment() {
   _patVideoLoadedFor = m;
   _inlineActive = true;   // we're now in "playing" mode → stepping moments keeps playing
   _T.load(url, {
-    startSeconds: m.startTimeSeconds != null ? Number(m.startTimeSeconds) : 0,
+    startSeconds: src.startSeconds,
     autoplay: true,
     onError: () => { setMomentStatus('Could not load this clip.'); resetInlineVideo(); },
   });
@@ -696,6 +727,15 @@ function wireNoteEditor() {
 
 // Persist a pending note if the user navigates away / closes the page.
 window.addEventListener('beforeunload', () => { flushOutgoingNote(); });
+
+// v3.11: a timeline correction landed somewhere (VOD panel, review death links);
+// pattern moments anchor on those events, so refetch. Never while the user is typing
+// a note. loadPatterns() is a no-op when a load is already in flight.
+window.addEventListener('revu:events-corrected', () => {
+  const a = document.activeElement;
+  if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) return;
+  loadPatterns();
+});
 
 // ── boot ────────────────────────────────────────────────────────────────────
 async function boot() {

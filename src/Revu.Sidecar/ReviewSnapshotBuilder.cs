@@ -81,6 +81,9 @@ public sealed class ReviewSnapshotBuilder
     private readonly IConfigService _configService;
     private readonly IReviewDraftRepository _draftRepo;
     private readonly ILogger<ReviewSnapshotBuilder> _logger;
+    // v3.11: the corrections ledger (header "Timeline fixes" count). Optional so the
+    // fourteen-argument call sites keep compiling; MS.DI supplies the registration.
+    private readonly IEventCorrectionsRepository? _corrections;
 
     public ReviewSnapshotBuilder(
         IGameHistoryQuery gameHistory,
@@ -96,7 +99,8 @@ public sealed class ReviewSnapshotBuilder
         IVodRepository vodRepo,
         IConfigService configService,
         IReviewDraftRepository draftRepo,
-        ILogger<ReviewSnapshotBuilder> logger)
+        ILogger<ReviewSnapshotBuilder> logger,
+        IEventCorrectionsRepository? corrections = null)
     {
         _gameHistory = gameHistory;
         _gameRepo = gameRepo;
@@ -112,6 +116,7 @@ public sealed class ReviewSnapshotBuilder
         _configService = configService;
         _draftRepo = draftRepo;
         _logger = logger;
+        _corrections = corrections;
     }
 
     /// <param name="gameId">When &gt; 0, load THIS specific game (clicking a game
@@ -127,7 +132,7 @@ public sealed class ReviewSnapshotBuilder
             return new ReviewDto(GeneratedAt: generatedAt, Subject: null, SubjectSourceText: "");
         }
 
-        var header = BuildHeader(game);
+        var header = BuildHeader(game) with { TimelineFixes = await CountTimelineFixesAsync(game.GameId) };
         var stats = BuildStatStrip(game);
         // P-027 / P-013: load THIS game's evidence rows ONCE so the prompt-grouped
         // clips (Prompts[].Clips / UnpromptedClips / UnsortedClips) and the legacy
@@ -321,6 +326,19 @@ public sealed class ReviewSnapshotBuilder
             LaningAt10Line: laningLine,
             HasLaningAt10: hasLaning,
             LobbyMatchups: lobbyMatchups);
+    }
+
+    // v3.11: applicable corrections on this game for the header badge. 0 without a
+    // ledger (older call sites) or when the count fails; never blocks the snapshot.
+    private async Task<int> CountTimelineFixesAsync(long gameId)
+    {
+        if (_corrections is null) return 0;
+        try { return await _corrections.CountActiveForGameAsync(gameId); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Review: timeline fixes count failed for game {GameId}", gameId);
+            return 0;
+        }
     }
 
     /// <summary>
@@ -557,7 +575,12 @@ public sealed class ReviewSnapshotBuilder
     {
         try
         {
-            return await _evidenceRepo.GetForGameAsync(gameId);
+            // v3.10: the post-game pass's own anchors (trades, fights, failed
+            // criteria) only surface here when "Auto-fill Timeline Inbox from game
+            // events" is on; Patterns keep counting them either way.
+            return EvidenceAutoAnchors.ForSurface(
+                await _evidenceRepo.GetForGameAsync(gameId),
+                _configService.AutoTimelineClippingEnabled);
         }
         catch (Exception ex)
         {
@@ -869,7 +892,9 @@ public sealed class ReviewSnapshotBuilder
                     SelectedClass: selectedClass,
                     SelectedLabel: isClassified ? DeathClasses.LabelFor(selectedClass) : "",
                     IsClassified: isClassified,
-                    Chips: chips));
+                    Chips: chips,
+                    EventKey: death.EventKey ?? "",
+                    EventId: death.Id));
             }
         }
         catch (Exception ex)

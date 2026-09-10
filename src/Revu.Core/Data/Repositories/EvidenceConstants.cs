@@ -50,3 +50,49 @@ public static class EvidenceStatuses
         _ => NeedsReview,
     };
 }
+
+/// <summary>
+/// The rows the post-game pass writes on its own (<c>objev:</c> tracked-event
+/// anchors, <c>objcrit:</c> failed-criterion anchors — PatternEvidenceMaterializer).
+/// They exist so the Patterns page can count recurrence; whether they ALSO show
+/// up as review moments on the Review page and in the VOD inbox is the user's
+/// "Auto-fill Timeline Inbox from game events" setting. An anchor stops being
+/// "untouched" the moment the user does anything to it — notes it, triages it
+/// (dismiss / highlight / a Good-Bad judgement that differs from the stamped
+/// default), tags it to an objective, prompt, concept or matchup note, or the
+/// note flow promotes it to a clip (source_kind flips to 'clip') — and then it
+/// stays visible regardless of the setting.
+/// </summary>
+public static class EvidenceAutoAnchors
+{
+    private const string ObjEventPrefix = "objev:";
+    private const string ObjCritPrefix = "objcrit:";
+
+    public static bool IsAutoAnchorKey(string? sourceKey) =>
+        sourceKey is not null
+        && (sourceKey.StartsWith(ObjEventPrefix, StringComparison.Ordinal)
+            || sourceKey.StartsWith(ObjCritPrefix, StringComparison.Ordinal));
+
+    /// <summary>The polarity the post-game pass stamped on this anchor kind: a
+    /// failed criterion is always bad; a tracked event follows its token.</summary>
+    public static string DefaultPolarity(string? sourceKey) =>
+        sourceKey is not null && sourceKey.StartsWith(ObjCritPrefix, StringComparison.Ordinal)
+            ? EvidencePolarities.Bad
+            : Revu.Core.Constants.PatternConstants.DefaultAnchorPolarity(
+                Revu.Core.Constants.PatternConstants.TokenFromObjEventKey(sourceKey));
+
+    public static bool IsUntouched(EvidenceItemRecord row) =>
+        string.Equals(row.SourceKind, EvidenceKinds.TimelineRegion, StringComparison.OrdinalIgnoreCase)
+        && IsAutoAnchorKey(row.SourceKey)
+        && string.IsNullOrWhiteSpace(row.Note)
+        && string.Equals(row.Status, EvidenceStatuses.Evidence, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(EvidencePolarities.Normalize(row.Polarity), DefaultPolarity(row.SourceKey), StringComparison.Ordinal)
+        && row.ObjectiveId is null
+        && row.PromptId is null
+        && row.ConceptTagId is null
+        && row.MatchupNoteId is null;
+
+    /// <summary>The rows a per-game surface should show given the setting.</summary>
+    public static IReadOnlyList<EvidenceItemRecord> ForSurface(IReadOnlyList<EvidenceItemRecord> rows, bool autoFillEnabled) =>
+        autoFillEnabled ? rows : rows.Where(static r => !IsUntouched(r)).ToList();
+}

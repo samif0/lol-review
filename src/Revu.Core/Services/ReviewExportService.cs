@@ -20,6 +20,7 @@ public sealed class ReviewExportService : IReviewExportService
     private readonly IMatchupNotesRepository _matchupNotes;
     private readonly IEvidenceRepository _evidence;
     private readonly ISessionLogRepository _sessionLog;
+    private readonly IConfigService _config;
 
     public ReviewExportService(
         IGameHistoryQuery gameHistory,
@@ -29,7 +30,8 @@ public sealed class ReviewExportService : IReviewExportService
         IVodRepository vod,
         IMatchupNotesRepository matchupNotes,
         IEvidenceRepository evidence,
-        ISessionLogRepository sessionLog)
+        ISessionLogRepository sessionLog,
+        IConfigService config)
     {
         _gameHistory = gameHistory;
         _objectives = objectives;
@@ -39,6 +41,7 @@ public sealed class ReviewExportService : IReviewExportService
         _matchupNotes = matchupNotes;
         _evidence = evidence;
         _sessionLog = sessionLog;
+        _config = config;
     }
 
     public async Task<string> ExportAllAsync(CancellationToken cancellationToken = default)
@@ -88,7 +91,11 @@ public sealed class ReviewExportService : IReviewExportService
         var promptAnswers = await _prompts.GetAnswersForGameAsync(game.GameId);
         var matchupNote = await _matchupNotes.GetForGameAsync(game.GameId);
         var bookmarks = await _vod.GetBookmarksAsync(game.GameId);
-        var evidence = await _evidence.GetForGameAsync(game.GameId);
+        // Same rule as the Review page: the post-game pass's untouched anchors
+        // only appear in the Moments section while auto-fill is on.
+        var evidence = EvidenceAutoAnchors.ForSurface(
+            await _evidence.GetForGameAsync(game.GameId),
+            _config.AutoTimelineClippingEnabled);
         var sessionEntry = await _sessionLog.GetEntryAsync(game.GameId);
         var tagIds = await _conceptTags.GetIdsForGameAsync(game.GameId);
         var allTags = await _conceptTags.GetAllAsync();
