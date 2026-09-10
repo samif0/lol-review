@@ -178,6 +178,20 @@ function renderLastGame(d) {
 }
 
 // ── render: one card → one group → one lane ──────────────────────────────────
+// Note boxes grow to fit their text — no scrollbar, no resize grip. The
+// height is measured from scrollHeight, so it runs after the cards are in the
+// document (render), on every keystroke, and when the window changes width.
+// A box that isn't laid out yet (scrollHeight 0) keeps its `rows` height.
+function autosizeNote(ta) {
+  ta.style.height = 'auto';
+  const h = ta.scrollHeight;
+  if (h > 0) ta.style.height = `${h}px`;
+  else ta.style.height = '';
+}
+function autosizeAllNotes() {
+  document.querySelectorAll('.mj-note-in').forEach(autosizeNote);
+}
+
 function buildCard(c) {
   const el = tpl('tpl-card');
   if (c.id != null) el.dataset.cardId = String(c.id);
@@ -679,6 +693,7 @@ function render(d) {
   const empty = d.isEmpty || lanes.length === 0;
 
   renderLanes(lanes);
+  autosizeAllNotes();
   show($('mj-export'), !empty);
 
   if (empty) {
@@ -810,7 +825,18 @@ document.addEventListener('submit', (ev) => {
   }
 });
 
-// Inline note boxes save on blur (capture: blur doesn't bubble) …
+// Inline note boxes grow as you type …
+document.addEventListener('input', (ev) => {
+  const ta = ev.target;
+  if (ta && ta.classList && ta.classList.contains('mj-note-in')) autosizeNote(ta);
+});
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(autosizeAllNotes, 80);
+});
+
+// … save on blur (capture: blur doesn't bubble) …
 document.addEventListener('blur', (ev) => {
   const ta = ev.target;
   if (ta && ta.classList && ta.classList.contains('mj-note-in')) saveNote(ta);

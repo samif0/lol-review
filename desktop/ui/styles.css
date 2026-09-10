@@ -3303,19 +3303,25 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .mj-act-del:hover{color:#2a0e10;background:linear-gradient(180deg,#f6b9bd,var(--loss));border-color:transparent;box-shadow:0 8px 20px -10px rgba(243,163,168,0.6)}
 
 /* INLINE NOTES — Prior (gold caption) beside Observed (green caption). Each is
-   a glass textarea that autosaves on blur / Ctrl+Enter; the "Saved" mark flashes
-   next to the caption for ~1.2s after a successful write. */
-.mj-notes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+   a textarea that reads as the note itself: it grows to fit its text (height
+   set from scrollHeight by matchups.js, so no scrollbar and no resize grip),
+   sits flush on the card with no box until you hover or focus, and autosaves
+   on blur / Ctrl+Enter; the "Saved" mark flashes next to the caption for
+   ~1.2s after a successful write. The caption is inset to line up with the
+   text (border 1px + padding 9px). */
+.mj-notes{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
 @media(max-width:720px){.mj-notes{grid-template-columns:1fr}}
-.mj-note{display:flex;flex-direction:column;gap:5px;min-width:0}
-.mj-note-head{display:flex;align-items:center;gap:8px;min-height:14px}
+.mj-note{display:flex;flex-direction:column;gap:3px;min-width:0}
+.mj-note-head{display:flex;align-items:center;gap:8px;min-height:14px;padding-left:10px}
 .mj-note-k{font-family:var(--fm);font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--label-bright)}
 .mj-note-prior .mj-note-k{color:var(--gold)}
 .mj-note-observed .mj-note-k{color:var(--win)}
-.mj-note-in{width:100%;resize:vertical;min-height:60px;font-family:var(--fb);font-size:13px;line-height:1.5;color:var(--t2);
-  background:rgba(10,8,24,0.4);border:1px solid var(--gline2);border-radius:9px;padding:9px 11px;cursor:text;
+.mj-note-in{display:block;width:100%;box-sizing:border-box;resize:none;overflow:hidden;
+  font-family:var(--fb);font-size:13px;line-height:1.55;color:var(--t2);
+  background:transparent;border:1px solid transparent;border-radius:9px;padding:7px 9px;cursor:text;
   transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
 .mj-note-in::placeholder{color:var(--t4)}
+.mj-note-in:hover{border-color:var(--gline2);background:rgba(10,8,24,0.28)}
 .mj-note-in:focus{outline:none;border-color:rgba(157,139,255,0.6);background:rgba(157,139,255,0.05);box-shadow:0 0 0 3px rgba(157,139,255,0.12)}
 @keyframes mj-saved-in{from{opacity:0;transform:translateX(-3px)}to{opacity:1;transform:translateX(0)}}
 .mj-saved{font-family:var(--fm);font-size:8.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;color:var(--win);
