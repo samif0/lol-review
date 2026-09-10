@@ -405,6 +405,13 @@ public static class MapStateAnalyzer
                 ? new JsonObject()
                 : JsonNode.Parse(death.Details) as JsonObject ?? new JsonObject();
 
+            // The stamp is additive over the row's existing details, which on a corrected
+            // row already carry the user's own attribute values (fog_death, jungle_gank).
+            // Drop those first so what this pass writes is its own verdict: the ledger
+            // re-merges the correction afterwards (rule C) and reads presence here as
+            // "the detector decided this", never as an echo of the fix.
+            foreach (var key in EventPatching.CorrectedAttrKeys(node)) node.Remove(key);
+
             node["map_state"] = true;
 
             var enemyDist = JunglerDistanceAt(roster.EnemyJgId, at, samples);

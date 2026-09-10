@@ -13,6 +13,10 @@ public class GameEvent
     public int GameTimeS { get; set; }
     public string Details { get; set; } = "{}";
 
+    /// <summary>v3.11 (schema v16): the row's stable identity (<c>det:{TYPE}:{anchor}:{disc}</c>
+    /// or <c>usr:{guid}</c>). Null when the row predates the ledger and has not been stamped yet.</summary>
+    public string? EventKey { get; set; }
+
     /// <summary>Event type constant strings.</summary>
     public static class EventTypes
     {

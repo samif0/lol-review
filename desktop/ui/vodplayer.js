@@ -11,6 +11,7 @@
 // deep-link, OPEN REVIEW) and delegates only the transport to the core (_T).
 
 import { createTransport, resolveAssetUrl, tauriCore } from './vodtransport.js';
+import { createCorrections } from './vodcorrections.js';
 
 const $ = (id) => document.getElementById(id);
 function show(el, on) { if (el) el.hidden = !on; }
@@ -27,6 +28,7 @@ let _autoClipBusy = false;    // true while an auto-clip run is in flight
 let _autoClipHintMsg = '';    // last auto-clip result message (survives objbar re-render)
 let _autoClipHintErr = false; // whether _autoClipHintMsg is an error
 let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarge)
+let _fx = null;        // timeline corrections module (selection, keys, form, ghosts, list)
 // ── Objective-framed viewer state ────────────────────────────────────────────
 // The VOD page opens framed on ONE objective at a time (the default, not a mode).
 // _focusedObjId is the currently-framed objective id; its events/moments are loud,
@@ -60,7 +62,7 @@ function markersForObjective(objId) {
     const hit = Array.isArray(e.objectiveIds)
       ? e.objectiveIds.some((x) => Number(x) === id)
       : (e.objectiveId != null && Number(e.objectiveId) === id);
-    if (hit) out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '', kind: e.kind || '' });
+    if (hit) out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '', kind: e.kind || '', key: e.eventKey || '', id: e.id, type: e.eventType });
   }
   return out.sort((a, b) => a.seconds - b.seconds);
 }
@@ -211,6 +213,23 @@ async function fetchVod() {
 window.addEventListener('revu:map-state-updated', (ev) => {
   const gid = Number(ev && ev.detail && ev.detail.gameId);
   if (gid === 0 || (gid > 0 && gid === _gameId)) reloadBookmarks();
+});
+
+// v3.11: a timeline correction landed (this panel, the review page's death links,
+// or another window). Same gate as above; coalesced 300 ms so a burst of SSE
+// events (a nudge stream, a revert) costs one refetch, and skipped while one is
+// already in flight. Never touches playback.
+let _fxReloadTimer = null;
+let _fxReloadBusy = false;
+window.addEventListener('revu:events-corrected', (ev) => {
+  const gid = Number(ev && ev.detail && ev.detail.gameId);
+  if (!(gid === 0 || (gid > 0 && gid === _gameId))) return;
+  clearTimeout(_fxReloadTimer);
+  _fxReloadTimer = setTimeout(async () => {
+    if (_fxReloadBusy) return;
+    _fxReloadBusy = true;
+    try { await reloadBookmarks(); } finally { _fxReloadBusy = false; }
+  }, 300);
 });
 
 // Re-fetch the VOD snapshot after a write and re-render the bookmark/marker UI
@@ -474,7 +493,7 @@ function renderObjBar() {
 }
 
 function renderAutoClipPanel() {
-  renderEncounterOptions();
+  if (_fx) _fx.renderPanel();
   const host = $('vp-autoclip-tools');
   const btn = $('vp-autoclip-btn');
   const meta = $('vp-autoclip-meta');
@@ -634,7 +653,10 @@ function placeMarkers(dur) {
   //    every other non-focused element. (Bug: a 0-marker objective showed loud TF
   //    bands, making teamfighting look prioritized when it wasn't tracked at all.)
   const tfFocused = !_framed || focusedTracksTeamfight();
-  for (const tf of teamfightZones(_vod.gameEvents || [])) {
+  // v3.11: the snapshot appends ghost entries (removed === true, id 0) for events the
+  // user removed; they are drawn ONLY by appendGhosts() below and never band or bar.
+  const liveEvents = (_vod.gameEvents || []).filter((e) => e.removed !== true);
+  for (const tf of teamfightZones(liveEvents)) {
     const band = document.createElement('span');
     band.className = 'evtf' + (tfFocused ? '' : ' evtf-dim');
     band.style.left = `${pctOf(tf.startS)}%`;
@@ -657,7 +679,7 @@ function placeMarkers(dur) {
   //    spreads the code labels onto different rows so they collide less. A final
   //    anti-overlap pass hides a label when it would sit too close to the last
   //    shown label IN THE SAME TIER (kept reachable via the bar's hover/title).
-  const events = (_vod.gameEvents || [])
+  const events = liveEvents
     .slice()
     .sort((a, b) => (a.gameTimeSeconds || 0) - (b.gameTimeSeconds || 0));
 
@@ -734,6 +756,8 @@ function placeMarkers(dur) {
     bar.title = `${e.timeLabel} ${e.label}${e.summary ? ' · ' + e.summary : ''}${objSuffix}`.trim();
     bar.dataset.action = 'jump';
     bar.dataset.seconds = String(e.gameTimeSeconds);
+    // Correction identity + state (event key, anchor, fixed/added rings, selection).
+    if (_fx) _fx.decorateBar(bar, e);
 
     // Label policy. Focused events ALWAYS label (never suppressed) and reserve a
     // slot. Dimmed ticks NEVER show a static label (code on hover only — that's the
@@ -771,6 +795,8 @@ function placeMarkers(dur) {
 
     host.appendChild(bar);
   }
+  // 1b. Ghost bars for events the user removed (dashed, label-less, restorable).
+  if (_fx) _fx.appendGhosts(host, pctOf);
 
   // 2. Bookmarks (clip → gold, plain → accent) as small markers under the track.
   for (const b of (_vod.bookmarks || [])) {
@@ -1414,63 +1440,8 @@ function bmHint(msg, isErr) {
   show(h, !!msg);
 }
 
-let _encounterRequestId = null;
-function renderEncounterOptions() {
-  const select = $('vp-encounter-existing');
-  if (!select) return;
-  const selected = select.value;
-  select.replaceChildren(new Option('New moment', ''));
-  for (const event of (_vod?.gameEvents || [])) {
-    if (!['TRADE', 'ALL_IN', 'UNCERTAIN_COMBAT'].includes(event.eventType)) continue;
-    select.add(new Option(`${event.timeLabel} · ${event.summary || event.label}${event.reviewedEncounter ? ' · reviewed' : ''}`, String(event.id)));
-  }
-  select.value = selected;
-  if (select.selectedIndex < 0) select.value = '';
-  $('vp-encounter-save').disabled = !_core;
-}
-function encounterTime(value) {
-  const match = /^(\d{1,4}):([0-5]\d)$/.exec(value.trim());
-  return match ? Number(match[1]) * 60 + Number(match[2]) : NaN;
-}
-document.addEventListener('change', (ev) => {
-  if (ev.target.id !== 'vp-encounter-existing') return;
-  _encounterRequestId = null;
-  const event = (_vod?.gameEvents || []).find(e => String(e.id) === ev.target.value);
-  $('vp-encounter-note').value = event?.encounterNote || '';
-  if (!event) return;
-  $('vp-encounter-start').value = clock(event.gameTimeSeconds);
-  $('vp-encounter-end').value = clock(event.encounterEndSeconds ?? event.gameTimeSeconds);
-  $('vp-encounter-class').value = event.encounterClassification
-    || (event.eventType === 'ALL_IN' ? 'all_in' : event.eventType === 'TRADE' ? 'short' : 'uncertain');
-});
-async function saveEncounter() {
-  const hint = $('vp-encounter-hint');
-  if (!_core || !_gameId) { hint.textContent = 'Preview only; no backend to save to.'; return; }
-  const startS = encounterTime($('vp-encounter-start').value);
-  const endS = encounterTime($('vp-encounter-end').value);
-  if (!Number.isFinite(startS) || !Number.isFinite(endS) || endS < startS
-      || (_vod.gameDurationSeconds > 0 && endS > _vod.gameDurationSeconds)) {
-    hint.textContent = 'Enter a valid game-time range as m:ss within this game.';
-    return;
-  }
-  const button = $('vp-encounter-save');
-  button.disabled = true;
-  // Retain identity after an uncertain network result to avoid adding twice on retry.
-  _encounterRequestId ||= crypto.randomUUID();
-  try {
-    const result = await _core.invoke('save_encounter', { payload: {
-      gameId: _gameId, eventId: Number($('vp-encounter-existing').value) || null,
-      requestId: _encounterRequestId, startS, endS,
-      classification: $('vp-encounter-class').value, note: $('vp-encounter-note').value.trim(),
-    }});
-    await reloadBookmarks();
-    $('vp-encounter-existing').value = String(result.id);
-    _encounterRequestId = null;
-    hint.textContent = 'Reviewed moment saved. Objective tags follow its classification.';
-  } catch (err) {
-    hint.textContent = `Could not save the moment: ${String(err)}`;
-  } finally { button.disabled = false; }
-}
+// (The combat-moment editor that lived here became the timeline corrections panel in
+// v3.11 — see ./vodcorrections.js; encounter fixes now ride the corrections ledger.)
 
 async function addBookmark() {
   if (!_core || _gameId <= 0) { bmHint('Preview only; no backend to save to.', false); return; }
@@ -2076,15 +2047,7 @@ document.addEventListener('click', async (ev) => {
   const t = ev.target.closest('[data-action]');
   if (!t) return;
   const action = t.dataset.action;
-  if (action === 'save_encounter') {
-    ev.preventDefault();
-    await saveEncounter();
-  } else if (action === 'encounter_now') {
-    ev.preventDefault();
-    const now = clock(video()?.currentTime || 0);
-    $('vp-encounter-start').value = now;
-    $('vp-encounter-end').value = now;
-  } else if (action === 'add_bookmark') {
+  if (action === 'add_bookmark') {
     ev.preventDefault();
     await addBookmark();
   } else if (action === 'delete_bookmark') {
@@ -2584,6 +2547,9 @@ document.addEventListener('keydown', (ev) => {
   // clip"; Ctrl+B is not "bookmark". (Arrow/Space/Escape handling below is
   // unaffected — browsers don't send those chorded in this context.)
   if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  // Timeline corrections (E / N / Delete / [ ] / Z, and Escape while its form or a
+  // selection is live). Consumed keys stop here; everything else falls through.
+  if (_fx && _fx.handleKey(ev)) { ev.preventDefault(); return; }
 
   const moment = ev.target.closest && ev.target.closest('.moment[data-action="jump"]');
   if (moment && (ev.key === 'Enter' || ev.key === ' ')) {
@@ -2705,6 +2671,21 @@ async function boot() {
   wireSeekBar();
   wireTabs();
   wireFraming();
+  // Timeline corrections: selection, fast-path keys, the form, ghosts, the list.
+  // Reads live page state through getters; writes through reloadBookmarks().
+  _fx = createCorrections({
+    $, show, clear, tpl, clock, errText,
+    video, seekTo, reloadBookmarks,
+    // The focused objective's marker the playhead is on (drives the stepper's Fix).
+    currentMarker: () => {
+      const marks = markersForObjective(_focusedObjId);
+      const ord = currentMarkerOrdinal(marks);
+      return ord > 0 ? marks[ord - 1] : null;
+    },
+    get vod() { return _vod; },
+    get core() { return _core; },
+    get gameId() { return _gameId; },
+  });
   try {
     const { data, core } = await fetchVod();
     render(data, core);

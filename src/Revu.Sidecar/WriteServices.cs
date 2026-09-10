@@ -33,6 +33,11 @@ public sealed class WriteServices : IDisposable
     private readonly ServiceProvider _provider;
 
     public ReviewedEncountersRepository ReviewedEncounters => _provider.GetRequiredService<ReviewedEncountersRepository>();
+    // v3.11: the event corrections ledger (POST /api/event/correct, /api/correction/revert)
+    // wrapped in the rule-F workflow (derived recompute + pattern re-materialize after a
+    // fix), and the rule-G startup sweep (event_key stamping + orphan resolution).
+    public EventCorrectionWorkflow EventCorrections => _provider.GetRequiredService<EventCorrectionWorkflow>();
+    public EventCorrectionSweep EventCorrectionSweep => _provider.GetRequiredService<EventCorrectionSweep>();
 
     public WriteServices(ILoggerFactory loggerFactory)
     {
@@ -112,6 +117,11 @@ public sealed class WriteServices : IDisposable
         //   • IMissedGameDecisionRepository — reconcile dismissals.
         services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
         services.AddSingleton<ReviewedEncountersRepository>();
+        // v3.11: the corrections ledger (schema v16) + its sidecar workflow and sweep.
+        // ReviewedEncountersRepository.SaveAsync delegates to the same ledger.
+        services.AddSingleton<IEventCorrectionsRepository, EventCorrectionsRepository>();
+        services.AddSingleton<EventCorrectionWorkflow>();
+        services.AddSingleton<EventCorrectionSweep>();
         services.AddSingleton<IDerivedEventsRepository, DerivedEventsRepository>();
         services.AddSingleton<IMissedGameDecisionRepository, MissedGameDecisionRepository>();
         services.AddSingleton<IGameService, GameService>();

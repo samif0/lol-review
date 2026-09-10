@@ -47,6 +47,9 @@ public sealed class VodSnapshotBuilder
     private readonly IObjectivesRepository _objectivesRepo;
     private readonly IConfigService _config;
     private readonly ILogger<VodSnapshotBuilder> _logger;
+    // v3.11: the corrections ledger. Optional (trailing, defaulted) so the seven-argument
+    // call sites keep compiling; MS.DI supplies the read-graph registration.
+    private readonly IEventCorrectionsRepository? _corrections;
 
     public VodSnapshotBuilder(
         IGameRepository gameRepo,
@@ -55,7 +58,8 @@ public sealed class VodSnapshotBuilder
         IEvidenceRepository evidenceRepo,
         IObjectivesRepository objectivesRepo,
         IConfigService config,
-        ILogger<VodSnapshotBuilder> logger)
+        ILogger<VodSnapshotBuilder> logger,
+        IEventCorrectionsRepository? corrections = null)
     {
         _gameRepo = gameRepo;
         _vodRepo = vodRepo;
@@ -64,6 +68,7 @@ public sealed class VodSnapshotBuilder
         _objectivesRepo = objectivesRepo;
         _config = config;
         _logger = logger;
+        _corrections = corrections;
     }
 
     public async Task<VodDto> BuildAsync(long gameId, CancellationToken ct = default)
@@ -130,6 +135,31 @@ public sealed class VodSnapshotBuilder
             tieResolver = ObjectiveEventTieResolver.FromTies(Array.Empty<(string, long, string)>());
         }
 
+        // v3.11: this game's corrections ledger. The applicable rows (active, absorbed,
+        // orphaned) decorate the markers they are attached to and rebuild the ghosts of
+        // removed events; every non-revert row feeds the panel's list. Best-effort like
+        // every other load here: a ledger failure still renders the timeline.
+        var applicable = new List<EventCorrection>();
+        var ledger = new List<EventCorrection>();
+        if (_corrections is not null)
+        {
+            try
+            {
+                applicable.AddRange(await _corrections.GetActiveForGameAsync(gameId));
+                ledger.AddRange(await _corrections.GetForGameAsync(gameId));
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "VOD: corrections load failed for {GameId}", gameId); }
+        }
+        var byApplied = new Dictionary<long, EventCorrection>();
+        var bySubject = new Dictionary<string, EventCorrection>(StringComparer.Ordinal);
+        foreach (var c in applicable)
+        {
+            // Removes own no live row; they become ghosts below.
+            if (c.Op == CorrectionOps.Remove) continue;
+            if (c.AppliedEventId is { } appliedId) byApplied.TryAdd(appliedId, c);
+            if (c.SubjectKey.Length > 0) bySubject.TryAdd(c.SubjectKey, c);
+        }
+
         // Live event timeline (kills/deaths/objectives) → colored markers. Each event
         // is tagged with its tied objective (if any) so the timeline can prioritize it.
         var gameEvents = new List<VodEventDto>();
@@ -149,7 +179,7 @@ public sealed class VodSnapshotBuilder
             foreach (var e in raw)
             {
                 if (TeamfightClustering.IsStoredTeamfight(e)) continue;
-                gameEvents.Add(MapEvent(e, tieResolver.TokenTiesForEvent(e)));
+                gameEvents.Add(Decorate(MapEvent(e, tieResolver.TokenTiesForEvent(e)), e, byApplied, bySubject));
             }
 
             // …and every fight becomes exactly ONE TEAMFIGHT event: a stored post-game row
@@ -167,10 +197,21 @@ public sealed class VodSnapshotBuilder
                     : c.StoredEventId is null && c.StartS == span.StartS);
                 var objectives = cluster?.Objectives ?? Array.Empty<ObjectiveTie>();
                 if (span.Stored is null && objectives.Count == 0) continue;
-                gameEvents.Add(VodTeamfightMapper.Map(span, objectives, span.Stored?.Id ?? synthId--));
+                gameEvents.Add(Decorate(
+                    VodTeamfightMapper.Map(span, objectives, span.Stored?.Id ?? synthId--), span.Stored, byApplied, bySubject));
             }
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: game events load failed for {GameId}", gameId); }
+
+        // v3.11 ghosts: an active op remove DELETED its row at save time (so death counts,
+        // derived instances and anchors need no tombstone filter); the timeline still shows
+        // where it was, as a dashed bar the user can select and restore. Appended after the
+        // fight pins, Id = 0.
+        foreach (var c in applicable)
+        {
+            if (c.Op == CorrectionOps.Remove && c.State == CorrectionStates.Active)
+                gameEvents.Add(Ghost(c));
+        }
 
         // Evidence inbox → split into AUTO moments (timeline_region) vs SAVED
         // CLIPS (clip). Mirrors VodPlayerViewModel.RefreshEvidenceInboxAsync's
@@ -223,7 +264,59 @@ public sealed class VodSnapshotBuilder
             Bookmarks: bookmarks,
             GameEvents: gameEvents,
             AutoMoments: autoMoments,
-            SavedClips: savedClips);
+            SavedClips: savedClips,
+            EventTypeCatalog: VodCorrectionMapper.Catalog,
+            Corrections: ledger.Select(VodCorrectionMapper.Map).ToList());
+    }
+
+    // ── v3.11 correction decoration ────────────────────────────────────────────
+    // The ledger row attached to a marker is found by applied_event_id first, then by
+    // the row's stable event_key (a fuzzy rebase can move the key, never the id). A
+    // synthetic fight pin (no stored row) keeps EventKey "" and is never decorated.
+    private static VodEventDto Decorate(
+        VodEventDto dto,
+        GameEvent? row,
+        IReadOnlyDictionary<long, EventCorrection> byApplied,
+        IReadOnlyDictionary<string, EventCorrection> bySubject)
+    {
+        if (row is null) return dto;
+        var key = row.EventKey ?? "";
+        EventCorrection? c;
+        if (!byApplied.TryGetValue(row.Id, out c) && (key.Length == 0 || !bySubject.TryGetValue(key, out c)))
+            c = null;
+        if (c is null) return dto with { EventKey = key };
+        return dto with
+        {
+            EventKey = key,
+            Corrected = c.Op != CorrectionOps.Add,
+            AddedByUser = c.Op == CorrectionOps.Add,
+            Confirmed = c.Patch.Confirmed,
+            CorrectionState = c.State,
+            CorrectionId = c.CorrectionId,
+            CorrectionOp = c.Op,
+        };
+    }
+
+    // The marker of a removed event, rebuilt from the ledger's subject (type + time as
+    // detected). Kind/color follow the type's bucket so the ghost sits in its family.
+    private static VodEventDto Ghost(EventCorrection c)
+    {
+        var (kind, colorHex) = BucketEvent(c.SubjectType);
+        return new VodEventDto(
+            Id: 0,
+            EventType: c.SubjectType,
+            GameTimeSeconds: c.SubjectTimeS,
+            TimeLabel: FormatClock(c.SubjectTimeS),
+            ShortLabel: ShortLabel(c.SubjectType),
+            Label: EventLabel(c.SubjectType),
+            Summary: "removed by you",
+            Kind: kind,
+            ColorHex: colorHex,
+            EventKey: c.SubjectKey,
+            Removed: true,
+            CorrectionState: c.State,
+            CorrectionId: c.CorrectionId,
+            CorrectionOp: CorrectionOps.Remove);
     }
 
     // ── event marker mapping (mirrors WinUI TimelineEvent) ────────────────────
@@ -374,6 +467,7 @@ public sealed class VodSnapshotBuilder
         "ALL_IN" => "ALL",
         "UNCERTAIN_COMBAT" => "?",
         "JUNGLE_PROXIMITY" => "JPX",
+        "TEAMFIGHT" => "TF",
         _ => "EVT",
     };
 
@@ -397,6 +491,7 @@ public sealed class VodSnapshotBuilder
         "ALL_IN" => "All-in",
         "UNCERTAIN_COMBAT" => "Uncertain combat",
         "JUNGLE_PROXIMITY" => "Jungle Proximity",
+        "TEAMFIGHT" => "Teamfight",
         _ => eventType ?? "",
     };
 
@@ -506,7 +601,9 @@ public sealed class VodSnapshotBuilder
         Bookmarks: Array.Empty<VodBookmarkDto>(),
         GameEvents: Array.Empty<VodEventDto>(),
         AutoMoments: Array.Empty<VodEvidenceDto>(),
-        SavedClips: Array.Empty<VodEvidenceDto>());
+        SavedClips: Array.Empty<VodEvidenceDto>(),
+        EventTypeCatalog: VodCorrectionMapper.Catalog,
+        Corrections: Array.Empty<VodCorrectionDto>());
 
     private static string FormatClock(int seconds)
     {

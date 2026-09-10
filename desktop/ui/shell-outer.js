@@ -523,6 +523,16 @@ async function wireLiveAutoShow() {
           }
         } catch (_) { /* best-effort */ }
         break;
+      case 'eventsCorrected':
+        // v3.11: a timeline correction landed (VOD panel, review death links, or the
+        // legacy encounter form). Every page that draws game events refetches; each
+        // listener gates on gameId and never touches playback or unsaved text.
+        try {
+          if ((frameHas('vodplayer.html') || frameHas('review.html') || frameHas('patterns.html')) && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:events-corrected', { detail: p }));
+          }
+        } catch (_) { /* best-effort */ }
+        break;
       case 'liveState':
         // The replayed snapshot carries the current client state — seed the LCU
         // indicator from it (live changes arrive via 'lcuConnection' below).

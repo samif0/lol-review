@@ -27,7 +27,12 @@ public sealed record VodDto(
     // split out of IEvidenceRepository.GetForGameAsync so the 3-way Auto/Clips/
     // Bookmarks filter can render each lane. Bookmarks come from Bookmarks above.
     IReadOnlyList<VodEvidenceDto> AutoMoments,
-    IReadOnlyList<VodEvidenceDto> SavedClips);
+    IReadOnlyList<VodEvidenceDto> SavedClips,
+    // v3.11: the correctable event types (per-type attribute chips) the fix panel
+    // builds its selects from, and this game's corrections ledger (newest first).
+    // The builder always fills both; Empty() passes empty lists.
+    IReadOnlyList<VodEventTypeDto>? EventTypeCatalog = null,
+    IReadOnlyList<VodCorrectionDto>? Corrections = null);
 
 /// <summary>A timeline marker (moment) on the VOD.</summary>
 public sealed record VodBookmarkDto(
@@ -86,7 +91,21 @@ public sealed record VodEventDto(
     bool ReviewedEncounter = false,
     // v3.8: the fight this TEAMFIGHT pin stands for (numbers, window, roster). Set only
     // on TEAMFIGHT entries; a synthetic own-event cluster carries Stored = false.
-    VodTeamfightDto? Teamfight = null);
+    VodTeamfightDto? Teamfight = null,
+    // v3.11: the corrections ledger's view of this marker. EventKey is the row's stable
+    // identity (game_events.event_key; "" when unstamped or synthetic) the fix panel
+    // addresses corrections by. Corrected = an applicable retype/retime/attr/confirm is
+    // attached; AddedByUser = the row is an op add; Removed = a ghost entry rebuilt from
+    // an active op remove (Id = 0, the row itself is gone); Confirmed = the user marked
+    // it correct. CorrectionState/Id/Op describe the attached ledger row when any.
+    string EventKey = "",
+    bool Corrected = false,
+    bool AddedByUser = false,
+    bool Removed = false,
+    bool Confirmed = false,
+    string CorrectionState = "",
+    string CorrectionId = "",
+    string CorrectionOp = "");
 
 /// <summary>
 /// An evidence-inbox moment (auto-detected timeline region OR a saved clip) for
@@ -141,3 +160,49 @@ public sealed record VodTeamfightDto(
     IReadOnlyList<string> Allies,
     IReadOnlyList<string> Enemies,
     bool Stored);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v3.11 event corrections (the fix panel's catalog + this game's ledger)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>One allowed value of a choice attribute ("short" / "Short trade").</summary>
+public sealed record VodEventAttrOptionDto(string Value, string Label);
+
+/// <summary>One editable attribute of a correctable type. Input is "bool" | "choice".</summary>
+public sealed record VodEventAttrDto(
+    string Key,
+    string Label,
+    string Input,
+    IReadOnlyList<VodEventAttrOptionDto> Options);
+
+/// <summary>One correctable event type. Kind is "point" | "span" (spans carry an end time).</summary>
+public sealed record VodEventTypeDto(
+    string Type,
+    string Label,
+    string Kind,
+    string ColorHex,
+    IReadOnlyList<VodEventAttrDto> Attrs);
+
+/// <summary>
+/// One event_corrections row as the VOD panel's corrections list and GET /api/corrections
+/// show it. EventType / GameTimeSeconds / TimeLabel are the EFFECTIVE values after the
+/// cumulative patch; SubjectType / SubjectTimeSeconds are the row as detected.
+/// </summary>
+public sealed record VodCorrectionDto(
+    long Id,
+    string CorrectionId,
+    string Op,               // retype|retime|attr|remove|add|confirm
+    string State,            // active|absorbed|orphaned|superseded|reverted
+    string StateLabel,       // "applied" for active, else the state
+    string SubjectKey,
+    string SubjectType,
+    int SubjectTimeSeconds,
+    string EventType,        // effective type
+    int GameTimeSeconds,     // effective anchor
+    string TimeLabel,        // effective, "12:41"
+    string Summary,          // "Death moved 13:32 to 13:35"
+    string Reason,
+    long? AppliedEventId,
+    string ApplyError,
+    long CreatedAt,
+    bool CanRevert);         // state in (active, absorbed, orphaned)

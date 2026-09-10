@@ -660,6 +660,39 @@ async fn save_encounter(payload: serde_json::Value) -> Result<serde_json::Value,
     sidecar::post_json("/api/encounter/save", payload).await
 }
 
+// ── v3.11 Event corrections ledger ───────────────────────────────────────────
+// A timeline fix is one ledger row keyed on the event's stable event_key; the
+// sidecar applies it in place and publishes `eventsCorrected` so open pages
+// refetch. save_encounter above stays registered one release as an alias.
+
+/// Saves one timeline-event correction ({gameId, correctionId, op, subject?, patch?, reason?}).
+/// See Revu.Sidecar POST /api/event/correct.
+#[tauri::command]
+async fn save_event_correction(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/event/correct", payload).await
+}
+
+/// Reverts one correction ({gameId, correctionId}). See Revu.Sidecar POST /api/correction/revert.
+#[tauri::command]
+async fn revert_event_correction(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    sidecar::post_json("/api/correction/revert", payload).await
+}
+
+/// This game's corrections ({ ok, gameId, corrections:[...] }). See Revu.Sidecar GET /api/corrections.
+#[tauri::command]
+async fn get_event_corrections(game_id: i64) -> Result<serde_json::Value, String> {
+    sidecar::get_json(&format!("/api/corrections?gameId={game_id}")).await
+}
+
+/// Local JSON export ({ ok, json, count, fileName }); game_id None/0 = every game.
+#[tauri::command]
+async fn export_event_corrections(game_id: Option<i64>) -> Result<serde_json::Value, String> {
+    match game_id {
+        Some(g) if g > 0 => sidecar::get_json(&format!("/api/corrections/export?gameId={g}")).await,
+        _ => sidecar::get_json("/api/corrections/export").await,
+    }
+}
+
 #[tauri::command]
 async fn add_bookmark(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     sidecar::post_json("/api/bookmark/add", payload).await
@@ -1183,6 +1216,10 @@ pub fn run() {
             delete_matchup,
             add_bookmark,
             save_encounter,
+            save_event_correction,
+            revert_event_correction,
+            get_event_corrections,
+            export_event_corrections,
             update_bookmark_note,
             delete_bookmark,
             set_bookmark_objective,

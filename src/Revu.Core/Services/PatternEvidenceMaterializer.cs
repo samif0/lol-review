@@ -83,8 +83,8 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
     /// anchor once per FIGHT (the shared <see cref="TeamfightClustering.Resolve"/> set:
     /// stored post-game rows with numbers, else the synthetic combat clusters), under
     /// every fight token the fight matches that an objective tracks — never per
-    /// member event. Stale fight anchors (a fight the post-game pass moved or
-    /// dropped) are removed so a re-run converges.
+    /// member event. Stale anchors (an event a correction moved or removed, a fight
+    /// the post-game pass moved or dropped) are removed so a re-run converges.
     /// </summary>
     private async Task MaterializeTrackedEventAnchorsAsync(long gameId)
     {
@@ -94,33 +94,36 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
             StringComparer.Ordinal);
 
         var events = await _gameEvents.GetEventsAsync(gameId);
-        var fightKeys = new HashSet<string>(StringComparer.Ordinal);
 
-        if (trackedTokens.Count > 0)
+        // Every objev: key this game's events COULD produce, tracked or not. A token an
+        // objective merely stopped tracking keeps its history because its keys stay live;
+        // only an anchor no event produces any more (v3.11: a retimed or removed event,
+        // a moved fight) is stale.
+        var liveKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var e in events)
         {
-            foreach (var e in events)
+            if (TeamfightClustering.IsStoredTeamfight(e))
             {
-                if (TeamfightClustering.IsStoredTeamfight(e))
-                {
-                    continue; // a fight anchors once, per span, below
-                }
-                foreach (var rawToken in ObjectiveEventTieResolver.EventTokens(e))
-                {
-                    var token = PatternConstants.Canonical(rawToken);
-                    if (!trackedTokens.Contains(token))
-                    {
-                        continue;
-                    }
-                    await UpsertAnchorAsync(
-                        gameId,
-                        sourceKey: PatternConstants.ObjEventSourceKey(token, e.GameTimeS),
-                        title: PatternConstants.TokenLabel(token),
-                        startS: Math.Max(0, e.GameTimeS - PatternConstants.MomentLeadSeconds),
-                        endS: e.GameTimeS + PatternConstants.MomentTrailSeconds,
-                        polarity: PolarityFor(token));
-                }
+                continue; // a fight anchors once, per span, below
             }
-
+            foreach (var rawToken in ObjectiveEventTieResolver.EventTokens(e))
+            {
+                var token = PatternConstants.Canonical(rawToken);
+                var key = PatternConstants.ObjEventSourceKey(token, e.GameTimeS);
+                liveKeys.Add(key);
+                if (!trackedTokens.Contains(token))
+                {
+                    continue;
+                }
+                await UpsertAnchorAsync(
+                    gameId,
+                    sourceKey: key,
+                    title: PatternConstants.TokenLabel(token),
+                    startS: Math.Max(0, e.GameTimeS - PatternConstants.MomentLeadSeconds),
+                    endS: e.GameTimeS + PatternConstants.MomentTrailSeconds,
+                    polarity: PolarityFor(token));
+            }
         }
 
         // Fights the player was NOT in never anchor: an anchor is a review moment in
@@ -138,7 +141,7 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
             {
                 var token = PatternConstants.Canonical(rawToken);
                 var key = PatternConstants.ObjEventSourceKeyForToken(token) + anchor;
-                fightKeys.Add(key);
+                liveKeys.Add(key);
                 if (!trackedTokens.Contains(token))
                 {
                     continue;
@@ -153,7 +156,7 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
             }
         }
 
-        await CleanupStaleFightAnchorsAsync(gameId, fightKeys);
+        await CleanupStaleAnchorsAsync(gameId, liveKeys);
     }
 
     // The fight tokens a span matches: a stored row's own tokens (verdict + TEAMFIGHT,
@@ -163,43 +166,23 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
             ? ObjectiveEventTieResolver.EventTokens(stored)
             : [GameEvent.TrackableTokens.TeamfightToken];
 
-    // Drop this game's fight anchors whose key no fight produces any more (the fight
-    // moved when the post-game pass replaced the synthetic cluster, or vanished).
-    // Only untouched default rows go: anything the user noted, triaged (dismissed /
-    // highlighted), or attached to an objective, prompt or tag is theirs to keep.
-    private async Task CleanupStaleFightAnchorsAsync(long gameId, IReadOnlySet<string> liveKeys)
+    // Drop this game's objev: anchors whose key no event produces any more (a death a
+    // correction retimed or removed, a fight that moved when the post-game pass replaced
+    // the synthetic cluster, or vanished). Only UNTOUCHED default rows go (the shared
+    // EvidenceAutoAnchors rule): anything the user noted, triaged (dismissed / highlighted /
+    // re-judged), or attached to an objective, prompt, tag or matchup note is theirs to keep.
+    private async Task CleanupStaleAnchorsAsync(long gameId, IReadOnlySet<string> liveKeys)
     {
         foreach (var row in await _evidence.GetForGameAsync(gameId, includeDismissed: true))
         {
-            if (row.SourceKind != EvidenceKinds.TimelineRegion
+            if (!row.SourceKey.StartsWith(PatternConstants.ObjEventSourceKeyPrefix, StringComparison.Ordinal)
                 || liveKeys.Contains(row.SourceKey)
-                || !IsFightAnchorKey(row.SourceKey)
-                || !string.IsNullOrWhiteSpace(row.Note)
-                || row.Status != EvidenceStatuses.Evidence
-                || row.ObjectiveId is not null
-                || row.PromptId is not null
-                || row.ConceptTagId is not null)
+                || !EvidenceAutoAnchors.IsUntouched(row))
             {
                 continue;
             }
             await _evidence.DeleteBySourceKeyAsync(gameId, EvidenceKinds.TimelineRegion, row.SourceKey);
         }
-    }
-
-    // objev:{TOKEN}:{t} where TOKEN is a fight token (they all end in TEAMFIGHT).
-    private static bool IsFightAnchorKey(string sourceKey)
-    {
-        if (!sourceKey.StartsWith(PatternConstants.ObjEventSourceKeyPrefix, StringComparison.Ordinal))
-        {
-            return false;
-        }
-        var rest = sourceKey.AsSpan(PatternConstants.ObjEventSourceKeyPrefix.Length);
-        var colon = rest.IndexOf(':');
-        if (colon <= 0)
-        {
-            return false;
-        }
-        return rest[..colon].EndsWith(GameEvent.TrackableTokens.TeamfightToken, StringComparison.Ordinal);
     }
 
     public async Task MaterializeReviewSignalsAsync(long gameId)

@@ -978,6 +978,8 @@ select.obj-input option{background:#14102a;color:var(--t1)}
 .rv-vodbar{display:flex;align-items:center;gap:13px;margin-top:16px;position:relative;flex-wrap:wrap}
 /* .rv-vodbtn rides the shared .review pill; no overrides needed. */
 .rv-reviewed{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--win)}
+/* v3.11: how many timeline corrections apply to this game (hidden at 0). */
+.rv-fixes{font-family:var(--fm);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--gold)}
 
 /* OBJECTIVES SECTION — the focus block, lifted to the top under the game header. */
 .rv-objsec{margin-top:26px}
@@ -1157,6 +1159,15 @@ select.obj-input option{background:#14102a;color:var(--t1)}
   color:var(--gold);border:1px solid rgba(243,199,148,0.4);border-radius:6px;padding:2px 8px;
   background:rgba(243,199,148,0.08)}
 .rv-death-chips{display:flex;flex-wrap:wrap;gap:6px}
+/* v3.11 timeline fixes on a death row: quiet links ("not a death" / "wrong time"),
+   an inline m:ss field, and undo. A removed death strikes its time through. */
+.rv-death-fixes{display:flex;gap:8px;margin-left:auto}
+.rv-death-fix{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4);
+  background:none;border:0;padding:2px 4px;cursor:pointer}
+.rv-death-fix:hover{color:var(--gold);text-decoration:underline}
+.rv-death.is-removed .rv-death-time{text-decoration:line-through;opacity:0.6}
+.rv-death-retime{display:flex;gap:6px;align-items:center}
+.rv-death-retime-in{width:64px;margin:0;padding:5px 8px}
 .rv-dchip{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;
   color:var(--t4);border:1px solid var(--gline2);border-radius:7px;padding:5px 9px;
   background:rgba(255,255,255,0.02);cursor:pointer;transition:border-color .16s,color .16s,background .16s}
@@ -2283,6 +2294,59 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .mini .keycap{margin-left:6px;font-size:9px;padding:1px 6px}
 .vp-bm-hint{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--win);margin-top:2px}
 .vp-bm-hint.err{color:var(--loss)}
+
+/* ── Timeline corrections panel (v3.11, vodcorrections.js) ── */
+.vp-fix-keys{font-family:var(--fm);font-size:9px;letter-spacing:0.3px;color:var(--t4);line-height:1.5;margin-bottom:8px;position:relative}
+.vp-fix-keys b{color:var(--t2);font-weight:700}
+.vp-fix-sel{font-family:var(--fb);font-size:11.5px;color:var(--t3);margin-bottom:9px;position:relative}
+.vp-fix-form{position:relative}
+.vp-fix-form label{display:flex;flex-direction:column;gap:4px;flex:1;min-width:120px;
+  font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4)}
+.vp-fix-form label .inp{margin-bottom:0}
+.vp-fix-form .row > .key{align-self:flex-end;cursor:pointer}
+.vp-fix-attrs{display:flex;flex-direction:column;gap:7px;margin-bottom:9px}
+.vp-fix-attr-group{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+.vp-fix-attr-lbl{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4);margin-right:4px}
+/* Attribute chips reuse the .q look; the lit chip is the value that will be sent. */
+.vp-fix-attr{cursor:pointer;transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,color .16s ease,background .16s ease}
+.vp-fix-attr:hover{transform:translateY(-1px);color:#fff}
+.vp-fix-attr.is-on{color:var(--gold);border-color:rgba(243,199,148,0.6);background:rgba(243,199,148,0.14)}
+/* Save is interactive (the #vp-bm-add override pattern). */
+#vp-fix-save{cursor:pointer;color:#1b1233;font-weight:700;
+  background:linear-gradient(180deg,#bcacff,var(--accent));border-color:transparent;
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),filter .16s ease}
+#vp-fix-save:hover{transform:translateY(-1px);filter:brightness(1.06)}
+#vp-fix-save:active{transform:translateY(0);transition-duration:.06s}
+#vp-fix-save:disabled{opacity:0.6;cursor:default;transform:none;filter:none}
+.vp-fix-form .key[data-action="fix_cancel"]{cursor:pointer}
+.vp-fix-list-wrap{margin-top:10px;position:relative}
+.vp-fix-list-title{font-family:var(--fm);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t4);
+  cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none}
+.vp-fix-list-title::-webkit-details-marker{display:none}
+.vp-fix-list-title .openbadge{padding:2px 7px;font-size:9px}
+.vp-fix-list{display:flex;flex-direction:column;gap:6px;margin:9px 0}
+.vp-fix-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 10px;border-radius:9px;
+  background:rgba(0,0,0,0.26);border:1px solid var(--gline2);cursor:pointer;outline:none;
+  font-family:var(--fb);font-size:11px;color:var(--t2);
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),border-color .16s ease,background .16s ease}
+.vp-fix-row:hover,.vp-fix-row:focus-visible{transform:translateY(-1px);border-color:rgba(157,139,255,0.5);background:rgba(157,139,255,0.06)}
+.vp-fix-what{flex:1;min-width:120px}
+.vp-fix-reason{flex-basis:100%;font-size:10.5px;color:var(--t4);font-style:italic}
+.vp-fix-state.is-active{color:var(--gold);border-color:rgba(243,199,148,0.5)}
+.vp-fix-state.is-absorbed{color:var(--win);border-color:rgba(142,231,186,0.5)}
+.vp-fix-state.is-orphaned{color:var(--loss);border-color:rgba(243,163,168,0.5)}
+.vp-fix-revert{padding:4px 8px;font-size:10px;cursor:pointer}
+.vp-fix-revert:hover{color:var(--gold);border-color:rgba(243,199,148,0.5)}
+#vp-fix-export{cursor:pointer}
+#vp-fix-export:hover{color:#fff;border-color:rgba(157,139,255,0.5)}
+/* Undo toast for the one-shot keys (Delete / nudge). */
+.vp-toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;
+  padding:10px 14px;border-radius:12px;background:rgba(14,10,30,0.92);border:1px solid var(--gline);backdrop-filter:blur(16px);
+  font-family:var(--fb);font-size:11.5px;color:var(--t2);box-shadow:0 14px 32px -16px rgba(0,0,0,0.8)}
+.vp-toast-undo{font-family:var(--fm);font-size:10px;letter-spacing:1px;color:var(--gold);border:1px solid rgba(243,199,148,0.45);
+  border-radius:8px;padding:6px 12px;cursor:pointer;background:rgba(243,199,148,0.07);
+  transition:transform .16s cubic-bezier(0.22,1,0.36,1),background .16s ease,border-color .16s ease}
+.vp-toast-undo:hover{transform:translateY(-1px);background:rgba(243,199,148,0.16);border-color:rgba(243,199,148,0.75)}
 /* Inline edit row inside a plain-bookmark moment: note field + delete button. */
 .vp-bm-edit{display:flex;align-items:center;gap:7px;margin-top:8px;padding-right:34px}
 .vp-bm-editnote{flex:1;font-family:var(--fb);font-size:11.5px;color:var(--t2);
@@ -2479,6 +2543,21 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 .vp-timeline .evbar-dim{--evh:9px;opacity:0.3;box-shadow:none;background:rgba(255,255,255,0.3);width:2px}
 .vp-timeline .evbar-dim:hover{opacity:0.85;width:3px;background:rgba(255,255,255,0.55)}
 
+/* Timeline corrections (v3.11). The SELECTED marker gets a white halo so the fast-path
+   keys (E / Delete / [ ]) have an unmistakable target. A FIXED event (retype/retime/
+   attr/confirm applied) wears a small gold ring cap, the objective-lane ring's cousin;
+   a USER-ADDED event a dashed gold outline; a REMOVED event stays as a faint dashed
+   ghost (restorable: select + Delete). */
+.vp-timeline .evbar-sel{width:3px;z-index:6;filter:brightness(1.4);
+  box-shadow:0 0 0 2px rgba(255,255,255,0.9),0 0 12px -1px var(--evc)}
+.vp-timeline .evbar-fixed::before{content:'';position:absolute;top:-6px;left:50%;width:7px;height:7px;
+  transform:translateX(-50%);border-radius:50%;background:var(--gold);
+  box-shadow:0 0 0 2px rgba(8,6,18,0.85),0 0 7px -1px var(--gold);pointer-events:none}
+.vp-timeline .evbar-added{outline:1px dashed var(--gold);outline-offset:1px}
+.vp-timeline .evbar-ghost{--evc:var(--loss);--evh:16px;opacity:0.35;width:2px;background:none;
+  border-left:2px dashed var(--loss);box-shadow:none}
+.vp-timeline .evbar-ghost:hover,.vp-timeline .evbar-ghost.evbar-sel{opacity:0.9}
+
 /* In-objective marker stepper — small glass keys (like the I/O transport) that step
    between THIS objective's markers. Lives beside the timeline. Visually distinct from
    the objective tab bar (which switches objectives) — two nav levels, never confused. */
@@ -2519,7 +2598,7 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 
 @media (prefers-reduced-motion: reduce){
   .tbtn,.vp-rate-sel,.moment,.tab,#vp-bm-add,.vp-bm-del,.vp-share-btn,.vp-copy-btn,.evbar,
-  .vp-objtab,.vp-mkstep-btn,.vp-nudge-cta{transition:none !important}
+  .vp-objtab,.vp-mkstep-btn,.vp-nudge-cta,.evbar-ghost,.vp-fix-row,.vp-toast,.vp-fix-attr,#vp-fix-save,.vp-toast-undo{transition:none !important}
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

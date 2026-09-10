@@ -728,6 +728,15 @@ function wireNoteEditor() {
 // Persist a pending note if the user navigates away / closes the page.
 window.addEventListener('beforeunload', () => { flushOutgoingNote(); });
 
+// v3.11: a timeline correction landed somewhere (VOD panel, review death links);
+// pattern moments anchor on those events, so refetch. Never while the user is typing
+// a note. loadPatterns() is a no-op when a load is already in flight.
+window.addEventListener('revu:events-corrected', () => {
+  const a = document.activeElement;
+  if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) return;
+  loadPatterns();
+});
+
 // ── boot ────────────────────────────────────────────────────────────────────
 async function boot() {
   wireNoteEditor();

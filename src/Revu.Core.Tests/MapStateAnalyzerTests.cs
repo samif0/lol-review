@@ -324,6 +324,29 @@ public sealed class MapStateAnalyzerTests
         Assert.True(d.GetProperty("map_state").GetBoolean());
     }
 
+    [Fact]
+    public void Stamping_DropsTheCorrectionsOwnAttrs_BeforeDeciding()
+    {
+        // A laner (8) killed the player, so the analyzer decides "not a fog death". The row
+        // carries the user's fog_death=true fix (marker attrs); the stamp must not echo it,
+        // so the ledger can tell "the detector wrote this" from "the user wrote this".
+        var timeline = Timeline(
+            Frame(360_000, string.Join(",", PFrame(1, 7000, 7000), PFrame(7, 8000, 8000)),
+                KillEvent(300_000, killerId: 8, victimId: 1, x: 7000, y: 5000)));
+        var death = Death(300,
+            "{\"killer\":\"Garen\",\"fog_death\":true,\"jungle_gank\":true,\"correction\":{\"id\":\"c1\",\"op\":\"attr\",\"attrs\":[\"fog_death\",\"jungle_gank\"]}}");
+
+        var result = MapStateAnalyzer.Analyze(MatchPayload(), timeline, SelfPuuid, [death]);
+
+        Assert.Same(death, Assert.Single(result.StampedDeaths));
+        var d = Details(death);
+        Assert.False(d.TryGetProperty("fog_death", out _));
+        Assert.False(d.TryGetProperty("jungle_gank", out _));
+        Assert.True(d.GetProperty("map_state").GetBoolean());
+        Assert.Equal("Garen", d.GetProperty("killer").GetString());
+        Assert.Equal("c1", d.GetProperty("correction").GetProperty("id").GetString());
+    }
+
     // ── persistence round-trip ───────────────────────────────────────────────
 
     [Fact]

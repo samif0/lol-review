@@ -55,7 +55,12 @@ public static class Schema
     //               prior written before queuing and what was observed after.
     //               game_id is a nullable link to the game the card was
     //               pre-filled from. Forward-only, additive (CREATE IF NOT EXISTS).
-    public const int CurrentAppSchemaVersion = 15;
+    // v16 (2026-09): event corrections ledger. game_events.event_key (stable identity per row)
+    //               + the event_corrections table (append-only user corrections keyed on it).
+    //               Legacy details.source='reviewed_encounter' rows are imported into the ledger
+    //               eagerly by EventCorrectionsLegacyImport right after the ALTER. Forward-only.
+    public const int CurrentAppSchemaVersion = 16;
+    public const int EventCorrectionsSchemaVersion = 16;
     public const string AppSchemaVersionKey = "app_schema_version";
 
     // ── CREATE TABLE statements ──────────────────────────────────────
@@ -1144,6 +1149,78 @@ public static class Schema
         CreateMatchupsLaneIndex,
     ];
 
+    /// <summary>v3.11 (schema v16): every game_events row gets a stable identity so a user
+    /// correction can find its subject again after a re-capture regenerates the row ids.
+    /// NULL on rows that predate the ledger until the startup sweep stamps them.</summary>
+    public const string AlterGameEventsAddEventKey = "ALTER TABLE game_events ADD COLUMN event_key TEXT";
+
+    public const string CreateGameEventsKeyIndex = """
+        CREATE INDEX IF NOT EXISTS idx_game_events_key ON game_events (game_id, event_key);
+        """;
+
+    /// <summary>
+    /// v3.11 (schema v16): the event corrections ledger. One append-only row per user fix on a
+    /// timeline event (retype, retime, attr, remove, add, confirm) plus the revert rows that undo
+    /// them. <c>subject_key</c> is the corrected row's <c>event_key</c> (or <c>usr:{guid}</c> for an
+    /// add), <c>patch</c> is the CUMULATIVE change on top of the <c>original</c> snapshot, and the
+    /// state machine (active, superseded, reverted, absorbed, orphaned) records whether the fix
+    /// still applies, was replaced, was undone, was reproduced by a newer detector, or lost its
+    /// subject. <c>reason</c> is the only free text that could ever leave the machine.
+    /// </summary>
+    public const string CreateEventCorrectionsTable = """
+        CREATE TABLE IF NOT EXISTS event_corrections (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          correction_id    TEXT    NOT NULL,
+          game_id          INTEGER NOT NULL,
+          subject_key      TEXT    NOT NULL,
+          subject_type     TEXT    NOT NULL,
+          subject_time_s   INTEGER NOT NULL,
+          op               TEXT    NOT NULL,
+          patch            TEXT    NOT NULL DEFAULT '{}',
+          original         TEXT    NOT NULL DEFAULT '{}',
+          reason           TEXT    NOT NULL DEFAULT '',
+          detector         TEXT    NOT NULL DEFAULT '',
+          detector_v       INTEGER,
+          app_version      TEXT    NOT NULL DEFAULT '',
+          supersedes_id    INTEGER,
+          rebased_from     TEXT    NOT NULL DEFAULT '',
+          delta_s          INTEGER,
+          state            TEXT    NOT NULL DEFAULT 'active',
+          applied_event_id INTEGER,
+          applied_at       INTEGER,
+          apply_error      TEXT    NOT NULL DEFAULT '',
+          share_state      TEXT    NOT NULL DEFAULT 'held',
+          shared_at        INTEGER,
+          created_at       INTEGER NOT NULL,
+          updated_at       INTEGER NOT NULL,
+          FOREIGN KEY (game_id) REFERENCES games(game_id)
+        );
+        """;
+
+    public const string CreateEventCorrectionsCidIndex = """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_event_corrections_cid ON event_corrections (correction_id);
+        """;
+
+    public const string CreateEventCorrectionsSubjectIndex = """
+        CREATE INDEX IF NOT EXISTS idx_event_corrections_subject ON event_corrections (game_id, subject_key, state);
+        """;
+
+    public const string CreateEventCorrectionsShareIndex = """
+        CREATE INDEX IF NOT EXISTS idx_event_corrections_share ON event_corrections (share_state, created_at);
+        """;
+
+    /// <summary>v3.11 (schema v16): event_key + the corrections ledger. The ALTER is duplicate-column
+    /// tolerant (ExecuteMigrationSetAsync); everything else is IF NOT EXISTS.</summary>
+    public static readonly string[] MigrateEventCorrections =
+    [
+        AlterGameEventsAddEventKey,
+        CreateGameEventsKeyIndex,
+        CreateEventCorrectionsTable,
+        CreateEventCorrectionsCidIndex,
+        CreateEventCorrectionsSubjectIndex,
+        CreateEventCorrectionsShareIndex,
+    ];
+
     // ── Aggregated arrays for initialisation ─────────────────────────
 
     /// <summary>
@@ -1195,6 +1272,13 @@ public static class Schema
         CreateMatchupNotesTable,
         CreateMatchupsTable,
         CreateMatchupsLaneIndex,
+        // v16 NOTE: the ledger table + its indexes are safe here (IF NOT EXISTS), but the
+        // game_events.event_key ALTER and idx_game_events_key are NOT: this list runs before
+        // the versioned loop, and on a v15 DB the column does not exist yet.
+        CreateEventCorrectionsTable,
+        CreateEventCorrectionsCidIndex,
+        CreateEventCorrectionsSubjectIndex,
+        CreateEventCorrectionsShareIndex,
         CreateSessionsTable,
         CreateTiltChecksTable,
         CreateMissedGameDecisionsTable,
@@ -1292,6 +1376,10 @@ public static class Schema
         new(14, "rules-enforce-hard-stops", MigrateRulesEnforce),
         // v3.9 (schema v15): matchups — the matchup journal table + lane index.
         new(15, "matchups-journal", MigrateMatchups),
+        // v3.11 (schema v16): game_events.event_key + the event_corrections ledger.
+        // DatabaseInitializer runs the eager legacy reviewed-encounter import right
+        // after this set, before the version is recorded.
+        new(16, "event-corrections", MigrateEventCorrections),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

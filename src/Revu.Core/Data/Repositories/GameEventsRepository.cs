@@ -1,13 +1,22 @@
 #nullable enable
 
 using Revu.Core.Models;
+using Revu.Core.Services;
 using Microsoft.Data.Sqlite;
 
 namespace Revu.Core.Data.Repositories;
 
-/// <summary>CRUD for game_events table.</summary>
+/// <summary>CRUD for game_events table. v3.11 (schema v16): every insert carries the row's
+/// event_key and the three re-detection writers run the corrections applier inside their own
+/// transaction (rules A, B, C) so a user's fix survives the detector that produced its subject.</summary>
 public sealed class GameEventsRepository : IGameEventsRepository
 {
+    private const string InsertSql = """
+        INSERT INTO game_events (game_id, event_type, game_time_s, details, event_key)
+        VALUES (@gameId, @eventType, @gameTimeSeconds, @details, @eventKey)
+        RETURNING id
+        """;
+
     private readonly IDbConnectionFactory _factory;
 
     public GameEventsRepository(IDbConnectionFactory factory) => _factory = factory;
@@ -22,54 +31,55 @@ public sealed class GameEventsRepository : IGameEventsRepository
         using (var read = conn.CreateCommand())
         {
             read.Transaction = transaction;
-            read.CommandText = "SELECT event_type, game_time_s, details FROM game_events WHERE game_id=@game";
+            read.CommandText = "SELECT id, event_type, game_time_s, details, event_key FROM game_events WHERE game_id=@game";
             read.Parameters.AddWithValue("@game", gameId);
             using var reader = await read.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                var data = ReviewedEncountersRepository.ReviewDetails(reader.GetString(2));
+                var data = ReviewedEncountersRepository.ReviewDetails(reader.IsDBNull(3) ? "{}" : reader.GetString(3));
                 if (data is null) continue;
-                var time = reader.GetInt32(1);
-                reviewed.Add((data["original_type"]?.GetValue<string>() ?? reader.GetString(0),
+                var time = reader.GetInt32(2);
+                reviewed.Add((data["original_type"]?.GetValue<string>() ?? reader.GetString(1),
                     data["original_time_s"]?.GetValue<int>() ?? time,
                     data["start_s"]?.GetValue<int>() ?? time, data["end_s"]?.GetValue<int>() ?? time));
             }
         }
 
+        // Rule A: corrected rows (marker) and reviewed rows (legacy source) both survive the replace.
         using (var deleteCommand = conn.CreateCommand())
         {
-            deleteCommand.CommandText = """
+            deleteCommand.CommandText = $"""
                 DELETE FROM game_events WHERE game_id = @gameId
-                AND (CASE WHEN json_valid(details) THEN json_extract(details, '$.source') END) IS NOT 'reviewed_encounter'
+                AND {EventCorrectionSql.NotCorrectedPredicate}
+                AND {EventCorrectionSql.NotReviewedPredicate}
                 """;
             deleteCommand.Parameters.AddWithValue("@gameId", gameId);
             deleteCommand.Transaction = transaction;
             await deleteCommand.ExecuteNonQueryAsync();
         }
 
-        using var insertCommand = conn.CreateCommand();
-        insertCommand.CommandText = """
-            INSERT INTO game_events (game_id, event_type, game_time_s, details)
-            VALUES (@gameId, @eventType, @gameTimeSeconds, @details)
-            """;
-        insertCommand.Transaction = transaction;
+        var keys = EventIdentity.KeyForBatch(events);
+        var plan = await EventCorrectionApplier.PlanIncomingAsync(conn, transaction, gameId, events, keys, EventCorrectionApplier.LiveTypes);
 
-        var gameIdParameter = insertCommand.Parameters.Add("@gameId", SqliteType.Integer);
-        var eventTypeParameter = insertCommand.Parameters.Add("@eventType", SqliteType.Text);
-        var gameTimeParameter = insertCommand.Parameters.Add("@gameTimeSeconds", SqliteType.Integer);
-        var detailsParameter = insertCommand.Parameters.Add("@details", SqliteType.Text);
-
-        foreach (var gameEvent in events)
+        using var insert = new RowInserter(conn, transaction, gameId);
+        foreach (var d in plan.Decisions)
         {
-            if (ReviewedEncountersRepository.ReviewDetails(gameEvent.Details) is not null) continue;
-            if (ReviewedEncountersRepository.IsEncounter(gameEvent.EventType)
-                && reviewed.Any(r => (r.OriginalType == gameEvent.EventType && r.OriginalTime == gameEvent.GameTimeS)
-                    || (gameEvent.GameTimeS >= r.Start && gameEvent.GameTimeS <= r.End))) continue;
-            gameIdParameter.Value = gameId;
-            eventTypeParameter.Value = gameEvent.EventType;
-            gameTimeParameter.Value = gameEvent.GameTimeS;
-            detailsParameter.Value = string.IsNullOrWhiteSpace(gameEvent.Details) ? "{}" : gameEvent.Details;
-            await insertCommand.ExecuteNonQueryAsync();
+            if (d.Action == IncomingAction.Suppress) continue;
+            var gameEvent = d.Row;
+            if (d.Action == IncomingAction.Insert)
+            {
+                if (ReviewedEncountersRepository.ReviewDetails(gameEvent.Details) is not null) continue;
+                if (ReviewedEncountersRepository.IsEncounter(gameEvent.EventType)
+                    && reviewed.Any(r => (r.OriginalType == gameEvent.EventType && r.OriginalTime == gameEvent.GameTimeS)
+                        || (gameEvent.GameTimeS >= r.Start && gameEvent.GameTimeS <= r.End))) continue;
+            }
+            var newId = await insert.InsertAsync(gameEvent, d.EventKey);
+            if (d.CorrectionRowId is not null) await plan.RecordInsertedAsync(conn, transaction, d, newId);
+        }
+        foreach (var x in plan.Extras)
+        {
+            var newId = await insert.InsertAsync(x.Row, x.EventKey);
+            await plan.RecordInsertedAsync(conn, transaction, x, newId);
         }
 
         await transaction.CommitAsync();
@@ -80,7 +90,7 @@ public sealed class GameEventsRepository : IGameEventsRepository
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, game_id, event_type, game_time_s, details
+            SELECT id, game_id, event_type, game_time_s, details, event_key
             FROM game_events
             WHERE game_id = @gameId
             ORDER BY game_time_s ASC
@@ -98,6 +108,7 @@ public sealed class GameEventsRepository : IGameEventsRepository
                 EventType = reader.IsDBNull(2) ? "" : reader.GetString(2),
                 GameTimeS = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
                 Details = reader.IsDBNull(4) ? "{}" : reader.GetString(4),
+                EventKey = reader.IsDBNull(5) ? null : reader.GetString(5),
             });
         }
 
@@ -139,25 +150,23 @@ public sealed class GameEventsRepository : IGameEventsRepository
 
         using var conn = _factory.CreateConnection();
         using var transaction = conn.BeginTransaction();
-        using var insertCommand = conn.CreateCommand();
-        insertCommand.CommandText = """
-            INSERT INTO game_events (game_id, event_type, game_time_s, details)
-            VALUES (@gameId, @eventType, @gameTimeSeconds, @details)
-            """;
-        insertCommand.Transaction = transaction;
 
-        var gameIdParameter = insertCommand.Parameters.Add("@gameId", SqliteType.Integer);
-        var eventTypeParameter = insertCommand.Parameters.Add("@eventType", SqliteType.Text);
-        var gameTimeParameter = insertCommand.Parameters.Add("@gameTimeSeconds", SqliteType.Integer);
-        var detailsParameter = insertCommand.Parameters.Add("@details", SqliteType.Text);
+        // Rule B: the batch re-detects exactly the types it carries.
+        var keys = EventIdentity.KeyForBatch(events);
+        var scope = new HashSet<string>(events.Select(e => (e.EventType ?? "").ToUpperInvariant()), StringComparer.Ordinal);
+        var plan = await EventCorrectionApplier.PlanIncomingAsync(conn, transaction, gameId, events, keys, scope);
 
-        foreach (var gameEvent in events)
+        using var insert = new RowInserter(conn, transaction, gameId);
+        foreach (var d in plan.Decisions)
         {
-            gameIdParameter.Value = gameId;
-            eventTypeParameter.Value = gameEvent.EventType;
-            gameTimeParameter.Value = gameEvent.GameTimeS;
-            detailsParameter.Value = string.IsNullOrWhiteSpace(gameEvent.Details) ? "{}" : gameEvent.Details;
-            await insertCommand.ExecuteNonQueryAsync();
+            if (d.Action == IncomingAction.Suppress) continue;
+            var newId = await insert.InsertAsync(d.Row, d.EventKey);
+            if (d.CorrectionRowId is not null) await plan.RecordInsertedAsync(conn, transaction, d, newId);
+        }
+        foreach (var x in plan.Extras)
+        {
+            var newId = await insert.InsertAsync(x.Row, x.EventKey);
+            await plan.RecordInsertedAsync(conn, transaction, x, newId);
         }
 
         await transaction.CommitAsync();
@@ -167,9 +176,10 @@ public sealed class GameEventsRepository : IGameEventsRepository
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             DELETE FROM game_events WHERE game_id = @gameId AND event_type = @eventType
-            AND (CASE WHEN json_valid(details) THEN json_extract(details, '$.source') END) IS NOT 'reviewed_encounter'
+            AND {EventCorrectionSql.NotCorrectedPredicate}
+            AND {EventCorrectionSql.NotReviewedPredicate}
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
         cmd.Parameters.AddWithValue("@eventType", eventType);
@@ -179,10 +189,50 @@ public sealed class GameEventsRepository : IGameEventsRepository
     public async Task UpdateEventDetailsAsync(int eventId, string details)
     {
         using var conn = _factory.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE game_events SET details = @details WHERE id = @id";
-        cmd.Parameters.AddWithValue("@details", string.IsNullOrWhiteSpace(details) ? "{}" : details);
-        cmd.Parameters.AddWithValue("@id", eventId);
-        await cmd.ExecuteNonQueryAsync();
+        using var transaction = conn.BeginTransaction();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = "UPDATE game_events SET details = @details WHERE id = @id";
+            cmd.Parameters.AddWithValue("@details", string.IsNullOrWhiteSpace(details) ? "{}" : details);
+            cmd.Parameters.AddWithValue("@id", eventId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        // Rule C: a detector stamp never overwrites a corrected attribute.
+        await EventCorrectionApplier.ReapplyAttrsAsync(conn, transaction, eventId);
+        await transaction.CommitAsync();
+    }
+
+    /// <summary>One prepared INSERT ... RETURNING id reused across a batch.</summary>
+    private sealed class RowInserter : IDisposable
+    {
+        private readonly SqliteCommand _command;
+        private readonly SqliteParameter _eventType;
+        private readonly SqliteParameter _gameTime;
+        private readonly SqliteParameter _details;
+        private readonly SqliteParameter _eventKey;
+
+        public RowInserter(SqliteConnection conn, SqliteTransaction transaction, long gameId)
+        {
+            _command = conn.CreateCommand();
+            _command.CommandText = InsertSql;
+            _command.Transaction = transaction;
+            _command.Parameters.Add("@gameId", SqliteType.Integer).Value = gameId;
+            _eventType = _command.Parameters.Add("@eventType", SqliteType.Text);
+            _gameTime = _command.Parameters.Add("@gameTimeSeconds", SqliteType.Integer);
+            _details = _command.Parameters.Add("@details", SqliteType.Text);
+            _eventKey = _command.Parameters.Add("@eventKey", SqliteType.Text);
+        }
+
+        public async Task<long> InsertAsync(GameEvent gameEvent, string eventKey)
+        {
+            _eventType.Value = gameEvent.EventType;
+            _gameTime.Value = gameEvent.GameTimeS;
+            _details.Value = string.IsNullOrWhiteSpace(gameEvent.Details) ? "{}" : gameEvent.Details;
+            _eventKey.Value = string.IsNullOrEmpty(eventKey) ? DBNull.Value : eventKey;
+            return Convert.ToInt64(await _command.ExecuteScalarAsync());
+        }
+
+        public void Dispose() => _command.Dispose();
     }
 }

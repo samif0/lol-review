@@ -134,7 +134,10 @@ public sealed record ReviewHeaderDto(
     // game has no map (ARAM, pre-map rows before a backfill run) — the frontend
     // hides the strip. Reuses the Core display record; serializes camelCase like
     // everything else: {roleLabel, own, enemy, isUserLane}.
-    IReadOnlyList<Revu.Core.Services.LobbyMatchupRow> LobbyMatchups);
+    IReadOnlyList<Revu.Core.Services.LobbyMatchupRow> LobbyMatchups,
+    // v3.11: applicable timeline corrections on this game (active, absorbed, orphaned).
+    // Drives the header's "Timeline fixes: N" badge; 0 when the ledger is unavailable.
+    int TimelineFixes = 0);
 
 /// <summary>
 /// One cell of the review stat strip. <see cref="Value"/> is the big number,
@@ -278,7 +281,12 @@ public sealed record ReviewDeathDto(
     string SelectedLabel,
     bool IsClassified,
     // The six cause chips in display order, with IsSelected on the saved one.
-    IReadOnlyList<ReviewDeathChipDto> Chips);
+    IReadOnlyList<ReviewDeathChipDto> Chips,
+    // v3.11: the DEATH row's stable identity (game_events.event_key, "" when unstamped)
+    // and its row id, so the "not a death" / "wrong time" links can address the
+    // corrections ledger. Both empty/0 on an old snapshot; the page hides the links.
+    string EventKey = "",
+    long EventId = 0);
 
 /// <summary>One selectable death-cause chip. Key persists; Label/Hint display.</summary>
 public sealed record ReviewDeathChipDto(
