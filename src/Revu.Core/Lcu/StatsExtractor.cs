@@ -656,11 +656,20 @@ public static class StatsExtractor
     /// populated alongside it. Either is an authoritative assignment (never a
     /// slot-order guess, the v2.17.25 rule), so the first non-blank one wins.
     /// </summary>
-    private static string AssignedPosition(JsonElement player)
+    internal static string AssignedPosition(JsonElement player)
     {
-        var selected = player.GetPropertyOrDefault("selectedPosition", "");
-        if (!string.IsNullOrWhiteSpace(selected)) return selected;
-        return player.GetPropertyOrDefault("detectedTeamPosition", "");
+        var selected = NormalizePosition(player.GetPropertyOrDefault("selectedPosition", ""));
+        if (selected.Length > 0) return selected;
+        return NormalizePosition(player.GetPropertyOrDefault("detectedTeamPosition", ""));
+    }
+
+    // Only the five real lane values count as an assignment; the client also
+    // emits placeholders ("NONE", "UNSELECTED", "") which must read as blank so
+    // they never match an enemy carrying the same placeholder.
+    private static string NormalizePosition(string? value)
+    {
+        var upper = (value ?? "").Trim().ToUpperInvariant();
+        return upper is "TOP" or "JUNGLE" or "MIDDLE" or "BOTTOM" or "UTILITY" or "SUPPORT" ? upper : "";
     }
 
     /// <summary>

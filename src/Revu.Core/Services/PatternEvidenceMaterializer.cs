@@ -315,16 +315,6 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
             Status: EvidenceStatuses.Evidence));
     }
 
-    // Deaths (and their derived gank/fog attributes) read as bad; everything
-    // else a player might track (kills, objectives, trades, casts) is neutral —
-    // recurrence is the signal, not blame.
-    private static string PolarityFor(string token) => token switch
-    {
-        GameEvent.EventTypes.Death => EvidencePolarities.Bad,
-        GameEvent.TrackableTokens.JungleGankToken => EvidencePolarities.Bad,
-        GameEvent.TrackableTokens.FogDeathToken => EvidencePolarities.Bad,
-        // Committing while outnumbered is the decision the numbers filter exists to catch.
-        GameEvent.TrackableTokens.OutnumberedTeamfightToken => EvidencePolarities.Bad,
-        _ => EvidencePolarities.Neutral,
-    };
+    // Shared with EvidenceAutoAnchors (a polarity the user changed is a triage action).
+    private static string PolarityFor(string token) => PatternConstants.DefaultAnchorPolarity(token);
 }

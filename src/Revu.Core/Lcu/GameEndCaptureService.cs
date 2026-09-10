@@ -134,7 +134,10 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
                 enemy.Add((
                     names,
                     p.GetPropertyOrDefault("championName", ""),
-                    p.GetPropertyOrDefault("selectedPosition", "")));
+                    // Same assignment rule as the matchup (selectedPosition, else the
+                    // client's detectedTeamPosition) so the gank classifier and the
+                    // lobby map agree on who the enemy jungler is.
+                    StatsExtractor.AssignedPosition(p)));
             }
         }
         if (enemy.Count == 0) return Array.Empty<string>();

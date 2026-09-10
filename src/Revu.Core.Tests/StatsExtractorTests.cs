@@ -231,6 +231,38 @@ public sealed class StatsExtractorTests
     }
 
     [Fact]
+    public void ExtractFromEog_PlaceholderSelectedPosition_ReadsAsBlank_AndFallsBackToDetected()
+    {
+        // "NONE" on both the local player and an enemy must not pair them as lane
+        // opponents; the client's detected lane is the assignment.
+        var eog = ParseJson(
+            """
+            {
+              "gameId": 5638993645, "gameLength": 1500, "gameMode": "CLASSIC",
+              "queueType": "RANKED_SOLO_5x5", "gameType": "MATCHED_GAME",
+              "localPlayer": {
+                "teamId": 100, "championName": "Sivir", "championId": 15,
+                "selectedPosition": "NONE", "detectedTeamPosition": "BOTTOM",
+                "stats": { "CHAMPIONS_KILLED": "10", "NUM_DEATHS": "4", "ASSISTS": "8", "WIN": "1" }
+              },
+              "teams": [
+                { "teamId": 100, "stats": { "CHAMPIONS_KILLED": 30 }, "players": [
+                    { "championName": "Sivir", "selectedPosition": "NONE", "detectedTeamPosition": "BOTTOM", "stats": { "CHAMPIONS_KILLED": 10 } } ] },
+                { "teamId": 200, "stats": { "CHAMPIONS_KILLED": 20 }, "players": [
+                    { "championName": "Malphite", "selectedPosition": "NONE", "detectedTeamPosition": "TOP", "stats": { "CHAMPIONS_KILLED": 2 } },
+                    { "championName": "Varus", "selectedPosition": "NONE", "detectedTeamPosition": "BOTTOM", "stats": { "CHAMPIONS_KILLED": 9 } } ] }
+              ]
+            }
+            """);
+
+        var stats = StatsExtractor.ExtractFromEog(eog, NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        Assert.Equal("BOTTOM", stats!.Position);
+        Assert.Equal("Varus", stats.EnemyLaner);
+    }
+
+    [Fact]
     public void ExtractFromMatchHistory_PrefersQueueLabelForRankedSoloDuo()
     {
         var match = ParseJson(

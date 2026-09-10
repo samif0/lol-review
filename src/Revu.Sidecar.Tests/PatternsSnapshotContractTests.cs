@@ -121,6 +121,34 @@ public sealed class PatternsSnapshotContractTests
     }
 
     [Fact]
+    public async Task BuildAsync_GameLevelAnchors_StayInThePlaylist_WithoutARecording()
+    {
+        // A failed criterion is a fact about the whole game, not a second to
+        // watch: it opens the game as before even when no recording exists.
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var materializer = Materializer(scope);
+        var objectiveId = await scope.Objectives.CreateAsync("CS 7+/min by 10", "laning");
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        for (var i = 0; i < 3; i++)
+        {
+            var game = await scope.SeedGameAsync(gameId: 6901 + i, timestamp: now - (i + 1) * 3600);
+            await scope.Objectives.RecordGameAsync(game.GameId, objectiveId, practiced: true);
+            await scope.Objectives.SetCriteriaMetAsync(game.GameId, objectiveId, met: false);
+            await materializer.MaterializeReviewSignalsAsync(game.GameId);
+        }
+
+        var snapshot = await Builder(scope).BuildAsync();
+
+        var card = Assert.Single(snapshot.Patterns, p => p.Kind == PatternConstants.KindObjectiveCriteria);
+        Assert.Equal(3, card.MomentCount);
+        Assert.Equal(3, card.TotalMomentCount);
+        Assert.Equal(0, card.UnwatchableMomentCount);
+        Assert.Equal("3 moments across 3 games", card.Subtitle);
+        Assert.All(card.Moments, m => { Assert.False(m.HasVod); Assert.False(m.HasClip); Assert.Null(m.StartTimeSeconds); });
+    }
+
+    [Fact]
     public async Task BuildAsync_MomentsWithNothingLeftToWatch_StayOutOfThePlaylist_ButStillCount()
     {
         using var scope = new SidecarWriteScope();

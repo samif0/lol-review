@@ -17,11 +17,13 @@ public sealed class EvidenceAutoAnchorsTests
         string status = EvidenceStatuses.Evidence,
         long? objectiveId = null,
         long? promptId = null,
-        long? conceptTagId = null) => new(
+        long? conceptTagId = null,
+        long? matchupNoteId = null,
+        string polarity = EvidencePolarities.Neutral) => new(
             Id: 1, GameId: 10, SourceKind: sourceKind, SourceId: null, SourceKey: sourceKey,
             StartTimeSeconds: 100, EndTimeSeconds: 140, Title: "Trade", Note: note,
             ObjectiveId: objectiveId, ObjectiveTitle: "", ConceptTagId: conceptTagId, ConceptTagName: "",
-            MatchupNoteId: null, Polarity: EvidencePolarities.Neutral, Status: status,
+            MatchupNoteId: matchupNoteId, Polarity: polarity, Status: status,
             CreatedAt: 0, UpdatedAt: 0, ChampionName: "Ahri", Win: true, GameTimestamp: 0,
             PromptId: promptId);
 
@@ -30,7 +32,23 @@ public sealed class EvidenceAutoAnchorsTests
     {
         Assert.True(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objev:TRADE:120")));
         Assert.True(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objev:NUMBERS_UP_TEAMFIGHT:900")));
-        Assert.True(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objcrit:7")));
+        // The stamped default polarity is still untouched: deaths / outnumbered
+        // fights / failed criteria are written as bad.
+        Assert.True(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objev:DEATH:300", polarity: EvidencePolarities.Bad)));
+        Assert.True(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objev:OUTNUMBERED_TEAMFIGHT:1121-1137", polarity: EvidencePolarities.Bad)));
+        Assert.True(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objcrit:7", polarity: EvidencePolarities.Bad)));
+    }
+
+    [Fact]
+    public void AGoodOrBadJudgement_IsATriageAction()
+    {
+        // The Review page's Good / Bad chips change only polarity — that must
+        // count as the user having looked at the moment.
+        Assert.False(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objev:TRADE:120", polarity: EvidencePolarities.Bad)));
+        Assert.False(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objev:TRADE:120", polarity: EvidencePolarities.Good)));
+        Assert.False(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objev:DEATH:300", polarity: EvidencePolarities.Good)));
+        Assert.False(EvidenceAutoAnchors.IsUntouched(Row(sourceKey: "objcrit:7", polarity: EvidencePolarities.Good)));
+        Assert.False(EvidenceAutoAnchors.IsUntouched(Row(matchupNoteId: 2)));
     }
 
     [Fact]

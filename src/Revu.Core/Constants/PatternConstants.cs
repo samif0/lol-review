@@ -1,5 +1,6 @@
 #nullable enable
 
+using Revu.Core.Data.Repositories;
 using Revu.Core.Models;
 
 namespace Revu.Core.Constants;
@@ -92,6 +93,32 @@ public static class PatternConstants
     public const string KindObjectiveEvents = "objective_events";
 
     // ── Source keys (dedupe identity under idx_evidence_items_source_key) ───
+
+    /// <summary>
+    /// The polarity the materializer stamps on a tracked-event anchor. Deaths
+    /// (and their derived gank/fog attributes) read as bad; everything else a
+    /// player might track (kills, objectives, trades, casts) is neutral —
+    /// recurrence is the signal, not blame. Shared with EvidenceAutoAnchors so a
+    /// polarity the USER changed is recognised as a triage action.
+    /// </summary>
+    public static string DefaultAnchorPolarity(string token) => Canonical(token) switch
+    {
+        GameEvent.EventTypes.Death => EvidencePolarities.Bad,
+        GameEvent.TrackableTokens.JungleGankToken => EvidencePolarities.Bad,
+        GameEvent.TrackableTokens.FogDeathToken => EvidencePolarities.Bad,
+        // Committing while outnumbered is the decision the numbers filter exists to catch.
+        GameEvent.TrackableTokens.OutnumberedTeamfightToken => EvidencePolarities.Bad,
+        _ => EvidencePolarities.Neutral,
+    };
+
+    /// <summary>The token of an <c>objev:{TOKEN}:{anchor}</c> key, "" for any other key.</summary>
+    public static string TokenFromObjEventKey(string? sourceKey)
+    {
+        if (sourceKey is null || !sourceKey.StartsWith(ObjEventSourceKeyPrefix, StringComparison.Ordinal)) return "";
+        var rest = sourceKey.AsSpan(ObjEventSourceKeyPrefix.Length);
+        var colon = rest.IndexOf(':');
+        return colon <= 0 ? "" : Canonical(rest[..colon].ToString());
+    }
 
     /// <summary>One anchor per (game, tracked token, event second):
     /// <c>objev:{TOKEN}:{timeS}</c>. Objective-agnostic — the detectors join the

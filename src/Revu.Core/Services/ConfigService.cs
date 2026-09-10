@@ -25,8 +25,10 @@ public sealed class ConfigService : IConfigService
     private const string RiotPuuidSecretName = "riot_puuid";
     // v3.2: the session EXPIRY mirrored into DPAPI next to the token. Observed
     // live 2026-07-10: config.json vanished from disk twice AFTER a logged
-    // "session verified + persisted" (deleter unknown — no error, no corrupt
-    // backup), and because the expiry used to live ONLY in plaintext
+    // "session verified + persisted" (no error, no corrupt backup; the deleter
+    // turned out to be BackupService.ResetAllDataAsync run from the Core test
+    // suite against a temp DB — fixed 2026-09-09, and every write now keeps a
+    // config.json.bak that LoadFromDisk restores from), and because the expiry used to live ONLY in plaintext
     // config.json, every such loss read as expiry=0 → signed out on the next
     // launch even though the token secret survived. Mirroring the expiry makes
     // the session recoverable from the store alone, closing the whole
@@ -264,6 +266,7 @@ public sealed class ConfigService : IConfigService
 
     private async Task<AppConfig> LoadFromDiskAsync()
     {
+        TryRestoreFromBackup();
         try
         {
             if (File.Exists(_configFile))
@@ -280,7 +283,9 @@ public sealed class ConfigService : IConfigService
                 {
                     Directory.CreateDirectory(_configDir);
                     var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
-                    await WriteFileAtomicAsync(_configFile, sanitizedJson).ConfigureAwait(false);
+                    // keepBackup: false — the file being replaced still holds the
+                    // plaintext tokens this write exists to remove.
+                    await WriteFileAtomicAsync(_configFile, sanitizedJson, keepBackup: false).ConfigureAwait(false);
                 }
 
                 return HydrateSecrets(sanitized);
@@ -296,6 +301,7 @@ public sealed class ConfigService : IConfigService
 
     private AppConfig LoadFromDiskSync(bool allowMigrationWrite = true)
     {
+        TryRestoreFromBackup();
         try
         {
             if (File.Exists(_configFile))
@@ -312,7 +318,7 @@ public sealed class ConfigService : IConfigService
                 {
                     Directory.CreateDirectory(_configDir);
                     var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
-                    WriteFileAtomic(_configFile, sanitizedJson);
+                    WriteFileAtomic(_configFile, sanitizedJson, keepBackup: false);
                 }
 
                 return HydrateSecrets(sanitized);
@@ -334,12 +340,13 @@ public sealed class ConfigService : IConfigService
     // atomically replace the real file via File.Move(overwrite). Both files live
     // in the same directory so the rename stays on one volume (atomic on NTFS).
 
-    private static async Task WriteFileAtomicAsync(string path, string contents)
+    private static async Task WriteFileAtomicAsync(string path, string contents, bool keepBackup = true)
     {
         var tmp = path + ".tmp";
         try
         {
             await File.WriteAllTextAsync(tmp, contents).ConfigureAwait(false);
+            if (keepBackup) KeepBackup(path); else DropBackup(path);
             File.Move(tmp, path, overwrite: true);
         }
         catch
@@ -349,18 +356,69 @@ public sealed class ConfigService : IConfigService
         }
     }
 
-    private static void WriteFileAtomic(string path, string contents)
+    private static void WriteFileAtomic(string path, string contents, bool keepBackup = true)
     {
         var tmp = path + ".tmp";
         try
         {
             File.WriteAllText(tmp, contents);
+            if (keepBackup) KeepBackup(path); else DropBackup(path);
             File.Move(tmp, path, overwrite: true);
         }
         catch
         {
             TryDeleteTemp(tmp);
             throw;
+        }
+    }
+
+    // A rolling copy of the last good config.json, so a deleted file (anything
+    // from a stray reset to a disk hiccup) costs nothing: LoadFromDisk puts it
+    // back instead of silently running on defaults. Best effort — never blocks
+    // the write.
+    private static string BackupPathFor(string path) => path + ".bak";
+
+    private static void KeepBackup(string path)
+    {
+        try { if (File.Exists(path)) File.Copy(path, BackupPathFor(path), overwrite: true); }
+        catch { /* best effort */ }
+    }
+
+    // A write that must not be recoverable (the secret-migration rewrite): the
+    // previous file carried plaintext tokens, so no copy of it may survive.
+    private static void DropBackup(string path)
+    {
+        try { var bak = BackupPathFor(path); if (File.Exists(bak)) File.Delete(bak); }
+        catch { /* best effort */ }
+    }
+
+    private bool _reportedMissing;
+
+    private void TryRestoreFromBackup()
+    {
+        try
+        {
+            if (File.Exists(_configFile)) return;
+            var bak = BackupPathFor(_configFile);
+            if (File.Exists(bak))
+            {
+                File.Copy(bak, _configFile, overwrite: false);
+                _logger.LogWarning("config.json was missing; restored it from {Backup}", bak);
+                return;
+            }
+            // Missing with no backup and no way to tell first launch from loss
+            // here — a session store beside it means this is NOT a fresh install.
+            if (!_reportedMissing && File.Exists(Path.Combine(_configDir, "protected_secrets.bin")))
+            {
+                _reportedMissing = true;
+                _logger.LogWarning(
+                    "config.json is missing from {Dir} (secrets store present) — running on default settings until the next save",
+                    _configDir);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Config backup restore check failed");
         }
     }
 

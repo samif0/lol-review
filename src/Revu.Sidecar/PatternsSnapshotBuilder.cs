@@ -85,7 +85,7 @@ public sealed class PatternsSnapshotBuilder
             foreach (var pattern in rawPatterns)
             {
                 var rawMoments = await LoadMomentsAsync(pattern);
-                var moments = MapMoments(rawMoments);
+                var (moments, playableCount) = MapMoments(rawMoments);
 
                 // Reviewed with re-arm hysteresis (PatternReviewGate) — the ONE
                 // rule the dashboard nag also applies, so page and nag agree.
@@ -97,7 +97,7 @@ public sealed class PatternsSnapshotBuilder
                 var distinctGames = moments.Select(m => m.GameId).Distinct().Count();
                 var momentCount = moments.Count;
                 var totalMoments = rawMoments.Count;
-                var unwatchable = totalMoments - _lastPlayableCount;
+                var unwatchable = totalMoments - playableCount;
 
                 cards.Add(new PatternCardDto(
                     PatternKey: pattern.PatternKey,
@@ -176,12 +176,9 @@ public sealed class PatternsSnapshotBuilder
         }
     }
 
-    // Playable moments the last MapMoments call found BEFORE the display cap —
-    // read by BuildAsync right after the call to report the unwatchable count.
-    // (The loop in BuildAsync is sequential.)
-    private int _lastPlayableCount;
-
-    private IReadOnlyList<PatternMomentDto> MapMoments(IReadOnlyList<PatternMoment> moments)
+    /// <summary>The capped, watchable playlist plus the watchable count BEFORE the
+    /// cap (the builder is a singleton, so nothing is kept on the instance).</summary>
+    private static (IReadOnlyList<PatternMomentDto> Moments, int PlayableCount) MapMoments(IReadOnlyList<PatternMoment> moments)
     {
         // vod_files rows outlive the recordings they point at (Ascent retention
         // prunes old files), so probe the disk before advertising a playable
@@ -206,16 +203,17 @@ public sealed class PatternsSnapshotBuilder
         //   1. Only WATCHABLE moments: the game's recording is still on disk, or
         //      the moment kept a clip file. An anchor whose VOD is gone and that
         //      was never clipped has nothing to play — it still counts on the
-        //      card (TotalMomentCount) but never enters the playlist.
+        //      card (TotalMomentCount) but never enters the playlist. Start-less
+        //      anchors (a failed criterion is a fact about the whole game, not a
+        //      second to watch) are never filtered: they open the game as before.
         //   2. Capped at PatternMomentDisplayLimit. Everything the user touched
         //      (a note, a kept clip) is kept first; the remaining slots go to the
         //      NEWEST auto anchors, since a recurring pattern's latest instances
         //      are the ones to review. The final order stays chronological.
         var playable = moments
             .Select(m => (Moment: m, HasVod: OnDisk(m.VodPath), HasClip: OnDisk(m.ClipPath)))
-            .Where(x => x.HasVod || x.HasClip)
+            .Where(x => x.HasVod || x.HasClip || x.Moment.StartTimeSeconds is null)
             .ToList();
-        _lastPlayableCount = playable.Count;
 
         var chosen = playable.Count <= PatternConstants.PatternMomentDisplayLimit
             ? playable
@@ -229,7 +227,7 @@ public sealed class PatternsSnapshotBuilder
                 .ToList();
 
         var ordinal = 0;
-        return chosen.Select(x => MapMoment(x.Moment, ++ordinal, x.HasVod, x.HasClip)).ToList();
+        return (chosen.Select(x => MapMoment(x.Moment, ++ordinal, x.HasVod, x.HasClip)).ToList(), playable.Count);
     }
 
     /// <summary>Mirror of PatternReviewViewModel.PatternSubtitle, plus the

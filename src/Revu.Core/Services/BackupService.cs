@@ -252,11 +252,22 @@ public sealed class BackupService : IBackupService
                 $"Could not delete {string.Join(", ", deleteFailed)}. Close the app fully, then restore from the pre-reset backup if needed. Backup saved to: {backupFilePath}");
         }
 
-        // Wipe config too — gets the user back to a clean onboarding path.
+        // Wipe config too — gets the user back to a clean onboarding path. The
+        // config that belongs to THIS database is the one beside it: never the
+        // process-global AppDataPaths.ConfigPath, which is the live user's file
+        // even when the connection factory points at a temp DB (a test scope).
+        // That exact mistake deleted the real config.json on every local
+        // `dotnet test` run for months (2026-07-10, 2026-09-05).
         try
         {
-            var configPath = AppDataPaths.ConfigPath;
+            var configPath = Path.Combine(
+                Path.GetDirectoryName(dbPath) ?? AppDataPaths.UserDataRoot,
+                Path.GetFileName(AppDataPaths.ConfigPath));
             if (File.Exists(configPath)) File.Delete(configPath);
+            // ConfigService keeps a rolling config.json.bak and restores from it
+            // when config.json is missing — a reset has to take that too.
+            var backupCopy = configPath + ".bak";
+            if (File.Exists(backupCopy)) File.Delete(backupCopy);
         }
         catch (Exception ex)
         {

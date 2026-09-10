@@ -3239,21 +3239,10 @@ select.inp optgroup{background:#100c20;color:var(--accent);font-weight:700;font-
 /* Button off: the line carries the sidecar's reason instead of a matchup — dim, not gold. */
 .mj-lastgame-off .mj-lastgame-g{color:var(--t4)}
 
-/* EXPORT ROW — lane filter + last-N + COPY AS MARKDOWN, with the status line
-   dropping onto its own row underneath. Children sit above the .card sheen. */
-.mj-export{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;padding:16px 18px;margin:0 0 8px}
-.mj-export-lead{flex:1 1 220px;min-width:0;align-self:center;position:relative}
-.mj-export-k{font-family:var(--fm);font-size:10px;letter-spacing:var(--label-spacing);text-transform:uppercase;color:#c3b6ff}
-.mj-export-p{font-size:12.5px;color:var(--t3);margin-top:4px;line-height:1.4}
-.mj-export-field{position:relative;flex:0 0 auto}
-.mj-export-field .obj-input{width:150px}
-.mj-export-last .obj-input{width:112px;appearance:textfield;-moz-appearance:textfield}
-.mj-export-last .obj-input::-webkit-inner-spin-button,.mj-export-last .obj-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
-.mj-export-btn{position:relative;margin-top:0;align-self:flex-end}
-.mj-export-msg{flex-basis:100%;position:relative;font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3)}
-.mj-export-msg[hidden]{display:none}
-.mj-export-msg.ok{color:var(--win)}
-.mj-export-msg.err{color:var(--loss)}
+/* Copy feedback — flashButton() swaps the label and adds ok / err for a beat
+   on the hero COPY ALL (.mj-btn-last) and the per-card Copy (.mj-act). */
+.mj-btn-last.ok,.mj-act.ok{color:var(--win);border-color:rgba(142,231,186,0.55)}
+.mj-btn-last.err,.mj-act.err{color:var(--loss);border-color:rgba(243,163,168,0.55)}
 
 /* CREATE / EDIT FORM — blue-rimmed glass panel (reuses .obj-form-* layout).
    Lane select capped so it doesn't stretch; the champion grid is your side

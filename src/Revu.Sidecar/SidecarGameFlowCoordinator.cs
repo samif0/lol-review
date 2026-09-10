@@ -400,15 +400,25 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                 var result = await _write.EnemyLanerBackfill.RunAsync(maxGames: 5).ConfigureAwait(false);
                 if (result.Updated > 0)
                 {
+                    // Older backlog rows may have healed even if the fresh one did not;
+                    // the Matchups journal refetches everything, so tell it either way.
+                    _eventHub.Publish("matchupUpdated", new { gameId, updated = result.Updated });
+                }
+
+                // Decide on THIS game, not on the pass: Updated counts any of the 5
+                // newest missing rows, so an older backlog row landing must not end
+                // the retry while the fresh match is still pending upstream.
+                var missingAfter = await _write.Games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
+                if (!missingAfter.Contains(gameId))
+                {
                     _logger.LogInformation(
                         "Post-game matchup pass done ({Updated} updated, {Failed} not yet available) after game {GameId}",
                         result.Updated, result.Failed, gameId);
-                    _eventHub.Publish("matchupUpdated", new { gameId, updated = result.Updated });
                     return;
                 }
                 if (result.Failed == 0)
                 {
-                    return; // nothing resolvable upstream either (manual game, unsupported queue)
+                    return; // scanned, nothing resolvable upstream (manual game, unsupported queue)
                 }
                 // The fresh match isn't visible upstream yet — fall through to the longer delay.
             }

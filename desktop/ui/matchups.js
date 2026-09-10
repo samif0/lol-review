@@ -222,7 +222,6 @@ function playEntrance() {
   if (_entranceDone) return;
   _entranceDone = true;
   const order = [
-    $('mj-export'),
     $('mj-lanes'),
     $('mj-empty'),
   ].filter((el) => el && !el.hidden);
@@ -538,9 +537,12 @@ function flashButton(btn, text, kind) {
 function buildCardMarkdown(cardEl, card) {
   const group = cardEl.closest('.mj-group');
   const titleEl = group ? group.querySelector('.mj-group-title') : null;
-  const title = (titleEl && titleEl.textContent.trim()) || (card && card.title) || 'Matchup';
+  const title = (card && card.matchupTitle) || (titleEl && titleEl.textContent.trim()) || 'Matchup';
+  // The export's date line is the ISO day (MatchupCardDto.DateText); the row
+  // shows the friendlier "Sep 6, 2026", so prefer the DTO and only fall back to
+  // what is rendered.
   const dateEl = cardEl.querySelector('.mj-card-date');
-  const date = (dateEl && dateEl.textContent.trim()) || (card && (card.dateText || card.createdAtText)) || '';
+  const date = (card && card.dateText) || (dateEl && dateEl.textContent.trim()) || '';
   const read = (field) => {
     const ta = cardEl.querySelector(`.mj-note-in[data-field="${field}"]`);
     const v = ta ? ta.value : (card ? card[field] : '');
