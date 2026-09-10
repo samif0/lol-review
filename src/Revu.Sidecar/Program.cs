@@ -898,9 +898,17 @@ app.MapPost("/api/matchup/create", async (CreateMatchupBody body, WriteServices 
 // comes back with created=false instead of a duplicate. 422 when there is no
 // game, or its lane / champions can't be resolved (same sentences the read
 // snapshot shows on the disabled button).
-app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Program> log) =>
+// v3.9.2: a game recovered from the client's match history can lack the
+// opponents (no per-player positions in that payload). MatchupFromLastGame
+// first resolves such a game from Match-V5 when the player is signed in (a
+// bounded single-game lookup) and re-reads the row; then, if both sides are
+// known and the lane came from the game itself, the card is created —
+// otherwise the route answers 200 { partial: true } with the lane, the
+// player's side BY SLOT and the game link, and the page opens the form for
+// the player to finish instead of creating a half-empty card.
+app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Program> log, CancellationToken ct) =>
 {
-    var last = await MatchupsSnapshotBuilder.ResolveLastGameAsync(w.Games, w.Matchups);
+    var last = await MatchupsSnapshotBuilder.ResolveLastGameAsync(w.Games, w.Matchups, w.Config.PrimaryRole);
     if (last.Game is null)
         return Results.Json(new { ok = false, error = MatchupsSnapshotBuilder.NoGamesReason }, jsonOptions, statusCode: 422);
     if (last.Existing is not null)
@@ -909,11 +917,31 @@ app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Progr
         return Results.Json(new { ok = false, error = MatchupsSnapshotBuilder.NoPrefillReason }, jsonOptions, statusCode: 422);
 
     await w.BackupGuard.EnsureBackedUpAsync();
+    var (game, prefill) = await MatchupFromLastGame.HealAsync(
+        last.Game, last.Prefill, w.Config, w.EnemyLanerBackfill, w.Games, log, ct: ct);
+
+    if (!prefill.CanCreateOutright)
+    {
+        return Results.Json(new
+        {
+            ok = true,
+            created = false,
+            partial = true,
+            gameId = game.GameId,
+            gameLabel = MatchupsSnapshotBuilder.GameLabel(game),
+            lane = prefill.Lane,
+            laneIsGuess = prefill.LaneIsGuess,
+            // By form slot ("" = unknown), so a lone support lands in the support field.
+            allyChamps = prefill.AllySlots,
+            enemyChamps = prefill.EnemySlots,
+        }, jsonOptions);
+    }
+
     try
     {
         var id = await w.Matchups.CreateAsync(
-            last.Prefill.Lane, last.Prefill.AllyChamps, last.Prefill.EnemyChamps, gameId: last.Game.GameId);
-        log.LogInformation("Matchup card {Id} pre-filled from game {GameId} ({Title})", id, last.Game.GameId, last.Prefill.Title);
+            prefill.Lane, prefill.AllyChamps, prefill.EnemyChamps, gameId: game.GameId);
+        log.LogInformation("Matchup card {Id} pre-filled from game {GameId} ({Title})", id, game.GameId, prefill.Title);
         return Results.Json(new { ok = true, id, created = true }, jsonOptions);
     }
     catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }

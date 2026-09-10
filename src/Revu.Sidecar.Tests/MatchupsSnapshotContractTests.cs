@@ -17,7 +17,7 @@ namespace Revu.Sidecar.Tests;
 public sealed class MatchupsSnapshotContractTests
 {
     private static MatchupsSnapshotBuilder Builder(SidecarWriteScope scope, MatchupsRepository matchups) =>
-        new(matchups, scope.Games, NullLogger<MatchupsSnapshotBuilder>.Instance);
+        new(matchups, scope.Games, scope.Config, NullLogger<MatchupsSnapshotBuilder>.Instance);
 
     private static string FullMap() => JsonSerializer.Serialize(new Dictionary<string, string>
     {
@@ -129,8 +129,11 @@ public sealed class MatchupsSnapshotContractTests
             markdown);
     }
 
+    /// <summary>v3.9.2: a game whose opponents weren't recorded (recovered from
+    /// the client's match history) still pre-fills the lane and the player's
+    /// side; the snapshot says so and tells the page what the click will do.</summary>
     [Fact]
-    public async Task BuildAsync_LastGameWithoutMatchupData_ExplainsWhyTheButtonIsOff()
+    public async Task BuildAsync_LastGameWithUnknownOpponents_IsPartial_WithTheManualHint()
     {
         using var scope = new SidecarWriteScope();
         await scope.InitializeAsync();
@@ -140,8 +143,106 @@ public sealed class MatchupsSnapshotContractTests
 
         var snapshot = await Builder(scope, matchups).BuildAsync();
 
+        var last = snapshot.LastGame;
+        Assert.True(last.Available);
+        Assert.False(last.EnemyKnown);
+        Assert.Equal("mid", last.Lane);
+        Assert.Equal(new[] { "Ahri" }, last.AllyChamps);
+        Assert.Empty(last.EnemyChamps);
+        Assert.Equal("Ahri vs ?", last.MatchupTitle);
+        // TestConfigService has no Riot session → the click opens the form.
+        Assert.Equal(MatchupsSnapshotBuilder.EnemyManualHint, last.Hint);
+        Assert.Equal("", last.UnavailableReason);
+        Assert.EndsWith("· Win", last.GameLabel);
+    }
+
+    [Fact]
+    public async Task BuildAsync_LastGameWithUnknownOpponents_SignedIn_PromisesTheLookup()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var matchups = new MatchupsRepository(scope.ConnectionFactory);
+        await SeedGameAsync(scope, 6005, "BOTTOM", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60, champion: "Miss Fortune", map: "");
+        // A live Riot session + linked account = the proxy is usable…
+        scope.Config.Current.RiotSessionToken = "tok";
+        scope.Config.Current.RiotSessionExpiresAt = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
+        scope.Config.Current.RiotId = "sami#NA1";
+        scope.Config.Current.RiotRegion = "na1";
+        Assert.True(scope.Config.RiotProxyEnabled);
+        // …but the lookup also needs the account's PUUID: without it the hint
+        // must not promise a lookup the write route can't perform.
+        scope.Config.Current.RiotPuuid = "";
+        Assert.Equal(MatchupsSnapshotBuilder.EnemyManualHint, (await Builder(scope, matchups).BuildAsync()).LastGame.Hint);
+
+        scope.Config.Current.RiotPuuid = "puuid-1";
+        var snapshot = await Builder(scope, matchups).BuildAsync();
+
+        Assert.True(snapshot.LastGame.Available);
+        Assert.False(snapshot.LastGame.EnemyKnown);
+        Assert.Equal(MatchupsSnapshotBuilder.EnemyLookupHint, snapshot.LastGame.Hint);
+    }
+
+    /// <summary>The click already made a card for the game: the snapshot points
+    /// at it and describes THAT card — never a re-derived "X vs ?" plus a
+    /// "you'll add them" hint for a game whose card is done.</summary>
+    [Fact]
+    public async Task BuildAsync_ExistingCard_DescribesTheCard_NotAPartialPrefill()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var matchups = new MatchupsRepository(scope.ConnectionFactory);
+        var game = await SeedGameAsync(scope, 6008, "UTILITY", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60, champion: "Nautilus", map: "");
+        // What the partial → form path creates: the player finished the card by hand.
+        var id = await matchups.CreateAsync("support", ["Kai'Sa", "Nautilus"], ["Tristana", "Renata Glasc"], gameId: game.GameId);
+
+        var last = (await Builder(scope, matchups).BuildAsync()).LastGame;
+
+        Assert.True(last.Available);
+        Assert.Equal(id, last.ExistingCardId);
+        Assert.True(last.EnemyKnown);
+        Assert.Equal("", last.Hint);
+        Assert.Equal("support", last.Lane);
+        Assert.Equal("Kai'Sa + Nautilus vs Tristana + Renata Glasc", last.MatchupTitle);
+        Assert.EndsWith("· Win", last.GameLabel);
+    }
+
+    [Fact]
+    public async Task BuildAsync_LastGameWithNoLane_ExplainsWhyTheButtonIsOff_AndNamesTheGame()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var matchups = new MatchupsRepository(scope.ConnectionFactory);
+        // No position, no map, no configured primary role: the lane can't be told.
+        await SeedGameAsync(scope, 6006, "", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60, win: false, champion: "Ahri", map: "");
+        scope.Config.Current.PrimaryRole = "";
+
+        var snapshot = await Builder(scope, matchups).BuildAsync();
+
         Assert.False(snapshot.LastGame.Available);
         Assert.Equal(MatchupsSnapshotBuilder.NoPrefillReason, snapshot.LastGame.UnavailableReason);
+        Assert.Equal(6006, snapshot.LastGame.GameId);
+        Assert.EndsWith("· Loss", snapshot.LastGame.GameLabel);
+    }
+
+    [Fact]
+    public async Task BuildAsync_ConfiguredPrimaryRole_FillsTheLaneWhenTheRowHasNone()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var matchups = new MatchupsRepository(scope.ConnectionFactory);
+        var game = await SeedGameAsync(scope, 6007, "", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60, champion: "Kai'Sa", map: "");
+        await scope.Games.UpdateEnemyLanerAsync(game.GameId, "Tristana");
+        scope.Config.Current.PrimaryRole = "adc";
+
+        var snapshot = await Builder(scope, matchups).BuildAsync();
+
+        Assert.True(snapshot.LastGame.Available);
+        Assert.True(snapshot.LastGame.EnemyKnown);
+        Assert.Equal("bot", snapshot.LastGame.Lane);
+        Assert.Equal("Kai'Sa vs Tristana", snapshot.LastGame.MatchupTitle);
+        // The lane is the configured role, not evidence from the game: the
+        // click opens the form for a check rather than filing the card blind.
+        Assert.Equal(MatchupsSnapshotBuilder.LaneGuessHint, snapshot.LastGame.Hint);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Revu.Core.Lcu;
 using Revu.Core.Models;
+using Revu.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Revu.Core.Tests;
@@ -222,6 +223,113 @@ public sealed class StatsExtractorTests
         Assert.Equal("Ranked Solo/Duo", stats!.GameMode);
         Assert.Equal("Ranked Solo/Duo", stats.QueueType);
         Assert.Equal("Ranked Solo/Duo", stats.DisplayGameMode);
+    }
+
+    // ── v3.9.2: match-history bot lane — the timeline ROLE separates ADC from support ──
+    // The LCU match-history payload has no per-player position, only timeline
+    // lane + role. BOTTOM alone can't tell the ADC from the support, so the
+    // extractor used to drop both from the participant map — a recovered
+    // bot-lane game had no opponents at all (the Matchups "new card from last
+    // game" button went dark for bot/support players). EnemyLaner stays blank
+    // on this path on purpose: it is what keeps the row in the Match-V5
+    // backfill sweep so the heuristic map gets replaced by teamPosition data.
+
+    private static JsonElement MatchHistoryPayload(int currentParticipantId, params (int Id, int Team, string Champ, string Lane, string Role)[] rows)
+    {
+        var identities = string.Join(",", rows.Select(r =>
+            $$$"""{"participantId":{{{r.Id}}},"player":{"currentPlayer":{{{(r.Id == currentParticipantId ? "true" : "false")}}}}}"""));
+        var participants = string.Join(",", rows.Select(r =>
+            $$$"""{"participantId":{{{r.Id}}},"teamId":{{{r.Team}}},"championId":1,"championName":"{{{r.Champ}}}","stats":{"win":true,"kills":1,"deaths":1,"assists":1},"timeline":{"lane":"{{{r.Lane}}}","role":"{{{r.Role}}}"}}"""));
+        return ParseJson($$$"""
+            {
+              "gameId": 5531387195, "gameCreation": 1710000000000, "gameDuration": 1800,
+              "gameMode": "CLASSIC", "gameType": "MATCHED_GAME", "queueId": 420,
+              "participantIdentities": [{{{identities}}}],
+              "participants": [{{{participants}}}]
+            }
+            """);
+    }
+
+    private static (int, int, string, string, string)[] FullLobby(string ownAdcRole = "DUO_CARRY", string ownSuppRole = "DUO_SUPPORT") =>
+    [
+        (1, 100, "Aatrox", "TOP", "SOLO"), (2, 100, "Lee Sin", "JUNGLE", "NONE"), (3, 100, "Ahri", "MIDDLE", "SOLO"),
+        (4, 100, "Kai'Sa", "BOTTOM", ownAdcRole), (5, 100, "Nautilus", "BOTTOM", ownSuppRole),
+        (6, 200, "Sett", "TOP", "SOLO"), (7, 200, "Graves", "JUNGLE", "NONE"), (8, 200, "Syndra", "MIDDLE", "SOLO"),
+        (9, 200, "Tristana", "BOTTOM", "DUO_CARRY"), (10, 200, "Renata", "BOTTOM", "DUO_SUPPORT"),
+    ];
+
+    [Fact]
+    public void ExtractFromMatchHistory_BotLaneAdc_GetsBottomPositionBotSupportKeysAndTheEnemyAdc()
+    {
+        var stats = StatsExtractor.ExtractFromMatchHistory(MatchHistoryPayload(4, FullLobby()), NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        Assert.Equal("Kai'Sa", stats!.ChampionName);
+        Assert.Equal("BOTTOM", stats.Position);
+        Assert.Equal("", stats.EnemyLaner); // left to the Match-V5 backfill (see above)
+        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap)!;
+        Assert.Equal("Kai'Sa", map["ownBot"]);
+        Assert.Equal("Nautilus", map["ownSupp"]);
+        Assert.Equal("Tristana", map["enemyBot"]);
+        Assert.Equal("Renata", map["enemySupp"]);
+        Assert.Equal("Ahri", map["ownMid"]);
+        Assert.Equal("Graves", map["enemyJg"]);
+        Assert.Equal(10, map.Count);
+        // And the journal can pre-fill the full 2v2 from it.
+        var prefill = MatchupPrefill.FromGame(stats);
+        Assert.NotNull(prefill);
+        Assert.True(prefill!.IsComplete);
+        Assert.Equal("bot", prefill.Lane);
+        Assert.Equal(new[] { "Kai'Sa", "Nautilus" }, prefill.AllyChamps);
+        Assert.Equal(new[] { "Tristana", "Renata Glasc" }, prefill.EnemyChamps);
+    }
+
+    [Fact]
+    public void ExtractFromMatchHistory_BotLaneSupport_GetsUtilityPositionAndTheEnemySupport()
+    {
+        var stats = StatsExtractor.ExtractFromMatchHistory(MatchHistoryPayload(5, FullLobby()), NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        Assert.Equal("Nautilus", stats!.ChampionName);
+        // Same position the live EOG capture stores for a support.
+        Assert.Equal("UTILITY", stats.Position);
+        Assert.Equal("", stats.EnemyLaner);
+        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap)!;
+        Assert.Equal("Nautilus", map["ownSupp"]);
+        Assert.Equal("Renata", map["enemySupp"]);
+        var prefill = MatchupPrefill.FromGame(stats)!;
+        Assert.Equal("support", prefill.Lane);
+        Assert.Equal(new[] { "Kai'Sa", "Nautilus" }, prefill.AllyChamps);
+        Assert.Equal(new[] { "Tristana", "Renata Glasc" }, prefill.EnemyChamps);
+    }
+
+    [Fact]
+    public void ExtractFromMatchHistory_IndefiniteBotRoles_AreStillOmitted_NeverGuessed()
+    {
+        // Riot's heuristic couldn't settle the duo: both bot-laners report role DUO.
+        var stats = StatsExtractor.ExtractFromMatchHistory(MatchHistoryPayload(4, FullLobby("DUO", "DUO")), NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        Assert.Equal("BOTTOM", stats!.Position); // the lane, unchanged
+        Assert.Equal("", stats.EnemyLaner);
+        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap)!;
+        Assert.False(map.ContainsKey("ownBot"));
+        Assert.False(map.ContainsKey("ownSupp"));
+        Assert.Equal("Tristana", map["enemyBot"]); // the enemy duo WAS definite
+        Assert.Equal("Ahri", map["ownMid"]);
+    }
+
+    [Fact]
+    public void ExtractFromMatchHistory_MidLane_LeavesTheOpponentToTheBackfill_ButTheMapHasIt()
+    {
+        var stats = StatsExtractor.ExtractFromMatchHistory(MatchHistoryPayload(3, FullLobby()), NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        Assert.Equal("MIDDLE", stats!.Position);
+        Assert.Equal("", stats.EnemyLaner);
+        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap)!;
+        Assert.Equal("Syndra", map["enemyMid"]);
+        Assert.Equal(new[] { "Syndra" }, MatchupPrefill.FromGame(stats)!.EnemyChamps);
     }
 
     [Theory]
