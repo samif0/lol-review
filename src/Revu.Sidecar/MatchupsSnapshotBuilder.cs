@@ -41,20 +41,29 @@ public sealed class MatchupsSnapshotBuilder
     public const string EmptyMessage =
         "No matchup cards yet. Write a prior before you queue, then what you actually saw after.";
     public const string NoGamesReason = "No games recorded yet.";
-    public const string NoPrefillReason = "Couldn't tell the lane or champions of your last game.";
+    public const string NoPrefillReason = "Couldn't tell which lane you played in your last game.";
     public const string LoadFailedReason = "Couldn't read your last game.";
+    /// <summary>Opponents missing and the player is signed in: the click looks them up first.</summary>
+    public const string EnemyLookupHint = "Opponents weren't recorded for this game — Revu will look them up from Riot when you click.";
+    /// <summary>Opponents missing and no Riot session: the click opens the form to add them.</summary>
+    public const string EnemyManualHint = "Opponents weren't recorded for this game — you'll add them when the card opens.";
+    /// <summary>The game carries no lane; the pre-fill used the configured primary role, so the form opens for a check.</summary>
+    public const string LaneGuessHint = "Lane guessed from your primary role — check it when the card opens.";
 
     private readonly IMatchupsRepository _matchups;
     private readonly IGameHistoryQuery _games;
+    private readonly IConfigService _config;
     private readonly ILogger<MatchupsSnapshotBuilder> _logger;
 
     public MatchupsSnapshotBuilder(
         IMatchupsRepository matchups,
         IGameHistoryQuery games,
+        IConfigService config,
         ILogger<MatchupsSnapshotBuilder> logger)
     {
         _matchups = matchups;
         _games = games;
+        _config = config;
         _logger = logger;
     }
 
@@ -108,13 +117,16 @@ public sealed class MatchupsSnapshotBuilder
     /// POST /api/matchup/from-last-game write so both see the same game, the
     /// same champions, and the same existing-card check.
     /// </summary>
-    public static async Task<LastGameResolution> ResolveLastGameAsync(IGameHistoryQuery games, IMatchupsRepository matchups)
+    public static async Task<LastGameResolution> ResolveLastGameAsync(
+        IGameHistoryQuery games, IMatchupsRepository matchups, string? fallbackPosition = null)
     {
         var recent = await games.GetRecentAsync(limit: 1);
         var game = recent.Count > 0 ? recent[0] : null;
         if (game is null) return new LastGameResolution(null, null, null);
 
-        var prefill = MatchupPrefill.FromGame(game);
+        // fallbackPosition = the player's configured primary role, for a row
+        // with no position and no usable participant map.
+        var prefill = MatchupPrefill.FromGame(game, fallbackPosition);
         var existing = await matchups.GetForGameAsync(game.GameId);
         return new LastGameResolution(game, prefill, existing);
     }
@@ -218,10 +230,43 @@ public sealed class MatchupsSnapshotBuilder
     {
         try
         {
-            var last = await ResolveLastGameAsync(_games, _matchups);
-            if (last.Game is null) return Unavailable(NoGamesReason);
-            if (last.Prefill is null) return Unavailable(NoPrefillReason);
+            // The read graph owns its own IConfigService instance; like
+            // ConfigSnapshotBuilder, force a disk re-read so a sign-in or an
+            // onboarding primary role saved via WriteServices.Config since the
+            // last read shapes the hint and the lane fallback below.
+            try { await _config.LoadAsync(); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Matchups: config re-read failed; using the cached copy"); }
 
+            var last = await ResolveLastGameAsync(_games, _matchups, _config.PrimaryRole);
+            if (last.Game is null) return Unavailable(NoGamesReason);
+            var gameLabel = GameLabel(last.Game);
+
+            // A card already links to the game: the button opens it, and the
+            // line describes THAT card (not a re-derived, possibly partial,
+            // pre-fill) — the same order the write route checks in.
+            if (last.Existing is { } card)
+            {
+                return new LastGamePrefillDto(
+                    Available: true,
+                    GameId: last.Game.GameId,
+                    Lane: card.Lane,
+                    LaneLabel: MatchupLanes.Label(card.Lane),
+                    AllyChamps: card.AllyChamps,
+                    EnemyChamps: card.EnemyChamps,
+                    EnemyKnown: true,
+                    MatchupTitle: MatchupLanes.Title(card.AllyChamps, card.EnemyChamps),
+                    GameLabel: gameLabel,
+                    Hint: "",
+                    ExistingCardId: card.Id,
+                    UnavailableReason: "");
+            }
+
+            if (last.Prefill is null) return Unavailable(NoPrefillReason, last.Game.GameId, gameLabel);
+
+            var complete = last.Prefill.IsComplete;
+            var hint = !complete
+                ? (MatchupFromLastGame.CanLookUpMatches(_config) ? EnemyLookupHint : EnemyManualHint)
+                : last.Prefill.LaneIsGuess ? LaneGuessHint : "";
             return new LastGamePrefillDto(
                 Available: true,
                 GameId: last.Game.GameId,
@@ -229,9 +274,11 @@ public sealed class MatchupsSnapshotBuilder
                 LaneLabel: MatchupLanes.Label(last.Prefill.Lane),
                 AllyChamps: last.Prefill.AllyChamps,
                 EnemyChamps: last.Prefill.EnemyChamps,
+                EnemyKnown: complete,
                 MatchupTitle: last.Prefill.Title,
-                GameLabel: GameLabel(last.Game),
-                ExistingCardId: last.Existing?.Id,
+                GameLabel: gameLabel,
+                Hint: hint,
+                ExistingCardId: null,
                 UnavailableReason: "");
         }
         catch (Exception ex)
@@ -241,15 +288,17 @@ public sealed class MatchupsSnapshotBuilder
         }
     }
 
-    private static LastGamePrefillDto Unavailable(string reason) => new(
+    private static LastGamePrefillDto Unavailable(string reason, long gameId = 0, string gameLabel = "") => new(
         Available: false,
-        GameId: 0,
+        GameId: gameId,
         Lane: "",
         LaneLabel: "",
         AllyChamps: [],
         EnemyChamps: [],
+        EnemyKnown: false,
         MatchupTitle: "",
-        GameLabel: "",
+        GameLabel: gameLabel,
+        Hint: "",
         ExistingCardId: null,
         UnavailableReason: reason);
 }

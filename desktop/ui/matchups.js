@@ -130,30 +130,47 @@ function renderLastGame(d) {
   const btn = $('from-last');
   const available = !!(lg && lg.available);
   const existing = available && lg.existingCardId != null;
+  // v3.9.2: the sidecar may know the lane + your side but not the opponents (a
+  // game recovered from the client's match history), or only be guessing the
+  // lane from your primary role; either way the click opens the form instead
+  // of creating the card, and `hint` says which. Older snapshots have neither
+  // field → treat as a plain create. An existing card is never "opens form".
+  const enemyKnown = !available || existing || lg.enemyKnown !== false;
+  const opensForm = available && !existing && (!enemyKnown || !!lg.hint);
 
   btn.textContent = existing ? "OPEN LAST GAME'S CARD" : 'NEW CARD FROM LAST GAME';
   btn.disabled = !available;
-  if (available) {
-    btn.title = existing
-      ? 'Jump to the card already linked to your last game.'
-      : 'Start a card pre-filled with your last game’s lane and champions.';
-  } else {
+  if (!available) {
     btn.title = (lg && lg.unavailableReason) || 'No last game available.';
+  } else if (existing) {
+    btn.title = 'Jump to the card already linked to your last game.';
+  } else if (opensForm) {
+    btn.title = lg.hint || 'Start a card from your last game; some details still need filling in.';
+  } else {
+    btn.title = 'Start a card pre-filled with your last game’s lane and champions.';
   }
 
+  // The mono line under the buttons — always in the page, never only in a
+  // tooltip: the matchup + result when known; the opponents hint when only
+  // your side was recorded; the sidecar's reason when the button is off.
   const line = $('mj-lastgame');
-  if (available && (lg.matchupTitle || lg.gameLabel)) {
-    $('mj-lastgame-title').textContent = lg.matchupTitle || '';
-    $('mj-lastgame-game').textContent = lg.gameLabel || '';
-    line.classList.remove('mj-lastgame-off');
-    show(line, true);
-  } else if (!available) {
-    // Say WHY the button is off in the page itself — a disabled button's
-    // tooltip is easy to miss, and the reason ("No games recorded yet." /
-    // "Couldn't tell the lane or champions…") is what the player needs.
-    $('mj-lastgame-title').textContent = '';
-    $('mj-lastgame-game').textContent = (lg && lg.unavailableReason) || 'Not available yet.';
+  const title = $('mj-lastgame-title');
+  const detail = $('mj-lastgame-game');
+  if (!lg) { show(line, false); return; }
+  if (!available) {
+    title.textContent = lg.gameLabel || '';
+    detail.textContent = lg.unavailableReason || 'Not available yet.';
     line.classList.add('mj-lastgame-off');
+    show(line, true);
+  } else if (opensForm) {
+    title.textContent = lg.matchupTitle || '';
+    detail.textContent = [lg.gameLabel, lg.hint].filter(Boolean).join(' · ');
+    line.classList.add('mj-lastgame-off');
+    show(line, true);
+  } else if (lg.matchupTitle || lg.gameLabel) {
+    title.textContent = lg.matchupTitle || '';
+    detail.textContent = lg.gameLabel || '';
+    line.classList.remove('mj-lastgame-off');
     show(line, true);
   } else {
     show(line, false);
@@ -364,17 +381,42 @@ function revealForm() {
   $('f-ally1').focus();
 }
 
-// Open the form in create mode: blank fields, "Create" label.
-function openCreateForm() {
+// Open the form in create mode: blank fields, "Create" label. With a prefill
+// (the "from last game" path when the card can't be created outright) the
+// lane, the champions BY SLOT (allyChamps[i] → ALLY_IDS[i]; '' = unknown, so a
+// lone support lands in the support field) and the game link are filled in;
+// `note` explains what's left to do and the cursor lands on it — the first
+// empty enemy slot, or the lane select when the lane was only a guess.
+let _formGameId = null; // game a NEW card will link to (prefilled path only)
+function openCreateForm(prefill) {
   _editId = null;
+  _formGameId = null;
   $('form-title').textContent = 'New Card';
   $('form-submit').textContent = 'Create';
-  $('f-lane').value = 'top';
-  ALLY_IDS.concat(ENEMY_IDS).forEach((id) => setVal(id, ''));
+  const lane = prefill && LANE_BY[prefill.lane] ? prefill.lane : 'top';
+  $('f-lane').value = lane;
+  const ally = prefill && Array.isArray(prefill.allyChamps) ? prefill.allyChamps : [];
+  const enemy = prefill && Array.isArray(prefill.enemyChamps) ? prefill.enemyChamps : [];
+  ALLY_IDS.forEach((fid, i) => setVal(fid, ally[i] || ''));
+  ENEMY_IDS.forEach((fid, i) => setVal(fid, enemy[i] || ''));
   setVal('f-prior', '');
   setVal('f-observed', '');
-  show($('f-game-wrap'), false);
+  if (prefill && Number(prefill.gameId) > 0) {
+    _formGameId = Number(prefill.gameId);
+    const when = prefill.gameLabel ? `${prefill.gameLabel} · ` : '';
+    const note = prefill.note ? ` — ${prefill.note}` : '';
+    $('f-game').textContent = `${when}game ${prefill.gameId}${note}`;
+    show($('f-game-wrap'), true);
+  } else {
+    show($('f-game-wrap'), false);
+  }
   revealForm();
+  if (prefill) {
+    const slots = (LANE_BY[lane] || LANES[0]).slots;
+    const firstEmptyEnemy = ENEMY_IDS.slice(0, slots).find((id) => !getVal(id));
+    if (firstEmptyEnemy) $(firstEmptyEnemy).focus();
+    else if (prefill.laneIsGuess) $('f-lane').focus();
+  }
 }
 
 // Open the form in edit mode for a card pulled from the last fetch.
@@ -382,6 +424,7 @@ function openEditForm(id) {
   const c = cardById(id);
   if (!c) { openCreateForm(); return; }
   _editId = c.id;
+  _formGameId = null;
   $('form-title').textContent = 'Edit Card';
   $('form-submit').textContent = 'Save';
   $('f-lane').value = LANE_BY[c.lane] ? c.lane : 'top';
@@ -413,6 +456,7 @@ function openEditForm(id) {
 
 function closeForm() {
   _editId = null;
+  _formGameId = null;
   clearFormError();
   show($('mj-form'), false);
 }
@@ -433,13 +477,17 @@ function readFormPayload() {
     $(firstEmpty).focus();
     return null;
   }
-  return {
+  const payload = {
     lane: meta.value,
     allyChamps: allyIds.map(getVal).filter(Boolean),
     enemyChamps: enemyIds.map(getVal).filter(Boolean),
     prior: getVal('f-prior'),
     observed: getVal('f-observed'),
   };
+  // A NEW card opened from the "last game" partial path links to that game;
+  // an edit never changes the link.
+  if (_editId == null && _formGameId > 0) payload.gameId = _formGameId;
+  return payload;
 }
 
 // Submit the form → create_matchup or update_matchup, then reload. One write at
@@ -498,6 +546,31 @@ async function fromLastGame(btn) {
   btn.disabled = true;
   try {
     const res = await invoke('create_matchup_from_last_game', { payload: {} });
+    if (res && res.partial) {
+      // The card can't be created outright: the opponents weren't recorded
+      // (and couldn't be looked up), or the lane is only a guess from your
+      // primary role. Open the form pre-filled and linked to the game instead
+      // of creating a half-empty or mis-filed card.
+      const lane = LANE_BY[res.lane] ? res.lane : 'top';
+      const slots = LANE_BY[lane].slots;
+      const enemy = Array.isArray(res.enemyChamps) ? res.enemyChamps : [];
+      const known = enemy.slice(0, slots).filter(Boolean).length;
+      const note = known === 0
+        ? "the client didn't record the opponents; add them."
+        : known < slots
+          ? "one opponent wasn't recorded; add them."
+          : res.laneIsGuess ? 'lane guessed from your primary role; check it.' : '';
+      openCreateForm({
+        lane,
+        allyChamps: res.allyChamps || [],
+        enemyChamps: enemy,
+        gameId: res.gameId,
+        gameLabel: res.gameLabel || '',
+        laneIsGuess: !!res.laneIsGuess,
+        note,
+      });
+      return;
+    }
     await loadMatchups();
     if (res && res.id != null) scrollToCard(res.id, { focusPrior: res.created !== false });
   } catch (err) {
