@@ -175,6 +175,61 @@ public sealed class StatsExtractorTests
         }
     }
 
+    /// <summary>
+    /// v3.10: the LCU's end-of-game payload often leaves selectedPosition blank
+    /// while detectedTeamPosition is populated (observed on every ranked game for
+    /// days). That is still an assigned position — never a slot guess — so the
+    /// matchup (enemy laner + role map) must come out of the payload itself
+    /// instead of waiting for the Match-V5 heal.
+    /// </summary>
+    [Fact]
+    public void ExtractFromEog_FallsBackToDetectedTeamPosition_WhenSelectedPositionIsBlank()
+    {
+        var eog = ParseJson(
+            """
+            {
+              "gameId": 5638993644,
+              "gameLength": 1545,
+              "gameMode": "CLASSIC",
+              "queueType": "RANKED_SOLO_5x5",
+              "gameType": "MATCHED_GAME",
+              "localPlayer": {
+                "teamId": 200, "championName": "Qiyana", "championId": 246,
+                "selectedPosition": "", "detectedTeamPosition": "MIDDLE",
+                "stats": { "CHAMPIONS_KILLED": "8", "NUM_DEATHS": "3", "ASSISTS": "6", "WIN": "1" }
+              },
+              "teams": [
+                {
+                  "teamId": 100, "stats": { "CHAMPIONS_KILLED": 14 },
+                  "players": [
+                    { "championName": "Sylas", "selectedPosition": "", "detectedTeamPosition": "MIDDLE", "stats": { "CHAMPIONS_KILLED": 5 } },
+                    { "championName": "Viego", "selectedPosition": "", "detectedTeamPosition": "JUNGLE", "stats": { "CHAMPIONS_KILLED": 4 } }
+                  ]
+                },
+                {
+                  "teamId": 200, "stats": { "CHAMPIONS_KILLED": 22 },
+                  "players": [
+                    { "championName": "Qiyana", "selectedPosition": "", "detectedTeamPosition": "MIDDLE", "stats": { "CHAMPIONS_KILLED": 8 } },
+                    { "championName": "Lee Sin", "selectedPosition": "", "detectedTeamPosition": "JUNGLE", "stats": { "CHAMPIONS_KILLED": 6 } }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var stats = StatsExtractor.ExtractFromEog(eog, NullLogger.Instance);
+
+        Assert.NotNull(stats);
+        Assert.Equal("MIDDLE", stats!.Position);
+        Assert.Equal("Sylas", stats.EnemyLaner);
+        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(stats.ParticipantMap);
+        Assert.NotNull(map);
+        Assert.Equal("Qiyana", map!["ownMid"]);
+        Assert.Equal("Lee Sin", map["ownJg"]);
+        Assert.Equal("Sylas", map["enemyMid"]);
+        Assert.Equal("Viego", map["enemyJg"]);
+    }
+
     [Fact]
     public void ExtractFromMatchHistory_PrefersQueueLabelForRankedSoloDuo()
     {

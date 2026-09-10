@@ -511,14 +511,58 @@ async function fromLastGame(btn) {
   }
 }
 
-// ── export: copy as Markdown ─────────────────────────────────────────────────
-function setExportMsg(text, kind) {
-  const el = $('x-msg');
-  if (!el) return;
-  el.textContent = text || '';
-  el.classList.remove('ok', 'err');
-  if (kind) el.classList.add(kind);
-  show(el, !!text);
+// ── copy as Markdown ─────────────────────────────────────────────────────────
+// The result flashes on the button that was pressed ("COPIED 12" / "COPY FAILED")
+// and reverts after a beat — no separate status line.
+const COPY_FLASH_MS = 1400;
+const _copyTimers = new WeakMap();
+function flashButton(btn, text, kind) {
+  if (!btn) return;
+  if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+  const prev = _copyTimers.get(btn);
+  if (prev) clearTimeout(prev);
+  btn.textContent = text;
+  btn.classList.remove('ok', 'err');
+  if (kind) btn.classList.add(kind);
+  _copyTimers.set(btn, setTimeout(() => {
+    btn.textContent = btn.dataset.label;
+    btn.classList.remove('ok', 'err');
+    _copyTimers.delete(btn);
+  }, COPY_FLASH_MS));
+}
+
+// One card as Markdown — the same shape MatchupJournalExporter.Build gives a
+// card inside the full export (### title, **date**, #### Prior / #### Observed),
+// built from what is on screen right now so an inline edit in progress is what
+// gets copied.
+function buildCardMarkdown(cardEl, card) {
+  const group = cardEl.closest('.mj-group');
+  const titleEl = group ? group.querySelector('.mj-group-title') : null;
+  const title = (titleEl && titleEl.textContent.trim()) || (card && card.title) || 'Matchup';
+  const dateEl = cardEl.querySelector('.mj-card-date');
+  const date = (dateEl && dateEl.textContent.trim()) || (card && (card.dateText || card.createdAtText)) || '';
+  const read = (field) => {
+    const ta = cardEl.querySelector(`.mj-note-in[data-field="${field}"]`);
+    const v = ta ? ta.value : (card ? card[field] : '');
+    return (v || '').trim() || '_(not written yet)_';
+  };
+  const lines = [`### ${title}`, ''];
+  if (date) lines.push(`**${date}**`, '');
+  lines.push('#### Prior', '', read('prior'), '', '#### Observed', '', read('observed'));
+  return lines.join('\n') + '\n';
+}
+
+async function copyCard(btn) {
+  const cardEl = btn.closest('[data-card-id]');
+  if (!cardEl) return;
+  const card = cardById(cardEl.dataset.cardId);
+  try {
+    await navigator.clipboard.writeText(buildCardMarkdown(cardEl, card));
+    flashButton(btn, 'Copied', 'ok');
+  } catch (err) {
+    flashButton(btn, 'Copy failed', 'err');
+    console.error('[matchups] copy_card failed:', err);
+  }
 }
 
 // Browser-preview stand-in for GET /api/matchups/export: same lane / last-N
@@ -563,32 +607,31 @@ function buildPreviewMarkdown(d, lane, last) {
 }
 
 async function copyMarkdown(btn) {
-  const lane = $('x-lane').value || '';
-  // Number(), not parseInt: a type=number box hands back "1e3" verbatim, which
-  // parseInt would silently read as 1. Blank / 0 / junk → no limit.
-  const lastN = Number(getVal('x-last'));
-  const last = Number.isInteger(lastN) && lastN > 0 ? lastN : null;
+  // v3.10: COPY ALL copies the whole journal; the per-card Copy button covers
+  // "just this one". (The lane / last-N pickers of the old export card are gone;
+  // the sidecar endpoint still accepts them.)
+  const lane = '';
+  const last = null;
 
   if (btn) btn.disabled = true;
-  setExportMsg('Copying…', null);
   try {
     const invoke = await getInvoke();
     const built = invoke
       ? await invoke('get_matchups_export_markdown', { lane, last })
       : buildPreviewMarkdown(_lastData, lane, last);
     if (!built || typeof built.markdown !== 'string') {
-      setExportMsg('Copy failed.', 'err');
+      flashButton(btn, 'COPY FAILED', 'err');
       return;
     }
     const count = Number(built.count) || 0;
     if (count === 0) {
-      setExportMsg('Nothing to copy.', null);
+      flashButton(btn, 'NOTHING TO COPY', null);
       return;
     }
     await navigator.clipboard.writeText(built.markdown);
-    setExportMsg(`Copied ${plural(count, 'card')} to clipboard.`, 'ok');
+    flashButton(btn, `COPIED ${count}`, 'ok');
   } catch (err) {
-    setExportMsg('Copy failed.', 'err');
+    flashButton(btn, 'COPY FAILED', 'err');
     console.error('[matchups] copy_markdown failed:', err);
   } finally {
     if (btn) btn.disabled = false;
@@ -606,7 +649,7 @@ function render(d) {
   const empty = d.isEmpty || lanes.length === 0;
 
   renderLanes(lanes);
-  show($('mj-export'), !empty);
+  show($('x-copy'), !empty);
 
   if (empty) {
     if (d.emptyMessage) $('mj-empty-h').textContent = d.emptyMessage;
@@ -670,15 +713,16 @@ function cardIdForTarget(target) {
 //   cancel_form = close the form.
 // Form submit:
 //   submit_form = create_matchup / update_matchup.
-// Hero / export:
+// Hero / copy:
 //   from_last_game = create_matchup_from_last_game (or jump to the linked card).
-//   copy_markdown  = get_matchups_export_markdown → clipboard.
+//   copy_markdown  = get_matchups_export_markdown → clipboard (whole journal).
+//   copy_card      = this one card as Markdown → clipboard (local, no backend).
 // Per-card mutation (carries {id}):
 //   delete_card (confirms first) → delete_matchup.
-const LOCAL_ACTIONS = new Set(['new_card', 'edit_card', 'cancel_form']);
+const LOCAL_ACTIONS = new Set(['new_card', 'edit_card', 'cancel_form', 'copy_card']);
 const ACTIONS = new Set([
   'new_card', 'edit_card', 'cancel_form', 'submit_form',
-  'from_last_game', 'copy_markdown', 'delete_card',
+  'from_last_game', 'copy_markdown', 'copy_card', 'delete_card',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -693,6 +737,7 @@ document.addEventListener('click', async (ev) => {
     if (action === 'new_card') openCreateForm();
     else if (action === 'edit_card') openEditForm(cardIdForTarget(target));
     else if (action === 'cancel_form') closeForm();
+    else if (action === 'copy_card') await copyCard(target);
     return;
   }
 
@@ -826,6 +871,12 @@ async function wireLiveChannel() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') requestRefresh();
 });
+
+// v3.10: the post-game matchup pass (Match-V5, ~90s after EOG) just filled the
+// lane / champions the 'gameEnded' refetch was too early to see — refetch so
+// "NEW CARD FROM LAST GAME" arms without a reload. shell-outer forwards the
+// sidecar's matchupUpdated SSE into this frame.
+window.addEventListener('revu:matchup-updated', () => requestRefresh());
 
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {

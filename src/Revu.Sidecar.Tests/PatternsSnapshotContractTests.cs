@@ -10,7 +10,8 @@ namespace Revu.Sidecar.Tests;
 /// Contract tests for the objective-driven GET /api/patterns snapshot:
 ///   • a backend failure surfaces as errorText (never a clean "no patterns yet")
 ///   • start-less game-level moments render without a fabricated 0:00
-///   • pruned VOD files degrade to the graceful no-VOD state
+///   • only WATCHABLE moments enter a playlist (recording on disk, or a kept clip)
+///   • a playlist is capped, keeping noted/clipped moments then the newest
 ///   • reviewed patterns re-arm through the shared PatternReviewGate watermark
 ///   • pending cards rank ahead of reviewed ones under the display cap
 /// </summary>
@@ -27,10 +28,26 @@ public sealed class PatternsSnapshotContractTests
         scope.Evidence,
         NullLogger<PatternsSnapshotBuilder>.Instance);
 
+    /// <summary>Real (empty) recording files so File.Exists says yes — the
+    /// playlist only admits moments that can actually be watched. One file per
+    /// game: vod_files refuses to link one file to two games.</summary>
+    private sealed class TempVods : IDisposable
+    {
+        private readonly string _dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"revu-test-vods-{Guid.NewGuid():N}");
+        public TempVods() { Directory.CreateDirectory(_dir); }
+        public string For(long gameId)
+        {
+            var path = System.IO.Path.Combine(_dir, $"{gameId}.mp4");
+            if (!File.Exists(path)) File.WriteAllBytes(path, new byte[] { 0 });
+            return path;
+        }
+        public void Dispose() { try { Directory.Delete(_dir, recursive: true); } catch { } }
+    }
+
     /// <summary>Seed the objective_criteria pattern at full failure: three
     /// recent games, each failing the objective's structured criterion, with
     /// their materialized anchors (fail share 100% → high severity).</summary>
-    private static async Task<long> SeedFailingCriterionAsync(SidecarWriteScope scope, string title = "CS 7+/min by 10")
+    private static async Task<long> SeedFailingCriterionAsync(SidecarWriteScope scope, TempVods vods, string title = "CS 7+/min by 10")
     {
         var materializer = Materializer(scope);
         var objectiveId = await scope.Objectives.CreateAsync(title, "laning");
@@ -38,6 +55,7 @@ public sealed class PatternsSnapshotContractTests
         for (var i = 0; i < 3; i++)
         {
             var game = await scope.SeedGameAsync(gameId: 6601 + i, timestamp: now - (i + 1) * 3600);
+            await scope.Vod.LinkVodAsync(game.GameId, vods.For(game.GameId));
             await scope.Objectives.RecordGameAsync(game.GameId, objectiveId, practiced: true);
             await scope.Objectives.SetCriteriaMetAsync(game.GameId, objectiveId, met: false);
             await materializer.MaterializeReviewSignalsAsync(game.GameId);
@@ -48,7 +66,7 @@ public sealed class PatternsSnapshotContractTests
     /// <summary>Seed a pending objective_events pattern: an objective tracking
     /// DEATH plus five materialized death anchors across three games
     /// (count 5 → medium severity).</summary>
-    private static async Task<long[]> SeedTrackedDeathsAsync(SidecarWriteScope scope, long firstGameId = 6701)
+    private static async Task<long[]> SeedTrackedDeathsAsync(SidecarWriteScope scope, TempVods? vods, long firstGameId = 6701)
     {
         var objectiveId = await scope.Objectives.CreateAsync("Track deaths", "macro");
         await scope.Objectives.SetEventTokensForObjectiveAsync(objectiveId, new[] { "DEATH" });
@@ -57,34 +75,40 @@ public sealed class PatternsSnapshotContractTests
         for (var i = 0; i < games.Length; i++)
         {
             games[i] = (await scope.SeedGameAsync(gameId: firstGameId + i, timestamp: now - (i + 1) * 3600)).GameId;
+            if (vods is not null) await scope.Vod.LinkVodAsync(games[i], vods.For(games[i]));
         }
         foreach (var (g, t) in new[] { (games[0], 300), (games[0], 700), (games[1], 400), (games[1], 800), (games[2], 500) })
         {
-            await scope.Evidence.UpsertAsync(new EvidenceUpsert(
-                GameId: g,
-                SourceKind: EvidenceKinds.TimelineRegion,
-                SourceId: null,
-                SourceKey: PatternConstants.ObjEventSourceKey("DEATH", t),
-                StartTimeSeconds: t - PatternConstants.MomentLeadSeconds,
-                EndTimeSeconds: t + PatternConstants.MomentTrailSeconds,
-                Title: PatternConstants.TokenLabel("DEATH"),
-                Polarity: EvidencePolarities.Bad,
-                Status: EvidenceStatuses.Evidence));
+            await scope.Evidence.UpsertAsync(DeathAnchor(g, t));
         }
         return games;
     }
+
+    private static EvidenceUpsert DeathAnchor(long gameId, int t) => new(
+        GameId: gameId,
+        SourceKind: EvidenceKinds.TimelineRegion,
+        SourceId: null,
+        SourceKey: PatternConstants.ObjEventSourceKey("DEATH", t),
+        StartTimeSeconds: t - PatternConstants.MomentLeadSeconds,
+        EndTimeSeconds: t + PatternConstants.MomentTrailSeconds,
+        Title: PatternConstants.TokenLabel("DEATH"),
+        Polarity: EvidencePolarities.Bad,
+        Status: EvidenceStatuses.Evidence);
 
     [Fact]
     public async Task BuildAsync_StartLessMoments_RenderWithoutFabricatedTime()
     {
         using var scope = new SidecarWriteScope();
+        using var vods = new TempVods();
         await scope.InitializeAsync();
-        await SeedFailingCriterionAsync(scope);
+        await SeedFailingCriterionAsync(scope, vods);
 
         var snapshot = await Builder(scope).BuildAsync();
 
         var card = Assert.Single(snapshot.Patterns, p => p.Kind == PatternConstants.KindObjectiveCriteria);
         Assert.Equal(3, card.MomentCount);
+        Assert.Equal(3, card.TotalMomentCount);
+        Assert.Equal(0, card.UnwatchableMomentCount);
         Assert.Equal("high", card.Severity); // 100% fail share
         Assert.All(card.Moments, m =>
         {
@@ -97,47 +121,102 @@ public sealed class PatternsSnapshotContractTests
     }
 
     [Fact]
-    public async Task BuildAsync_PrunedVodFile_DegradesToNoVod_InsteadOfABrokenPlayer()
+    public async Task BuildAsync_MomentsWithNothingLeftToWatch_StayOutOfThePlaylist_ButStillCount()
     {
         using var scope = new SidecarWriteScope();
+        using var vods = new TempVods();
         await scope.InitializeAsync();
-        var games = await SeedTrackedDeathsAsync(scope);
+        var games = await SeedTrackedDeathsAsync(scope, vods: null);
 
-        // The oldest game's vod_files row outlived its recording (Ascent
-        // retention deleted the file); a fresh game's recording exists.
-        var realVod = Path.Combine(Path.GetTempPath(), $"revu-test-vod-{Guid.NewGuid():N}.mp4");
-        await File.WriteAllBytesAsync(realVod, new byte[] { 0 });
-        try
+        // games[0]: recording on disk. games[2]: vod_files row outlived its file
+        // (Ascent retention). games[1]: never recorded. Only games[0]'s two
+        // moments can be watched.
+        await scope.Vod.LinkVodAsync(games[2], Path.Combine(Path.GetTempPath(), "definitely-deleted.mp4"));
+        var realVod = vods.For(games[0]);
+        await scope.Vod.LinkVodAsync(games[0], realVod);
+
+        var snapshot = await Builder(scope).BuildAsync();
+        var card = Assert.Single(snapshot.Patterns, p => p.Kind == PatternConstants.KindObjectiveEvents);
+
+        Assert.Equal(5, card.TotalMomentCount);
+        Assert.Equal(2, card.MomentCount);
+        Assert.Equal(3, card.UnwatchableMomentCount);
+        Assert.Equal("2 of 5 moments across 1 game", card.Subtitle);
+        Assert.All(card.Moments, m =>
         {
-            await scope.Vod.LinkVodAsync(games[2], Path.Combine(Path.GetTempPath(), "definitely-deleted.mp4"));
-            await scope.Vod.LinkVodAsync(games[0], realVod);
+            Assert.Equal(games[0], m.GameId);
+            Assert.True(m.HasVod);
+            Assert.Equal(realVod, m.VodPath);
+        });
+        Assert.Equal(new[] { 1, 2 }, card.Moments.Select(m => m.Ordinal).ToArray());
+    }
 
-            var snapshot = await Builder(scope).BuildAsync();
-            var card = Assert.Single(snapshot.Patterns, p => p.Kind == PatternConstants.KindObjectiveEvents);
+    [Fact]
+    public async Task BuildAsync_KeptClip_MakesAMomentWatchable_EvenWhenTheRecordingIsGone()
+    {
+        using var scope = new SidecarWriteScope();
+        using var clips = new TempVods();
+        await scope.InitializeAsync();
+        var games = await SeedTrackedDeathsAsync(scope, vods: null);
+        var clipPath = clips.For(games[1]);
 
-            foreach (var m in card.Moments.Where(m => m.GameId == games[2]))
-            {
-                Assert.False(m.HasVod);
-                Assert.Equal("", m.VodPath);
-            }
-            foreach (var m in card.Moments.Where(m => m.GameId == games[0]))
-            {
-                Assert.True(m.HasVod);
-                Assert.Equal(realVod, m.VodPath);
-            }
-        }
-        finally
-        {
-            File.Delete(realVod);
-        }
+        // No recording anywhere, but the user clipped one moment of games[1] —
+        // the clip file is what gets played.
+        var card0 = Assert.Single(await scope.Evidence.GetPatternCardsAsync(), c => c.Kind == PatternConstants.KindObjectiveEvents);
+        var moment = (await scope.Evidence.GetPatternMomentsAsync(card0)).Single(m => m.GameId == games[1] && m.StartTimeSeconds == 400 - PatternConstants.MomentLeadSeconds);
+        var bookmarkId = await scope.Vod.AddBookmarkAsync(games[1], 400, "noted", clipStartSeconds: 390, clipEndSeconds: 410, clipPath: clipPath);
+        await scope.Evidence.AttachClipToEvidenceAsync(moment.EvidenceId, bookmarkId, 390, 410);
+
+        var snapshot = await Builder(scope).BuildAsync();
+        var card = Assert.Single(snapshot.Patterns, p => p.Kind == PatternConstants.KindObjectiveEvents);
+
+        var shown = Assert.Single(card.Moments);
+        Assert.True(shown.HasClip);
+        Assert.False(shown.HasVod);
+        Assert.Equal(clipPath, shown.ClipPath);
+        Assert.Equal(5, card.TotalMomentCount);
+        Assert.Equal(4, card.UnwatchableMomentCount);
+    }
+
+    [Fact]
+    public async Task BuildAsync_PlaylistIsCapped_KeepingNotedMomentsThenTheNewest_InChronologicalOrder()
+    {
+        using var scope = new SidecarWriteScope();
+        using var vods = new TempVods();
+        await scope.InitializeAsync();
+        var games = await SeedTrackedDeathsAsync(scope, vods);
+
+        // Flood games[0] (the NEWEST game, timestamp now-1h) and games[2] (the
+        // OLDEST) with anchors well past the cap; note one of the oldest.
+        var cap = PatternConstants.PatternMomentDisplayLimit;
+        for (var i = 0; i < cap; i++) await scope.Evidence.UpsertAsync(DeathAnchor(games[2], 1000 + i * 10));
+        for (var i = 0; i < cap; i++) await scope.Evidence.UpsertAsync(DeathAnchor(games[0], 1000 + i * 10));
+        var notedId = await scope.Evidence.UpsertAsync(DeathAnchor(games[2], 60));
+        await scope.Evidence.UpdateNoteAsync(notedId, "the one I care about");
+
+        var snapshot = await Builder(scope).BuildAsync();
+        var card = Assert.Single(snapshot.Patterns, p => p.Kind == PatternConstants.KindObjectiveEvents);
+
+        Assert.Equal(5 + 2 * cap + 1, card.TotalMomentCount);
+        Assert.Equal(cap, card.MomentCount);
+        Assert.Equal(0, card.UnwatchableMomentCount); // every game has its recording
+        Assert.Equal($"{cap} of {5 + 2 * cap + 1} moments across 2 games", card.Subtitle);
+
+        // The noted (oldest) moment survives the cap; the rest are the newest game's.
+        Assert.Contains(card.Moments, m => m.EvidenceId == notedId);
+        Assert.Equal(cap - 1, card.Moments.Count(m => m.GameId == games[0]));
+        // Chronological (oldest-first) with 1-based ordinals numbered AFTER the cut.
+        Assert.Equal(card.Moments.OrderBy(m => m.GameTimestamp).ThenBy(m => m.StartTimeSeconds).Select(m => m.EvidenceId), card.Moments.Select(m => m.EvidenceId));
+        Assert.Equal(Enumerable.Range(1, cap), card.Moments.Select(m => m.Ordinal));
     }
 
     [Fact]
     public async Task BuildAsync_ReviewedPattern_ReArmsThroughTheSharedGate()
     {
         using var scope = new SidecarWriteScope();
+        using var vods = new TempVods();
         await scope.InitializeAsync();
-        var objectiveId = await SeedFailingCriterionAsync(scope);
+        var objectiveId = await SeedFailingCriterionAsync(scope, vods);
         var patternKey = $"{PatternConstants.KindObjectiveCriteria}:obj{objectiveId}";
 
         // Mark the pattern reviewed → it closes.
@@ -167,13 +246,14 @@ public sealed class PatternsSnapshotContractTests
     public async Task BuildAsync_PendingCardsRankAheadOfReviewedOnes()
     {
         using var scope = new SidecarWriteScope();
+        using var vods = new TempVods();
         await scope.InitializeAsync();
 
         // A HIGH-severity criterion card, marked reviewed, and a MEDIUM-severity
         // tracked-deaths card left pending. Severity order alone would lead
         // with the reviewed card; the pending-first cap must not.
-        var objectiveId = await SeedFailingCriterionAsync(scope);
-        await SeedTrackedDeathsAsync(scope, firstGameId: 6801);
+        var objectiveId = await SeedFailingCriterionAsync(scope, vods);
+        await SeedTrackedDeathsAsync(scope, vods, firstGameId: 6801);
         await scope.Evidence.MarkPatternReviewedAsync(
             $"{PatternConstants.KindObjectiveCriteria}:obj{objectiveId}",
             PatternConstants.KindObjectiveCriteria, 3);

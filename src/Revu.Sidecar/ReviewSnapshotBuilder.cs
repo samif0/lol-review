@@ -557,7 +557,12 @@ public sealed class ReviewSnapshotBuilder
     {
         try
         {
-            return await _evidenceRepo.GetForGameAsync(gameId);
+            // v3.10: the post-game pass's own anchors (trades, fights, failed
+            // criteria) only surface here when "Auto-fill Timeline Inbox from game
+            // events" is on; Patterns keep counting them either way.
+            return EvidenceAutoAnchors.ForSurface(
+                await _evidenceRepo.GetForGameAsync(gameId),
+                _configService.AutoTimelineClippingEnabled);
         }
         catch (Exception ex)
         {

@@ -47,6 +47,16 @@ public static class PatternConstants
     public const int PatternCardLimit = 6;
 
     /// <summary>
+    /// Max moments a pattern's playlist shows. A busy tracked token (every trade,
+    /// every fight) can anchor hundreds of moments in a window; the card still
+    /// COUNTS them all, but the playlist keeps the ones worth sitting through —
+    /// everything the user noted or clipped, then the newest auto anchors — and
+    /// only moments that can actually be watched (a clip file or the game's
+    /// recording still on disk).
+    /// </summary>
+    public const int PatternMomentDisplayLimit = 24;
+
+    /// <summary>
     /// Candidate fetch size for the snapshot builders — every card the
     /// detectors can emit (at most 9 under their per-kind limits), so the
     /// review gate runs over the FULL candidate set and a reviewed-closed card

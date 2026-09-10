@@ -96,6 +96,8 @@ public sealed class PatternsSnapshotBuilder
 
                 var distinctGames = moments.Select(m => m.GameId).Distinct().Count();
                 var momentCount = moments.Count;
+                var totalMoments = rawMoments.Count;
+                var unwatchable = totalMoments - _lastPlayableCount;
 
                 cards.Add(new PatternCardDto(
                     PatternKey: pattern.PatternKey,
@@ -111,11 +113,13 @@ public sealed class PatternsSnapshotBuilder
                     IsReviewed: isReviewed,
                     MomentCount: momentCount,
                     GameCount: distinctGames,
-                    Subtitle: BuildSubtitle(momentCount, distinctGames),
+                    Subtitle: BuildSubtitle(momentCount, totalMoments, distinctGames),
                     // Carry-forward note write is DEFERRED — display-only placeholder.
                     CarryForwardNote: "",
                     Moments: moments,
-                    NewMomentCount: newMoments));
+                    NewMomentCount: newMoments,
+                    TotalMomentCount: totalMoments,
+                    UnwatchableMomentCount: unwatchable));
             }
         }
         catch (Exception ex)
@@ -172,16 +176,22 @@ public sealed class PatternsSnapshotBuilder
         }
     }
 
-    private static IReadOnlyList<PatternMomentDto> MapMoments(IReadOnlyList<PatternMoment> moments)
+    // Playable moments the last MapMoments call found BEFORE the display cap —
+    // read by BuildAsync right after the call to report the unwatchable count.
+    // (The loop in BuildAsync is sequential.)
+    private int _lastPlayableCount;
+
+    private IReadOnlyList<PatternMomentDto> MapMoments(IReadOnlyList<PatternMoment> moments)
     {
         // vod_files rows outlive the recordings they point at (Ascent retention
         // prunes old files), so probe the disk before advertising a playable
         // VOD — same File.Exists shape as GamesSnapshotBuilder — and degrade a
         // pruned one to the graceful no-VOD state instead of a player that
         // errors with "Could not load this clip". One probe per distinct path:
-        // a playlist's moments mostly share their game's VOD.
+        // a playlist's moments mostly share their game's VOD. Clip files get the
+        // same probe (a kept clip outlives its game's recording).
         var onDisk = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        bool VodOnDisk(string path)
+        bool OnDisk(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return false;
             if (!onDisk.TryGetValue(path, out var exists))
@@ -192,24 +202,59 @@ public sealed class PatternsSnapshotBuilder
             return exists;
         }
 
+        // v3.10: the playlist is what the user can actually sit through.
+        //   1. Only WATCHABLE moments: the game's recording is still on disk, or
+        //      the moment kept a clip file. An anchor whose VOD is gone and that
+        //      was never clipped has nothing to play — it still counts on the
+        //      card (TotalMomentCount) but never enters the playlist.
+        //   2. Capped at PatternMomentDisplayLimit. Everything the user touched
+        //      (a note, a kept clip) is kept first; the remaining slots go to the
+        //      NEWEST auto anchors, since a recurring pattern's latest instances
+        //      are the ones to review. The final order stays chronological.
+        var playable = moments
+            .Select(m => (Moment: m, HasVod: OnDisk(m.VodPath), HasClip: OnDisk(m.ClipPath)))
+            .Where(x => x.HasVod || x.HasClip)
+            .ToList();
+        _lastPlayableCount = playable.Count;
+
+        var chosen = playable.Count <= PatternConstants.PatternMomentDisplayLimit
+            ? playable
+            : playable
+                .Select((x, i) => (x, i))
+                .OrderByDescending(t => t.x.HasClip || !string.IsNullOrWhiteSpace(t.x.Moment.Note))
+                .ThenByDescending(t => t.i)   // newest first (source order is oldest-first)
+                .Take(PatternConstants.PatternMomentDisplayLimit)
+                .OrderBy(t => t.i)
+                .Select(t => t.x)
+                .ToList();
+
         var ordinal = 0;
-        return moments.Select(m => MapMoment(m, ++ordinal, VodOnDisk(m.VodPath))).ToList();
+        return chosen.Select(x => MapMoment(x.Moment, ++ordinal, x.HasVod, x.HasClip)).ToList();
     }
 
-    /// <summary>Mirror of PatternReviewViewModel.PatternSubtitle.</summary>
-    private static string BuildSubtitle(int momentCount, int gameCount)
+    /// <summary>Mirror of PatternReviewViewModel.PatternSubtitle, plus the
+    /// "N of M" form when the playlist shows fewer moments than the card counted.</summary>
+    private static string BuildSubtitle(int shownCount, int totalCount, int gameCount)
     {
-        if (momentCount == 0)
+        if (totalCount == 0)
         {
             return "No moments are still pending for this pattern.";
         }
-        var moments = $"{momentCount} moment{(momentCount == 1 ? "" : "s")}";
+        if (shownCount == 0)
+        {
+            return $"{totalCount} moment{(totalCount == 1 ? "" : "s")} counted, none still watchable (recordings gone, no clips kept).";
+        }
         var games = $"{gameCount} game{(gameCount == 1 ? "" : "s")}";
+        if (shownCount < totalCount)
+        {
+            return $"{shownCount} of {totalCount} moments across {games}";
+        }
+        var moments = $"{shownCount} moment{(shownCount == 1 ? "" : "s")}";
         return $"{moments} across {games}";
     }
 
     /// <summary>Mirror of PatternMomentItem's display projection (no brushes).</summary>
-    private static PatternMomentDto MapMoment(PatternMoment m, int ordinal, bool vodOnDisk)
+    private static PatternMomentDto MapMoment(PatternMoment m, int ordinal, bool vodOnDisk, bool clipOnDisk)
     {
         var championLabel = string.IsNullOrWhiteSpace(m.ChampionName) ? "Game" : m.ChampionName;
         var resultLabel = m.Win ? "WIN" : "LOSS";
@@ -248,7 +293,9 @@ public sealed class PatternsSnapshotBuilder
             // An empty VodPath also keeps the note flow from attempting a clip
             // extraction against the missing file (the endpoint's hasVod gate).
             VodPath: vodOnDisk ? m.VodPath : "",
-            HasVod: vodOnDisk);
+            HasVod: vodOnDisk,
+            ClipPath: clipOnDisk ? m.ClipPath : "",
+            HasClip: clipOnDisk);
     }
 
     /// <summary>Mirror of PatternMomentItem.PolarityLabel.</summary>

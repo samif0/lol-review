@@ -181,7 +181,11 @@ function renderHeader(subject) {
 
   $('rv-gmode').textContent = h.gameMode || '';
   $('rv-gdur').textContent = h.duration || '';
-  $('rv-matchup').textContent = h.matchupHeading || '';
+  // The matchup line reads "you vs them". Without an opponent on record the
+  // builder degrades it to the bare champion name, which would just echo the
+  // title above it ("Qiyana" / "Qiyana") — show nothing until the matchup lands.
+  const matchup = h.matchupHeading || '';
+  $('rv-matchup').textContent = matchup === (h.championName || '') ? '' : matchup;
 
   // FULL LOBBY strip — one cell per lane (champions only, both teams) from the
   // participant map; hidden entirely when the game has no map yet.
@@ -1049,6 +1053,21 @@ async function loadReview() {
     _loading = false;
   }
 }
+
+// v3.10: the post-game matchup pass filled this game's enemy laner / lobby map
+// (~90s after EOG, from Match-V5). Re-render ONLY the hero header from a fresh
+// snapshot — never the form, which may hold unsaved text (P-035).
+window.addEventListener('revu:matchup-updated', async (ev) => {
+  const gid = Number(ev && ev.detail && ev.detail.gameId);
+  const shown = Number(_subject && _subject.gameId) || 0;
+  if (!shown || (gid > 0 && gid !== shown)) return;
+  try {
+    const data = await fetchReview();
+    if (data && data.subject) renderHeader(data.subject);
+  } catch (err) {
+    console.error('[review] header refresh after matchup update failed:', err);
+  }
+});
 
 // ── live form interactions: mental slider + tag input ───────────────────────
 // Mental slider mirrors its value into the readout as it moves (and counts as

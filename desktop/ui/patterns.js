@@ -238,8 +238,10 @@ function buildMomRow(m, idx) {
 
   rg.textContent = [m.championLabel, m.timeLabel].filter(Boolean).join(' · ');
 
-  // CLIP badge only when this moment kept a clip / has a matched VOD.
-  show(clip, m.sourceKind === 'clip' || !!m.hasVod);
+  // CLIP badge only when this moment kept a clip file / has a matched VOD on disk
+  // (the sidecar probes both; every moment in the playlist has at least one).
+  show(clip, !!m.hasClip || !!m.hasVod);
+  if (clip) clip.textContent = m.hasClip ? 'CLIP' : 'VOD';
 
   const polarity = m.polarity || 'neutral';
   pol.textContent = m.polarityLabel || polarity.toUpperCase();
@@ -268,8 +270,20 @@ function renderRail() {
   clear(host);
   const moms = activeMoments();
 
+  // "24 of 500" when the playlist is capped or some moments have nothing left to
+  // watch — the card still counts every instance the detector found.
   const sub = $('rail-sub');
-  if (sub) sub.textContent = `${moms.length} moment${moms.length === 1 ? '' : 's'}`;
+  const p = activePattern();
+  const total = Number(p && p.totalMomentCount) || moms.length;
+  if (sub) {
+    sub.textContent = total > moms.length
+      ? `${moms.length} of ${total} moments`
+      : `${moms.length} moment${moms.length === 1 ? '' : 's'}`;
+    const gone = Number(p && p.unwatchableMomentCount) || 0;
+    sub.title = gone > 0
+      ? `${gone} moment${gone === 1 ? '' : 's'} left out: recording gone and no clip kept.`
+      : '';
+  }
 
   moms.forEach((m, i) => host.appendChild(buildMomRow(m, i)));
 }

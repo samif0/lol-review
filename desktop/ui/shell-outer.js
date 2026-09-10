@@ -511,6 +511,18 @@ async function wireLiveAutoShow() {
           }
         } catch (_) { /* best-effort — a fresh navigation always fetches fresh */ }
         break;
+      case 'matchupUpdated':
+        // v3.10: the post-game matchup pass filled enemy_laner / participant_map
+        // from Match-V5 (~90s after EOG). The Review page may be open on that very
+        // game with its hero reading a bare champion name, and the Matchups journal
+        // may be showing "Couldn't tell the lane…" — hand the event in so each can
+        // refresh just its header / last-game line (never the user's unsaved text).
+        try {
+          if ((frameHas('review.html') || frameHas('matchups.html')) && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:matchup-updated', { detail: p }));
+          }
+        } catch (_) { /* best-effort */ }
+        break;
       case 'liveState':
         // The replayed snapshot carries the current client state — seed the LCU
         // indicator from it (live changes arrive via 'lcuConnection' below).

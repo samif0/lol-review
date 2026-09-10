@@ -611,10 +611,12 @@ public sealed class EvidenceRepository : IEvidenceRepository
                COALESCE(e.polarity, 'neutral'),
                COALESCE(e.source_kind, ''),
                COALESCE(v.file_path, ''),
-               COALESCE(e.created_at, 0)
+               COALESCE(e.created_at, 0),
+               COALESCE(b.clip_path, '')
         FROM evidence_items e
         JOIN games g ON g.game_id = e.game_id
         LEFT JOIN vod_files v ON v.game_id = e.game_id
+        LEFT JOIN vod_bookmarks b ON b.id = e.source_id AND e.source_kind = 'clip'
         """;
 
     private const string PatternMomentOrderBy =
@@ -725,7 +727,8 @@ public sealed class EvidenceRepository : IEvidenceRepository
                 Polarity: reader.GetString(9),
                 SourceKind: reader.GetString(10),
                 VodPath: reader.GetString(11),
-                CreatedAt: reader.GetInt64(12)));
+                CreatedAt: reader.GetInt64(12),
+                ClipPath: reader.GetString(13)));
         }
         return moments;
     }

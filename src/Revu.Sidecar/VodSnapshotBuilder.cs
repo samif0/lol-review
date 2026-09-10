@@ -45,6 +45,7 @@ public sealed class VodSnapshotBuilder
     private readonly IGameEventsRepository _eventsRepo;
     private readonly IEvidenceRepository _evidenceRepo;
     private readonly IObjectivesRepository _objectivesRepo;
+    private readonly IConfigService _config;
     private readonly ILogger<VodSnapshotBuilder> _logger;
 
     public VodSnapshotBuilder(
@@ -53,6 +54,7 @@ public sealed class VodSnapshotBuilder
         IGameEventsRepository eventsRepo,
         IEvidenceRepository evidenceRepo,
         IObjectivesRepository objectivesRepo,
+        IConfigService config,
         ILogger<VodSnapshotBuilder> logger)
     {
         _gameRepo = gameRepo;
@@ -60,6 +62,7 @@ public sealed class VodSnapshotBuilder
         _eventsRepo = eventsRepo;
         _evidenceRepo = evidenceRepo;
         _objectivesRepo = objectivesRepo;
+        _config = config;
         _logger = logger;
     }
 
@@ -177,7 +180,12 @@ public sealed class VodSnapshotBuilder
         var savedClips = new List<VodEvidenceDto>();
         try
         {
-            var raw = await _evidenceRepo.GetForGameAsync(gameId, includeDismissed: false);
+            // v3.10: untouched auto anchors (the post-game pass's trades / fights /
+            // failed criteria) fill the AUTO lane only while the user's "Auto-fill
+            // Timeline Inbox from game events" setting is on.
+            var raw = EvidenceAutoAnchors.ForSurface(
+                await _evidenceRepo.GetForGameAsync(gameId, includeDismissed: false),
+                _config.AutoTimelineClippingEnabled);
             foreach (var item in raw.OrderBy(i => i.StartTimeSeconds ?? int.MaxValue))
             {
                 var dto = MapEvidence(item);

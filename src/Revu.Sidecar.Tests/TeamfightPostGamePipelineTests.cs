@@ -107,7 +107,7 @@ public sealed class TeamfightPostGamePipelineTests
     }
 
     private static VodSnapshotBuilder Snapshot(SidecarWriteScope scope, GameEventsRepository events) =>
-        new(scope.Games, scope.Vod, events, scope.Evidence, scope.Objectives, NullLogger<VodSnapshotBuilder>.Instance);
+        new(scope.Games, scope.Vod, events, scope.Evidence, scope.Objectives, scope.Config, NullLogger<VodSnapshotBuilder>.Instance);
 
     private static async Task<long> TrackAsync(SidecarWriteScope scope, string title, params string[] tokens)
     {

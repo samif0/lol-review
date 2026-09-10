@@ -146,7 +146,7 @@ public static class StatsExtractor
             var enemyChampions = new List<string>();
             var enemyByPosition = new Dictionary<string, string>();
             var participantMap = new Dictionary<string, string>(StringComparer.Ordinal);
-            var myPosition = localPlayer.Value.GetPropertyOrDefault("selectedPosition", "");
+            var myPosition = AssignedPosition(localPlayer.Value);
 
             if (eogData.TryGetProperty("teams", out var teamsForEnemy) && teamsForEnemy.ValueKind == JsonValueKind.Array)
             {
@@ -163,7 +163,7 @@ public static class StatsExtractor
                     foreach (var p in players.EnumerateArray())
                     {
                         var champ = p.GetPropertyOrDefault("championName", "");
-                        var pos = p.GetPropertyOrDefault("selectedPosition", "");
+                        var pos = AssignedPosition(p);
 
                         if (!isMyTeam && !string.IsNullOrEmpty(champ))
                         {
@@ -646,6 +646,21 @@ public static class StatsExtractor
             _ => null,
         };
         return roleSuffix is null ? null : $"{prefix}{roleSuffix}";
+    }
+
+    /// <summary>
+    /// The LCU's per-player assigned position. <c>selectedPosition</c> is the
+    /// player's own pick and is frequently blank in the end-of-game payload
+    /// (observed live: every ranked game for days at a time), while
+    /// <c>detectedTeamPosition</c> — the client's own lane detection — is
+    /// populated alongside it. Either is an authoritative assignment (never a
+    /// slot-order guess, the v2.17.25 rule), so the first non-blank one wins.
+    /// </summary>
+    private static string AssignedPosition(JsonElement player)
+    {
+        var selected = player.GetPropertyOrDefault("selectedPosition", "");
+        if (!string.IsNullOrWhiteSpace(selected)) return selected;
+        return player.GetPropertyOrDefault("detectedTeamPosition", "");
     }
 
     /// <summary>
