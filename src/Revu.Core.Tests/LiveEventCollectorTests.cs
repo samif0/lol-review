@@ -976,10 +976,11 @@ public sealed class LiveEventCollectorTests
         }
         using var playerList = JsonDocument.Parse("[" + string.Join(",", rows) + "]");
         var playerListCalls = 0;
+        var eventCalls = 0;
 
         var api = new FakeLiveEventApi(
-            fetchEventsAsync: () => events,
-            fetchPlayerListAsync: () => { playerListCalls++; return playerList.RootElement.Clone(); });
+            fetchEventsAsync: () => { Interlocked.Increment(ref eventCalls); return events; },
+            fetchPlayerListAsync: () => { Interlocked.Increment(ref playerListCalls); return playerList.RootElement.Clone(); });
         var collector = new LiveEventCollector(
             api,
             NullLogger.Instance,
@@ -988,7 +989,13 @@ public sealed class LiveEventCollectorTests
 
         using var cts = new CancellationTokenSource();
         var runTask = collector.StartAsync(cts.Token);
-        await Task.Delay(120);
+        // Wait on the condition, not the wall clock (CI runners are slow): the roster
+        // landed AND several more event cycles ran, so a re-fetch would have shown up.
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while ((collector.Roster is null || Volatile.Read(ref eventCalls) < 4) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
         await cts.CancelAsync();
         await runTask;
         await collector.StopAsync();
@@ -1011,11 +1018,18 @@ public sealed class LiveEventCollectorTests
             [ { "championName": "Miss Fortune", "position": "BOTTOM", "team": "ORDER" },
               { "championName": "Yasuo", "position": "BOTTOM", "team": "CHAOS" } ]
             """);
-        var answers = new Queue<JsonElement>([partial.RootElement.Clone(), full.RootElement.Clone()]);
+        // Short list, then the full one, then the short list again forever: the full
+        // one must replace the first and survive the later short answers.
+        var answers = new Queue<JsonElement>([partial.RootElement.Clone(), full.RootElement.Clone(), partial.RootElement.Clone()]);
+        var playerListCalls = 0;
 
         var api = new FakeLiveEventApi(
             fetchEventsAsync: () => events,
-            fetchPlayerListAsync: () => answers.Count > 1 ? answers.Dequeue() : answers.Peek());
+            fetchPlayerListAsync: () =>
+            {
+                Interlocked.Increment(ref playerListCalls);
+                return answers.Count > 1 ? answers.Dequeue() : answers.Peek();
+            });
         var collector = new LiveEventCollector(
             api,
             NullLogger.Instance,
@@ -1024,10 +1038,16 @@ public sealed class LiveEventCollectorTests
 
         using var cts = new CancellationTokenSource();
         var runTask = collector.StartAsync(cts.Token);
-        await Task.Delay(120);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (((collector.Roster?.Players.Count ?? 0) < 2 || Volatile.Read(ref playerListCalls) < 5)
+               && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
         await cts.CancelAsync();
         await runTask;
 
+        Assert.True(Volatile.Read(ref playerListCalls) >= 5, "the collector kept offering the short list");
         Assert.NotNull(collector.Roster);
         Assert.Equal(2, collector.Roster!.Players.Count);
         Assert.Equal("BOTTOM", collector.Roster.PositionOf("Yasuo", 200));

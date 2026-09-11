@@ -28,6 +28,12 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private CancellationTokenSource? _collectorCts;
     private Task? _collectorTask;
 
+    // v3.10.1: the lobby as the live client reported it survives a transient LCU drop
+    // that tears the collector down mid-game (it is not restarted on reconnect), so
+    // game end still gets the matchmaker's lanes. Cleared when a game's collector
+    // starts and when a game end consumes it.
+    private LiveRoster? _lastRoster;
+
     private const int MaxCredentialBackoffTicks = 6;
 
     /// <summary>
@@ -431,6 +437,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         // read the fields instead, it would cancel/dispose the NEW CancellationTokenSource
         // (assigned below) the moment a second StartEventCollector races it,
         // producing an ObjectDisposedException.
+        _lastRoster = null;
         var oldCts = _collectorCts;
         var oldCollector = _eventCollector;
         var oldTask = _collectorTask;
@@ -532,6 +539,11 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private async Task PublishGameEndedAsync(CancellationToken cancellationToken)
     {
         var (liveEvents, roster) = await StopEventCollectorAsync().ConfigureAwait(false);
+        if (_lastRoster is not null && (roster is null || roster.Players.Count < _lastRoster.Players.Count))
+        {
+            roster = _lastRoster;
+        }
+        _lastRoster = null;
         if (liveEvents.Count > 0)
         {
             _logger.LogInformation("Collected {Count} live events during game", liveEvents.Count);
@@ -600,7 +612,8 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _state.ConnectedTicks = 0;
 
         // (Previously the collected events here were discarded silently.)
-        await StopEventCollectorAsync().ConfigureAwait(false);
+        var (_, roster) = await StopEventCollectorAsync().ConfigureAwait(false);
+        if (roster is not null) _lastRoster = roster;
 
         if (wasInGame && !_state.CurrentGameIsCasual)
         {

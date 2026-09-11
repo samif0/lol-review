@@ -510,12 +510,16 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         using var cmd = conn.CreateCommand();
         // v3.10.1: this is the Review page's edit (ReviewWorkflowService). A typed
         // opponent is the player's word — stamp it so the Match-V5 pass never
-        // overwrites it as if it were an estimate. Clearing it leaves the stamp
-        // alone (a blank row is queued regardless).
+        // overwrites it as if it were an estimate. Clearing it drops the 'user'
+        // stamp so automation may fill the opponent again (otherwise the row would
+        // sit in the Match-V5 queue forever, fetched and never written).
         cmd.CommandText = @"
             UPDATE games SET
                 enemy_laner    = @enemy_laner,
-                matchup_source = CASE WHEN @enemy_laner = '' THEN matchup_source ELSE @source END
+                matchup_source = CASE
+                    WHEN @enemy_laner <> '' THEN @source
+                    WHEN COALESCE(matchup_source, '') = @source THEN ''
+                    ELSE matchup_source END
             WHERE game_id = @game_id";
         cmd.Parameters.AddWithValue("@enemy_laner", enemyLaner ?? "");
         cmd.Parameters.AddWithValue("@source", MatchupSources.User);
@@ -534,21 +538,32 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdateMatchupAsync(long gameId, string enemyLaner, string participantMapJson, string source)
+    public async Task UpdateMatchupAsync(long gameId, string enemyLaner, string participantMapJson, string position, string source)
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         // A blank value keeps the column: Match-V5 can resolve the map but not the
         // lane opponent (or vice versa) and must never blank what game end wrote.
+        // An opponent the player typed ('user', non-blank) is their word: it and its
+        // stamp stay, only the map and the position fill in. SET expressions read the
+        // row's pre-update values, so both CASEs see the same stored stamp.
         cmd.CommandText = @"
             UPDATE games SET
-                enemy_laner     = CASE WHEN @enemy = '' THEN enemy_laner     ELSE @enemy END,
-                participant_map = CASE WHEN @map   = '' THEN participant_map ELSE @map   END,
-                matchup_source  = @source
+                enemy_laner     = CASE
+                    WHEN @enemy = '' THEN enemy_laner
+                    WHEN COALESCE(matchup_source, '') = @user AND COALESCE(enemy_laner, '') <> '' THEN enemy_laner
+                    ELSE @enemy END,
+                participant_map = CASE WHEN @map = '' THEN participant_map ELSE @map END,
+                position        = CASE WHEN @position = '' THEN position ELSE @position END,
+                matchup_source  = CASE
+                    WHEN COALESCE(matchup_source, '') = @user AND COALESCE(enemy_laner, '') <> '' THEN matchup_source
+                    ELSE @source END
             WHERE game_id = @game_id";
         cmd.Parameters.AddWithValue("@enemy", enemyLaner ?? "");
         cmd.Parameters.AddWithValue("@map", participantMapJson ?? "");
+        cmd.Parameters.AddWithValue("@position", position ?? "");
         cmd.Parameters.AddWithValue("@source", source ?? "");
+        cmd.Parameters.AddWithValue("@user", MatchupSources.User);
         cmd.Parameters.AddWithValue("@game_id", gameId);
         await cmd.ExecuteNonQueryAsync();
     }

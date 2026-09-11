@@ -951,7 +951,7 @@ app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Progr
     var (game, prefill) = await MatchupFromLastGame.HealAsync(
         last.Game, last.Prefill, w.Config, w.EnemyLanerBackfill, w.Games, log, ct: ct);
 
-    if (!prefill.CanCreateOutright)
+    if (!MatchupFromLastGame.ShouldCreateOutright(game, prefill))
     {
         return Results.Json(new
         {
@@ -962,6 +962,8 @@ app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Progr
             gameLabel = MatchupsSnapshotBuilder.GameLabel(game),
             lane = prefill.Lane,
             laneIsGuess = prefill.LaneIsGuess,
+            // v3.10.1: the matchup is a game-end estimate Riot has not confirmed yet.
+            estimated = Revu.Core.Models.MatchupSources.NeedsConfirmation(game.MatchupSource),
             // By form slot ("" = unknown), so a lone support lands in the support field.
             allyChamps = prefill.AllySlots,
             enemyChamps = prefill.EnemySlots,

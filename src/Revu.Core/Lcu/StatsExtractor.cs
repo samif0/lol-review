@@ -222,6 +222,14 @@ public static class StatsExtractor
                 }
             }
 
+            // v3.10.1: the player's own row in teams[] can carry a lane when localPlayer's
+            // does not; the map already holds it, so read it back rather than leaving the
+            // lane blank for an estimate to fill later.
+            if (myPosition.Length == 0)
+            {
+                myPosition = OwnPositionFromMap(participantMap, myChampionName);
+            }
+
             var kda = (kills + assists) / Math.Max(deaths, 1.0);
             // Cap KP at 100% — teamKillsTotal can be 0 or under-counted in some game modes
             var kp = teamKillsTotal > 0
@@ -730,6 +738,23 @@ public static class StatsExtractor
         var selected = NormalizePosition(player.GetPropertyOrDefault("selectedPosition", ""));
         if (selected.Length > 0) return selected;
         return NormalizePosition(player.GetPropertyOrDefault("detectedTeamPosition", ""));
+    }
+
+    private static readonly (string Slot, string Position)[] OwnSlots =
+    [
+        ("ownTop", "TOP"), ("ownJg", "JUNGLE"), ("ownMid", "MIDDLE"), ("ownBot", "BOTTOM"), ("ownSupp", "UTILITY"),
+    ];
+
+    /// <summary>v3.10.1: the lane of the own-side map slot holding <paramref name="champion"/>, or "".</summary>
+    private static string OwnPositionFromMap(IReadOnlyDictionary<string, string> map, string champion)
+    {
+        var key = LiveRoster.ChampionKey(champion);
+        if (key.Length == 0) return "";
+        foreach (var (slot, position) in OwnSlots)
+        {
+            if (map.TryGetValue(slot, out var held) && LiveRoster.ChampionKey(held) == key) return position;
+        }
+        return "";
     }
 
     // Only the five real lane values count as an assignment; the client also

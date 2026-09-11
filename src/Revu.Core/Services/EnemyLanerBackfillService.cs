@@ -159,6 +159,7 @@ public sealed class EnemyLanerBackfillService
     private async Task<bool> ApplyMatchAsync(long gameId, JsonElement match, string puuid)
     {
         var enemy = ExtractEnemyLaner(match, puuid);
+        var selfPosition = ExtractSelfPosition(match, puuid);
         string mapJson = "";
         try
         {
@@ -178,9 +179,11 @@ public sealed class EnemyLanerBackfillService
         var wroteAnything = !string.IsNullOrEmpty(enemy) || !string.IsNullOrEmpty(mapJson);
         if (wroteAnything)
         {
-            await _games.UpdateMatchupAsync(gameId, enemy, mapJson, MatchupSources.MatchV5).ConfigureAwait(false);
-            _logger.LogDebug("Backfill: game {GameId} → enemy='{Enemy}' map={MapLen}",
-                gameId, enemy, mapJson.Length);
+            // The player's own teamPosition too: game end may have ESTIMATED the lane
+            // (champ select / role priors) and every matchup surface keys on it.
+            await _games.UpdateMatchupAsync(gameId, enemy, mapJson, selfPosition, MatchupSources.MatchV5).ConfigureAwait(false);
+            _logger.LogDebug("Backfill: game {GameId} → position='{Position}' enemy='{Enemy}' map={MapLen}",
+                gameId, selfPosition, enemy, mapJson.Length);
         }
         return wroteAnything;
     }
@@ -230,6 +233,34 @@ public sealed class EnemyLanerBackfillService
                     ? (cEl.GetString() ?? "")
                     : "";
             }
+        }
+        return "";
+    }
+
+    /// <summary>
+    /// v3.10.1: the player's own Match-V5 <c>teamPosition</c> (TOP / JUNGLE /
+    /// MIDDLE / BOTTOM / UTILITY), or "" when the player is not in the match or the
+    /// queue has no positions. Written back so a lane estimated at game end is
+    /// corrected, not frozen under the matchv5 stamp.
+    /// </summary>
+    public static string ExtractSelfPosition(JsonElement match, string puuid)
+    {
+        if (!match.TryGetProperty("info", out var info)) return "";
+        if (!info.TryGetProperty("participants", out var participants)
+            || participants.ValueKind != JsonValueKind.Array) return "";
+
+        foreach (var p in participants.EnumerateArray())
+        {
+            if (!p.TryGetProperty("puuid", out var pPuuid)
+                || pPuuid.ValueKind != JsonValueKind.String
+                || !string.Equals(pPuuid.GetString(), puuid, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            var pos = p.TryGetProperty("teamPosition", out var pEl) && pEl.ValueKind == JsonValueKind.String
+                ? (pEl.GetString() ?? "").Trim().ToUpperInvariant()
+                : "";
+            return pos is "TOP" or "JUNGLE" or "MIDDLE" or "BOTTOM" or "UTILITY" ? pos : "";
         }
         return "";
     }

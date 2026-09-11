@@ -175,12 +175,20 @@ public sealed class AdditiveSchemaUpgradeTests
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
+        var legacy = TestGameStatsFactory.Create(1717, champion: "Miss Fortune");
+        legacy.MatchupSource = "live";
+        await scope.Games.SaveAsync(legacy);
 
+        // Put the DB back into a real v16 shape: no matchup_source column at all.
         using (var conn = scope.OpenConnection())
         {
+            await Exec(conn, "ALTER TABLE games DROP COLUMN matchup_source");
             await Exec(conn,
                 "INSERT INTO schema_metadata (key, value, updated_at) VALUES ('app_schema_version','16',0) "
                 + "ON CONFLICT(key) DO UPDATE SET value='16'");
+            using var gone = conn.CreateCommand();
+            gone.CommandText = "SELECT COUNT(*) FROM pragma_table_info('games') WHERE name='matchup_source'";
+            Assert.Equal(0L, await gone.ExecuteScalarAsync());
         }
 
         await scope.Initializer.ApplyAdditiveSchemaAsync();
@@ -196,9 +204,13 @@ public sealed class AdditiveSchemaUpgradeTests
             Assert.Equal(1L, await colCmd.ExecuteScalarAsync());
         }
 
-        var game = TestGameStatsFactory.Create(1717, champion: "Miss Fortune");
-        await scope.Games.SaveAsync(game);
+        // The row written before the upgrade reads back as an unstamped legacy row,
+        // and new writes carry the column again.
         Assert.Equal("", (await scope.Games.GetAsync(1717))!.MatchupSource);
+        var fresh = TestGameStatsFactory.Create(1718, champion: "Miss Fortune");
+        fresh.MatchupSource = "live";
+        await scope.Games.SaveAsync(fresh);
+        Assert.Equal("live", (await scope.Games.GetAsync(1718))!.MatchupSource);
     }
 
     [Fact]

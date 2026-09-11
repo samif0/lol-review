@@ -196,13 +196,14 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
             // Read + clear the deferred pre-game snapshots (mood / intent /
             // practiced ids / session key). Recovered games skip these entirely —
             // a stale champ select would mislabel the wrong game (mirror Shell).
-            var (mood, intention, intentionSource, _, practicedIds, sessionKey) = _liveState.TakeForGameEnd();
+            var (mood, intention, intentionSource, _, practicedIds, sessionKey, champSelectPosition, champSelectMap) =
+                _liveState.TakeForGameEnd();
 
             // v3.10.1: the matchup goes on the row NOW. The capture already tried the
             // EOG payload and the live roster; what is still blank gets the champ-
             // select snapshot (this lobby only), then a role-prior estimate — both
             // marked as estimates so the Match-V5 pass below confirms them.
-            if (!isRecovered) ApplyMatchupFallbacks(stats, sessionKey);
+            ApplyMatchupFallbacks(stats, isRecovered, sessionKey, champSelectPosition, champSelectMap);
 
             ProcessGameEndRequest request = isRecovered
                 ? new ProcessGameEndRequest(stats, MentalRating: 5, PreGameMood: 0)
@@ -378,29 +379,26 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
     }
 
     // v3.10.1: fill whatever the capture left blank from the sources the sidecar
-    // holds. Champ select first (the lobby's own assignment for the player's side,
-    // role priors for the enemy side) — only for the flow that had a session key,
-    // and MatchupFallback refuses a snapshot whose own side lacks the played
-    // champion, so a stale lobby can never label this game. Then the role-prior
-    // estimate over the EOG champion lists. Best-effort: a failure leaves the row
-    // as captured and the Match-V5 pass fills it.
-    private void ApplyMatchupFallbacks(Revu.Core.Models.GameStats stats, string? sessionKey)
+    // holds (MatchupFallback.ApplyForGameEnd): nothing for a recovered game; the
+    // champ-select snapshot only for the flow that had a session key, and only when
+    // its own side holds the played champion, so a stale lobby can never label this
+    // game; then the role-prior estimate over the EOG champion lists. The snapshot
+    // comes from TakeForGameEnd, which clears it. Best-effort: a failure leaves the
+    // row as captured and the Match-V5 pass fills it.
+    private void ApplyMatchupFallbacks(
+        Revu.Core.Models.GameStats stats,
+        bool isRecovered,
+        string? sessionKey,
+        string champSelectPosition,
+        string champSelectMap)
     {
-        if (stats.Position.Length > 0 && stats.EnemyLaner.Length > 0 && stats.ParticipantMap.Length > 0) return;
         try
         {
-            if (!string.IsNullOrEmpty(sessionKey)
-                && MatchupFallback.ApplyChampSelect(stats, _liveState.MyPosition, _liveState.ParticipantMapJson))
+            if (MatchupFallback.ApplyForGameEnd(stats, isRecovered, sessionKey, champSelectPosition, champSelectMap))
             {
                 _logger.LogInformation(
-                    "Matchup for game {GameId} filled from champ select: {Position}, {Champion} vs {Enemy} (Match-V5 confirms shortly)",
-                    stats.GameId, stats.Position, stats.ChampionName, stats.EnemyLaner);
-            }
-            if (MatchupFallback.ApplyRolePriors(stats))
-            {
-                _logger.LogInformation(
-                    "Matchup for game {GameId} estimated from role priors: {Position}, {Champion} vs {Enemy} (Match-V5 confirms shortly)",
-                    stats.GameId, stats.Position, stats.ChampionName, stats.EnemyLaner);
+                    "Matchup for game {GameId} estimated at game end ({Source}): {Position}, {Champion} vs {Enemy} (Match-V5 confirms shortly)",
+                    stats.GameId, stats.MatchupSource, stats.Position, stats.ChampionName, stats.EnemyLaner);
             }
         }
         catch (Exception ex)
@@ -432,9 +430,9 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                 }
 
                 var row = await _write.Games.GetAsync(gameId).ConfigureAwait(false);
-                if (row is null || row.MatchupSource == MatchupSources.MatchV5)
+                if (row is null || row.MatchupSource is MatchupSources.MatchV5 or MatchupSources.User)
                 {
-                    return; // gone, or an earlier attempt already confirmed it
+                    return; // gone, confirmed by an earlier attempt, or the player's own word
                 }
 
                 var outcome = await _write.EnemyLanerBackfill.BackfillGameAsync(gameId).ConfigureAwait(false);

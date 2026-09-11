@@ -160,12 +160,20 @@ public sealed class LcuLiveState
     /// clear them so the next game starts clean (mirror ResetPreGameSnapshots +
     /// ResetSessionKey). Returns null sessionKey when no flow was live.</summary>
     public (int Mood, string Intention, string IntentionSource, bool Cleared,
-        IReadOnlyList<long> PracticedIds, string? SessionKey) TakeForGameEnd()
+        IReadOnlyList<long> PracticedIds, string? SessionKey,
+        string MyPosition, string ParticipantMapJson) TakeForGameEnd()
     {
         lock (_gate)
         {
             var snapshot = (_preGameMood, _intention, _intentionSource, _intentCleared,
-                _practicedObjectiveIds, _sessionKey);
+                _practicedObjectiveIds, _sessionKey, _myPosition, _participantMapJson);
+            // v3.10.1: the champ-select context goes to the game-end matchup fallback
+            // and is cleared with the rest, so a lobby can never label a later game
+            // whose champ select the sidecar did not see.
+            _myChampion = "";
+            _enemyChampion = "";
+            _myPosition = "";
+            _participantMapJson = "";
             _preGameMood = 0;
             _intention = "";
             _intentionSource = "";

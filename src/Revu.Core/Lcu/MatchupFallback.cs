@@ -10,12 +10,13 @@ namespace Revu.Core.Lcu;
 /// v3.10.1: last-resort matchup sources for a just-captured game whose
 /// end-of-game payload AND live roster left the lane / opponent / role map
 /// blank. Each method fills ONLY blank fields, so callers apply them in
-/// priority order and the better source always wins; each stamps
-/// <see cref="GameStats.MatchupSource"/> with an estimate marker
-/// (<see cref="MatchupSources.NeedsConfirmation"/>) so the Match-V5 pass still
-/// confirms or corrects the row a minute later. The point is that the Review
-/// hero, the dashboard card and the Matchups journal have something to show the
-/// moment the game ends instead of a bare champion name.
+/// priority order and the better source always wins. Whatever they fill is an
+/// estimate: the row is stamped with an estimate marker
+/// (<see cref="MatchupSources.NeedsConfirmation"/>) even when the capture had
+/// confirmed other fields, so the Match-V5 pass confirms or corrects it a
+/// minute later. The point is that the Review hero, the dashboard card and the
+/// Matchups journal have something to show the moment the game ends instead of
+/// a bare champion name.
 /// </summary>
 public static class MatchupFallback
 {
@@ -23,22 +24,48 @@ public static class MatchupFallback
     private static readonly string[] KeySuffixes = ["Top", "Jg", "Mid", "Bot", "Supp"];
 
     /// <summary>
+    /// The sidecar's game-end decision as one testable seam. A recovered game gets
+    /// nothing: its row came from match history and no champ-select snapshot can
+    /// be trusted to belong to it. The champ-select snapshot is used only when this
+    /// flow had a session key; role priors then fill whatever is still blank.
+    /// True when anything landed.
+    /// </summary>
+    public static bool ApplyForGameEnd(
+        GameStats? game,
+        bool isRecovered,
+        string? sessionKey,
+        string? champSelectPosition,
+        string? champSelectMapJson)
+    {
+        if (game is null || isRecovered || IsFilled(game)) return false;
+
+        var applied = false;
+        if (!string.IsNullOrEmpty(sessionKey))
+        {
+            applied |= ApplyChampSelect(game, champSelectPosition, champSelectMapJson);
+        }
+        applied |= ApplyRolePriors(game);
+        return applied;
+    }
+
+    /// <summary>
     /// The champ-select snapshot (<c>LcuClient.GetChampSelectSnapshotAsync</c>):
     /// the player's <c>assignedPosition</c> and a role→champion map whose own side
     /// is the lobby's assignment and whose enemy side is the role-prior estimate.
-    /// Refused when the map does not hold the player's champion on the own side —
+    /// Refused when the map does not hold the player's champion on the own side:
     /// that is another lobby's snapshot (a dodge, a remake, an app started
-    /// mid-game). Returns true when anything landed.
+    /// mid-game). A lane the row already holds decides the opponent, and the row's
+    /// own map is read before the snapshot's. Returns true when anything landed.
     /// </summary>
     public static bool ApplyChampSelect(GameStats? game, string? myPosition, string? participantMapJson)
     {
         if (game is null) return false;
-        var map = ParseMap(participantMapJson);
-        if (map is null || map.Count == 0) return false;
-        if (!OwnSideHolds(map, game.ChampionName)) return false;
+        var snapshot = ParseMap(participantMapJson);
+        if (snapshot is null || snapshot.Count == 0) return false;
+        if (!OwnSideHolds(snapshot, game.ChampionName)) return false;
 
         var position = LiveRoster.NormalizePosition(myPosition);
-        if (position.Length == 0) position = PositionFromOwnSlot(map, game.ChampionName);
+        if (position.Length == 0) position = PositionFromOwnSlot(snapshot, game.ChampionName);
 
         var applied = false;
         if (game.Position.Length == 0 && position.Length > 0)
@@ -48,13 +75,14 @@ public static class MatchupFallback
         }
         if (game.ParticipantMap.Length == 0)
         {
-            game.ParticipantMap = JsonSerializer.Serialize(map);
+            game.ParticipantMap = JsonSerializer.Serialize(snapshot);
             applied = true;
         }
-        var lane = position.Length > 0 ? position : game.Position;
         if (game.EnemyLaner.Length == 0)
         {
-            var enemy = EnemyAt(map, lane);
+            var enemy = FirstNonEmpty(
+                EnemyAt(ParseMap(game.ParticipantMap), game.Position),
+                EnemyAt(snapshot, game.Position));
             if (enemy.Length > 0)
             {
                 game.EnemyLaner = enemy;
@@ -62,8 +90,7 @@ public static class MatchupFallback
             }
         }
 
-        if (applied && !MatchupSources.IsConfirmed(game.MatchupSource))
-            game.MatchupSource = MatchupSources.ChampSelect;
+        if (applied) MarkEstimate(game, MatchupSources.ChampSelect);
         return applied;
     }
 
@@ -71,9 +98,10 @@ public static class MatchupFallback
     /// Both sides estimated from champion role priors (<see cref="RoleAssignment"/>)
     /// over the champion lists the capture stored in <c>RawStats</c>
     /// (<c>_own_champions</c> / <c>_enemy_champions</c>). Summoner's Rift 5v5
-    /// only — a comp of five per side in a CLASSIC game; anything else (ARAM,
-    /// a custom, a short list) is refused rather than guessed. Returns true when
-    /// anything landed.
+    /// only: a comp of five per side in a CLASSIC game; anything else (ARAM,
+    /// a custom, a short list) is refused rather than guessed. The player's lane
+    /// comes from the row when it has one; the priors only fill a blank one.
+    /// Returns true when anything landed.
     /// </summary>
     public static bool ApplyRolePriors(GameStats? game)
     {
@@ -83,42 +111,60 @@ public static class MatchupFallback
         var ownByRole = RoleAssignment.AssignRoles(own);
         var enemyByRole = RoleAssignment.AssignRoles(enemy);
 
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        var estimate = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < RoleAssignment.RoleCount; i++)
         {
-            if (ownByRole[i].Length > 0) map["own" + KeySuffixes[i]] = ownByRole[i];
-            if (enemyByRole[i].Length > 0) map["enemy" + KeySuffixes[i]] = enemyByRole[i];
+            if (ownByRole[i].Length > 0) estimate["own" + KeySuffixes[i]] = ownByRole[i];
+            if (enemyByRole[i].Length > 0) estimate["enemy" + KeySuffixes[i]] = enemyByRole[i];
         }
-
-        var myIndex = Array.FindIndex(ownByRole, c => SameChampion(c, game.ChampionName));
 
         var applied = false;
-        if (game.Position.Length == 0 && myIndex >= 0)
+        if (game.Position.Length == 0)
         {
-            game.Position = Positions[myIndex];
-            applied = true;
+            var myIndex = Array.FindIndex(ownByRole, c => SameChampion(c, game.ChampionName));
+            if (myIndex >= 0)
+            {
+                game.Position = Positions[myIndex];
+                applied = true;
+            }
         }
-        if (game.ParticipantMap.Length == 0 && map.Count > 0)
+        if (game.ParticipantMap.Length == 0 && estimate.Count > 0)
         {
-            game.ParticipantMap = JsonSerializer.Serialize(map);
+            game.ParticipantMap = JsonSerializer.Serialize(estimate);
             applied = true;
         }
         if (game.EnemyLaner.Length == 0)
         {
-            var laneIndex = myIndex >= 0 ? myIndex : IndexOfPosition(game.Position);
-            if (laneIndex >= 0 && enemyByRole[laneIndex].Length > 0)
+            var enemyLaner = FirstNonEmpty(
+                EnemyAt(ParseMap(game.ParticipantMap), game.Position),
+                EnemyAt(estimate, game.Position));
+            if (enemyLaner.Length > 0)
             {
-                game.EnemyLaner = enemyByRole[laneIndex];
+                game.EnemyLaner = enemyLaner;
                 applied = true;
             }
         }
 
-        if (applied && !MatchupSources.IsConfirmed(game.MatchupSource))
-            game.MatchupSource = MatchupSources.Heuristic;
+        if (applied) MarkEstimate(game, MatchupSources.Heuristic);
         return applied;
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// An estimate landed on the row: mark it so the Match-V5 pass confirms it, even
+    /// when the capture had stamped a confirmed source for the fields it resolved.
+    /// The player's own word is never relabelled.
+    /// </summary>
+    private static void MarkEstimate(GameStats game, string source)
+    {
+        if (game.MatchupSource != MatchupSources.User) game.MatchupSource = source;
+    }
+
+    private static bool IsFilled(GameStats game) =>
+        game.Position.Length > 0 && game.EnemyLaner.Length > 0 && game.ParticipantMap.Length > 0;
+
+    private static string FirstNonEmpty(string first, string second) => first.Length > 0 ? first : second;
 
     private static bool IsSummonersRiftFiveVsFive(GameStats game, out List<string> own, out List<string> enemy)
     {
@@ -204,8 +250,9 @@ public static class MatchupFallback
         return "";
     }
 
-    private static string EnemyAt(Dictionary<string, string> map, string position)
+    private static string EnemyAt(Dictionary<string, string>? map, string? position)
     {
+        if (map is null) return "";
         var i = IndexOfPosition(position);
         return i >= 0 && map.TryGetValue("enemy" + KeySuffixes[i], out var c) ? c : "";
     }

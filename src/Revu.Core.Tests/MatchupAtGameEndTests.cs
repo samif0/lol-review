@@ -28,7 +28,8 @@ public sealed class MatchupAtGameEndTests
         string me,
         int myTeam = 100,
         string gameMode = "CLASSIC",
-        string queueType = "RANKED_SOLO_5x5")
+        string queueType = "RANKED_SOLO_5x5",
+        string mePos = "")
     {
         static string Players((string Champ, string Pos)[] team) => string.Join(",", team.Select(p =>
             $$$"""{ "championName": "{{{p.Champ}}}", "selectedPosition": "{{{p.Pos}}}", "detectedTeamPosition": "{{{p.Pos}}}", "stats": { "CHAMPIONS_KILLED": 1 } }"""));
@@ -42,7 +43,7 @@ public sealed class MatchupAtGameEndTests
               "gameType": "MATCHED_GAME",
               "localPlayer": {
                 "teamId": {{{myTeam}}}, "championName": "{{{me}}}", "championId": 21,
-                "selectedPosition": "", "detectedTeamPosition": "",
+                "selectedPosition": "{{{mePos}}}", "detectedTeamPosition": "{{{mePos}}}",
                 "stats": { "CHAMPIONS_KILLED": "7", "NUM_DEATHS": "2", "ASSISTS": "9", "WIN": "1" }
               },
               "teams": [
@@ -235,6 +236,127 @@ public sealed class MatchupAtGameEndTests
 
     // ── MatchupFallback: champ select ────────────────────────────────────────
 
+    /// <summary>When the payload and the live roster disagree (a lane swap the
+    /// client saw), the payload's own assignment wins and the row says so.</summary>
+    [Fact]
+    public void ExtractFromEog_PayloadPositionsBeatADisagreeingRoster()
+    {
+        var own = new[] { ("Teemo", "TOP"), ("Zaahen", "JUNGLE"), ("Riven", "MIDDLE"), ("Miss Fortune", "BOTTOM"), ("Pantheon", "UTILITY") };
+        var enemy = new[] { ("Gragas", "TOP"), ("Hecarim", "JUNGLE"), ("Swain", "MIDDLE"), ("Yasuo", "BOTTOM"), ("Soraka", "UTILITY") };
+        var eog = Eog(own, enemy, me: "Miss Fortune", mePos: "BOTTOM");
+        using var doc = JsonDocument.Parse("""
+            [
+              { "championName": "Miss Fortune", "position": "MIDDLE", "team": "ORDER" },
+              { "championName": "Yasuo", "position": "MIDDLE", "team": "CHAOS" },
+              { "championName": "Swain", "position": "BOTTOM", "team": "CHAOS" }
+            ]
+            """);
+
+        var stats = StatsExtractor.ExtractFromEog(eog, NullLogger.Instance, LiveRoster.Parse(doc.RootElement.Clone()))!;
+
+        Assert.Equal("BOTTOM", stats.Position);
+        Assert.Equal("Yasuo", stats.EnemyLaner);
+        Assert.Equal("Yasuo", Map(stats)["enemyBot"]);
+        Assert.Equal("Swain", Map(stats)["enemyMid"]);
+        Assert.Equal(MatchupSources.Eog, stats.MatchupSource);
+    }
+
+    /// <summary>The player's own row in teams[] carries the lane even when
+    /// localPlayer's does not: the capture reads it back, no estimate needed.</summary>
+    [Fact]
+    public void ExtractFromEog_ReadsTheLocalLaneFromTheTeamRows_WhenLocalPlayerHasNone()
+    {
+        var own = new[] { ("Teemo", "TOP"), ("Zaahen", "JUNGLE"), ("Riven", "MIDDLE"), ("Miss Fortune", "BOTTOM"), ("Pantheon", "UTILITY") };
+        var enemy = new[] { ("Gragas", "TOP"), ("Hecarim", "JUNGLE"), ("Swain", "MIDDLE"), ("Yasuo", "BOTTOM"), ("Soraka", "UTILITY") };
+
+        var stats = StatsExtractor.ExtractFromEog(Eog(own, enemy, me: "Miss Fortune"), NullLogger.Instance)!;
+
+        Assert.Equal("BOTTOM", stats.Position);
+        Assert.Equal("Yasuo", stats.EnemyLaner);
+        Assert.Equal(MatchupSources.Eog, stats.MatchupSource);
+    }
+
+    // ── MatchupFallback.ApplyForGameEnd: the coordinator's gates ─────────────
+
+    [Fact]
+    public void ApplyForGameEnd_RecoveredGame_GetsNothing()
+    {
+        var game = BlankCapture();
+
+        Assert.False(MatchupFallback.ApplyForGameEnd(game, isRecovered: true, sessionKey: "k", "BOTTOM", ChampSelectMap()));
+
+        Assert.Equal("", game.Position);
+        Assert.Equal("", game.ParticipantMap);
+        Assert.Equal("", game.MatchupSource);
+    }
+
+    [Fact]
+    public void ApplyForGameEnd_WithoutASessionKey_IgnoresTheSnapshot_AndEstimatesFromPriors()
+    {
+        var game = BlankCapture(me: "Jinx", own: ClearOwn, enemy: ClearEnemy);
+        var stale = JsonSerializer.Serialize(new Dictionary<string, string> { ["ownMid"] = "Jinx", ["enemyMid"] = "Zed" });
+
+        Assert.True(MatchupFallback.ApplyForGameEnd(game, isRecovered: false, sessionKey: null, "MIDDLE", stale));
+
+        Assert.Equal("BOTTOM", game.Position);
+        Assert.Equal("Caitlyn", game.EnemyLaner);
+        Assert.Equal(MatchupSources.Heuristic, game.MatchupSource);
+    }
+
+    [Fact]
+    public void ApplyForGameEnd_WithASessionKey_UsesThisLobbysSnapshot()
+    {
+        var game = BlankCapture();
+
+        Assert.True(MatchupFallback.ApplyForGameEnd(game, isRecovered: false, sessionKey: "k", "BOTTOM", ChampSelectMap()));
+
+        Assert.Equal("BOTTOM", game.Position);
+        Assert.Equal("Yasuo", game.EnemyLaner);
+        Assert.Equal(10, Map(game).Count);
+        Assert.Equal(MatchupSources.ChampSelect, game.MatchupSource);
+    }
+
+    [Fact]
+    public void ApplyForGameEnd_WithASessionKey_RefusesAForeignLobby_AndFallsBackToPriors()
+    {
+        var game = BlankCapture(me: "Jinx", own: ClearOwn, enemy: ClearEnemy);
+
+        Assert.True(MatchupFallback.ApplyForGameEnd(game, isRecovered: false, sessionKey: "k", "BOTTOM", ChampSelectMap()));
+
+        Assert.Equal("Caitlyn", game.EnemyLaner); // never Yasuo from the other lobby
+        Assert.Equal(MatchupSources.Heuristic, game.MatchupSource);
+    }
+
+    [Fact]
+    public void ApplyForGameEnd_CompleteCapture_IsLeftAlone()
+    {
+        var eog = Eog(Blank(OwnComp), Blank(EnemyComp), me: "Miss Fortune");
+        var game = StatsExtractor.ExtractFromEog(eog, NullLogger.Instance, LiveRoster.Parse(PlayerList()))!;
+
+        Assert.False(MatchupFallback.ApplyForGameEnd(game, isRecovered: false, sessionKey: "k", "MIDDLE", ChampSelectMap()));
+
+        Assert.Equal("BOTTOM", game.Position);
+        Assert.Equal(MatchupSources.Live, game.MatchupSource);
+    }
+
+    /// <summary>A lane the row already holds decides the opponent; the estimate
+    /// only fills the gap, and the row is marked for confirmation even though the
+    /// capture had stamped a confirmed source.</summary>
+    [Fact]
+    public void ApplyRolePriors_UsesTheRowsLane_AndMarksTheRowForConfirmation()
+    {
+        var game = BlankCapture(me: "Jinx", own: ClearOwn, enemy: ClearEnemy);
+        game.Position = "MIDDLE";
+        game.MatchupSource = MatchupSources.Live;
+
+        Assert.True(MatchupFallback.ApplyRolePriors(game));
+
+        Assert.Equal("MIDDLE", game.Position);
+        Assert.Equal("Syndra", game.EnemyLaner); // the enemy mid, not the enemy bot
+        Assert.Equal(MatchupSources.Heuristic, game.MatchupSource);
+        Assert.True(MatchupSources.NeedsConfirmation(game.MatchupSource));
+    }
+
     private static string ChampSelectMap() => JsonSerializer.Serialize(new Dictionary<string, string>
     {
         ["ownTop"] = "Teemo", ["ownJg"] = "Zaahen", ["ownMid"] = "Riven", ["ownBot"] = "Miss Fortune", ["ownSupp"] = "Pantheon",
@@ -385,7 +507,11 @@ public sealed class MatchupAtGameEndTests
         var captured = BlankCapture(me: "Jinx", own: ClearOwn, enemy: ClearEnemy);
         await scope.Games.SaveAsync(captured);
         var game = (await scope.Games.GetAsync(captured.GameId))!;
+        // A queue outside every label fallback, set after the save (SaveAsync skips
+        // non-ranked queues), so only the round-tripped raw game mode can admit the lobby.
+        game.QueueType = "Custom";
         Assert.IsType<JsonElement>(game.RawStats["_own_champions"]);
+        Assert.IsType<JsonElement>(game.RawStats["_game_mode_raw"]);
 
         Assert.True(MatchupFallback.ApplyRolePriors(game));
 
@@ -454,13 +580,13 @@ public sealed class MatchupAtGameEndTests
         g.MatchupSource = MatchupSources.Heuristic;
         await scope.Games.SaveAsync(g);
 
-        await scope.Games.UpdateMatchupAsync(11, "", "", MatchupSources.MatchV5);
+        await scope.Games.UpdateMatchupAsync(11, "", "", "", MatchupSources.MatchV5);
         var kept = (await scope.Games.GetAsync(11))!;
         Assert.Equal("Yasuo", kept.EnemyLaner);
         Assert.Equal(ChampSelectMap(), kept.ParticipantMap);
         Assert.Equal(MatchupSources.MatchV5, kept.MatchupSource);
 
-        await scope.Games.UpdateMatchupAsync(11, "Caitlyn", "", MatchupSources.MatchV5);
+        await scope.Games.UpdateMatchupAsync(11, "Caitlyn", "", "", MatchupSources.MatchV5);
         Assert.Equal("Caitlyn", (await scope.Games.GetAsync(11))!.EnemyLaner);
         Assert.Empty(await scope.Games.GetGameIdsMissingEnemyLanerAsync());
     }
@@ -487,9 +613,10 @@ public sealed class MatchupAtGameEndTests
         Assert.True(MatchupSources.IsConfirmed(row.MatchupSource));
         Assert.DoesNotContain(12L, await scope.Games.GetGameIdsMissingEnemyLanerAsync());
 
-        // Clearing it queues the row again but keeps the stamp history honest.
+        // Clearing it hands the opponent back to automation: queued again, no 'user' stamp.
         await scope.Games.UpdateEnemyLanerAsync(12, "");
         Assert.Contains(12L, await scope.Games.GetGameIdsMissingEnemyLanerAsync());
+        Assert.Equal("", (await scope.Games.GetAsync(12))!.MatchupSource);
     }
 
     // ── Match-V5 confirms an estimate ────────────────────────────────────────
@@ -547,6 +674,65 @@ public sealed class MatchupAtGameEndTests
         Assert.Equal(MatchupSources.MatchV5, confirmed.MatchupSource);
         Assert.Equal("Swain", Map(confirmed)["enemyMid"]);
         Assert.DoesNotContain(game.GameId, await scope.Games.GetGameIdsMissingEnemyLanerAsync());
+    }
+
+    /// <summary>Riot's teamPosition corrects a lane game end estimated wrong; the
+    /// matchv5 stamp never freezes a guessed lane.</summary>
+    [Fact]
+    public async Task BackfillGameAsync_CorrectsAnEstimatedLane()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var game = BlankCapture();
+        Assert.True(MatchupFallback.ApplyRolePriors(game));
+        game.Position = "MIDDLE"; // a wrong lane estimate
+        await scope.Games.SaveAsync(game);
+
+        var client = new FakeMatchClient
+        {
+            Match = MatchV5(("self", 100, "BOTTOM", "MissFortune"), ("p3", 200, "BOTTOM", "Yasuo")),
+        };
+        var config = new TestConfigService(new AppConfig { RiotRegion = "na1", RiotPuuid = "self" });
+        var service = new EnemyLanerBackfillService(scope.Games, client, config, NullLogger<EnemyLanerBackfillService>.Instance);
+
+        Assert.Equal(EnemyLanerBackfillOutcome.Updated, await service.BackfillGameAsync(game.GameId));
+
+        var row = (await scope.Games.GetAsync(game.GameId))!;
+        Assert.Equal("BOTTOM", row.Position);
+        Assert.Equal("Yasuo", row.EnemyLaner);
+        Assert.Equal(MatchupSources.MatchV5, row.MatchupSource);
+    }
+
+    /// <summary>An opponent the player typed survives Match-V5; the map and the
+    /// lane still fill in, and the row leaves the queue.</summary>
+    [Fact]
+    public async Task BackfillGameAsync_KeepsThePlayersTypedOpponent_ButFillsTheMapAndLane()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var g = TestGameStatsFactory.Create(13, champion: "Miss Fortune");
+        g.Position = "";
+        g.EnemyLaner = "";
+        g.ParticipantMap = "";
+        await scope.Games.SaveAsync(g);
+        await scope.Games.UpdateEnemyLanerAsync(13, "Draven");
+        Assert.Contains(13L, await scope.Games.GetGameIdsMissingEnemyLanerAsync()); // the map is still blank
+
+        var client = new FakeMatchClient
+        {
+            Match = MatchV5(("self", 100, "BOTTOM", "MissFortune"), ("p3", 200, "BOTTOM", "Yasuo")),
+        };
+        var config = new TestConfigService(new AppConfig { RiotRegion = "na1", RiotPuuid = "self" });
+        var service = new EnemyLanerBackfillService(scope.Games, client, config, NullLogger<EnemyLanerBackfillService>.Instance);
+
+        Assert.Equal(EnemyLanerBackfillOutcome.Updated, await service.BackfillGameAsync(13));
+
+        var row = (await scope.Games.GetAsync(13))!;
+        Assert.Equal("Draven", row.EnemyLaner);
+        Assert.Equal(MatchupSources.User, row.MatchupSource);
+        Assert.Equal("BOTTOM", row.Position);
+        Assert.Equal("Yasuo", Map(row)["enemyBot"]);
+        Assert.DoesNotContain(13L, await scope.Games.GetGameIdsMissingEnemyLanerAsync());
     }
 
     /// <summary>The bulk sweep (Settings button, startup heal) picks estimates up too.</summary>

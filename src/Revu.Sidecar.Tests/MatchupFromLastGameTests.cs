@@ -166,6 +166,42 @@ public sealed class MatchupFromLastGameTests
         Assert.False(MatchupFromLastGame.NeedsLookup(healed, prefill));
     }
 
+    /// <summary>v3.10.1: an estimate the lookup could not confirm opens the form
+    /// pre-filled instead of becoming a card; once Riot confirms it, the card is
+    /// created outright.</summary>
+    [Fact]
+    public async Task UnconfirmedEstimate_OpensTheForm_ConfirmedRowCreatesOutright()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        SignIn(scope);
+        var game = TestGameStatsFactory.Create(7006, champion: "Miss Fortune");
+        game.Position = "BOTTOM";
+        game.EnemyLaner = "Maokai";
+        game.ParticipantMap = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["ownBot"] = "Miss Fortune", ["ownSupp"] = "Milio", ["enemyBot"] = "Maokai", ["enemySupp"] = "Seraphine",
+        });
+        game.MatchupSource = MatchupSources.ChampSelect;
+        await scope.Games.SaveAsync(game);
+        game = (await scope.Games.GetAsync(7006))!;
+        var (backfill, client) = Backfill(scope);
+        client.Match = null; // Match-V5 has not published the game yet
+
+        var (after, prefill) = await HealAsync(scope, game, backfill);
+
+        Assert.Single(client.Requested);
+        Assert.True(prefill.CanCreateOutright);                                 // the pre-fill is whole
+        Assert.False(MatchupFromLastGame.ShouldCreateOutright(after, prefill));  // but unconfirmed: open the form
+        Assert.False(prefill.LaneIsGuess);                                      // and not called a lane guess
+
+        client.Match = BotLaneMatch();
+        var (confirmed, confirmedPrefill) = await HealAsync(scope, after, backfill);
+
+        Assert.Equal(MatchupSources.MatchV5, confirmed.MatchupSource);
+        Assert.True(MatchupFromLastGame.ShouldCreateOutright(confirmed, confirmedPrefill));
+    }
+
     /// <summary>A confirmed row (live roster / EOG / Match-V5) is not looked up again.</summary>
     [Fact]
     public async Task SignedIn_ConfirmedMatchupIsNotLookedUp()

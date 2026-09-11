@@ -562,9 +562,10 @@ async function fromLastGame(btn) {
     const res = await invoke('create_matchup_from_last_game', { payload: {} });
     if (res && res.partial) {
       // The card can't be created outright: the opponents weren't recorded
-      // (and couldn't be looked up), or the lane is only a guess from your
-      // primary role. Open the form pre-filled and linked to the game instead
-      // of creating a half-empty or mis-filed card.
+      // (and couldn't be looked up), the lane is only a guess from your
+      // primary role, or (v3.10.1) the matchup was estimated when the game
+      // ended and Riot hasn't confirmed it yet. Open the form pre-filled and
+      // linked to the game instead of creating a half-empty or mis-filed card.
       const lane = LANE_BY[res.lane] ? res.lane : 'top';
       const slots = LANE_BY[lane].slots;
       const enemy = Array.isArray(res.enemyChamps) ? res.enemyChamps : [];
@@ -573,7 +574,8 @@ async function fromLastGame(btn) {
         ? "the client didn't record the opponents; add them."
         : known < slots
           ? "one opponent wasn't recorded; add them."
-          : res.laneIsGuess ? 'lane guessed from your primary role; check it.' : '';
+          : res.laneIsGuess ? 'lane guessed from your primary role; check it.'
+            : res.estimated ? 'estimated when the game ended; check it.' : '';
       openCreateForm({
         lane,
         allyChamps: res.allyChamps || [],

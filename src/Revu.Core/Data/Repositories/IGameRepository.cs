@@ -177,12 +177,14 @@ public interface IGameWriter
     Task UpdateParticipantMapAsync(long gameId, string participantMapJson);
 
     /// <summary>
-    /// v3.10.1 (schema v17): the Match-V5 write — enemy_laner and participant_map
-    /// in one statement, each kept when the new value is blank, plus the
-    /// <c>matchup_source</c> stamp (<c>MatchupSources.MatchV5</c>) that takes the
-    /// row out of the confirmation queue.
+    /// v3.10.1 (schema v17): the Match-V5 write — enemy_laner, participant_map and
+    /// the player's position in one statement, each kept when the new value is
+    /// blank, plus the <c>matchup_source</c> stamp (<c>MatchupSources.MatchV5</c>)
+    /// that takes the row out of the confirmation queue. A row whose opponent the
+    /// player typed (<c>MatchupSources.User</c>) keeps that opponent and its stamp;
+    /// only the map and the position fill in.
     /// </summary>
-    Task UpdateMatchupAsync(long gameId, string enemyLaner, string participantMapJson, string source);
+    Task UpdateMatchupAsync(long gameId, string enemyLaner, string participantMapJson, string position, string source);
 
     /// <summary>
     /// v2.18 (schema v5): persist laning-at-10 numbers from the Match-V5
