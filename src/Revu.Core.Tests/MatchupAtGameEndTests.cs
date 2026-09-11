@@ -36,7 +36,7 @@ public sealed class MatchupAtGameEndTests
         var enemyTeamId = myTeam == 100 ? 200 : 100;
         var json = $$$"""
             {
-              "gameId": 5639505052,
+              "gameId": 5000000102,
               "gameLength": 1104,
               "gameMode": "{{{gameMode}}}",
               "queueType": "{{{queueType}}}",
@@ -58,7 +58,7 @@ public sealed class MatchupAtGameEndTests
 
     private static (string, string)[] Blank(params string[] champs) => champs.Select(c => (c, "")).ToArray();
 
-    // The user's game (2026-09-10 16:01): Miss Fortune vs Yasuo bot, a full lobby.
+    // A full ranked lobby: Miss Fortune vs Yasuo bot.
     private static readonly string[] OwnComp = ["Teemo", "Zaahen", "Riven", "Miss Fortune", "Pantheon"];
     private static readonly string[] EnemyComp = ["Gragas", "Hecarim", "Swain", "Yasuo", "Soraka"];
 

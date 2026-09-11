@@ -21,7 +21,7 @@ namespace Revu.Sidecar.Tests;
 public sealed class MatchupPostGamePipelineTests
 {
     private const string SelfPuuid = "self-puuid";
-    private const long GameId = 5_639_505_052; // the user's 2026-09-10 16:01 game
+    private const long GameId = 5_000_000_101; // synthetic, shaped like a real NA game id
 
     private static readonly string[] Own = ["Teemo", "Zaahen", "Riven", "Miss Fortune", "Pantheon"];
     private static readonly string[] Enemy = ["Gragas", "Hecarim", "Swain", "Yasuo", "Soraka"];
