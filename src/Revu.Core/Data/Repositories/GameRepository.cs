@@ -100,6 +100,8 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             KillParticipation = GetDoubleOrDefault(reader, "kill_participation"),
             EnemyLaner = GetStringOrDefault(reader, "enemy_laner"),
             ParticipantMap = GetStringOrDefault(reader, "participant_map"),
+            // v3.10.1 (schema v17): '' on rows written before the column existed.
+            MatchupSource = GetStringOrDefault(reader, "matchup_source"),
 
             // v2.18 (schema v5): laning-at-10, NULL until timeline backfill.
             CsAt10 = GetNullableDouble(reader, "cs_at_10"),
@@ -285,7 +287,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
                 spell1_casts, spell2_casts, spell3_casts, spell4_casts,
                 summoner1_id, summoner2_id, items,
                 champ_level, team_kills, kill_participation,
-                raw_stats, enemy_laner, participant_map, puuid
+                raw_stats, enemy_laner, participant_map, puuid, matchup_source
             ) VALUES (
                 @game_id, @timestamp, @date_played, @game_duration, @game_mode,
                 @game_type, @queue_type, @summoner_name, @champion_name, @champion_id,
@@ -308,7 +310,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
                 @spell1_casts, @spell2_casts, @spell3_casts, @spell4_casts,
                 @summoner1_id, @summoner2_id, @items,
                 @champ_level, @team_kills, @kill_participation,
-                @raw_stats, @enemy_laner, @participant_map, @puuid
+                @raw_stats, @enemy_laner, @participant_map, @puuid, @matchup_source
             )";
 
         cmd.Parameters.AddWithValue("@game_id", stats.GameId);
@@ -380,6 +382,9 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         // 2v2 pairing can render before any backfill; dropping it here was why
         // the pairing only appeared after EnemyLanerBackfillService re-ran.
         cmd.Parameters.AddWithValue("@participant_map", stats.ParticipantMap);
+        // v3.10.1 (schema v17): how sure the matchup columns are — an estimate
+        // stays in the Match-V5 queue until confirmed.
+        cmd.Parameters.AddWithValue("@matchup_source", stats.MatchupSource ?? "");
         // v3.1.2 (schema v9): stamp the stable Riot account id at capture for
         // account-scoped analytics. SaveAsync is a plain insert guarded by a
         // prior game_id existence check (it returns the existing id before
@@ -503,8 +508,21 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         using var conn = _factory.CreateConnection();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE games SET enemy_laner = @enemy_laner WHERE game_id = @game_id";
-        cmd.Parameters.AddWithValue("@enemy_laner", enemyLaner);
+        // v3.10.1: this is the Review page's edit (ReviewWorkflowService). A typed
+        // opponent is the player's word — stamp it so the Match-V5 pass never
+        // overwrites it as if it were an estimate. Clearing it drops the 'user'
+        // stamp so automation may fill the opponent again (otherwise the row would
+        // sit in the Match-V5 queue forever, fetched and never written).
+        cmd.CommandText = @"
+            UPDATE games SET
+                enemy_laner    = @enemy_laner,
+                matchup_source = CASE
+                    WHEN @enemy_laner <> '' THEN @source
+                    WHEN COALESCE(matchup_source, '') = @source THEN ''
+                    ELSE matchup_source END
+            WHERE game_id = @game_id";
+        cmd.Parameters.AddWithValue("@enemy_laner", enemyLaner ?? "");
+        cmd.Parameters.AddWithValue("@source", MatchupSources.User);
         cmd.Parameters.AddWithValue("@game_id", gameId);
 
         await cmd.ExecuteNonQueryAsync();
@@ -516,6 +534,36 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE games SET participant_map = @map WHERE game_id = @game_id";
         cmd.Parameters.AddWithValue("@map", participantMapJson ?? "");
+        cmd.Parameters.AddWithValue("@game_id", gameId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdateMatchupAsync(long gameId, string enemyLaner, string participantMapJson, string position, string source)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        // A blank value keeps the column: Match-V5 can resolve the map but not the
+        // lane opponent (or vice versa) and must never blank what game end wrote.
+        // An opponent the player typed ('user', non-blank) is their word: it and its
+        // stamp stay, only the map and the position fill in. SET expressions read the
+        // row's pre-update values, so both CASEs see the same stored stamp.
+        cmd.CommandText = @"
+            UPDATE games SET
+                enemy_laner     = CASE
+                    WHEN @enemy = '' THEN enemy_laner
+                    WHEN COALESCE(matchup_source, '') = @user AND COALESCE(enemy_laner, '') <> '' THEN enemy_laner
+                    ELSE @enemy END,
+                participant_map = CASE WHEN @map = '' THEN participant_map ELSE @map END,
+                position        = CASE WHEN @position = '' THEN position ELSE @position END,
+                matchup_source  = CASE
+                    WHEN COALESCE(matchup_source, '') = @user AND COALESCE(enemy_laner, '') <> '' THEN matchup_source
+                    ELSE @source END
+            WHERE game_id = @game_id";
+        cmd.Parameters.AddWithValue("@enemy", enemyLaner ?? "");
+        cmd.Parameters.AddWithValue("@map", participantMapJson ?? "");
+        cmd.Parameters.AddWithValue("@position", position ?? "");
+        cmd.Parameters.AddWithValue("@source", source ?? "");
+        cmd.Parameters.AddWithValue("@user", MatchupSources.User);
         cmd.Parameters.AddWithValue("@game_id", gameId);
         await cmd.ExecuteNonQueryAsync();
     }

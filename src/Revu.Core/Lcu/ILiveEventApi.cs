@@ -47,4 +47,15 @@ public interface ILiveEventApi
     /// </summary>
     Task<JsonElement?> FetchGameStatsAsync(CancellationToken ct = default) =>
         Task.FromResult<JsonElement?>(null);
+
+    /// <summary>
+    /// v3.10.1: snapshot of <c>/liveclientdata/playerlist</c> — every player's
+    /// champion, team (ORDER / CHAOS) and, in positional queues, the lane the
+    /// matchmaker assigned (<c>position</c>). Captured once per game by
+    /// <see cref="LiveEventCollector"/> so the matchup is known the moment the
+    /// game ends, without waiting on Match-V5. Returns null if unavailable;
+    /// default returns null so legacy fakes don't have to opt in.
+    /// </summary>
+    Task<JsonElement?> FetchPlayerListAsync(CancellationToken ct = default) =>
+        Task.FromResult<JsonElement?>(null);
 }

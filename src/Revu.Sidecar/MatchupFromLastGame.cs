@@ -50,7 +50,20 @@ public static class MatchupFromLastGame
     /// match history" and any map on the row is heuristic.
     /// </summary>
     public static bool NeedsLookup(GameStats game, MatchupPrefillResult prefill) =>
-        !prefill.IsComplete || string.IsNullOrEmpty(game.EnemyLaner);
+        !prefill.IsComplete
+        || string.IsNullOrEmpty(game.EnemyLaner)
+        // v3.10.1: an estimate stamped at game end (champ select / role priors)
+        // fills the card immediately; the bounded lookup confirms it when it can.
+        || MatchupSources.NeedsConfirmation(game.MatchupSource);
+
+    /// <summary>
+    /// v3.10.1: create the card without the form only when everything came from the
+    /// game itself AND the row is not an unconfirmed estimate. An estimate the lookup
+    /// could not confirm (not signed in, Match-V5 not ready yet, over budget) opens
+    /// the form pre-filled, so a guess never becomes a card nobody checked.
+    /// </summary>
+    public static bool ShouldCreateOutright(GameStats game, MatchupPrefillResult prefill) =>
+        prefill.CanCreateOutright && !MatchupSources.NeedsConfirmation(game.MatchupSource);
 
     public static async Task<(GameStats Game, MatchupPrefillResult Prefill)> HealAsync(
         GameStats game,

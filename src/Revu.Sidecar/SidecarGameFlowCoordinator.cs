@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Revu.Core.Lcu;
+using Revu.Core.Models;
 using Revu.Core.Services;
 
 namespace Revu.Sidecar;
@@ -195,7 +196,14 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
             // Read + clear the deferred pre-game snapshots (mood / intent /
             // practiced ids / session key). Recovered games skip these entirely —
             // a stale champ select would mislabel the wrong game (mirror Shell).
-            var (mood, intention, intentionSource, _, practicedIds, sessionKey) = _liveState.TakeForGameEnd();
+            var (mood, intention, intentionSource, _, practicedIds, sessionKey, champSelectPosition, champSelectMap) =
+                _liveState.TakeForGameEnd();
+
+            // v3.10.1: the matchup goes on the row NOW. The capture already tried the
+            // EOG payload and the live roster; what is still blank gets the champ-
+            // select snapshot (this lobby only), then a role-prior estimate — both
+            // marked as estimates so the Match-V5 pass below confirms them.
+            ApplyMatchupFallbacks(stats, isRecovered, sessionKey, champSelectPosition, champSelectMap);
 
             ProcessGameEndRequest request = isRecovered
                 ? new ProcessGameEndRequest(stats, MentalRating: 5, PreGameMood: 0)
@@ -370,13 +378,43 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         }
     }
 
-    // v3.10: run the enemy-laner / participant-map pass for the just-ended game.
-    // Same shape as the map-state pass: Match-V5 needs ~1–2 minutes after EOG, so
-    // attempts at +90s / +5min; the run is keyed on the rows still missing a
-    // matchup (newest first, so the fresh game is first in line) and a small
-    // maxGames keeps the deep drain on the Settings button. Publishes
-    // matchupUpdated when something landed so an open Review page or the
-    // Matchups journal can refresh its header instead of waiting for a reload.
+    // v3.10.1: fill whatever the capture left blank from the sources the sidecar
+    // holds (MatchupFallback.ApplyForGameEnd): nothing for a recovered game; the
+    // champ-select snapshot only for the flow that had a session key, and only when
+    // its own side holds the played champion, so a stale lobby can never label this
+    // game; then the role-prior estimate over the EOG champion lists. The snapshot
+    // comes from TakeForGameEnd, which clears it. Best-effort: a failure leaves the
+    // row as captured and the Match-V5 pass fills it.
+    private void ApplyMatchupFallbacks(
+        Revu.Core.Models.GameStats stats,
+        bool isRecovered,
+        string? sessionKey,
+        string champSelectPosition,
+        string champSelectMap)
+    {
+        try
+        {
+            if (MatchupFallback.ApplyForGameEnd(stats, isRecovered, sessionKey, champSelectPosition, champSelectMap))
+            {
+                _logger.LogInformation(
+                    "Matchup for game {GameId} estimated at game end ({Source}): {Position}, {Champion} vs {Enemy} (Match-V5 confirms shortly)",
+                    stats.GameId, stats.MatchupSource, stats.Position, stats.ChampionName, stats.EnemyLaner);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Matchup fallback failed for game {GameId}; leaving the captured columns", stats.GameId);
+        }
+    }
+
+    // v3.10 / v3.10.1: confirm the just-ended game's matchup from Match-V5. The row
+    // already shows what game end resolved (live roster / EOG / champ select / role
+    // priors); this pass is the authoritative check — Riot's teamPosition overwrites
+    // an estimate and confirms a live-roster read. Match-V5 needs ~1–2 minutes after
+    // EOG, so attempts at +90s / +5min, keyed on THIS game (a single lookup, no
+    // throttle); a success also drains a few older rows still waiting. Publishes
+    // matchupUpdated when the row changed so an open Review page or the Matchups
+    // journal refreshes its header instead of waiting for a reload.
     private async Task TryMatchupWithRetryAsync(long gameId)
     {
         var delaysSeconds = new[] { 90, 300 };
@@ -391,41 +429,63 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                     return;
                 }
 
-                var stillMissing = await _write.Games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
-                if (!stillMissing.Contains(gameId))
+                var row = await _write.Games.GetAsync(gameId).ConfigureAwait(false);
+                if (row is null || row.MatchupSource is MatchupSources.MatchV5 or MatchupSources.User)
                 {
-                    return; // the LCU payload (or an earlier attempt) already filled it
+                    return; // gone, confirmed by an earlier attempt, or the player's own word
                 }
 
-                var result = await _write.EnemyLanerBackfill.RunAsync(maxGames: 5).ConfigureAwait(false);
-                if (result.Updated > 0)
+                var outcome = await _write.EnemyLanerBackfill.BackfillGameAsync(gameId).ConfigureAwait(false);
+                switch (outcome)
                 {
-                    // Older backlog rows may have healed even if the fresh one did not;
-                    // the Matchups journal refetches everything, so tell it either way.
-                    _eventHub.Publish("matchupUpdated", new { gameId, updated = result.Updated });
+                    case EnemyLanerBackfillOutcome.Updated:
+                        _eventHub.Publish("matchupUpdated", new { gameId, updated = 1 });
+                        _logger.LogInformation(
+                            "Post-game matchup confirmed from Match-V5 for game {GameId} (game end had '{Source}')",
+                            gameId, row.MatchupSource);
+                        await DrainMatchupBacklogAsync(gameId).ConfigureAwait(false);
+                        return;
+                    case EnemyLanerBackfillOutcome.Skipped:
+                        // Upstream has the match but no positions (a non-positional
+                        // queue) — nothing more to learn; keep what game end wrote.
+                        _logger.LogDebug("Post-game matchup pass: nothing to confirm upstream for game {GameId}", gameId);
+                        return;
+                    case EnemyLanerBackfillOutcome.NotConfigured:
+                        return;
+                    default:
+                        // Failed: the fresh match isn't visible upstream yet — fall
+                        // through to the longer delay (the startup heal covers the rest).
+                        break;
                 }
-
-                // Decide on THIS game, not on the pass: Updated counts any of the 5
-                // newest missing rows, so an older backlog row landing must not end
-                // the retry while the fresh match is still pending upstream.
-                var missingAfter = await _write.Games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
-                if (!missingAfter.Contains(gameId))
-                {
-                    _logger.LogInformation(
-                        "Post-game matchup pass done ({Updated} updated, {Failed} not yet available) after game {GameId}",
-                        result.Updated, result.Failed, gameId);
-                    return;
-                }
-                if (result.Failed == 0)
-                {
-                    return; // scanned, nothing resolvable upstream (manual game, unsupported queue)
-                }
-                // The fresh match isn't visible upstream yet — fall through to the longer delay.
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Post-game matchup attempt failed for game {GameId} (will retry/heal)", gameId);
             }
+        }
+    }
+
+    // A few older rows that never got their pass (the app was closed within five
+    // minutes of a game, a version without the pass). Small maxGames keeps the deep
+    // drain on the Settings button; RunAsync throttles itself.
+    private async Task DrainMatchupBacklogAsync(long freshGameId)
+    {
+        try
+        {
+            var pending = await _write.Games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
+            if (pending.Count == 0) return;
+            var result = await _write.EnemyLanerBackfill.RunAsync(maxGames: 5).ConfigureAwait(false);
+            if (result.Updated > 0)
+            {
+                _eventHub.Publish("matchupUpdated", new { gameId = (long?)null, updated = result.Updated });
+                _logger.LogInformation(
+                    "Matchup backlog: {Updated} older game(s) confirmed after game {GameId} ({Failed} not yet available)",
+                    result.Updated, freshGameId, result.Failed);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Matchup backlog drain after game {GameId} failed (non-fatal)", freshGameId);
         }
     }
 

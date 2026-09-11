@@ -21,6 +21,16 @@ public sealed class LiveEventCollector
     private readonly List<JsonElement> _rawEvents = [];
     private string? _playerName;
 
+    // v3.10.1: the ten players as the game reports them (/playerlist), captured on
+    // the event cadence until every champion is named. The matchmaker's lane per
+    // player lives here and nowhere else the app can reach at end-of-game (the LCU
+    // EOG payload stopped carrying positions in 2026-08), so this is what lets the
+    // matchup be on the saved row immediately. Bounded so a lobby that never fills
+    // (a custom) stops costing a request every cycle.
+    private const int RosterMaxAttempts = 30;
+    private LiveRoster? _roster;
+    private int _rosterAttempts;
+
     // v2.17.7 (BROKEN) / v3.0.22 (disabled): summoner-spell cast detection.
     //
     // The original design synthesised casts by watching the active player's spell
@@ -194,6 +204,13 @@ public sealed class LiveEventCollector
     public int EventCount => _rawEvents.Count;
 
     /// <summary>
+    /// v3.10.1: the lobby as the game reported it — champions, teams and the lanes the
+    /// matchmaker assigned. Null until the live client answered <c>/playerlist</c> at
+    /// least once; may be partial (loading screen) or lane-less (ARAM).
+    /// </summary>
+    public LiveRoster? Roster => _roster;
+
+    /// <summary>
     /// Start collecting events. Runs as a background loop until cancelled.
     /// 1. Waits up to 5 minutes for the live API to become available (polls every 5s).
     /// 2. Gets the player name.
@@ -220,6 +237,8 @@ public sealed class LiveEventCollector
         _tradeCloseClosingTimeS = -1;
         _lastTradeGameTimeS = 0;
         _playerName = null;
+        _roster = null;
+        _rosterAttempts = 0;
         _logger.LogInformation("Live event collector started");
 
         // Wait for the live API to become available (game loading screen)
@@ -272,6 +291,7 @@ public sealed class LiveEventCollector
                     }
 
                     await PollEventStreamAsync(ct).ConfigureAwait(false);
+                    await CaptureRosterAsync(ct).ConfigureAwait(false);
                     nextEventPoll = elapsed + _eventPollInterval;
                 }
                 await SampleHpAsync(ct).ConfigureAwait(false);
@@ -359,6 +379,33 @@ public sealed class LiveEventCollector
         if (raw is not null)
         {
             AppendNewRawEvents(_rawEvents, raw);
+        }
+    }
+
+    /// <summary>
+    /// v3.10.1: fetch <c>/playerlist</c> until the lobby is complete (ten named
+    /// champions) or the attempt budget is spent. Keeps the fullest snapshot seen —
+    /// the list can be short during the loading screen and never shrinks after.
+    /// Polled on the slow cadence alongside the event stream.
+    /// </summary>
+    private async Task CaptureRosterAsync(CancellationToken ct)
+    {
+        if (_roster is { IsComplete: true } || _rosterAttempts >= RosterMaxAttempts) return;
+        _rosterAttempts++;
+
+        var raw = await _liveEventApi.FetchPlayerListAsync(ct).ConfigureAwait(false);
+        if (raw is not JsonElement el) return;
+
+        var parsed = LiveRoster.Parse(el);
+        if (parsed is null || parsed.Players.Count == 0) return;
+        if (_roster is not null && parsed.Players.Count < _roster.Players.Count) return;
+
+        _roster = parsed;
+        if (parsed.IsComplete)
+        {
+            _logger.LogInformation(
+                "Live roster captured: {Count} players, lanes assigned: {HasPositions}",
+                parsed.Players.Count, parsed.HasPositions);
         }
     }
 

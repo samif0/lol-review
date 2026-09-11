@@ -165,6 +165,54 @@ public sealed class AdditiveSchemaUpgradeTests
         Assert.Equal("Respect level 2.", card!.Prior);
     }
 
+    /// <summary>
+    /// v17 (matchup provenance): a DB last migrated at v16 must gain the
+    /// games.matchup_source column (default '') and record version 17; a row
+    /// written before the column reads back as an unstamped legacy row.
+    /// </summary>
+    [Fact]
+    public async Task ApplyAdditiveSchemaAsync_BringsV16DatabaseToV17()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var legacy = TestGameStatsFactory.Create(1717, champion: "Miss Fortune");
+        legacy.MatchupSource = "live";
+        await scope.Games.SaveAsync(legacy);
+
+        // Put the DB back into a real v16 shape: no matchup_source column at all.
+        using (var conn = scope.OpenConnection())
+        {
+            await Exec(conn, "ALTER TABLE games DROP COLUMN matchup_source");
+            await Exec(conn,
+                "INSERT INTO schema_metadata (key, value, updated_at) VALUES ('app_schema_version','16',0) "
+                + "ON CONFLICT(key) DO UPDATE SET value='16'");
+            using var gone = conn.CreateCommand();
+            gone.CommandText = "SELECT COUNT(*) FROM pragma_table_info('games') WHERE name='matchup_source'";
+            Assert.Equal(0L, await gone.ExecuteScalarAsync());
+        }
+
+        await scope.Initializer.ApplyAdditiveSchemaAsync();
+
+        using (var conn = scope.OpenConnection())
+        {
+            using var versionCmd = conn.CreateCommand();
+            versionCmd.CommandText = "SELECT value FROM schema_metadata WHERE key='app_schema_version'";
+            Assert.Equal(Schema.CurrentAppSchemaVersion.ToString(), (string?)await versionCmd.ExecuteScalarAsync());
+
+            using var colCmd = conn.CreateCommand();
+            colCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('games') WHERE name='matchup_source'";
+            Assert.Equal(1L, await colCmd.ExecuteScalarAsync());
+        }
+
+        // The row written before the upgrade reads back as an unstamped legacy row,
+        // and new writes carry the column again.
+        Assert.Equal("", (await scope.Games.GetAsync(1717))!.MatchupSource);
+        var fresh = TestGameStatsFactory.Create(1718, champion: "Miss Fortune");
+        fresh.MatchupSource = "live";
+        await scope.Games.SaveAsync(fresh);
+        Assert.Equal("live", (await scope.Games.GetAsync(1718))!.MatchupSource);
+    }
+
     [Fact]
     public async Task ApplyAdditiveSchemaAsync_IsIdempotent_PreservesExistingData()
     {

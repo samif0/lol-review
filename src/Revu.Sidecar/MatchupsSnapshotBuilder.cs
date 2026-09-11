@@ -50,6 +50,12 @@ public sealed class MatchupsSnapshotBuilder
     /// <summary>The game carries no lane; the pre-fill used the configured primary role, so the form opens for a check.</summary>
     public const string LaneGuessHint = "Lane guessed from your primary role — check it when the card opens.";
 
+    /// <summary>v3.10.1: the matchup was estimated at game end and Riot has not confirmed it yet.</summary>
+    public const string EstimateLookupHint = "Estimated when the game ended. Revu checks it with Riot when you click.";
+
+    /// <summary>v3.10.1: an estimate that cannot be checked (not signed in).</summary>
+    public const string EstimateManualHint = "Estimated when the game ended. Check it when the card opens.";
+
     private readonly IMatchupsRepository _matchups;
     private readonly IGameHistoryQuery _games;
     private readonly IConfigService _config;
@@ -266,7 +272,12 @@ public sealed class MatchupsSnapshotBuilder
             var complete = last.Prefill.IsComplete;
             var hint = !complete
                 ? (MatchupFromLastGame.CanLookUpMatches(_config) ? EnemyLookupHint : EnemyManualHint)
-                : last.Prefill.LaneIsGuess ? LaneGuessHint : "";
+                : last.Prefill.LaneIsGuess ? LaneGuessHint
+                // v3.10.1: an unconfirmed game-end estimate opens the form; the write
+                // route creates outright only once Riot has confirmed it.
+                : Revu.Core.Models.MatchupSources.NeedsConfirmation(last.Game.MatchupSource)
+                    ? (MatchupFromLastGame.CanLookUpMatches(_config) ? EstimateLookupHint : EstimateManualHint)
+                : "";
             return new LastGamePrefillDto(
                 Available: true,
                 GameId: last.Game.GameId,

@@ -110,4 +110,44 @@ public sealed class EnemyJunglerResolutionTests
         var names = GameEndCaptureService.ResolveEnemyJunglerNames(eog, myTeamId: 100);
         Assert.Empty(names);
     }
+
+    /// <summary>
+    /// v3.10.1: the EOG payload has carried no positions since 2026-08, so the live
+    /// roster's lanes decide the enemy jungler before the role-prior guess does.
+    /// Priors call Wukong the jungler in this comp; the game says Poppy.
+    /// </summary>
+    [Fact]
+    public void UsesTheLiveRosterLane_WhenThePayloadHasNoPositions()
+    {
+        var eog = Eog(
+            """
+            {
+              "teams": [
+                { "teamId": 100, "players": [
+                  { "summonerName": "MeMid", "championName": "Ahri", "selectedPosition": "" }
+                ]},
+                { "teamId": 200, "players": [
+                  { "summonerName": "EnemyWukong", "championName": "Wukong", "selectedPosition": "" },
+                  { "summonerName": "EnemyPoppy",  "championName": "Poppy",  "selectedPosition": "" },
+                  { "summonerName": "EnemyAhri",   "championName": "Ahri",   "selectedPosition": "" },
+                  { "summonerName": "EnemyJinx",   "championName": "Jinx",   "selectedPosition": "" },
+                  { "summonerName": "EnemyThresh", "championName": "Thresh", "selectedPosition": "" }
+                ]}
+              ]
+            }
+            """);
+        using var list = JsonDocument.Parse(
+            """
+            [
+              { "championName": "Wukong", "position": "TOP",    "team": "CHAOS" },
+              { "championName": "Poppy",  "position": "JUNGLE", "team": "CHAOS" },
+              { "championName": "Ahri",   "position": "MIDDLE", "team": "ORDER" }
+            ]
+            """);
+
+        var names = GameEndCaptureService.ResolveEnemyJunglerNames(eog, myTeamId: 100, LiveRoster.Parse(list.RootElement.Clone()));
+
+        Assert.Contains("EnemyPoppy", names);
+        Assert.DoesNotContain("EnemyWukong", names);
+    }
 }

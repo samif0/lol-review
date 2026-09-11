@@ -50,11 +50,17 @@ public sealed partial class GameRepository
         // participant_map. Pre-v2.16 backfill only stored the lane opponent;
         // now we want the full 10-champion map for role-aware matchup pills,
         // so any row missing EITHER column needs a Match-V5 round-trip.
+        // v3.10.1: and rows whose matchup is an ESTIMATE stamped at game end
+        // (champ select / role priors / match-history heuristic) — shown at once,
+        // confirmed or corrected by Match-V5 here. Legacy '' rows with both
+        // columns filled are done (EOG positions or an earlier backfill).
         cmd.CommandText = $@"
             SELECT game_id FROM games
             WHERE (
                     (enemy_laner IS NULL OR enemy_laner = '')
                  OR (participant_map IS NULL OR participant_map = '')
+                 OR COALESCE(matchup_source, '') IN (
+                        '{MatchupSources.ChampSelect}', '{MatchupSources.Heuristic}', '{MatchupSources.History}')
                   )
               {CasualFilter}
               AND (is_hidden IS NULL OR is_hidden = 0)

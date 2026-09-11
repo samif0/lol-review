@@ -16,8 +16,11 @@ public static class StatsExtractor
     /// <summary>
     /// Extract GameStats from the end-of-game stats block.
     /// The EOG block uses ALL_CAPS field names in the stats sub-object.
+    /// <paramref name="roster"/> (v3.10.1) is the lobby the live client reported
+    /// during the game; its lanes fill in wherever the payload's own
+    /// <c>selectedPosition</c> / <c>detectedTeamPosition</c> are blank.
     /// </summary>
-    public static GameStats? ExtractFromEog(JsonElement eogData, ILogger? logger = null)
+    public static GameStats? ExtractFromEog(JsonElement eogData, ILogger? logger = null, LiveRoster? roster = null)
     {
         try
         {
@@ -144,9 +147,30 @@ public static class StatsExtractor
             // (e.g. "Kai'Sa+Nautilus vs Tristana+Renata") work without a
             // post-game Match-V5 backfill round-trip.
             var enemyChampions = new List<string>();
+            var ownChampions = new List<string>();
             var enemyByPosition = new Dictionary<string, string>();
             var participantMap = new Dictionary<string, string>(StringComparer.Ordinal);
+            var myChampionName = localPlayer.Value.GetPropertyOrDefault("championName", "");
+
+            // v3.10.1: since 2026-08 the payload carries NO per-player position
+            // (selectedPosition and detectedTeamPosition both blank on every ranked
+            // game), so the live roster — the lanes the game itself assigned — is
+            // the second source. Track which one answered so the row can say how
+            // sure it is (MatchupSource): the payload and the live client are both
+            // the matchmaker's own assignment.
+            var positionsFromEog = false;
+            var positionsFromRoster = false;
+
             var myPosition = AssignedPosition(localPlayer.Value);
+            if (myPosition.Length > 0)
+            {
+                positionsFromEog = true;
+            }
+            else if (roster is not null)
+            {
+                myPosition = roster.PositionOf(myChampionName, teamId);
+                if (myPosition.Length > 0) positionsFromRoster = true;
+            }
 
             if (eogData.TryGetProperty("teams", out var teamsForEnemy) && teamsForEnemy.ValueKind == JsonValueKind.Array)
             {
@@ -164,6 +188,15 @@ public static class StatsExtractor
                     {
                         var champ = p.GetPropertyOrDefault("championName", "");
                         var pos = AssignedPosition(p);
+                        if (pos.Length > 0)
+                        {
+                            positionsFromEog = true;
+                        }
+                        else if (roster is not null && !string.IsNullOrEmpty(champ))
+                        {
+                            pos = roster.PositionOf(champ, dataTeamId);
+                            if (pos.Length > 0) positionsFromRoster = true;
+                        }
 
                         if (!isMyTeam && !string.IsNullOrEmpty(champ))
                         {
@@ -171,17 +204,30 @@ public static class StatsExtractor
                             if (!string.IsNullOrEmpty(pos))
                                 enemyByPosition[pos] = champ;
                         }
+                        else if (isMyTeam && !string.IsNullOrEmpty(champ))
+                        {
+                            ownChampions.Add(champ);
+                        }
 
                         if (!string.IsNullOrEmpty(champ))
                         {
-                            // selectedPosition is authoritative when present, so
-                            // BOTTOM here means the ADC. When it's blank we omit
-                            // the key rather than guess from slot order.
+                            // An assigned position (payload or live client) is
+                            // authoritative, so BOTTOM here means the ADC. When
+                            // neither has one we omit the key rather than guess
+                            // from slot order — MatchupFallback estimates later.
                             var roleKey = ResolveRoleKeyFromAssignedPosition(isMyTeam ? "own" : "enemy", pos);
                             if (roleKey is not null) participantMap[roleKey] = champ;
                         }
                     }
                 }
+            }
+
+            // v3.10.1: the player's own row in teams[] can carry a lane when localPlayer's
+            // does not; the map already holds it, so read it back rather than leaving the
+            // lane blank for an estimate to fill later.
+            if (myPosition.Length == 0)
+            {
+                myPosition = OwnPositionFromMap(participantMap, myChampionName);
             }
 
             var kda = (kills + assists) / Math.Max(deaths, 1.0);
@@ -279,13 +325,23 @@ public static class StatsExtractor
             // the player's own history.
             gs.Puuid = localPlayer.Value.GetPropertyOrDefault("puuid", "");
 
-            // Store enemy info in raw stats
+            // Store enemy info in raw stats. v3.10.1: own champions + raw game mode
+            // too, so MatchupFallback.ApplyRolePriors can estimate the lanes from
+            // the comp when neither the payload nor the live client assigned any.
             gs.RawStats["_enemy_champions"] = enemyChampions;
+            gs.RawStats["_own_champions"] = ownChampions;
             gs.RawStats["_enemy_by_position"] = enemyByPosition;
             if (!string.IsNullOrWhiteSpace(rawQueueType))
             {
                 gs.RawStats["_queue_type_raw"] = rawQueueType;
             }
+            if (!string.IsNullOrWhiteSpace(gameMode))
+            {
+                gs.RawStats["_game_mode_raw"] = gameMode;
+            }
+            gs.MatchupSource = positionsFromRoster ? MatchupSources.Live
+                : positionsFromEog ? MatchupSources.Eog
+                : "";
 
             // Auto-detect lane opponent by matching positions
             if (!string.IsNullOrEmpty(myPosition) && enemyByPosition.TryGetValue(myPosition, out var laneOpponent))
@@ -682,6 +738,23 @@ public static class StatsExtractor
         var selected = NormalizePosition(player.GetPropertyOrDefault("selectedPosition", ""));
         if (selected.Length > 0) return selected;
         return NormalizePosition(player.GetPropertyOrDefault("detectedTeamPosition", ""));
+    }
+
+    private static readonly (string Slot, string Position)[] OwnSlots =
+    [
+        ("ownTop", "TOP"), ("ownJg", "JUNGLE"), ("ownMid", "MIDDLE"), ("ownBot", "BOTTOM"), ("ownSupp", "UTILITY"),
+    ];
+
+    /// <summary>v3.10.1: the lane of the own-side map slot holding <paramref name="champion"/>, or "".</summary>
+    private static string OwnPositionFromMap(IReadOnlyDictionary<string, string> map, string champion)
+    {
+        var key = LiveRoster.ChampionKey(champion);
+        if (key.Length == 0) return "";
+        foreach (var (slot, position) in OwnSlots)
+        {
+            if (map.TryGetValue(slot, out var held) && LiveRoster.ChampionKey(held) == key) return position;
+        }
+        return "";
     }
 
     // Only the five real lane values count as an assignment; the client also

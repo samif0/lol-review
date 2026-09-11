@@ -28,8 +28,14 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
         _logger = logger;
     }
 
+    public Task<GameStats?> CaptureAsync(
+        IReadOnlyList<GameEvent> liveEvents,
+        CancellationToken cancellationToken = default) =>
+        CaptureAsync(liveEvents, roster: null, cancellationToken);
+
     public async Task<GameStats?> CaptureAsync(
         IReadOnlyList<GameEvent> liveEvents,
+        LiveRoster? roster,
         CancellationToken cancellationToken = default)
     {
         for (var attempt = 0; attempt < GameConstants.EogStatsRetryAttempts; attempt++)
@@ -53,9 +59,14 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
                     catch { /* best-effort diagnostic */ }
                 }
 
-                var stats = StatsExtractor.ExtractFromEog(eog, _logger);
+                var stats = StatsExtractor.ExtractFromEog(eog, _logger, roster);
                 if (stats is not null)
                 {
+                    _logger.LogInformation(
+                        "EOG matchup: position='{Position}' enemy='{Enemy}' map={MapLen} source='{Source}' (roster: {Roster})",
+                        stats.Position, stats.EnemyLaner, stats.ParticipantMap.Length, stats.MatchupSource,
+                        roster is null ? "none" : $"{roster.Players.Count} players, lanes={roster.HasPositions}");
+
                     var summonerName = await TryGetCurrentSummonerNameAsync(cancellationToken).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(summonerName))
                     {
@@ -70,7 +81,7 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
                     // when the jungler can't be resolved the classifier no-ops.
                     try
                     {
-                        var junglers = ResolveEnemyJunglerNames(eog, stats.TeamId);
+                        var junglers = ResolveEnemyJunglerNames(eog, stats.TeamId, roster);
                         var stamped = JungleGankClassifier.Stamp(stats.LiveEvents, junglers);
                         if (stamped > 0)
                             CoreDiagnostics.WriteVerbose($"LCU: flagged {stamped} jungle-gank death(s)");
@@ -108,7 +119,7 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
     /// then no-ops rather than guessing. Usually one name; a list keeps it robust to
     /// duplicate-position oddities.
     /// </summary>
-    internal static IReadOnlyList<string> ResolveEnemyJunglerNames(JsonElement eog, int myTeamId)
+    internal static IReadOnlyList<string> ResolveEnemyJunglerNames(JsonElement eog, int myTeamId, LiveRoster? roster = null)
     {
         if (eog.ValueKind != JsonValueKind.Object) return Array.Empty<string>();
         if (!eog.TryGetProperty("teams", out var teams) || teams.ValueKind != JsonValueKind.Array)
@@ -131,13 +142,15 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
             {
                 var names = PlayerNameForms(p);
                 if (names.Count == 0) continue;
-                enemy.Add((
-                    names,
-                    p.GetPropertyOrDefault("championName", ""),
-                    // Same assignment rule as the matchup (selectedPosition, else the
-                    // client's detectedTeamPosition) so the gank classifier and the
-                    // lobby map agree on who the enemy jungler is.
-                    StatsExtractor.AssignedPosition(p)));
+                var champ = p.GetPropertyOrDefault("championName", "");
+                // Same assignment rule as the matchup (selectedPosition, else the
+                // client's detectedTeamPosition, else, v3.10.1, the lane the live
+                // roster reported) so the gank classifier and the lobby map agree on
+                // who the enemy jungler is. The payload has carried no positions
+                // since 2026-08, so without the roster this was always a prior guess.
+                var pos = StatsExtractor.AssignedPosition(p);
+                if (pos.Length == 0 && roster is not null) pos = roster.PositionOf(champ, teamId);
+                enemy.Add((names, champ, pos));
             }
         }
         if (enemy.Count == 0) return Array.Empty<string>();

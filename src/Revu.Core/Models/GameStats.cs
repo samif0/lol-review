@@ -48,6 +48,15 @@ public class GameStats
     /// </summary>
     public string ParticipantMap { get; set; } = "";
 
+    /// <summary>
+    /// v3.10.1 (schema v17): which source filled Position / EnemyLaner /
+    /// ParticipantMap — a <see cref="MatchupSources"/> value. Empty on legacy
+    /// rows and on rows nothing resolved for. An estimate
+    /// (<see cref="MatchupSources.NeedsConfirmation"/>) shows immediately but
+    /// keeps the row in the Match-V5 backfill queue until Riot confirms it.
+    /// </summary>
+    public string MatchupSource { get; set; } = "";
+
     // ── Outcome ──────────────────────────────────────────────────────
 
     public bool Win { get; set; }

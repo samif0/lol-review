@@ -245,6 +245,34 @@ public sealed class MatchupsSnapshotContractTests
         Assert.Equal(MatchupsSnapshotBuilder.LaneGuessHint, snapshot.LastGame.Hint);
     }
 
+    /// <summary>
+    /// v3.10.1: a matchup estimated at game end (champ select / role priors) that
+    /// Riot has not confirmed yet opens the form with a hint saying so; once the
+    /// Match-V5 pass confirms the row the hint goes away and the card is filed
+    /// outright.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_UnconfirmedGameEndEstimate_OpensTheFormWithAHint()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var matchups = new MatchupsRepository(scope.ConnectionFactory);
+        var game = await SeedGameAsync(scope, 6008, "BOTTOM", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60, champion: "Kai'Sa");
+        await scope.Games.UpdateMatchupAsync(game.GameId, "", "", "", MatchupSources.ChampSelect);
+
+        var snapshot = await Builder(scope, matchups).BuildAsync();
+
+        Assert.True(snapshot.LastGame.Available);
+        Assert.True(snapshot.LastGame.EnemyKnown);
+        Assert.Equal("bot", snapshot.LastGame.Lane);
+        Assert.Equal(MatchupsSnapshotBuilder.EstimateManualHint, snapshot.LastGame.Hint); // not signed in
+
+        await scope.Games.UpdateMatchupAsync(game.GameId, "", "", "", MatchupSources.MatchV5);
+        var confirmed = await Builder(scope, matchups).BuildAsync();
+
+        Assert.Equal("", confirmed.LastGame.Hint);
+    }
+
     [Fact]
     public async Task FromLastGame_CreatesOnce_ThenTheSnapshotPointsAtTheExistingCard()
     {
