@@ -50,7 +50,11 @@ public static class MatchupFromLastGame
     /// match history" and any map on the row is heuristic.
     /// </summary>
     public static bool NeedsLookup(GameStats game, MatchupPrefillResult prefill) =>
-        !prefill.IsComplete || string.IsNullOrEmpty(game.EnemyLaner);
+        !prefill.IsComplete
+        || string.IsNullOrEmpty(game.EnemyLaner)
+        // v3.10.1: an estimate stamped at game end (champ select / role priors)
+        // fills the card immediately; the bounded lookup confirms it when it can.
+        || MatchupSources.NeedsConfirmation(game.MatchupSource);
 
     public static async Task<(GameStats Game, MatchupPrefillResult Prefill)> HealAsync(
         GameStats game,

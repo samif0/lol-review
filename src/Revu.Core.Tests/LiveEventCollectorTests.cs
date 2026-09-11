@@ -956,21 +956,104 @@ public sealed class LiveEventCollectorTests
         return [.. document.RootElement.EnumerateArray().Select(static item => item.Clone())];
     }
 
+    /// <summary>
+    /// v3.10.1: the lobby is read from /playerlist on the event cadence and exposed
+    /// as <see cref="LiveEventCollector.Roster"/>, so game end knows every lane the
+    /// matchmaker assigned. The fetch stops once the ten champions are named.
+    /// </summary>
+    [Fact]
+    public async Task StartAsync_CapturesTheRosterFromPlayerList_AndStopsOnceComplete()
+    {
+        var events = CreateEvents("""[ { "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 } ]""");
+        var lanes = new[] { "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY" };
+        var own = new[] { "Teemo", "Zaahen", "Riven", "Miss Fortune", "Pantheon" };
+        var enemy = new[] { "Gragas", "Hecarim", "Swain", "Yasuo", "Soraka" };
+        var rows = new List<string>();
+        for (var i = 0; i < 5; i++)
+        {
+            rows.Add($$$"""{ "championName": "{{{own[i]}}}", "position": "{{{lanes[i]}}}", "team": "ORDER" }""");
+            rows.Add($$$"""{ "championName": "{{{enemy[i]}}}", "position": "{{{lanes[i]}}}", "team": "CHAOS" }""");
+        }
+        using var playerList = JsonDocument.Parse("[" + string.Join(",", rows) + "]");
+        var playerListCalls = 0;
+
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchPlayerListAsync: () => { playerListCalls++; return playerList.RootElement.Clone(); });
+        var collector = new LiveEventCollector(
+            api,
+            NullLogger.Instance,
+            pollInterval: TimeSpan.FromMilliseconds(5),
+            eventPollInterval: TimeSpan.FromMilliseconds(10));
+
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(120);
+        await cts.CancelAsync();
+        await runTask;
+        await collector.StopAsync();
+
+        var roster = collector.Roster;
+        Assert.NotNull(roster);
+        Assert.True(roster!.IsComplete);
+        Assert.Equal("BOTTOM", roster.PositionOf("Miss Fortune", 100));
+        Assert.Equal("BOTTOM", roster.PositionOf("Yasuo", 200));
+        Assert.Equal(1, playerListCalls); // complete on the first answer → never asked again
+    }
+
+    /// <summary>The loading screen answers with a short list first; the fuller one replaces it.</summary>
+    [Fact]
+    public async Task StartAsync_KeepsTheFullestRosterSeen()
+    {
+        var events = CreateEvents("""[ { "EventID": 0, "EventName": "GameStart", "EventTime": 0.0 } ]""");
+        using var partial = JsonDocument.Parse("""[ { "championName": "Miss Fortune", "position": "BOTTOM", "team": "ORDER" } ]""");
+        using var full = JsonDocument.Parse("""
+            [ { "championName": "Miss Fortune", "position": "BOTTOM", "team": "ORDER" },
+              { "championName": "Yasuo", "position": "BOTTOM", "team": "CHAOS" } ]
+            """);
+        var answers = new Queue<JsonElement>([partial.RootElement.Clone(), full.RootElement.Clone()]);
+
+        var api = new FakeLiveEventApi(
+            fetchEventsAsync: () => events,
+            fetchPlayerListAsync: () => answers.Count > 1 ? answers.Dequeue() : answers.Peek());
+        var collector = new LiveEventCollector(
+            api,
+            NullLogger.Instance,
+            pollInterval: TimeSpan.FromMilliseconds(5),
+            eventPollInterval: TimeSpan.FromMilliseconds(10));
+
+        using var cts = new CancellationTokenSource();
+        var runTask = collector.StartAsync(cts.Token);
+        await Task.Delay(120);
+        await cts.CancelAsync();
+        await runTask;
+
+        Assert.NotNull(collector.Roster);
+        Assert.Equal(2, collector.Roster!.Players.Count);
+        Assert.Equal("BOTTOM", collector.Roster.PositionOf("Yasuo", 200));
+    }
+
     private sealed class FakeLiveEventApi : ILiveEventApi
     {
         private readonly Func<List<JsonElement>> _fetchEventsAsync;
         private readonly Func<JsonElement?>? _fetchActivePlayerAsync;
         private readonly Func<JsonElement?>? _fetchGameStatsAsync;
+        private readonly Func<JsonElement?>? _fetchPlayerListAsync;
 
         public FakeLiveEventApi(
             Func<List<JsonElement>> fetchEventsAsync,
             Func<JsonElement?>? fetchActivePlayerAsync = null,
-            Func<JsonElement?>? fetchGameStatsAsync = null)
+            Func<JsonElement?>? fetchGameStatsAsync = null,
+            Func<JsonElement?>? fetchPlayerListAsync = null)
         {
             _fetchEventsAsync = fetchEventsAsync;
             _fetchActivePlayerAsync = fetchActivePlayerAsync;
             _fetchGameStatsAsync = fetchGameStatsAsync;
+            _fetchPlayerListAsync = fetchPlayerListAsync;
         }
+
+        public Task<JsonElement?> FetchPlayerListAsync(CancellationToken ct = default) =>
+            Task.FromResult(_fetchPlayerListAsync?.Invoke());
 
         public Task<string?> GetActivePlayerNameAsync(CancellationToken ct = default) =>
             Task.FromResult<string?>("Tester");

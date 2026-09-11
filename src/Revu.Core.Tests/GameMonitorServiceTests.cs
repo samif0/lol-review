@@ -759,7 +759,7 @@ public sealed class GameMonitorServiceTests
     {
         public GameStats? Result { get; set; }
 
-        public Task<GameStats?> CaptureAsync(IReadOnlyList<GameEvent> liveEvents, CancellationToken cancellationToken = default) =>
+        public Task<GameStats?> CaptureAsync(IReadOnlyList<GameEvent> liveEvents, LiveRoster? roster, CancellationToken cancellationToken = default) =>
             Task.FromResult(Result);
     }
 

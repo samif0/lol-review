@@ -35,7 +35,8 @@ public sealed class EventCorrectionsLegacyImportTests
         Assert.Equal(1L, await Scalar(conn, "SELECT COUNT(*) FROM pragma_table_info('game_events') WHERE name='event_key'"));
         Assert.Equal(1L, await Scalar(conn, "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_game_events_key'"));
         Assert.Equal(1L, await Scalar(conn, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='event_corrections'"));
-        Assert.Equal("16", (string?)await Scalar(conn, "SELECT value FROM schema_metadata WHERE key='app_schema_version'"));
+        // The additive step always lands on the current version (v17+ add columns after this set).
+        Assert.Equal(Schema.CurrentAppSchemaVersion.ToString(), (string?)await Scalar(conn, "SELECT value FROM schema_metadata WHERE key='app_schema_version'"));
 
         var ledger = await new EventCorrectionsRepository(scope.ConnectionFactory).GetActiveForGameAsync(GameId);
         Assert.Equal(2, ledger.Count);
@@ -102,7 +103,8 @@ public sealed class EventCorrectionsLegacyImportTests
 
         Assert.Equal(2L, await Scalar(conn, "SELECT COUNT(*) FROM event_corrections"));
         Assert.Equal(2L, await Scalar(conn, "SELECT COUNT(*) FROM game_events WHERE json_valid(details) AND json_extract(details, '$.correction') IS NOT NULL"));
-        Assert.Equal("16", (string?)await Scalar(conn, "SELECT value FROM schema_metadata WHERE key='app_schema_version'"));
+        // The additive step always lands on the current version (v17+ add columns after this set).
+        Assert.Equal(Schema.CurrentAppSchemaVersion.ToString(), (string?)await Scalar(conn, "SELECT value FROM schema_metadata WHERE key='app_schema_version'"));
     }
 
     [Fact]

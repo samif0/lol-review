@@ -59,7 +59,11 @@ public static class Schema
     //               + the event_corrections table (append-only user corrections keyed on it).
     //               Legacy details.source='reviewed_encounter' rows are imported into the ledger
     //               eagerly by EventCorrectionsLegacyImport right after the ALTER. Forward-only.
-    public const int CurrentAppSchemaVersion = 16;
+    // v17 (2026-09): games.matchup_source — which source filled the matchup columns
+    //               (eog / live / champselect / heuristic / history / matchv5) so an
+    //               estimate shown at game end stays queued for Match-V5 confirmation.
+    //               Additive ALTER, default ''. Forward-only.
+    public const int CurrentAppSchemaVersion = 17;
     public const int EventCorrectionsSchemaVersion = 16;
     public const string AppSchemaVersionKey = "app_schema_version";
 
@@ -1077,6 +1081,18 @@ public static class Schema
     ];
 
     /// <summary>
+    /// v3.10.1 (schema v17): games.matchup_source — a <c>MatchupSources</c> value
+    /// naming what filled position / enemy_laner / participant_map. '' on legacy
+    /// rows. An estimate (champselect / heuristic / history) keeps the row in the
+    /// Match-V5 backfill queue; a confirmed source (eog / live / matchv5) does not.
+    /// Forward-only, additive (duplicate-column tolerant like every games ALTER).
+    /// </summary>
+    public static readonly string[] MigrateGamesMatchupSource =
+    [
+        "ALTER TABLE games ADD COLUMN matchup_source TEXT NOT NULL DEFAULT ''",
+    ];
+
+    /// <summary>
     /// v3.7 (schema v14): hard stops. A rule with <c>enforce = 1</c> is not just
     /// displayed when it trips — while it is tripped the sidecar cancels the
     /// League client's own matchmaking queue (and declines a ready check that
@@ -1380,6 +1396,8 @@ public static class Schema
         // DatabaseInitializer runs the eager legacy reviewed-encounter import right
         // after this set, before the version is recorded.
         new(16, "event-corrections", MigrateEventCorrections),
+        // v3.10.1 (schema v17): games.matchup_source — matchup provenance marker.
+        new(17, "games-matchup-source", MigrateGamesMatchupSource),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

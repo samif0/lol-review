@@ -489,9 +489,10 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         cts?.Dispose();
     }
 
-    private async Task<List<GameEvent>> StopEventCollectorAsync()
+    private async Task<(List<GameEvent> Events, LiveRoster? Roster)> StopEventCollectorAsync()
     {
         var events = new List<GameEvent>();
+        LiveRoster? roster = null;
 
         if (_eventCollector is not null)
         {
@@ -517,6 +518,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             }
 
             events = await _eventCollector.StopAsync().ConfigureAwait(false);
+            roster = _eventCollector.Roster;
             _eventCollector = null;
         }
 
@@ -524,18 +526,20 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _collectorCts = null;
         _collectorTask = null;
 
-        return events;
+        return (events, roster);
     }
 
     private async Task PublishGameEndedAsync(CancellationToken cancellationToken)
     {
-        var liveEvents = await StopEventCollectorAsync().ConfigureAwait(false);
+        var (liveEvents, roster) = await StopEventCollectorAsync().ConfigureAwait(false);
         if (liveEvents.Count > 0)
         {
             _logger.LogInformation("Collected {Count} live events during game", liveEvents.Count);
         }
 
-        var stats = await _gameEndCaptureService.CaptureAsync(liveEvents, cancellationToken).ConfigureAwait(false);
+        // v3.10.1: hand the live roster to the capture so the lanes the game itself
+        // assigned fill the matchup when the EOG payload carries none.
+        var stats = await _gameEndCaptureService.CaptureAsync(liveEvents, roster, cancellationToken).ConfigureAwait(false);
         if (stats is null)
         {
             _state.ReconcilePending = true;

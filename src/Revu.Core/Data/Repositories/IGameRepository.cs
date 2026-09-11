@@ -177,6 +177,14 @@ public interface IGameWriter
     Task UpdateParticipantMapAsync(long gameId, string participantMapJson);
 
     /// <summary>
+    /// v3.10.1 (schema v17): the Match-V5 write — enemy_laner and participant_map
+    /// in one statement, each kept when the new value is blank, plus the
+    /// <c>matchup_source</c> stamp (<c>MatchupSources.MatchV5</c>) that takes the
+    /// row out of the confirmation queue.
+    /// </summary>
+    Task UpdateMatchupAsync(long gameId, string enemyLaner, string participantMapJson, string source);
+
+    /// <summary>
     /// v2.18 (schema v5): persist laning-at-10 numbers from the Match-V5
     /// timeline backfill. Diffs are null when the lane opponent couldn't be
     /// identified.

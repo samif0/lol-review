@@ -132,6 +132,66 @@ public sealed class MatchupFromLastGameTests
         Assert.Equal(new[] { "Seraphine", "Maokai" }, prefill.EnemyChamps);
     }
 
+    /// <summary>v3.10.1: a live game whose matchup game end ESTIMATED (champ
+    /// select / role priors) already fills the card, and the bounded lookup still
+    /// runs to confirm it — Riot's answer wins and the row is stamped confirmed.</summary>
+    [Fact]
+    public async Task SignedIn_EstimatedMatchupIsConfirmedByTheLookup()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        SignIn(scope);
+        var game = TestGameStatsFactory.Create(7004, champion: "Miss Fortune");
+        game.Position = "BOTTOM";
+        game.EnemyLaner = "Maokai"; // the role-prior estimate, wrong on purpose
+        game.ParticipantMap = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["ownBot"] = "Miss Fortune", ["ownSupp"] = "Milio", ["enemyBot"] = "Maokai", ["enemySupp"] = "Seraphine",
+        });
+        game.MatchupSource = MatchupSources.Heuristic;
+        await scope.Games.SaveAsync(game);
+        game = (await scope.Games.GetAsync(7004))!;
+        var estimate = MatchupPrefill.FromGame(game)!;
+        Assert.True(estimate.CanCreateOutright);                       // the page can already show it
+        Assert.True(MatchupFromLastGame.NeedsLookup(game, estimate));   // but it is still unconfirmed
+        var (backfill, client) = Backfill(scope);
+        client.Match = BotLaneMatch();
+
+        var (healed, prefill) = await HealAsync(scope, game, backfill);
+
+        Assert.Equal(new[] { "NA1_7004" }, client.Requested);
+        Assert.Equal(new[] { "Seraphine", "Maokai" }, prefill.EnemyChamps);
+        Assert.Equal("Seraphine", healed.EnemyLaner);
+        Assert.Equal(MatchupSources.MatchV5, healed.MatchupSource);
+        Assert.False(MatchupFromLastGame.NeedsLookup(healed, prefill));
+    }
+
+    /// <summary>A confirmed row (live roster / EOG / Match-V5) is not looked up again.</summary>
+    [Fact]
+    public async Task SignedIn_ConfirmedMatchupIsNotLookedUp()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        SignIn(scope);
+        var game = TestGameStatsFactory.Create(7005, champion: "Miss Fortune");
+        game.Position = "BOTTOM";
+        game.EnemyLaner = "Seraphine";
+        game.ParticipantMap = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["ownBot"] = "Miss Fortune", ["ownSupp"] = "Milio", ["enemyBot"] = "Seraphine", ["enemySupp"] = "Maokai",
+        });
+        game.MatchupSource = MatchupSources.Live;
+        await scope.Games.SaveAsync(game);
+        game = (await scope.Games.GetAsync(7005))!;
+        var (backfill, client) = Backfill(scope);
+        client.Match = BotLaneMatch();
+
+        var (_, prefill) = await HealAsync(scope, game, backfill);
+
+        Assert.Empty(client.Requested);
+        Assert.True(prefill.CanCreateOutright);
+    }
+
     /// <summary>A recovered game whose heuristic map already names the opponents
     /// is still looked up (its enemy_laner is blank = never confirmed), and the
     /// authoritative answer replaces the heuristic one.</summary>

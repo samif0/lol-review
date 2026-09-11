@@ -28,8 +28,14 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
         _logger = logger;
     }
 
+    public Task<GameStats?> CaptureAsync(
+        IReadOnlyList<GameEvent> liveEvents,
+        CancellationToken cancellationToken = default) =>
+        CaptureAsync(liveEvents, roster: null, cancellationToken);
+
     public async Task<GameStats?> CaptureAsync(
         IReadOnlyList<GameEvent> liveEvents,
+        LiveRoster? roster,
         CancellationToken cancellationToken = default)
     {
         for (var attempt = 0; attempt < GameConstants.EogStatsRetryAttempts; attempt++)
@@ -53,9 +59,14 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
                     catch { /* best-effort diagnostic */ }
                 }
 
-                var stats = StatsExtractor.ExtractFromEog(eog, _logger);
+                var stats = StatsExtractor.ExtractFromEog(eog, _logger, roster);
                 if (stats is not null)
                 {
+                    _logger.LogInformation(
+                        "EOG matchup: position='{Position}' enemy='{Enemy}' map={MapLen} source='{Source}' (roster: {Roster})",
+                        stats.Position, stats.EnemyLaner, stats.ParticipantMap.Length, stats.MatchupSource,
+                        roster is null ? "none" : $"{roster.Players.Count} players, lanes={roster.HasPositions}");
+
                     var summonerName = await TryGetCurrentSummonerNameAsync(cancellationToken).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(summonerName))
                     {

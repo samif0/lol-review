@@ -3,6 +3,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Models;
 
 namespace Revu.Core.Services;
 
@@ -171,20 +172,13 @@ public sealed class EnemyLanerBackfillService
         // v2.16: a game counts as "updated" if EITHER enemy_laner or the
         // role→champion map got new data. Pre-v2.16 rows often have
         // enemy_laner already and only need the map.
-        var wroteAnything = false;
-        if (!string.IsNullOrEmpty(enemy))
-        {
-            await _games.UpdateEnemyLanerAsync(gameId, enemy).ConfigureAwait(false);
-            wroteAnything = true;
-        }
-        if (!string.IsNullOrEmpty(mapJson))
-        {
-            await _games.UpdateParticipantMapAsync(gameId, mapJson).ConfigureAwait(false);
-            wroteAnything = true;
-        }
-
+        // v3.10.1: one write, stamped MatchV5 — Riot's teamPosition is the
+        // authoritative record, so it overwrites whatever game end estimated
+        // (champ select / role priors) and takes the row out of the queue.
+        var wroteAnything = !string.IsNullOrEmpty(enemy) || !string.IsNullOrEmpty(mapJson);
         if (wroteAnything)
         {
+            await _games.UpdateMatchupAsync(gameId, enemy, mapJson, MatchupSources.MatchV5).ConfigureAwait(false);
             _logger.LogDebug("Backfill: game {GameId} → enemy='{Enemy}' map={MapLen}",
                 gameId, enemy, mapJson.Length);
         }

@@ -2956,6 +2956,39 @@ lifetime.ApplicationStarted.Register(() =>
             programLogger.LogDebug(ex, "Startup VOD auto-match skipped (non-fatal)");
         }
     });
+
+    // v3.10.1: confirm or fill the matchup of games that missed their post-game
+    // pass — the app closed within five minutes of a game, or the game was played
+    // on a build without the pass — so nobody has to press Backfill in Settings.
+    // Bounded (newest ten still waiting), signed-in only, behind the same backup
+    // guard, fire-and-forget and swallowed like the VOD auto-match above. The
+    // per-game pass (SidecarGameFlowCoordinator) covers the game just played.
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(20));
+            var write = app.Services.GetRequiredService<WriteServices>();
+            if (!write.Config.HasValidRiotSession) return;
+            var pending = await write.Games.GetGameIdsMissingEnemyLanerAsync();
+            if (pending.Count == 0) return;
+
+            await write.BackupGuard.EnsureBackedUpAsync();
+            var result = await write.EnemyLanerBackfill.RunAsync(maxGames: 10);
+            programLogger.LogInformation(
+                "Startup matchup heal: {Updated} confirmed, {Failed} not yet available, {Skipped} without positions ({Pending} waiting)",
+                result.Updated, result.Failed, result.Skipped, pending.Count);
+            if (result.Updated > 0)
+            {
+                app.Services.GetRequiredService<SidecarEventHub>()
+                    .Publish("matchupUpdated", new { gameId = (long?)null, updated = result.Updated });
+            }
+        }
+        catch (Exception ex)
+        {
+            programLogger.LogDebug(ex, "Startup matchup heal skipped (non-fatal)");
+        }
+    });
 });
 
 app.Run();
