@@ -404,7 +404,9 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
   child = await navigate('settings.html');
   const settings = await child.executeJavaScript(`(async()=>{
     const deadline=Date.now()+10000;
-    while(Date.now()<deadline && !document.querySelector('#recording-status')?.textContent.includes('isolated preview')) await new Promise(r=>setTimeout(r,100));
+    const ready=()=>document.querySelector('#clipsMaxSizeMb')?.disabled===false;
+    while(Date.now()<deadline && !ready()) await new Promise(r=>setTimeout(r,100));
+    if(!ready()) throw new Error('Settings configuration did not load before the smoke deadline.');
     const visible=()=>[...document.querySelectorAll('[data-settings-section]')].filter(el=>!el.hidden).map(el=>el.dataset.settingsSection);
     const initial=visible();
     const nativeSaveDisabled=document.querySelector('#save-recording-settings').disabled;

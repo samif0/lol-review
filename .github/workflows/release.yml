@@ -93,43 +93,28 @@ jobs:
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # ffmpeg ships INSIDE the signed release (clip extraction), so it is
-      # supply-chain pinned: a fixed (dated) BtbN build + SHA-256 verification.
-      # Download failure is soft (clips are optional); a CHECKSUM MISMATCH is a
-      # tamper signal and hard-fails. To bump: pick a newer autobuild tag and take
-      # the asset's sha256 from the GitHub release API.
+      # Pin a month-end BtbN build (retained for two years, unlike daily builds).
+      # Clip extraction and packaged playback verification require this binary;
+      # never publish a release that silently omits it. Verify the archive SHA-256
+      # against the upstream checksums.sha256 and GitHub release asset digest.
       - name: Download ffmpeg (pinned + checksum-verified)
         shell: pwsh
         run: |
-          # 2026-08-31: the previous pin (autobuild-2026-06-09-15-17) was pruned
-          # upstream and 404'd — the soft-fail meant v3.3.3 shipped WITHOUT
-          # ffmpeg.exe. Hash verified against BtbN's checksums.sha256 AND an
-          # independent local sha256 of the downloaded asset.
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-30-13-12/ffmpeg-n8.1.2-50-g1a748fe2cd-win64-gpl-8.1.zip"
-          $expectedSha256 = "962D052FF9A18AE3558A521F91969E1F7D2CA3AA3D1116681E42F7D99F5B66FB"
-          $downloaded = $false
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-31-13-27/ffmpeg-n8.1.2-50-g1a748fe2cd-win64-gpl-8.1.zip"
+          $expectedSha256 = "273ABB45F3F9F76C303E35FF39F5BB6C23C163AE65F6244A32B7D4A7F6CF0616"
           try {
             Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip -TimeoutSec 300
-            $downloaded = $true
-          } catch {
-            Write-Warning "ffmpeg download failed: $_ - building without it"
-          }
-          try {
-            if ($downloaded) {
-              $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash
-              if ($actual -ne $expectedSha256) {
-                Write-Error "ffmpeg checksum mismatch - expected $expectedSha256, got $actual."
-                exit 1
-              }
-              Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
-              $exe = Get-ChildItem -Recurse -Filter "ffmpeg.exe" ffmpeg_tmp `
-                     | Where-Object { $_.DirectoryName -like "*bin*" } | Select-Object -First 1
-              if ($exe) {
-                New-Item -ItemType Directory -Force -Path deps | Out-Null
-                Copy-Item $exe.FullName -Destination deps\ffmpeg.exe
-                Write-Host "ffmpeg ready"
-              } else { Write-Warning "ffmpeg.exe not found in archive" }
+            $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash
+            if ($actual -ne $expectedSha256) {
+              throw "ffmpeg checksum mismatch - expected $expectedSha256, got $actual."
             }
+            Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
+            $executables = @(Get-ChildItem -Recurse -File -Filter "ffmpeg.exe" ffmpeg_tmp |
+              Where-Object { $_.Directory.Name -eq 'bin' })
+            if ($executables.Count -ne 1) { throw 'Expected exactly one ffmpeg.exe in the verified archive.' }
+            New-Item -ItemType Directory -Force -Path deps | Out-Null
+            Copy-Item -LiteralPath $executables[0].FullName -Destination deps\ffmpeg.exe
+            Write-Host "ffmpeg ready (archive SHA-256 verified)"
           } finally {
             $workflowRoot = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
             foreach ($relative in @('ffmpeg.zip', 'ffmpeg_tmp')) {
@@ -152,15 +137,18 @@ jobs:
       - name: Verify packaged startup and synthetic playback
         shell: pwsh
         run: |
-          $fixtureTool = Join-Path $env:GITHUB_WORKSPACE 'deps\ffmpeg.exe'
-          if (Test-Path -LiteralPath $fixtureTool -PathType Leaf) {
-            $env:PATH = (Split-Path -Parent $fixtureTool) + [IO.Path]::PathSeparator + $env:PATH
-            $packagedSmokeExe = Join-Path $env:GITHUB_WORKSPACE 'artifacts\desktop-package\win-unpacked\revu-desktop.exe'
-            & ./scripts/Test-ElectronHost.ps1 -PackagedExe $packagedSmokeExe
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } else {
-            Write-Warning 'Packaged playback smoke skipped: the optional pinned FFmpeg download was unavailable.'
+          $fixtureTool = Join-Path $env:GITHUB_WORKSPACE 'artifacts\desktop-package\win-unpacked\ffmpeg.exe'
+          if (-not (Test-Path -LiteralPath $fixtureTool -PathType Leaf)) {
+            throw 'The release package must include ffmpeg.exe for clip extraction.'
           }
+          $expected = (Get-FileHash 'deps\ffmpeg.exe' -Algorithm SHA256).Hash
+          if ((Get-FileHash -LiteralPath $fixtureTool -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Packaged ffmpeg.exe differs from the verified download.'
+          }
+          $env:PATH = (Split-Path -Parent $fixtureTool) + [IO.Path]::PathSeparator + $env:PATH
+          $packagedSmokeExe = Join-Path $env:GITHUB_WORKSPACE 'artifacts\desktop-package\win-unpacked\revu-desktop.exe'
+          & ./scripts/Test-ElectronHost.ps1 -PackagedExe $packagedSmokeExe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # ── Code signing (Azure Artifact Signing) — unchanged identity. OIDC login
       #    also authenticates Velopack's bundled SignTool via AzureCliCredential. ──
@@ -243,7 +231,7 @@ jobs:
           New-Item -ItemType Directory -Path $verifyRoot | Out-Null
           $archive = [IO.Compression.ZipFile]::OpenRead($package)
           try {
-            foreach ($name in @('revu-desktop.exe', 'Revu.Sidecar.exe', 'Squirrel.exe', 'revu-desktop_ExecutionStub.exe')) {
+            foreach ($name in @('revu-desktop.exe', 'Revu.Sidecar.exe', 'ffmpeg.exe', 'Squirrel.exe', 'revu-desktop_ExecutionStub.exe')) {
               $entries = @($archive.Entries | Where-Object Name -eq $name)
               if ($entries.Count -ne 1) { throw "Expected one packaged executable: $name" }
               $destination = Join-Path $verifyRoot $name

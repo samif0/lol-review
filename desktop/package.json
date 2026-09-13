@@ -1,7 +1,7 @@
 {
   "name": "revu-desktop",
   "productName": "Revu",
-  "version": "3.11.0",
+  "version": "3.11.1",
   "private": true,
   "type": "module",
   "description": "Revu desktop app powered by Overwolf Electron and the local C# sidecar",
