@@ -17,14 +17,15 @@ permissions:
 jobs:
   test:
     runs-on: windows-latest
-    # Match CI's canonical fixture root; do not relax app path safeguards for
-    # the hosted runner's default 8.3 TEMP alias.
-    env:
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # Match CI's canonical fixture root without relaxing app path safeguards.
+      - name: Configure canonical temporary directory
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
@@ -40,13 +41,15 @@ jobs:
   build:
     runs-on: windows-latest
     needs: test
-    env:
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Configure canonical temporary directory
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4

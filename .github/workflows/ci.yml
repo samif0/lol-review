@@ -19,14 +19,16 @@ permissions:
 jobs:
   dotnet-tests:
     runs-on: windows-latest
-    # Hosted Windows TEMP can contain an 8.3 alias (RUNNER~1). Fixtures must use
-    # a canonical path so production alias/reparse-point checks remain enabled.
-    env:
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # Hosted Windows TEMP can contain an 8.3 alias (RUNNER~1). Keep production
+      # alias/reparse-point checks enabled and use the canonical runner scratch.
+      - name: Configure canonical temporary directory
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
@@ -42,12 +44,14 @@ jobs:
 
   desktop-build:
     runs-on: windows-latest
-    env:
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Configure canonical temporary directory
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
       - name: Setup Node 22
         uses: actions/setup-node@v4
