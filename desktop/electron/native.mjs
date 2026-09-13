@@ -17,7 +17,7 @@ export function updaterPath(executable, packaged) {
   return path.join(path.dirname(current), 'Update.exe');
 }
 
-export function nativeCommands({ app, dialog, screen, shell, window, dataRoot, isolated, quit }) {
+export function nativeCommands({ app, clipboard, dialog, screen, shell, window, dataRoot, isolated, quit }) {
   return async (command, args) => {
     switch (command) {
       case 'app_version': return app.getVersion();
@@ -32,6 +32,10 @@ export function nativeCommands({ app, dialog, screen, shell, window, dataRoot, i
         if (result.canceled || !result.filePath) return { ok: true, saved: false };
         await writeFile(result.filePath, args.markdown, 'utf8');
         return { ok: true, saved: true, path: result.filePath };
+      }
+      case 'copy_text_to_clipboard': {
+        clipboard.writeText(args.text);
+        return { ok: true };
       }
       case 'open_log_folder': {
         const folder = path.join(dataRoot, 'Revu');

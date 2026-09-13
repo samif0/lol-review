@@ -30,14 +30,15 @@ import { createMatchNavigation } from './match-navigation.mjs';
 // answer, focus adherence). In browser preview (no Electron) it's a logged no-op so
 // the page stays interactive. Returns true on success, false on failure.
 async function postWrite(cmd, args) {
-  const invoke = await getInvoke();
-  if (!invoke) {
-    console.info(`[review] (preview) ${cmd} — no Electron backend.`, args);
-    return true;
-  }
   try {
+    const invoke = await getInvoke();
+    if (!invoke) {
+      console.info(`[review] (preview) ${cmd} — no Electron backend.`, args);
+      return true;
+    }
     // Review writes use the same payload envelope as the shared command registry.
-    await invoke(cmd, { payload: args });
+    const result = await invoke(cmd, { payload: args });
+    if (result?.ok === false) throw new Error(result.error || 'The change could not be saved.');
     return true;
   } catch (err) {
     console.error(`[review] ${cmd} failed:`, err);
@@ -125,8 +126,10 @@ let _subject = null;
 // nextUnreviewedGameId / unreviewedRemaining off this.
 let _snapshot = null;
 const matchNav = createMatchNavigation({
-  view: 'review', capture: captureReviewState, restore: restoreReviewState, beforeLeave: flushDraft,
+  view: 'review', capture: captureReviewState, restore: restoreReviewState, beforeLeave: flushReviewWrites,
 });
+// The persistent sidebar uses the same save barrier as the Review/VOD switch.
+window.revuBeforeNavigate = flushReviewWrites;
 let _restoreAttempted = false;
 let _linkedRecordingGameId = 0;
 
@@ -738,9 +741,6 @@ function clipCard(clip, objectiveOptions) {
     el.tabIndex = 0;
   }
 
-  const dot = el.querySelector('.rv-evid-dot');
-  if (clip.polarityColorHex) dot.style.background = clip.polarityColorHex;
-
   const timeEl = el.querySelector('.rv-evid-time');
   if (clip.timeText) { timeEl.textContent = clip.timeText; show(timeEl, true); }
 
@@ -767,19 +767,13 @@ function clipCard(clip, objectiveOptions) {
 
   // Triage controls — same as the old evidence rows. Reflect current polarity.
   show(el.querySelector('.rv-evid-actions'), true);
-  const goodBtn = el.querySelector('.rv-evid-good');
-  const badBtn = el.querySelector('.rv-evid-bad');
-  if (clip.polarity === 'good' && goodBtn) goodBtn.classList.add('on');
-  if (clip.polarity === 'bad' && badBtn) badBtn.classList.add('on');
-
-  // Objective picker: "(no objective)" + each active objective. The clip dto does
-  // not carry its current objectiveId, so we don't pre-select — the picker is for
-  // (re)attaching, and the clip already renders under its prompt/objective group.
+  // Seed from the saved evidence attachment, including objectives that have
+  // since left the active picker. The selected value is persisted state.
   const pick = el.querySelector('.rv-evid-pick');
   if (pick) {
     const none = document.createElement('option');
     none.value = '';
-    none.textContent = 'Attach to objective…';
+    none.textContent = 'No learning objective';
     pick.appendChild(none);
     for (const o of (objectiveOptions || [])) {
       const opt = document.createElement('option');
@@ -787,7 +781,17 @@ function clipCard(clip, objectiveOptions) {
       opt.textContent = o.title || `Objective ${o.id}`;
       pick.appendChild(opt);
     }
+    if (clip.objectiveId != null && !(objectiveOptions || []).some(o => Number(o.id) === Number(clip.objectiveId))) {
+      const opt = document.createElement('option');
+      opt.value = String(clip.objectiveId);
+      opt.textContent = clip.objectiveTitle || `Objective ${clip.objectiveId}`;
+      pick.appendChild(opt);
+    }
   }
+  const state = { clip, polarity: evidencePolarity(clip.polarity),
+    objectiveId: clip.objectiveId ?? null, objectiveTitle: clip.objectiveTitle || '' };
+  _evidenceStates.set(el, state);
+  applyEvidenceState(el, state);
   return el;
 }
 
@@ -797,7 +801,15 @@ function renderClipList(host, clips, objectiveOptions, wrapper) {
   if (!host) return 0;
   clear(host);
   const list = Array.isArray(clips) ? clips : [];
-  for (const c of list) host.appendChild(clipCard(c, objectiveOptions));
+  for (const c of list) {
+    // Older snapshots omit the attachment fields. A rendered objective group
+    // provides a safe fallback until the backend update is installed.
+    const groupId = Number(host.closest('[data-objective-id]')?.dataset.objectiveId);
+    const clip = c.objectiveId === undefined && groupId > 0
+      ? { ...c, objectiveId: groupId, objectiveTitle: (objectiveOptions || []).find(o => Number(o.id) === groupId)?.title || '' }
+      : c;
+    host.appendChild(clipCard(clip, objectiveOptions));
+  }
   show(host, list.length > 0);
   if (wrapper) show(wrapper, list.length > 0);
   return list.length;
@@ -833,41 +845,108 @@ function pruneEmptyClipSections() {
   if (tosort && tosort.childElementCount === 0) show($('rv-tosortsec'), false);
 }
 
-// Handle an evidence triage control (Good/Bad/Dismiss button or objective <select>).
-async function onEvidenceAction(action, el) {
-  const row = el.closest('.rv-evid');
-  if (!row) return;
-  const evidenceId = Number(row.dataset.evidId);
-  if (!(evidenceId > 0)) return;
-  const gameId = Number(_subject && _subject.gameId) || null;
+const _evidenceStates = new WeakMap();
+const _evidenceRowWrites = new WeakMap();
+const _evidenceWrites = new Set();
+const EVIDENCE_COLORS = { good: '#8ee7ba', bad: '#f3a3a8', neutral: '#a79ec2' };
+function evidencePolarity(value) { return value === 'good' || value === 'bad' ? value : 'neutral'; }
 
-  if (action === 'good' || action === 'bad') {
-    // Reflect the polarity choice on the row's buttons IN PLACE — no re-render
-    // (a full loadReview() would wipe unsaved debrief/tag text). Toggle off if the
-    // same polarity was re-tapped.
-    const goodBtn = row.querySelector('.rv-evid-good');
-    const badBtn = row.querySelector('.rv-evid-bad');
-    const btn = action === 'good' ? goodBtn : badBtn;
-    const other = action === 'good' ? badBtn : goodBtn;
-    const turningOff = btn && btn.classList.contains('on');
-    if (other) other.classList.remove('on');
-    if (btn) btn.classList.toggle('on', !turningOff);
-    await postWrite('set_evidence_polarity', { evidenceId, polarity: turningOff ? '' : action });
-  } else if (action === 'dismiss') {
-    // Remove the row in place; no re-render needed — but re-check the section
-    // wrappers so dismissing the LAST clip doesn't leave an empty "To sort" /
-    // "Objective evidence" header floating until the next full load.
-    row.remove();
-    pruneEmptyClipSections();
-    await postWrite('set_evidence_status', { evidenceId, status: 'dismissed' });
-  } else if (action === 'objective') {
-    // The <select> already shows the chosen value; just persist it.
-    const raw = el.value;
-    const objectiveId = raw ? Number(raw) : null;
-    await postWrite('set_evidence_objective', { evidenceId, objectiveId, gameId });
-    // Objective attach moves the row between lists, but re-rendering here would wipe
-    // unsaved form text. The attach is persisted; the next natural load reorders.
+function applyEvidenceState(row, state) {
+  for (const value of ['good', 'bad']) {
+    const button = row.querySelector(`.rv-evid-${value}`);
+    button?.classList.toggle('on', state.polarity === value);
+    button?.setAttribute('aria-pressed', String(state.polarity === value));
   }
+  const dot = row.querySelector('.rv-evid-dot');
+  if (dot) {
+    dot.style.background = EVIDENCE_COLORS[state.polarity];
+    dot.title = state.polarity === 'good' ? 'Good example' : state.polarity === 'bad' ? 'Bad example' : 'Neutral';
+  }
+  const pick = row.querySelector('.rv-evid-pick');
+  if (pick) pick.value = state.objectiveId == null ? '' : String(state.objectiveId);
+}
+
+function evidenceStatus(row, text, failed = false) {
+  const status = row.querySelector('.rv-evid-save-status');
+  if (!status) return;
+  status.textContent = text;
+  status.classList.toggle('is-error', failed);
+  show(status, !!text);
+}
+
+async function flushEvidenceWrites() {
+  let saved = true;
+  while (_evidenceWrites.size) {
+    const results = await Promise.allSettled([..._evidenceWrites]);
+    if (results.some(result => result.status === 'rejected' || result.value === false)) saved = false;
+  }
+  return saved;
+}
+
+async function flushReviewWrites(message) {
+  if (!await flushEvidenceWrites()) {
+    if (typeof message === 'function') message('An evidence change could not be saved. Please retry on its card.');
+    return false;
+  }
+  await flushDraft();
+  return true;
+}
+
+// Only reflect a confirmed write. A failed save restores the previous selection
+// and reports the error beside that card, without replacing unsaved review text.
+function onEvidenceAction(action, el) {
+  const row = el.closest('.rv-evid');
+  if (!row) return Promise.resolve(false);
+  const pending = _evidenceRowWrites.get(row);
+  if (pending) return pending;
+  const evidenceId = Number(row.dataset.evidId);
+  const state = _evidenceStates.get(row);
+  if (!(evidenceId > 0) || !state) return Promise.resolve(false);
+  const gameId = Number(_subject && _subject.gameId) || null;
+  const objectiveId = action === 'objective' && el.value ? Number(el.value) : null;
+  const objectiveTitle = action === 'objective' ? el.selectedOptions?.[0]?.textContent || '' : '';
+  const polarity = state.polarity === action ? 'neutral' : action;
+  const controls = [...row.querySelectorAll('.rv-evid-actions button, .rv-evid-actions select')];
+  controls.forEach(control => { control.disabled = true; });
+  row.setAttribute('aria-busy', 'true');
+  applyEvidenceState(row, state);
+  evidenceStatus(row, 'Saving…');
+
+  const write = (async () => {
+    try {
+      let saved = false;
+      if (action === 'good' || action === 'bad') {
+        saved = await postWrite('set_evidence_polarity', { evidenceId, polarity });
+        if (saved) {
+          state.polarity = polarity;
+          state.clip.polarity = polarity;
+          state.clip.polarityColorHex = EVIDENCE_COLORS[polarity];
+        }
+      } else if (action === 'objective') {
+        saved = await postWrite('set_evidence_objective', { evidenceId, objectiveId, gameId });
+        if (saved) {
+          state.objectiveId = objectiveId;
+          state.objectiveTitle = objectiveTitle;
+          state.clip.objectiveId = objectiveId;
+          state.clip.objectiveTitle = objectiveTitle;
+        }
+      } else if (action === 'dismiss') {
+        saved = await postWrite('set_evidence_status', { evidenceId, status: 'dismissed' });
+        if (saved) { row.remove(); pruneEmptyClipSections(); }
+      }
+      applyEvidenceState(row, state);
+      evidenceStatus(row, saved ? 'Saved' : 'Couldn’t save this change. Please try again.', !saved);
+      return saved;
+    } finally {
+      controls.forEach(control => { control.disabled = false; });
+      row.setAttribute('aria-busy', 'false');
+    }
+  })();
+  _evidenceRowWrites.set(row, write);
+  _evidenceWrites.add(write);
+  const done = () => { _evidenceRowWrites.delete(row); _evidenceWrites.delete(write); };
+  write.then(done, done);
+  return write;
 }
 
 // ── render: concept-tag catalog (selectable grid → selectedTagIds) ──────────
@@ -1007,8 +1086,8 @@ function gatherForm() {
 }
 
 // ── commit message line (saved confirmation / error) ────────────────────────
-function showCommit(text, kind) {
-  const el = $('rv-commit-msg');
+function showCommit(text, kind, id = 'rv-commit-msg') {
+  const el = $(id);
   if (!el) return;
   el.textContent = text || '';
   el.classList.remove('ok', 'err');
@@ -1430,31 +1509,38 @@ document.addEventListener('click', async (ev) => {
   // "Copy" / "Export" — this game's review as markdown. Both fetch the single-game
   // markdown from the sidecar (get_review_export_markdown takes a plain {gameId}
   // named arg — a READ command, NOT the {payload} write convention). Copy writes to
-  // the clipboard; Export opens the native save dialog via save_export_file (also
-  // plain named args, mirroring settings.js). Self-contained, no refetch.
+  // the native clipboard so embedded pages don't depend on browser clipboard
+  // permissions; Export opens the native save dialog. Both use plain named args.
   if (action === 'copy_review' || action === 'export_review') {
-    const gid = Number((_subject && _subject.gameId) || target.dataset.gameId || 0);
-    if (!(gid > 0)) { showCommit('No game loaded.', 'err'); return; }
-    const invoke = await getInvoke();
-    if (!invoke) { showCommit(action === 'copy_review' ? 'Copied (preview, no backend).' : 'Export (preview, no backend).', 'ok'); return; }
     const btn = target;
+    if (btn.disabled) return;
+    const copying = action === 'copy_review';
+    const report = (text, kind) => showCommit(text, kind, 'rv-export-msg');
+    const gid = Number((_subject && _subject.gameId) || target.dataset.gameId || 0);
+    if (!(gid > 0)) { report('No game loaded.', 'err'); return; }
     if ('disabled' in btn) btn.disabled = true;
-    showCommit(action === 'copy_review' ? 'Copying…' : 'Exporting…', null);
+    report(copying ? 'Copying…' : 'Exporting…', null);
     try {
-      const built = await invoke('get_review_export_markdown', { gameId: gid });
-      if (!built || built.found === false || typeof built.markdown !== 'string') {
-        showCommit('Could not build this review.', 'err');
+      const invoke = await getInvoke();
+      if (!invoke) {
+        report(copying ? 'Copy is unavailable in preview.' : 'Export is unavailable in preview.', 'err');
         return;
       }
-      if (action === 'copy_review') {
-        await navigator.clipboard.writeText(built.markdown);
-        showCommit('Copied to clipboard.', 'ok');
+      const built = await invoke('get_review_export_markdown', { gameId: gid });
+      if (!built || built.found === false || typeof built.markdown !== 'string' || !built.markdown.trim()) {
+        report('Could not build this review.', 'err');
+        return;
+      }
+      if (copying) {
+        const out = await invoke('copy_text_to_clipboard', { text: built.markdown });
+        if (out?.ok !== true) throw new Error('Clipboard write was not confirmed.');
+        report('Copied to clipboard.', 'ok');
       } else {
         const out = await invoke('save_export_file', { fileName: built.fileName || `revu-${gid}-review.md`, markdown: built.markdown });
-        showCommit(out && out.saved ? 'Export saved.' : 'Export canceled.', out && out.saved ? 'ok' : null);
+        report(out && out.saved ? 'Export saved.' : 'Export canceled.', out && out.saved ? 'ok' : null);
       }
     } catch (err) {
-      showCommit(action === 'copy_review' ? 'Copy failed.' : 'Export failed.', 'err');
+      report(copying ? 'Copy failed. Please try again.' : 'Export failed. Please try again.', 'err');
       console.error(`[review] ${action} failed:`, err);
     } finally {
       if ('disabled' in btn) btn.disabled = false;
@@ -1523,6 +1609,7 @@ document.addEventListener('click', async (ev) => {
   // it can't fire mid-save and resurrect the draft.
   try {
     if (action === 'save_review' || action === 'skip_review') {
+      if (!await flushEvidenceWrites()) throw new Error('An evidence change could not be saved. Please retry on its card.');
       await flushDraft();
       cancelDraft();
       _suppressDraft = true;
@@ -1557,6 +1644,19 @@ document.addEventListener('click', async (ev) => {
     if (skipBtn) skipBtn.disabled = false;
     if (canDisable) target.disabled = false;
   }
+});
+
+// The Match library link and standalone sidebar leave this document directly,
+// so they need the same barrier as the framed sidebar and Review/VOD switch.
+let _reviewLinkNavigation = 0;
+document.addEventListener('click', async (event) => {
+  if (event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  const link = event.target.closest('.match-library-link, .nav-i');
+  const href = link?.getAttribute('href');
+  if (!href) return;
+  event.preventDefault();
+  const navigation = ++_reviewLinkNavigation;
+  if (await flushReviewWrites() && navigation === _reviewLinkNavigation) window.location.href = href;
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────

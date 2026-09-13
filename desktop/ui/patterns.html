@@ -38,7 +38,7 @@
     <p class="page-intro">Find decisions that repeat across your games. Watch the related moments, compare what happened, and write one thing to try next time.</p>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
-    <!-- PATTERN SELECTOR — pending + reviewed cross-game patterns as clickable
+    <!-- PATTERN SELECTOR — pending cross-game patterns as clickable
          cards. The active card drives the moment playlist below. The whole strip
          is the page's navigation between patterns. -->
     <h2 class="pat-section-heading" id="pat-label" hidden><span class="pat-step-number">1</span> Choose a pattern <span class="n" id="pat-sub"></span></h2>
@@ -107,10 +107,6 @@
         </div>
 
         <div class="pat-review-finish">
-          <div class="card pat-closed" id="pat-closed" hidden>
-            <div class="pat-ck"><span class="pat-chk">&#10003;</span> Pattern reviewed</div>
-            <div class="pat-csum" id="pat-csum"></div>
-          </div>
           <div class="pat-pending" id="pat-pending" hidden>
             <p class="field-help" id="pat-pending-text"></p>
             <button class="pat-btn pat-btn-gold pat-markrev" id="pat-markrev" data-action="mark_reviewed" type="button">Finish reviewing this pattern</button>
@@ -128,8 +124,9 @@
 
     <!-- EMPTY STATE — no patterns surfaced. -->
     <div class="pat-empty" id="pat-empty" hidden>
-      <div class="pat-empty-h" id="pat-empty-h">No recurring patterns yet.</div>
+      <div class="pat-empty-h" id="pat-empty-h" tabindex="-1">No recurring patterns yet.</div>
       <div class="pat-empty-p" id="pat-empty-p">Start with a learning objective and review a few games. Revu looks for repeated mistakes in clips, missed stat targets, and events you track.</div>
+      <button class="pat-btn pat-btn-sec" id="pat-reload" data-action="reload_patterns" type="button" hidden>Refresh patterns</button>
       <a class="pat-empty-action" href="objectives.html">Go to learning objectives</a>
     </div>
 

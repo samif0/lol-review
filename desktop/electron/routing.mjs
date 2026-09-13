@@ -12,7 +12,10 @@ export function validateSender(event, contents) {
 export function commandRequest(command, args = {}) {
   const definition = validateCommand(command, args);
   const serialized = JSON.stringify(args);
-  if (Buffer.byteLength(serialized) > (command === 'save_export_file' ? 4 * 1024 * 1024 : 64 * 1024))
+  // Copy and file export carry the same generated review markdown. Both keep
+  // a 4 MiB serialized-envelope cap; other commands retain the 64 KiB limit.
+  const limit = ['save_export_file', 'copy_text_to_clipboard'].includes(command) ? 4 * 1024 * 1024 : 64 * 1024;
+  if (Buffer.byteLength(serialized) > limit)
     throw new Error('Command exceeds payload limit');
   const query = new URLSearchParams();
   for (const [arg, key] of Object.entries(definition.query || {})) {

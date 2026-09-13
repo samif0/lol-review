@@ -143,60 +143,49 @@ function renderVod(d) {
   if (v.gameId != null) btn.dataset.gameId = String(v.gameId);
 }
 
-// ── render: unreviewed game rows ────────────────────────────────────────────
-// The WHOLE ROW is the review action (no button) — data-action="open_review",
-// role=button + tabindex for keyboard, with the hype hover animation (lift +
-// glow + edge bar + sweep + "REVIEW →" cue) defined on .gamerow in styles.css.
-// VOD evidence is the separate hint line (data-action="review_vod" → vod viewer).
+// ── render: pending review ─────────────────────────────────────────────────
+// Lead with the newest pending match. The count covers the full recent queue;
+// the snapshot's item list is capped, so its length is not the pending count.
 function renderUnreviewed(d) {
   const u = d.unreviewed || {};
   const host = $('unreviewed');
   clear(host);
   const items = Array.isArray(u.items) ? u.items : [];
+  const total = Number(u.count);
+  const count = u.allReviewed ? 0 : u.count != null && Number.isFinite(total)
+    ? Math.max(0, Math.trunc(total)) : items.length;
+  const pending = count > 0;
+  show($('review-inbox'), pending);
+  show($('unreviewed-empty'), !pending);
+  document.querySelector('.home-page').classList.toggle('has-pending-review', pending);
+  $('unreviewed-label').textContent = `${count} ${count === 1 ? 'match' : 'matches'} ready to review`;
 
-  if (u.allReviewed || items.length === 0) {
-    show($('unreviewed-empty'), true);
-    return;
-  }
-  show($('unreviewed-empty'), false);
+  const g = items.find(item => item.gameId != null && !item.hasReview);
+  const remaining = Math.max(0, count - (g ? 1 : 0));
+  show($('review-queue-footer'), pending && remaining > 0);
+  $('review-queue-more').textContent = `${remaining} ${g ? 'more ' : ''}recent ${remaining === 1 ? 'match' : 'matches'} waiting`;
+  if (!pending || !g) return;
 
-  for (const g of items) {
-    const el = tpl('tpl-gamerow');
-    const vline = el.querySelector('.vline');
-    const vsmall = el.querySelector('.vsmall');
-    const cue = el.querySelector('.gamerow-cue');
+  const el = tpl('tpl-gamerow');
+  const vline = el.querySelector('.vline');
+  const vsmall = el.querySelector('.vsmall');
+  const champ = g.championName || 'Game';
+  const matchup = g.enemyChampion ? `${champ} vs ${g.enemyChampion}` : champ;
+  vline.textContent = matchup;
+  const result = el.querySelector('.home-review-result');
+  result.textContent = typeof g.win === 'boolean' ? (g.win ? 'Victory' : 'Defeat') : (g.winLossText || '');
+  show(result, !!result.textContent);
+  if (typeof g.win === 'boolean') result.dataset.result = g.win ? 'win' : 'loss';
+  const metadata = [g.gameMode, g.datePlayed, g.duration].filter(Boolean);
+  vsmall.textContent = [metadata.length ? metadata.join(' · ') : g.metaLine, g.kdaText ? `${g.kdaText} KDA` : ''].filter(Boolean).join(' · ');
+  const open = el.querySelector('.home-review-open');
+  open.href = `review.html?gameId=${encodeURIComponent(g.gameId)}`;
+  open.setAttribute('aria-label', `Review ${matchup}`);
+  const skip = el.querySelector('.home-review-skip');
+  skip.dataset.gameId = String(g.gameId);
+  skip.setAttribute('aria-label', `Skip review for ${matchup}`);
 
-    // Primary line: "Champ vs Enemy — W · K/D/A". Build it from fields (the
-    // server's statsLine is the CS/dmg string, which belongs in the sub-line).
-    const champ = g.championName || 'Game';
-    const matchup = g.enemyChampion ? `${champ} vs ${g.enemyChampion}` : champ;
-    const wl = g.winLossText ? `: ${g.winLossText}` : '';
-    const kda = g.kdaText ? ` · ${g.kdaText}` : '';
-    vline.textContent = `${matchup}${wl}${kda}`;
-    if (g.winLossColorHex) vline.style.color = g.winLossColorHex;
-    // Sub-line: mode/date/duration, then the CS/dmg stats.
-    const subParts = [g.metaLine, g.statsLine].filter(Boolean);
-    vsmall.textContent = subParts.join('  ·  ');
-
-    // The whole ROW is the review action (see deferred-nav note). Carry the
-    // gameId + a re-review label on the card itself, not a button.
-    if (g.gameId != null) el.dataset.gameId = String(g.gameId);
-    if (cue) cue.firstChild.textContent = (g.hasReview ? 'Open' : 'Review') + ' ';
-
-    // SKIP dismisses an UNREVIEWED game; it carries the same gameId. Hide it on
-    // already-reviewed rows (skipping a review you've written makes no sense).
-    const skip = el.querySelector('.gamerow-skip');
-    if (skip) {
-      if (g.gameId != null) skip.dataset.gameId = String(g.gameId);
-      show(skip, !g.hasReview);
-    }
-
-    // The left edge bar rests in the game's win/loss color (green/red), then
-    // energizes to the violet accent on hover (--wl drives the resting bar).
-    if (g.winLossColorHex) el.style.setProperty('--wl', g.winLossColorHex);
-
-    host.appendChild(el);
-  }
+  host.appendChild(el);
 }
 
 // ── render: active objectives (SVG rings) ───────────────────────────────────

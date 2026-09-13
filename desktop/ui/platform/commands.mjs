@@ -115,6 +115,7 @@ const definitions = {
   save_background_settings: native({ payload: 'object' }),
   pick_folder: native(),
   save_export_file: native({"fileName":"string","markdown":"string"}),
+  copy_text_to_clipboard: native({ text: 'string' }),
   open_log_folder: native(),
   review_vod: native({"gameId":"integer?"}),
   open_review: native({"gameId":"integer?"}),

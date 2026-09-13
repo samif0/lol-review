@@ -36,7 +36,7 @@ public sealed class ObjectiveGamesSnapshotBuilder
     // ── Palette (mirrors the other builders; TODO: extract to Revu.Core) ──────
     private const string WinHex = "#8ee7ba";
     private const string LossHex = "#f3a3a8";
-    // Practiced badge: positive (green) when practiced, neutral when skipped.
+    // Objective practice is independent of whether the game review was saved.
     private const string PositiveHex = "#8ee7ba";
     private const string PositiveDimHex = "#10221a";
     private const string NeutralHex = "#a79ec2";
@@ -121,7 +121,7 @@ public sealed class ObjectiveGamesSnapshotBuilder
                     DateText: FormatDate(g.Timestamp),
                     KdaText: $"{g.Kills:F0}/{g.Deaths:F0}/{g.Assists:F0}",
                     Practiced: g.Practiced,
-                    PracticedText: g.Practiced ? "Practiced" : "Skipped",
+                    PracticedText: g.Practiced ? "Objective practiced" : "Objective not practiced",
                     PracticedColorHex: g.Practiced ? PositiveHex : NeutralHex,
                     PracticedDimColorHex: g.Practiced ? PositiveDimHex : NeutralDimHex,
                     ExecutionNote: g.ExecutionNote ?? "",

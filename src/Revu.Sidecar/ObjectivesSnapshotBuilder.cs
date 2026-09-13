@@ -288,7 +288,14 @@ public sealed class ObjectivesSnapshotBuilder
             MasteryMet: masteryMet,
             MasteryGateText: masteryGateText,
             MasteryText: masteryText,
-            MasteryQualifyingGames: mastery.QualifyingGames);
+            MasteryQualifyingGames: mastery.QualifyingGames,
+            MasteryDetails: isMini ? null : new ObjectiveMasteryDetailsDto(
+                SuccessThresholdPct: (int)Math.Round(mastery.Threshold * 100),
+                MinGames: mastery.MinGames,
+                MinSpanDays: mastery.MinHorizonDays,
+                SpanDays: mastery.SpanDays,
+                RecentSuccessMet: mastery.RecentSuccessMet,
+                SuccessRateMet: mastery.Pct >= mastery.Threshold));
     }
 
     private async Task<ObjectiveMastery> SafeMasteryAsync(long objectiveId, bool hasStructuredCriteria)

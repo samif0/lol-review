@@ -22,15 +22,15 @@ namespace Revu.Sidecar;
 ///
 /// <para>
 /// Unlike the WinUI viewer (which loads one pattern at a time), the snapshot
-/// carries every pattern card with its full ordered moment playlist so the Tauri
+/// carries pending pattern cards with their full ordered moment playlists so the desktop
 /// Patterns page can render the cross-game cards and drill into each moment
 /// without a second round-trip.
 /// </para>
 ///
 /// <para>
-/// READ-ONLY: "Mark reviewed" (and the per-moment note/clip writes) are NOT here
-/// — that is a write and is DEFERRED. We surface the reviewed flag + a
-/// carry-forward note placeholder for display only. Per-pattern moment loads are
+/// READ-ONLY: review writes live in the pattern endpoints. Reviewed patterns
+/// stay out of this queue until enough new evidence re-arms them through the
+/// shared review gate. Per-pattern moment loads are
 /// each wrapped in try/catch that degrades to an empty playlist so one bad
 /// pattern never blanks the whole page.
 /// </para>
@@ -71,6 +71,7 @@ public sealed class PatternsSnapshotBuilder
 
         var cards = new List<PatternCardDto>();
         var reviewedCount = 0;
+        var closedCount = 0;
         var errorText = "";
 
         try
@@ -85,14 +86,16 @@ public sealed class PatternsSnapshotBuilder
             foreach (var pattern in rawPatterns)
             {
                 var rawMoments = await LoadMomentsAsync(pattern);
-                var (moments, playableCount) = MapMoments(rawMoments);
 
                 // Reviewed with re-arm hysteresis (PatternReviewGate) — the ONE
                 // rule the dashboard nag also applies, so page and nag agree.
-                var isReviewed = PatternReviewGate.IsReviewed(reviewedStamps, pattern.PatternKey, rawMoments);
-                var newMoments = isReviewed
-                    ? 0
-                    : PatternReviewGate.NewMomentCount(reviewedStamps, pattern.PatternKey, rawMoments);
+                if (PatternReviewGate.IsReviewed(reviewedStamps, pattern.PatternKey, rawMoments))
+                {
+                    closedCount++;
+                    continue;
+                }
+                var newMoments = PatternReviewGate.NewMomentCount(reviewedStamps, pattern.PatternKey, rawMoments);
+                var (moments, playableCount) = MapMoments(rawMoments);
 
                 var distinctGames = moments.Select(m => m.GameId).Distinct().Count();
                 var momentCount = moments.Count;
@@ -110,7 +113,7 @@ public sealed class PatternsSnapshotBuilder
                     SeverityLabel: pattern.Severity.ToUpperInvariant(),
                     // "high" -> negative red, else gold (mirror SeverityHex).
                     SeverityHex: pattern.Severity == "high" ? LossHex : GoldHex,
-                    IsReviewed: isReviewed,
+                    IsReviewed: false,
                     MomentCount: momentCount,
                     GameCount: distinctGames,
                     Subtitle: BuildSubtitle(momentCount, totalMoments, distinctGames),
@@ -130,13 +133,10 @@ public sealed class PatternsSnapshotBuilder
             errorText = "Couldn't load patterns from the local database. See the sidecar log for details.";
         }
 
-        // Honest counts over the full candidate set; the DISPLAY list is then
-        // capped pending-first (stable within each group — the repo already
-        // ordered by severity then volume).
-        var pendingCount = cards.Count(c => !c.IsReviewed);
+        // Count every pending candidate before the display cap. Closed reviews
+        // are already excluded; the repo's severity/volume ordering is preserved.
+        var pendingCount = cards.Count;
         cards = cards
-            .Where(c => !c.IsReviewed)
-            .Concat(cards.Where(c => c.IsReviewed))
             .Take(PatternCardLimit)
             .ToList();
 
@@ -146,7 +146,9 @@ public sealed class PatternsSnapshotBuilder
             HasPending: pendingCount > 0,
             PendingCount: pendingCount,
             EmptyText: cards.Count == 0 && errorText.Length == 0
-                ? $"No recurring patterns on your learning objectives in the last {PatternConstants.WindowDays} days of ranked games. "
+                ? closedCount > 0
+                  ? "You're all caught up. Reviewed patterns will return if enough new evidence appears."
+                  : $"No recurring patterns on your learning objectives in the last {PatternConstants.WindowDays} days of ranked games. "
                   + "Patterns build from the objectives you set — clips you mark bad on them, "
                   + "structured criteria that keep failing, and recurrences of the events they track."
                 : "",

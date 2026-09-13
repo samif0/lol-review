@@ -72,7 +72,9 @@ public sealed record ObjectiveMastery(
     // Min games required by the recency rule, for the gate sub-text.
     int MinGames,
     // Min elapsed days required, for the gate sub-text.
-    int MinHorizonDays);
+    int MinHorizonDays,
+    // The recent-success condition, separate from the overall rate and day span.
+    bool RecentSuccessMet = false);
 
 public sealed record GameObjectiveRecord(
     long GameId,

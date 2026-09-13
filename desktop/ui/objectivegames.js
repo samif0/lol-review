@@ -84,7 +84,10 @@ function buildGame(g) {
   el.querySelector('.og-grow-date').textContent = g.dateText || '';
 
   const badge = el.querySelector('.og-grow-practiced');
-  badge.textContent = g.practicedText || '';
+  // This is the objective's practice check, independent of saving the match
+  // review. Older snapshots call false "Skipped", which looks like a lost review.
+  badge.textContent = g.practiced ? 'Objective practiced' : 'Objective not practiced';
+  badge.title = 'Shows whether this objective was marked practiced for this game. Your match review is saved separately.';
   if (g.practicedColorHex) badge.style.setProperty('--fg', g.practicedColorHex);
   if (g.practicedDimColorHex) badge.style.setProperty('--bg', g.practicedDimColorHex);
 

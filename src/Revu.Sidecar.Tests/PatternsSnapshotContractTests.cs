@@ -13,7 +13,7 @@ namespace Revu.Sidecar.Tests;
 ///   • only WATCHABLE moments enter a playlist (recording on disk, or a kept clip)
 ///   • a playlist is capped, keeping noted/clipped moments then the newest
 ///   • reviewed patterns re-arm through the shared PatternReviewGate watermark
-///   • pending cards rank ahead of reviewed ones under the display cap
+///   • reviewed cards leave the queue before its display cap is applied
 /// </summary>
 public sealed class PatternsSnapshotContractTests
 {
@@ -274,29 +274,55 @@ public sealed class PatternsSnapshotContractTests
 
         // Mark the pattern reviewed → it closes.
         await scope.Evidence.MarkPatternReviewedAsync(patternKey, PatternConstants.KindObjectiveCriteria, 3);
+        var reviewedAt = (await scope.Evidence.GetReviewedPatternsAsync())[patternKey];
         var closed = await Builder(scope).BuildAsync();
-        var closedCard = Assert.Single(closed.Patterns, p => p.Kind == PatternConstants.KindObjectiveCriteria);
-        Assert.True(closedCard.IsReviewed);
+        Assert.Empty(closed.Patterns);
         Assert.False(closed.HasPending);
+        Assert.Equal(0, closed.PendingCount);
+        Assert.Equal(1, closed.ReviewedPatternCount);
+        Assert.Contains("caught up", closed.EmptyText);
+        // Hiding a card does not delete its review history or evidence.
+        var storedCard = Assert.Single(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Equal(3, (await scope.Evidence.GetPatternMomentsAsync(storedCard)).Count);
 
-        // Age the review stamp behind the moments (as if the moments accrued
-        // after the review): ≥2 new moments re-arm the pattern.
-        using (var conn = scope.OpenConnection())
+        // One new moment keeps the pattern closed; reaching the shared re-arm
+        // threshold brings it back. Set synthetic timestamps explicitly so
+        // this test never depends on waiting for the next wall-clock second.
+        for (var i = 0; i < PatternConstants.ReArmNewMoments; i++)
         {
+            var game = await scope.SeedGameAsync(gameId: 6604 + i);
+            await scope.Objectives.RecordGameAsync(game.GameId, objectiveId, practiced: true);
+            await scope.Objectives.SetCriteriaMetAsync(game.GameId, objectiveId, met: false);
+            await Materializer(scope).MaterializeReviewSignalsAsync(game.GameId);
+            using var conn = scope.OpenConnection();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "UPDATE pattern_reviews SET reviewed_at = reviewed_at - 3600";
+            cmd.CommandText = "UPDATE evidence_items SET created_at = @createdAt WHERE game_id = @gameId";
+            cmd.Parameters.AddWithValue("@createdAt", reviewedAt + 1);
+            cmd.Parameters.AddWithValue("@gameId", game.GameId);
             await cmd.ExecuteNonQueryAsync();
+
+            if (i + 1 < PatternConstants.ReArmNewMoments)
+            {
+                var stillClosed = await Builder(scope).BuildAsync();
+                Assert.Empty(stillClosed.Patterns);
+                Assert.False(stillClosed.HasPending);
+                Assert.Equal(0, stillClosed.PendingCount);
+            }
         }
 
         var reArmed = await Builder(scope).BuildAsync();
         var reArmedCard = Assert.Single(reArmed.Patterns, p => p.Kind == PatternConstants.KindObjectiveCriteria);
         Assert.False(reArmedCard.IsReviewed);
-        Assert.Equal(3, reArmedCard.NewMomentCount);
+        Assert.Equal(PatternConstants.ReArmNewMoments, reArmedCard.NewMomentCount);
         Assert.True(reArmed.HasPending);
+        Assert.Equal(1, reArmed.PendingCount);
+        Assert.Equal(1, reArmed.ReviewedPatternCount);
+        Assert.Equal("", reArmed.EmptyText);
+        Assert.Equal(reviewedAt, (await scope.Evidence.GetReviewedPatternsAsync())[patternKey]);
     }
 
     [Fact]
-    public async Task BuildAsync_PendingCardsRankAheadOfReviewedOnes()
+    public async Task BuildAsync_ReviewedCardsAreRemoved_WhilePendingCardsRemain()
     {
         using var scope = new SidecarWriteScope();
         using var vods = new TempVods();
@@ -304,7 +330,7 @@ public sealed class PatternsSnapshotContractTests
 
         // A HIGH-severity criterion card, marked reviewed, and a MEDIUM-severity
         // tracked-deaths card left pending. Severity order alone would lead
-        // with the reviewed card; the pending-first cap must not.
+        // with the reviewed card, but the queue must only show the pending one.
         var objectiveId = await SeedFailingCriterionAsync(scope, vods);
         await SeedTrackedDeathsAsync(scope, vods, firstGameId: 6801);
         await scope.Evidence.MarkPatternReviewedAsync(
@@ -313,12 +339,60 @@ public sealed class PatternsSnapshotContractTests
 
         var snapshot = await Builder(scope).BuildAsync();
 
-        Assert.Equal(2, snapshot.Patterns.Count);
-        Assert.Equal(PatternConstants.KindObjectiveEvents, snapshot.Patterns[0].Kind);
-        Assert.False(snapshot.Patterns[0].IsReviewed);
-        Assert.Equal(PatternConstants.KindObjectiveCriteria, snapshot.Patterns[1].Kind);
-        Assert.True(snapshot.Patterns[1].IsReviewed);
+        var pending = Assert.Single(snapshot.Patterns);
+        Assert.Equal(PatternConstants.KindObjectiveEvents, pending.Kind);
+        Assert.False(pending.IsReviewed);
         Assert.Equal(1, snapshot.PendingCount);
+        Assert.Equal(1, snapshot.ReviewedPatternCount);
+        Assert.True(snapshot.HasPending);
+    }
+
+    [Fact]
+    public async Task BuildAsync_ReviewedCardsAreRemovedBeforeTheCap_AndPendingCountIncludesOverflow()
+    {
+        using var scope = new SidecarWriteScope();
+        using var vods = new TempVods();
+        await scope.InitializeAsync();
+
+        // All three detector kinds emit three cards, crossing the six-card
+        // display cap. Review the first two in the detector's priority order.
+        for (var i = 0; i < 3; i++)
+        {
+            var objectiveId = await SeedFailingCriterionAsync(scope, vods, $"Criterion {i}");
+            await SeedTrackedDeathsAsync(scope, vods, firstGameId: 7001 + i * 3);
+            for (var j = 0; j < 2; j++)
+            {
+                await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+                    GameId: 6601 + j,
+                    SourceKind: EvidenceKinds.TimelineRegion,
+                    SourceId: null,
+                    SourceKey: $"test:bad:{objectiveId}:{j}",
+                    StartTimeSeconds: 100,
+                    EndTimeSeconds: 120,
+                    Title: "Bad example",
+                    Polarity: EvidencePolarities.Bad,
+                    Status: EvidenceStatuses.Evidence,
+                    ObjectiveId: objectiveId));
+            }
+        }
+        var candidates = await scope.Evidence.GetPatternCardsAsync(PatternConstants.PatternCandidateLimit);
+        Assert.Equal(9, candidates.Count);
+        var reviewed = candidates.Take(2).ToArray();
+        foreach (var card in reviewed)
+        {
+            await scope.Evidence.MarkPatternReviewedAsync(card.PatternKey, card.Kind, card.MomentCount);
+        }
+
+        var snapshot = await Builder(scope).BuildAsync();
+
+        Assert.Equal(PatternConstants.PatternCardLimit, snapshot.Patterns.Count);
+        Assert.Equal(7, snapshot.PendingCount);
+        Assert.Equal(2, snapshot.ReviewedPatternCount);
+        Assert.True(snapshot.HasPending);
+        Assert.All(snapshot.Patterns, card => Assert.False(card.IsReviewed));
+        Assert.Equal(candidates.Skip(2).Take(PatternConstants.PatternCardLimit).Select(card => card.PatternKey),
+            snapshot.Patterns.Select(card => card.PatternKey));
+        Assert.Equal(2, (await scope.Evidence.GetReviewedPatternsAsync()).Count);
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, session, Tray, Menu } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, screen, shell, session, Tray, Menu } from 'electron';
 import { unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Sidecar } from './sidecar.mjs';
@@ -185,7 +185,7 @@ async function start() {
     if (!details.isSameDocument) { pageGeneration++; media.clear(); window.webContents.send('revu:media-clear'); }
   });
   window.webContents.on('render-process-gone', () => { process.exitCode = 1; app.quit(); });
-  native = nativeCommands({ app, dialog, screen, shell, window, dataRoot, isolated,
+  native = nativeCommands({ app, clipboard, dialog, screen, shell, window, dataRoot, isolated,
     quit: action => { afterShutdown = action; app.quit(); } });
   registerIpc();
   const config = await backend.request('/api/config');

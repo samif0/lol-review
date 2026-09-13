@@ -14,9 +14,9 @@ namespace Revu.Sidecar;
 //
 // One pattern card carries its full ordered moment playlist (oldest-first) so the
 // frontend can render the cross-game pattern cards + drill into each moment
-// without a second round-trip. "Mark reviewed" is a WRITE and is DEFERRED — we
-// surface the reviewed state (isReviewed) and a carry-forward note placeholder
-// for display only; no write endpoint is added here.
+// without a second round-trip. Only pending patterns are returned; reviewed
+// patterns stay out until enough new evidence re-arms them. Review history is
+// preserved separately and contributes to reviewedPatternCount.
 //
 // Null vs empty:
 //   - moment.startTimeSeconds / endTimeSeconds are nullable (null = no timed
@@ -33,13 +33,13 @@ public sealed record PatternsSnapshotDto(
     // True when at least one pattern is still pending review.
     bool HasPending,
     int PendingCount,
-    // Empty-state copy shown when there are no pattern cards at all.
+    // Empty-state copy shown when no patterns are currently pending.
     string EmptyText,
     IReadOnlyList<PatternCardDto> Patterns,
     // Non-empty when the card build threw: the page renders it in the error
     // panel instead of passing a backend failure off as "no patterns yet".
     string ErrorText = "",
-    // Recency window (days) every count above was computed over.
+    // Recency window for pattern candidates; ReviewedPatternCount is all-time.
     int WindowDays = 0);
 
 /// <summary>
@@ -61,8 +61,8 @@ public sealed record PatternCardDto(
     string SeverityLabel,
     // "high" -> negative red, else gold. No SolidColorBrush. Mirrors SeverityHex.
     string SeverityHex,
-    // True once the user has marked this pattern reviewed (write deferred — read
-    // state only). Mirrors PatternReviewViewModel.IsReviewed.
+    // Kept for wire compatibility. Returned cards are pending (false), including
+    // previously reviewed patterns that re-armed with enough new evidence.
     bool IsReviewed,
     // Moments in the playlist below (playable, capped at PatternMomentDisplayLimit).
     int MomentCount,

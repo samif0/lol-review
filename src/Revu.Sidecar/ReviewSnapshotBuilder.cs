@@ -714,7 +714,9 @@ public sealed class ReviewSnapshotBuilder
             StartSeconds: row.StartTimeSeconds,
             Polarity: row.Polarity,
             PolarityColorHex: PolarityHex(row.Polarity),
-            ShareUrl: shareUrl);
+            ShareUrl: shareUrl,
+            ObjectiveId: row.ObjectiveId,
+            ObjectiveTitle: row.ObjectiveTitle);
     }
 
     /// <summary>Mirror of DashboardObjectiveItem.MetaText.</summary>

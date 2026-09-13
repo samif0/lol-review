@@ -208,7 +208,8 @@ public sealed class VodRepository : IVodRepository
         if (quality is not null)
         {
             updates.Add("quality = @quality");
-            parameters.Add(new SqliteParameter("@quality", quality));
+            parameters.Add(new SqliteParameter("@quality", string.IsNullOrWhiteSpace(quality)
+                ? "" : EvidencePolarities.Normalize(quality)));
         }
 
         if (updates.Count == 0)
@@ -217,7 +218,9 @@ public sealed class VodRepository : IVodRepository
         }
 
         using var conn = _factory.CreateConnection();
+        using var tx = quality is not null ? conn.BeginTransaction() : null;
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = $"UPDATE vod_bookmarks SET {string.Join(", ", updates)} WHERE id = @id";
         foreach (var parameter in parameters)
         {
@@ -226,6 +229,26 @@ public sealed class VodRepository : IVodRepository
 
         cmd.Parameters.AddWithValue("@id", bookmarkId);
         await cmd.ExecuteNonQueryAsync();
+
+        if (quality is not null)
+        {
+            // The clip and its evidence card represent the same judgement. Update
+            // both together, including an explicit Neutral or cleared rating.
+            using var evidence = conn.CreateCommand();
+            evidence.Transaction = tx;
+            evidence.CommandText = """
+                UPDATE evidence_items
+                SET polarity = @polarity, updated_at = @updatedAt
+                WHERE source_kind = @kind AND source_id = @id
+                  AND game_id = (SELECT game_id FROM vod_bookmarks WHERE id = @id)
+                """;
+            evidence.Parameters.AddWithValue("@polarity", EvidencePolarities.Normalize(quality));
+            evidence.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            evidence.Parameters.AddWithValue("@kind", EvidenceKinds.Clip);
+            evidence.Parameters.AddWithValue("@id", bookmarkId);
+            await evidence.ExecuteNonQueryAsync();
+            tx!.Commit();
+        }
     }
 
     public async Task SetBookmarkObjectiveAsync(long bookmarkId, long? objectiveId)

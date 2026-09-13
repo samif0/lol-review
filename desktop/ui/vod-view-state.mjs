@@ -72,7 +72,8 @@ export function vodRestorePlan(state, { gameId, filePath, mediaDuration, gameDur
       quality: ['good', 'neutral', 'bad'].includes(state.clip?.quality) ? state.clip.quality : '',
       note: text(state.clip?.note), picker: text(state.clip?.picker), userSet: state.clip?.userSet === true,
     },
-    bookmark: { note: text(state.bookmark?.note), picker: text(state.bookmark?.picker), userSet: state.bookmark?.userSet === true },
+    bookmark: { time: bounded(state.bookmark?.time, 0, maxGameTime, null),
+      note: text(state.bookmark?.note), picker: text(state.bookmark?.picker), userSet: state.bookmark?.userSet === true },
     corrections: !explicit ? state.corrections : null,
   };
 }
