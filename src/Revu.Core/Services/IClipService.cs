@@ -16,6 +16,7 @@ public interface IClipService
 
     /// <summary>
     /// Extract a clip from a VOD file using ffmpeg.
+    /// Input times are game seconds; native recording timing is translated once here.
     /// Stage 1: stream copy (fast, 60s timeout).
     /// Stage 2: re-encode fallback (ultrafast, 180s timeout).
     /// Below-normal process priority.

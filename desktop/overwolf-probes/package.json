@@ -1,0 +1,19 @@
+{
+  "name": "revu-overwolf-development-probes",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Isolated, manually enabled Overwolf Electron capability probes; never a production app.",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "preflight": "node scripts/preflight.mjs",
+    "build": "tsc",
+    "setup": "npm run build && node scripts/setup.mjs",
+    "runtime:install": "node scripts/setup.mjs --runtime-only",
+    "prepare:probe": "npm run build && node scripts/prepare.mjs readiness",
+    "readiness": "npm run build && node scripts/launch.mjs readiness --readiness-smoke",
+    "probe:gep": "node scripts/launch.mjs gep",
+    "probe:recorder": "node scripts/launch.mjs recorder"
+  }
+}

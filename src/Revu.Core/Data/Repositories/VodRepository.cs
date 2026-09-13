@@ -53,6 +53,27 @@ public sealed class VodRepository : IVodRepository
         return await ReadSingleVodAsync(cmd);
     }
 
+    public async Task<bool> TryLinkUnownedVodAsync(long gameId, string filePath, long fileSize = 0, long durationSeconds = 0)
+    {
+        // One SQLite statement serializes discovery against native registration and
+        // explicit links. Never replace a stale/missing-file link: its owner chose it.
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO vod_files (game_id, file_path, file_size, duration_s, matched_at)
+            SELECT @game, @path, @size, @duration, @matched
+            WHERE EXISTS (SELECT 1 FROM games WHERE game_id = @game)
+              AND NOT EXISTS (SELECT 1 FROM vod_files WHERE game_id = @game)
+              AND NOT EXISTS (SELECT 1 FROM vod_files WHERE file_path = @path COLLATE NOCASE)
+            """;
+        cmd.Parameters.AddWithValue("@game", gameId);
+        cmd.Parameters.AddWithValue("@path", filePath);
+        cmd.Parameters.AddWithValue("@size", fileSize);
+        cmd.Parameters.AddWithValue("@duration", durationSeconds);
+        cmd.Parameters.AddWithValue("@matched", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        return await cmd.ExecuteNonQueryAsync() == 1;
+    }
+
     public async Task<Dictionary<long, string>> GetVodPathsAsync(IReadOnlyCollection<long> gameIds)
     {
         if (gameIds.Count == 0)

@@ -4,7 +4,7 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <!-- WinExe (windows subsystem, not console) so the sidecar never owns/allocates
          a console window even if launched directly or if console handles are
-         inherited. The Tauri host also spawns it with CREATE_NO_WINDOW; this is the
+         inherited. The desktop host also spawns it without a console; this is the
          belt-and-suspenders half. Kestrel + the minimal-API host run fine headless. -->
     <OutputType>WinExe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -15,10 +15,9 @@
     <Platform>x64</Platform>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!--
-      Read-only localhost sidecar that serves the dashboard JSON to the Tauri
-      shell. Targets net8.0-windows10.0.19041.0 to bind ABI-compatibly to
-      Revu.Core (same TFM). Opens the DB strictly ReadOnly — see
-      ReadOnlySqliteConnectionFactory. Never migrates, never writes.
+      Application backend for the Overwolf Electron desktop host. Targets the
+      same Windows TFM as Revu.Core. Read endpoints use a read-only database
+      graph; mutations use WriteServices. Startup owns additive schema upgrades.
     -->
   </PropertyGroup>
 
@@ -29,7 +28,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
     <!-- Velopack client lib for the update CHECK + DOWNLOAD (UpdateManager). The
-         APPLY/restart is driven by the bundled Update.exe from the Rust host, since
+         APPLY/restart is driven by the bundled Update.exe from the desktop host, since
          that must run as the main exe. Version tracks the installed Update.exe (1.x). -->
     <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>

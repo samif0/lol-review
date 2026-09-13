@@ -7,7 +7,7 @@ namespace Revu.Sidecar;
 //
 // These reproduce the WinUI Tilt Check page's display shape WITHOUT any
 // XAML/WinUI types: there are NO SolidColorBrush properties — every color is a
-// plain *Hex string the Tauri frontend resolves itself. Property names are
+// plain *Hex string the desktop renderer resolves itself. Property names are
 // PascalCase here; the serializer is configured with
 // JsonNamingPolicy.CamelCase in Program.cs, so the wire shape is camelCase and
 // matches desktop/ui/sample-tiltcheck.json verbatim.

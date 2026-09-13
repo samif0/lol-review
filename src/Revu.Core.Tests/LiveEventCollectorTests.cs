@@ -395,17 +395,28 @@ public sealed class LiveEventCollectorTests
     private static async Task<List<GameEvent>> RunCollectorWithGameStats(
         List<JsonElement> events, Queue<JsonElement> snapshots, Queue<JsonElement> gameStats)
     {
+        var samplesRequired = Math.Max(snapshots.Count, gameStats.Count);
+        var samplesRead = 0;
+        var consumed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var api = new FakeLiveEventApi(
             fetchEventsAsync: () => events,
-            fetchActivePlayerAsync: () => snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek(),
+            fetchActivePlayerAsync: () =>
+            {
+                // The next fetch proves the preceding final fixture sample completed
+                // processing. Scheduler delays must not truncate a damage window.
+                if (++samplesRead > samplesRequired) consumed.TrySetResult();
+                return snapshots.Count > 1 ? snapshots.Dequeue() : snapshots.Peek();
+            },
             fetchGameStatsAsync: () => gameStats.Count > 1 ? gameStats.Dequeue() : gameStats.Peek());
         var collector = new LiveEventCollector(api, NullLogger.Instance, pollInterval: TimeSpan.FromMilliseconds(10));
         using var cts = new CancellationTokenSource();
         var runTask = collector.StartAsync(cts.Token);
-        // Long enough to consume a ~9-snapshot queue at the 10ms fake cadence.
-        await Task.Delay(160);
-        await cts.CancelAsync();
-        await runTask;
+        try { await consumed.Task.WaitAsync(TimeSpan.FromSeconds(10)); }
+        finally
+        {
+            await cts.CancelAsync();
+            await runTask;
+        }
         return await collector.StopAsync();
     }
 

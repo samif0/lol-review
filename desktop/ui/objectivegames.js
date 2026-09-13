@@ -1,43 +1,20 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { objectiveDisplayText } from './objective-labels.mjs';
+
 // Revu desktop — Objective Games page renderer for the glass-aurora layout.
-// Renders the JSON returned by the Tauri command `get_objective_games`
+// Renders the JSON returned by the Electron command `get_objective_games`
 // (see Revu.Sidecar GET /api/objective/games?id=N): every game linked to ONE
 // objective + its evidence ledger. Read-only — Watch VOD / Review jumps are
 // plain file-route navigation. Mirrors app.js conventions exactly:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • Outside Tauri it fetches ./sample-objective-games.json so the page
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron it fetches ./sample-objective-games.json so the page
 //     previews in a plain browser.
 //   • Every server string is written via textContent (never innerHTML); colors
 //     arrive as *Hex strings applied to style properties only.
 //   • ONE delegated [data-action] click handler.
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
-
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 
 // The objective id this page was opened for (?id=N). Carried into Watch VOD so
 // the VOD viewer can scope to just this objective (objectiveId query param).
@@ -48,21 +25,13 @@ function objectiveId() {
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchObjectiveGames() {
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
-  // bundled sample only when invoke is genuinely unavailable (browser preview).
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_objective_games', { id: objectiveId() });
-  }
-  const res = await fetch('./sample-objective-games.json');
-  if (!res.ok) throw new Error(`sample-objective-games.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_objective_games', 'sample-objective-games.json', { id: objectiveId() });
 }
 
 // ── render: header ────────────────────────────────────────────────────────
 function renderHeader(d) {
   $('obj-title').textContent = d.objectiveTitle || 'Objective';
-  $('obj-status').textContent = d.objectiveStatus || '';
+  $('obj-status').textContent = objectiveDisplayText(d.objectiveStatus);
   const counter = $('obj-counter');
   const hasCounter = !!d.hasGames && !!d.counterText;
   show(counter, hasCounter);

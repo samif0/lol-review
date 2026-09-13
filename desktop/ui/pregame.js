@@ -1,3 +1,7 @@
+import { $, show, clear } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke, getListen } from './platform/index.mjs';
+
 // Revu desktop — Pre-Game / In-Game live page renderer.
 //
 // ONE renderer drives BOTH pregame.html (the full champ-select "Lock In" surface)
@@ -8,13 +12,13 @@
 // present (missing host elements are simply skipped).
 //
 // Conventions mirror app.js / session.js:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
 //   • fetchPregame() tries invoke FIRST, then ./sample-pregame.json for a plain-
 //     browser preview.
 //   • Every server string is written via textContent (never innerHTML) — XSS-safe;
 //     colors arrive as *Hex strings applied to style properties only.
 //   • ONE delegated [data-action] click handler.
-//   • LIVE updates arrive over Tauri events ("lcu-event"): the sidecar streams the
+//   • LIVE updates arrive over Electron events ("lcu-event"): the sidecar streams the
 //     LCU messages (champ-select start/update/cancel, game in-progress, game end)
 //     and we react — refresh the live matchup, auto-navigate on gameInProgress,
 //     surface a saved/closed banner on gameEnded.
@@ -25,38 +29,11 @@
 // the WinUI statics → ShellViewModel hop). The prompt answer boxes DO persist on
 // every keystroke (save_pregame_draft → pre_game_draft_prompts), promoted at EOG.
 
-// ── invoke resolver ──────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') { _invoke = mod.invoke; return _invoke; }
-  } catch (_) { /* not resolvable outside the Tauri bundler — fall through */ }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
+// Electron event listener (for the LCU SSE stream re-emitted by the Electron host).
 
-// Tauri event listener (for the LCU SSE stream re-emitted by the Rust host).
-async function getListen() {
-  try {
-    const mod = await import('@tauri-apps/api/event');
-    if (mod && typeof mod.listen === 'function') return mod.listen;
-  } catch (_) { /* fall through */ }
-  if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
-    return window.__TAURI__.event.listen.bind(window.__TAURI__.event);
-  }
-  return null;
-}
 
 // ── small DOM helpers ─────────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
 function setText(id, text) { const el = $(id); if (el) el.textContent = text ?? ''; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
 function tpl(id) { const t = $(id); return t ? t.content.firstElementChild.cloneNode(true) : null; }
 
 // Which surface are we on? shell.js stamps data-page on its <script>.
@@ -71,18 +48,12 @@ const _draftTimers = new Map(); // promptId -> debounce timer
 
 // ── data fetch ────────────────────────────────────────────────────────────────
 async function fetchPregame() {
-  const invoke = await getInvoke();
-  if (invoke) {
-    const args = {};
-    if (_live.myChampion) args.myChampion = _live.myChampion;
-    if (_live.enemyChampion) args.enemy = _live.enemyChampion;
-    if (_live.myPosition) args.role = _live.myPosition;
-    if (_live.participantMapJson) args.participantMap = _live.participantMapJson;
-    return invoke('get_pregame', args);
-  }
-  const res = await fetch('./sample-pregame.json');
-  if (!res.ok) throw new Error(`sample-pregame.json ${res.status}`);
-  return res.json();
+  const args = {};
+  if (_live.myChampion) args.myChampion = _live.myChampion;
+  if (_live.enemyChampion) args.enemy = _live.enemyChampion;
+  if (_live.myPosition) args.role = _live.myPosition;
+  if (_live.participantMapJson) args.participantMap = _live.participantMapJson;
+  return readSnapshot('get_pregame', 'sample-pregame.json', args);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -540,7 +511,7 @@ function setBanner(text, kind) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// LCU LIVE CHANNEL — react to the SSE events the Rust host re-emits.
+// LCU LIVE CHANNEL — react to the SSE events the Electron host re-emits.
 // ════════════════════════════════════════════════════════════════════════════
 async function wireLiveChannel() {
   const listen = await getListen();
@@ -552,7 +523,7 @@ async function wireLiveChannel() {
     handleLcuEvent(msg.type, msg.payload || {});
   });
 
-  // Ask the Rust host to open (or join) the SSE stream.
+  // Ask the Electron host to open (or join) the SSE stream.
   try { await invoke('start_lcu_events'); }
   catch (err) { console.error('[pregame] start_lcu_events failed:', err); }
 }

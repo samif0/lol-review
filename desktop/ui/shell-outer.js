@@ -1,8 +1,14 @@
+import { getInvoke, getListen, getWindow } from './platform/index.mjs';
+import { createMatchViewStore } from './match-navigation.mjs';
+
+// Own the snapshot store in the persistent shell's realm, so its methods never
+// retain a discarded content window. Entries contain cloned plain data only.
+window.__revuMatchViewsV1 = createMatchViewStore();
+
 // Persistent app-shell controller (index.html). Owns the ONE nav rail (static
 // markup that never reloads) and the content <iframe>. Nav clicks reload ONLY the
 // iframe, so the rail can never move on navigation. This module also runs the two
-// app-wide concerns that used to live per-page in shell.js — the sidebar-animation
-// gate and the LCU live auto-show — ONCE here, retargeting auto-show at the iframe.
+// app-wide live-state concerns ONCE here, retargeting auto-show at the iframe.
 //
 // Content pages still ship their own static rail + shell.js as a standalone
 // fallback, but framed.js hides that rail inside the iframe (html.framed), and
@@ -10,15 +16,10 @@
 
 const frame = document.getElementById('app-frame');
 const nav = document.querySelector('.nav');
-
-async function getShellInvoke() {
-  try {
-    const core = await import('@tauri-apps/api/core');
-    if (core && typeof core.invoke === 'function') return core.invoke;
-  } catch (_) { /* fall through */ }
-  if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-  return null;
-}
+const pageLabels = { dashboard: 'Home', games: 'Match library', objectives: 'Learning objectives',
+  patterns: 'Patterns', matchups: 'Matchup notes', tiltcheck: 'Mental check', rules: 'Rules',
+  settings: 'Settings', onboarding: 'Account', review: 'Match review', vodplayer: 'Recording',
+  pregame: 'Before the match', ingame: 'Current match', manualentry: 'Add a match' };
 
 // Map an iframe URL → the nav item id to light up. Pages share data-page with the
 // rail's data-nav; the three objective sub-pages map to 'objectives'; manual entry
@@ -28,15 +29,21 @@ function fileToNav(pathname) {
   const file = (pathname || '').split('/').pop().toLowerCase() || 'dashboard.html';
   if (file === '' || file === 'index.html' || file === 'dashboard.html') return 'dashboard';
   if (file.startsWith('objective')) return 'objectives'; // objectives / objectivegames / objectivenotes
-  if (file === 'manualentry.html') return 'games'; // reached from Games; keep Games active
+  if (['manualentry.html', 'review.html', 'vodplayer.html'].includes(file)) return 'games';
+  if (['pregame.html', 'ingame.html'].includes(file)) return 'dashboard';
   return file.replace(/\.html$/, ''); // games.html → games, etc.
 }
 
 function markActive(navId) {
   if (!nav) return;
   nav.querySelectorAll('.nav-i').forEach((a) => {
-    a.classList.toggle('active', a.dataset.nav === navId);
+    const active = a.dataset.nav === navId;
+    a.classList.toggle('active', active);
+    if (active) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
   });
+  const context = document.getElementById('appbar-context');
+  if (context) context.textContent = pageLabels[navId] || 'Revu';
 }
 
 // Navigate the iframe (NOT the top document). Accepts a bare file or file?query.
@@ -74,7 +81,14 @@ nav?.addEventListener('click', (ev) => {
 // Covers in-page navigations (a page doing location.href=... inside the iframe,
 // e.g. open_review → review.html) so the rail reflects wherever the iframe landed.
 frame?.addEventListener('load', () => {
-  try { markActive(fileToNav(frame.contentWindow.location.pathname)); }
+  try {
+    const pathname = frame.contentWindow.location.pathname;
+    markActive(fileToNav(pathname));
+    const page = pathname.split('/').pop().replace(/\.html$/, '');
+    const context = document.getElementById('appbar-context');
+    if (context && pageLabels[page]) context.textContent = pageLabels[page];
+    frame.title = pageLabels[page] || pageLabels[fileToNav(pathname)] || 'Revu';
+  }
   catch (_) { /* cross-origin (shouldn't happen in-app) — leave as-is */ }
 });
 
@@ -89,28 +103,11 @@ function openFromHash() {
 window.addEventListener('hashchange', openFromHash);
 if ((location.hash || '').length > 1) openFromHash();
 
-// ── Sidebar energy-trail gate (mirrors SidebarEnergyDrainAnimator.Enabled) ────
-async function applySidebarAnimGate() {
-  const invoke = await getShellInvoke();
-  if (!invoke) return; // browser preview — leave trails on
-  try {
-    const cfg = await invoke('get_config');
-    if (cfg && cfg.sidebarAnimationEnabled === false) document.body.setAttribute('data-sidebar-anim', 'off');
-    else document.body.removeAttribute('data-sidebar-anim');
-  } catch (_) { /* sidecar not ready — leave trails on (default) */ }
-}
-applySidebarAnimGate();
-
 // ── Title-bar version ─────────────────────────────────────────────────────────
 // Populate the branded strip's version (REVU <version>) from the app package info.
-// Best-effort: in browser preview (no Tauri) the version chip just stays blank.
+// Best-effort: in browser preview (no Electron) the version chip just stays blank.
 async function fillAppVersion() {
-  let invoke = null;
-  try {
-    const core = await import('@tauri-apps/api/core');
-    if (core && typeof core.invoke === 'function') invoke = core.invoke;
-  } catch (_) { /* fall through */ }
-  if (!invoke && window.__TAURI__?.core?.invoke) invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+  const invoke = await getInvoke();
   const el = document.getElementById('appbar-ver');
   if (!invoke || !el) return;
   try { const v = await invoke('app_version'); if (v) el.textContent = String(v); } catch (_) { /* leave blank */ }
@@ -122,14 +119,7 @@ fillAppVersion();
 // The button downloads + applies (the app relaunches into the new version). The
 // check is best-effort: a dev run / offline / failed check just leaves it hidden.
 // Settings drives its own manual check via the same commands (settings.js).
-async function shellInvoke() {
-  try {
-    const core = await import('@tauri-apps/api/core');
-    if (core && typeof core.invoke === 'function') return core.invoke;
-  } catch (_) { /* fall through */ }
-  if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-  return null;
-}
+
 
 let _updateAvailable = false;
 function showUpdateBanner(version) {
@@ -149,7 +139,7 @@ function hideUpdateBanner() {
 }
 
 async function runUpdateAndRestart() {
-  const invoke = await shellInvoke();
+  const invoke = await getInvoke();
   if (!invoke) return;
   const btn = document.getElementById('updbar-btn');
   const txt = document.getElementById('updbar-txt');
@@ -173,7 +163,7 @@ async function runUpdateAndRestart() {
 }
 
 async function checkForUpdateOnLaunch() {
-  const invoke = await shellInvoke();
+  const invoke = await getInvoke();
   if (!invoke) return; // preview / no backend
   try {
     const r = await invoke('check_update');
@@ -200,21 +190,17 @@ function setLcuIndicator(connected) {
   if (!el) return;
   el.classList.toggle('on', !!connected);
   el.title = connected ? 'League Client: connected' : 'League Client: not connected';
+  const text = el.querySelector('.appbar-lcu-txt');
+  if (text) text.textContent = connected ? 'League connected' : 'League offline';
 }
 
 // ── Custom window controls (frameless title bar) ─────────────────────────────
 // The window is decorations:false, so the appbar's min/max/close buttons drive the
-// native window via the Tauri window API. withGlobalTauri exposes window.__TAURI__.
+// native window through the shared platform API.
 // In browser preview these are absent → the buttons no-op silently.
 async function wireWindowControls() {
-  let getWin = null;
-  try {
-    const w = await import('@tauri-apps/api/window');
-    if (w && typeof w.getCurrentWindow === 'function') getWin = w.getCurrentWindow;
-  } catch (_) { /* fall through */ }
-  if (!getWin && window.__TAURI__?.window?.getCurrentWindow) getWin = window.__TAURI__.window.getCurrentWindow;
-  if (!getWin) return; // preview — no window API
-  const win = getWin();
+  const win = await getWindow();
+  if (!win) return; // browser preview
   const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener('click', () => { fn().catch(() => {}); }); };
   on('win-min', () => win.minimize());
   on('win-max', () => win.toggleMaximize());
@@ -262,21 +248,14 @@ function hardStopCountText(s) {
   return `Unlocks in ${span} · at ${at}`;
 }
 
-async function getShellWindow() {
-  try {
-    const w = await import('@tauri-apps/api/window');
-    if (w && typeof w.getCurrentWindow === 'function') return w.getCurrentWindow();
-  } catch (_) { /* fall through */ }
-  if (window.__TAURI__?.window?.getCurrentWindow) return window.__TAURI__.window.getCurrentWindow();
-  return null;
-}
+
 
 // A fresh enforcement is the one moment the app is allowed to take the screen:
 // the player is looking at the League client, which just dropped them out of
 // queue with no explanation. Bring Revu forward so the reason is in view.
 async function bringShellForward() {
   try {
-    const win = await getShellWindow();
+    const win = await getWindow();
     if (!win) return;
     try { await win.unminimize(); } catch (_) { /* not minimized */ }
     try { await win.show(); } catch (_) { /* already shown */ }
@@ -385,7 +364,7 @@ async function overrideHardStop() {
   if (!s) { clearHardStop(); return; }
   const btn = hsEl('hardstop-override');
   if (btn && btn.disabled) return; // hold not over
-  const invoke = await getShellInvoke();
+  const invoke = await getInvoke();
   if (!invoke) { clearHardStop(); return; } // preview
   if (btn) btn.disabled = true;
   try {
@@ -412,26 +391,17 @@ function wireHardStop() {
 wireHardStop();
 
 async function wireLiveAutoShow() {
-  let invoke = null;
-  try {
-    const core = await import('@tauri-apps/api/core');
-    if (core && typeof core.invoke === 'function') invoke = core.invoke;
-  } catch (_) { /* fall through */ }
-  if (!invoke && window.__TAURI__?.core?.invoke) invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+  const invoke = await getInvoke();
 
-  let listen = null;
-  try {
-    const evm = await import('@tauri-apps/api/event');
-    if (evm && typeof evm.listen === 'function') listen = evm.listen;
-  } catch (_) { /* fall through */ }
-  if (!listen && window.__TAURI__?.event?.listen) listen = window.__TAURI__.event.listen.bind(window.__TAURI__.event);
+  const listen = await getListen();
 
   if (!invoke || !listen) return;
 
   const goto = (file) => { if (!frameHas(file)) frameGoto(file); };
   const leaveLiveSurface = () => { if (frameHas('pregame.html') || frameHas('ingame.html')) frameGoto('dashboard.html'); };
   const handleTutorialGameEnded = async (payload) => {
-    if (!payload || !payload.saved || !(Number(payload.gameId) > 0)) return false;
+    const gameId = Number(payload?.gameId);
+    if (!payload?.saved || !Number.isSafeInteger(gameId) || gameId <= 0) return false;
     try {
       const cfg = await invoke('get_config');
       const activeTutorial = cfg
@@ -442,16 +412,16 @@ async function wireLiveAutoShow() {
       await invoke('save_config', {
         payload: {
           firstReviewTutorialStep: 'wait_vod',
-          firstReviewTutorialGameId: Number(payload.gameId),
+          firstReviewTutorialGameId: gameId,
         },
       });
-      // Same active-work guard the ordinary auto-shows obey (P-035): the
-      // tutorial handoff must not reload the iframe over a half-typed form
-      // either. The config step above still ran, so the tutorial resumes at
-      // wait_vod on the user's own next navigation.
-      if (onActiveWorkPage() || inActiveEdit()) return true;
-      frameGoto(`vodplayer.html?gameId=${encodeURIComponent(payload.gameId)}`);
-      return true;
+      // Optional help updates in place. It never takes over navigation or
+      // reloads an editor; the ordinary live-surface exit remains in charge.
+      try {
+        const guide = frame?.contentWindow?.RevuFirstReviewTutorial;
+        if (typeof guide?.render === 'function') void Promise.resolve(guide.render()).catch(() => {});
+      } catch (_) { /* A navigation in progress will load the saved step itself. */ }
+      return false;
     } catch (err) {
       console.warn('[shell] first review tutorial game-ended handoff failed:', err);
       return false;
@@ -500,6 +470,14 @@ async function wireLiveAutoShow() {
         });
         break;
       case 'champSelectCancelled': leaveLiveSurface(); break;
+      case 'vodLinked':
+        // Recording discovery never navigates or reloads a working page.
+        try {
+          if ((frameHas('vodplayer.html') || frameHas('review.html') || frameHas('games.html')) && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:vod-linked', { detail: p }));
+          }
+        } catch (_) { /* a fresh navigation reads the current link itself */ }
+        break;
       case 'mapStateUpdated':
         // Post-game map-state pass finished (jungle proximity + fog deaths written).
         // If the framed page is the VOD player it may be SHOWING that game already —

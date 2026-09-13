@@ -13,38 +13,47 @@
        rail (static markup, painted once for the app's whole life) and an <iframe>
        that hosts the actual pages. Nav clicks reload ONLY the iframe, so the rail
        cannot move/flicker on navigation — the rail is not part of any reloading
-       document. The aurora/grain backdrop also lives here (once), behind the frame. -->
-  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
-  <div class="grain"></div>
+       document. The sidebar remains fixed while the content changes. -->
 
-  <nav class="nav nav-ready">
-    <a class="nav-i active" data-nav="dashboard" href="dashboard.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
-    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
-    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
-    <a class="nav-i" data-nav="matchups" href="matchups.html" aria-label="Matchups"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 5h4M5 5v4M19 5h-4M19 5v4M5 19h4M5 19v-4M19 19h-4M19 19v-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Matchups</span></a>
-    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
-    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt Check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt Check</span></a>
-    <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
-    <div class="nav-spacer"></div>
-    <a class="nav-i" data-nav="onboarding" href="onboarding.html?signin=1" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
-    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+  <nav class="nav nav-ready" aria-label="Main navigation" data-grouped="true">
+    <div class="nav-group">
+      <div class="nav-group-title">Daily review</div>
+      <a class="nav-i active" aria-current="page" data-nav="dashboard" href="dashboard.html" aria-label="Home"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Home</span></a>
+      <a class="nav-i" data-nav="games" href="games.html" aria-label="Match library"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Match library</span></a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Improve</div>
+      <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Learning objectives"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Learning objectives</span></a>
+      <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
+      <a class="nav-i" data-nav="matchups" href="matchups.html" aria-label="Matchup notes"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 5h4M5 5v4M19 5h-4M19 5v4M5 19h4M5 19v-4M19 19h-4M19 19v-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Matchup notes</span></a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Session</div>
+      <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Mental check"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Mental check</span></a>
+      <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
+    </div>
+    <div class="nav-footer">
+      <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
+      <a class="nav-i" data-nav="onboarding" href="onboarding.html?signin=1" aria-label="Account"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Account</span></a>
+    </div>
   </nav>
 
   <!-- Custom title bar (the window is frameless: decorations:false). This branded
        bar IS the title bar — REVU + version on the left, custom window controls on
-       the right, draggable middle (data-tauri-drag-region). Mirrors old Revu (one
+       the right, draggable middle (data-window-drag). Mirrors old Revu (one
        branded bar, no separate OS strip). Lives in the persistent shell. -->
-  <header class="appbar" id="appbar" data-tauri-drag-region>
-    <span class="appbar-brand">REVU</span>
+  <header class="appbar" id="appbar" data-window-drag>
+    <span class="appbar-brand">Revu</span>
     <span class="appbar-ver" id="appbar-ver"></span>
     <!-- LCU (League Client) connection indicator. Dot + label; lights green when the
          client is connected. Driven by shell-outer.js off the SSE liveState +
          lcuConnection events. Starts in the disconnected (dim) state. -->
     <span class="appbar-lcu" id="appbar-lcu" title="League Client: not connected">
       <span class="appbar-lcu-dot"></span>
-      <span class="appbar-lcu-txt">LCU</span>
+      <span class="appbar-lcu-txt">League offline</span>
     </span>
-    <span class="appbar-spring" data-tauri-drag-region></span>
+    <span class="appbar-context" id="appbar-context">Home</span>
+    <span class="appbar-spring" data-window-drag></span>
     <div class="appbar-controls">
       <button class="winbtn" id="win-min" type="button" aria-label="Minimize" title="Minimize">
         <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>
@@ -87,7 +96,7 @@
         <span class="hardstop-reason" id="hardstop-reason"></span>
       </div>
       <div class="hardstop-plan" id="hardstop-plan" hidden>
-        <div class="hardstop-plan-k">YOUR PLAN INSTEAD</div>
+        <div class="hardstop-plan-k">Your plan instead</div>
         <div class="hardstop-plan-t" id="hardstop-plan-t"></div>
       </div>
       <div class="hardstop-count" id="hardstop-count" hidden></div>

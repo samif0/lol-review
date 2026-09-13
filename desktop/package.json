@@ -1,19 +1,56 @@
 {
-  "name": "desktop",
-  "version": "1.0.0",
-  "description": "",
-  "main": "app.js",
+  "name": "revu-desktop",
+  "productName": "Revu",
+  "version": "3.11.0",
+  "private": true,
+  "type": "module",
+  "description": "Revu desktop app powered by Overwolf Electron and the local C# sidecar",
+  "main": "electron/main.mjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "workspaces": [
+    "overwolf-probes"
+  ],
+  "overwolf": {
+    "packages": []
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "tauri": "tauri"
+    "start": "node scripts/start.mjs",
+    "start:isolated": "node scripts/start.mjs --isolated",
+    "start:recorder": "node scripts/start-recorder.mjs",
+    "setup": "npm run runtime:install && npm run build:sidecar",
+    "runtime:install": "node runtime/overwolf.mjs install",
+    "runtime:check": "node runtime/overwolf.mjs inspect",
+    "build:sidecar": "dotnet build ../src/Revu.Sidecar/Revu.Sidecar.csproj -c Release -p:Platform=x64 --artifacts-path ../artifacts/desktop-build",
+    "test": "node --test tests/*.test.mjs electron/test/*.test.mjs runtime/test/*.test.mjs",
+    "test:platform": "node --test tests/*.test.mjs",
+    "test:probes": "npm test --workspace overwolf-probes",
+    "check:probes": "npm run check --workspace overwolf-probes",
+    "readiness": "npm run readiness --workspace overwolf-probes",
+    "probe:gep": "npm run probe:gep --workspace overwolf-probes --",
+    "probe:recorder": "npm run probe:recorder --workspace overwolf-probes --",
+    "package:dir": "node scripts/package.mjs"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
-    "@tauri-apps/api": "^2.11.0",
-    "@tauri-apps/cli": "^2.11.2",
-    "vite": "^5.4.21"
+    "@electron/asar": "3.4.1",
+    "@overwolf/ow-electron": "42.7.1",
+    "@overwolf/ow-electron-builder": "26.9.3",
+    "@overwolf/ow-electron-packages-types": "1.1.11",
+    "@types/node": "22.19.15",
+    "rcedit": "5.0.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vite": "8.3.0"
+  },
+  "overrides": {
+    "esbuild": "0.28.2",
+    "builder-util-runtime": "9.7.0",
+    "@overwolf/builder-util-runtime": "npm:builder-util-runtime@9.7.0"
   }
 }

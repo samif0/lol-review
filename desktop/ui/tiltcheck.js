@@ -1,8 +1,12 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke } from './platform/index.mjs';
+
 // Revu desktop — Tilt Check page renderer for the glass-aurora layout.
-// Renders the JSON returned by the Tauri command `get_tiltcheck`
+// Renders the JSON returned by the Electron command `get_tiltcheck`
 // (see Revu.Sidecar GET /api/tiltcheck). Mirrors app.js conventions exactly:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • Outside Tauri it fetches ./sample-tiltcheck.json so the page previews in a
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron it fetches ./sample-tiltcheck.json so the page previews in a
 //     plain browser.
 //   • Every server string is written via textContent (never innerHTML) so the
 //     surface stays XSS-free; colors arrive as *Hex strings applied to style
@@ -12,36 +16,7 @@
 //     intensityAfter?, reframeThought?, reframeResponse?, ifThenPlan?} and
 //     invoke('run_reset', {…}) → reloads the page so the new entry appears.
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
-
-const isTauri = () => typeof window.__TAURI__ !== 'undefined';
-
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 
 // ── Content pools (rotated each run to resist habituation) ───────────────────
 // Mirror TiltCheckViewModel's pools + per-run sample sizes. The label is shown;
@@ -61,7 +36,7 @@ const REAPPRAISAL_POOL = [
   'The past 30 minutes are sunk cost. Only the next game is in front of me.',
   'Losses are priced in. My rank over a month is what matters.',
   "If a friend told me about this game, I'd tell them to let it go.",
-  "I can be frustrated AND play well next game. They're not the same thing.",
+  "I can be frustrated and play well next game. They're not the same thing.",
   "What I notice about this loss now is not what I'll notice in a week.",
 ];
 const REAPPRAISAL_SHOWN = 4;
@@ -108,15 +83,7 @@ let _ritualOpen = false;
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchTiltcheck() {
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
-  // bundled sample only when invoke is genuinely unavailable (browser preview).
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_tiltcheck');
-  }
-  const res = await fetch('./sample-tiltcheck.json');
-  if (!res.ok) throw new Error(`sample-tiltcheck.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_tiltcheck', 'sample-tiltcheck.json');
 }
 
 // ── render: header status line ──────────────────────────────────────────────
@@ -145,10 +112,10 @@ function renderStrip(d) {
     : null;
 
   const cells = [
-    { k: 'Resets',     v: String(total),                                      sub: 'ALL-TIME',  flag: false },
-    { k: 'Avg Before', v: total ? fmt(s.avgBefore) : '—',                     sub: 'INTENSITY', flag: false },
-    { k: 'Avg After',  v: total ? fmt(s.avgAfter) : '—',                      sub: 'INTENSITY', flag: false },
-    { k: 'Avg Drop',   v: total ? fmt(s.avgReduction) : '—',                  sub: 'POINTS',    flag: true  },
+    { k: 'Resets',     v: String(total),                                      sub: 'All-time',  flag: false },
+    { k: 'Avg before', v: total ? fmt(s.avgBefore) : '—',                     sub: 'Intensity', flag: false },
+    { k: 'Avg after',  v: total ? fmt(s.avgAfter) : '—',                      sub: 'Intensity', flag: false },
+    { k: 'Avg drop',   v: total ? fmt(s.avgReduction) : '—',                  sub: 'Points',    flag: true  },
     { k: 'Top',        v: topEmotion ? cap(topEmotion.emotion) : '—',         sub: topEmotion ? `${topEmotion.count}×` : '', flag: false },
   ];
 
@@ -582,7 +549,7 @@ function openRitual() {
 
     const invoke = await getInvoke();
     if (!invoke) {
-      console.info('[tiltcheck] (preview) run_reset — no Tauri backend.', payload);
+      console.info('[tiltcheck] (preview) run_reset — no Electron backend.', payload);
       return true;
     }
     try {

@@ -1,9 +1,11 @@
+import { getInvoke, getListen } from './platform/index.mjs';
+
 // Shared app shell — highlights the active item on the left nav rail and handles
 // the LCU live auto-show. Each page includes this with
 // <script type="module" src="./shell.js" data-page="dashboard"></script>.
 //
 // Navigation is plain file routing (page = its own .html) which is robust under
-// Tauri's webview. The active page is highlighted from the script's data-page.
+// Electron's webview. The active page is highlighted from the script's data-page.
 //
 // The rail itself is AUTHORED AS STATIC HTML in every page (a <nav class="nav">
 // before .shell), INCLUDING the .active class on the current page's item, so the
@@ -25,14 +27,50 @@
 function markActive(active) {
   const nav = document.querySelector('.nav');
   if (!nav) return; // static rail should already be in the page markup
+  prepareNavigation(nav);
+  if (['review', 'vodplayer', 'manualentry'].includes(active)) active = 'games';
+  if (['pregame', 'ingame'].includes(active)) active = 'dashboard';
+  if (active.startsWith('objective')) active = 'objectives';
   nav.querySelectorAll('.nav-i').forEach((a) => {
-    a.classList.toggle('active', a.dataset.nav === active);
+    const current = a.dataset.nav === active;
+    a.classList.toggle('active', current);
+    if (current) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
   });
   // .nav-ready is authored into the static markup and stays on for the page's life
   // (the rail is never re-created), so the energy-trail animation + nav-i
   // transitions are live from first paint. Re-assert it here defensively in case a
   // page ever ships the rail without the class.
   nav.classList.add('nav-ready');
+}
+
+function prepareNavigation(nav) {
+  if (nav.dataset.grouped) return;
+  nav.dataset.grouped = 'true';
+  nav.setAttribute('aria-label', 'Main navigation');
+  const links = new Map([...nav.querySelectorAll('[data-nav]')].map(link => [link.dataset.nav, link]));
+  const groups = [['Daily review', [['dashboard', 'Home'], ['games', 'Match library']]],
+    ['Improve', [['objectives', 'Learning objectives'], ['patterns', 'Patterns'], ['matchups', 'Matchup notes']]],
+    ['Session', [['tiltcheck', 'Mental check'], ['rules', 'Rules']]],
+    ['', [['settings', 'Settings'], ['onboarding', 'Account']]]];
+  const brand = document.createElement('div');
+  brand.className = 'nav-brand'; brand.textContent = 'Revu'; nav.prepend(brand);
+  nav.querySelector('.nav-spacer')?.remove();
+  for (const [title, items] of groups) {
+    const group = document.createElement('div'); group.className = title ? 'nav-group' : 'nav-footer';
+    if (title) {
+      const heading = document.createElement('div'); heading.className = 'nav-group-title'; heading.textContent = title;
+      group.append(heading);
+    }
+    for (const [id, label] of items) {
+      const link = links.get(id); if (!link) continue;
+      link.setAttribute('aria-label', label);
+      const text = link.querySelector('.tip'); if (text) text.textContent = label;
+      if (id === 'onboarding') link.setAttribute('href', 'onboarding.html?signin=1');
+      group.append(link);
+    }
+    nav.append(group);
+  }
 }
 
 // Resolve the active page from this script tag's data-page attribute.
@@ -55,37 +93,12 @@ if (!FRAMED) {
   }
 }
 
-// ── Sidebar energy-trail gate (mirrors SidebarEnergyDrainAnimator.Enabled) ────
-// The streaming energy trails on the rail (styles.css .nav::after) are gated by
-// the SidebarAnimationEnabled config flag, exactly like the WinUI animator. We
-// read the config once and stamp body[data-sidebar-anim]; CSS does the rest.
-// Default ON (no attribute) so the look is preserved if config can't be read.
-async function applySidebarAnimGate() {
-  let invoke = null;
-  try {
-    const core = await import('@tauri-apps/api/core');
-    if (core && typeof core.invoke === 'function') invoke = core.invoke;
-  } catch (_) { /* fall through */ }
-  if (!invoke && window.__TAURI__?.core?.invoke) invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-  if (!invoke) return; // browser preview — leave trails on
-  try {
-    const cfg = await invoke('get_config');
-    // Only flip OFF when explicitly disabled; treat missing/true as enabled.
-    if (cfg && cfg.sidebarAnimationEnabled === false) {
-      document.body.setAttribute('data-sidebar-anim', 'off');
-    } else {
-      document.body.removeAttribute('data-sidebar-anim');
-    }
-  } catch (_) { /* sidecar not ready — leave trails on (default) */ }
-}
-if (!FRAMED) applySidebarAnimGate(); // framed: the shell (index.html) owns this rail + its gate
-
 // ── LCU live auto-show (replaces ShellViewModel navigation) ───────────────────
 // Champ Select and In-Game are not nav items — they're surfaces the app brings up
 // automatically when the LCU stream reports a champ select or a live game, exactly
 // like the WinUI shell auto-navigated. We open (or join) the SSE stream on EVERY
 // page and route to pregame.html / ingame.html on the discrete transition events.
-// Best-effort: outside Tauri the invoke/listen resolvers return null → silent no-op.
+// Best-effort: outside Electron the invoke/listen resolvers return null → silent no-op.
 //
 // We only navigate on the TRANSITION events (champSelectStarted / gameInProgress),
 // never on the periodic liveState replay — so a user who manually leaves the live
@@ -93,19 +106,9 @@ if (!FRAMED) applySidebarAnimGate(); // framed: the shell (index.html) owns this
 // exception is a FRESH page load that joins mid-flow (handled below via a one-shot
 // guard on the first liveState).
 async function wireLiveAutoShow() {
-  let invoke = null;
-  try {
-    const core = await import('@tauri-apps/api/core');
-    if (core && typeof core.invoke === 'function') invoke = core.invoke;
-  } catch (_) { /* fall through */ }
-  if (!invoke && window.__TAURI__?.core?.invoke) invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+  const invoke = await getInvoke();
 
-  let listen = null;
-  try {
-    const ev = await import('@tauri-apps/api/event');
-    if (ev && typeof ev.listen === 'function') listen = ev.listen;
-  } catch (_) { /* fall through */ }
-  if (!listen && window.__TAURI__?.event?.listen) listen = window.__TAURI__.event.listen.bind(window.__TAURI__.event);
+  const listen = await getListen();
 
   if (!invoke || !listen) return;
 
@@ -141,6 +144,9 @@ async function wireLiveAutoShow() {
     const t = msg.type;
     const p = msg.payload || {};
     switch (t) {
+      case 'vodLinked':
+        window.dispatchEvent(new CustomEvent('revu:vod-linked', { detail: p }));
+        break;
       case 'champSelectStarted':
         liveGoto('pregame.html');
         break;

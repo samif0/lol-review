@@ -60,6 +60,8 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
     // v3.7: the hard stop (queue cancel while an enforced rule holds).
     private readonly HardStopEnforcer _hardStop;
     private readonly ILogger<SidecarGameFlowCoordinator> _logger;
+    private readonly SidecarBackgroundWork _backgroundWork;
+    private readonly RecordingRegistrationService? _recordingRegistrations;
 
     public SidecarGameFlowCoordinator(
         IMessenger messenger,
@@ -68,7 +70,9 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         GameMonitorService gameMonitor,
         WriteServices write,
         HardStopEnforcer hardStop,
-        ILogger<SidecarGameFlowCoordinator> logger)
+        ILogger<SidecarGameFlowCoordinator> logger,
+        SidecarBackgroundWork? backgroundWork = null,
+        RecordingRegistrationService? recordingRegistrations = null)
     {
         _messenger = messenger;
         _eventHub = eventHub;
@@ -77,6 +81,9 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         _write = write;
         _hardStop = hardStop;
         _logger = logger;
+        _recordingRegistrations = recordingRegistrations;
+        _backgroundWork = backgroundWork ?? new SidecarBackgroundWork(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SidecarBackgroundWork>.Instance);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -164,7 +171,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         // may call the LCU. The enforcer debounces + serializes itself, so the
         // per-tick re-sends while the phase holds are cheap when nothing trips.
         var phase = m.Phase;
-        _ = Task.Run(() => _hardStop.HandleQueueAsync(phase));
+        _backgroundWork.TryRun("queue hard stop", () => _hardStop.HandleQueueAsync(phase));
     }
 
     public void Receive(GameInProgressMessage m)
@@ -182,7 +189,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         // thread so a slow DB write never stalls the monitor's tick loop.
         var stats = m.Stats;
         var isRecovered = m.IsRecovered;
-        _ = Task.Run(() => PersistGameEndAsync(stats, isRecovered));
+        _backgroundWork.TryRun("game-end persistence", () => PersistGameEndAsync(stats, isRecovered));
     }
 
     private async Task PersistGameEndAsync(Revu.Core.Models.GameStats stats, bool isRecovered)
@@ -221,6 +228,8 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
 
             if (result.WasSaved && result.GameId is long gameId)
             {
+                if (_recordingRegistrations is not null)
+                    _backgroundWork.TryRun("post-game recording registration", () => _recordingRegistrations.ReconcileAsync(gameId));
                 // Promote champ-select draft prompt answers onto the real game row
                 // (idempotent upsert) — only for a non-recovered live flow that had
                 // a session key (mirror ShellViewModel.PromotePreGameDraftsAsync).
@@ -260,26 +269,24 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                     isRecovered,
                 });
 
-                // P-022: link THIS game's Ascent recording as soon as it's available,
-                // so the freshly-played game's VOD shows without a manual Settings scan.
-                // The recording often finalises ~15s after EOG (P-007), so retry a few
-                // times; TryLinkRecordingAsync is idempotent (returns true and no-ops if
-                // already linked) and bounded (matches only against recordings spanning
-                // the game window). Fully best-effort — a miss is healed by the startup
-                // auto-match on next launch. Fire-and-forget so it never delays the save.
-                stats.GameId = gameId; // the persisted id; the matcher keys off it
-                _ = Task.Run(() => TryLinkRecordingWithRetryAsync(stats));
-
                 // v3.2: derive the just-ended game's map-state (jungle proximity +
                 // fog deaths) automatically, so the timeline markers appear without
-                // a manual Settings backfill. Fire-and-forget like the VOD link.
-                _ = Task.Run(() => TryMapStateWithRetryAsync(gameId));
+                // a manual Settings backfill. Tracked background work.
+                _backgroundWork.TryRun("post-game map state", () => TryMapStateWithRetryAsync(gameId));
+
+                _backgroundWork.TryRun("post-game Ascent scan", () =>
+                    AscentRecordingScan.RunWithRetryAsync(_write.VodScan, _write.Config, _write.Vod,
+                        _backgroundWork, async () =>
+                        {
+                            await _write.BackupGuard.EnsureBackedUpAsync();
+                        }, linkedId => _eventHub.Publish("vodLinked", new { gameId = linkedId }), _logger, gameId,
+                        registrations: _recordingRegistrations));
 
                 // v3.10: heal the matchup (enemy laner + role→champion map) from
                 // Match-V5 when the LCU end-of-game payload left it blank, so the
                 // Review page and the Matchups journal show "you vs them" without
                 // the manual Settings backfill. Fire-and-forget like the others.
-                _ = Task.Run(() => TryMatchupWithRetryAsync(gameId));
+                _backgroundWork.TryRun("post-game matchup", () => TryMatchupWithRetryAsync(gameId));
             }
             else
             {
@@ -302,34 +309,6 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         }
     }
 
-    // P-022: try to link the just-ended game's Ascent recording, retrying to absorb
-    // encode-finalisation lag (the recording's last-write time often lands ~15s after
-    // EOG — P-007 — so an immediate attempt can miss the file). Attempts at roughly
-    // +0s / +90s / +5min; stops as soon as a link succeeds (or the game already has
-    // one — TryLinkRecordingAsync is idempotent). Best-effort: every failure is
-    // swallowed, and the startup auto-match catches anything still unlinked next launch.
-    private async Task TryLinkRecordingWithRetryAsync(Revu.Core.Models.GameStats game)
-    {
-        var delaysSeconds = new[] { 0, 90, 300 };
-        foreach (var delay in delaysSeconds)
-        {
-            if (delay > 0)
-                await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
-            try
-            {
-                if (await _write.VodScan.TryLinkRecordingAsync(game).ConfigureAwait(false))
-                {
-                    _logger.LogInformation("Auto-linked recording to game {GameId} after EOG", game.GameId);
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Post-game VOD link attempt failed for game {GameId} (will retry/heal)", game.GameId);
-            }
-        }
-    }
-
     // v3.2: run the map-state pass for the just-ended game. Riot's Match-V5 data
     // usually becomes fetchable ~1–2 minutes after EOG, so attempts at +90s / +5min
     // (the run is keyed on games.map_state_v, so a still-unavailable match simply
@@ -343,7 +322,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         var delaysSeconds = new[] { 90, 300 };
         foreach (var delay in delaysSeconds)
         {
-            await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(delay), _backgroundWork.Stopping).ConfigureAwait(false);
             try
             {
                 if (!_write.Config.HasValidRiotSession)
@@ -420,7 +399,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         var delaysSeconds = new[] { 90, 300 };
         foreach (var delay in delaysSeconds)
         {
-            await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(delay), _backgroundWork.Stopping).ConfigureAwait(false);
             try
             {
                 if (!_write.Config.HasValidRiotSession)

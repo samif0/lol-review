@@ -1,40 +1,19 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { getInvoke } from './platform/index.mjs';
+
 // Revu desktop — Manual Entry page renderer.
 // Hand-log a League game that wasn't auto-captured + a minimal review. Mirrors
 // ManualEntryDialogViewModel: loads the active post-game objectives (practiced
 // toggle + execution note per objective), validates a required champion name,
 // then POSTs the whole form via save_manual_game and navigates to the Games
 // page (where the logged game appears). Mirrors app.js conventions:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • Outside Tauri the objectives list falls back to sample-objectives-active.json
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron the objectives list falls back to sample-objectives-active.json
 //     (or empty) so the form previews standalone; save no-ops in preview.
 //   • Server strings written via textContent only (XSS-safe).
 //   • ONE delegated [data-action] click handler (save / cancel).
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
-
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) { return $(id).content.firstElementChild.cloneNode(true); }
 
 // ── module state ────────────────────────────────────────────────────────────
 let _objectives = []; // active post-game objectives → assessment rows
@@ -151,7 +130,7 @@ async function save(btn) {
 
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info('[manualentry] (preview) save_manual_game — no Tauri backend.', payload);
+    console.info('[manualentry] (preview) save_manual_game — no Electron backend.', payload);
     // In preview just bounce to Games like the real flow would (the logged game
     // shows up in Today / History there).
     window.location.href = 'games.html';

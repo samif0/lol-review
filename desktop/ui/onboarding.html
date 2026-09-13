@@ -7,6 +7,7 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./learning-pages.css">
 </head>
 <body>
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
@@ -41,8 +42,9 @@
     <div class="hero onb-hero">
       <div class="eyebrow">Welcome</div>
       <h1>Revu</h1>
-      <div class="onb-subt">RANKED LEAGUE, REVIEWED</div>
+      <div class="onb-subt">Build a better habit, one game at a time.</div>
     </div>
+    <p class="onb-step" id="onb-step" aria-live="polite" hidden></p>
 
     <!-- ── SIGNED IN ── shown when get_auth_status reports signedIn=true (returning
          to this page after logging in). Confirms the session + offers sign-out.
@@ -56,7 +58,7 @@
           <div class="onb-acct-p" id="onb-acct-sub">Your account is linked.</div>
         </div>
       </div>
-      <button class="cta onb-cta" id="signedin-continue" data-action="go_dashboard" type="button">GO TO DASHBOARD →</button>
+      <button class="cta onb-cta" id="signedin-continue" data-action="go_dashboard" type="button">Go to Home</button>
       <button class="onb-link" id="signedin-logout" data-action="sign_out" type="button">Sign out</button>
     </section>
 
@@ -64,35 +66,35 @@
     <section class="card onb-card onb-card-blue" id="card-welcome" data-state="welcome" hidden>
       <div class="seclabel onb-sectitle">Get started</div>
       <p class="onb-body">
-        Revu turns every ranked game into data you can actually learn from:
-        captured in the background, reviewed in a minute, tied to the habits
-        you're working on.
+        Choose a skill to practice, then use your games to see what is improving.
+        You can start without an account.
       </p>
       <div class="onb-how">
         <div class="onb-how-row">
           <span class="onb-how-dot"></span>
           <div>
-            <div class="onb-how-h">Background capture</div>
-            <div class="onb-how-p">Your games and VODs are logged automatically while you play.</div>
+            <div class="onb-how-h">1. Pick one focus</div>
+            <div class="onb-how-p">Set a skill or habit you want to practice.</div>
           </div>
         </div>
         <div class="onb-how-row">
           <span class="onb-how-dot"></span>
           <div>
-            <div class="onb-how-h">Quick review</div>
-            <div class="onb-how-p">A 60-second post-game ritual that builds real self-awareness.</div>
+            <div class="onb-how-h">2. Play with Revu open</div>
+            <div class="onb-how-p">Completed Ranked Solo/Duo games appear in your review list.</div>
           </div>
         </div>
         <div class="onb-how-row">
           <span class="onb-how-dot"></span>
           <div>
-            <div class="onb-how-h">Objectives + Rules</div>
-            <div class="onb-how-p">Set what to practice and the guardrails that keep you disciplined.</div>
+            <div class="onb-how-h">3. Keep one takeaway</div>
+            <div class="onb-how-p">Write what to repeat or change in your next game.</div>
           </div>
         </div>
       </div>
-      <button class="cta onb-cta" id="welcome-start" data-action="start_using" type="button">START USING REVU</button>
-      <button class="onb-link" id="welcome-login" data-action="begin_login" type="button">Log in or sign up with email (optional)</button>
+      <button class="cta onb-cta" id="welcome-start" data-action="start_using" type="button">Get started</button>
+      <button class="onb-link" id="welcome-login" data-action="begin_login" type="button">Sign in with email instead</button>
+      <p class="field-help">Game recording is optional. You can check its availability and enable it in Settings.</p>
     </section>
 
     <!-- ── EMAIL ENTRY (login path) ── -->
@@ -104,8 +106,8 @@
         <input class="obj-input onb-input-mono" id="f-email" type="email" inputmode="email"
                autocomplete="email" placeholder="you@example.com" maxlength="160" spellcheck="false">
       </label>
-      <button class="cta onb-cta" id="email-send" data-action="send_code" type="button">EMAIL ME A CODE</button>
-      <button class="onb-link" id="email-back" data-action="back_to_welcome" type="button">← Back</button>
+      <button class="cta onb-cta" id="email-send" data-action="send_code" type="button">Send sign-in code</button>
+      <button class="onb-link" id="email-back" data-action="back_to_welcome" type="button"><span aria-hidden="true">←</span><span>Back</span></button>
     </section>
 
     <!-- ── CODE SENT (login path) ── -->
@@ -118,7 +120,7 @@
                autocomplete="one-time-code" placeholder="8-character code from email"
                maxlength="16" spellcheck="false">
       </label>
-      <button class="cta onb-cta" id="code-verify" data-action="verify_code" type="button">VERIFY</button>
+      <button class="cta onb-cta" id="code-verify" data-action="verify_code" type="button">Verify code</button>
       <button class="onb-link" id="code-back" data-action="back_to_email" type="button">Wrong email? Go back</button>
     </section>
 
@@ -152,13 +154,13 @@
           <option value="vn2">VN</option>
         </select>
       </label>
-      <button class="cta onb-cta" id="account-continue" data-action="finish_account" type="button">CONTINUE</button>
+      <button class="cta onb-cta" id="account-continue" data-action="finish_account" type="button">Link Riot ID</button>
     </section>
 
     <!-- ── ROLE (both paths; last screen before done) ── -->
     <section class="card onb-card onb-card-violet" id="card-role" data-state="role" hidden>
       <div class="seclabel onb-sectitle">Your main role</div>
-      <p class="onb-body">Pick the role you play most. Actual role per game is detected from the client when you queue.</p>
+      <p class="onb-body">Choose the role you play most. You can change this in Settings.</p>
       <div class="onb-roles" id="onb-roles">
         <button class="onb-role" data-action="select_role" data-role="TOP" type="button">TOP</button>
         <button class="onb-role" data-action="select_role" data-role="JUNGLE" type="button">JUNGLE</button>
@@ -167,12 +169,12 @@
         <button class="onb-role" data-action="select_role" data-role="UTILITY" type="button">SUPPORT</button>
       </div>
       <div class="onb-rank" id="onb-rank" hidden></div>
-      <button class="cta onb-cta" id="role-continue" data-action="finish_role" type="button">CONTINUE</button>
+      <button class="cta onb-cta" id="role-continue" data-action="finish_role" type="button">Finish setup</button>
     </section>
 
     <!-- Shared footer: inline error + busy spinner -->
     <div class="onb-foot">
-      <div class="onb-error" id="onb-error" hidden></div>
+      <div class="onb-error" id="onb-error" role="alert" hidden></div>
       <div class="onb-spin" id="onb-spin" hidden aria-label="Working" role="status"></div>
     </div>
   </div>

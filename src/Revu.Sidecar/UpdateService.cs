@@ -13,9 +13,8 @@ namespace Revu.Sidecar;
 /// the GitHub feed and staging its package locally.
 ///
 /// The APPLY/restart step is NOT here: ApplyUpdatesAndRestart must run as the
-/// installed main exe (revu-desktop.exe), which is the Rust/Tauri host, not this
-/// sidecar. The host drives apply via the bundled Update.exe (see sidecar.rs /
-/// lib.rs apply_update). This service only tells the UI "an update exists" and
+/// installed desktop main process, not this sidecar. The host drives apply via
+/// the bundled Update.exe. This service only tells the UI "an update exists" and
 /// "it's downloaded, here's the package path".
 /// </summary>
 public sealed class UpdateService
@@ -138,7 +137,7 @@ public sealed class UpdateService
 
     /// <summary>
     /// Download (stage) the last-discovered update. Returns the local package path so
-    /// the Rust host can hand it to Update.exe apply. Re-checks if no update is cached
+    /// the desktop main process can hand it to Update.exe apply. Re-checks if no update is cached
     /// (e.g. the UI called download without a prior check this session).
     /// </summary>
     public async Task<UpdateDownloadResult> DownloadAsync()
@@ -160,7 +159,7 @@ public sealed class UpdateService
 
             // Velopack stages the package into the install's packages dir. We don't
             // resolve its path here: `Update.exe apply` with no -p applies the LATEST
-            // staged package, which is exactly the one we just downloaded. The Rust
+            // staged package, which is exactly the one we just downloaded. The desktop
             // host calls that, so PackagePath stays null by design.
             _logger.LogInformation("Update v{Version} downloaded + staged.", update.TargetFullRelease.Version);
             return new UpdateDownloadResult(

@@ -31,7 +31,7 @@ public sealed class PatternEvidenceMaterializerTests
     }
 
     private static GameEvent Ev(long gameId, string type, int timeS, string details = "{}") =>
-        new() { GameId = gameId, EventType = type, GameTimeS = timeS, Details = details };
+        new() { GameId = gameId, EventType = type, GameTimeS = timeS, Details = ConfirmedEventFixture.Supported(details) };
 
     private static async Task<long?> ReadStampAsync(TestDatabaseScope scope, long gameId)
     {
@@ -116,6 +116,7 @@ public sealed class PatternEvidenceMaterializerTests
             Ev(gameId, GameEvent.EventTypes.Kill, 930),
             // A lone kill far away: no cluster, no anchor.
             Ev(gameId, GameEvent.EventTypes.Kill, 2000),
+            Ev(gameId, "TEAMFIGHT", 900, "{\"start_s\":900,\"end_s\":930,\"self\":\"in\"}"),
         });
 
         await materializer.MaterializeForGameAsync(gameId);

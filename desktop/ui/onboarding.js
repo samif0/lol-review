@@ -1,3 +1,6 @@
+import { $, show } from './dom.mjs';
+import { getInvoke } from './platform/index.mjs';
+
 // Revu desktop — first-launch ONBOARDING wizard.
 //
 // A single-page state machine that mirrors OnboardingViewModel exactly. Six
@@ -17,35 +20,13 @@
 // token, exactly like the VM's ClearPartialSessionAsync.
 //
 // House conventions (mirrors app.js / manualentry.js):
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.core.
-//   • Outside Tauri the wizard runs client-side only (auth/config calls no-op in
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron the wizard runs client-side only (auth/config calls no-op in
 //     preview) so the flow is browsable standalone.
 //   • All server/user strings written via textContent only (XSS-safe).
 //   • ONE delegated [data-action] click handler.
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
-
-// ── auth command names (owned by the parallel auth agent) ────────────────────
-// CENTRALIZED so reconciliation is one place if the auth agent renames anything.
-// Names verified against desktop/src-tauri/src/lib.rs (Batch-4 auth commands):
+// ── auth commands (contracts in ui/platform/commands.mjs) ─────────────────────
 //   login        → auth_login        POST /api/auth/login    { email }            (send OTP)
 //   verify       → auth_verify       POST /api/auth/verify   { code, email? }     (exchange
 //                  code; persists RiotSessionToken/Email/ExpiresAt) → { ok, email }
@@ -69,8 +50,6 @@ const AUTH_CMD = {
 };
 
 // ── DOM helpers ──────────────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
 
 // The state cards, keyed by state name (matches each section's data-state).
 // 'signedIn' is the returning-user confirmation card (added so the page reflects an
@@ -97,7 +76,7 @@ const vm = {
 };
 
 // ── error message normalization ──────────────────────────────────────────────
-// The Tauri/sidecar proxy surfaces a non-2xx write as a string like
+// The Electron/sidecar proxy surfaces a non-2xx write with a message like
 // "sidecar HTTP 400 Bad Request: <friendly>". The friendly half is the
 // RiotAuthClient.ThrowIfNotOkAsync message we want to show the user. Strip the
 // proxy prefix so the player sees the real reason, not transport noise.
@@ -120,6 +99,12 @@ function render() {
     const card = document.querySelector(`[data-state="${s}"]`);
     if (card) show(card, s === vm.state && s !== 'done');
   }
+  const step = $('onb-step');
+  const stepNumber = ['emailEntry', 'codeSent', 'account', 'role'].indexOf(vm.state) + 1;
+  if (step) {
+    step.textContent = vm.chosenLoginPath ? `Sign in · Step ${stepNumber} of 4` : 'One step to finish · Your role';
+    show(step, stepNumber > 0);
+  }
 
   // codeSent body is bound to Info.
   const info = $('code-info');
@@ -133,7 +118,9 @@ function render() {
 
   // Role selection highlight.
   document.querySelectorAll('.onb-role').forEach((b) => {
-    b.classList.toggle('on', b.dataset.role === vm.primaryRole && vm.primaryRole !== '');
+    const selected = b.dataset.role === vm.primaryRole && vm.primaryRole !== '';
+    b.classList.toggle('on', selected);
+    b.setAttribute('aria-pressed', String(selected));
   });
 
   // Detected-rank line (display-only).
@@ -172,9 +159,9 @@ function setState(next) { vm.state = next; render(); }
 function setError(msg) { vm.error = msg || ''; render(); }
 
 // ── auth-call wrapper (preview-safe) ─────────────────────────────────────────
-// Returns the command result, or null when running outside Tauri (preview).
+// Returns the command result, or null when running outside Electron (preview).
 //
-// The Rust auth_* / save_config commands each take a SINGLE `payload` arg (the
+// The desktop auth_* / save_config commands each take a SINGLE `payload` arg (the
 // JSON body), so the body must be passed as invoke(cmd, { payload: body }). The
 // no-arg commands (auth_clear_partial) take nothing. Wrapping here, keyed off
 // which command needs a body, keeps every call site passing just the plain body
@@ -183,7 +170,7 @@ const NO_BODY_CMDS = new Set(['auth_clear_partial', 'auth_logout', 'get_auth_sta
 async function call(cmd, body) {
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info(`[onboarding] (preview) ${cmd} — no Tauri backend.`, body || {});
+    console.info(`[onboarding] (preview) ${cmd} — no Electron backend.`, body || {});
     return null;
   }
   if (NO_BODY_CMDS.has(cmd)) return invoke(cmd);
@@ -326,7 +313,7 @@ async function finishRole() {
     // unchanged anyway, but omitting keeps the write minimal.
     const cfg = { primaryRole: vm.primaryRole };
     if (!vm.chosenLoginPath) cfg.onboardingSkipped = true;
-    // call() wraps the body as { payload: ... } to match save_config's Rust arg.
+    // call() wraps the body as { payload: ... } to match save_config's command arg.
     await call(AUTH_CMD.finishRole, cfg);
     vm.error = '';
     setState('done');
@@ -379,31 +366,8 @@ function onComplete() {
   // Small beat so the user sees the role lock in before the page flips. Target
   // dashboard.html (the dashboard CONTENT page) — index.html is the persistent shell
   // now, so navigating there inside the iframe would nest the shell.
-  setTimeout(async () => {
-    let target = 'dashboard.html';
-    try {
-      const invoke = await getInvoke();
-      if (invoke) {
-        const cfg = await invoke('get_config');
-        const completed = !!(cfg && cfg.firstReviewTutorialCompleted);
-        const dismissed = !!(cfg && cfg.firstReviewTutorialDismissed);
-        if (!completed && !dismissed) {
-          await invoke('save_config', {
-            payload: {
-              firstReviewTutorialStep: 'objective',
-              firstReviewTutorialCompleted: false,
-              firstReviewTutorialDismissed: false,
-              firstReviewTutorialObjectiveId: 0,
-              firstReviewTutorialGameId: 0,
-            },
-          });
-          target = 'objectives.html?tutorial=first-review';
-        }
-      }
-    } catch (err) {
-      console.warn('[onboarding] first review tutorial start skipped:', err);
-    }
-    window.location.href = target;
+  setTimeout(() => {
+    window.location.href = 'dashboard.html';
   }, 250);
 }
 
@@ -450,8 +414,8 @@ async function chooseInitialState() {
   if (!invoke) {
     // Preview (no backend): with explicit sign-in intent show the email step;
     // otherwise keep the standalone first-boot intro so the flow is browsable.
-    setState(signinIntent ? 'emailEntry' : 'welcome');
     if (signinIntent) vm.chosenLoginPath = true;
+    setState(signinIntent ? 'emailEntry' : 'welcome');
     return;
   }
   // Retry on sidecar cold-start: opening Sign-in while the sidecar is still binding
@@ -485,8 +449,8 @@ async function chooseInitialState() {
 
   // Logged out. Explicit sign-in intent skips the first-boot pitch entirely.
   if (signinIntent) {
-    setState('emailEntry');
     vm.chosenLoginPath = true; // returning user is on the login path
+    setState('emailEntry');
     return;
   }
 
@@ -508,8 +472,8 @@ async function chooseInitialState() {
   const statusRead = status != null;
   const hasRole = !!(status && status.primaryRole);
   const firstBoot = statusRead && configRead && !hasRole && !onboardingSkipped;
-  setState(firstBoot ? 'welcome' : 'emailEntry');
   if (!firstBoot) vm.chosenLoginPath = true; // returning user is on the login path
+  setState(firstBoot ? 'welcome' : 'emailEntry');
 }
 
 // ── single delegated action handler ──────────────────────────────────────────

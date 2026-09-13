@@ -95,4 +95,23 @@ public static class EvidenceAutoAnchors
     /// <summary>The rows a per-game surface should show given the setting.</summary>
     public static IReadOnlyList<EvidenceItemRecord> ForSurface(IReadOnlyList<EvidenceItemRecord> rows, bool autoFillEnabled) =>
         autoFillEnabled ? rows : rows.Where(static r => !IsUntouched(r)).ToList();
+
+    /// <summary>Suppress stale inferred anchors before the backfill has cleaned them up.</summary>
+    public static IReadOnlyList<EvidenceItemRecord> ForSurface(IReadOnlyList<EvidenceItemRecord> rows,
+        bool autoFillEnabled, IReadOnlyList<Models.GameEvent> eligibleEvents)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in eligibleEvents.Where(e => !Services.TeamfightClustering.IsStoredTeamfight(e)))
+            foreach (var token in Services.ObjectiveEventTieResolver.EventTokens(item))
+                keys.Add(Constants.PatternConstants.ObjEventSourceKey(token, item.GameTimeS));
+        var claimed = new HashSet<string>();
+        foreach (var span in Services.TeamfightClustering.Resolve(eligibleEvents).Where(s => s.IsOwn))
+        {
+            var anchor = Services.TeamfightClustering.KeyAnchor(span, claimed);
+            foreach (var token in Services.ObjectiveEventTieResolver.EventTokens(span.Stored!))
+                keys.Add(Constants.PatternConstants.ObjEventSourceKeyForToken(token) + anchor);
+        }
+        return ForSurface(rows, autoFillEnabled).Where(r => !IsUntouched(r)
+            || !r.SourceKey.StartsWith(ObjEventPrefix, StringComparison.Ordinal) || keys.Contains(r.SourceKey)).ToArray();
+    }
 }

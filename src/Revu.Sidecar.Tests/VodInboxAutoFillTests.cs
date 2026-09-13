@@ -49,7 +49,7 @@ public sealed class VodInboxAutoFillTests
         Status: EvidenceStatuses.Evidence);
 
     [Fact]
-    public async Task AutoFillOn_ShowsEveryAnchorInTheAutoLane()
+    public async Task AutoFillOn_HidesUnsupportedAnchorsButKeepsUserWork()
     {
         using var scope = new SidecarWriteScope();
         await scope.InitializeAsync();
@@ -58,7 +58,7 @@ public sealed class VodInboxAutoFillTests
 
         var vod = await Builder(scope).BuildAsync(gameId);
 
-        Assert.Equal(3, vod.AutoMoments.Count);
+        Assert.Equal("walked up without vision", Assert.Single(vod.AutoMoments).Note);
         Assert.Single(vod.SavedClips);
     }
 

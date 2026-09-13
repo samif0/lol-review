@@ -96,6 +96,15 @@ public sealed class VodSnapshotBuilder
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: path lookup failed for {GameId}", gameId); }
 
+        var gameTimeAtVideoStart = 0d;
+        try { gameTimeAtVideoStart = RecordingTimeline.ReadGameTimeAtVideoStart(filePath, gameId); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "VOD timing metadata unavailable for {GameId}", gameId);
+            // Refuse misleading event seeking when a native recording's timing is corrupt.
+            filePath = "";
+        }
+
         // Bookmarks → timeline markers. Also build a bookmarkId → ShareUrl lookup so
         // the saved-clip evidence rows (whose SourceId IS the bookmark id) can carry
         // the share state for the VOD player's Share button.
@@ -165,7 +174,7 @@ public sealed class VodSnapshotBuilder
         var gameEvents = new List<VodEventDto>();
         try
         {
-            var raw = (await _eventsRepo.GetEventsAsync(gameId))
+            var raw = (await _eventsRepo.GetEligibleEventsAsync(gameId))
                 .OrderBy(e => e.GameTimeS)
                 .ToList();
 
@@ -226,7 +235,7 @@ public sealed class VodSnapshotBuilder
             // Timeline Inbox from game events" setting is on.
             var raw = EvidenceAutoAnchors.ForSurface(
                 await _evidenceRepo.GetForGameAsync(gameId, includeDismissed: false),
-                _config.AutoTimelineClippingEnabled);
+                _config.AutoTimelineClippingEnabled, await _eventsRepo.GetEligibleEventsAsync(gameId));
             foreach (var item in raw.OrderBy(i => i.StartTimeSeconds ?? int.MaxValue))
             {
                 var dto = MapEvidence(item);
@@ -266,7 +275,8 @@ public sealed class VodSnapshotBuilder
             AutoMoments: autoMoments,
             SavedClips: savedClips,
             EventTypeCatalog: VodCorrectionMapper.Catalog,
-            Corrections: ledger.Select(VodCorrectionMapper.Map).ToList());
+            Corrections: ledger.Select(VodCorrectionMapper.Map).ToList(),
+            GameTimeAtVideoStart: gameTimeAtVideoStart);
     }
 
     // ── v3.11 correction decoration ────────────────────────────────────────────

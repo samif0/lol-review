@@ -15,6 +15,15 @@ public interface IGameEventsRepository
     /// <summary>Get all events for a game, sorted by timestamp.</summary>
     Task<IReadOnlyList<GameEvent>> GetEventsAsync(long gameId);
 
+    /// <summary>Supported events for timeline, clips and coaching. Raw reads remain available for corrections.</summary>
+    async Task<IReadOnlyList<GameEvent>> GetEligibleEventsAsync(long gameId) =>
+        Services.EventProcessing.EventEligibility.ForConsumers(await GetEventsAsync(gameId));
+
+    Task SaveProcessingReportAsync(long gameId, Services.EventProcessing.ProcessingReport report) => Task.CompletedTask;
+
+    Task<Services.EventProcessing.ProcessingReport?> GetProcessingReportAsync(long gameId) =>
+        Task.FromResult<Services.EventProcessing.ProcessingReport?>(null);
+
     Task<bool> HasEventsAsync(long gameId);
 
     Task<int> GetEventCountAsync(long gameId);

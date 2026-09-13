@@ -64,6 +64,7 @@ public static class AppDataPaths
     /// never clobber the installed app's handshake.
     /// </summary>
     public static string SidecarHandshakeDirectory => Path.Combine(LocalAppDataRoot, "Revu");
+    public static string RecordingsDirectory => Path.Combine(SidecarHandshakeDirectory, "Recordings");
 
     private static string GetLocalAppDataRoot()
     {

@@ -7,7 +7,7 @@ namespace Revu.Sidecar;
 //
 // Same conventions as Dtos.cs: PascalCase here, camelCase on the wire (the
 // serializer in Program.cs uses JsonNamingPolicy.CamelCase). NO SolidColorBrush
-// — every color is a plain *Hex string the Tauri frontend resolves itself.
+// — every color is a plain *Hex string the desktop renderer resolves itself.
 //
 // V1 paging: the endpoint returns the FIRST page (30 rows) plus totalCount and
 // hasMore. Server-side paging beyond page 0 is a TODO (see GamesSnapshotBuilder).
@@ -90,5 +90,5 @@ public sealed record GamesRowDto(
     string VodStateText,
     // Inline button label: "Watch VOD" / "Open" / "Review" (VOD wins, v2.17.8).
     string PrimaryAction,
-    // Row-body click token the Tauri shell maps to navigation. "open_review".
+    // Row-body click token the desktop shell maps to navigation. "open_review".
     string Action);

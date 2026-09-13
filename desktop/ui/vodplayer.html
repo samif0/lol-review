@@ -6,9 +6,11 @@
 <title>Revu: VOD Player</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=match-navigation-20260912">
+<link rel="stylesheet" href="./vod-review.css?v=match-navigation-20260912">
+<link rel="stylesheet" href="./vod-cinema.css">
 </head>
-<body>
+<body class="vod-review-page">
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
   <div class="grain"></div>
   <script type="module" src="./shell.js" data-page="vodplayer"></script>
@@ -29,33 +31,44 @@
     <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
+  <div class="match-navigation" id="match-navigation" hidden>
+    <a class="match-library-link" href="games.html"><span aria-hidden="true">←</span> Match library</a>
+    <nav class="match-view-switch" aria-label="Match view">
+      <a data-match-view="review" href="review.html">Review</a>
+      <a data-match-view="vod" href="vodplayer.html">VOD</a>
+    </nav>
+    <span class="match-navigation-status" data-match-status role="status" hidden></span>
+  </div>
   <div class="shell">
-    <!-- Thin context line — replaces the old eyebrow/hero/statusline header. Shows
-         the game identity + "reviewing by objective", plus the OPEN REVIEW link and
-         the CINEMA (enlarge) toggle. The framed objective tab bar carries the rest. -->
+    <!-- Match heading and supporting details above the objective tabs. -->
     <div class="vp-context" id="vp-context" hidden>
-      <div class="vp-ctx-meta" id="vp-ctx-meta"><b id="vp-title">Loading recording…</b></div>
-      <div style="display:flex;gap:7px;align-items:center">
-        <a class="vp-open-review-link" id="vp-open-review" href="#">OPEN REVIEW →</a>
-        <button class="vp-cinema-btn" id="vp-cinema" type="button" data-action="fullscreen">⛶ CINEMA</button>
+      <div class="vp-ctx-meta" id="vp-ctx-meta">
+        <h1 id="vp-title">Loading recording…</h1>
+        <div class="vp-ctx-details" id="vp-ctx-details"></div>
+      </div>
+      <div class="vp-context-actions">
+        <button class="vp-cinema-btn" id="vp-cinema" type="button" data-action="fullscreen" aria-keyshortcuts="f" title="Cinema mode (F). Esc restores the layout.">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>
+          <span>Cinema</span>
+          <kbd aria-hidden="true">F</kbd>
+        </button>
       </div>
     </div>
     <!-- Loading shim (pre-render) — kept minimal; the context line takes over on render. -->
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
-    <!-- Objective tab bar — the permanent framed-viewer header. Built by JS from the
-         active objectives; the focused one is expanded. Hidden until ≥1 objective. -->
-    <div class="vp-objbar" id="vp-objbar" hidden></div>
+    <div class="vp-section-label" id="vp-objective-heading" hidden>Review by learning objective</div>
+    <div class="vp-objbar" id="vp-objbar" aria-label="Learning objectives" hidden></div>
 
     <!-- Zero-objective nudge — shown only when the user has no active objectives. The
          viewer falls back to the full-game timeline; this prompts setting one. -->
     <div class="vp-nudge" id="vp-nudge" hidden>
       <span class="vp-nudge-ico">◎</span>
       <div class="vp-nudge-body">
-        <div class="vp-nudge-title">Reviewing the whole game. Set an objective to frame it.</div>
-        <div class="vp-nudge-sub">Objectives turn this VOD into focused chapters — your events loud, everything else quiet.</div>
+        <div class="vp-nudge-title">Give your review a focus.</div>
+        <div class="vp-nudge-sub">Choose a learning objective to highlight the moments you want to practice.</div>
       </div>
-      <a class="vp-nudge-cta" id="vp-nudge-cta" href="objectives.html">SET OBJECTIVE →</a>
+      <a class="vp-nudge-cta" id="vp-nudge-cta" href="objectives.html">Choose a learning objective</a>
       <button class="vp-nudge-x" id="vp-nudge-x" type="button" aria-label="Dismiss">✕</button>
     </div>
 
@@ -80,7 +93,8 @@
     <!-- No-VOD state -->
     <div class="card vp-novod" id="vp-novod" hidden>
       <div class="vline">No recording found for this game.</div>
-      <div class="vsmall">A VOD shows here when an Ascent recording matches the game and the file still exists on disk.</div>
+      <div class="vsmall">If Ascent recorded this game, connect its recordings folder and scan to link the video. Keep the original recording in that folder so Revu can play it.</div>
+      <a class="vp-novod-review" href="settings.html#settings-recording">Recording settings →</a>
       <!-- The review page deliberately routes death/clip jumps here expecting a
            no-recording state — this link keeps that path from being a dead end. -->
       <a class="vp-novod-review" id="vp-novod-review" href="review.html" hidden>Open this game's review →</a>
@@ -88,18 +102,18 @@
 
     <!-- Player -->
     <div class="vp-wrap" id="vp-wrap" hidden>
+      <div class="vp-cinema-header">
+        <span>Cinema</span>
+        <button class="vp-cinema-exit" type="button" data-action="fullscreen" aria-keyshortcuts="Escape f">Exit cinema <kbd>Esc</kbd></button>
+      </div>
 
-      <!-- (The old OPEN REVIEW primary card now lives as a link in the context line
-           above; its nav target is wired identically in render().) -->
-
-      <!-- 2-col: video + transport + timeline (left) · moments (right) -->
+      <!-- Watch on the left; choose events and capture observations on the right. -->
       <div class="cols">
 
         <!-- ── LEFT ── -->
-        <div class="stack">
+        <div class="stack vp-watch-column">
 
-          <div class="seclabel">Recording</div>
-          <div class="card pad0">
+          <div class="card pad0 vp-video-card">
             <div class="vp-stage">
               <video id="vp-video" class="vp-video" preload="metadata" playsinline></video>
             </div>
@@ -108,22 +122,28 @@
           <!-- transport bar -->
           <div class="card vp-transport-card">
             <div class="vp-transport">
-              <button class="tbtn" id="vp-back" title="Back one step (←). Up/Down arrows change the step." data-action="seek" data-delta="-1">⏮</button>
-              <button class="tbtn play" id="vp-play" title="Play / Pause (space)" data-action="playpause">▶</button>
-              <button class="tbtn" id="vp-fwd" title="Forward one step (→). Up/Down arrows change the step." data-action="seek" data-delta="1">⏭</button>
-              <span class="ttime" id="vp-time">0:00 / 0:00&nbsp;&nbsp;<span class="step">step 5s</span></span>
+              <div class="transport-seek-controls">
+                <button class="tbtn" id="vp-back" type="button" title="Back one step (←). Up/Down arrows change the step." aria-label="Back one step" aria-keyshortcuts="ArrowLeft" data-action="seek" data-delta="-1"><span class="tbtn-icon" aria-hidden="true">⏮</span><kbd aria-hidden="true">←</kbd></button>
+                <button class="tbtn play" id="vp-play" type="button" title="Play / Pause (space)" aria-label="Play or pause" data-action="playpause">▶</button>
+                <button class="tbtn" id="vp-fwd" type="button" title="Forward one step (→). Up/Down arrows change the step." aria-label="Forward one step" aria-keyshortcuts="ArrowRight" data-action="seek" data-delta="1"><span class="tbtn-icon" aria-hidden="true">⏭</span><kbd aria-hidden="true">→</kbd></button>
+              </div>
+              <span class="ttime" id="vp-time">0:00 / 0:00 <span class="step" title="Seek step: ↑ increases, ↓ decreases">Step 5s <span class="transport-shortcuts" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd></span></span></span>
               <span class="tspring"></span>
-              <label class="tlabel" for="vp-rate-sel">Speed</label>
-              <select class="vp-rate-sel" id="vp-rate-sel" aria-label="Playback speed">
-                <option value="0.25">0.25×</option>
-                <option value="0.5">0.5×</option>
-                <option value="1" selected>1×</option>
-                <option value="1.5">1.5×</option>
-                <option value="2">2×</option>
-                <option value="3">3×</option>
-              </select>
-              <button class="tbtn" id="vp-mute" title="Mute" data-action="mute">🔊</button>
-              <button class="tbtn" id="vp-fs" title="Fullscreen / enlarge" aria-label="Fullscreen" data-action="fullscreen">⛶</button>
+              <div class="transport-options">
+                <div class="transport-rate">
+                  <label class="tlabel" for="vp-rate-sel">Speed <span class="transport-shortcuts" aria-hidden="true"><kbd>-</kbd><kbd>+</kbd></span></label>
+                  <select class="vp-rate-sel" id="vp-rate-sel" aria-label="Playback speed" aria-keyshortcuts="- + =" title="Playback speed: - slows down, + speeds up">
+                    <option value="0.25">0.25×</option>
+                    <option value="0.5">0.5×</option>
+                    <option value="1" selected>1×</option>
+                    <option value="1.5">1.5×</option>
+                    <option value="2">2×</option>
+                    <option value="3">3×</option>
+                  </select>
+                </div>
+                <button class="tbtn" id="vp-mute" type="button" title="Mute (M)" aria-label="Mute" aria-keyshortcuts="m" data-action="mute"><span class="tbtn-icon" aria-hidden="true">🔊</span><kbd aria-hidden="true">M</kbd></button>
+                <button class="tbtn" id="vp-fs" type="button" title="Enlarge video (F). Esc restores the layout." aria-label="Enlarge video" aria-keyshortcuts="f Escape" data-action="fullscreen"><span class="tbtn-icon" aria-hidden="true">⛶</span><kbd aria-hidden="true">F</kbd></button>
+              </div>
             </div>
           </div>
 
@@ -131,17 +151,17 @@
                in-objective marker stepper sits to its right (steps between THIS
                objective's markers — distinct from the tab bar that switches objectives). -->
           <div class="seclabel">Event timeline <span class="n" id="vp-tl-sub">bookmarks · clips</span></div>
-          <div class="card">
+          <div class="card vp-timeline-card">
            <div class="vp-tl-row">
             <!-- .vp-timeline is the fixed-width VIEWPORT (overflow:hidden). The inner
                  .vp-tl-content is the scalable track: Ctrl+wheel widens it (--tl-zoom)
                  and drag pans it (--tl-pan). Everything positioned by left:% lives in
                  the content, so it scales for free. Phase labels stay pinned to the
                  viewport. -->
-            <div class="vp-timeline" id="vp-seek" title="Click to scrub · Ctrl+wheel to zoom · drag to pan">
-              <div class="ph" style="left:8px">EARLY</div>
-              <div class="ph" style="left:42%">MID</div>
-              <div class="ph" style="right:8px">LATE</div>
+            <div class="vp-timeline" id="vp-seek" title="Click an event label or near its line to select · Click empty space to scrub · Ctrl+wheel to zoom · drag to pan">
+              <div class="ph" style="left:8px">Early</div>
+              <div class="ph" style="left:42%">Mid</div>
+              <div class="ph" style="right:8px">Late</div>
               <div class="vp-tl-content" id="vp-tl-content">
                 <div class="track"></div>
                 <div class="prog" id="vp-seek-fill"></div>
@@ -159,7 +179,7 @@
             <!-- In-objective marker stepper — steps between the FOCUSED objective's
                  markers (◀ ▶ + "marker i/N"). Built/updated by JS; hidden when unframed. -->
             <div class="vp-mkstep" id="vp-mkstep" hidden>
-              <span class="vp-mkstep-lbl">in objective</span>
+              <span class="vp-mkstep-lbl">Objective events</span>
               <div class="vp-mkstep-row">
                 <button class="vp-mkstep-btn" id="vp-mk-prev" type="button" aria-label="Previous marker">◀</button>
                 <button class="vp-mkstep-btn" id="vp-mk-next" type="button" aria-label="Next marker">▶</button>
@@ -174,9 +194,10 @@
                the timeline, then the fast-path keys do the common fixes without the
                form; the form covers retype / attributes / add. Driven by
                vodcorrections.js; every write is one ledger row keyed on the event. -->
+          <details class="vp-tools-disclosure" id="vp-event-tools">
+            <summary><span>Edit timeline events</span><kbd>E</kbd></summary>
           <div class="mini vp-fix" id="vp-fix">
-            <div class="mtitle">Add or correct a timeline event <span class="keycap">E</span></div>
-            <div class="vp-fix-keys">Click a marker to select it. <b>E</b> edit, <b>N</b> add at playhead, <b>Delete</b> remove, <b>[</b> and <b>]</b> nudge 1s (Shift 5s), <b>Z</b> undo.</div>
+            <div class="vp-fix-keys">Click an event label or near its line to select it. <b>E</b> edit, <b>N</b> add at playhead, <b>Delete</b> remove, <b>[</b> and <b>]</b> nudge 1s (Shift 5s), <b>Z</b> undo.</div>
             <div class="vp-fix-sel" id="vp-fix-sel">No event selected.</div>
             <div class="vp-fix-form" id="vp-fix-form" hidden>
               <div class="row">
@@ -209,21 +230,10 @@
               <button class="key" type="button" id="vp-fix-export" data-action="export_corrections">Copy as JSON</button>
             </details>
           </div>
+          </details>
 
-          <!-- quick bookmark (live write) + clip tools (clips deferred to Batch 3) -->
-          <div class="duo">
-            <div class="mini">
-              <div class="mtitle">Quick Bookmark <span class="keycap">B</span></div>
-              <input class="inp" id="vp-bm-note" type="text" placeholder="Note…" autocomplete="off">
-              <div class="row">
-                <select class="inp" id="vp-bm-obj" style="flex:1;margin-bottom:0">
-                  <option value="">No objective</option>
-                </select>
-                <button class="addbtn" id="vp-bm-add" data-action="add_bookmark" type="button">Add</button>
-              </div>
-              <div class="vp-bm-hint" id="vp-bm-hint" hidden></div>
-            </div>
-
+          <details class="vp-tools-disclosure" id="vp-clip-tools">
+            <summary><span>Create a clip</span><span class="vp-tool-keys"><kbd>I</kbd><kbd>O</kbd></span></summary>
             <div class="mini vp-clip">
               <div class="mtitle">Clip <span class="vp-cliprange" id="vp-clip-range"></span></div>
               <div class="row">
@@ -238,7 +248,7 @@
                    different objective or answers a specific prompt, or pick "No objective
                    (untag)" to save it unassigned. Values encode obj:ID / prompt:OBJID:PID;
                    populated + pre-selected by populateObjectivePicker() once objectives load. -->
-              <select class="inp" id="vp-clip-obj" style="margin-bottom:0" aria-label="Tie clip to objective or prompt">
+              <select class="inp" id="vp-clip-obj" aria-label="Tie clip to objective or prompt">
                 <option value="">No objective</option>
               </select>
               <div class="qual" id="vp-clip-qual">
@@ -246,9 +256,9 @@
                 <span class="q" data-action="clip_qual" data-q="neutral">Neutral</span>
                 <span class="q" data-action="clip_qual" data-q="bad">Bad</span>
               </div>
-              <button class="savebtn" id="vp-clip-save" data-action="clip_save" type="button" disabled>⬇ SAVE CLIP <span class="keycap">S</span></button>
+              <button class="savebtn" id="vp-clip-save" data-action="clip_save" type="button" disabled>Save clip <span class="keycap">S</span></button>
               <div class="vp-autoclip-tools" id="vp-autoclip-tools" hidden>
-                <button class="savebtn vp-autoclip-btn" id="vp-autoclip-btn" data-action="autoclip_current" type="button" disabled>⬇ AUTO-CLIP OBJECTIVE EVENTS</button>
+                <button class="savebtn vp-autoclip-btn" id="vp-autoclip-btn" data-action="autoclip_current" type="button" disabled>Auto-clip objective events</button>
                 <div class="vp-autoclip-meta" id="vp-autoclip-meta"></div>
               </div>
               <div class="vp-clip-hint" id="vp-clip-hint" hidden></div>
@@ -279,31 +289,48 @@
                 <div class="vp-sl-err" id="vp-sl-err" hidden></div>
               </div>
             </div>
-          </div>
+          </details>
         </div>
 
-        <!-- ── RIGHT: moments to review ── -->
-        <div class="stack">
-          <div class="seclabel">Moments to review</div>
-          <div class="card vp-moments-card">
-            <div class="mhead">
-              <div>
-                <div class="sub">Auto-picked moments, saved clips, and bookmarks.</div>
+        <aside class="stack vp-review-column" aria-label="Review this objective">
+          <section class="vp-review-focus">
+            <div class="vp-section-label">Your review focus</div>
+            <h2 id="vp-review-objective">This match</h2>
+            <div class="vp-event-heading">
+              <h3>Events to watch</h3>
+              <span id="vp-event-count"></span>
+            </div>
+            <p class="vp-event-help">Choose an event to watch the 10 seconds leading up to it.</p>
+            <div id="vp-event-list" class="vp-event-list"></div>
+            <p id="vp-event-empty" class="vp-event-empty" hidden>No events for this objective. You can still review the recording and add a note.</p>
+          </section>
+
+          <section class="vp-review-note" aria-label="Add a review note">
+            <label class="vp-review-note-label" for="vp-bm-note">Add a review note</label>
+            <textarea class="inp" id="vp-bm-note" rows="3" placeholder="What would you repeat or change?" autocomplete="off" aria-describedby="vp-note-help"></textarea>
+            <select class="inp" id="vp-bm-obj" aria-label="Tie note to objective or prompt">
+              <option value="">No objective</option>
+            </select>
+            <div class="vp-note-footer">
+              <span id="vp-note-help">Saved at the playback time.</span>
+              <button class="addbtn" id="vp-bm-add" data-action="add_bookmark" type="button" title="Save note (B outside text fields; Ctrl+Enter while writing)"><span>Save note</span><kbd aria-hidden="true">B</kbd></button>
+            </div>
+            <div class="vp-bm-hint" id="vp-bm-hint" role="status" hidden></div>
+          </section>
+
+          <details class="vp-tools-disclosure vp-saved-moments" id="vp-saved-moments">
+            <summary><span>Saved moments</span><span id="vp-open-count">0 saved</span></summary>
+            <div class="vp-moments-card">
+              <div class="tabs" id="vp-tabs" aria-label="Saved moment types">
+                <button type="button" class="tab auto on" data-filter="auto" aria-pressed="true">Suggested <span class="c" id="vp-c-all">(0)</span></button>
+                <button type="button" class="tab clips" data-filter="clips" aria-pressed="false">Clips <span class="c" id="vp-c-clips">(0)</span></button>
+                <button type="button" class="tab bm" data-filter="bm" aria-pressed="false">Notes <span class="c" id="vp-c-bm">(0)</span></button>
               </div>
-              <span class="openbadge" id="vp-open-count">0 open</span>
+              <div class="moments" id="vp-bookmarks"></div>
+              <div class="vp-moments-empty" id="vp-moments-empty" hidden>No saved moments yet.</div>
             </div>
-
-            <!-- 3-way tab filter: Auto / Clips / Bookmarks -->
-            <div class="tabs" id="vp-tabs">
-              <div class="tab auto on" data-filter="auto">Auto <span class="c" id="vp-c-all">(0)</span></div>
-              <div class="tab clips" data-filter="clips">Clips <span class="c" id="vp-c-clips">(0)</span></div>
-              <div class="tab bm" data-filter="bm">Bookmarks <span class="c" id="vp-c-bm">(0)</span></div>
-            </div>
-
-            <div class="moments" id="vp-bookmarks"></div>
-            <div class="vp-moments-empty" id="vp-moments-empty" hidden>No moments tagged for this game yet.</div>
-          </div>
-        </div>
+          </details>
+        </aside>
 
       </div>
     </div>

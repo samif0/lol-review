@@ -171,6 +171,7 @@ public class GameStats
     // ── Live events collected during the game ────────────────────────
 
     public List<GameEvent> LiveEvents { get; set; } = [];
+    public Services.EventProcessing.ProcessingReport? EventProcessingReport { get; set; }
 
     // ── Computed display helpers ─────────────────────────────────────
 

@@ -16,7 +16,7 @@ namespace Revu.Sidecar;
 /// the WinUI <c>RulesViewModel.RefreshDataAsync</c> EXACTLY: per-rule display
 /// formatting (TypeBadge + per-type ConditionText), the live 'RULE CHECK'
 /// violation banner (checked vs today's games), and each rule's behavioral
-/// evidence line (P2b) — so the Tauri frontend renders the same glass rows.
+/// evidence line (P2b) — so the desktop renderer renders the same glass rows.
 /// </para>
 ///
 /// <para>

@@ -1,10 +1,14 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke } from './platform/index.mjs';
+
 // Revu desktop — Rules (session protocols) page renderer for the glass-aurora
-// layout. Renders the JSON returned by the Tauri command `get_rules`
+// layout. Renders the JSON returned by the Electron command `get_rules`
 // (see Revu.Sidecar GET /api/rules) AND drives the full rule CRUD via the
 // create_rule / update_rule / toggle_rule / delete_rule commands. Mirrors
 // objectives.js conventions:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • Outside Tauri it fetches ./sample-rules.json so the page previews in a
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron it fetches ./sample-rules.json so the page previews in a
 //     plain browser (writes no-op with a console note).
 //   • Every server string is written via textContent (never innerHTML) so the
 //     surface stays XSS-free; colors arrive as *Hex strings applied to style
@@ -12,36 +16,7 @@
 //   • ONE delegated [data-action] click handler.
 //   • After every write we refetch get_rules (no message bus — manual invalidation).
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
-
-const isTauri = () => typeof window.__TAURI__ !== 'undefined';
-
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 function setVal(id, v) { const el = $(id); if (el) el.value = v == null ? '' : String(v); }
 function getVal(id) { const el = $(id); return el ? el.value.trim() : ''; }
 
@@ -56,6 +31,31 @@ const TYPE_FIELDS = {
   max_games: { showCond: true, label: 'Max games per day', ph: 'e.g., 5' },
   min_mental: { showCond: true, label: 'Minimum mental rating', ph: 'e.g., 4' },
 };
+
+const TYPE_LABELS = {
+  custom: 'Custom',
+  no_play_day: 'No-play day',
+  no_play_after: 'No play after',
+  loss_streak: 'Loss streak',
+  max_games: 'Max games per day',
+  min_mental: 'Minimum mental',
+};
+
+// Only format the fixed wording of system-generated records. User names,
+// descriptions and replacement plans are displayed exactly as saved.
+function recordLabel(text) {
+  return text
+    .replace(/^NO TRIPS ON RECORD$/, 'No trips on record')
+    .replace(/^TRIPPED (?=\d)/, 'Tripped ')
+    .replace('BASELINE WR', 'Baseline WR')
+    .replace('WR WHEN TRIPPED', 'WR when tripped')
+    .replace(' VS ', ' vs ')
+    .replace(' BASELINE ·', ' baseline ·')
+    .replace(' · LAST ', ' · Last ')
+    .replace(/^HELD (?=\d)/, 'Held ')
+    .replace(' THIS WEEK', ' this week')
+    .replace(' · OVERRIDDEN ', ' · Overridden ');
+}
 
 // ── condition-text formatting (mirror RuleDisplayItem.ConditionText) ──────────
 // Used for the live IF-leg preview so it matches what the saved card will show.
@@ -107,7 +107,7 @@ const SUGGESTED = [
     description: 'Tilt compounds quickly; two losses in a row is a good signal to take a break.',
     ruleType: 'loss_streak',
     conditionValue: '2',
-    badgeText: 'LOSS STREAK',
+    badgeText: 'Loss streak',
     conditionText: 'Stop after 2 consecutive losses',
   },
   {
@@ -115,7 +115,7 @@ const SUGGESTED = [
     description: 'Marathon sessions rarely improve your play. Keep it focused.',
     ruleType: 'max_games',
     conditionValue: '5',
-    badgeText: 'MAX GAMES/DAY',
+    badgeText: 'Max games per day',
     conditionText: 'Max 5 games per day',
   },
   {
@@ -123,7 +123,7 @@ const SUGGESTED = [
     description: 'Late-night games hurt decision-making and sleep quality.',
     ruleType: 'no_play_after',
     conditionValue: '0',
-    badgeText: 'NO PLAY AFTER',
+    badgeText: 'No play after',
     conditionText: 'No play after 12:00 AM',
   },
   {
@@ -131,22 +131,14 @@ const SUGGESTED = [
     description: 'Playing on tilt is the fastest way to lose LP and reinforce bad habits.',
     ruleType: 'min_mental',
     conditionValue: '4',
-    badgeText: 'MINIMUM MENTAL',
+    badgeText: 'Minimum mental',
     conditionText: "Don't queue below mental 4",
   },
 ];
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchRules() {
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
-  // bundled sample only when invoke is genuinely unavailable (browser preview).
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_rules');
-  }
-  const res = await fetch('./sample-rules.json');
-  if (!res.ok) throw new Error(`sample-rules.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_rules', 'sample-rules.json');
 }
 
 // ── render: header status line ──────────────────────────────────────────────
@@ -188,8 +180,8 @@ function buildRule(r, opts) {
   const hardstop = el.querySelector('.rule-hardstop');
   const enforceBtn = el.querySelector('.rule-act-enforce');
 
-  // Type badge — text from the server; accent rim tinted by the per-rule hex.
-  badge.textContent = r.typeBadge || (r.ruleType ? r.ruleType.toUpperCase() : 'RULE');
+  // Known type labels use sentence case; unknown server labels stay intact.
+  badge.textContent = TYPE_LABELS[r.ruleType] || r.typeBadge || 'Rule';
   if (r.accentHex) {
     badge.style.color = r.accentHex;
     badge.style.borderColor = r.accentHex;
@@ -204,7 +196,7 @@ function buildRule(r, opts) {
   if (off) {
     show(status, false);
   } else if (r.isViolated) {
-    status.textContent = 'TRIPPED';
+    status.textContent = 'Tripped';
     status.classList.add('tripped');
     show(status, true);
   } else if (r.isOk) {
@@ -249,7 +241,7 @@ function buildRule(r, opts) {
 
   // P2b behavioral record — mono teal line; empty for custom rules / failures.
   if (r.hasEvidenceLine && r.evidenceLine) {
-    evid.textContent = r.evidenceLine;
+    evid.textContent = recordLabel(r.evidenceLine);
     show(evid, true);
   } else {
     show(evid, false);
@@ -259,7 +251,7 @@ function buildRule(r, opts) {
   // line, and the Hard stop toggle (hidden for types it can never act on).
   show(enforcedPill, !off && !!r.isEnforced);
   if (r.hasHardStopLine && r.hardStopLine) {
-    hardstop.textContent = r.hardStopLine;
+    hardstop.textContent = recordLabel(r.hardStopLine);
     show(hardstop, true);
   } else {
     show(hardstop, false);
@@ -415,7 +407,7 @@ function syncIfPreview() {
 // Open the form in create mode: blank fields, "Create" label.
 function openCreateForm() {
   _editId = null;
-  $('form-title').textContent = 'New Rule';
+  $('form-title').textContent = 'New rule';
   $('form-submit').textContent = 'Create';
   setVal('f-name', ''); setVal('f-cond', ''); setVal('f-cooldown', '');
   setVal('f-desc', ''); setVal('f-plan', '');
@@ -432,7 +424,7 @@ function openEditForm(id) {
   const r = ruleById(id);
   if (!r) { openCreateForm(); return; }
   _editId = r.id;
-  $('form-title').textContent = 'Edit Rule';
+  $('form-title').textContent = 'Edit rule';
   $('form-submit').textContent = 'Save';
   setVal('f-name', r.name || '');
   setVal('f-desc', r.description || '');
@@ -495,7 +487,7 @@ async function submitForm(submitBtn) {
 
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info('[rules] (preview) submit — no Tauri backend.');
+    console.info('[rules] (preview) submit — no Electron backend.');
     closeForm();
     return;
   }
@@ -623,7 +615,7 @@ document.addEventListener('click', async (ev) => {
 
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info(`[rules] (preview) action "${action}" — no Tauri backend.`);
+    console.info(`[rules] (preview) action "${action}" — no Electron backend.`);
     return;
   }
 

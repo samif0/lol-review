@@ -27,6 +27,10 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private LiveEventCollector? _eventCollector;
     private CancellationTokenSource? _collectorCts;
     private Task? _collectorTask;
+    private readonly Data.Repositories.IObjectivesRepository? _processingObjectives;
+    private Services.EventProcessing.ProcessingReport? _processingReport;
+    private long _captureGameId;
+    private readonly Dictionary<long, (List<GameEvent> Events, Services.EventProcessing.ProcessingReport? Report)> _pendingEvidence = [];
 
     // v3.10.1: the lobby as the live client reported it survives a transient LCU drop
     // that tears the collector down mid-game (it is not restarted on reconnect), so
@@ -70,7 +74,8 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         IGameEndCaptureService gameEndCaptureService,
         IMatchHistoryReconciliationService matchHistoryReconciliationService,
         IMessenger messenger,
-        ILogger<GameMonitorService> logger)
+        ILogger<GameMonitorService> logger,
+        Data.Repositories.IObjectivesRepository? processingObjectives = null)
     {
         _credentialDiscovery = credentialDiscovery;
         _lcuClient = lcuClient;
@@ -79,6 +84,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _matchHistoryReconciliationService = matchHistoryReconciliationService;
         _messenger = messenger;
         _logger = logger;
+        _processingObjectives = processingObjectives;
     }
 
     /// <inheritdoc />
@@ -86,6 +92,20 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
     /// <inheritdoc />
     public bool IsConnected => _state.IsConnected;
+
+    private RecordingGameContext _recordingContext = RecordingGameContext.Idle;
+    private long? _lastEndedRecordingGameId;
+    private (long GameId, double Seconds, DateTimeOffset ObservedAt)? _lastRecordingClock;
+    private double? _lastEndedRecordingGameTimeSeconds;
+    private DateTimeOffset? _lastEndedRecordingObservedAt;
+    private DateTimeOffset? _lastEndedRecordingConfirmedAt;
+    private long _recordingObserverUntil;
+    public RecordingGameContext CurrentRecordingContext => Volatile.Read(ref _recordingContext);
+    public RecordingGameContext ObserveRecordingContext()
+    {
+        Interlocked.Exchange(ref _recordingObserverUntil, Environment.TickCount64 + 5000);
+        return CurrentRecordingContext;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -123,6 +143,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         if (!await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false))
         {
+            ClearRecordingContext();
             return;
         }
 
@@ -140,6 +161,10 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         }
 
         _state.ConnectedTicks++;
+
+        if (Environment.TickCount64 <= Interlocked.Read(ref _recordingObserverUntil))
+            await UpdateRecordingContextAsync(phase, cancellationToken).ConfigureAwait(false);
+        else ClearRecordingContext();
 
         if (phase != _state.LastPhase)
         {
@@ -195,7 +220,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
             if (!_state.CurrentGameIsCasual)
             {
-                StartEventCollector();
+                await StartEventCollectorAsync().ConfigureAwait(false);
             }
         }
 
@@ -430,7 +455,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _messenger.Send(new ChampSelectUpdatedMessage(myChampion, enemyLaner, myPosition, mapJson));
     }
 
-    private void StartEventCollector()
+    private async Task StartEventCollectorAsync()
     {
         // Snapshot the OLD collector fields into locals BEFORE reassigning them.
         // The fire-and-forget teardown must close over the old instances; if it
@@ -438,6 +463,17 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         // (assigned below) the moment a second StartEventCollector races it,
         // producing an ObjectDisposedException.
         _lastRoster = null;
+        _processingReport = null;
+        try { _captureGameId = await _lcuClient.GetCurrentGameIdAsync().WaitAsync(TimeSpan.FromSeconds(1)); }
+        catch { _captureGameId = 0; }
+        IReadOnlyList<(string Token, long ObjectiveId, string Title)> ties = [];
+        if (_processingObjectives is not null)
+        {
+            try { ties = await _processingObjectives.GetActiveObjectiveEventTokensAsync().WaitAsync(TimeSpan.FromSeconds(1)); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Objective snapshot unavailable; optional detectors omitted for this match"); }
+        }
+        var processing = Services.EventProcessing.LiveProcessingCatalog.Create(ties.Select(t =>
+            new Services.EventProcessing.ObjectiveSubscription(t.ObjectiveId, t.Token)));
         var oldCts = _collectorCts;
         var oldCollector = _eventCollector;
         var oldTask = _collectorTask;
@@ -452,7 +488,8 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             // fast HP cadence), so both must be named/positional-correct or the fast
             // sampling is silently nullified.
             pollInterval: TimeSpan.FromSeconds(GameConstants.HpSamplePollIntervalS),
-            eventPollInterval: TimeSpan.FromSeconds(GameConstants.LiveEventPollIntervalS));
+            eventPollInterval: TimeSpan.FromSeconds(GameConstants.LiveEventPollIntervalS),
+            processing: processing);
         _collectorTask = _eventCollector.StartAsync(_collectorCts.Token);
 
         // Tear down the OLD collector using the snapshotted locals (never the fields,
@@ -525,6 +562,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             }
 
             events = await _eventCollector.StopAsync().ConfigureAwait(false);
+            _processingReport = _eventCollector.ProcessingReport;
             roster = _eventCollector.Roster;
             _eventCollector = null;
         }
@@ -551,13 +589,39 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         // v3.10.1: hand the live roster to the capture so the lanes the game itself
         // assigned fill the matchup when the EOG payload carries none.
-        var stats = await _gameEndCaptureService.CaptureAsync(liveEvents, roster, cancellationToken).ConfigureAwait(false);
+        GameStats? stats;
+        if (_captureGameId > 0)
+        {
+            if (_pendingEvidence.Count >= 4) _pendingEvidence.Remove(_pendingEvidence.Keys.First());
+            _pendingEvidence[_captureGameId] = (liveEvents, _processingReport);
+        }
+        using var captureDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        captureDeadline.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            stats = await _gameEndCaptureService.CaptureAsync(liveEvents, roster, captureDeadline.Token)
+                .WaitAsync(captureDeadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("Immediate review capture deadline exceeded; result data unavailable, reconciliation required");
+            _state.ReconcilePending = true;
+            return;
+        }
         if (stats is null)
         {
             _state.ReconcilePending = true;
             return;
         }
 
+        stats.EventProcessingReport = _processingReport;
+        _pendingEvidence.Remove(stats.GameId);
+        _processingReport = null;
+        if (stats.GameId > 0)
+        {
+            SetRecordingGameEnded(stats.GameId);
+            ClearRecordingContext();
+        }
         _messenger.Send(new GameEndedMessage(stats));
     }
 
@@ -576,6 +640,8 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         if (candidates.Count == 0)
             return false;
+
+        foreach (var candidate in candidates) AttachPendingEvidence(candidate.Stats);
 
         _messenger.Send(new MissedReviewsDetectedMessage(candidates, IsPostGameReconcile: true));
         return true;
@@ -596,12 +662,21 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
 
         if (candidates.Count > 0)
         {
+            foreach (var candidate in candidates) AttachPendingEvidence(candidate.Stats);
             _messenger.Send(new MissedReviewsDetectedMessage(candidates, isPostGameReconcile));
         }
     }
 
+    private void AttachPendingEvidence(GameStats stats)
+    {
+        if (!_pendingEvidence.Remove(stats.GameId, out var captured)) return;
+        stats.LiveEvents = captured.Events;
+        stats.EventProcessingReport = captured.Report;
+    }
+
     private async Task HandleDisconnectedAsync()
     {
+        ClearRecordingContext();
         var wasConnected = _state.IsConnected;
         // Capture in-game state BEFORE clearing it. If the LCU dropped while a
         // ranked/normal game was in progress, the post-game review would otherwise
@@ -629,6 +704,86 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     }
 
     private static bool IsCasualQueue(int queueId) => CasualQueueIds.Contains(queueId);
+
+    private async Task UpdateRecordingContextAsync(GamePhase phase, CancellationToken ct)
+    {
+        if (phase is not (GamePhase.GameStart or GamePhase.InProgress or GamePhase.Reconnect))
+        {
+            if (phase is GamePhase.WaitingForStats or GamePhase.PreEndOfGame or GamePhase.EndOfGame)
+            {
+                using var endDeadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                endDeadline.CancelAfter(TimeSpan.FromSeconds(1));
+                try
+                {
+                    var endedId = await _lcuClient.GetCurrentGameIdAsync(endDeadline.Token)
+                        .WaitAsync(endDeadline.Token).ConfigureAwait(false);
+                    if (endedId > 0 && CurrentRecordingContext.GameId == endedId)
+                        SetRecordingGameEnded(endedId);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                { _logger.LogTrace(ex, "Recording game-end identity unavailable"); }
+            }
+            ClearRecordingContext();
+            return;
+        }
+
+        // Share the existing monitor cadence. Reads of /recording/context are cached;
+        // they never create another game/process polling loop. A failed identity lookup
+        // stays unknown instead of reusing the previous match's identity.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(1));
+        long? gameId = null;
+        double? gameTime = null;
+        DateTimeOffset? clockObservedAt = null;
+        try
+        {
+            var identity = _lcuClient.GetCurrentGameIdAsync(deadline.Token);
+            async Task<(System.Text.Json.JsonElement? Stats, DateTimeOffset ObservedAt)> ReadClockAsync()
+            {
+                var snapshot = await _liveEventApi.FetchGameStatsAsync(deadline.Token).ConfigureAwait(false);
+                return (snapshot, DateTimeOffset.UtcNow);
+            }
+            var clock = ReadClockAsync();
+            try { await Task.WhenAll(identity, clock).WaitAsync(deadline.Token).ConfigureAwait(false); }
+            catch when (!ct.IsCancellationRequested) { /* the live clock may be unavailable during loading */ }
+            if (identity.IsCompletedSuccessfully && identity.Result > 0) gameId = identity.Result;
+            if (clock.IsCompletedSuccessfully) clockObservedAt = clock.Result.ObservedAt;
+            if (gameId.HasValue && clock.IsCompletedSuccessfully && clock.Result.Stats is { } stats
+                && stats.ValueKind == System.Text.Json.JsonValueKind.Object
+                && stats.TryGetProperty("gameTime", out var value)
+                && value.ValueKind == System.Text.Json.JsonValueKind.Number
+                && value.TryGetDouble(out var seconds) && double.IsFinite(seconds) && seconds >= 0)
+                gameTime = seconds;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Identity can succeed while the clock is unavailable during loading.
+            _logger.LogTrace(ex, "Recording session context is temporarily unavailable");
+        }
+        if (gameId.HasValue && gameTime.HasValue && clockObservedAt.HasValue)
+            _lastRecordingClock = (gameId.Value, gameTime.Value, clockObservedAt.Value);
+        Volatile.Write(ref _recordingContext, new(gameId, true, gameTime,
+            _lastEndedRecordingGameId, clockObservedAt ?? DateTimeOffset.UtcNow,
+            _lastEndedRecordingGameTimeSeconds, _lastEndedRecordingObservedAt, _lastEndedRecordingConfirmedAt));
+    }
+
+    private void SetRecordingGameEnded(long gameId)
+    {
+        // The later stats-save event must not make an old clock look fresh again.
+        if (_lastEndedRecordingGameId == gameId) return;
+        _lastEndedRecordingGameId = gameId;
+        _lastEndedRecordingConfirmedAt = DateTimeOffset.UtcNow;
+        // A saved/end-phase identity proves which match ended, not when video stopped.
+        // Preserve the last real clock receipt so the host can reject short captures;
+        // never refresh its age on an idle tick or substitute another match's clock.
+        var clock = _lastRecordingClock;
+        _lastEndedRecordingGameTimeSeconds = clock?.GameId == gameId ? clock.Value.Seconds : null;
+        _lastEndedRecordingObservedAt = clock?.GameId == gameId ? clock.Value.ObservedAt : null;
+    }
+
+    private void ClearRecordingContext() => Volatile.Write(ref _recordingContext,
+        new(null, false, null, _lastEndedRecordingGameId, DateTimeOffset.UtcNow,
+            _lastEndedRecordingGameTimeSeconds, _lastEndedRecordingObservedAt, _lastEndedRecordingConfirmedAt));
 
     /// <summary>
     /// v2.17.25: true once the in-game Live Client Data API responds — i.e. the

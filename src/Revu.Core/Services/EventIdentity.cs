@@ -44,7 +44,7 @@ public static class EventIdentity
         foreach (var i in order)
         {
             var e = batch[i];
-            if (IsUserKey(e.EventKey))
+            if (IsUserKey(e.EventKey) || e.EventKey?.StartsWith("stream:", StringComparison.Ordinal) == true)
             {
                 keys[i] = e.EventKey!;
                 continue;

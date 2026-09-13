@@ -9,7 +9,7 @@
 // vodplayer.js owns the DOM this decorates: it calls decorateBar() per marker and
 // appendGhosts() once at the end of every placeMarkers() pass, renderPanel() on
 // every reload, and handleKey() from its single keydown handler AFTER the typing
-// and chord guards. Every write goes through the Tauri commands
+// and chord guards. Every write goes through the Electron commands
 // save_event_correction / revert_event_correction ({ payload }) and
 // export_event_corrections, then ends in ctx.reloadBookmarks(), which re-renders
 // the markers without touching playback. Server strings land via textContent only.
@@ -36,13 +36,30 @@ export function createCorrections(ctx) {
   let _toastTimer = null;
   let _lastAddType = '';
   let _selSeen = false; // did the placeMarkers pass in progress re-draw the selected marker
+  const _pendingWrites = new Set();
+  let _formWrite = null;
+
+  function trackWrite(write) {
+    _pendingWrites.add(write);
+    write.then(() => _pendingWrites.delete(write), () => _pendingWrites.delete(write));
+    return write;
+  }
+
+  async function flushPending() {
+    // A debounce may already have claimed _nudge. Keep its native write and
+    // resulting marker/form updates inside the same navigation barrier.
+    while (_nudge || _pendingWrites.size) {
+      if (_nudge) flushNudge();
+      await Promise.allSettled([..._pendingWrites]);
+    }
+  }
 
   const vod = () => ctx.vod || {};
   const gameId = () => Number(ctx.gameId) || 0;
   const hasBackend = () => !!(ctx.core && gameId() > 0);
   const durationS = () => {
     const v = ctx.video();
-    return (v && v.duration) || Number(vod().gameDurationSeconds) || 0;
+    return ctx.gameDuration?.() ?? ((v && v.duration) || Number(vod().gameDurationSeconds) || 0);
   };
   const catalog = () => catalogOf(vod());
   const typeDef = (type) => typeDefIn(catalog(), type);
@@ -130,9 +147,18 @@ export function createCorrections(ctx) {
     renderSelection();
     // A form open on the old subject follows the new one (fresh id), so the prefilled
     // time/type never lands on the wrong event.
-    if (changed && _form && _form.op !== 'add') { if (_sel) openFor(_sel); else closeForm(); }
+    if (changed && _form && _form.op !== 'add') { if (_sel) openFor(_sel, false); else closeForm(); }
   }
   function clearSelection() { select(null); }
+
+  function selectEvent({ key, id } = {}) {
+    const rowId = Number(id);
+    const event = (vod().gameEvents || []).find(item => item.removed !== true &&
+      (key ? item.eventKey === key : Number.isSafeInteger(rowId) && rowId > 0 && Number(item.id) === rowId));
+    if (!event) return false;
+    select(fromEvent(event));
+    return true;
+  }
 
   function decorateBar(bar, e) {
     const d = bar.dataset;
@@ -206,7 +232,7 @@ export function createCorrections(ctx) {
       return true;
     }
     if (ev.repeat) return false;
-    if (k === 'e' || k === 'E') { if (_sel) openFor(_sel); else hint('Click a marker first.'); return true; }
+    if (k === 'e' || k === 'E') { openFor(_sel); return true; }
     if (k === 'n' || k === 'N') { openAdd(); return true; }
     if (k === 'z' || k === 'Z') { undoLast(); return true; }
     if (k === 'Delete') { if (!_sel) return false; removeSelected(); return true; }
@@ -226,13 +252,17 @@ export function createCorrections(ctx) {
 
   // Resolves to the server's result ({ idempotent } when the row was already reverted),
   // or null on failure (the sidecar's sentence is already in the hint).
-  async function revert(correctionId, doneMsg) {
+  function revert(correctionId, doneMsg) {
+    return trackWrite(performRevert(correctionId, doneMsg));
+  }
+
+  async function performRevert(correctionId, doneMsg) {
     if (!hasBackend()) { hint(PREVIEW_MSG); return null; }
     try {
       const r = await ctx.core.invoke('revert_event_correction', { payload: { gameId: gameId(), correctionId, reason: '' } });
       dropUndo(correctionId);
       hint(doneMsg || 'Reverted.');
-      ctx.reloadBookmarks();
+      await ctx.reloadBookmarks();
       return r || {};
     } catch (err) {
       hint(errText(err), true);
@@ -242,7 +272,9 @@ export function createCorrections(ctx) {
 
   // Delete: a live marker is removed (undoable); a ghost restores; an event the user
   // added is undone (reverting the add deletes its row).
-  async function removeSelected() {
+  function removeSelected() { return trackWrite(performRemoveSelected()); }
+
+  async function performRemoveSelected() {
     const sel = _sel;
     if (!hasBackend()) { hint(PREVIEW_MSG); return; }
     if (sel.ghost || sel.added) {
@@ -257,7 +289,7 @@ export function createCorrections(ctx) {
     if (!r) return;
     pushUndo({ correctionId, key: sel.key, label: `removed ${label}` });
     toast(`Removed ${label}.`, { undo: true });
-    ctx.reloadBookmarks();
+    await ctx.reloadBookmarks();
   }
 
   // [ ] nudge. Presses within NUDGE_FLUSH_MS share one correctionId: the bar moves
@@ -291,7 +323,9 @@ export function createCorrections(ctx) {
     if (_sel && keyOf(bar.dataset) === _sel.key) { _sel.timeS = t; renderSelection(); }
   }
 
-  async function flushNudge() {
+  function flushNudge() { return trackWrite(performNudge()); }
+
+  async function performNudge() {
     const n = _nudge;
     if (!n) return;
     clearTimeout(n.timer);
@@ -304,12 +338,14 @@ export function createCorrections(ctx) {
       pushUndo({ correctionId: n.correctionId, key: n.key, label: `moved ${n.label}` });
       hint(r.message ? `Moved ${sign}${n.total}s. ${r.message}` : `Moved ${sign}${n.total}s.`);
     }
-    ctx.reloadBookmarks(); // success: fresh keys and marks; failure: the bar snaps back
+    await ctx.reloadBookmarks(); // success: fresh keys and marks; failure: the bar snaps back
   }
 
   // Z: revert the newest entry that still does something. An id already reverted from
   // the list answers idempotent and is skipped silently rather than announced.
-  async function undoLast() {
+  function undoLast() { return trackWrite(performUndoLast()); }
+
+  async function performUndoLast() {
     if (!_undo.length) { hint('Nothing to undo.'); return; }
     if (!hasBackend()) { hint(PREVIEW_MSG); return; }
     show($('vp-toast'), false);
@@ -333,26 +369,35 @@ export function createCorrections(ctx) {
   }
 
   // ── form ─────────────────────────────────────────────────────────────────────
-  function openFor(sel) {
+  function revealEditor() {
+    ctx.onRevealEditor?.();
+    const disclosure = $('vp-fix-form')?.closest?.('details');
+    if (disclosure) disclosure.open = true;
+  }
+
+  function openFor(sel, reveal = true) {
+    if (reveal) revealEditor();
     if (!sel) { hint('Click a marker first.'); return; }
     // A ghost has no editable subject: a form still open on the previous event must
     // not stay bound to it (Save would post the ghost as its subject).
     if (sel.ghost) { closeForm(); hint('This event was removed. Press Delete to restore it.'); return; }
     const def = typeDef(sel.type);
     _form = { correctionId: null, op: def && def.attrs.length ? 'attr' : 'retype', attrs: prefillAttrs(eventFor(sel), def) };
-    fillForm(sel.type, sel.timeS, sel.endS);
+    fillForm(sel.type, sel.timeS, sel.endS, reveal);
+    if (reveal) $('vp-fix-op')?.focus();
   }
 
   function openAdd() {
     const v = ctx.video();
-    const t = Math.max(0, Math.floor((v && v.currentTime) || 0));
+    const t = Math.max(0, Math.floor(ctx.currentGameTime?.() ?? ((v && v.currentTime) || 0)));
     _form = { correctionId: null, op: 'add', attrs: {} };
     fillForm(_lastAddType || 'DEATH', t, t);
     const typeSel = $('vp-fix-type');
     if (typeSel) typeSel.focus();
   }
 
-  function fillForm(type, startS, endS) {
+  function fillForm(type, startS, endS, reveal = true) {
+    if (reveal) revealEditor();
     const op = $('vp-fix-op');
     if (op) op.value = _form.op;
     renderTypeOptions($('vp-fix-type'), catalog(), String(type || '').toUpperCase(), clear);
@@ -367,6 +412,43 @@ export function createCorrections(ctx) {
   function closeForm() {
     _form = null;
     show($('vp-fix-form'), false);
+  }
+
+  function captureState() {
+    return {
+      schema: 1, gameId: gameId(),
+      selection: _sel ? { eventKey: _sel.eventKey, id: _sel.id } : null,
+      form: _form ? {
+        correctionId: _form.correctionId, op: _form.op, attrs: { ..._form.attrs },
+        type: $('vp-fix-type')?.value || '', start: $('vp-fix-start')?.value || '',
+        end: $('vp-fix-end')?.value || '', reason: $('vp-fix-reason')?.value || '',
+      } : null,
+    };
+  }
+
+  function restoreState(state) {
+    if (!state || state.schema !== 1 || state.gameId !== gameId()) return false;
+    // Resolve against fresh events, not the saved event's old type/time. A
+    // removed or replaced subject must never silently retarget a draft write.
+    const saved = state.selection;
+    const event = saved && (vod().gameEvents || []).find(item => saved.eventKey
+      ? item.eventKey === saved.eventKey : Number(item.id) > 0 && Number(item.id) === saved.id);
+    select(event ? fromEvent(event) : null);
+    const form = state.form;
+    if (!form) return true;
+    if (!['retype', 'retime', 'attr', 'confirm', 'remove', 'add'].includes(form.op)) return false;
+    if (form.op !== 'add' && (!_sel || _sel.ghost)) return false;
+    if (!typeDef(form.type) && form.type !== _sel?.type) return false;
+    _form = {
+      correctionId: typeof form.correctionId === 'string' ? form.correctionId : null,
+      op: form.op,
+      attrs: form.attrs && typeof form.attrs === 'object' && !Array.isArray(form.attrs) ? { ...form.attrs } : {},
+    };
+    fillForm(form.type, 0, 0);
+    for (const [id, value] of [['vp-fix-start', form.start], ['vp-fix-end', form.end], ['vp-fix-reason', form.reason]]) {
+      if ($(id) && typeof value === 'string') $(id).value = value;
+    }
+    return true;
   }
 
   // Which fields an op needs: type for retype/add, time for retime/add (end only for
@@ -431,23 +513,37 @@ export function createCorrections(ctx) {
     return req;
   }
 
-  async function saveFromForm() {
+  function saveFromForm() {
+    // Enter in a text field must obey the same busy state as the Save button.
+    if (_formWrite) return _formWrite;
+    const write = trackWrite(performFormSave());
+    _formWrite = write;
+    write.then(() => { _formWrite = null; }, () => { _formWrite = null; });
+    return write;
+  }
+
+  async function performFormSave() {
     if (!_form) return;
     const req = buildRequest();
     if (!req) return;
     if (!hasBackend()) { hint(PREVIEW_MSG); return; }
+    const submittedForm = _form, submittedDraft = JSON.stringify(captureState().form);
+    const what = req.op === 'add' ? labelOf(req.patch.eventType) : (_sel.label || labelOf(_sel.type));
+    const subjectKey = _sel?.key;
     const btn = $('vp-fix-save');
     if (btn) btn.disabled = true;
     try {
       const r = await post(req);
       if (!r) return;
-      const what = req.op === 'add' ? labelOf(req.patch.eventType) : (_sel.label || labelOf(_sel.type));
-      const key = req.op === 'add' ? (r.eventKey || 'usr:' + req.correctionId) : _sel.key;
+      const key = req.op === 'add' ? (r.eventKey || 'usr:' + req.correctionId) : subjectKey;
       pushUndo({ correctionId: req.correctionId, key, label: `${req.op} ${what}` });
       if (req.op === 'add') _lastAddType = req.patch.eventType;
       hint(r.message ? `Saved. ${r.message}` : 'Saved.');
-      closeForm();
-      ctx.reloadBookmarks();
+      if (_form === submittedForm) {
+        if (JSON.stringify(captureState().form) === submittedDraft) closeForm();
+        else _form.correctionId = null; // newer edits are a new save, not a retry of the committed one
+      }
+      await ctx.reloadBookmarks();
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -455,7 +551,7 @@ export function createCorrections(ctx) {
 
   function usePlayhead() {
     const v = ctx.video();
-    const t = Math.max(0, Math.floor((v && v.currentTime) || 0));
+    const t = Math.max(0, Math.floor(ctx.currentGameTime?.() ?? ((v && v.currentTime) || 0)));
     $('vp-fix-start').value = clock(t);
     const endS = parseClock($('vp-fix-end').value);
     if (!Number.isFinite(endS) || endS <= t) $('vp-fix-end').value = clock(t);
@@ -463,6 +559,7 @@ export function createCorrections(ctx) {
 
   // The stepper's Fix button: the marker the playhead is on (or just passed).
   function fixCurrentMarker() {
+    revealEditor();
     const m = ctx.currentMarker ? ctx.currentMarker() : null;
     const e = m && (vod().gameEvents || []).find((x) =>
       (m.key && x.eventKey === m.key) || (!m.key && m.id != null && Number(x.id) === Number(m.id)));
@@ -547,5 +644,6 @@ export function createCorrections(ctx) {
     });
   }
 
-  return { renderPanel, decorateBar, appendGhosts, handleKey, select, openFor, clearSelection };
+  return { renderPanel, decorateBar, appendGhosts, handleKey, select, selectEvent, openFor, clearSelection,
+    captureState, restoreState, flushPending };
 }

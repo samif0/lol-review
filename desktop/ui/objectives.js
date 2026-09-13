@@ -1,42 +1,21 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke } from './platform/index.mjs';
+import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel, objectiveMetaText } from './objective-labels.mjs';
+
 // Revu desktop — Objectives page renderer for the glass-aurora layout.
-// Renders the JSON returned by the Tauri command `get_objectives`.
+// Renders the JSON returned by the Electron command `get_objectives`.
 // All server-supplied strings are written via textContent (never innerHTML)
 // to keep the surface XSS-free. Colors arrive as *Hex strings and are applied
 // to style/stroke properties only.
 
 // ── invoke resolver ────────────────────────────────────────────────────────
-// Prefer the official @tauri-apps/api/core import; fall back to the global the
-// Tauri webview injects. In a plain browser (no Tauri) both are absent and we
-// fall through to a local sample JSON so the page previews standalone.
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
+// Platform commands are available only in an active desktop host. Browser
+// previews use the existing sample JSON.
 
-const isTauri = () => typeof window.__TAURI__ !== 'undefined';
+
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 
 const RING_SMALL = 150.8; // 2·π·r, r=24 (active cards)
 const RING_LARGE = 251.3; // 2·π·r, r=40 (priority pane)
@@ -45,10 +24,10 @@ const DEFAULT_PROG = '#9d8bff';
 
 // Mastery ladder steps — Exploring 0 → Drilling 15 → Ingraining 30 → Ready 50.
 const LADDER = [
-  { name: 'EXPLORING', at: 0 },
-  { name: 'DRILLING', at: 15 },
-  { name: 'INGRAINING', at: 30 },
-  { name: 'READY', at: 50 },
+  { name: 'Exploring', at: 0 },
+  { name: 'Drilling', at: 15 },
+  { name: 'Ingraining', at: 30 },
+  { name: 'Ready', at: 50 },
 ];
 
 // Score at which an objective is "Ready" — gates Complete vs Complete-Early.
@@ -102,15 +81,7 @@ const FALLBACK_EVENT_TOKENS = [
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchObjectives() {
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
-  // bundled sample only when invoke is genuinely unavailable (browser preview).
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_objectives');
-  }
-  const res = await fetch('./sample-objectives.json');
-  if (!res.ok) throw new Error(`sample-objectives.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_objectives', 'sample-objectives.json');
 }
 
 // ── ring drawing (shared) ───────────────────────────────────────────────────
@@ -170,7 +141,7 @@ function sparkPoints(history) {
 function fillGate(gateEl, valEl, obj) {
   const scoped = Array.isArray(obj.champions) && obj.champions.length > 0;
   show(gateEl, scoped);
-  if (scoped) valEl.textContent = obj.championsSummary || obj.champions.join(', ');
+  if (scoped) valEl.textContent = obj.champions.join(', ');
 }
 
 // ── measured criterion + hit-rate chip ───────────────────────────────────────
@@ -189,7 +160,7 @@ function fillCriteria(card, o) {
 
   const hasHit = !!(o.hasStructuredCriteria && o.criteriaHitRateText);
   if (hasHit) {
-    hitEl.textContent = o.criteriaHitRateText;
+    hitEl.textContent = objectiveDisplayText(o.criteriaHitRateText);
     if (o.criteriaHitRateHex) hitEl.style.color = o.criteriaHitRateHex;
   }
   show(hitEl, hasHit);
@@ -219,10 +190,10 @@ function renderHeader(d) {
   const completed = Array.isArray(d.completedObjectives) ? d.completedObjectives : [];
   const parts = [];
   if (!d.hasObjectives) {
-    parts.push('No objectives yet.');
+    parts.push('No learning objectives yet.');
   } else {
     const n = active.length;
-    parts.push(n === 0 ? 'No active objectives.' : `${n} active objective${n === 1 ? '' : 's'}.`);
+    parts.push(n === 0 ? 'No active learning objectives.' : `${n} active learning objective${n === 1 ? '' : 's'}.`);
     const priority = active.find((o) => o.isPriority);
     if (priority) parts.push(`Priority: ${priority.title}`);
     else if (completed.length) parts.push(`${completed.length} completed`);
@@ -255,7 +226,7 @@ function renderFocus(d) {
     if (o.id != null) el.dataset.objId = String(o.id);
     el.querySelector('.obj-mini-name').textContent = o.title || '';
     el.querySelector('.obj-mini-prog').textContent =
-      o.focusProgressText || `${o.gameCount} of ${o.targetGameCount} games`;
+      objectiveDisplayText(o.focusProgressText || `${o.gameCount} of ${o.targetGameCount} games`);
     const fill = el.querySelector('.obj-mini-fill');
     const p = Math.max(0, Math.min(1, Number(o.progress) || 0));
     fill.style.width = `${Math.round(p * 100)}%`;
@@ -302,12 +273,11 @@ function renderObjectives(d) {
     show(el.querySelector('.obj-card-pri'), !!o.isPriority);
 
     const typeEl = el.querySelector('.obj-card-type');
-    typeEl.textContent = (o.type || '').toUpperCase();
+    typeEl.textContent = objectiveTypeLabel(o);
     typeEl.classList.add(typeClass(o));
 
     el.querySelector('.obj-card-name').textContent = o.title || '';
-    el.querySelector('.obj-card-meta').textContent =
-      o.metaText || [o.levelName, o.phaseLabel, `${o.score} PTS`].filter(Boolean).join(' · ').toUpperCase();
+    el.querySelector('.obj-card-meta').textContent = objectiveMetaText(o);
 
     fillCriteria(el, o);
     fillSpark(el.querySelector('.obj-card-spark'), o);
@@ -348,10 +318,10 @@ function fillMastery(card, o) {
     fill.classList.toggle('is-met', !!o.masteryMet);
   }
   const textEl = wrap.querySelector('.obj-mastery-text');
-  if (textEl) textEl.textContent = o.masteryText || '';
+  if (textEl) textEl.textContent = objectiveDisplayText(o.masteryText);
   const gateEl = wrap.querySelector('.obj-mastery-gate');
   if (gateEl) {
-    gateEl.textContent = o.masteryMet ? '' : (o.masteryGateText || '');
+    gateEl.textContent = o.masteryMet ? '' : objectiveDisplayText(o.masteryGateText);
     show(gateEl, !o.masteryMet && !!o.masteryGateText);
   }
 }
@@ -417,16 +387,18 @@ function renderCompleted(d) {
     // id is needed so the row's Edit / Games / Notes / Delete actions resolve.
     if (c.id != null) el.dataset.objId = String(c.id);
     el.querySelector('.obj-done-name').textContent = c.title || '';
-    el.querySelector('.obj-done-phase').textContent = (c.phaseLabel || '').toUpperCase();
+    el.querySelector('.obj-done-phase').textContent = objectivePhaseLabel(c.phaseLabel);
     el.querySelector('.obj-done-sum').textContent =
-      c.summaryText || `${c.score} pts · ${c.gameCount} games`;
+      objectiveDisplayText(c.summaryText || `${c.score} points · ${c.gameCount} games`);
     host.appendChild(el);
   }
 }
 
 // ── empty state ─────────────────────────────────────────────────────────────
 function renderEmpty(d) {
-  show($('empty'), !d.hasObjectives);
+  const formOpen = !$('obj-form').hidden;
+  show($('empty'), !d.hasObjectives && !formOpen);
+  $('new-objective').disabled = formOpen;
 }
 
 // ── error panel ─────────────────────────────────────────────────────────────
@@ -537,7 +509,7 @@ function fillMetricOptions() {
   for (const m of _criteriaMetrics) {
     const opt = document.createElement('option');
     opt.value = String(m.index);
-    opt.textContent = m.label;
+    opt.textContent = Number(m.index) === 0 ? 'No automatic measurement' : m.label;
     sel.appendChild(opt);
   }
 }
@@ -694,6 +666,7 @@ function setFormError(msg) { const e = $('form-err'); e.textContent = msg; show(
 
 // Reset every editor field to its create-form default (mirrors ResetFormFields).
 function resetFormFields() {
+  $('obj-options').open = false;
   setVal('f-title', ''); setVal('f-skill', ''); setVal('f-criteria', '');
   setVal('f-desc', ''); setVal('f-target', '3');
   $('f-type').value = 'primary';
@@ -717,6 +690,8 @@ function revealForm() {
   clearFormError();
   syncTargetVisibility();
   show($('obj-form'), true);
+  show($('empty'), false);
+  $('new-objective').disabled = true;
   $('obj-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('f-title').focus();
 }
@@ -734,8 +709,8 @@ function openCreateForm() {
       _eventTypeOptions = _lastData.eventTypeOptions;
     }
   }
-  $('form-title').textContent = 'New Objective';
-  $('form-submit').textContent = 'Create';
+  $('form-title').textContent = 'New learning objective';
+  $('form-submit').textContent = 'Create learning objective';
   resetFormFields();
   revealForm();
 }
@@ -757,13 +732,13 @@ async function openEditForm(id) {
     // Surface on the always-visible statusline (the form is still closed, so its
     // own #form-err wouldn't show). Non-destructive: the objective is left intact.
     const statusB = document.querySelector('#statusline b');
-    if (statusB) statusB.textContent = "Couldn't load that objective to edit — try again.";
+    if (statusB) statusB.textContent = "Couldn't load that learning objective to edit — try again.";
     return;
   }
 
   _editId = Number(id);
-  $('form-title').textContent = 'Edit Objective';
-  $('form-submit').textContent = 'Save Changes';
+  $('form-title').textContent = 'Edit learning objective';
+  $('form-submit').textContent = 'Save changes';
   resetFormFields();
   revealForm();
 
@@ -813,6 +788,9 @@ async function openEditForm(id) {
   _eventTypes = Array.isArray(o.eventTypes) ? o.eventTypes.map((t) => String(t).toUpperCase()) : [];
   renderEventPicker();
 
+  // Make existing configuration discoverable during edits; collapsed fields still
+  // participate in the same complete save payload.
+  $('obj-options').open = true;
   $('f-title').focus();
 }
 
@@ -842,15 +820,7 @@ function applyPhases(o) {
 // on) or null. Falls back to the bundled sample in browser preview.
 async function fetchObjectiveForEdit(id) {
   try {
-    const invoke = await getInvoke();
-    let res;
-    if (invoke) {
-      res = await invoke('get_objective', { id: Number(id) });
-    } else {
-      const r = await fetch('./sample-objective.json');
-      if (!r.ok) throw new Error(`sample-objective.json ${r.status}`);
-      res = await r.json();
-    }
+    const res = await readSnapshot('get_objective', 'sample-objective.json', { id: Number(id) });
     if (!res || !res.objective) return null;
     const obj = res.objective;
     obj.criteriaMetrics = Array.isArray(res.criteriaMetrics) ? res.criteriaMetrics : null;
@@ -866,6 +836,8 @@ function closeForm() {
   _editId = null;
   clearFormError();
   show($('obj-form'), false);
+  $('new-objective').disabled = false;
+  if (_lastData) renderEmpty(_lastData);
 }
 
 // Assemble the create/update payload from the form. Returns null (+ inline error)
@@ -874,7 +846,9 @@ function readFormPayload() {
   const title = getVal('f-title');
   if (!title) { setFormError('Title is required.'); $('f-title').focus(); return null; }
   if (!getChecked('f-pre') && !getChecked('f-in') && !getChecked('f-post')) {
-    setFormError('Pick at least one practice phase (Pre / In / Post).');
+    $('obj-options').open = true;
+    setFormError('Choose when to practice: before, during, or after the game.');
+    $('f-pre').focus();
     return null;
   }
   const type = $('f-type').value;
@@ -937,6 +911,7 @@ function applyFirstReviewTutorialDefaults() {
   renderChampChips();
   _eventTypes = ['DEATH'];
   renderEventPicker();
+  $('obj-options').open = true;
   $('f-title')?.focus();
 }
 
@@ -947,7 +922,7 @@ async function submitForm(submitBtn) {
 
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info('[objectives] (preview) submit — no Tauri backend.');
+    console.info('[objectives] (preview) submit — no Electron backend.');
     closeForm();
     return;
   }
@@ -981,7 +956,7 @@ function showCelebration(obj) {
   if (!obj) return;
   $('celebrate-title').textContent = obj.title || '';
   const games = Number(obj.gameCount) || 0;
-  $('celebrate-stats').textContent = `${Number(obj.score) || 0} pts  •  ${games} games played`;
+  $('celebrate-stats').textContent = `${Number(obj.score) || 0} points · ${games} games played`;
   show($('celebrate'), true);
   if (_celebrateTimer) clearTimeout(_celebrateTimer);
   _celebrateTimer = setTimeout(dismissCelebration, 5000);
@@ -995,7 +970,7 @@ function dismissCelebration() {
 // No ContentDialog here — a native confirm() matches the desktop shell's simple
 // surfaces and keeps the destructive op gated behind an explicit yes.
 function confirmDeleteObjective(obj) {
-  const title = (obj && obj.title) ? `"${obj.title}"` : 'this objective';
+  const title = (obj && obj.title) ? `"${obj.title}"` : 'this learning objective';
   return window.confirm(`Delete ${title}? This also removes its prompts, notes and game links. This can't be undone.`);
 }
 
@@ -1091,7 +1066,7 @@ document.addEventListener('click', async (ev) => {
     const obj = objectiveById(objId);
     if (!confirmDeleteObjective(obj)) return;
     const invokeDel = await getInvoke();
-    if (!invokeDel) { console.info('[objectives] (preview) delete — no Tauri backend.'); return; }
+    if (!invokeDel) { console.info('[objectives] (preview) delete — no Electron backend.'); return; }
     if ('disabled' in target) target.disabled = true;
     try {
       await invokeDel('delete_objective', { payload: { id: Number(objId) } });
@@ -1111,7 +1086,7 @@ document.addEventListener('click', async (ev) => {
     if (objId == null) return;
     const obj = objectiveById(objId);
     const invokeC = await getInvoke();
-    if (!invokeC) { console.info('[objectives] (preview) complete — no Tauri backend.'); return; }
+    if (!invokeC) { console.info('[objectives] (preview) complete — no Electron backend.'); return; }
     if ('disabled' in target) target.disabled = true;
     try {
       await invokeC('complete_objective', { payload: { id: Number(objId) } });
@@ -1129,7 +1104,7 @@ document.addEventListener('click', async (ev) => {
   const invoke = await getInvoke();
   if (!invoke) {
     // Browser preview: no backend to talk to. Acknowledge in the console.
-    console.info(`[objectives] (preview) action "${action}" — no Tauri backend.`);
+    console.info(`[objectives] (preview) action "${action}" — no Electron backend.`);
     return;
   }
 

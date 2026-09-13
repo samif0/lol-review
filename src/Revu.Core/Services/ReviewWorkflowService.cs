@@ -12,7 +12,6 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
     private readonly IGameRepository _gameRepository;
     private readonly IConceptTagRepository _conceptTagRepository;
     private readonly IVodRepository _vodRepository;
-    private readonly IVodService _vodService;
     private readonly ISessionLogRepository _sessionLogRepository;
     private readonly IObjectivesRepository _objectivesRepository;
     private readonly IReviewDraftRepository _reviewDraftRepository;
@@ -26,7 +25,6 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         IGameRepository gameRepository,
         IConceptTagRepository conceptTagRepository,
         IVodRepository vodRepository,
-        IVodService vodService,
         ISessionLogRepository sessionLogRepository,
         IObjectivesRepository objectivesRepository,
         IReviewDraftRepository reviewDraftRepository,
@@ -39,7 +37,6 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         _gameRepository = gameRepository;
         _conceptTagRepository = conceptTagRepository;
         _vodRepository = vodRepository;
-        _vodService = vodService;
         _sessionLogRepository = sessionLogRepository;
         _objectivesRepository = objectivesRepository;
         _reviewDraftRepository = reviewDraftRepository;
@@ -94,18 +91,6 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         }
 
         var vod = await _vodRepository.GetVodAsync(gameId);
-        if (vod is null && _configService.IsAscentEnabled)
-        {
-            try
-            {
-                await _vodService.TryLinkRecordingAsync(game);
-                vod = await _vodRepository.GetVodAsync(gameId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "VOD lookup retry failed for game {GameId}", gameId);
-            }
-        }
 
         var snapshot = BuildInitialSnapshot(game, sessionEntry, savedNoteForGame, selectedTagIds, savedObjectives);
         var draft = await _reviewDraftRepository.GetAsync(gameId);
@@ -170,18 +155,6 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         }
 
         var vod = await _vodRepository.GetVodAsync(gameId);
-        if (vod is null && _configService.IsAscentEnabled)
-        {
-            try
-            {
-                await _vodService.TryLinkRecordingAsync(game);
-                vod = await _vodRepository.GetVodAsync(gameId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "VOD re-check failed for game {GameId}", gameId);
-            }
-        }
 
         var bookmarkCount = vod is null ? 0 : await _vodRepository.GetBookmarkCountAsync(gameId);
         return new VodCheckResult(vod is not null, bookmarkCount);

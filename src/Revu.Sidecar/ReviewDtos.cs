@@ -6,7 +6,7 @@ namespace Revu.Sidecar;
 // Response DTOs for GET /api/review.
 //
 // Mirrors the WinUI ReviewViewModel's display shape for ONE game WITHOUT any
-// XAML/WinUI types — no SolidColorBrush, only *Hex strings the Tauri frontend
+// XAML/WinUI types — no SolidColorBrush, only *Hex strings the desktop renderer
 // resolves itself. Property names are PascalCase here; the serializer is
 // configured with JsonNamingPolicy.CamelCase in Program.cs, so the wire shape
 // is camelCase and matches desktop/ui/sample-review.json verbatim.

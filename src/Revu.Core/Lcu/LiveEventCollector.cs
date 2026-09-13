@@ -11,12 +11,16 @@ namespace Revu.Core.Lcu;
 /// Polls the Live Client Data API during a game to collect events.
 /// Ported from Python LiveEventCollector class in live_events.py.
 /// </summary>
-public sealed class LiveEventCollector
+public sealed class LiveEventCollector : Services.EventProcessing.IObservationSource
 {
+    public Services.EventProcessing.SourceCapabilities Capabilities => Services.EventProcessing.LiveProcessingCatalog.LiveSource;
     private readonly ILiveEventApi _liveEventApi;
     private readonly ILogger _logger;
     private readonly TimeSpan _pollInterval;       // fast HP-sample cadence (~1s)
     private readonly TimeSpan _eventPollInterval;  // slow kill-feed event-stream cadence (~10s)
+    private readonly Services.EventProcessing.ProcessingSession? _processing;
+    private long _observationSequence;
+    public Services.EventProcessing.ProcessingReport? ProcessingReport { get; private set; }
 
     private readonly List<JsonElement> _rawEvents = [];
     private string? _playerName;
@@ -186,10 +190,12 @@ public sealed class LiveEventCollector
         ILiveEventApi liveEventApi,
         ILogger logger,
         TimeSpan? pollInterval = null,
-        TimeSpan? eventPollInterval = null)
+        TimeSpan? eventPollInterval = null,
+        Services.EventProcessing.ProcessingSession? processing = null)
     {
         _liveEventApi = liveEventApi;
         _logger = logger;
+        _processing = processing;
         // pollInterval is the fast HP-SAMPLE cadence (default 1s) — it drives trade/recall
         // timing precision. The kill-feed event stream is polled on the slower
         // eventPollInterval (default 10s); the HP loop triggers it when due.
@@ -294,7 +300,8 @@ public sealed class LiveEventCollector
                     await CaptureRosterAsync(ct).ConfigureAwait(false);
                     nextEventPoll = elapsed + _eventPollInterval;
                 }
-                await SampleHpAsync(ct).ConfigureAwait(false);
+                if (_processing is null || _processing.SamplingPlan.ContainsKey(Services.EventProcessing.LiveProcessingCatalog.HealthKind))
+                    await SampleHpAsync(ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -328,9 +335,10 @@ public sealed class LiveEventCollector
         // Final poll to get any remaining events + one last HP sample (short timeout).
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
             await PollEventStreamAsync(cts.Token).ConfigureAwait(false);
-            await SampleHpAsync(cts.Token).ConfigureAwait(false);
+            if (_processing is null)
+                await SampleHpAsync(cts.Token).ConfigureAwait(false);
         }
         catch
         {
@@ -339,16 +347,19 @@ public sealed class LiveEventCollector
 
         // A dip still open at game end (HP never recovered before the last poll, e.g.
         // game ended mid-fight) still emits if it cleared the threshold.
-        FlushOpenTrade();
+        if (_processing is null) FlushOpenTrade();
+        if (_processing is not null)
+            ProcessingReport = await _processing.CompleteAsync().ConfigureAwait(false);
 
         if (_rawEvents.Count == 0 && _summonerSpellEvents.Count == 0
-            && _recallEvents.Count == 0 && _tradeEvents.Count == 0)
+            && _recallEvents.Count == 0 && _tradeEvents.Count == 0 && ProcessingReport?.Events.Count is not > 0)
         {
             _logger.LogInformation("No live events collected");
             return [];
         }
 
         var events = ParseLiveEvents(_rawEvents, _playerName ?? "");
+        if (ProcessingReport is { Shadow: false }) events.AddRange(ProcessingReport.Events);
 
         // v2.17.7 / v3.0.18 / v3.1.8: merge the synthesised summoner-spell casts and
         // derived recall + trade events in chronological order alongside the parsed
@@ -378,8 +389,15 @@ public sealed class LiveEventCollector
         var raw = await _liveEventApi.FetchEventsAsync(ct).ConfigureAwait(false);
         if (raw is not null)
         {
+            var before = _rawEvents.Count;
             AppendNewRawEvents(_rawEvents, raw);
+            if (_processing is not null)
+                foreach (var item in _rawEvents.Skip(before))
+                    foreach (var parsed in ParseLiveEvents([item], _playerName ?? ""))
+                        PublishObservation(Services.EventProcessing.LiveProcessingCatalog.FeedKind, parsed.GameTimeS,
+                            TimeSpan.Zero, new Services.EventProcessing.FeedEvent(parsed.EventType, parsed.Details));
         }
+        else _processing?.ReportGap(Services.EventProcessing.LiveProcessingCatalog.FeedKind, "Event source unavailable");
     }
 
     /// <summary>
@@ -431,11 +449,19 @@ public sealed class LiveEventCollector
                 CheckSummonerSpellCasts(el, t);
                 CheckRecall(el, t);
                 CheckRecallByRestore(el, t);
-                CheckTrade(el, t);
+                if (_processing is null) CheckTrade(el, t);
+                if (_processing is not null && el.TryGetProperty("championStats", out var championStats)
+                    && championStats.TryGetProperty("currentHealth", out var hp) && hp.TryGetDouble(out var currentHp)
+                    && championStats.TryGetProperty("maxHealth", out var maxHp) && maxHp.TryGetDouble(out var maximumHp))
+                    PublishObservation(Services.EventProcessing.LiveProcessingCatalog.HealthKind, t,
+                        gameStats is null ? TimeSpan.FromDays(1) : TimeSpan.FromSeconds(1),
+                        new Services.EventProcessing.PlayerHealth(currentHp, maximumHp));
+                else _processing?.ReportGap(Services.EventProcessing.LiveProcessingCatalog.HealthKind, "Health payload incompatible");
                 // If CheckTrade staged a dip close, finalize it now — this refreshes the
                 // kill-feed first so the death guard isn't fooled by a stale buffer.
                 await FinalizePendingTradeAsync(ct).ConfigureAwait(false);
             }
+            else _processing?.ReportGap(Services.EventProcessing.LiveProcessingCatalog.HealthKind, "Health source unavailable");
         }
         catch (OperationCanceledException)
         {
@@ -444,8 +470,15 @@ public sealed class LiveEventCollector
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Active-player snapshot fetch failed");
+            _processing?.ReportGap(Services.EventProcessing.LiveProcessingCatalog.HealthKind, "Health sampling failed");
         }
     }
+
+    private void PublishObservation(string kind, int seconds, TimeSpan uncertainty,
+        Services.EventProcessing.IObservationPayload payload) => _processing?.Publish(new(
+            $"live:{Interlocked.Increment(ref _observationSequence)}", Services.EventProcessing.LiveProcessingCatalog.SourceId,
+            1, kind, 1, _playerName ?? "", TimeSpan.FromSeconds(seconds), DateTimeOffset.UtcNow,
+            uncertainty, !string.IsNullOrWhiteSpace(_playerName), payload));
 
     /// <summary>
     /// Resolve the current game-time-in-seconds for anchoring a derived event.

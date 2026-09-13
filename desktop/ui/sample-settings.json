@@ -1,8 +1,6 @@
 {
-  "ascentFolder": "C:\\Users\\you\\Videos\\Ascent",
-  "ascentReminderDismissed": false,
-  "isAscentEnabled": true,
-  "clipsFolder": "C:\\Users\\you\\Videos\\Ascent\\clips",
+  "ascentFolder": "",
+  "clipsFolder": "C:\\Users\\you\\Videos\\Revu\\clips",
   "clipsMaxSizeMb": 2048,
   "backupEnabled": true,
   "backupFolder": "",

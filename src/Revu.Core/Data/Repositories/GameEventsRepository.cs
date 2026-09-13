@@ -21,6 +21,27 @@ public sealed class GameEventsRepository : IGameEventsRepository
 
     public GameEventsRepository(IDbConnectionFactory factory) => _factory = factory;
 
+    public async Task<Services.EventProcessing.ProcessingReport?> GetProcessingReportAsync(long gameId)
+    {
+        using var conn = _factory.CreateConnection();
+        using var command = conn.CreateCommand();
+        command.CommandText = "SELECT report_json FROM event_processing_reports WHERE game_id=@game";
+        command.Parameters.AddWithValue("@game", gameId);
+        var json = await command.ExecuteScalarAsync() as string;
+        return json is null ? null : System.Text.Json.JsonSerializer.Deserialize<Services.EventProcessing.ProcessingReport>(json);
+    }
+
+    public async Task SaveProcessingReportAsync(long gameId, Services.EventProcessing.ProcessingReport report)
+    {
+        using var conn = _factory.CreateConnection();
+        using var command = conn.CreateCommand();
+        command.CommandText = "INSERT INTO event_processing_reports(game_id, report_json) VALUES (@game, @report) "
+            + "ON CONFLICT(game_id) DO UPDATE SET report_json = excluded.report_json";
+        command.Parameters.AddWithValue("@game", gameId);
+        command.Parameters.AddWithValue("@report", System.Text.Json.JsonSerializer.Serialize(report));
+        await command.ExecuteNonQueryAsync();
+    }
+
     public async Task SaveEventsAsync(long gameId, IReadOnlyList<GameEvent> events)
     {
         using var conn = _factory.CreateConnection();

@@ -12,7 +12,7 @@ namespace Revu.Sidecar.Tests;
 ///
 /// The sidecar handler is a read-modify-write loop:
 ///   var cfg = await Config.LoadAsync();
-///   if (ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var a)) cfg.AscentFolder = a;
+///   if (ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var c)) cfg.ClipsFolder = c;
 ///   ... (clips/backup folders, riot id/region via TryResolveTextWrite) ...
 ///   await Config.SaveAsync(cfg);
 /// so the contract under test is the COMPOSITION of (1) the ConfigSaveGuards empty-as-
@@ -34,16 +34,32 @@ public sealed class ConfigSaveContractTests
     // ── (A) P-020 / P-023 empty-string-overwrite guards ───────────────────────
 
     [Fact]
+    public async Task AscentFolderSaveSurvivesBlankAndPartialSavesAndDisconnectOnlyClearsFolder()
+    {
+        using var scope = new TempConfigScope();
+        var service = CreateService(scope.ConfigPath, new FakeProtectedSecretStore());
+        await ApplySaveConfig(service, ascentFolder: @"C:\Ascent", clipsFolder: @"C:\Clips", riotId: "test#player");
+        await ApplySaveConfig(service, ascentFolder: " ", clipsMaxSizeMb: 4096);
+        Assert.Equal(@"C:\Ascent", (await service.LoadAsync()).AscentFolder);
+        var snapshot = await new ConfigSnapshotBuilder(service, NullLogger<ConfigSnapshotBuilder>.Instance).BuildAsync();
+        Assert.Equal(@"C:\Ascent", snapshot.AscentFolder);
+        await ApplySaveConfig(service, ascentFolder: ConfigSaveGuards.FolderClearSentinel);
+        var disconnected = await service.LoadAsync();
+        Assert.Equal("", disconnected.AscentFolder);
+        Assert.Equal(@"C:\Clips", disconnected.ClipsFolder);
+        Assert.Equal("test#player", disconnected.RiotId);
+    }
+
+    [Fact]
     public async Task SaveConfig_EmptyFolderField_DoesNotBlankConfiguredFolders()
     {
         using var scope = new TempConfigScope();
         var secrets = new FakeProtectedSecretStore();
         var service = CreateService(scope.ConfigPath, secrets);
 
-        // First save: user configured all three folders.
+        // First save: user configured both folders.
         await ApplySaveConfig(
             service,
-            ascentFolder: @"C:\Users\me\Videos\Ascent",
             clipsFolder: @"C:\Users\me\Videos\Clips",
             backupFolder: @"C:\Users\me\Backups");
 
@@ -51,13 +67,11 @@ public sealed class ConfigSaveContractTests
         // an unrelated toggle changes. This is the exact P-023 trigger.
         await ApplySaveConfig(
             service,
-            ascentFolder: "",
             clipsFolder: "",
             backupFolder: "",
             tiltFixMode: true);
 
         var reloaded = await service.LoadAsync();
-        Assert.Equal(@"C:\Users\me\Videos\Ascent", reloaded.AscentFolder);
         Assert.Equal(@"C:\Users\me\Videos\Clips", reloaded.ClipsFolder);
         Assert.Equal(@"C:\Users\me\Backups", reloaded.BackupFolder);
         Assert.True(reloaded.TiltFixMode); // the field that actually changed DID save
@@ -72,21 +86,18 @@ public sealed class ConfigSaveContractTests
 
         await ApplySaveConfig(
             service,
-            ascentFolder: @"C:\Users\me\Videos\Ascent",
             clipsFolder: @"C:\Users\me\Videos\Clips",
             backupFolder: @"C:\Users\me\Backups");
 
-        // User pressed Clear on Ascent only; clips/backup inputs were empty (unchanged).
+        // User pressed Clear on backup only; the clips input was empty (unchanged).
         await ApplySaveConfig(
             service,
-            ascentFolder: ConfigSaveGuards.FolderClearSentinel,
             clipsFolder: "",
-            backupFolder: "");
+            backupFolder: ConfigSaveGuards.FolderClearSentinel);
 
         var reloaded = await service.LoadAsync();
-        Assert.Equal("", reloaded.AscentFolder); // explicitly cleared
         Assert.Equal(@"C:\Users\me\Videos\Clips", reloaded.ClipsFolder); // untouched
-        Assert.Equal(@"C:\Users\me\Backups", reloaded.BackupFolder); // untouched
+        Assert.Equal("", reloaded.BackupFolder); // explicitly cleared
     }
 
     [Theory]
@@ -245,7 +256,7 @@ public sealed class ConfigSaveContractTests
         // Full first save.
         await ApplySaveConfig(
             service,
-            ascentFolder: @"C:\Ascent",
+            backupFolder: @"C:\Backups",
             clipsFolder: @"C:\Clips",
             riotId: "chapy#na1",
             region: "na1",
@@ -257,7 +268,7 @@ public sealed class ConfigSaveContractTests
         await ApplySaveConfig(service, clipsMaxSizeMb: 4096);
 
         var reloaded = await service.LoadAsync();
-        Assert.Equal(@"C:\Ascent", reloaded.AscentFolder);
+        Assert.Equal(@"C:\Backups", reloaded.BackupFolder);
         Assert.Equal(@"C:\Clips", reloaded.ClipsFolder);
         Assert.Equal("chapy#na1", reloaded.RiotId);
         Assert.Equal("na1", reloaded.RiotRegion);
@@ -338,7 +349,6 @@ public sealed class ConfigSaveContractTests
     /// </summary>
     private static async Task ApplySaveConfig(
         ConfigService service,
-        string? ascentFolder = null,
         string? clipsFolder = null,
         string? backupFolder = null,
         int? clipsMaxSizeMb = null,
@@ -354,7 +364,8 @@ public sealed class ConfigSaveContractTests
         bool? firstReviewTutorialDismissed = null,
         long? firstReviewTutorialObjectiveId = null,
         long? firstReviewTutorialGameId = null,
-        string? windowResolution = null)
+        string? windowResolution = null,
+        string? ascentFolder = null)
     {
         var cfg = await service.LoadAsync();
 

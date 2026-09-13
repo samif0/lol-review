@@ -16,10 +16,7 @@ const pageInputs = Object.fromEntries(
     .map((f) => [f.replace(/\.html$/, ''), resolve(uiDir, f)]),
 );
 
-// Serve the static UI in desktop/ui/. NOTE: `tauri dev` serves frontendDist
-// (../ui) statically — tauri.conf.json has no devUrl, so this dev server is a
-// browser-preview convenience only, not wired into `tauri dev`. Production
-// builds embed ../ui directly (frontendDist is read at compile time).
+// Browser preview and compile validation share the pages served by Electron.
 export default defineConfig({
   root: 'ui',
   server: {

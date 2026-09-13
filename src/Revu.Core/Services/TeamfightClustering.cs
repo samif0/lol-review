@@ -35,15 +35,8 @@ public sealed record TeamfightSpan(
 }
 
 /// <summary>
-/// THE single definition of "a teamfight" for every consumer (tie resolver, auto-clipper,
-/// pattern materializer, VOD snapshot). Two sources, merged by <see cref="Resolve"/>:
-/// <list type="number">
-///   <item>STORED rows — <c>TEAMFIGHT</c> game_events written post-game by the map-state
-///   pass from the Match-V5 timeline (every kill on the map, numbers per side).</item>
-///   <item>SYNTHETIC clusters — today's rule over the player's own kill-feed events
-///   (≥3 combat events chained within 14 s, t &gt; 0), kept as the fallback for games the
-///   pass has not reached and as a safety net for a fight the pass could not pair.</item>
-/// </list>
+/// Shared fight projection for consumers. Resolve returns eligible stored fights;
+/// synthetic clustering remains available only for raw analysis and audit.
 /// Pure and DB-free.
 /// </summary>
 public static class TeamfightClustering
@@ -117,9 +110,8 @@ public static class TeamfightClustering
     }
 
     /// <summary>
-    /// Every fight in the game: one span per stored TEAMFIGHT row PLUS every synthetic
-    /// cluster that overlaps no stored fight the player was in. Sorted by start. A game
-    /// the pass has not processed yields exactly today's clusters.
+    /// One span per eligible stored TEAMFIGHT row, sorted by start. Unverified
+    /// heuristic rows and synthetic clusters cannot create consumer-visible fights.
     /// <para>Members: the player's combat events inside an "in" fight's padded window
     /// (each event to the nearest fight only). A fight the player was NOT in never
     /// takes members — it ties, clips and anchors as the row alone, so a stray own event
@@ -128,11 +120,11 @@ public static class TeamfightClustering
     /// </summary>
     public static IReadOnlyList<TeamfightSpan> Resolve(IReadOnlyList<GameEvent> events)
     {
-        var stored = events.Where(IsStoredTeamfight)
+        var stored = events.Where(e => IsStoredTeamfight(e) && EventProcessing.EventEligibility.IsEligible(e))
             .Select(e => (Row: e, Span: ReadSpan(e), Own: ReadSelf(e) == SelfIn))
             .OrderBy(s => s.Span.StartS).ThenBy(s => s.Row.Id)
             .ToList();
-        if (stored.Count == 0) return SyntheticClusters(events);
+        if (stored.Count == 0) return [];
 
         var combat = events.Where(e => IsCombat(e.EventType) && e.GameTimeS > 0)
             .OrderBy(e => e.GameTimeS).ToList();
@@ -171,13 +163,8 @@ public static class TeamfightClustering
         // Safety net: a synthetic cluster the pass could not pair with any stored fight
         // the player was in (clock skew beyond tolerance, a fight below the timeline's
         // kill floor) keeps rendering exactly as it does today instead of vanishing.
-        foreach (var synthetic in SyntheticClusters(events))
-        {
-            var overlaps = stored.Any(s => s.Own
-                && synthetic.StartS <= s.Span.EndS + MemberPadSeconds
-                && synthetic.EndS >= s.Span.StartS - MemberPadSeconds);
-            if (!overlaps) result.Add(synthetic);
-        }
+        // Synthetic clusters remain available to legacy analyzers for audit only.
+        // They must never become a consumer-visible fight without supporting evidence.
 
         return result.OrderBy(r => r.StartS).ThenBy(r => r.Stored?.Id ?? int.MaxValue).ToList();
     }

@@ -6,7 +6,7 @@ namespace Revu.Core.Tests;
 /// <summary>
 /// Regression coverage for P-023 / P-020: the config-save folder-write guard.
 /// The bug was that an empty folder string sent by the Settings page (e.g. a save
-/// issued before the page finished rendering) OVERWROTE the saved ascent/clips/backup
+/// issued before the page finished rendering) OVERWROTE the saved clips/backup
 /// folders with "", because the save handler only skipped nulls. The guard now treats
 /// empty as "leave unchanged" and a sentinel as "explicit clear".
 /// </summary>
@@ -43,8 +43,8 @@ public sealed class ConfigSaveGuardsTests
     [Fact]
     public void RealPath_ResolvesTrimmed()
     {
-        Assert.True(ConfigSaveGuards.TryResolveFolderWrite(@"  C:\Users\me\Videos\Ascent  ", out var resolved));
-        Assert.Equal(@"C:\Users\me\Videos\Ascent", resolved);
+        Assert.True(ConfigSaveGuards.TryResolveFolderWrite(@"  C:\Users\me\Videos\Clips  ", out var resolved));
+        Assert.Equal(@"C:\Users\me\Videos\Clips", resolved);
     }
 
     // ── End-to-end: the save read-modify-write semantics the handler relies on ──
@@ -58,7 +58,6 @@ public sealed class ConfigSaveGuardsTests
         // A config as it would be on disk after the user configured everything.
         var cfg = new AppConfig
         {
-            AscentFolder = @"C:\Users\me\Videos\Ascent",
             ClipsFolder = @"C:\Users\me\Videos\Clips",
             BackupFolder = @"C:\Users\me\Backups",
             RiotId = "bye#world",
@@ -67,12 +66,11 @@ public sealed class ConfigSaveGuardsTests
         };
 
         // Simulate the handler's folder branch with EMPTY folder inputs (the bug
-        // trigger: page not rendered, so the three folder fields are "") while an
+        // trigger: page not rendered, so both folder fields are "") while an
         // unrelated field (region) carries a real value.
-        ApplyFolderWrite(cfg, ascent: "", clips: "", backup: "");
+        ApplyFolderWrite(cfg, clips: "", backup: "");
         cfg.RiotRegion = "na1"; // an unrelated non-folder field still saving fine
 
-        Assert.Equal(@"C:\Users\me\Videos\Ascent", cfg.AscentFolder);
         Assert.Equal(@"C:\Users\me\Videos\Clips", cfg.ClipsFolder);
         Assert.Equal(@"C:\Users\me\Backups", cfg.BackupFolder);
         Assert.Equal("bye#world", cfg.RiotId);
@@ -85,23 +83,20 @@ public sealed class ConfigSaveGuardsTests
     {
         var cfg = new AppConfig
         {
-            AscentFolder = @"C:\Users\me\Videos\Ascent",
             ClipsFolder = @"C:\Users\me\Videos\Clips",
             BackupFolder = @"C:\Users\me\Backups",
         };
 
-        // User pressed Clear on Ascent only; clips/backup inputs were empty (unchanged).
-        ApplyFolderWrite(cfg, ascent: ConfigSaveGuards.FolderClearSentinel, clips: "", backup: "");
+        // User pressed Clear on clips only; the backup input was empty (unchanged).
+        ApplyFolderWrite(cfg, clips: ConfigSaveGuards.FolderClearSentinel, backup: "");
 
-        Assert.Equal("", cfg.AscentFolder);                       // cleared
-        Assert.Equal(@"C:\Users\me\Videos\Clips", cfg.ClipsFolder); // untouched
-        Assert.Equal(@"C:\Users\me\Backups", cfg.BackupFolder);     // untouched
+        Assert.Equal("", cfg.ClipsFolder); // cleared
+        Assert.Equal(@"C:\Users\me\Backups", cfg.BackupFolder); // untouched
     }
 
-    // Mirrors the three folder branches of POST /api/config/save (Program.cs).
-    private static void ApplyFolderWrite(AppConfig cfg, string? ascent, string? clips, string? backup)
+    // Mirrors the folder branches of POST /api/config/save.
+    private static void ApplyFolderWrite(AppConfig cfg, string? clips, string? backup)
     {
-        if (ConfigSaveGuards.TryResolveFolderWrite(ascent, out var a)) cfg.AscentFolder = a;
         if (ConfigSaveGuards.TryResolveFolderWrite(clips, out var c)) cfg.ClipsFolder = c;
         if (ConfigSaveGuards.TryResolveFolderWrite(backup, out var b)) cfg.BackupFolder = b;
     }
@@ -159,7 +154,7 @@ public sealed class ConfigSaveGuardsTests
     {
         var cfg = new AppConfig
         {
-            AscentFolder = @"C:\Users\me\Videos\Ascent",
+            ClipsFolder = @"C:\Users\me\Videos\Clips",
             RiotId = "bye#world",
             RiotRegion = "na1",
             RiotSessionExpiresAt = 9999999999, // a live session in the far future
@@ -170,12 +165,12 @@ public sealed class ConfigSaveGuardsTests
         // while an unrelated folder field carries a real value.
         if (ConfigSaveGuards.TryResolveTextWrite("", out var rid)) cfg.RiotId = rid;
         if (ConfigSaveGuards.TryResolveTextWrite("", out var rgn)) cfg.RiotRegion = rgn.ToLowerInvariant();
-        if (ConfigSaveGuards.TryResolveFolderWrite(@"C:\Users\me\Videos\Ascent", out var a)) cfg.AscentFolder = a;
+        if (ConfigSaveGuards.TryResolveFolderWrite(@"C:\Users\me\Videos\Clips", out var clips)) cfg.ClipsFolder = clips;
 
         Assert.Equal("bye#world", cfg.RiotId);          // identity survived
         Assert.Equal("na1", cfg.RiotRegion);
         Assert.Equal(9999999999, cfg.RiotSessionExpiresAt); // session untouched by config-save
-        Assert.Equal(@"C:\Users\me\Videos\Ascent", cfg.AscentFolder);
+        Assert.Equal(@"C:\Users\me\Videos\Clips", cfg.ClipsFolder);
     }
 
     [Fact]

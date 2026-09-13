@@ -63,7 +63,7 @@ public sealed partial class GameRepository
 
         // Collect clip file paths BEFORE the row is gone â€” we need them to
         // clean up on-disk clip extractions after the transaction commits.
-        // VOD source recordings are owned by Ascent; we only touch clips.
+        // Source recording files are preserved; we only touch generated clips.
         var clipPaths = new List<string>();
         try
         {

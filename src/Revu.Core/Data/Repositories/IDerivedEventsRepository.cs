@@ -28,4 +28,9 @@ public interface IDerivedEventsRepository
 
     /// <summary>Get all derived event instances for a game, with definition info.</summary>
     Task<IReadOnlyList<DerivedEventInstanceRecord>> GetInstancesAsync(long gameId);
+
+    /// <summary>Legacy count-window rules have no verification contract. Retained for audit only.
+    /// Supported streaming events are delivered through IGameEventsRepository instead.</summary>
+    Task<IReadOnlyList<DerivedEventInstanceRecord>> GetEligibleInstancesAsync(long gameId) =>
+        Task.FromResult<IReadOnlyList<DerivedEventInstanceRecord>>([]);
 }

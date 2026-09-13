@@ -9,7 +9,7 @@ namespace Revu.Core.Services;
 
 /// <summary>
 /// Orchestrates game-end processing: saving stats, session logging,
-/// event computation, and VOD matching.
+/// and event computation.
 /// Ported from Python main.py App._on_game_end.
 /// </summary>
 public sealed class GameService : IGameService
@@ -19,7 +19,6 @@ public sealed class GameService : IGameService
     private readonly IRulesRepository _rules;
     private readonly IGameEventsRepository _gameEvents;
     private readonly IDerivedEventsRepository _derivedEvents;
-    private readonly IVodService _vodService;
     private readonly IConfigService _config;
     private readonly ILogger<GameService> _logger;
 
@@ -29,7 +28,6 @@ public sealed class GameService : IGameService
         IRulesRepository rules,
         IGameEventsRepository gameEvents,
         IDerivedEventsRepository derivedEvents,
-        IVodService vodService,
         IConfigService config,
         ILogger<GameService> logger)
     {
@@ -38,7 +36,6 @@ public sealed class GameService : IGameService
         _rules = rules;
         _gameEvents = gameEvents;
         _derivedEvents = derivedEvents;
-        _vodService = vodService;
         _config = config;
         _logger = logger;
     }
@@ -141,6 +138,11 @@ public sealed class GameService : IGameService
             intentionSource: request.IntentionSource).ConfigureAwait(false);
 
         // 6. Save live events via IGameEventsRepository
+        if (stats.EventProcessingReport is { } processingReport)
+        {
+            try { await _gameEvents.SaveProcessingReportAsync(stats.GameId, processingReport).ConfigureAwait(false); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Could not persist processing coverage for {GameId}", stats.GameId); }
+        }
         if (stats.LiveEvents is { Count: > 0 })
         {
             try
@@ -162,7 +164,7 @@ public sealed class GameService : IGameService
             // 7. Compute derived events via IDerivedEventsRepository
             try
             {
-                var gameEvents = await _gameEvents.GetEventsAsync(stats.GameId).ConfigureAwait(false);
+                var gameEvents = await _gameEvents.GetEligibleEventsAsync(stats.GameId).ConfigureAwait(false);
                 var definitions = await _derivedEvents.GetAllDefinitionsAsync().ConfigureAwait(false);
                 var instances = _derivedEvents.ComputeInstances(stats.GameId, gameEvents, definitions);
                 if (instances.Count > 0)
@@ -179,27 +181,7 @@ public sealed class GameService : IGameService
             }
         }
 
-        // 8. Auto-match VOD via IVodService (if Ascent is enabled)
-        if (_config.IsAscentEnabled)
-        {
-            try
-            {
-                var linkedNow = await _vodService.TryLinkRecordingAsync(stats).ConfigureAwait(false);
-                if (!linkedNow)
-                {
-                    BackgroundTaskRunner.Run(
-                        () => ScheduleVodRetryAsync(stats.GameId),
-                        _logger,
-                        $"delayed VOD retry {stats.GameId}");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "VOD auto-match failed for game {GameId}", stats.GameId);
-            }
-        }
-
-        // 9. Return game id
+        // Native recordings attach separately by exact session and match identity.
         return stats.GameId;
     }
 
@@ -247,43 +229,4 @@ public sealed class GameService : IGameService
         return await _games.GetAsync(gameId).ConfigureAwait(false);
     }
 
-    // ── Private helpers ─────────────────────────────────────────────
-
-    private async Task ScheduleVodRetryAsync(long gameId)
-    {
-        // P-007: a ladder, not a single shot. The EOG attempt races Ascent's
-        // encode finalization; when one 90s retry also lost that race, the
-        // recording stayed unlinked until the next app start. Each attempt is
-        // independent — TryLinkRecordingAsync is idempotent and returns true
-        // once a valid link exists.
-        foreach (var delayMs in GameConstants.VodRetryLadderMs)
-        {
-            try
-            {
-                await Task.Delay(delayMs).ConfigureAwait(false);
-
-                if (!_config.IsAscentEnabled)
-                {
-                    return;
-                }
-
-                var game = await _games.GetAsync(gameId).ConfigureAwait(false);
-                if (game == null)
-                {
-                    return;
-                }
-
-                var linked = await _vodService.TryLinkRecordingAsync(game).ConfigureAwait(false);
-                if (linked)
-                {
-                    _logger.LogInformation("Delayed VOD retry succeeded for game {GameId}", gameId);
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Delayed VOD retry attempt failed for game {GameId}", gameId);
-            }
-        }
-    }
 }

@@ -1,8 +1,12 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke } from './platform/index.mjs';
+
 // Revu desktop — Patterns page renderer for the glass-aurora layout.
-// Renders the JSON returned by the Tauri command `get_patterns`
+// Renders the JSON returned by the Electron command `get_patterns`
 // (see Revu.Sidecar GET /api/patterns). Mirrors app.js / games.js conventions:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • Outside Tauri it fetches ./sample-patterns.json so the page previews in a
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron it fetches ./sample-patterns.json so the page previews in a
 //     plain browser.
 //   • Every server string is written via textContent (never innerHTML) so the
 //     surface stays XSS-free; colors arrive as *Hex strings applied to style
@@ -19,41 +23,16 @@
 // same core the full VOD player uses — so the inline player looks + behaves
 // identically (play/pause, ◀▶ step seek, speed, mute, enlarge, keyboard shortcuts).
 
-import { createTransport, resolveAssetUrl, tauriCore, renderTransportBar } from './vodtransport.js';
+import { createTransport, resolveAssetUrl, getMedia, renderTransportBar } from './vodtransport.js';
 
 // ── invoke resolver (writes) ─────────────────────────────────────────────────
 // getInvoke() keeps serving the WRITE path (save_pattern_moment_note,
-// mark_pattern_reviewed) exactly as before. The asset-url path + convertFileSrc are
-// now obtained from the shared module's tauriCore() and cached in _core (see boot).
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
+// mark_pattern_reviewed) exactly as before. Media URLs are
+// now obtained from the shared module's getMedia() and cached in _core (see boot).
 
-const isTauri = () => typeof window.__TAURI__ !== 'undefined';
+
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 
 // ── module state: the loaded snapshot + the active pattern / moment indices ──
 let _data = null;
@@ -71,7 +50,7 @@ let _editingMoment = null;   // the moment object whose note is in the textarea
 const NOTE_DEBOUNCE_MS = 900;
 
 // Shared transport core (play/seek/step/rate/mute/enlarge + keyboard) and the
-// cached Tauri core ({invoke, convertFileSrc}) used to resolve the asset URL.
+// cached platform media interface ({invoke, resolveMedia}) used to resolve the asset URL.
 let _T = null;
 let _core = null;
 
@@ -83,17 +62,16 @@ function activeMoments() {
 }
 function activeMoment() { return activeMoments()[_momIdx] || null; }
 
+// Only display labels are normalized; player-written titles and notes stay intact.
+function displayLabel(value) {
+  const labels = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low', WIN: 'Win', LOSS: 'Loss',
+    GOOD: 'Good', BAD: 'To improve', NEUTRAL: 'Neutral' };
+  return labels[String(value || '').toUpperCase()] || value || '';
+}
+
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchPatterns() {
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
-  // bundled sample only when invoke is genuinely unavailable (browser preview).
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_patterns');
-  }
-  const res = await fetch('./sample-patterns.json');
-  if (!res.ok) throw new Error(`sample-patterns.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_patterns', 'sample-patterns.json');
 }
 
 // ── render: header status line ──────────────────────────────────────────────
@@ -121,7 +99,7 @@ function buildPatCard(p, idx) {
   const state = el.querySelector('.pat-card-state');
   const cue = el.querySelector('.gamerow-cue');
 
-  sev.textContent = p.severityLabel || (p.severity || '').toUpperCase();
+  sev.textContent = displayLabel(p.severityLabel || p.severity);
   if (p.severityHex) {
     sev.style.color = p.severityHex;
     sev.style.borderColor = p.severityHex;
@@ -133,18 +111,19 @@ function buildPatCard(p, idx) {
 
   // Reviewed vs pending state chip.
   if (p.isReviewed) {
-    state.textContent = 'REVIEWED';
+    state.textContent = 'Reviewed';
     state.classList.add('good');
     el.classList.add('pat-card-viewed');
   } else {
-    state.textContent = 'TO REVIEW';
+    state.textContent = 'To review';
     state.classList.add('warn');
   }
 
   // Active card reads loud (accent rim) so the selection is obvious.
   if (idx === _patIdx) el.classList.add('pat-card-active');
+  el.setAttribute('aria-pressed', String(idx === _patIdx));
 
-  if (cue) cue.firstChild.textContent = (idx === _patIdx ? 'OPEN' : 'OPEN') + ' ';
+  if (cue) cue.firstChild.textContent = (idx === _patIdx ? 'Selected' : 'Review moments') + ' ';
 
   // Left edge bar rests in the severity color, energizes to accent on hover.
   if (p.severityHex) el.style.setProperty('--wl', p.severityHex);
@@ -181,7 +160,7 @@ function renderPlayer() {
 
   // Active-moment strip: WIN/LOSS tag + moment title + champion·time.
   const rtag = $('m-rtag');
-  rtag.textContent = m.resultLabel || '';
+  rtag.textContent = displayLabel(m.resultLabel);
   rtag.classList.toggle('win', !!m.win);
   rtag.classList.toggle('loss', !m.win);
   if (m.resultHex) {
@@ -196,11 +175,14 @@ function renderPlayer() {
   // from the clip file it kept (the sidecar only admits moments with one of the
   // two, or start-less game-level anchors).
   const playable = playableSource(m) !== null;
-  $('m-vhead').textContent = (m.videoHeaderText || '') + (playable ? (m.hasVod ? ': MOMENT CLIP' : ': KEPT CLIP') : '');
+  $('m-vhead').textContent = playable ? 'Play this moment' : '';
   show($('m-novod'), !playable);
   show($('m-play'), playable);
   const surface = $('m-surface');
   surface.classList.toggle('pat-surface-novod', !playable);
+  surface.setAttribute('aria-label', playable ? 'Play this moment' : 'No recording available for this moment');
+  surface.setAttribute('aria-disabled', String(!playable));
+  surface.tabIndex = playable ? 0 : -1;
   if (m.gameId != null) surface.dataset.gameId = String(m.gameId);
   // Stamp the moment's start time so the VOD player can jump straight to it.
   if (m.startTimeSeconds != null) surface.dataset.startSeconds = String(m.startTimeSeconds);
@@ -227,6 +209,7 @@ function renderPlayer() {
 
   // Prev / next bounds.
   const moms = activeMoments();
+  $('m-position').textContent = `Moment ${_momIdx + 1} of ${moms.length}`;
   $('m-prev').disabled = _momIdx <= 0;
   $('m-next').disabled = _momIdx >= moms.length - 1;
 }
@@ -239,6 +222,7 @@ function buildMomRow(m, idx) {
   const pol = el.querySelector('.pat-rpol');
   const title = el.querySelector('.pat-rtitle');
   const noteEl = el.querySelector('.pat-rnote');
+  el.querySelector('.pat-moment-number').textContent = String(idx + 1);
 
   rg.textContent = [m.championLabel, m.timeLabel].filter(Boolean).join(' · ');
 
@@ -247,10 +231,10 @@ function buildMomRow(m, idx) {
   // only the game's recording is on disk.
   const kept = !!m.hasClip || m.sourceKind === 'clip';
   show(clip, kept || !!m.hasVod);
-  if (clip) clip.textContent = kept ? 'CLIP' : 'VOD';
+  if (clip) clip.textContent = kept ? 'Clip' : 'Recording';
 
   const polarity = m.polarity || 'neutral';
-  pol.textContent = m.polarityLabel || polarity.toUpperCase();
+  pol.textContent = displayLabel(m.polarityLabel || polarity);
   pol.classList.add(polarity);
   if (m.accentHex) pol.style.color = m.accentHex;
 
@@ -266,6 +250,8 @@ function buildMomRow(m, idx) {
   if (m.accentHex) el.style.setProperty('--pol', m.accentHex);
   if (idx === _momIdx) el.classList.add('active');
   else if (idx < _momIdx) el.classList.add('viewed');
+  el.setAttribute('aria-pressed', String(idx === _momIdx));
+  el.setAttribute('aria-label', `Moment ${idx + 1}: ${m.title || m.championLabel || 'Review moment'}`);
 
   el.dataset.momIdx = String(idx);
   return el;
@@ -305,13 +291,13 @@ function renderClosure() {
     const moms = activeMoments();
     const noteCount = moms.filter((m) => m.hasNote).length;
     $('pat-csum').textContent =
-      `Worked through ${p.title}: ${moms.length} moment${moms.length === 1 ? '' : 's'} reviewed` +
-      (noteCount ? `, ${noteCount} note${noteCount === 1 ? '' : 's'} saved.` : '.');
+      `Marked reviewed. You can revisit these moments anytime.` +
+      (noteCount ? ` ${noteCount} note${noteCount === 1 ? '' : 's'} saved.` : '');
     show(closed, true);
     show(pending, false);
   } else {
     $('pat-pending-text').textContent =
-      'Step through every moment, note what you see, then mark the pattern reviewed.';
+      'When you have compared the moments and decided what to try next, finish this review.';
     const btn = $('pat-markrev');
     if (btn) btn.disabled = false;
     show(pending, true);
@@ -327,6 +313,13 @@ function renderActive() {
     return;
   }
   show($('pat-main'), true);
+  $('pat-review-title').textContent = p.title || 'Selected pattern';
+  const hasMoments = activeMoments().length > 0;
+  show($('pat-no-moments'), !hasMoments);
+  show(document.querySelector('.pat-playcol'), hasMoments);
+  show(document.querySelector('.pat-railcol'), hasMoments);
+  show($('pat-review-status'), false);
+  if (!hasMoments) return;
   renderPlayer();
   renderRail();
   renderClosure();
@@ -416,10 +409,8 @@ async function loadPatterns() {
 // ── selection helpers (pure client-side over the loaded snapshot) ────────────
 function selectPattern(idx) {
   const list = patterns();
-  if (idx < 0 || idx >= list.length || idx === _patIdx) {
-    if (idx === _patIdx) { renderActive(); }
-    return;
-  }
+  if (idx < 0 || idx >= list.length) return;
+  if (idx === _patIdx) { focusReview(); return; }
   // Flush the moment we're leaving before switching patterns.
   flushOutgoingNote();
   resetInlineVideo();   // stop any inline clip from the previous pattern
@@ -427,6 +418,14 @@ function selectPattern(idx) {
   _momIdx = 0;
   renderPicker();   // refresh active-card highlight
   renderActive();
+  focusReview();
+}
+
+function focusReview() {
+  const heading = $('pat-review-title');
+  heading?.focus({ preventScroll: true });
+  heading?.closest('.pat-review-heading')?.scrollIntoView({ block: 'start',
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
 }
 
 function gotoMoment(idx) {
@@ -574,6 +573,8 @@ async function markReviewed() {
     renderClosure();  // swap pending → closed
   } catch (err) {
     if (btn) btn.disabled = false;
+    $('pat-review-status').textContent = "Couldn't finish the review. Please try again.";
+    show($('pat-review-status'), true);
     console.error('[patterns] mark_pattern_reviewed failed:', err);
   }
 }
@@ -612,7 +613,8 @@ function resetInlineVideo() {
 // plays from 0). null when neither is on disk.
 function playableSource(m) {
   if (!m) return null;
-  if (m.hasVod && m.vodPath) return { path: m.vodPath, startSeconds: m.startTimeSeconds != null ? Number(m.startTimeSeconds) : 0 };
+  if (m.hasVod && m.vodPath) return { path: m.vodPath, startSeconds: m.startTimeSeconds != null ? Number(m.startTimeSeconds) : 0,
+    gameTimeAtVideoStart: m.gameTimeAtVideoStart || 0 };
   if (m.hasClip && m.clipPath) return { path: m.clipPath, startSeconds: 0 };
   return null;
 }
@@ -645,6 +647,7 @@ function playMoment() {
   _inlineActive = true;   // we're now in "playing" mode → stepping moments keeps playing
   _T.load(url, {
     startSeconds: src.startSeconds,
+    gameTimeAtVideoStart: src.gameTimeAtVideoStart || 0,
     autoplay: true,
     onError: () => { setMomentStatus('Could not load this clip.'); resetInlineVideo(); },
   });
@@ -756,6 +759,7 @@ async function boot() {
     rateSel: $('m-rate-sel'),
     expandTarget: document.querySelector('.pat-stage'),
     expandClass: 'pat-expanded',
+    modalExpand: true,
     fullGlyphs: true,
   });
   _T.attachVideo({ clickToToggle: true, stopProp: true });
@@ -766,9 +770,9 @@ async function boot() {
     onJumpRow: (ev) => !!(ev.target.closest && ev.target.closest('[data-action][role="button"]')),
   });
 
-  // Prime the asset/invoke paths under Tauri (no-op in browser preview).
+  // Prime the asset/invoke paths under Electron (no-op in browser preview).
   getInvoke();
-  _core = await tauriCore();
+  _core = await getMedia();
   loadPatterns();
 }
 if (document.readyState === 'loading') {

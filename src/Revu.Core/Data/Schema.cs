@@ -63,9 +63,16 @@ public static class Schema
     //               (eog / live / champselect / heuristic / history / matchv5) so an
     //               estimate shown at game end stays queued for Match-V5 confirmation.
     //               Additive ALTER, default ''. Forward-only.
-    public const int CurrentAppSchemaVersion = 17;
+    public const int CurrentAppSchemaVersion = 18;
     public const int EventCorrectionsSchemaVersion = 16;
     public const string AppSchemaVersionKey = "app_schema_version";
+
+    public const string CreateEventProcessingReportsTable = """
+        CREATE TABLE IF NOT EXISTS event_processing_reports (
+            game_id INTEGER PRIMARY KEY REFERENCES games(game_id) ON DELETE CASCADE,
+            report_json TEXT NOT NULL
+        )
+        """;
 
     // ── CREATE TABLE statements ──────────────────────────────────────
 
@@ -1264,6 +1271,7 @@ public static class Schema
         CreateEvidenceItemsGameIndex,
         CreateEvidenceItemsObjectiveIndex,
         CreateGameEventsTable,
+        CreateEventProcessingReportsTable,
         CreateGameEventsIndex,
         CreateObjectivesTable,
         CreateGameObjectivesTable,
@@ -1398,6 +1406,7 @@ public static class Schema
         new(16, "event-corrections", MigrateEventCorrections),
         // v3.10.1 (schema v17): games.matchup_source — matchup provenance marker.
         new(17, "games-matchup-source", MigrateGamesMatchupSource),
+        new(18, "event-processing-reports", [CreateEventProcessingReportsTable]),
     ];
 
     // ── Default seed data ────────────────────────────────────────────

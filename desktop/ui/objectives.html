@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Revu: Objectives</title>
+<title>Revu: Learning objectives</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./learning-pages.css">
 </head>
 <body>
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
@@ -29,12 +30,13 @@
     <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
-  <div class="shell">
+  <div class="shell objectives-shell">
     <div class="eyebrow">Learning</div>
     <div class="hero obj-hero">
-      <h1>Objectives</h1>
-      <button class="cta obj-new-btn" id="new-objective" data-action="new_objective" type="button">+ NEW OBJECTIVE</button>
+      <h1>Learning objectives</h1>
+      <button class="cta obj-new-btn" id="new-objective" data-action="new_objective" type="button">New learning objective</button>
     </div>
+    <p class="page-intro">Choose one skill to practice. After each game, review how it went and decide what to repeat.</p>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
     <!-- CREATE / EDIT FORM — hidden until "New Objective" or "Edit" opens it.
@@ -45,42 +47,51 @@
          form posts to the sidecar then reloads. Edit prefills via get_objective. -->
     <form class="glass obj-form" id="obj-form" hidden novalidate>
       <div class="obj-form-head">
-        <span class="obj-form-title" id="form-title">New Objective</span>
+        <span class="obj-form-title" id="form-title">New learning objective</span>
         <button class="obj-form-x" id="form-cancel" data-action="cancel_form" type="button" aria-label="Cancel">✕</button>
       </div>
       <div class="obj-form-grid">
+        <p class="field-help">Start with a specific action you can practice next game. You can refine it later.</p>
         <label class="obj-field">
-          <span class="obj-field-k">Title <i>*</i></span>
-          <input class="obj-input" id="f-title" type="text" placeholder="e.g., Improve wave management" maxlength="120" autocomplete="off">
+          <span class="obj-field-k">What will you practice? <i>*</i></span>
+          <input class="obj-input" id="f-title" type="text" placeholder="e.g., Check the minimap before pushing a wave" maxlength="120" autocomplete="off" aria-required="true">
         </label>
+        <label class="obj-field">
+          <span class="obj-field-k">What would success look like? <i class="obj-field-hint">optional</i></span>
+          <input class="obj-input" id="f-criteria" type="text" placeholder="e.g., Check jungle position before every push" maxlength="160" autocomplete="off">
+        </label>
+        <div class="obj-field-row2">
+          <label class="obj-field">
+            <span class="obj-field-k">Practice plan</span>
+            <select class="obj-input obj-select" id="f-type">
+              <option value="primary">Gameplay skill</option>
+              <option value="mental">Mindset habit</option>
+              <option value="mini">Short focus drill</option>
+            </select>
+          </label>
+          <label class="obj-field obj-field-target" id="f-target-wrap" hidden>
+            <span class="obj-field-k">Number of games</span>
+            <input class="obj-input" id="f-target" type="number" min="1" max="20" step="1" placeholder="3" inputmode="numeric">
+          </label>
+        </div>
+        <details class="learning-details" id="obj-options">
+          <summary>Customize practice <span>Optional</span></summary>
+          <div class="learning-details-body">
+        <p class="field-help">Choose when this appears, add reminders, or connect it to clips and game stats.</p>
         <label class="obj-field">
           <span class="obj-field-k">Skill area</span>
           <input class="obj-input" id="f-skill" type="text" placeholder="e.g., Laning, Macro, Teamfighting" maxlength="80" autocomplete="off">
         </label>
-        <div class="obj-field-row2">
-          <label class="obj-field">
-            <span class="obj-field-k">Type</span>
-            <select class="obj-input obj-select" id="f-type">
-              <option value="primary">Primary</option>
-              <option value="mental">Mental</option>
-              <option value="mini">Mini (focus drill)</option>
-            </select>
-          </label>
-          <label class="obj-field obj-field-target" id="f-target-wrap" hidden>
-            <span class="obj-field-k">Focus for N games</span>
-            <input class="obj-input" id="f-target" type="number" min="1" max="20" step="1" placeholder="3" inputmode="numeric">
-          </label>
-        </div>
         <div class="obj-field">
           <span class="obj-field-k">Practice during</span>
           <div class="obj-checks">
-            <label class="obj-check"><input type="checkbox" id="f-pre" checked><span class="obj-box"></span>Pre-Game</label>
-            <label class="obj-check"><input type="checkbox" id="f-in" checked><span class="obj-box"></span>In-Game</label>
-            <label class="obj-check"><input type="checkbox" id="f-post"><span class="obj-box"></span>Post-Game</label>
+            <label class="obj-check"><input type="checkbox" id="f-pre" checked><span class="obj-box"></span>Pre-game</label>
+            <label class="obj-check"><input type="checkbox" id="f-in" checked><span class="obj-box"></span>In-game</label>
+            <label class="obj-check"><input type="checkbox" id="f-post"><span class="obj-box"></span>Post-game</label>
           </div>
         </div>
         <label class="obj-field">
-          <span class="obj-field-k">Focus phase <i class="obj-field-hint">auto-clips</i></span>
+          <span class="obj-field-k">Which moments should Revu find? <i class="obj-field-hint">when a recording is available</i></span>
           <select class="obj-input obj-select" id="f-focus">
             <option value="0">Auto (from title)</option>
             <option value="1">Laning / early game</option>
@@ -96,10 +107,10 @@
              are populated from the sidecar (criteriaMetrics) so the list never
              drifts from Revu.Core.ObjectiveCriteria. -->
         <div class="obj-field">
-          <span class="obj-field-k">Measured criterion</span>
+          <span class="obj-field-k">Track a game statistic</span>
           <div class="obj-crit-row">
             <select class="obj-input obj-select obj-crit-metric" id="f-crit-metric">
-              <option value="0">Free text only</option>
+              <option value="0">No automatic measurement</option>
             </select>
             <select class="obj-input obj-select obj-crit-op" id="f-crit-op" hidden>
               <option value="0">At least</option>
@@ -110,10 +121,6 @@
         </div>
 
         <label class="obj-field">
-          <span class="obj-field-k">Completion criteria <i class="obj-field-hint">free text</i></span>
-          <input class="obj-input" id="f-criteria" type="text" placeholder="How will you know you've mastered this?" maxlength="160" autocomplete="off">
-        </label>
-        <label class="obj-field">
           <span class="obj-field-k">Description</span>
           <textarea class="obj-input obj-textarea" id="f-desc" placeholder="Additional notes…" maxlength="400" rows="2"></textarea>
         </label>
@@ -121,7 +128,7 @@
         <!-- CUSTOM PROMPTS — per-objective questions rendered in champ-select /
              review. Each row: phase select + label + remove. Diff-saved server-side. -->
         <div class="obj-field">
-          <span class="obj-field-k obj-field-k-prompt">Custom prompts</span>
+          <span class="obj-field-k obj-field-k-prompt">Questions to remind yourself</span>
           <div class="obj-prompts" id="f-prompts"></div>
           <button class="obj-subadd obj-subadd-prompt" id="f-add-prompt" data-action="add_prompt" type="button">+ Add prompt</button>
         </div>
@@ -130,7 +137,7 @@
              Picked chips above a typeahead input backed by a <datalist> of the
              user's played champions. -->
         <div class="obj-field">
-          <span class="obj-field-k obj-field-k-champ">Champions <i class="obj-field-hint">empty = all</i></span>
+          <span class="obj-field-k obj-field-k-champ">Limit to champions <i class="obj-field-hint">all champions by default</i></span>
           <div class="obj-chips" id="f-champs"></div>
           <input class="obj-input obj-champ-input" id="f-champ-input" type="text" list="f-champ-list" placeholder="Search champion…" autocomplete="off" maxlength="40">
           <datalist id="f-champ-list"></datalist>
@@ -143,11 +150,13 @@
           <span class="obj-field-k obj-field-k-events">Tracked events <i class="obj-field-hint">light up on the timeline</i></span>
           <div class="obj-evtpick" id="f-events"></div>
         </div>
+          </div>
+        </details>
 
-        <div class="obj-form-err" id="form-err" hidden></div>
+        <div class="obj-form-err" id="form-err" role="alert" hidden></div>
         <div class="obj-form-act">
           <button class="obj-ghost" data-action="cancel_form" type="button">Cancel</button>
-          <button class="cta obj-form-submit" id="form-submit" data-action="submit_form" type="button">Create</button>
+          <button class="cta obj-form-submit" id="form-submit" data-action="submit_form" type="button">Create learning objective</button>
         </div>
       </div>
     </form>
@@ -156,11 +165,11 @@
          The priority objective sorts first and carries a PRIORITY chip + accent
          rim (the .obj-card-priority modifier); the rest follow as calm cards.
          Mini/focus drills render separately in the Focus section below. -->
-    <div class="seclabel seclabel-lead" id="active-label" hidden>Objectives</div>
+    <div class="seclabel seclabel-lead" id="active-label" hidden>Active learning objectives</div>
     <div id="active-list"></div>
 
     <!-- FOCUS: mini drills auto-archiving at their target game count. Compact rows. -->
-    <div class="seclabel" id="focus-label" hidden>Focus drills <span class="n">auto-archive at target</span></div>
+    <div class="seclabel" id="focus-label" hidden>Focus drills <span class="n">short practice plans with a game limit</span></div>
     <div id="focus-list"></div>
 
     <!-- SPOTTED PROBLEMS: review-noted issues, raw material for future objectives.
@@ -178,16 +187,16 @@
 
     <!-- EMPTY STATE -->
     <div class="obj-empty" id="empty" hidden>
-      <div class="obj-empty-h">No objectives yet.</div>
-      <div class="obj-empty-p">Objectives turn one focus skill into a measurable, leveling goal across games.</div>
-      <button class="cta obj-empty-cta" data-action="new_objective" type="button">+ NEW OBJECTIVE</button>
+      <div class="obj-empty-h">Start with one thing to improve.</div>
+      <div class="obj-empty-p">A learning objective is a skill or habit you practice across games. Make it specific enough to review afterward.</div>
+      <button class="cta obj-empty-cta" data-action="new_objective" type="button">Create your first learning objective</button>
     </div>
 
     <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
     <div class="card errpanel" id="errpanel" hidden>
       <div class="crow">
         <div>
-          <div class="vline" id="err-line">Couldn't load your objectives.</div>
+          <div class="vline" id="err-line">Couldn't load your learning objectives.</div>
           <div class="vsmall" id="err-detail"></div>
         </div>
       </div>
@@ -203,7 +212,7 @@
       <span class="obj-celebrate-bracket bl" aria-hidden="true"></span>
       <span class="obj-celebrate-bracket br" aria-hidden="true"></span>
       <div class="obj-celebrate-eyebrow">Milestone reached</div>
-      <div class="obj-celebrate-head">Objective Ready</div>
+      <div class="obj-celebrate-head">Learning objective complete</div>
       <div class="obj-celebrate-title" id="celebrate-title"></div>
       <div class="obj-celebrate-stats" id="celebrate-stats"></div>
       <div class="obj-celebrate-line">Skill acquired: carry it into your next games.</div>
@@ -227,7 +236,7 @@
         </div>
         <div class="obj-card-head">
           <div class="obj-badges">
-            <span class="pill obj-card-pri" hidden>PRIORITY</span>
+            <span class="pill obj-card-pri" hidden>Priority</span>
             <span class="obj-tag obj-card-type"></span>
           </div>
           <div class="oname obj-card-name"></div>
@@ -261,15 +270,15 @@
         <span class="obj-gate-v"></span>
       </div>
       <div class="obj-actrow obj-card-actrow">
-        <button class="obj-act obj-act-gold" data-action="set_objective_priority" type="button">Make Priority</button>
+        <button class="obj-act obj-act-gold" data-action="set_objective_priority" type="button">Make priority</button>
         <button class="obj-act" data-action="open_obj_games" type="button">Games</button>
         <button class="obj-act" data-action="open_obj_notes" type="button">Notes</button>
         <button class="obj-act" data-action="edit_objective" type="button">Edit</button>
         <button class="obj-act obj-act-danger" data-action="delete_objective" type="button">Delete</button>
         <!-- Complete-Early shows when NOT yet at the Ready threshold; the green
              Complete shows once ready. JS toggles which one is visible per card. -->
-        <button class="obj-act obj-act-early" data-action="complete_objective" type="button" title="Mark this objective done before reaching Ready" hidden>Complete Early</button>
-        <button class="obj-act obj-act-win" data-action="complete_objective" type="button" hidden>Mark Complete</button>
+        <button class="obj-act obj-act-early" data-action="complete_objective" type="button" title="Mark this learning objective done before reaching Ready" hidden>Complete early</button>
+        <button class="obj-act obj-act-win" data-action="complete_objective" type="button" hidden>Mark complete</button>
       </div>
     </div>
   </template>
@@ -279,7 +288,7 @@
     <div class="card obj-mini">
       <div class="obj-mini-main">
         <div class="obj-mini-head">
-          <span class="obj-tag obj-tag-focus">FOCUS</span>
+          <span class="obj-tag obj-tag-focus">Short focus drill</span>
           <span class="obj-mini-name"></span>
         </div>
         <div class="obj-mini-prog"></div>
@@ -290,8 +299,8 @@
         <button class="obj-act" data-action="open_obj_notes" type="button">Notes</button>
         <button class="obj-act" data-action="edit_objective" type="button">Edit</button>
         <button class="obj-act obj-act-danger" data-action="delete_objective" type="button">Delete</button>
-        <button class="obj-act obj-act-early" data-action="complete_objective" type="button" title="Mark this drill done early" hidden>Complete Early</button>
-        <button class="obj-act obj-act-win" data-action="complete_objective" type="button" hidden>Mark Complete</button>
+        <button class="obj-act obj-act-early" data-action="complete_objective" type="button" title="Mark this drill done early" hidden>Complete early</button>
+        <button class="obj-act obj-act-win" data-action="complete_objective" type="button" hidden>Mark complete</button>
       </div>
     </div>
   </template>
@@ -300,9 +309,9 @@
   <template id="tpl-prompt-row">
     <div class="obj-prompt-row">
       <select class="obj-input obj-select obj-prompt-phase">
-        <option value="0">Pre</option>
-        <option value="1">In</option>
-        <option value="2">Post</option>
+        <option value="0">Pre-game</option>
+        <option value="1">In-game</option>
+        <option value="2">Post-game</option>
       </select>
       <textarea class="obj-input obj-textarea obj-prompt-label" rows="1" maxlength="200" placeholder="Question to ask yourself…"></textarea>
       <button class="obj-prompt-x" data-action="remove_prompt" type="button" aria-label="Remove prompt">✕</button>
@@ -331,7 +340,7 @@
           </div>
           <div class="vline obj-spot-text"></div>
         </div>
-        <div class="gamerow-cue" aria-hidden="true">REVIEW <span class="arr">→</span></div>
+        <div class="gamerow-cue" aria-hidden="true">Review <span class="arr">→</span></div>
       </div>
     </div>
   </template>
@@ -345,7 +354,7 @@
         <div class="obj-done-phase"></div>
       </div>
       <div class="obj-done-sum"></div>
-      <span class="obj-done-badge">DONE</span>
+      <span class="obj-done-badge">Done</span>
       <div class="obj-actrow obj-done-actrow">
         <button class="obj-act" data-action="edit_objective" type="button">Edit</button>
         <button class="obj-act" data-action="open_obj_games" type="button">Games</button>

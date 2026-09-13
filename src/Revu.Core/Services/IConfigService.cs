@@ -28,13 +28,8 @@ public interface IConfigService
     // ── Convenience properties ──────────────────────────────────────
 
     string GithubToken { get; }
-    string? AscentFolder { get; }
-
-    /// <summary>P-009: unvalidated Ascent folder exactly as stored in config —
-    /// for diagnostics that must distinguish "never set" from "set but failed
-    /// validation" (the validated <see cref="AscentFolder"/> is null for both).</summary>
-    string AscentFolderRaw { get; }
     bool TiltFixEnabled { get; }
+    string AscentFolder { get; }
     string ClipsFolder { get; }
     int ClipsMaxSizeMb { get; }
     bool BackupEnabled { get; }
@@ -50,7 +45,6 @@ public interface IConfigService
     string RiotPuuid { get; }
     string PrimaryRole { get; }
     bool OnboardingSkipped { get; }
-    bool AscentReminderDismissed { get; }
     bool SidebarAnimationEnabled { get; }
     bool MinimizeDuringGame { get; }
 
@@ -67,9 +61,6 @@ public interface IConfigService
 
     /// <summary>True if onboarding should NOT be shown at startup.</summary>
     bool OnboardingComplete { get; }
-
-    /// <summary>True if a valid Ascent recordings folder is configured.</summary>
-    bool IsAscentEnabled { get; }
 
     /// <summary>True if the user has an unexpired session token.</summary>
     bool HasValidRiotSession { get; }

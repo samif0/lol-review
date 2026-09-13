@@ -254,8 +254,7 @@ public static class StatsExtractor
                 // Store game START (creation), not "now". This path runs at game
                 // END, so UtcNow == end; subtracting gameLength yields the start,
                 // matching ExtractFromMatchHistory which uses gameCreation. Keeping
-                // both paths on the same reference (game start) is required for VOD
-                // matching to work — see VodService.TryComputeMatchDelta.
+                // both paths on the same reference keeps game history ordered consistently.
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - Math.Max(gameLength, 0),
                 GameDuration = gameLength,
                 GameMode = displayMode,

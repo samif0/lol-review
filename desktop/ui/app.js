@@ -1,85 +1,43 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke } from './platform/index.mjs';
+import { objectiveMetaText } from './objective-labels.mjs';
+
 // Revu desktop dashboard — data-driven renderer for the glass-aurora layout.
-// Renders the JSON returned by the Tauri command `get_dashboard`.
+// Renders the JSON returned by the Electron command `get_dashboard`.
 // All server-supplied strings are written via textContent (never innerHTML)
 // to keep the surface XSS-free. Colors arrive as *Hex strings and are applied
 // to style/stroke properties only.
 
 // ── invoke resolver ────────────────────────────────────────────────────────
-// Prefer the official @tauri-apps/api/core import; fall back to the global the
-// Tauri webview injects. In a plain browser (no Tauri) both are absent and we
-// fall through to a local sample JSON so the page previews standalone.
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
+// Platform commands are available only in an active desktop host. Browser
+// previews use the existing sample JSON.
 
-const isTauri = () => typeof window.__TAURI__ !== 'undefined';
+
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 
 const RING_CIRCUMFERENCE = 150.8; // 2·π·r, r=24
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchDashboard() {
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB). Only fall back
-  // to the bundled sample when invoke is genuinely unavailable (plain browser
-  // preview). Detecting via getInvoke() is more reliable than window.__TAURI__,
-  // which may not be populated yet when this runs.
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_dashboard');
-  }
-  const res = await fetch('./sample-dashboard.json');
-  if (!res.ok) throw new Error(`sample-dashboard.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_dashboard', 'sample-dashboard.json');
 }
 
 // ── render: header ──────────────────────────────────────────────────────────
 function renderHeader(d) {
   const stats = d.stats || {};
-  const intent = d.intent || {};
   // Greeting comes from the server, which ALREADY personalizes it with the signed-in
   // player's Riot IGN (e.g. "Good afternoon, bye.") — so we just render it as-is.
   // (An earlier client-side insert double-added the name → "…, bye, bye."; removed.)
-  if (d.greeting) $('hero-title').textContent = d.greeting;
+  if (d.greeting) $('hero-title').textContent = d.greeting.replace(/\. Lock in\.?$/i, '.');
 
-  const parts = [];
   const total = stats.totalGames || 0;
-  parts.push(total === 0 ? 'No games yet today.' : `${total} game${total === 1 ? '' : 's'} today.`);
-  if (stats.avgMental != null) parts.push(`30-day mental ${stats.avgMental}`);
-  if (stats.adherenceStreak != null) parts.push(`${stats.adherenceStreak} days clean`);
-  // First sentence is bolded via the <b> element; the rest is plain mono text.
   const statusB = document.querySelector('#statusline b');
-  statusB.textContent = parts[0];
-  // Rebuild the trailing " · a · b" run as plain text nodes after the <b>.
+  statusB.textContent = total === 0 ? 'No games yet today.' : `${total} game${total === 1 ? '' : 's'} today.`;
   const line = $('statusline');
-  // Remove any previously appended trailing nodes (keep dot + <b>).
+  // Clear any older trailing status text while retaining the daily game count.
   while (line.lastChild && line.lastChild !== statusB) line.removeChild(line.lastChild);
-  const tail = parts.slice(1);
-  if (tail.length) {
-    line.appendChild(document.createTextNode(' · ' + tail.join(' · ')));
-  }
 }
 
 // ── render: next step ───────────────────────────────────────────────────────
@@ -108,13 +66,13 @@ function renderNextStep(d) {
       intent.stintBlockNumber != null ? `Block #${intent.stintBlockNumber}` : '',
       intent.withCoach ? 'With coach' : '',
     ].filter(Boolean).join(' · ');
-    const baseKicker = carried ? 'Unfinished block · End Block' : 'In session · End Block';
+    const baseKicker = carried ? 'Previous session' : 'Session in progress';
     $('nextstep-k').textContent = blockTag ? `${baseKicker} · ${blockTag}` : baseKicker;
-    $('nextstep-h').textContent = carried ? 'Wrap your last block.' : 'Wrap the block.';
+    $('nextstep-h').textContent = carried ? 'Finish your last session.' : 'Keep your focus in view.';
     $('nextstep-p').textContent = carried
-      ? `You left "${intent.sessionIntention}" open. Rate how it went and lock it in.`
-      : `Focus: ${intent.sessionIntention}. Rate how the block went and lock it in.`;
-    cta.textContent = 'END BLOCK →';
+      ? `Your focus was: ${intent.sessionIntention}. Take a moment to reflect on how it went.`
+      : `Your focus: ${intent.sessionIntention}. When you're done playing, close the session with a quick reflection.`;
+    cta.textContent = 'Finish session';
     cta.dataset.action = 'end_block';
     if (intent.blockDate) cta.dataset.blockDate = String(intent.blockDate);
     else delete cta.dataset.blockDate;
@@ -123,11 +81,11 @@ function renderNextStep(d) {
   delete cta.dataset.blockDate;
 
   // Server may override the card copy; defaults match the mockup.
-  $('nextstep-k').textContent = ns.kicker || 'Next step · Start Block';
-  $('nextstep-h').textContent = ns.title || 'Set your intent before you queue.';
-  $('nextstep-p').textContent = ns.detail ||
-    'A 30-second ritual: name one focus, check your priority objective, lock in.';
-  cta.textContent = ns.ctaLabel || 'START BLOCK →';
+  const start = !ns.action || ns.action === 'start_block';
+  $('nextstep-k').textContent = start ? 'Your next step' : (ns.kicker || 'Your next step');
+  $('nextstep-h').textContent = start ? 'What will you practice today?' : (ns.title || 'Choose your next step.');
+  $('nextstep-p').textContent = start ? 'Set a focus for your next matches.' : (ns.detail || '');
+  cta.textContent = start ? 'Start a session' : (ns.ctaLabel || 'Continue');
   cta.dataset.action = ns.action || 'start_block';
 }
 
@@ -190,8 +148,6 @@ function renderVod(d) {
 // role=button + tabindex for keyboard, with the hype hover animation (lift +
 // glow + edge bar + sweep + "REVIEW →" cue) defined on .gamerow in styles.css.
 // VOD evidence is the separate hint line (data-action="review_vod" → vod viewer).
-// DEFERRED: both nav targets are stubs until the Review + VOD pages are ported
-// (only the dashboard exists today). See memory project_tauri_dashboard_interactions.
 function renderUnreviewed(d) {
   const u = d.unreviewed || {};
   const host = $('unreviewed');
@@ -199,10 +155,10 @@ function renderUnreviewed(d) {
   const items = Array.isArray(u.items) ? u.items : [];
 
   if (u.allReviewed || items.length === 0) {
-    show($('unreviewed-label'), false);
+    show($('unreviewed-empty'), true);
     return;
   }
-  show($('unreviewed-label'), true);
+  show($('unreviewed-empty'), false);
 
   for (const g of items) {
     const el = tpl('tpl-gamerow');
@@ -225,7 +181,7 @@ function renderUnreviewed(d) {
     // The whole ROW is the review action (see deferred-nav note). Carry the
     // gameId + a re-review label on the card itself, not a button.
     if (g.gameId != null) el.dataset.gameId = String(g.gameId);
-    if (cue) cue.firstChild.textContent = (g.hasReview ? 'OPEN' : 'REVIEW') + ' ';
+    if (cue) cue.firstChild.textContent = (g.hasReview ? 'Open' : 'Review') + ' ';
 
     // SKIP dismisses an UNREVIEWED game; it carries the same gameId. Hide it on
     // already-reviewed rows (skipping a review you've written makes no sense).
@@ -250,10 +206,10 @@ function renderObjectives(d) {
   clear(host);
 
   if (objs.length === 0) {
-    show($('objectives-label'), false);
+    show($('objectives-empty'), true);
     return;
   }
-  show($('objectives-label'), true);
+  show($('objectives-empty'), false);
 
   for (const o of objs) {
     const el = tpl('tpl-objective');
@@ -263,7 +219,7 @@ function renderObjectives(d) {
     const track = el.querySelector('.ring-track');
     const prog = el.querySelector('.ring-prog');
     track.setAttribute('stroke', o.levelDimColorHex || 'rgba(255,255,255,0.13)');
-    prog.setAttribute('stroke', o.levelColorHex || '#9d8bff');
+    prog.setAttribute('stroke', 'var(--accent)');
     // Start empty (full offset = 0% drawn), then transition to the target on the
     // next frame so the CSS transition on .ring-prog animates the arc filling.
     prog.setAttribute('stroke-dashoffset', String(RING_CIRCUMFERENCE));
@@ -275,12 +231,11 @@ function renderObjectives(d) {
       o.progressLabel || `${Math.round(progress * 100)}%`;
 
     const pill = el.querySelector('.pill');
+    if (pill) pill.textContent = 'Priority';
     show(pill, !!o.isPriority);
 
     el.querySelector('.oname').textContent = o.title || '';
-    el.querySelector('.ometa').textContent =
-      o.metaText || [o.levelName, o.phaseLabel, o.score != null ? `${o.score} PTS` : null]
-        .filter(Boolean).join(' · ').toUpperCase();
+    el.querySelector('.ometa').textContent = objectiveMetaText(o);
 
     // Make the whole objective card a button into its detail page (games + stats
     // + the per-objective notes/VOD flow). Keyboard-accessible; the shell's
@@ -422,7 +377,7 @@ function openIntentEditor(cta) {
   input.type = 'text';
   input.className = 'intent-input';
   input.maxLength = 120;
-  input.placeholder = 'Name one focus for this block…';
+  input.placeholder = 'For example: check the map before a trade';
   input.setAttribute('aria-label', 'Session intention');
 
   const actions = document.createElement('div');
@@ -431,7 +386,7 @@ function openIntentEditor(cta) {
   const confirm = document.createElement('button');
   confirm.type = 'button';
   confirm.className = 'cta cta-sm';
-  confirm.textContent = 'LOCK IN →';
+  confirm.textContent = 'Start session';
 
   const cancel = document.createElement('button');
   cancel.type = 'button';
@@ -447,7 +402,7 @@ function openIntentEditor(cta) {
   const coach = document.createElement('button');
   coach.type = 'button';
   coach.className = 'intent-coach';
-  coach.textContent = 'WITH COACH';
+  coach.textContent = 'Playing with a coach';
   coach.setAttribute('role', 'switch');
   coach.classList.toggle('on', withCoach);
   coach.setAttribute('aria-checked', String(withCoach));
@@ -479,7 +434,7 @@ function openIntentEditor(cta) {
     if (!intention) { input.focus(); return; }
     const invoke = await getInvoke();
     if (!invoke) {
-      console.info('[dashboard] (preview) start_block — no Tauri backend.');
+      console.info('[dashboard] (preview) start_block — no Electron backend.');
       close(true);
       return;
     }
@@ -529,7 +484,7 @@ function openEndBlockEditor(cta) {
   ratingRow.className = 'endblock-rating';
   const ratingLabel = document.createElement('span');
   ratingLabel.className = 'endblock-rating-k';
-  ratingLabel.textContent = 'How did the block go?';
+  ratingLabel.textContent = 'How did your session go?';
   ratingRow.appendChild(ratingLabel);
   const chips = document.createElement('div');
   chips.className = 'endblock-chips';
@@ -559,7 +514,7 @@ function openEndBlockEditor(cta) {
   const confirm = document.createElement('button');
   confirm.type = 'button';
   confirm.className = 'cta cta-sm';
-  confirm.textContent = 'FINISH →';
+  confirm.textContent = 'Save reflection';
   const cancel = document.createElement('button');
   cancel.type = 'button';
   cancel.className = 'intent-cancel';
@@ -581,7 +536,7 @@ function openEndBlockEditor(cta) {
     if (_rating < 1) { chips.classList.add('endblock-chips-need'); return; }
     const invoke = await getInvoke();
     if (!invoke) {
-      console.info('[dashboard] (preview) end_block — no Tauri backend.');
+      console.info('[dashboard] (preview) end_block — no Electron backend.');
       close(true);
       return;
     }
@@ -675,7 +630,7 @@ document.addEventListener('click', async (ev) => {
   const invoke = await getInvoke();
   if (!invoke) {
     // Browser preview: no backend to talk to. Acknowledge the click in console.
-    console.info(`[dashboard] (preview) action "${action}" — no Tauri backend.`);
+    console.info(`[dashboard] (preview) action "${action}" — no Electron backend.`);
     return;
   }
 

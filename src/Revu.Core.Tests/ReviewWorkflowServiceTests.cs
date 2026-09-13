@@ -454,7 +454,6 @@ public sealed class ReviewWorkflowServiceTests
             scope.Games,
             scope.ConceptTags,
             scope.Vod,
-            new StubVodService(),
             scope.SessionLog,
             scope.Objectives,
             scope.ReviewDrafts,

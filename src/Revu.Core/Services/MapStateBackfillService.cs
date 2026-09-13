@@ -65,7 +65,15 @@ public sealed class MapStateBackfillService
         }
     }
 
-    private async Task<MapStateBackfillResult> RunLockedAsync(int maxGames, CancellationToken ct)
+    /// <summary>Retry one saved match, including matches already processed at this version.</summary>
+    public async Task<MapStateBackfillResult> RunForGameAsync(long gameId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try { return await RunLockedAsync(1, ct, gameId).ConfigureAwait(false); }
+        finally { _gate.Release(); }
+    }
+
+    private async Task<MapStateBackfillResult> RunLockedAsync(int maxGames, CancellationToken ct, long? requestedGame = null)
     {
         var region = _config.RiotRegion;
         var puuid = _config.RiotPuuid;
@@ -75,7 +83,8 @@ public sealed class MapStateBackfillService
             return new MapStateBackfillResult(0, 0, 0, 0);
         }
 
-        var allIds = await _games.GetGameIdsMissingMapStateAsync(MapStateAnalyzer.Version).ConfigureAwait(false);
+        IReadOnlyList<long> allIds = requestedGame is { } requested
+            ? [requested] : await _games.GetGameIdsMissingMapStateAsync(MapStateAnalyzer.Version).ConfigureAwait(false);
         var ids = allIds.Take(maxGames).ToList();
         if (ids.Count == 0)
         {
@@ -127,6 +136,17 @@ public sealed class MapStateBackfillService
 
             try
             {
+                // Preserve the match-start subscription snapshot and live coverage. Recovery
+                // replaces only its own shadow report: retries cannot duplicate timeline rows.
+                var liveReport = await _events.GetProcessingReportAsync(gameId).ConfigureAwait(false);
+                if (liveReport?.Subscriptions is { } subscriptions)
+                {
+                    var recovery = await EventProcessing.DeathRecapRecovery.ProcessAsync(
+                        matchDoc, timelineDoc, puuid, subscriptions).ConfigureAwait(false);
+                    await _events.SaveProcessingReportAsync(gameId, liveReport with { Recovery = recovery }).ConfigureAwait(false);
+                    _logger.LogInformation("Event recovery for {GameId}: {Count} shadow candidates, {Coverage}",
+                        gameId, recovery.Events.Count, string.Join("; ", recovery.Coverage.Select(c => $"{c.Status}: {c.Reason}")));
+                }
                 await _events.DeleteEventsByTypeAsync(gameId, GameEvent.EventTypes.JungleProximity)
                     .ConfigureAwait(false);
                 if (analysis.ProximityEvents.Count > 0)

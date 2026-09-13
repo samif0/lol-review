@@ -13,6 +13,7 @@
 # C# / .NET build artifacts
 **/bin/
 **/obj/
+**/TestResults/
 /publish/
 /Releases/
 /.tmp-build/
@@ -101,8 +102,9 @@ automation/
 # throwaway WebView2 glass demo (not part of app)
 _glassdemo/
 
-# Tauri desktop build artifacts
+# Desktop dependencies and generated output
 desktop/node_modules/
+# Retired local host build output can remain locked by an older running app.
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
 desktop/ui/dist/
@@ -112,3 +114,5 @@ desktop/tauri-dev.log.err
 
 # local audit/session working files (never ship — Riot API key audit cleanliness)
 .audit/
+/.artifacts/
+/scripts/__pycache__/

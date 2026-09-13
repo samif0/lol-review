@@ -71,11 +71,6 @@ public sealed class SidecarWriteScope : IDisposable
 
         // ── Services the save_review endpoint composes ──────────────────────
         Config = new TestConfigService();
-        VodService = new VodService(
-            Games,
-            Vod,
-            Config,
-            NullLogger<VodService>.Instance);
         ClipService = new ClipService(Config, NullLogger<ClipService>.Instance);
         CoachNotifier = new NullCoachSidecarNotifier();
 
@@ -86,7 +81,6 @@ public sealed class SidecarWriteScope : IDisposable
             Games,
             ConceptTags,
             Vod,
-            VodService,
             SessionLog,
             Objectives,
             ReviewDrafts,
@@ -128,8 +122,6 @@ public sealed class SidecarWriteScope : IDisposable
 
     // ── Services ──────────────────────────────────────────────────────────────
     public TestConfigService Config { get; }
-
-    public VodService VodService { get; }
 
     public ClipService ClipService { get; }
 
@@ -188,11 +180,8 @@ public sealed class TestConfigService : IConfigService
 
     public string GithubToken => Current.GithubToken;
 
-    public string? AscentFolder => string.IsNullOrWhiteSpace(Current.AscentFolder) ? null : Current.AscentFolder;
-
-    public string AscentFolderRaw => Current.AscentFolder;
-
     public bool TiltFixEnabled => Current.TiltFixMode;
+    public string AscentFolder => Current.AscentFolder;
 
     public string ClipsFolder => Current.ClipsFolder;
 
@@ -212,14 +201,11 @@ public sealed class TestConfigService : IConfigService
     public string RiotPuuid => Current.RiotPuuid;
     public string PrimaryRole => Current.PrimaryRole;
     public bool OnboardingSkipped => Current.OnboardingSkipped;
-    public bool AscentReminderDismissed => Current.AscentReminderDismissed;
     public bool SidebarAnimationEnabled => Current.SidebarAnimationEnabled;
     public bool MinimizeDuringGame => Current.MinimizeDuringGame;
     public bool AutoTimelineClippingEnabled => Current.AutoTimelineClippingEnabled;
     public bool AutoTimelineClippingHintDismissed => Current.AutoTimelineClippingHintDismissed;
     public bool AutoClipObjectivesEnabled => Current.AutoClipObjectivesEnabled;
-
-    public bool IsAscentEnabled => !string.IsNullOrWhiteSpace(AscentFolder);
 
     public bool HasValidRiotSession =>
         !string.IsNullOrWhiteSpace(RiotSessionToken)

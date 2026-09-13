@@ -9,6 +9,9 @@ public interface IVodRepository
 
     Task LinkVodAsync(long gameId, string filePath, long fileSize = 0, long durationSeconds = 0);
 
+    /// <summary>Automatic discovery only: atomically insert without replacing any game or file owner.</summary>
+    Task<bool> TryLinkUnownedVodAsync(long gameId, string filePath, long fileSize = 0, long durationSeconds = 0);
+
     Task<VodSummary?> GetVodAsync(long gameId);
 
     Task<Dictionary<long, string>> GetVodPathsAsync(IReadOnlyCollection<long> gameIds);

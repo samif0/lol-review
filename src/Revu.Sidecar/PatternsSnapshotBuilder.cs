@@ -180,8 +180,8 @@ public sealed class PatternsSnapshotBuilder
     /// cap (the builder is a singleton, so nothing is kept on the instance).</summary>
     private static (IReadOnlyList<PatternMomentDto> Moments, int PlayableCount) MapMoments(IReadOnlyList<PatternMoment> moments)
     {
-        // vod_files rows outlive the recordings they point at (Ascent retention
-        // prunes old files), so probe the disk before advertising a playable
+        // vod_files rows may outlive the recordings they point at (files can be
+        // moved or removed), so probe the disk before advertising a playable
         // VOD — same File.Exists shape as GamesSnapshotBuilder — and degrade a
         // pruned one to the graceful no-VOD state instead of a player that
         // errors with "Could not load this clip". One probe per distinct path:
@@ -254,6 +254,13 @@ public sealed class PatternsSnapshotBuilder
     /// <summary>Mirror of PatternMomentItem's display projection (no brushes).</summary>
     private static PatternMomentDto MapMoment(PatternMoment m, int ordinal, bool vodOnDisk, bool clipOnDisk)
     {
+        var gameTimeAtVideoStart = 0d;
+        if (vodOnDisk)
+        {
+            try { gameTimeAtVideoStart = RecordingTimeline.ReadGameTimeAtVideoStart(m.VodPath, m.GameId); }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+            { vodOnDisk = false; }
+        }
         var championLabel = string.IsNullOrWhiteSpace(m.ChampionName) ? "Game" : m.ChampionName;
         var resultLabel = m.Win ? "WIN" : "LOSS";
         var resultHex = m.Win ? WinHex : LossHex;
@@ -293,7 +300,8 @@ public sealed class PatternsSnapshotBuilder
             VodPath: vodOnDisk ? m.VodPath : "",
             HasVod: vodOnDisk,
             ClipPath: clipOnDisk ? m.ClipPath : "",
-            HasClip: clipOnDisk);
+            HasClip: clipOnDisk,
+            GameTimeAtVideoStart: gameTimeAtVideoStart);
     }
 
     /// <summary>Mirror of PatternMomentItem.PolarityLabel.</summary>
