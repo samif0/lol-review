@@ -19,6 +19,11 @@ permissions:
 jobs:
   dotnet-tests:
     runs-on: windows-latest
+    # Hosted Windows TEMP can contain an 8.3 alias (RUNNER~1). Fixtures must use
+    # a canonical path so production alias/reparse-point checks remain enabled.
+    env:
+      TEMP: ${{ runner.temp }}
+      TMP: ${{ runner.temp }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -37,6 +42,9 @@ jobs:
 
   desktop-build:
     runs-on: windows-latest
+    env:
+      TEMP: ${{ runner.temp }}
+      TMP: ${{ runner.temp }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
