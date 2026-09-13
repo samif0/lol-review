@@ -1,0 +1,133 @@
+/* The same editor follows the keyboard into cinema. It takes its own column,
+   so the recording continues to fit completely above the timeline. */
+.vod-review-page .vp-composer[hidden] { display: none !important; }
+.vod-review-page .vp-composer {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 60;
+  width: min(420px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #606060;
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 64px #0008;
+  font: 400 14px/1.5 var(--fb);
+}
+.vod-review-page .shell:has(.vp-composing),
+.vod-review-page .shell :has(.vp-composing) {
+  transform: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  contain: none !important;
+  animation: none !important;
+}
+.vod-review-page .vp-composer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px 0;
+  flex-shrink: 0;
+}
+.vod-review-page .vp-composer-modes { display: flex; gap: 4px; min-width: 0; }
+.vod-review-page .vp-composer-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: 500 13px/1.5 var(--fb);
+  cursor: pointer;
+}
+.vod-review-page .vp-composer-header button[aria-pressed="true"] {
+  color: var(--text); background: var(--bg); border-color: var(--border);
+}
+.vod-review-page .vp-composer-header button:hover { color: var(--text); background: var(--bg); }
+.vod-review-page #vp-composer-close { flex-shrink: 0; min-width: 36px; }
+.vod-review-page .vp-composer kbd { font: 400 11px/1.5 var(--fb); white-space: nowrap; }
+.vod-review-page .vp-composer-context { margin: 12px 20px; color: var(--muted); font-size: 13px; }
+.vod-review-page .vp-composer-body { min-height: 0; overflow: auto; padding: 0 20px 20px; }
+.vod-review-page .vp-composer #vp-clip-tools {
+  display: block !important;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.vod-review-page .vp-composer #vp-clip-tools > summary { display: none; }
+.vod-review-page .vp-composer #vp-clip-tools > .mini { padding: 0; }
+.vod-review-page .vp-composer .vp-clip > .mtitle { display: none; }
+.vod-review-page .vp-composer #vp-bookmark-tools { padding: 0; border: 0; }
+.vod-review-page .vp-composer :is(.inp, .savebtn) { width: 100%; min-width: 0; }
+.vod-review-page .vp-composer #vp-clip-save {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 42px; padding: 10px 14px; font-size: 14px;
+}
+.vod-review-page .vp-composer #vp-clip-save:disabled { opacity: .5; cursor: default; }
+.vod-review-page .vp-composer-help { margin: 0; color: var(--muted); font: 400 12px/1.6 var(--fb); }
+.vod-review-page .vp-composer :is(#vp-clip-hint, #vp-bm-hint) {
+  margin: 0; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 14px; color: var(--text);
+}
+.vod-review-page .vp-composer :is(#vp-clip-hint, #vp-bm-hint).err { color: #ffaaaa; border-color: #875353; }
+.vod-review-page .vp-composer #vp-bm-hint { margin-bottom: 12px; }
+.vod-review-page .vp-composer #vp-note-help { max-width: none; }
+.vod-review-page .vp-composer-options { margin-top: 8px; }
+.vod-review-page .vp-composer-options > summary {
+  padding: 8px 0; cursor: pointer; color: var(--muted); font: 500 13px/1.5 var(--fb);
+}
+.vod-review-page .vp-composer-options > :not(summary) { margin-top: 12px; }
+
+.vod-review-page #vp-wrap.vp-expanded.vp-composing {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+.vod-review-page #vp-wrap.vp-expanded.vp-composing > .vp-cinema-header { grid-column: 1 / -1; }
+.vod-review-page #vp-wrap.vp-expanded.vp-composing > .cols { grid-column: 1; grid-row: 2; }
+.vod-review-page #vp-wrap.vp-expanded > .vp-composer {
+  position: static;
+  grid-column: 2;
+  grid-row: 2;
+  align-self: stretch;
+  width: auto;
+  max-height: none;
+  margin: 12px 16px 16px 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+/* Visible, comfortably spaced actions on each saved moment. */
+.vod-review-page .vp-bm-edit { flex-wrap: wrap; gap: 8px; }
+.vod-review-page .vp-bm-edit .vp-bm-editnote { flex: 1 1 100%; }
+.vod-review-page .vp-moment-delete,
+.vod-review-page .vp-bm-makeclip {
+  width: auto; height: auto; min-height: 34px; padding: 6px 12px;
+  border-radius: 8px; font: 500 13px/1.5 var(--fb); white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .vod-review-page #vp-wrap.vp-expanded.vp-composing {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .vod-review-page #vp-wrap.vp-expanded > .vp-composer {
+    grid-column: 1; grid-row: 3; max-height: 42dvh; margin: 0 12px 12px;
+  }
+  .vod-review-page #vp-wrap.vp-expanded.vp-composing .vp-timeline { height: 80px; }
+  .vod-review-page #vp-wrap.vp-expanded.vp-composing .vp-mkstep { display: none; }
+  .vod-review-page .vp-composer { right: 12px; bottom: 12px; width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
+  .vod-review-page .vp-composer-header { padding-top: 10px; }
+  .vod-review-page .vp-composer-context { margin-top: 8px; margin-bottom: 8px; }
+  .vod-review-page .vp-composer .vp-clip { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+  .vod-review-page .vp-composer .vp-clip > :not(#vp-clip-note, #vp-clip-save) { grid-column: 1 / -1; }
+  .vod-review-page .vp-composer #vp-clip-save { width: auto; }
+  .vod-review-page .vp-composer #vp-bm-note { min-height: 72px; height: 72px; }
+}

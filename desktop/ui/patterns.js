@@ -38,6 +38,8 @@ import { createTransport, resolveAssetUrl, getMedia, renderTransportBar } from '
 let _data = null;
 let _patIdx = 0;  // index into _data.patterns
 let _momIdx = 0;  // index into the active pattern's moments
+let _reviewSaving = false;
+let _completedAny = false;
 
 // ── note-autosave state ──────────────────────────────────────────────────────
 // Mirrors PatternReviewViewModel: a short pause after typing flushes the note
@@ -54,7 +56,7 @@ const NOTE_DEBOUNCE_MS = 900;
 let _T = null;
 let _core = null;
 
-function patterns() { return Array.isArray(_data?.patterns) ? _data.patterns : []; }
+function patterns() { return Array.isArray(_data?.patterns) ? _data.patterns.filter(p => !p.isReviewed) : []; }
 function activePattern() { return patterns()[_patIdx] || null; }
 function activeMoments() {
   const p = activePattern();
@@ -77,10 +79,8 @@ async function fetchPatterns() {
 // ── render: header status line ──────────────────────────────────────────────
 function renderHeader(d) {
   const parts = [];
-  const total = patterns().length;
-  parts.push(total === 0 ? 'No patterns yet' : `${total} pattern${total === 1 ? '' : 's'}`);
-  const pending = d.pendingCount ?? 0;
-  parts.push(pending === 0 ? 'all reviewed' : `${pending} to review`);
+  const pending = d.pendingCount ?? patterns().length;
+  parts.push(pending === 0 ? 'No patterns to review' : `${pending} pattern${pending === 1 ? '' : 's'} to review`);
   if (d.reviewedPatternCount != null) parts.push(`${d.reviewedPatternCount} reviewed all-time`);
   const statusB = document.querySelector('#statusline b');
   if (statusB) statusB.textContent = parts.join(' · ');
@@ -88,8 +88,8 @@ function renderHeader(d) {
 
 // ── render: pattern selector cards ──────────────────────────────────────────
 // The whole card selects the pattern (select_pattern). Reuses the .gamerow hover
-// hype; the left edge bar carries the pattern's severity color. Reviewed patterns
-// read calm (dimmed) so pending ones lead the eye.
+// hype; the left edge bar carries the pattern's severity color. Only pending
+// patterns belong in this queue.
 function buildPatCard(p, idx) {
   const el = tpl('tpl-patcard');
   const sev = el.querySelector('.pat-sev');
@@ -109,15 +109,8 @@ function buildPatCard(p, idx) {
   detail.textContent = p.detail || '';
   sub.textContent = p.subtitle || '';
 
-  // Reviewed vs pending state chip.
-  if (p.isReviewed) {
-    state.textContent = 'Reviewed';
-    state.classList.add('good');
-    el.classList.add('pat-card-viewed');
-  } else {
-    state.textContent = 'To review';
-    state.classList.add('warn');
-  }
+  state.textContent = 'To review';
+  state.classList.add('warn');
 
   // Active card reads loud (accent rim) so the selection is obvious.
   if (idx === _patIdx) el.classList.add('pat-card-active');
@@ -280,29 +273,15 @@ function renderRail() {
   moms.forEach((m, i) => host.appendChild(buildMomRow(m, i)));
 }
 
-// ── render: closure / pending state (read-only) ─────────────────────────────
+// ── render: finish-review controls ─────────────────────────────────────────
 function renderClosure() {
   const p = activePattern();
   if (!p) return;
-  const closed = $('pat-closed');
-  const pending = $('pat-pending');
-
-  if (p.isReviewed) {
-    const moms = activeMoments();
-    const noteCount = moms.filter((m) => m.hasNote).length;
-    $('pat-csum').textContent =
-      `Marked reviewed. You can revisit these moments anytime.` +
-      (noteCount ? ` ${noteCount} note${noteCount === 1 ? '' : 's'} saved.` : '');
-    show(closed, true);
-    show(pending, false);
-  } else {
-    $('pat-pending-text').textContent =
-      'When you have compared the moments and decided what to try next, finish this review.';
-    const btn = $('pat-markrev');
-    if (btn) btn.disabled = false;
-    show(pending, true);
-    show(closed, false);
-  }
+  $('pat-pending-text').textContent =
+    'When you have compared the moments and decided what to try next, finish this review.';
+  const btn = $('pat-markrev');
+  if (btn) btn.disabled = _reviewSaving;
+  show($('pat-pending'), true);
 }
 
 // ── render: the active-pattern panel (player + rail + closure) ──────────────
@@ -348,6 +327,7 @@ function playEntrance() {
 
 // ── top-level render ────────────────────────────────────────────────────────
 function render(d) {
+  const selectedKey = activePattern()?.patternKey;
   _data = d;
   clearError();
 
@@ -367,6 +347,8 @@ function render(d) {
 
   const list = patterns();
   if (list.length === 0) {
+    resetInlineVideo();
+    _editingMoment = null;
     renderHeader(d);
     renderPicker();
     show($('pat-main'), false);
@@ -374,14 +356,24 @@ function render(d) {
     // copy — the two must never claim the empty state simultaneously.
     const empty = $('pat-empty');
     show(empty, !(d && d.errorText));
-    if (d.emptyText) $('pat-empty-h').textContent = d.emptyText;
+    const morePending = (d.pendingCount ?? 0) > 0;
+    const caughtUp = _completedAny || (d.reviewedPatternCount ?? 0) > 0 ||
+      (d.patterns || []).some(p => p.isReviewed);
+    $('pat-empty-h').textContent = morePending ? 'More patterns are waiting.'
+      : caughtUp ? 'You’re all caught up.' : 'No recurring patterns yet.';
+    $('pat-empty-p').textContent = morePending ? 'Refresh to load the next patterns in your review list.' : caughtUp
+      ? 'Reviewed patterns are cleared from this list. They can return when enough new evidence appears.'
+      : (d.emptyText || 'Start with a learning objective and review a few games. Revu looks for repeated mistakes in clips, missed stat targets, and events you track.');
+    show($('pat-reload'), morePending);
     playEntrance();
     return;
   }
   show($('pat-empty'), false);
 
-  // Clamp indices in case the snapshot shrank between loads.
-  if (_patIdx >= list.length) _patIdx = 0;
+  // Retain the selected pending pattern when a refresh refills the queue.
+  const selectedIdx = list.findIndex(p => p.patternKey === selectedKey);
+  if (selectedIdx >= 0) _patIdx = selectedIdx;
+  else { _patIdx = Math.min(_patIdx, list.length - 1); _momIdx = 0; }
   if (_momIdx >= activeMoments().length) _momIdx = 0;
 
   renderHeader(d);
@@ -408,6 +400,7 @@ async function loadPatterns() {
 
 // ── selection helpers (pure client-side over the loaded snapshot) ────────────
 function selectPattern(idx) {
+  if (_reviewSaving) return;
   const list = patterns();
   if (idx < 0 || idx >= list.length) return;
   if (idx === _patIdx) { focusReview(); return; }
@@ -429,6 +422,7 @@ function focusReview() {
 }
 
 function gotoMoment(idx) {
+  if (_reviewSaving) return;
   const moms = activeMoments();
   if (idx < 0 || idx >= moms.length) return;
   // Flush the outgoing moment's note (background) before the index changes.
@@ -470,19 +464,28 @@ function setMomentStatus(msg) {
 }
 
 // Flush a SPECIFIC moment's note (captured so navigation flushes the right one).
-async function flushMomentNote(moment, text) {
-  if (!moment) return;
+let _noteWrites = Promise.resolve();
+function flushMomentNote(moment, text) {
+  // Blur and Finish can flush the same note together. Serialize writes so Finish
+  // waits for the accepted save and never removes a pattern with an unsaved note.
+  const write = _noteWrites.then(() => saveMomentNote(moment, text));
+  _noteWrites = write.catch(() => false);
+  return write;
+}
+
+async function saveMomentNote(moment, text) {
+  if (!moment) return true;
   const trimmed = (text || '').trim();
   const prev = (moment.note || '').trim();
   // Nothing changed and no clip pending → don't churn.
-  if (trimmed === prev && (trimmed.length === 0 || moment._clipped)) return;
+  if (trimmed === prev && (trimmed.length === 0 || moment._clipped)) return true;
 
   const invoke = await getInvoke();
   if (!invoke) {
     // Preview: reflect locally so the UI feels right; no backend to persist to.
     moment.note = trimmed;
     moment.hasNote = trimmed.length > 0;
-    return;
+    return true;
   }
   try {
     const payload = {
@@ -500,6 +503,7 @@ async function flushMomentNote(moment, text) {
       alreadyClipped: !!moment._clipped,
     };
     const res = await invoke('save_pattern_moment_note', { payload });
+    if (res?.ok === false) throw new Error(res.error || 'Note save failed');
     // Reflect the saved state on the in-memory moment so re-renders are correct.
     moment.note = trimmed;
     moment.hasNote = trimmed.length > 0;
@@ -509,12 +513,14 @@ async function flushMomentNote(moment, text) {
       setMomentStatus(res && res.clipped ? 'Saved · clip kept' : 'Saved');
       show($('m-clipt'), !!moment._clipped || moment.sourceKind === 'clip');
     }
-    // Keep the rail note preview + closure note-count in sync.
+    // Keep the rail note preview and finish controls in sync.
     renderRail();
     renderClosure();
+    return true;
   } catch (err) {
     if (ReferenceEquals(moment, activeMoment())) setMomentStatus("Couldn't save");
     console.error('[patterns] save_pattern_moment_note failed:', err);
+    return false;
   }
 }
 
@@ -535,47 +541,55 @@ async function commitPendingNote() {
   if (_noteTimer) { clearTimeout(_noteTimer); _noteTimer = null; }
   const moment = _editingMoment;
   const text = $('m-note') ? $('m-note').value : '';
-  await flushMomentNote(moment, text);
+  return flushMomentNote(moment, text);
 }
 
 // ── mark pattern reviewed (WRITE) ────────────────────────────────────────────
+function removeReviewedPattern(p) {
+  _data.patterns = _data.patterns.filter(item => item.patternKey !== p.patternKey);
+  _data.pendingCount = Math.max(0, (_data.pendingCount ?? patterns().length + 1) - 1);
+  _data.hasPending = _data.pendingCount > 0;
+  _completedAny = true;
+  resetInlineVideo();
+  _editingMoment = null;
+  _patIdx = Math.min(_patIdx, Math.max(0, patterns().length - 1));
+  _momIdx = 0;
+  render(_data);
+}
+
 async function markReviewed() {
   const p = activePattern();
-  if (!p) return;
-  // Make sure the on-screen note is saved before closing the pattern out.
-  await commitPendingNote();
-  const invoke = await getInvoke();
-  if (!invoke) {
-    // Preview: flip locally so the closure panel shows.
-    p.isReviewed = true;
-    renderPicker(); renderClosure();
-    return;
-  }
+  if (!p || _reviewSaving) return;
+  _reviewSaving = true;
   const btn = $('pat-markrev');
   if (btn) btn.disabled = true;
+  const note = $('m-note');
+  if (note) note.readOnly = true;
   try {
-    await invoke('mark_pattern_reviewed', {
+    if (!await commitPendingNote()) throw new Error('Save the note before finishing');
+    const invoke = await getInvoke();
+    const result = invoke ? await invoke('mark_pattern_reviewed', {
       payload: {
         patternKey: p.patternKey,
         kind: p.kind || '',
         momentCount: Array.isArray(p.moments) ? p.moments.length : 0,
       },
-    });
-    p.isReviewed = true;
-    // Keep the counters honest without a full reload: one fewer pending, one
-    // more reviewed all-time (renderHeader/renderPicker read these off _data).
-    if (_data) {
-      _data.pendingCount = Math.max(0, (_data.pendingCount ?? 1) - 1);
-      if (_data.reviewedPatternCount != null) _data.reviewedPatternCount += 1;
-    }
-    renderPicker();   // dim the now-reviewed card
-    renderHeader(_data);
-    renderClosure();  // swap pending → closed
+    }) : null;
+    if (result?.ok === false) throw new Error(result.error || 'Review save failed');
+    removeReviewedPattern(p);
+    // Refill the capped queue and read authoritative history counts. A refresh
+    // failure must not undo the successful removal already shown locally.
+    if (invoke) await loadPatterns();
+    if (activePattern()) focusReview();
+    else $('pat-empty-h')?.focus({ preventScroll: true });
   } catch (err) {
-    if (btn) btn.disabled = false;
     $('pat-review-status').textContent = "Couldn't finish the review. Please try again.";
     show($('pat-review-status'), true);
     console.error('[patterns] mark_pattern_reviewed failed:', err);
+  } finally {
+    _reviewSaving = false;
+    if (btn) btn.disabled = false;
+    if (note) note.readOnly = false;
   }
 }
 
@@ -659,7 +673,7 @@ function playMoment() {
 // prev/next_moment = step the active playlist (client-side).
 // play_moment    = the VOD surface → load + play the moment's clip INLINE.
 // playpause/seek/mute/fullscreen = the shared transport bar, forwarded to _T.
-const ACTIONS = new Set(['select_pattern', 'goto_moment', 'prev_moment', 'next_moment', 'play_moment', 'mark_reviewed', 'playpause', 'seek', 'mute', 'fullscreen']);
+const ACTIONS = new Set(['select_pattern', 'goto_moment', 'prev_moment', 'next_moment', 'play_moment', 'mark_reviewed', 'reload_patterns', 'playpause', 'seek', 'mute', 'fullscreen']);
 
 document.addEventListener('click', async (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -690,6 +704,10 @@ document.addEventListener('click', async (ev) => {
   }
   if (action === 'mark_reviewed') {
     await markReviewed();
+    return;
+  }
+  if (action === 'reload_patterns') {
+    await loadPatterns();
     return;
   }
 

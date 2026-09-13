@@ -9,7 +9,7 @@ const state = {
   step: 10, rate: 1.5, muted: true, volume: 0.4, focusedObjectiveId: 3,
   filter: 'clips', zoom: 3, pan: -200,
   clip: { start: 31, end: 76, quality: 'good', note: '  Next fight\nkeep this spacing  ', picker: 'prompt:3:9', userSet: true },
-  bookmark: { note: 'unfinished bookmark ', picker: 'obj:2', userSet: true },
+  bookmark: { time: 24, note: 'unfinished bookmark ', picker: 'obj:2', userSet: true },
   corrections: { schema: 1, gameId: 42, form: { reason: 'unfinished' } },
 };
 
@@ -66,6 +66,8 @@ test('restoration bounds media and game ranges and rejects unsupported transport
   assert.equal(plan.clip.start, -1);
   assert.equal(plan.clip.end, 1765);
   assert.equal(plan.clip.quality, '');
+  assert.equal(vodRestorePlan({ ...state, bookmark: { ...state.bookmark, time: 9999 } }, context).bookmark.time, 1765);
+  assert.equal(vodRestorePlan({ ...state, bookmark: { note: 'Old draft' } }, context).bookmark.time, null);
   assert.equal(vodRestorePlan({ ...state, mediaTime: NaN }, context).mediaTime, null);
 });
 

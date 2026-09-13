@@ -87,6 +87,7 @@ test('commands preserve read/write envelopes and backend failures across review 
     ['save_config', { payload: { clipsFolder: 'D:\\Clips', sidebarAnimationEnabled: false } }],
     ['auth_login', { payload: { email: 'test@example.invalid', password: 'fixture-only' } }],
     ['save_export_file', { fileName: 'review.md', markdown: '# Review\n' }],
+    ['copy_text_to_clipboard', { text: '# Review\nKeep the wave near turret.' }],
   ];
   const calls = [];
   const client = createPlatform({ scope: page(), adapterFactory: () => host({
@@ -109,6 +110,8 @@ test('allowlist rejects unknown commands, extra keys and invalid casing/types be
     ['get_vod', { game_id: 2 }], ['get_vod', { gameId: '2' }],
     ['get_vod', { gameId: NaN }], ['get_vod', { gameId: 1, route: '/arbitrary' }],
     ['save_review', { payload: [] }], ['get_config', null], ['save_review', {}],
+    ['copy_text_to_clipboard', {}], ['copy_text_to_clipboard', { text: 42 }],
+    ['copy_text_to_clipboard', { text: 'Review', format: 'html' }],
   ]) await assert.rejects(client.invoke(command, args));
   assert.equal(calls, 0);
   assert.equal(validateCommand('get_review', { gameId: null }), COMMANDS.get_review);
@@ -222,7 +225,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 107);
+  assert.equal(Object.keys(COMMANDS).length, 108);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
     assert.ok(Object.isFrozen(definition), name);

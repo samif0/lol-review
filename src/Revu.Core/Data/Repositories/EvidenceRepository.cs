@@ -835,7 +835,9 @@ public sealed class EvidenceRepository : IEvidenceRepository
         }
 
         using var conn = _factory.CreateConnection();
+        using var tx = columnName == "polarity" ? conn.BeginTransaction() : null;
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = $"""
             UPDATE evidence_items
             SET {columnName} = @value,
@@ -846,6 +848,29 @@ public sealed class EvidenceRepository : IEvidenceRepository
         cmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("@id", evidenceId);
         await cmd.ExecuteNonQueryAsync();
+
+        if (columnName == "polarity")
+        {
+            // Rating an evidence card must also update the clip's stored quality;
+            // otherwise the VOD and objective views disagree about the same clip.
+            using var bookmark = conn.CreateCommand();
+            bookmark.Transaction = tx;
+            bookmark.CommandText = """
+                UPDATE vod_bookmarks
+                SET quality = @polarity
+                WHERE EXISTS (
+                    SELECT 1 FROM evidence_items e
+                    WHERE e.id = @id AND e.source_kind = @kind
+                      AND e.source_id = vod_bookmarks.id
+                      AND e.game_id = vod_bookmarks.game_id
+                )
+                """;
+            bookmark.Parameters.AddWithValue("@polarity", value);
+            bookmark.Parameters.AddWithValue("@kind", EvidenceKinds.Clip);
+            bookmark.Parameters.AddWithValue("@id", evidenceId);
+            await bookmark.ExecuteNonQueryAsync();
+            tx!.Commit();
+        }
     }
 
     private static void BindUpsert(

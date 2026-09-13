@@ -117,7 +117,7 @@ html.framed .vod-review-page #vp-wrap.vp-expanded {
   min-height: 0;
 }
 
-.vod-review-page #vp-wrap.vp-expanded :is(.vp-review-column, #vp-event-tools, #vp-clip-tools) {
+.vod-review-page #vp-wrap.vp-expanded :is(.vp-review-column, #vp-event-tools, .vp-watch-column > #vp-clip-tools) {
   display: none !important;
 }
 

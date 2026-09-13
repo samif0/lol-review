@@ -84,7 +84,7 @@
        ENFORCED rule is tripped (SSE 'hardStop'), and re-shown as the slim bar
        from the liveState replay while the lock still holds. Not a form: the plan
        the player wrote while calm, a countdown, OK, and an override that only
-       unlocks after a 60-second hold. Lives on the persistent shell (not the
+       unlocks after a five-minute hold. Lives on the persistent shell (not the
        iframe) so it survives page navigation. Every string is set via
        textContent in shell-outer.js. -->
   <div class="hardstop" id="hardstop" hidden role="dialog" aria-modal="true" aria-labelledby="hardstop-h">
@@ -102,9 +102,9 @@
       <div class="hardstop-count" id="hardstop-count" hidden></div>
       <div class="hardstop-bar">
         <button class="cta cta-sm hardstop-ok" id="hardstop-ok" type="button">OK</button>
-        <button class="hardstop-override" id="hardstop-override" type="button" disabled>Queue anyway (60)</button>
+        <button class="hardstop-override" id="hardstop-override" type="button" disabled>Queue anyway (5:00)</button>
       </div>
-      <div class="hardstop-foot">You set this while calm. Revu keeps cancelling the queue until it unlocks or you override it.</div>
+      <div class="hardstop-foot">Take five minutes before choosing to override. Revu keeps cancelling the queue until your rule unlocks or you override it.</div>
     </div>
   </div>
   <div class="hardbar" id="hardbar" hidden>

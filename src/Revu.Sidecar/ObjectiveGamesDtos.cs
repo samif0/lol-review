@@ -53,9 +53,9 @@ public sealed record ObjectiveGameRowDto(
     // "12/3/8" (K/D/A as F0).
     string KdaText,
     bool Practiced,
-    // "Practiced" | "Skipped".
+    // "Objective practiced" | "Objective not practiced"; independent of review status.
     string PracticedText,
-    // Practiced → positive green, skipped → neutral muted.
+    // Practiced → positive green, not practiced → neutral muted.
     string PracticedColorHex,
     string PracticedDimColorHex,
     // Per-game execution note (only shown when HasExecutionNote).

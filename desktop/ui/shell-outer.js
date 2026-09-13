@@ -47,12 +47,28 @@ function markActive(navId) {
 }
 
 // Navigate the iframe (NOT the top document). Accepts a bare file or file?query.
-function frameGoto(target) {
-  if (!frame) return;
+let _frameNavigation = 0;
+async function frameGoto(target) {
+  if (!frame) return false;
+  const navigation = ++_frameNavigation;
   // Resolve relative to the UI root so 'games.html' and 'games.html?x=1' both work.
   const url = new URL(target, frame.src || location.href);
-  if (frame.contentWindow && frame.contentWindow.location.href === url.href) return; // already there
+  const source = frame.contentWindow;
+  const sourceUrl = source?.location.href;
+  const sourceDocument = source?.document;
+  if (sourceUrl === url.href) return false; // also cancels an earlier pending navigation
+  try {
+    if (typeof source?.revuBeforeNavigate === 'function' && await source.revuBeforeNavigate() === false) return false;
+  } catch (err) {
+    console.warn('[shell] could not save the current page before navigation:', err);
+    return false;
+  }
+  // A later click or an in-page navigation wins while a save is in flight.
+  if (navigation !== _frameNavigation || frame.contentWindow !== source ||
+      source?.document !== sourceDocument || source?.location.href !== sourceUrl) return false;
   frame.src = url.pathname.split('/').pop() + url.search + url.hash;
+  markActive(fileToNav(url.pathname));
+  return true;
 }
 
 // Current iframe file (best-effort; same-origin in-app so this is readable).
@@ -64,16 +80,15 @@ function frameHas(file) { return frameFile().toLowerCase() === file.toLowerCase(
 
 // ── Nav clicks → reload only the iframe ──────────────────────────────────────
 // One delegated handler on the persistent rail. preventDefault the anchor's own
-// top-level navigation and point the iframe at it instead; mark active instantly
-// (the rail never reloads, so this is the only place active state changes from a
-// user click — the iframe 'load' handler re-syncs for in-page navigations).
+// top-level navigation and point the iframe at it after pending page writes.
+// The rail changes selection once navigation succeeds; iframe load also syncs
+// the selection for in-page navigations.
 nav?.addEventListener('click', (ev) => {
   const a = ev.target.closest('.nav-i');
   if (!a) return;
   ev.preventDefault();
   const href = a.getAttribute('href');
   if (!href) return;
-  markActive(a.dataset.nav);
   frameGoto(href);
 });
 
@@ -221,11 +236,10 @@ wireWindowControls();
 // Deliberately NOT a form. The player set the rule while calm; this surface only
 // shows them the plan they wrote for this moment and a countdown. OK collapses it
 // to the bar. "Queue anyway" is the one escape hatch and it only unlocks after a
-// 60-second hold — long enough to be a decision, short enough that nobody closes
-// the app to get around it. An override is logged (override_hard_stop) and
+// five-minute hold. An override is logged (override_hard_stop) and
 // silences that rule for the rest of the day; the Rules page counts it.
 // Every server string goes through textContent.
-const HARDSTOP_HOLD_S = 60;
+const HARDSTOP_HOLD_S = 5 * 60;
 const hardStop = { snap: null, holdStartedAt: 0, timer: null };
 const hsEl = (id) => document.getElementById(id);
 
@@ -299,7 +313,10 @@ function tickHardStop() {
   if (btn) {
     const held = Math.floor((Date.now() - hardStop.holdStartedAt) / 1000);
     const left = HARDSTOP_HOLD_S - held;
-    if (left > 0) { btn.disabled = true; btn.textContent = `Queue anyway (${left})`; }
+    if (left > 0) {
+      btn.disabled = true;
+      btn.textContent = `Queue anyway (${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')})`;
+    }
     else { btn.disabled = false; btn.textContent = 'Queue anyway'; }
   }
 }

@@ -81,7 +81,7 @@ function captureVodViewState() {
     filter: _bmFilter, zoom: _tlZoom, pan: _tlPan,
     clip: { start: _clipIn, end: _clipOut, quality: _clipQuality,
       note: $('vp-clip-note')?.value || '', picker: $('vp-clip-obj')?.value || '', userSet: _clipObjUserSet },
-    bookmark: { note: $('vp-bm-note')?.value || '', picker: $('vp-bm-obj')?.value || '', userSet: _bmObjUserSet },
+    bookmark: { time: _bookmarkTime, note: $('vp-bm-note')?.value || '', picker: $('vp-bm-obj')?.value || '', userSet: _bmObjUserSet },
     corrections: _fx?.captureState() || null,
   };
 }
@@ -111,6 +111,7 @@ async function restoreVodViewState(state) {
   _tlZoom = plan.zoom; _tlPan = plan.pan;
   applyTimelineZoom();
   _clipIn = plan.clip.start; _clipOut = plan.clip.end; _clipQuality = plan.clip.quality;
+  _bookmarkTime = plan.bookmark.time;
   if ($('vp-clip-note')) $('vp-clip-note').value = plan.clip.note;
   if ($('vp-bm-note')) $('vp-bm-note').value = plan.bookmark.note;
   const restorePicker = (id, saved) => {
@@ -1204,6 +1205,72 @@ function normBookmark(b, isClip) {
   };
 }
 
+// Saved-moment card actions. Preparing a clip only changes its draft; the source
+// bookmark remains intact until the user explicitly chooses Delete.
+function bookmarkClipRange(seconds, duration, firstGameTime = 0) {
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  const first = Math.max(0, Math.ceil(Number.isFinite(firstGameTime) ? firstGameTime : 0));
+  const last = Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : Infinity;
+  const start = Math.max(first, Math.floor(seconds) - 15);
+  const end = Math.min(last, Math.floor(seconds) + 15);
+  return end - start >= 1 ? { start, end } : null;
+}
+
+function renderBookmarkCardActions(el, moment) {
+  const bookmarkActions = el.querySelector('.vp-bm-edit');
+  if (moment.editable && bookmarkActions) {
+    const makeClip = document.createElement('button');
+    makeClip.type = 'button';
+    makeClip.className = 'key vp-bm-makeclip';
+    makeClip.dataset.action = 'make_clip_from_bookmark';
+    makeClip.dataset.bmId = String(moment.id);
+    makeClip.textContent = 'Make clip';
+    makeClip.disabled = !_vod?.filePath;
+    makeClip.title = makeClip.disabled ? 'Link a recording to make a clip' : 'Make a clip with 15 seconds before and after this bookmark';
+    bookmarkActions.appendChild(makeClip);
+  }
+  const deletion = el.querySelector(moment.isClip ? '.vp-clipdel-btn' : '.vp-bm-del');
+  if (deletion) {
+    deletion.type = 'button';
+    deletion.classList.add('vp-moment-delete');
+    deletion.textContent = 'Delete';
+    deletion.setAttribute('aria-label', moment.isClip ? 'Delete clip' : 'Delete bookmark');
+  }
+}
+
+function makeClipFromBookmark(bookmarkId) {
+  if (_clipIn >= 0 || _clipOut >= 0 || $('vp-clip-note')?.value.trim()) {
+    openClipTools({ focusNote: true });
+    clipHint('You have an unfinished clip. Save or clear it before making another.', true);
+    return false;
+  }
+  const id = Number(bookmarkId);
+  if (!Number.isSafeInteger(id) || id <= 0 || !_vod?.filePath) return false;
+  const bookmark = (_vod.bookmarks || []).find(item => Number(item.id) === id && !item.hasClip);
+  if (!bookmark) return false;
+  const range = bookmarkClipRange(Number(bookmark.gameTimeSeconds),
+    _T?.duration || _vod.gameDurationSeconds || 0, Number(_vod.gameTimeAtVideoStart) || 0);
+  if (!range) {
+    openClipTools({ focusNote: true });
+    clipHint('This bookmark is outside the available recording.', true);
+    return false;
+  }
+  _clipIn = range.start;
+  _clipOut = range.end;
+  _clipQuality = '';
+  const editedNote = document.querySelector(`#vp-bookmarks [data-bm-id="${id}"] .vp-bm-editnote`);
+  const note = $('vp-clip-note');
+  if (note) note.value = editedNote?.value ?? bookmark.note ?? '';
+  fillObjectivePromptPicker($('vp-clip-obj'), bookmark.objectiveId ?? null, bookmark.promptId ?? null);
+  _clipObjUserSet = true;
+  _T?.pause();
+  seekTo(range.start);
+  renderClipState();
+  openClipTools({ focusNote: true });
+  clipHint('Clip prepared from your bookmark. Add a note, then save.', false);
+  return true;
+}
+
 function renderMoments() {
   renderReviewEvents();
   const { auto, clips, bm } = momentLanes();
@@ -1346,6 +1413,8 @@ function renderMoments() {
     } else if (shareWrap) {
       shareWrap.remove();
     }
+
+    renderBookmarkCardActions(el, m);
 
     // Optional triage badges: polarity dot tint + objective tag + status. These
     // reuse the existing .b badge slot via the clip badge's neighbors; we append
@@ -1492,6 +1561,7 @@ function resolveSaveTag(pickerId) {
   const objEl = $(pickerId);
   const picked = parsePickerValue(objEl ? objEl.value : '');
   if (picked.objectiveId != null || picked.promptId != null) return picked;
+  if (pickerId === 'vp-clip-obj' ? _clipObjUserSet : _bmObjUserSet) return picked;
   if (_framed && _focusedObjId != null) return { objectiveId: Number(_focusedObjId), promptId: null };
   return { objectiveId: null, promptId: null };
 }
@@ -1597,6 +1667,7 @@ function bmHint(msg, isErr) {
   h.textContent = msg || '';
   h.classList.toggle('err', !!isErr);
   show(h, !!msg);
+  if (msg && _composerKind === 'bookmark') $('vp-composer-body').scrollTop = 0;
 }
 
 // (The combat-moment editor that lived here became the timeline corrections panel in
@@ -1607,9 +1678,10 @@ function addBookmark() {
 }
 
 async function addBookmarkNow() {
+  if (_composerKind === 'bookmark' && _bookmarkTime === null && !$('vp-bm-note')?.value.trim()) return;
   if (!_core || _gameId <= 0) { bmHint('Preview only; no backend to save to.', false); return; }
-  const v = video();
-  const timeS = Math.max(0, Math.floor(_T?.currentTime || 0));
+  const timeS = _bookmarkTime ?? Math.max(0, Math.floor(_T?.currentTime || 0));
+  const submittedDraft = captureVodViewState().bookmark;
   const noteEl = $('vp-bm-note');
   const submittedNote = noteEl?.value || '';
   const note = submittedNote.trim();
@@ -1620,13 +1692,20 @@ async function addBookmarkNow() {
 
   const addBtn = $('vp-bm-add');
   if (addBtn) addBtn.disabled = true;
+  bmHint('Saving bookmark…', false);
   try {
     const payload = { gameId: _gameId, timeS, note };
     if (objectiveId) payload.objectiveId = objectiveId;
     if (promptId) payload.promptId = promptId;
-    await _core.invoke('add_bookmark', { payload });
-    if (noteEl && noteEl.value === submittedNote) noteEl.value = '';
-    bmHint(`Note saved at ${clock(timeS)}.`, false);
+    const res = await _core.invoke('add_bookmark', { payload });
+    if (res?.ok === false) throw new Error(res.error || 'Bookmark save failed.');
+    if (sameVodDraft(captureVodViewState().bookmark, submittedDraft)) {
+      if (noteEl) noteEl.value = '';
+      _bookmarkTime = null;
+      renderComposerContext();
+      if (_composerKind === 'bookmark') $('vp-composer-close')?.focus({ preventScroll: true });
+    }
+    bmHint(`Bookmark saved at ${clock(timeS)}.`, false);
     await reloadBookmarks();
     showSavedMoments('bm');
   } catch (err) {
@@ -2216,6 +2295,19 @@ document.addEventListener('click', async (ev) => {
   if (action === 'add_bookmark') {
     ev.preventDefault();
     await addBookmark();
+  } else if (action === 'open_bookmark') {
+    ev.preventDefault();
+    openBookmarkTools();
+  } else if (action === 'open_clip') {
+    ev.preventDefault();
+    openClipTools({ focusNote: _clipIn >= 0 && _clipOut >= 0 });
+  } else if (action === 'close_composer') {
+    ev.preventDefault();
+    closeComposer();
+  } else if (action === 'make_clip_from_bookmark') {
+    ev.preventDefault();
+    ev.stopPropagation();
+    makeClipFromBookmark(t.dataset.bmId);
   } else if (action === 'delete_bookmark') {
     ev.preventDefault();
     ev.stopPropagation(); // don't let the row's jump fire
@@ -2316,6 +2408,7 @@ function clipHint(msg, isErr) {
   h.textContent = msg || '';
   h.classList.toggle('err', !!isErr);
   show(h, !!msg);
+  if (msg && _composerKind === 'clip') $('vp-composer-body').scrollTop = 0;
 }
 
 // Reflect the in/out range + Save enablement into the Clip card.
@@ -2348,6 +2441,7 @@ function renderClipState() {
   });
 
   renderClipOverlay();
+  if (_composerKind === 'clip') renderComposerContext();
 }
 
 // Draw the In/Out clip markers (and the band between them) onto the event
@@ -2389,10 +2483,69 @@ function leaveCinema() {
   if (_T?.isExpanded()) _T.toggleEnlarge();
 }
 
-function openClipTools() {
-  leaveCinema();
-  const tools = $('vp-clip-tools');
-  if (tools) tools.open = true;
+// Move the existing editors into one visible dock, preserving their input nodes,
+// draft values and listeners. Staying inside vp-wrap also keeps cinema's focus
+// containment intact. Closing returns each editor to its normal page location.
+let _composerKind = null;
+let _composerHome = null;
+let _bookmarkTime = null;
+
+function returnComposerEditor() {
+  if (!_composerHome) return;
+  const { element, parent, next } = _composerHome;
+  if (parent) parent.insertBefore(element, next?.parentNode === parent ? next : null);
+  _composerHome = null;
+}
+
+function openComposer(kind, { focusNote = false } = {}) {
+  const dock = $('vp-composer');
+  const element = $(kind === 'clip' ? 'vp-clip-tools' : 'vp-bookmark-tools');
+  if (!dock || !element) return;
+  if (_composerKind !== kind) {
+    returnComposerEditor();
+    _composerHome = { element, parent: element.parentNode, next: element.nextSibling };
+    $('vp-composer-body')?.appendChild(element);
+  }
+  _composerKind = kind;
+  if (kind === 'clip') element.open = true;
+  show(dock, true);
+  $('vp-composer-body').scrollTop = 0;
+  $('vp-wrap')?.classList.add('vp-composing');
+  $('vp-compose-clip')?.setAttribute('aria-pressed', String(kind === 'clip'));
+  $('vp-compose-bookmark')?.setAttribute('aria-pressed', String(kind === 'bookmark'));
+  renderComposerContext();
+  if (focusNote) {
+    _T?.pause();
+    $(kind === 'clip' ? 'vp-clip-note' : 'vp-bm-note')?.focus({ preventScroll: true });
+  }
+}
+
+function renderComposerContext() {
+  const context = $('vp-composer-context');
+  if (!context) return;
+  context.textContent = _composerKind === 'bookmark'
+    ? (_bookmarkTime !== null ? `Bookmark at ${clock(_bookmarkTime)}` : 'Bookmark')
+    : _clipIn >= 0 && _clipOut < 0 ? `Clip starts at ${clock(_clipIn)} · Press O to finish`
+    : _clipIn >= 0 && _clipOut >= 0 ? `Clip · ${clock(Math.min(_clipIn, _clipOut))}–${clock(Math.max(_clipIn, _clipOut))}`
+    : 'Press I to start, then O to finish your clip';
+}
+
+function closeComposer() {
+  returnComposerEditor();
+  _composerKind = null;
+  show($('vp-composer'), false);
+  $('vp-wrap')?.classList.remove('vp-composing');
+  $('vp-play')?.focus({ preventScroll: true });
+}
+
+function openClipTools({ focusNote = false } = {}) {
+  openComposer('clip', { focusNote });
+}
+
+function openBookmarkTools() {
+  if (_bookmarkTime === null) _bookmarkTime = Math.max(0, Math.floor(_T?.currentTime || 0));
+  bmHint('');
+  openComposer('bookmark', { focusNote: true });
 }
 
 function showSavedMoments(filter) {
@@ -2403,18 +2556,17 @@ function showSavedMoments(filter) {
 }
 
 function setClipIn() {
-  openClipTools();
-  const v = video();
   _clipIn = Math.max(0, Math.floor(_T?.currentTime || 0));
+  _clipOut = -1;
   clipHint('');
   renderClipState();
+  openClipTools();
 }
 function setClipOut() {
-  openClipTools();
-  const v = video();
   _clipOut = Math.max(0, Math.floor(_T?.currentTime || 0));
   clipHint('');
   renderClipState();
+  openClipTools({ focusNote: true });
 }
 function clearClip() {
   _clipIn = -1; _clipOut = -1; _clipQuality = '';
@@ -2474,8 +2626,11 @@ async function saveClipNow() {
     const res = await _core.invoke('extract_clip', { payload });
     if (res && res.ok) {
       const qualMsg = payload.quality ? ` as ${payload.quality}` : '';
+      if (sameVodDraft(captureVodViewState().clip, submittedDraft)) {
+        clearClip();
+        if (_composerKind === 'clip') $('vp-composer-close')?.focus({ preventScroll: true });
+      }
       clipHint(`Clip saved${qualMsg} (${clock(startTimeS)}–${clock(endTimeS)}).`, false);
-      if (sameVodDraft(captureVodViewState().clip, submittedDraft)) clearClip();
       await reloadBookmarks();
       showSavedMoments('clips');
     } else {
@@ -2738,28 +2893,30 @@ function wireSeekBar() {
 // Keyboard: space = play/pause, arrows = seek, B = quick bookmark. Enter/Space on
 // a focused moment row jumps to its time (the rows are role=button divs).
 document.addEventListener('keydown', (ev) => {
+  if (ev.defaultPrevented || ev.isComposing) return;
+  if (ev.key === 'Escape' && _composerKind) {
+    ev.preventDefault();
+    if (!ev.repeat) closeComposer();
+    return;
+  }
   // Modal navigation wins over timeline selection and native editing guards.
   // In particular, Escape must close cinema even with the speed menu focused.
   if (_T?.isExpanded() && (ev.key === 'Escape' || ev.key === 'Tab') && _T.handleShortcut(ev)) return;
-  if (ev.target?.id === 'vp-bm-note' && ev.key === 'Enter') {
-    // The review note is multiline. Save only on the explicit field shortcut;
-    // plain Enter remains a newline and does not invoke the backend.
-    if (!ev.defaultPrevented && !ev.isComposing && !ev.altKey && !ev.shiftKey && (ev.ctrlKey || ev.metaKey)) {
+  const clipNote = ev.target?.id === 'vp-clip-note';
+  const bookmarkNote = ev.target?.id === 'vp-bm-note';
+  if (clipNote || bookmarkNote) {
+    const modified = ev.ctrlKey || ev.metaKey;
+    const save = !ev.altKey && !ev.shiftKey && ((modified && ev.key.toLowerCase() === 's')
+      || (ev.key === 'Enter' && (clipNote || modified)));
+    if (save) {
       ev.preventDefault();
-      if (!ev.repeat) addBookmark();
-    }
-    return;
-  }
-  if (ev.defaultPrevented || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
-  // Field-local Enter shortcuts FIRST (these fields are exempt from the global
-  // typing-guard below): Enter in the Quick Bookmark note adds a bookmark; Enter
-  // in a per-row edit-note field saves + blurs.
-  if (ev.key === 'Enter') {
-    if (ev.target && ev.target.id === 'vp-clip-note') {
-      ev.preventDefault();
-      saveClip(); // Enter in the clip note saves the clip (mirrors WinUI ClipNoteBox)
+      if (!ev.repeat) clipNote ? saveClip() : addBookmark();
       return;
     }
+  }
+  if (ev.defaultPrevented || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
+  // Per-row Enter shortcuts precede the global typing guard.
+  if (ev.key === 'Enter') {
     const editNote = ev.target.closest && ev.target.closest('.vp-bm-editnote');
     if (editNote) {
       ev.preventDefault();
@@ -2776,6 +2933,10 @@ document.addEventListener('keydown', (ev) => {
   // Never hijack typing in a text field, or the arrow/Space keys of a focused
   // <select> or its focused option, for the global shortcuts.
   if (ev.target.isContentEditable || ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT' || ev.target.closest?.('select')) return;
+  // Native card buttons must receive Enter/Space themselves, rather than having
+  // the enclosing moment row turn their activation into a seek.
+  if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.closest?.('button')
+    && ev.target.closest?.('.moment[data-action="jump"]')) return;
   // Timeline corrections (E / N / Delete / [ ] / Z, and Escape while its form or a
   // selection is live). Consumed keys stop here; everything else falls through.
   if (_fx && _fx.handleKey(ev)) { ev.preventDefault(); return; }
@@ -2788,16 +2949,20 @@ document.addEventListener('keydown', (ev) => {
     if (v0 && v0.paused) v0.play();
     return;
   }
-  // B — quick bookmark at the current time (mirrors the WinUI B-key shortcut).
+  // B captures the moment, then lets the user write before saving.
   if (ev.key === 'b' || ev.key === 'B') {
     ev.preventDefault();
-    addBookmark();
+    if (!ev.repeat) openBookmarkTools();
     return;
   }
   // I / O — set clip in / out points; S — save clip (WinUI clip-tool shortcuts).
-  if (ev.key === 'i' || ev.key === 'I') { ev.preventDefault(); setClipIn(); return; }
-  if (ev.key === 'o' || ev.key === 'O') { ev.preventDefault(); setClipOut(); return; }
-  if (ev.key === 's' || ev.key === 'S') { ev.preventDefault(); saveClip(); return; }
+  if (ev.key === 'i' || ev.key === 'I') { ev.preventDefault(); if (!ev.repeat) setClipIn(); return; }
+  if (ev.key === 'o' || ev.key === 'O') { ev.preventDefault(); if (!ev.repeat) setClipOut(); return; }
+  if (ev.key === 's' || ev.key === 'S') {
+    ev.preventDefault();
+    if (!ev.repeat) _composerKind === 'bookmark' ? addBookmark() : saveClip();
+    return;
+  }
   // Shared seek, step, speed, mute and expansion keys follow page-specific keys.
   _T?.handleShortcut(ev);
 });

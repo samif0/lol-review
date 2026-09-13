@@ -35,6 +35,7 @@ public sealed class ObjectiveMasteryTests
         Assert.False(m.Met);
         Assert.Equal(0.0, m.Pct);
         Assert.Equal(0, m.QualifyingGames);
+        Assert.False(m.RecentSuccessMet);
     }
 
     [Fact]
@@ -46,6 +47,7 @@ public sealed class ObjectiveMasteryTests
         Assert.True(m.Met);
         Assert.Equal(1.0, m.Pct);
         Assert.Equal(6, m.SpanDays);
+        Assert.True(m.RecentSuccessMet);
     }
 
     [Fact]
@@ -56,6 +58,7 @@ public sealed class ObjectiveMasteryTests
         var s = Rep(8, 0);
         var m = ObjectivesRepository.ComputeMastery(s, 0, 3 * Day);
         Assert.False(m.Met);
+        Assert.True(m.RecentSuccessMet);
     }
 
     [Fact]
@@ -99,6 +102,29 @@ public sealed class ObjectiveMasteryTests
         var m = ObjectivesRepository.ComputeMastery(s, 0, 9 * Day);
         Assert.False(m.Met);
         Assert.Equal(2, m.QualifyingGames);
+        Assert.False(m.RecentSuccessMet);
+    }
+
+    [Fact]
+    public void RecentSuccessMetadata_CanFailDespiteHighOverallRateAndLongSpan()
+    {
+        // Overall 85%, but only 7 of the last 10 hit and the latest 3 all miss.
+        // A UI displaying the overall rate alone must not mark readiness met.
+        var m = ObjectivesRepository.ComputeMastery(Rep(17, 3, trailingTrue: false), 0, 10 * Day);
+
+        Assert.Equal(0.85, m.Pct, 3);
+        Assert.Equal(10, m.SpanDays);
+        Assert.False(m.RecentSuccessMet);
+        Assert.False(m.Met);
+    }
+
+    [Fact]
+    public void RecentSuccessMetadata_AllowsEightOfLastTenDespiteLatestMisses()
+    {
+        var m = ObjectivesRepository.ComputeMastery(Rep(8, 2, trailingTrue: false), 0, 5 * Day);
+
+        Assert.True(m.RecentSuccessMet);
+        Assert.True(m.Met);
     }
 
     [Fact]

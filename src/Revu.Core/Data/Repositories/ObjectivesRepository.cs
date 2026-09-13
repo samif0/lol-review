@@ -265,7 +265,8 @@ public sealed class ObjectivesRepository : IObjectivesRepository
                   && n >= MasteryMinGames
                   && spanDays >= MasteryMinHorizonDays;
 
-        return new ObjectiveMastery(pct, n, spanDays, met, threshold, MasteryMinGames, MasteryMinHorizonDays);
+        return new ObjectiveMastery(pct, n, spanDays, met, threshold, MasteryMinGames, MasteryMinHorizonDays,
+            RecentSuccessMet: recencyMet);
     }
 
     /// <summary>

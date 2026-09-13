@@ -1,0 +1,71 @@
+/* Practice points and success across games have different meanings. Give each
+   its own label and a concrete next step, with the full rules on demand. */
+.objectives-shell .ringwrap .pc { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1px; }
+.objectives-shell .obj-points-value { font: 600 18px/1.1 var(--fb); }
+.objectives-shell .ringwrap .pc > span { font: 400 10px/1.2 var(--fb); color: var(--muted); }
+.objectives-shell .obj-progress-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.objectives-shell .obj-progress-label { margin: 0; color: var(--muted); font: 500 13px/1.5 var(--fb); }
+.objectives-shell :is(.obj-practice-next, .obj-readiness-title) {
+  margin: 7px 0 0; color: var(--text); font: 600 18px/1.4 var(--fb); letter-spacing: -.01em;
+}
+.objectives-shell .obj-practice-stages {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0;
+  margin: 24px 0 0;
+}
+.objectives-shell .obj-practice-stages li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 0 0;
+  border-top: 4px solid var(--border);
+  color: var(--muted);
+}
+.objectives-shell .obj-practice-stages .is-current { border-color: var(--primary); color: var(--text); }
+.objectives-shell .obj-practice-stages .is-past { border-color: #858585; }
+.objectives-shell .obj-stage-name { font: 500 14px/1.5 var(--fb); overflow-wrap: anywhere; }
+.objectives-shell .obj-stage-target { font: 400 12px/1.5 var(--fb); color: var(--muted); }
+.objectives-shell .obj-stage-current {
+  display: inline-flex; margin-top: 2px; padding: 3px 7px; border-radius: 5px;
+  background: var(--surface-raised); font: 500 11px/1.5 var(--fb); white-space: nowrap;
+}
+.objectives-shell .obj-readiness { min-width: 0; padding-left: 28px; border-left: 1px solid var(--border); }
+.objectives-shell .obj-readiness-hint { margin: 8px 0 0; color: var(--muted); font: 400 14px/1.6 var(--fb); max-width: 58ch; }
+.objectives-shell .obj-readiness-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 18px 0 0; }
+.objectives-shell .obj-readiness-stats dt { color: var(--muted); font: 400 12px/1.5 var(--fb); }
+.objectives-shell .obj-readiness-stats dd { margin: 5px 0 0; color: var(--text); font: 500 20px/1.3 var(--fb); font-variant-numeric: tabular-nums; }
+.objectives-shell .obj-readiness-stats span { display: block; margin-top: 3px; color: var(--muted); font: 400 12px/1.5 var(--fb); }
+.objectives-shell .obj-readiness.is-ready .obj-readiness-title { color: #9cddba; }
+.objectives-shell .obj-progress-help { margin-top: 20px; border: 0; }
+.objectives-shell .obj-progress-help > summary {
+  width: fit-content; padding: 8px 0; cursor: pointer;
+  color: var(--muted); font: 500 13px/1.5 var(--fb);
+}
+.objectives-shell .obj-progress-help > summary:hover { color: var(--text); }
+.objectives-shell .obj-progress-help > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: 4px; }
+.objectives-shell .obj-progress-explanation { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 28px; padding: 16px 0 4px; }
+.objectives-shell .obj-progress-explanation h4 { margin: 0 0 8px; color: var(--text); font: 500 14px/1.5 var(--fb); }
+.objectives-shell .obj-progress-explanation p { margin: 8px 0 0; color: var(--muted); font: 400 14px/1.65 var(--fb); }
+.objectives-shell .obj-completion-explanation { grid-column: 1 / -1; max-width: 85ch; }
+@media (max-width: 1000px) {
+  .objectives-shell .obj-progress-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .objectives-shell .obj-readiness { padding: 20px 0 0; border-left: 0; border-top: 1px solid var(--border); }
+}
+@media (max-width: 600px) {
+  .objectives-shell .obj-progress-explanation { grid-template-columns: minmax(0, 1fr); }
+  .objectives-shell .obj-practice-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
+  .objectives-shell .obj-readiness-stats { gap: 10px; }
+  .objectives-shell .obj-readiness-stats dd { font-size: 18px; }
+}

@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="./styles.css?v=match-navigation-20260912">
 <link rel="stylesheet" href="./vod-review.css?v=match-navigation-20260912">
 <link rel="stylesheet" href="./vod-cinema.css">
+<link rel="stylesheet" href="./vod-composer.css">
 </head>
 <body class="vod-review-page">
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
@@ -236,12 +237,18 @@
             <summary><span>Create a clip</span><span class="vp-tool-keys"><kbd>I</kbd><kbd>O</kbd></span></summary>
             <div class="mini vp-clip">
               <div class="mtitle">Clip <span class="vp-cliprange" id="vp-clip-range"></span></div>
-              <div class="row">
-                <button class="key vp-iobtn" id="vp-clip-in" data-action="clip_in" type="button">Start <span class="keycap">I</span></button>
-                <button class="key vp-iobtn" id="vp-clip-out" data-action="clip_out" type="button">End <span class="keycap">O</span></button>
-                <button class="key vp-iobtn vp-clipclear" id="vp-clip-clear" data-action="clip_clear" type="button" hidden>Clear</button>
-              </div>
-              <input class="inp" id="vp-clip-note" type="text" placeholder="What's happening?" autocomplete="off">
+              <div class="vp-clip-hint" id="vp-clip-hint" role="status" aria-live="polite" hidden></div>
+              <label for="vp-clip-note">Clip note</label>
+              <input class="inp" id="vp-clip-note" type="text" placeholder="What would you repeat or change?" autocomplete="off" aria-describedby="vp-clip-help">
+              <button class="savebtn" id="vp-clip-save" data-action="clip_save" type="button" aria-keyshortcuts="Control+s Meta+s Enter" disabled>Save clip <kbd>Ctrl+S</kbd></button>
+              <p class="vp-composer-help" id="vp-clip-help">Enter or Ctrl+S to save · Esc to return to the video</p>
+              <details class="vp-composer-options" id="vp-clip-options">
+                <summary>Clip details</summary>
+                <div class="row">
+                  <button class="key vp-iobtn" id="vp-clip-in" data-action="clip_in" type="button">Start <span class="keycap">I</span></button>
+                  <button class="key vp-iobtn" id="vp-clip-out" data-action="clip_out" type="button">End <span class="keycap">O</span></button>
+                  <button class="key vp-iobtn vp-clipclear" id="vp-clip-clear" data-action="clip_clear" type="button" hidden>Clear</button>
+                </div>
               <!-- Objective (or custom prompt — P-027) the clip is tied to. Auto-selected
                    to the objective you're framed on, so saving needs NO manual pick — the
                    dropdown already shows it. Change it here only if this clip belongs to a
@@ -256,12 +263,11 @@
                 <span class="q" data-action="clip_qual" data-q="neutral">Neutral</span>
                 <span class="q" data-action="clip_qual" data-q="bad">Bad</span>
               </div>
-              <button class="savebtn" id="vp-clip-save" data-action="clip_save" type="button" disabled>Save clip <span class="keycap">S</span></button>
               <div class="vp-autoclip-tools" id="vp-autoclip-tools" hidden>
                 <button class="savebtn vp-autoclip-btn" id="vp-autoclip-btn" data-action="autoclip_current" type="button" disabled>Auto-clip objective events</button>
                 <div class="vp-autoclip-meta" id="vp-autoclip-meta"></div>
               </div>
-              <div class="vp-clip-hint" id="vp-clip-hint" hidden></div>
+              </details>
 
               <!-- Inline login-to-share panel. Revealed when a Share is attempted
                    while logged out (or the session expired). Two steps: email →
@@ -305,17 +311,20 @@
             <p id="vp-event-empty" class="vp-event-empty" hidden>No events for this objective. You can still review the recording and add a note.</p>
           </section>
 
-          <section class="vp-review-note" aria-label="Add a review note">
+          <section class="vp-review-note" id="vp-bookmark-tools" aria-label="Add a review note">
+            <div class="vp-bm-hint" id="vp-bm-hint" role="status" hidden></div>
             <label class="vp-review-note-label" for="vp-bm-note">Add a review note</label>
             <textarea class="inp" id="vp-bm-note" rows="3" placeholder="What would you repeat or change?" autocomplete="off" aria-describedby="vp-note-help"></textarea>
-            <select class="inp" id="vp-bm-obj" aria-label="Tie note to objective or prompt">
-              <option value="">No objective</option>
-            </select>
             <div class="vp-note-footer">
-              <span id="vp-note-help">Saved at the playback time.</span>
-              <button class="addbtn" id="vp-bm-add" data-action="add_bookmark" type="button" title="Save note (B outside text fields; Ctrl+Enter while writing)"><span>Save note</span><kbd aria-hidden="true">B</kbd></button>
+              <span id="vp-note-help">Ctrl+Enter or Ctrl+S to save.</span>
+              <button class="addbtn" id="vp-bm-add" data-action="add_bookmark" type="button" aria-keyshortcuts="Control+s Meta+s Control+Enter Meta+Enter"><span>Save bookmark</span><kbd aria-hidden="true">Ctrl+S</kbd></button>
             </div>
-            <div class="vp-bm-hint" id="vp-bm-hint" role="status" hidden></div>
+            <details class="vp-composer-options">
+              <summary>Learning objective</summary>
+              <select class="inp" id="vp-bm-obj" aria-label="Tie note to objective or prompt">
+                <option value="">No objective</option>
+              </select>
+            </details>
           </section>
 
           <details class="vp-tools-disclosure vp-saved-moments" id="vp-saved-moments">
@@ -333,6 +342,17 @@
         </aside>
 
       </div>
+      <section class="vp-composer" id="vp-composer" aria-label="Save a moment" hidden>
+        <div class="vp-composer-header">
+          <div class="vp-composer-modes" aria-label="Moment type">
+            <button type="button" data-action="open_clip" id="vp-compose-clip" aria-pressed="false">Clip <kbd>I / O</kbd></button>
+            <button type="button" data-action="open_bookmark" id="vp-compose-bookmark" aria-pressed="false">Bookmark <kbd>B</kbd></button>
+          </div>
+          <button type="button" id="vp-composer-close" data-action="close_composer" aria-label="Close editor and keep draft" title="Close editor and keep draft (Esc)">✕</button>
+        </div>
+        <p id="vp-composer-context" class="vp-composer-context" role="status"></p>
+        <div id="vp-composer-body" class="vp-composer-body"></div>
+      </section>
     </div>
 
     <!-- Error panel -->

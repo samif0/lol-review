@@ -20,6 +20,8 @@ function node({ id = '', classes = [], dataset = {}, value = '' } = {}) {
   return {
     id, dataset, value, style: {}, textContent: '', hidden: false, checked: false,
     disabled: false, scrollHeight: 28, children: [], listeners: new Map(), selectors: new Map(),
+    get className() { return [...names].join(' '); },
+    set className(value) { names.clear(); String(value).split(/\s+/).filter(Boolean).forEach(name => names.add(name)); },
     classList: {
       contains: name => names.has(name),
       add: (...values) => values.forEach(name => names.add(name)),
@@ -37,20 +39,36 @@ function node({ id = '', classes = [], dataset = {}, value = '' } = {}) {
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
     querySelectorAll(selector) {
       return this.selectors.get(selector) || this.children.flatMap(child => [
-        ...(selector.startsWith('.') && child.className?.split(' ').includes(selector.slice(1)) ? [child] : []),
+        ...(child.matches(selector) ? [child] : []),
         ...child.querySelectorAll(selector),
       ]);
     },
     appendChild(child) { this.children.push(child); child.parent = this; },
     append(...children) { children.forEach(child => this.appendChild(child)); },
     get childElementCount() { return this.children.length; },
+    get selectedOptions() { return this.children.filter(option => option.value === this.value); },
     remove() { this.parent.children = this.parent.children.filter(child => child !== this); },
-    closest(selector) { return selector === '[data-action]' && this.dataset.action ? this : null; },
-    setAttribute(name, value) { this[name] = value; },
+    matches(selector) {
+      return selector.split(',').some(part => {
+        part = part.trim();
+        const segments = part.split(/\s+/);
+        if (segments.length > 1) return this.matches(segments.pop()) && !!this.parent?.closest(segments.join(' '));
+        if (part.startsWith('.')) return names.has(part.slice(1));
+        if (part.startsWith('[data-') && part.endsWith(']')) {
+          const key = part.slice(6, -1).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+          return this.dataset[key] != null;
+        }
+        return this.tagName?.toLowerCase() === part;
+      });
+    },
+    closest(selector) { return this.matches(selector) ? this : this.parent?.closest(selector) || null; },
+    setAttribute(name, value) { this[name] = String(value); },
+    getAttribute(name) { return this[name] ?? null; },
+    removeAttribute(name) { delete this[name]; },
   };
 }
 
-function fixture(t, invoke = null, { realNavigation = false } = {}) {
+function fixture(t, invoke = null, { realNavigation = false, invokeError = null } = {}) {
   const ids = new Map(), listeners = new Map(), windowListeners = new Map(), calls = [];
   const $ = id => {
     if (id === 'rv-champ') return null; // removed from the launchpad header
@@ -78,7 +96,7 @@ function fixture(t, invoke = null, { realNavigation = false } = {}) {
     readyState: 'loading', activeElement: null,
     getElementById: id => id === 'match-navigation' ? null
       : $('rv-fields').children.find(child => child.id === id) || $(id),
-    createElement: tag => ({ ...node(), tagName: tag.toUpperCase() }),
+    createElement: tag => Object.assign(node(), { tagName: tag.toUpperCase() }),
     addEventListener(type, fn) {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(fn);
@@ -112,7 +130,16 @@ function fixture(t, invoke = null, { realNavigation = false } = {}) {
       }
       if (name === 'tpl-clip') {
         const row = node({ classes: ['rv-evid'] });
-        for (const selector of ['.rv-evid-dot', '.rv-evid-time', '.rv-clip-note', '.rv-evid-actions']) row.selectors.set(selector, [node()]);
+        for (const name of ['rv-evid-dot', 'rv-evid-time', 'rv-clip-note']) row.appendChild(node({ classes: [name] }));
+        const actions = node({ classes: ['rv-evid-actions'] });
+        row.appendChild(actions);
+        for (const action of ['good', 'bad', 'dismiss', 'objective']) {
+          const control = node({ classes: [`rv-evid-${action === 'objective' ? 'pick' : action}`], dataset: { evidAction: action } });
+          control.tagName = action === 'objective' ? 'SELECT' : 'BUTTON';
+          actions.appendChild(control);
+        }
+        const status = node({ classes: ['rv-evid-save-status'] }); status.hidden = true;
+        row.appendChild(status);
         return row;
       }
       if (name === 'tpl-death') {
@@ -132,13 +159,16 @@ function fixture(t, invoke = null, { realNavigation = false } = {}) {
       else nav.options = options;
       return nav;
     },
-    getInvoke: async () => invoke ? async (...args) => { calls.push(plain(args)); return invoke(...args); } : null,
+    getInvoke: async () => {
+      if (invokeError) throw invokeError;
+      return invoke ? async (...args) => { calls.push(plain(args)); return invoke(...args); } : null;
+    },
     readSnapshot: async () => ({ subject: null }),
     setTimeout, clearTimeout, URLSearchParams, CustomEvent: class {},
     console: { info() {}, warn() {}, error() {} },
   });
   vm.runInContext(`${source}\n globalThis.hooks = { captureReviewState, restoreReviewState, savePromptAnswer, renderDeaths,
-    render, renderHeader, renderUnsorted, pruneEmptyClipSections,
+    render, renderHeader, renderUnsorted, pruneEmptyClipSections, clipCard, onEvidenceAction, flushEvidenceWrites,
     flushDraft, gatherForm, cancelDraft, markDraftDirty, setSubject(value) { _subject = value; },
     get dirty() { return _draftDirty; } };`, context, { filename: 'review.js' });
   const hooks = context.hooks;
@@ -288,6 +318,191 @@ test('unsorted clip count follows rendering and dismissal without changing the u
   assert.equal(f.$('rv-unsorted-count').textContent, '1 clip'); assert.equal(f.$('rv-tosortsec').open, true);
   f.hooks.renderUnsorted({ unsortedClips: [] });
   assert.equal(f.$('rv-unsorted-count').textContent, '0 clips'); assert.equal(f.$('rv-tosortsec').hidden, true);
+});
+
+const evidenceClip = (overrides = {}) => ({
+  evidenceId: 301, startSeconds: 864, timeText: '14:24–15:04', note: 'Move after pushing the wave',
+  polarity: 'neutral', objectiveId: 9, objectiveTitle: 'Tempo', ...overrides,
+});
+const evidenceOptions = [{ id: 9, title: 'Tempo' }, { id: 12, title: 'Wave control' }];
+function evidenceControls(row) {
+  return {
+    good: row.querySelector('.rv-evid-good'), bad: row.querySelector('.rv-evid-bad'),
+    pick: row.querySelector('.rv-evid-pick'), dot: row.querySelector('.rv-evid-dot'),
+  };
+}
+function assertPolarity(row, polarity) {
+  const { good, bad, dot } = evidenceControls(row);
+  assert.equal(good.classList.contains('on'), polarity === 'good');
+  assert.equal(bad.classList.contains('on'), polarity === 'bad');
+  assert.equal(good.getAttribute('aria-pressed'), String(polarity === 'good'));
+  assert.equal(bad.getAttribute('aria-pressed'), String(polarity === 'bad'));
+  assert.match(dot.title, new RegExp(polarity, 'i'));
+}
+
+test('saved Good evidence hydrates the rating and its actual Tempo attachment without writes', t => {
+  const f = fixture(t, () => { throw new Error('Hydrating evidence must not write'); });
+  const row = f.hooks.clipCard(evidenceClip({ polarity: 'good' }), evidenceOptions);
+  assertPolarity(row, 'good');
+  const pick = evidenceControls(row).pick;
+  assert.equal(pick.value, '9');
+  assert.equal(pick.children.find(option => option.value === pick.value).textContent, 'Tempo');
+
+  const archived = f.hooks.clipCard(evidenceClip({ objectiveId: 77, objectiveTitle: 'Earlier objective' }), evidenceOptions);
+  const archivedPick = evidenceControls(archived).pick;
+  assert.equal(archivedPick.value, '77', 'an attached inactive objective must not look unassigned');
+  assert.equal(archivedPick.children.find(option => option.value === '77').textContent, 'Earlier objective');
+  assert.deepEqual(f.calls, []);
+});
+
+test('evidence rating stays confirmed while saving and updates its dot and buttons together on success', async t => {
+  const started = deferred(), saved = deferred();
+  const f = fixture(t, async command => {
+    if (command === 'set_evidence_polarity') { started.resolve(); return saved.promise; }
+  });
+  f.fields[1].value = 'Keep this unsaved takeaway';
+  const row = f.hooks.clipCard(evidenceClip(), evidenceOptions);
+  const { good, bad, pick, dot } = evidenceControls(row);
+  const neutralColor = dot.style.background;
+  const change = f.hooks.onEvidenceAction('good', good);
+  await started.promise;
+  assertPolarity(row, 'neutral');
+  assert.equal(dot.style.background, neutralColor);
+  assert.equal(good.disabled, true); assert.equal(bad.disabled, true); assert.equal(pick.disabled, true);
+  const duplicate = f.hooks.onEvidenceAction('good', good);
+  assert.equal(f.calls.length, 1, 'a repeated click must not enqueue a second toggle');
+  saved.resolve({ ok: true }); await Promise.all([change, duplicate]);
+  assertPolarity(row, 'good');
+  assert.notEqual(dot.style.background, neutralColor);
+  assert.equal(good.disabled, false); assert.equal(bad.disabled, false); assert.equal(pick.disabled, false);
+  assert.equal(f.fields[1].value, 'Keep this unsaved takeaway', 'rating evidence must not re-render the review form');
+  assert.deepEqual(f.calls, [['set_evidence_polarity', { payload: { evidenceId: 301, polarity: 'good' } }]]);
+});
+
+test('a rejected evidence rating keeps the saved Good state and can be retried successfully', async t => {
+  let rejectWrite = true;
+  const f = fixture(t, () => {
+    if (rejectWrite) throw new Error('Unable to save evidence');
+    return { ok: true };
+  });
+  const row = f.hooks.clipCard(evidenceClip({ polarity: 'good' }), evidenceOptions);
+  const { bad, dot } = evidenceControls(row);
+  const goodColor = dot.style.background;
+  await f.hooks.onEvidenceAction('bad', bad);
+  assertPolarity(row, 'good');
+  assert.equal(dot.style.background, goodColor);
+  assert.equal(bad.disabled, false);
+  const status = row.querySelector('.rv-evid-save-status');
+  assert.ok(status && !status.hidden, 'the affected row must explain that the write failed');
+  assert.match(status.textContent, /save|fail|try|retry/i);
+
+  rejectWrite = false;
+  await f.hooks.onEvidenceAction('bad', bad);
+  assertPolarity(row, 'bad');
+  assert.notEqual(dot.style.background, goodColor);
+  assert.equal(f.calls.length, 2);
+});
+
+test('an explicit unsuccessful evidence response does not appear saved', async t => {
+  const f = fixture(t, () => ({ ok: false, message: 'The evidence item no longer exists' }));
+  const row = f.hooks.clipCard(evidenceClip(), evidenceOptions);
+  await f.hooks.onEvidenceAction('good', evidenceControls(row).good);
+  assertPolarity(row, 'neutral');
+  const status = row.querySelector('.rv-evid-save-status');
+  assert.ok(status && !status.hidden);
+  assert.match(status.textContent, /save|fail|try|retry/i);
+  assert.equal(evidenceControls(row).good.disabled, false);
+});
+
+test('objective reassignment restores Tempo after failure and preserves a later confirmed selection', async t => {
+  let rejectWrite = true;
+  const f = fixture(t, () => {
+    if (rejectWrite) throw new Error('Objective update failed');
+    return { ok: true };
+  });
+  const row = f.hooks.clipCard(evidenceClip({ polarity: 'good' }), evidenceOptions);
+  const { pick } = evidenceControls(row);
+  pick.value = '12'; await f.hooks.onEvidenceAction('objective', pick);
+  assert.equal(pick.value, '9', 'the picker must return to the confirmed Tempo attachment');
+  assertPolarity(row, 'good');
+  assert.equal(pick.disabled, false);
+
+  rejectWrite = false;
+  pick.value = '12'; await f.hooks.onEvidenceAction('objective', pick);
+  assert.equal(pick.value, '12');
+  rejectWrite = true;
+  pick.value = ''; await f.hooks.onEvidenceAction('objective', pick);
+  assert.equal(pick.value, '12', 'failed detachment restores the latest confirmed attachment');
+  assert.deepEqual(f.calls.map(([, { payload }]) => payload), [
+    { evidenceId: 301, objectiveId: 12, gameId: 42 },
+    { evidenceId: 301, objectiveId: 12, gameId: 42 },
+    { evidenceId: 301, objectiveId: null, gameId: 42 },
+  ]);
+});
+
+test('different evidence rows save independently while navigation waits for both writes', async t => {
+  const startedA = deferred(), startedB = deferred(), savedA = deferred(), savedB = deferred();
+  const f = fixture(t, async (command, { payload }) => {
+    if (command !== 'set_evidence_polarity') return;
+    if (payload.evidenceId === 301) { startedA.resolve(); return savedA.promise; }
+    startedB.resolve(); return savedB.promise;
+  }, { realNavigation: true });
+  const rowA = f.hooks.clipCard(evidenceClip(), evidenceOptions);
+  const rowB = f.hooks.clipCard(evidenceClip({ evidenceId: 302 }), evidenceOptions);
+  const saveA = f.hooks.onEvidenceAction('good', evidenceControls(rowA).good);
+  const saveB = f.hooks.onEvidenceAction('bad', evidenceControls(rowB).bad);
+  await Promise.all([startedA.promise, startedB.promise]);
+  let navigated = false;
+  const launch = f.emit('click', node({ dataset: { action: 'review_vod' } })).then(() => { navigated = true; });
+  let flushed = false;
+  const flushing = f.hooks.flushEvidenceWrites().then(() => { flushed = true; });
+  savedA.resolve({ ok: true }); await saveA;
+  assert.equal(flushed, false); assert.equal(navigated, false);
+  assert.equal(new URL(f.scope.location.href).pathname, '/review.html');
+  assertPolarity(rowA, 'good'); assertPolarity(rowB, 'neutral');
+  savedB.resolve({ ok: true }); await Promise.all([saveB, flushing, launch]);
+  assert.equal(flushed, true); assert.equal(navigated, true);
+  assert.equal(new URL(f.scope.location.href).pathname, '/vodplayer.html');
+  assertPolarity(rowB, 'bad');
+});
+
+test('Save review waits for evidence confirmation before committing and reloading', async t => {
+  const started = deferred(), saved = deferred();
+  const f = fixture(t, async command => {
+    if (command === 'set_evidence_polarity') { started.resolve(); return saved.promise; }
+    return { ok: true };
+  });
+  const row = f.hooks.clipCard(evidenceClip(), evidenceOptions);
+  const change = f.hooks.onEvidenceAction('good', evidenceControls(row).good);
+  await started.promise;
+  const commit = f.emit('click', node({ dataset: { action: 'save_review' } }));
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(f.calls.map(([command]) => command), ['set_evidence_polarity']);
+  saved.resolve({ ok: true }); await Promise.all([change, commit]);
+  assert.deepEqual(f.calls.map(([command]) => command), ['set_evidence_polarity', 'save_review']);
+  assertPolarity(row, 'good');
+  assert.equal(f.nav.invalidations, 1);
+});
+
+test('failed in-flight evidence leaves the review open and prevents a misleading successful commit', async t => {
+  for (const action of ['review_vod', 'save_review']) {
+    const started = deferred(), saved = deferred();
+    const f = fixture(t, async command => {
+      if (command === 'set_evidence_polarity') { started.resolve(); return saved.promise; }
+      return { ok: true };
+    }, { realNavigation: true });
+    const row = f.hooks.clipCard(evidenceClip(), evidenceOptions);
+    const change = f.hooks.onEvidenceAction('good', evidenceControls(row).good);
+    await started.promise;
+    const leaving = f.emit('click', node({ dataset: { action } }));
+    await Promise.resolve(); await Promise.resolve();
+    saved.resolve({ ok: false, message: 'Evidence could not be saved' });
+    await Promise.all([change, leaving]);
+    assert.equal(new URL(f.scope.location.href).pathname, '/review.html', action);
+    assert.deepEqual(f.calls.map(([command]) => command), ['set_evidence_polarity'], action);
+    assertPolarity(row, 'neutral');
+    assert.equal(f.$('rv-savebtn').disabled, false);
+  }
 });
 
 test('primary VOD launch resumes the same match after flushing drafts and retains its remembered viewing state', async t => {
@@ -448,5 +663,112 @@ test('successful commit invalidates saved view state; a failed commit keeps it a
       if (action === 'save_review') assert.equal(payload.reviewNotes, 'My review');
       assert.equal(f.$('rv-savebtn').disabled, false);
     }
+  }
+});
+
+test('Copy review waits for native acknowledgment, preserves exact markdown, and ignores duplicate clicks', async t => {
+  const started = deferred(), copied = deferred();
+  const markdown = '  # Match review\r\n\r\nTempo: move after pushing → then reset.\r\n';
+  const f = fixture(t, async command => {
+    if (command === 'get_review_export_markdown') return { found: true, markdown };
+    if (command === 'copy_text_to_clipboard') { started.resolve(); return copied.promise; }
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  f.fields[1].value = 'Unsaved takeaway stays in the editor';
+  f.hooks.markDraftDirty();
+  f.$('rv-commit-msg').textContent = 'Existing review status';
+  const button = node({ dataset: { action: 'copy_review' } });
+  const copying = f.emit('click', button);
+  await started.promise;
+  assert.equal(button.disabled, true);
+  assert.equal(f.$('rv-export-msg').textContent, 'Copying…');
+  await f.emit('click', button);
+  assert.deepEqual(f.calls, [
+    ['get_review_export_markdown', { gameId: 42 }],
+    ['copy_text_to_clipboard', { text: markdown }],
+  ], 'copy uses the native bridge once and does not save or flush the review draft');
+  copied.resolve({ ok: true }); await copying;
+  assert.equal(button.disabled, false);
+  assert.equal(f.$('rv-export-msg').textContent, 'Copied to clipboard.');
+  assert.equal(f.$('rv-commit-msg').textContent, 'Existing review status', 'copy feedback belongs beside the export actions');
+  assert.equal(f.fields[1].value, 'Unsaved takeaway stays in the editor');
+  assert.equal(f.hooks.dirty, true);
+  assert.equal(f.nav.invalidations, 0);
+});
+
+test('native clipboard failure never reports success and allows the user to retry', async t => {
+  for (const failure of ['reject', 'not-ok', 'missing-acknowledgment']) {
+    let attempt = 0;
+    const f = fixture(t, command => {
+      if (command === 'get_review_export_markdown') return { found: true, markdown: '# Saved review' };
+      if (command === 'copy_text_to_clipboard') {
+        if (++attempt > 1) return { ok: true };
+        if (failure === 'reject') throw new Error('Clipboard is unavailable');
+        return failure === 'not-ok' ? { ok: false } : undefined;
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const button = node({ dataset: { action: 'copy_review' } });
+    await f.emit('click', button);
+    assert.equal(button.disabled, false, failure);
+    assert.equal(f.$('rv-export-msg').textContent, 'Copy failed. Please try again.', failure);
+    await f.emit('click', button);
+    assert.equal(attempt, 2, failure);
+    assert.equal(button.disabled, false);
+    assert.equal(f.$('rv-export-msg').textContent, 'Copied to clipboard.');
+  }
+});
+
+test('Copy review rejects missing or blank exported text before calling the native clipboard', async t => {
+  for (const built of [null, { found: false, markdown: '# Missing review' }, { found: true, markdown: 42 },
+    { found: true, markdown: '' }, { found: true, markdown: ' \r\n\t ' }]) {
+    const f = fixture(t, command => {
+      assert.equal(command, 'get_review_export_markdown');
+      return built;
+    });
+    const button = node({ dataset: { action: 'copy_review' } });
+    await f.emit('click', button);
+    assert.deepEqual(f.calls, [['get_review_export_markdown', { gameId: 42 }]]);
+    assert.equal(button.disabled, false);
+    assert.match(f.$('rv-export-msg').textContent, /could not|unavailable|failed|no.*review/i);
+    assert.doesNotMatch(f.$('rv-export-msg').textContent, /copied/i);
+  }
+});
+
+test('Copy review in preview reports unavailable without pretending to copy', async t => {
+  const f = fixture(t);
+  const button = node({ dataset: { action: 'copy_review' } });
+  await f.emit('click', button);
+  assert.equal(f.$('rv-export-msg').textContent, 'Copy is unavailable in preview.');
+  assert.equal(button.disabled, false);
+  assert.deepEqual(f.calls, []);
+});
+
+test('a failed clipboard bridge lookup reports an error and restores the Copy button', async t => {
+  const f = fixture(t, null, { invokeError: new Error('Bridge disconnected') });
+  const button = node({ dataset: { action: 'copy_review' } });
+  await f.emit('click', button);
+  assert.equal(button.disabled, false);
+  assert.equal(f.$('rv-export-msg').textContent, 'Copy failed. Please try again.');
+  assert.deepEqual(f.calls, []);
+});
+
+test('Export review continues to use the native save dialog and reports save or cancellation separately', async t => {
+  for (const saved of [true, false]) {
+    const markdown = '# Match review\n\nMy takeaway.\n';
+    const f = fixture(t, command => {
+      if (command === 'get_review_export_markdown') return { found: true, markdown, fileName: 'match-42.md' };
+      if (command === 'save_export_file') return { saved };
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const button = node({ dataset: { action: 'export_review' } });
+    await f.emit('click', button);
+    assert.deepEqual(f.calls, [
+      ['get_review_export_markdown', { gameId: 42 }],
+      ['save_export_file', { fileName: 'match-42.md', markdown }],
+    ]);
+    assert.equal(f.$('rv-export-msg').textContent, saved ? 'Export saved.' : 'Export canceled.');
+    assert.equal(button.disabled, false);
+    assert.equal(f.nav.invalidations, 0);
   }
 });

@@ -8,6 +8,7 @@
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
 <link rel="stylesheet" href="./learning-pages.css">
+<link rel="stylesheet" href="./objective-progress.css">
 </head>
 <body>
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
@@ -172,11 +173,6 @@
     <div class="seclabel" id="focus-label" hidden>Focus drills <span class="n">short practice plans with a game limit</span></div>
     <div id="focus-list"></div>
 
-    <!-- SPOTTED PROBLEMS: review-noted issues, raw material for future objectives.
-         Clickable game rows (reuse .gamerow + W/L edge bar) → open that review. -->
-    <div class="seclabel" id="spotted-label" hidden>Spotted problems <span class="n">noted in reviews</span></div>
-    <div id="spotted-list"></div>
-
     <!-- COMPLETED: collapsed by default, calm done rows. -->
     <div class="obj-completed-toggle" id="completed-toggle-wrap" hidden>
       <button class="obj-toggle" id="completed-toggle" data-action="toggle_completed" aria-expanded="false">
@@ -232,7 +228,7 @@
             <circle class="ring-track" cx="29" cy="29" r="24" fill="none" stroke-width="4"/>
             <circle class="ring-prog" cx="29" cy="29" r="24" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="150.8"/>
           </svg>
-          <div class="pc"></div>
+          <div class="pc"><strong class="obj-points-value"></strong><span>points</span></div>
         </div>
         <div class="obj-card-head">
           <div class="obj-badges">
@@ -249,22 +245,40 @@
         <div class="obj-crit-text"></div>
         <div class="obj-crit-hit" hidden></div>
       </div>
-      <!-- SCORE SPARKLINE — cumulative per-game score trend; shown only when the
-           objective has >=2 score points (hasScoreHistory). -->
-      <svg class="obj-spark obj-card-spark" viewBox="0 0 96 30" preserveAspectRatio="none" hidden aria-hidden="true">
-        <polyline class="obj-spark-line" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points=""/>
-      </svg>
-      <div class="ladder obj-card-ladder"></div>
-      <!-- P-037 MASTERY meter — the gate that unlocks "complete". The ladder above
-           is EFFORT (attendance + clipping); this is whether the skill held over a
-           horizon. Hidden for minis (they complete by target game count). -->
-      <div class="obj-mastery obj-card-mastery" hidden>
-        <div class="obj-mastery-bar"><div class="obj-mastery-fill"></div></div>
-        <div class="obj-mastery-cap">
-          <span class="obj-mastery-text"></span>
-          <span class="obj-mastery-gate"></span>
-        </div>
+      <div class="obj-progress-layout">
+        <section class="obj-practice" aria-label="Practice progress">
+          <h3 class="obj-progress-label">Practice progress</h3>
+          <p class="obj-practice-next"></p>
+          <ol class="obj-practice-stages" aria-label="Practice stages"></ol>
+        </section>
+        <section class="obj-readiness" aria-label="Completion readiness">
+          <h3 class="obj-progress-label">Ready to move on?</h3>
+          <p class="obj-readiness-title"></p>
+          <p class="obj-readiness-hint"></p>
+          <dl class="obj-readiness-stats">
+            <div><dt>Success rate</dt><dd class="obj-success-value"></dd><span class="obj-success-target"></span></div>
+            <div><dt>Games counted</dt><dd class="obj-games-value"></dd><span class="obj-games-target"></span></div>
+            <div><dt>Time covered</dt><dd class="obj-days-value"></dd><span class="obj-days-target"></span></div>
+          </dl>
+        </section>
       </div>
+      <details class="obj-progress-help">
+        <summary>How this works</summary>
+        <div class="obj-progress-explanation">
+          <div>
+            <h4>Practice points</h4>
+            <p>Earn 2 points for each game recorded as practiced, and 2 points for each new bookmark, clip, or review moment attached to this objective.</p>
+            <p>Points move you through Exploring, Drilling, Ingraining, and Ready.</p>
+          </div>
+          <div>
+            <h4>Consistency across games</h4>
+            <p class="obj-success-source"></p>
+            <p class="obj-readiness-rule"></p>
+            <p>Also show recent success: your last 3 games in a row, or 8 of your last 10.</p>
+          </div>
+          <p class="obj-completion-explanation">You can mark this complete when the consistency checks are met or you reach 50 practice points. You can also choose “Complete early” whenever you’re ready.</p>
+        </div>
+      </details>
       <div class="obj-gate obj-card-gate" hidden>
         <span class="obj-gate-k">Champions</span>
         <span class="obj-gate-v"></span>
@@ -323,26 +337,6 @@
     <button class="obj-chip" data-action="remove_champ" type="button" title="Click to remove">
       <span class="obj-chip-name"></span><span class="obj-chip-x" aria-hidden="true">✕</span>
     </button>
-  </template>
-
-  <!-- A spotted-problem clickable game row (reuse .gamerow hover + W/L edge). -->
-  <template id="tpl-spotted">
-    <div class="card gamerow obj-spot" data-action="open_review" tabindex="0" role="button">
-      <span class="gamerow-sweep" aria-hidden="true"></span>
-      <span class="gamerow-edge" aria-hidden="true"></span>
-      <div class="crow">
-        <div class="obj-spot-main">
-          <div class="obj-spot-meta">
-            <span class="obj-spot-wl"></span>
-            <span class="obj-spot-champ"></span>
-            <span class="obj-spot-sep">·</span>
-            <span class="obj-spot-date"></span>
-          </div>
-          <div class="vline obj-spot-text"></div>
-        </div>
-        <div class="gamerow-cue" aria-hidden="true">Review <span class="arr">→</span></div>
-      </div>
-    </div>
   </template>
 
   <!-- A completed objective row (calm, done). Edits via the top form (full

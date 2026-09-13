@@ -225,7 +225,11 @@ public sealed record ReviewPromptClipDto(
     string PolarityColorHex,
     // Public share link (revu.lol/<id>) once the clip's bookmark was uploaded;
     // "" until shared (or for non-clip moments that have no bookmark).
-    string ShareUrl);
+    string ShareUrl,
+    // Persisted attachment for the objective picker (also supplied when its
+    // objective is archived and the card appears in the unsorted section).
+    long? ObjectiveId = null,
+    string ObjectiveTitle = "");
 
 /// <summary>
 /// The review form's saved values, for READ-ONLY display. The frontend renders

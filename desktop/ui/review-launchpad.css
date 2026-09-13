@@ -94,6 +94,9 @@ body.review-launchpad-page #rv-body .rv-check-in .rv-focus{margin:0;padding:0;bo
 .review-launchpad-page .rv-secondary-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:24px}
 .review-launchpad-page #rv-body .rv-secondary-actions>button{font-size:14px;padding:9px 14px;min-height:40px}
 .review-launchpad-page #rv-body .rv-secondary-actions .rv-deletebtn{margin-left:0}
+.review-launchpad-page #rv-body .rv-export-msg{margin:10px 0 0}
+.review-launchpad-page #rv-body .rv-evid-save-status{margin:6px 0 0;font-size:12px}
+.review-launchpad-page #rv-body .rv-evid-save-status.is-error{color:var(--loss)}
 
 @media(max-width:760px){
   html.framed body.review-launchpad-page .shell{padding:20px 22px 40px}

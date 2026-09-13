@@ -1,7 +1,8 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
-import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel, objectiveMetaText } from './objective-labels.mjs';
+import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel } from './objective-labels.mjs';
+import { renderObjectiveProgress } from './objective-progress.mjs';
 
 // Revu desktop — Objectives page renderer for the glass-aurora layout.
 // Renders the JSON returned by the Electron command `get_objectives`.
@@ -21,14 +22,6 @@ const RING_SMALL = 150.8; // 2·π·r, r=24 (active cards)
 const RING_LARGE = 251.3; // 2·π·r, r=40 (priority pane)
 const DEFAULT_DIM = 'rgba(255,255,255,0.13)';
 const DEFAULT_PROG = '#9d8bff';
-
-// Mastery ladder steps — Exploring 0 → Drilling 15 → Ingraining 30 → Ready 50.
-const LADDER = [
-  { name: 'Exploring', at: 0 },
-  { name: 'Drilling', at: 15 },
-  { name: 'Ingraining', at: 30 },
-  { name: 'Ready', at: 50 },
-];
 
 // Score at which an objective is "Ready" — gates Complete vs Complete-Early.
 const READY_SCORE = 50;
@@ -100,42 +93,6 @@ function drawRing(scope, progress, circumference, progHex, dimHex) {
   }));
 }
 
-// ── mastery ladder ──────────────────────────────────────────────────────────
-// Lights the highest step whose threshold the score has reached. Mini/focus
-// objectives don't level, so they skip the ladder entirely.
-function buildLadder(host, score, litHex) {
-  clear(host);
-  let litIdx = 0;
-  for (let i = 0; i < LADDER.length; i++) {
-    if (score >= LADDER[i].at) litIdx = i;
-  }
-  LADDER.forEach((step, i) => {
-    const span = document.createElement('span');
-    span.textContent = `${step.name} · ${step.at}`;
-    if (i === litIdx) {
-      span.classList.add('on');
-      if (litHex) span.style.color = litHex;
-    }
-    host.appendChild(span);
-  });
-}
-
-// ── score sparkline ─────────────────────────────────────────────────────────
-// Maps a score-history array to a polyline across the 96×30 viewBox.
-function sparkPoints(history) {
-  const h = Array.isArray(history) ? history.filter((n) => Number.isFinite(n)) : [];
-  if (h.length < 2) return '';
-  const W = 96, H = 30, pad = 3;
-  const min = Math.min(...h), max = Math.max(...h);
-  const span = max - min || 1;
-  const step = (W - pad * 2) / (h.length - 1);
-  return h.map((v, i) => {
-    const x = pad + i * step;
-    const y = H - pad - ((v - min) / span) * (H - pad * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-}
-
 // ── champion gate ───────────────────────────────────────────────────────────
 // Show the gate only when the objective is scoped to specific champions.
 function fillGate(gateEl, valEl, obj) {
@@ -166,22 +123,6 @@ function fillCriteria(card, o) {
   show(hitEl, hasHit);
 
   show(wrap, hasText || hasHit);
-}
-
-// ── score sparkline ───────────────────────────────────────────────────────────
-// Draws the per-game cumulative score polyline into the card's <svg>, tinted by
-// the objective's level color, and reveals it only when hasScoreHistory.
-function fillSpark(svgEl, o) {
-  if (!svgEl) return;
-  const show2 = !!o.hasScoreHistory && Array.isArray(o.scoreHistory) && o.scoreHistory.length >= 2;
-  if (show2) {
-    const line = svgEl.querySelector('.obj-spark-line');
-    if (line) {
-      line.setAttribute('points', sparkPoints(o.scoreHistory));
-      line.setAttribute('stroke', o.levelColorHex || DEFAULT_PROG);
-    }
-  }
-  show(svgEl, show2);
 }
 
 // ── header ──────────────────────────────────────────────────────────────────
@@ -266,8 +207,10 @@ function renderObjectives(d) {
     if (o.id != null) el.dataset.objId = String(o.id);
     if (o.isPriority) el.classList.add('obj-card-priority');
 
-    drawRing(el, o.progress, RING_SMALL, o.levelColorHex, o.levelDimColorHex);
-    el.querySelector('.pc').textContent = `${Math.round((Number(o.progress) || 0) * 100)}%`;
+    const progress = renderObjectiveProgress(el, o);
+    drawRing(el, progress.score / READY_SCORE, RING_SMALL, o.levelColorHex, o.levelDimColorHex);
+    el.querySelector('.obj-points-value').textContent = String(progress.score);
+    el.querySelector('.ringwrap').setAttribute('aria-label', `${progress.score} practice points; 50 points reaches Ready`);
 
     // PRIORITY chip only on the priority card.
     show(el.querySelector('.obj-card-pri'), !!o.isPriority);
@@ -277,13 +220,10 @@ function renderObjectives(d) {
     typeEl.classList.add(typeClass(o));
 
     el.querySelector('.obj-card-name').textContent = o.title || '';
-    el.querySelector('.obj-card-meta').textContent = objectiveMetaText(o);
+    const gameCount = Math.max(0, Number(o.gameCount) || 0);
+    el.querySelector('.obj-card-meta').textContent = [objectivePhaseLabel(o.phasesSummary || o.phaseLabel), `${gameCount} ${gameCount === 1 ? 'game' : 'games'}`].filter(Boolean).join(' · ');
 
     fillCriteria(el, o);
-    fillSpark(el.querySelector('.obj-card-spark'), o);
-
-    buildLadder(el.querySelector('.obj-card-ladder'), Number(o.score) || 0, o.levelColorHex);
-    fillMastery(el, o);
     fillGate(el.querySelector('.obj-card-gate'), el.querySelector('.obj-card-gate .obj-gate-v'), o);
 
     // The priority objective can't be "made priority" — drop that button.
@@ -295,34 +235,9 @@ function renderObjectives(d) {
     // P-037: completion is gated by MASTERY (skill held over a horizon), not the
     // EFFORT score. The server OR's masteryMet with the legacy score>=50 so an
     // objective already Ready never regresses (forward-only).
-    toggleCompleteButtons(el, o);
+    toggleCompleteButtons(el, { ...o, masteryMet: progress.ready });
 
     host.appendChild(el);
-  }
-}
-
-// P-037 mastery meter: fill the bar to masteryPct and caption it. Hidden for
-// minis and when the server reports no mastery text (e.g. mini drills).
-function fillMastery(card, o) {
-  const wrap = card.querySelector('.obj-card-mastery');
-  if (!wrap) return;
-  const showMeter = !o.isMini && !!o.masteryText;
-  show(wrap, showMeter);
-  if (!showMeter) return;
-
-  const pct = Math.max(0, Math.min(100, Number(o.masteryPct) || 0));
-  wrap.classList.toggle('is-met', !!o.masteryMet);
-  const fill = wrap.querySelector('.obj-mastery-fill');
-  if (fill) {
-    fill.style.width = pct + '%';
-    fill.classList.toggle('is-met', !!o.masteryMet);
-  }
-  const textEl = wrap.querySelector('.obj-mastery-text');
-  if (textEl) textEl.textContent = objectiveDisplayText(o.masteryText);
-  const gateEl = wrap.querySelector('.obj-mastery-gate');
-  if (gateEl) {
-    gateEl.textContent = o.masteryMet ? '' : objectiveDisplayText(o.masteryGateText);
-    show(gateEl, !o.masteryMet && !!o.masteryGateText);
   }
 }
 
@@ -338,32 +253,6 @@ function toggleCompleteButtons(card, o) {
   const early = card.querySelector('.obj-act-early');
   if (win) win.hidden = !ready;
   if (early) early.hidden = ready;
-}
-
-// ── spotted problems (clickable game rows) ──────────────────────────────────
-function renderSpotted(d) {
-  const items = Array.isArray(d.spottedProblems) ? d.spottedProblems : [];
-  const host = $('spotted-list');
-  clear(host);
-  show($('spotted-label'), items.length > 0);
-  if (items.length === 0) return;
-
-  for (const s of items) {
-    const el = tpl('tpl-spotted');
-    const wl = el.querySelector('.obj-spot-wl');
-    wl.textContent = s.resultText || '';
-    if (s.resultColorHex) wl.style.color = s.resultColorHex;
-
-    el.querySelector('.obj-spot-champ').textContent = s.championDisplay || s.championName || '';
-    el.querySelector('.obj-spot-date').textContent = s.datePlayed || '';
-    el.querySelector('.obj-spot-text').textContent = s.problemText || '';
-
-    if (s.gameId != null) el.dataset.gameId = String(s.gameId);
-    // Left edge bar rests in the game's win/loss color, energizes to accent on hover.
-    if (s.resultColorHex) el.style.setProperty('--wl', s.resultColorHex);
-
-    host.appendChild(el);
-  }
 }
 
 // ── completed objectives (collapsed by default) ─────────────────────────────
@@ -418,7 +307,6 @@ function playEntrance() {
   const order = [
     $('active-list'),
     $('focus-list'),
-    $('spotted-list'),
     $('completed-toggle-wrap'),
   ].filter((el) => el && !el.hidden);
   order.forEach((el, i) => {
@@ -432,7 +320,6 @@ function render(d) {
   renderHeader(d);
   renderObjectives(d);
   renderFocus(d);
-  renderSpotted(d);
   renderCompleted(d);
   renderEmpty(d);
   playEntrance();
@@ -986,18 +873,16 @@ function confirmDeleteObjective(obj) {
 //   submit_form      = create_objective / update_objective.
 // Per-objective mutations (carry {id}):
 //   set_objective_priority, complete_objective.
-// Navigation (carry {gameId}):
-//   open_review (spotted-problem row → review page, deferred).
 // Local actions never touch the backend (form chrome + navigation + celebration).
 const LOCAL_ACTIONS = new Set([
   'toggle_completed', 'new_objective', 'edit_objective', 'cancel_form',
-  'open_obj_games', 'open_obj_notes', 'open_review',
+  'open_obj_games', 'open_obj_notes',
   'add_prompt', 'remove_prompt', 'remove_champ', 'dismiss_celebration',
 ]);
 // Backend mutations that carry only {id} resolved from the enclosing card.
 const ID_ACTIONS = new Set(['set_objective_priority']);
 const ACTIONS = new Set([
-  'open_review', 'toggle_completed', 'new_objective', 'edit_objective',
+  'toggle_completed', 'new_objective', 'edit_objective',
   'cancel_form', 'submit_form', 'set_objective_priority', 'complete_objective',
   'delete_objective', 'open_obj_games', 'open_obj_notes',
   'add_prompt', 'remove_prompt', 'remove_champ', 'dismiss_celebration',
@@ -1033,12 +918,6 @@ document.addEventListener('click', async (ev) => {
     } else if (action === 'open_obj_notes') {
       const id = objIdForTarget(target);
       if (id != null) window.location.href = `objectivenotes.html?id=${encodeURIComponent(id)}`;
-    } else if (action === 'open_review') {
-      // A spotted-problem row → that game's review page (which surfaces its VOD /
-      // clip if available). Read the gameId off the row, not a backend call.
-      const row = target.closest('[data-game-id]');
-      const gid = row ? row.dataset.gameId : target.dataset.gameId;
-      if (gid != null) window.location.href = `review.html?gameId=${encodeURIComponent(gid)}`;
     } else if (action === 'add_prompt') {
       addPromptRow();
     } else if (action === 'remove_prompt') {
@@ -1150,12 +1029,6 @@ document.addEventListener('keydown', (ev) => {
     ev.target.value = '';
     return;
   }
-  // Keyboard activation for the role="button" spotted rows (Enter / Space).
-  if (ev.key !== 'Enter' && ev.key !== ' ') return;
-  const target = ev.target.closest('[data-action][role="button"]');
-  if (!target) return;
-  ev.preventDefault();
-  target.click();
 });
 
 // Picking a datalist suggestion fires an 'input' (and on commit, 'change') on the

@@ -115,7 +115,23 @@ public sealed record ObjectiveCardDto(
     string MasteryText,
     // How many qualifying games have been seen (evaluated for structured,
     // linked for free-text) — for the "n games" sub-label.
-    int MasteryQualifyingGames);
+    int MasteryQualifyingGames,
+    // Readiness requirements and observed progress. Null for mini drills and
+    // older snapshots; the UI must not invent missing day or recency progress.
+    ObjectiveMasteryDetailsDto? MasteryDetails = null);
+
+/// <summary>
+/// Display metadata for the existing consistency gate. SuccessRateMet uses the
+/// unrounded rate, since the rounded MasteryPct can reach 80 before the gate does.
+/// These values do not replace the legacy score alternative in MasteryMet.
+/// </summary>
+public sealed record ObjectiveMasteryDetailsDto(
+    int SuccessThresholdPct,
+    int MinGames,
+    int MinSpanDays,
+    int SpanDays,
+    bool RecentSuccessMet,
+    bool SuccessRateMet);
 
 /// <summary>One completed objective (collapsed row).</summary>
 public sealed record CompletedObjectiveDto(

@@ -38,6 +38,19 @@
       </div>
     </header>
 
+    <section class="home-review-inbox" id="review-inbox" aria-labelledby="unreviewed-label" hidden>
+      <div class="home-review-heading">
+        <div class="home-review-eyebrow"><span aria-hidden="true"></span>Pending review</div>
+        <h2 id="unreviewed-label">Your match is ready to review</h2>
+        <p>Take one useful lesson into your next game.</p>
+      </div>
+      <div id="unreviewed"></div>
+      <div class="home-review-footer" id="review-queue-footer" hidden>
+        <span id="review-queue-more"></span>
+        <a class="home-link" href="games.html">View review queue <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+
     <!-- One clear starting point, with supporting tools below. -->
     <div class="toprow">
       <div class="glass primary" id="nextstep">
@@ -58,6 +71,15 @@
       <button class="home-shortcut" type="button" data-action="start_first_review_tutorial">Quick guide</button>
     </div>
 
+    <div class="home-review-status">
+      <p id="unreviewed-empty" hidden>You're all caught up on recent reviews.</p>
+      <div class="hint" id="vod-hint" hidden>
+        <span class="hint-dot"></span>
+        <span class="hint-text" id="vod-line"></span>
+        <button class="hint-link" id="vod-btn" data-action="review_vod">Open recording →</button>
+      </div>
+    </div>
+
     <div class="home-secondary">
       <div class="objpane" id="objpane">
         <div class="home-section-head"><div class="seclabel" id="objectives-label">Your learning objectives</div><a class="home-link" href="objectives.html">Manage learning objectives →</a></div>
@@ -65,19 +87,6 @@
         <div class="home-empty" id="objectives-empty" hidden><h3>Start with one thing to improve.</h3><p>Keep the skill you want to practice close by.</p><a class="home-link" href="objectives.html">Add a learning objective <span aria-hidden="true">↗</span></a></div>
       </div>
 
-    <!-- UNREVIEWED — the important section -->
-    <section class="home-reviews" aria-labelledby="unreviewed-label">
-    <div class="home-section-head"><h2 class="seclabel seclabel-lead" id="unreviewed-label">Ready to review</h2><a class="home-link" href="games.html">All matches →</a></div>
-    <div id="unreviewed"></div>
-    <div class="home-empty home-review-empty" id="unreviewed-empty" hidden><div><h3>You're all caught up.</h3><p>New matches will appear here after they're imported.</p><a class="home-link" href="games.html">Browse matches <span aria-hidden="true">↗</span></a></div></div>
-
-    <!-- VOD evidence — a small inline hint, not a section -->
-    <div class="hint" id="vod-hint" hidden>
-      <span class="hint-dot"></span>
-      <span class="hint-text" id="vod-line"></span>
-      <button class="hint-link" id="vod-btn" data-action="review_vod">Open recording →</button>
-    </div>
-    </section>
     </div>
 
     <section class="home-stats" aria-label="Session statistics">
@@ -126,18 +135,14 @@
   </template>
 
   <template id="tpl-gamerow">
-    <div class="card gamerow" data-action="open_review" tabindex="0" role="button">
-      <span class="gamerow-sweep" aria-hidden="true"></span>
-      <span class="gamerow-edge" aria-hidden="true"></span>
-      <div class="crow">
-        <div>
-          <div class="vline"></div>
-          <div class="vsmall"></div>
-        </div>
-        <div class="gamerow-right">
-          <div class="gamerow-cue" aria-hidden="true">Review <span class="arr">→</span></div>
-          <button type="button" class="gamerow-skip" data-action="skip_review">Skip</button>
-        </div>
+    <div class="home-review-match">
+      <div class="home-review-match-info">
+        <div class="home-review-match-title"><h3 class="vline"></h3><span class="home-review-result"></span></div>
+        <p class="vsmall"></p>
+      </div>
+      <div class="home-review-actions">
+        <a class="cta home-review-open">Review match <span aria-hidden="true">→</span></a>
+        <button type="button" class="home-review-skip" data-action="skip_review">Skip</button>
       </div>
     </div>
   </template>
