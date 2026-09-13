@@ -8,7 +8,7 @@ namespace Revu.Sidecar;
 // Same conventions as DashboardDtos.cs / GamesDtos.cs: PascalCase here,
 // camelCase on the wire (the serializer in Program.cs uses
 // JsonNamingPolicy.CamelCase). NO SolidColorBrush — every color is a plain
-// *Hex string the Tauri frontend resolves itself.
+// *Hex string the desktop renderer resolves itself.
 //
 // READ-ONLY: this snapshot only lists the user's rules + their live RULE CHECK
 // state. Add/edit/toggle/delete are WRITE operations and are DEFERRED — the
@@ -60,7 +60,7 @@ public sealed record ViolationBannerItemDto(
 
 /// <summary>
 /// One rule row. Mirrors Revu.App.ViewModels.RuleDisplayItem's display surface
-/// (TypeBadge → TypeBadge, ConditionText → ConditionText) so the Tauri frontend
+/// (TypeBadge → TypeBadge, ConditionText → ConditionText) so the desktop renderer
 /// renders the same glass row the WinUI app shows — minus the violation/evidence
 /// state, which is out of scope for the read-only list. Emits an AccentHex color
 /// string, never a brush.

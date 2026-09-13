@@ -7,8 +7,8 @@ public sealed record VodDto(
     string GeneratedAt,
     bool HasVod,
     long GameId,
-    // Absolute path to the recording on disk; the frontend converts it to an
-    // asset: URL via Tauri convertFileSrc to feed an HTML <video>. Empty if none.
+    // Absolute path to the recording on disk; the Electron host grants a revocable
+    // revu-media: URL to the video element. Empty if no recording is linked.
     string FilePath,
     string FileName,
     // Header info for the player chrome.
@@ -32,7 +32,8 @@ public sealed record VodDto(
     // builds its selects from, and this game's corrections ledger (newest first).
     // The builder always fills both; Empty() passes empty lists.
     IReadOnlyList<VodEventTypeDto>? EventTypeCatalog = null,
-    IReadOnlyList<VodCorrectionDto>? Corrections = null);
+    IReadOnlyList<VodCorrectionDto>? Corrections = null,
+    double GameTimeAtVideoStart = 0);
 
 /// <summary>A timeline marker (moment) on the VOD.</summary>
 public sealed record VodBookmarkDto(

@@ -7,6 +7,7 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./dashboard.css">
 </head>
 <body>
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
@@ -29,18 +30,15 @@
     <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
-  <div class="shell">
-    <div class="eyebrow">Dashboard</div>
-    <div class="hero"><h1 id="hero-title">Good morning. Lock in.</h1></div>
-    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+  <main class="shell home-page">
+    <header class="home-header">
+      <div>
+        <div class="hero"><h1 id="hero-title">Welcome back.</h1></div>
+        <p class="home-intro">A little more intentional. One match at a time.</p>
+      </div>
+    </header>
 
-    <!-- Hidden by default; tutorial.js (syncLaunchButton) reveals it only when the
-         first-review tutorial is still available (not completed, not dismissed). -->
-    <div class="frt-launch" hidden>
-      <button class="hint-link" type="button" data-action="start_first_review_tutorial">Start first review tutorial</button>
-    </div>
-
-    <!-- TOP ROW: Intent (40%) + Active objectives (60%) side by side -->
+    <!-- One clear starting point, with supporting tools below. -->
     <div class="toprow">
       <div class="glass primary" id="nextstep">
         <div class="body">
@@ -49,30 +47,44 @@
           <p id="nextstep-p">…</p>
           <!-- v3.3: active coaching stint context (name · block count · coach split) -->
           <div class="nextstep-stint" id="nextstep-stint" hidden></div>
-          <button class="cta" id="nextstep-cta" data-action="start_block">START BLOCK →</button>
+          <button class="cta" id="nextstep-cta" data-action="start_block">Start a session</button>
         </div>
-      </div>
-
-      <div class="objpane" id="objpane">
-        <div class="seclabel" id="objectives-label" hidden>Active objectives</div>
-        <div id="objectives"></div>
       </div>
     </div>
 
-    <!-- STAT STRIP -->
-    <div class="seclabel">Today <span class="n">vs your 30-day baseline</span></div>
-    <div class="strip" id="strip"></div>
+    <div class="home-orientation frt-launch">
+      <a class="home-shortcut" href="games.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Review a match</a>
+      <a class="home-shortcut" href="settings.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="m16 10 5-3v10l-5-3"/></svg>Recording settings</a>
+      <button class="home-shortcut" type="button" data-action="start_first_review_tutorial">Quick guide</button>
+    </div>
+
+    <div class="home-secondary">
+      <div class="objpane" id="objpane">
+        <div class="home-section-head"><div class="seclabel" id="objectives-label">Your learning objectives</div><a class="home-link" href="objectives.html">Manage learning objectives →</a></div>
+        <div id="objectives"></div>
+        <div class="home-empty" id="objectives-empty" hidden><h3>Start with one thing to improve.</h3><p>Keep the skill you want to practice close by.</p><a class="home-link" href="objectives.html">Add a learning objective <span aria-hidden="true">↗</span></a></div>
+      </div>
 
     <!-- UNREVIEWED — the important section -->
-    <div class="seclabel seclabel-lead" id="unreviewed-label" hidden>Unreviewed games</div>
+    <section class="home-reviews" aria-labelledby="unreviewed-label">
+    <div class="home-section-head"><h2 class="seclabel seclabel-lead" id="unreviewed-label">Ready to review</h2><a class="home-link" href="games.html">All matches →</a></div>
     <div id="unreviewed"></div>
+    <div class="home-empty home-review-empty" id="unreviewed-empty" hidden><div><h3>You're all caught up.</h3><p>New matches will appear here after they're imported.</p><a class="home-link" href="games.html">Browse matches <span aria-hidden="true">↗</span></a></div></div>
 
     <!-- VOD evidence — a small inline hint, not a section -->
     <div class="hint" id="vod-hint" hidden>
       <span class="hint-dot"></span>
       <span class="hint-text" id="vod-line"></span>
-      <button class="hint-link" id="vod-btn" data-action="review_vod">Review VOD →</button>
+      <button class="hint-link" id="vod-btn" data-action="review_vod">Open recording →</button>
     </div>
+    </section>
+    </div>
+
+    <section class="home-stats" aria-label="Session statistics">
+      <div class="home-section-head"><h2 class="seclabel">Your progress</h2><span class="home-caption">Today and your 30-day baseline</span></div>
+      <div class="strip" id="strip"></div>
+      <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+    </section>
 
     <!-- ERROR PANEL -->
     <div class="card errpanel" id="errpanel" hidden>
@@ -83,7 +95,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </main>
 
   <!-- ── REPEATING-CELL TEMPLATES ── -->
   <template id="tpl-stat">
@@ -105,7 +117,7 @@
           <div class="pc"></div>
         </div>
         <div>
-          <span class="pill" hidden>PRIORITY</span>
+          <span class="pill" hidden>Current focus</span>
           <div class="oname"></div>
           <div class="ometa"></div>
         </div>
@@ -123,8 +135,8 @@
           <div class="vsmall"></div>
         </div>
         <div class="gamerow-right">
-          <div class="gamerow-cue" aria-hidden="true">REVIEW <span class="arr">→</span></div>
-          <button type="button" class="gamerow-skip" data-action="skip_review">SKIP</button>
+          <div class="gamerow-cue" aria-hidden="true">Review <span class="arr">→</span></div>
+          <button type="button" class="gamerow-skip" data-action="skip_review">Skip</button>
         </div>
       </div>
     </div>

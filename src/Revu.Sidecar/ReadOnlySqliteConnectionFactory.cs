@@ -17,18 +17,17 @@ namespace Revu.Sidecar;
 /// </para>
 ///
 /// <para>
-/// This is non-negotiable for the Tauri migration phase: the user has had
-/// multiple data-loss incidents, so the sidecar must be physically incapable
-/// of writing, creating, or migrating the database. ReadOnly mode means any
+/// The query graph must be physically incapable of writing, creating, or
+/// migrating the database. ReadOnly mode means any
 /// accidental INSERT/UPDATE/DELETE/CREATE issued against one of these
 /// connections fails at the SQLite layer rather than corrupting user data.
 /// We never call <c>Directory.CreateDirectory</c> and never run a migration —
-/// the file is treated as a strictly external, owner-managed artifact.
+/// initialization and mutations belong to the separate write graph.
 /// </para>
 ///
 /// <para>
 /// WAL + shared cache parity: the WAL journal mode is persisted at the DB file
-/// level by the WinUI app's DatabaseInitializer, so a read-only reader sees it
+/// level by DatabaseInitializer, so a read-only reader sees it
 /// automatically. We request <see cref="SqliteCacheMode.Shared"/> to match the
 /// app's connections, and set a busy_timeout so a reader briefly contending
 /// with the app's writer backs off instead of throwing SQLITE_BUSY.
@@ -44,7 +43,7 @@ public sealed class ReadOnlySqliteConnectionFactory : IDbConnectionFactory
     /// <param name="logger">Logger instance.</param>
     /// <param name="dbPath">
     /// Optional explicit database path override (tests). When <c>null</c>,
-    /// resolves the same default as the WinUI app's writable factory.
+    /// resolves the same database as the write-capable factory.
     /// </param>
     public ReadOnlySqliteConnectionFactory(
         ILogger<ReadOnlySqliteConnectionFactory> logger,

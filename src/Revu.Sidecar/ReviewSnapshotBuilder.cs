@@ -22,7 +22,7 @@ namespace Revu.Sidecar;
 /// SUBJECT SELECTION: the review page is normally opened with a specific gameId
 /// (deferred nav). For v1 the endpoint returns a SAMPLE subject — the most
 /// recent unreviewed game in the last 3 days, falling back to the most recent
-/// reviewed game — so the Tauri frontend can preview the page without nav.
+/// reviewed game — so the desktop renderer can preview the page without nav.
 /// </para>
 ///
 /// <para>
@@ -580,7 +580,7 @@ public sealed class ReviewSnapshotBuilder
             // events" is on; Patterns keep counting them either way.
             return EvidenceAutoAnchors.ForSurface(
                 await _evidenceRepo.GetForGameAsync(gameId),
-                _configService.AutoTimelineClippingEnabled);
+                _configService.AutoTimelineClippingEnabled, await _eventsRepo.GetEligibleEventsAsync(gameId));
         }
         catch (Exception ex)
         {
@@ -856,7 +856,7 @@ public sealed class ReviewSnapshotBuilder
         var result = new List<ReviewDeathDto>();
         try
         {
-            var events = await _eventsRepo.GetEventsAsync(gameId);
+            var events = await _eventsRepo.GetEligibleEventsAsync(gameId);
             var deaths = events
                 .Where(static e => string.Equals(e.EventType, GameEvent.EventTypes.Death, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(static e => e.GameTimeS)

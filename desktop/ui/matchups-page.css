@@ -1,0 +1,76 @@
+/* A compact playbook: browse matchups, then open one to read or write. */
+.matchups-page .mj-hero{gap:20px 32px;margin-bottom:30px}
+.matchups-page .mj-hero .hero{margin:0}
+.matchups-page .mj-subt{margin-top:10px}
+.matchups-page .mj-actions{gap:12px}
+.matchups-page .mj-actions-row{gap:10px}
+.matchups-page .mj-btn-last{font:500 14px/1.4 var(--fb);letter-spacing:0;padding:10px 16px;min-height:40px}
+.matchups-page .mj-lastgame-details{max-width:400px;color:var(--muted);font-size:13px;line-height:1.5;text-align:right}
+.matchups-page .mj-lastgame-details>summary{cursor:pointer;padding:3px 0}
+.matchups-page .mj-lastgame{display:flex;flex-direction:column;align-items:flex-end;gap:5px;margin-top:8px;font:400 13px/1.5 var(--fb);letter-spacing:0}
+.matchups-page .mj-lastgame[hidden]{display:none}
+.matchups-page .mj-lastgame-g{color:var(--muted)}
+.matchups-page .mj-toolbar{display:flex;align-items:center;gap:12px}
+.matchups-page .mj-search-wrap{display:block;flex:1;min-width:0}
+.matchups-page #mj-search{width:100%;padding:12px 16px}
+.matchups-page :is(#mj-search,#mj-lane-filter){min-height:46px;font:400 14px/1.5 var(--fb);letter-spacing:0;border-radius:12px!important}
+.matchups-page #mj-lane-filter{width:152px;padding:12px 14px;flex-shrink:0}
+.matchups-page .mj-list-intro{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px 20px;margin:18px 0 22px;color:var(--muted);font-size:13px;line-height:1.5}
+.matchups-page #mj-results{font-variant-numeric:tabular-nums}
+.matchups-page .mj-lane{margin-top:24px}
+.matchups-page .mj-lane:first-child{margin-top:0}
+.matchups-page .mj-lane>.seclabel{margin:0 0 10px;font-size:13px;font-weight:500;letter-spacing:0;color:var(--muted);gap:8px}
+.matchups-page .mj-lane-n{font-size:12px;color:var(--muted)}
+.matchups-page .mj-lane-groups{gap:10px}
+.matchups-page .mj-group{padding:0;border:1px solid var(--border);border-radius:14px;background:transparent;overflow:visible}
+.matchups-page .mj-group[open]{background:var(--surface)}
+.matchups-page .mj-group-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:20px;margin:0;padding:18px 20px;min-height:82px;border-radius:13px;list-style:none;cursor:pointer}
+.matchups-page .mj-group-head::-webkit-details-marker{display:none}
+.matchups-page .mj-group-head:hover{background:var(--surface-raised)}
+.matchups-page .mj-group-head:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+.matchups-page .mj-group-heading{display:flex;flex-direction:column;gap:7px;min-width:0}
+.matchups-page .mj-group-title{font:500 16px/1.5 var(--fb);color:var(--text);letter-spacing:0;overflow-wrap:anywhere}
+.matchups-page .mj-group-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;font:400 13px/1.5 var(--fb);color:var(--muted);letter-spacing:0}
+.matchups-page .mj-group-n{font:inherit;text-transform:none;letter-spacing:0;color:inherit}
+.matchups-page .mj-group-date:empty{display:none}
+.matchups-page .mj-group-chevron{flex-shrink:0;color:var(--muted)}
+.matchups-page .mj-group[open]>.mj-group-head .mj-group-chevron{transform:rotate(180deg)}
+.matchups-page .mj-group-cards{gap:0;padding:0 20px}
+.matchups-page .mj-card{padding:20px 0 24px;margin:0;border:0!important;border-top:1px solid var(--border)!important;border-radius:0!important;background:transparent!important}
+.matchups-page .mj-card-top{align-items:center;gap:12px;margin:0 0 20px}
+.matchups-page .mj-card-context{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;color:var(--muted)}
+.matchups-page :is(.mj-card-date,.mj-card-game){font:400 13px/1.5 var(--fb);letter-spacing:0;color:var(--muted)}
+.matchups-page .mj-card-game::before{content:none}
+.matchups-page .mj-card-acts{gap:8px}
+.matchups-page .mj-act{font:500 13px/1.4 var(--fb);letter-spacing:0;text-transform:none;padding:8px 13px;min-height:36px}
+.matchups-page .mj-notes{gap:20px 24px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.matchups-page .mj-note{gap:9px}
+.matchups-page .mj-note-head{padding-left:0;min-height:22px;justify-content:space-between}
+.matchups-page .mj-note-k{font:500 14px/1.5 var(--fb);color:var(--text);letter-spacing:0;text-transform:none}
+.matchups-page .mj-note-in{font:400 15px/1.7 var(--fb);letter-spacing:0;padding:14px 16px;min-height:110px;background:var(--surface-raised)!important}
+.matchups-page .mj-saved{font:400 12px/1.5 var(--fb);letter-spacing:0;text-transform:none}
+.matchups-page .mj-empty{padding:48px 20px}
+.matchups-page #mj-no-results .mj-act{margin-top:20px}
+.matchups-page #mj-form{padding:24px;margin:0 0 28px}
+.matchups-page .mj-form .obj-form-title{font:500 20px/1.4 var(--fb);letter-spacing:0}
+.matchups-page .mj-form .obj-form-grid{gap:22px}
+.matchups-page .mj-form .obj-field{gap:8px}
+.matchups-page .mj-form .obj-field-k{font-size:14px;letter-spacing:0}
+.matchups-page .mj-form .obj-input{font-size:14px;line-height:1.6;padding:12px 14px}
+
+@media(max-width:900px){
+  .matchups-page .mj-actions{align-items:flex-start;margin-top:0}
+  .matchups-page .mj-actions-row{justify-content:flex-start}
+  .matchups-page .mj-lastgame-details{text-align:left}
+  .matchups-page .mj-lastgame{align-items:flex-start;text-align:left}
+  .matchups-page .mj-notes{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:520px){
+  .matchups-page .mj-toolbar{gap:8px;flex-wrap:wrap}
+  .matchups-page .mj-search-wrap{flex-basis:100%}
+  .matchups-page #mj-lane-filter{width:100%}
+  .matchups-page .mj-group-head{padding:16px;gap:12px}
+  .matchups-page .mj-group-cards{padding:0 16px}
+  .matchups-page .mj-card-top{align-items:flex-start;flex-direction:column}
+  .matchups-page .mj-card-acts{margin-left:0}
+}

@@ -1,84 +1,123 @@
-// Revu desktop — Settings page renderer for the glass-aurora layout.
-//
-// Reads/writes app config via the Tauri commands get_config / save_config (see
-// Revu.Sidecar GET /api/config + POST /api/config/save) AND the Batch-6 settings
-// surface: get_settings_status (ffmpeg + Ascent/clip status + backups list),
-// scan_vods, get_export_markdown, and the native ops pick_folder /
-// save_export_file / open_log_folder. Mirrors app.js conventions exactly:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • fetchConfig/fetchStatus try invoke FIRST, then a sample JSON fallback so
-//     the page previews in a plain browser.
-//   • Every server string is written via textContent (never innerHTML); color
-//     hexes arrive as strings applied to style props only.
-//   • ONE delegated [data-action] click handler; refetch after writes.
-//
-// DEFERRED to the auth batch (secrets): account login/logout/OTP. Riot ID +
-// region are plain config fields and ARE editable here. DEFERRED (platform):
-// app update (installer-managed), restore/reset (destructive + relaunch) — those
-// render as static notes / disabled buttons.
+import { $, show, clear as clearEl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke } from './platform/index.mjs';
+import { initializeRecordingSettings } from './recording-settings.mjs';
+import { initializeSettingsNavigation, preserveSettingsDraft } from './settings-navigation.mjs';
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
+// Each editable card saves only its own fields through the existing platform
+// boundary. Refreshes preserve drafts in other categories. Recording and startup
+// remain independently owned by their native settings handlers.
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clearEl(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
 
 // Editable text/number/select inputs ↔ config field names (camelCase wire).
 const TEXT_FIELDS = ['ascentFolder', 'clipsFolder', 'backupFolder', 'riotId', 'region'];
 // Folder paths get special save handling (P-023): an EMPTY folder input means
 // "leave unchanged" (so a not-yet-rendered field on a fetch-race never blanks the
-// saved path) UNLESS the user explicitly cleared it via the Clear button, tracked
-// here. A field is removed from this set the moment it's re-picked or fresh config
-// is rendered.
+// saved path).
 const FOLDER_FIELDS = new Set(['ascentFolder', 'clipsFolder', 'backupFolder']);
+const FOLDER_CLEAR_SENTINEL = ' __REVU_CLEAR__ ';
 // Riot identity text fields share the folder empty-overwrite hazard but with no
 // "clear" affordance: an empty input always means "leave unchanged" (omit the key),
 // never "blank the linked account". Guarded in collectPayload below.
 const IDENTITY_FIELDS = new Set(['riotId', 'region']);
-const _clearedFolders = new Set();
-// Sent verbatim to the sidecar for a DELIBERATE folder clear (P-023). Must match
-// Program.cs TryResolveFolderWrite's FolderClearSentinel byte-for-byte. The input
-// stays visually empty; collectPayload substitutes this only for explicit clears, so
-// the sidecar can tell "user pressed Clear" from "field was empty" (which it ignores).
-const FOLDER_CLEAR_SENTINEL = ' __REVU_CLEAR__ ';
 const NUM_FIELDS = ['clipsMaxSizeMb'];
 // role=switch toggle buttons ↔ config bool field names.
 const TOGGLE_FIELDS = [
   'backupEnabled', 'tiltFixMode', 'requireReviewNotes',
-  'autoTimelineClippingEnabled', 'minimizeDuringGame', 'sidebarAnimationEnabled',
+  'autoTimelineClippingEnabled', 'minimizeDuringGame',
   'autoClipObjectivesEnabled',
 ];
 // Browse buttons ↔ the text field they fill.
 const PICK_TARGETS = { pick_ascent: 'ascentFolder', pick_clips: 'clipsFolder', pick_backup: 'backupFolder' };
 
 let _data = null;
+let _baseline = {};
+let _savingGroup = null;
+let _ascentAvailable = null;
+let _ascentScanning = false;
+let _ascentScanResult = null;
+const _nativeBaseline = new Map();
+const CONFIG_FIELDS = [...TEXT_FIELDS, ...NUM_FIELDS, ...TOGGLE_FIELDS, 'windowResolution'];
+const configValues = () => Object.fromEntries(CONFIG_FIELDS.map(id => [id,
+  TOGGLE_FIELDS.includes(id) ? toggleState($(id)) : $(id)?.value ?? '']));
+const groupFields = group => CONFIG_FIELDS.filter(id => group?.contains($(id)));
+function restoreValues(values) {
+  for (const [id, value] of Object.entries(values)) {
+    if (TOGGLE_FIELDS.includes(id)) setToggle($(id), value);
+    else if ($(id)) $(id).value = value;
+  }
+}
+function cardStatus(group, text, tone) {
+  const status = group?.querySelector('[data-save-status]');
+  if (!status) return;
+  status.textContent = text;
+  status.classList.remove('good', 'bad');
+  if (tone) status.classList.add(tone);
+}
+function syncCategoryDrafts() {
+  for (const button of document.querySelectorAll('[data-settings-category]')) {
+    const section = document.querySelector(`[data-settings-section="${button.dataset.settingsCategory}"]`);
+    const dirty = !!section?.querySelector('[data-dirty="true"]');
+    button.dataset.dirty = String(dirty);
+    button.title = dirty ? 'Contains unsaved changes' : '';
+  }
+}
+function updateDirtyGroups() {
+  const values = configValues();
+  for (const group of document.querySelectorAll('[data-config-group]')) {
+    const dirty = !!_data && groupFields(group).some(id => !Object.is(values[id], _baseline[id]));
+    const changed = group.dataset.dirty !== String(dirty);
+    group.dataset.dirty = String(dirty);
+    group.querySelector('[data-action="save_config"]').disabled = !_data || !!_savingGroup || !dirty;
+    group.querySelector('[data-action="discard_config"]').disabled = !_data || _savingGroup === group || !dirty;
+    if (changed && _savingGroup !== group) cardStatus(group, dirty ? 'Unsaved changes' : 'No unsaved changes');
+  }
+  syncAscentControls();
+  syncCategoryDrafts();
+}
+
+// A configured folder is not proof that recordings exist. Only a completed scan
+// supplies a link count; browser previews never pretend to access local files.
+function syncAscentControls() {
+  const group = $('ascent-settings');
+  if (!group) return;
+  const ready = !!_data && _ascentAvailable === true;
+  const folder = String(_data?.ascentFolder || '').trim();
+  const dirty = group.dataset.dirty === 'true';
+  const busy = _savingGroup === group || _ascentScanning;
+  $('ascentFolder').disabled = !ready || busy;
+  $('ascent-browse').disabled = !ready || busy;
+  $('ascent-save').disabled = !ready || busy || !!_savingGroup || !dirty || !$('ascentFolder').value.trim();
+  $('ascent-save').textContent = folder ? 'Save folder' : 'Connect folder';
+  $('ascent-disconnect').disabled = !ready || busy || !!_savingGroup || !folder;
+  $('ascent-scan').disabled = !ready || busy || !!_savingGroup || !folder || dirty;
+  group.querySelector('[data-action="discard_config"]').disabled = !ready || busy || !dirty;
+  let text, tone;
+  if (_ascentAvailable === null) text = 'Checking folder linking availability…';
+  else if (!_ascentAvailable) text = 'Connect Ascent in the Revu desktop app. Browser preview cannot access local recordings.';
+  else if (!_data) text = 'Loading your recordings folder…';
+  else if (_ascentScanning) text = 'Scanning Ascent recordings and linking matches…';
+  else if (dirty) text = $('ascentFolder').value.trim()
+    ? 'Save this folder before scanning or linking recordings.'
+    : 'Enter a folder to connect, or use Disconnect to stop automatic linking.';
+  else if (_ascentScanResult?.folder === folder) {
+    text = _ascentScanResult.text; tone = _ascentScanResult.tone;
+  } else text = folder
+    ? 'Folder connected. Revu checks for matching recordings automatically. Scan now to check existing videos.'
+    : 'No folder connected. Choose the recordings folder configured in Ascent.';
+  setStatusEl($('ascent-status'), text, tone, false);
+}
+
+async function loadAscentAccess() {
+  try { _ascentAvailable = !!(await getInvoke()); }
+  catch { _ascentAvailable = false; }
+  syncAscentControls();
+}
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchConfig() {
-  const invoke = await getInvoke();
-  if (invoke) return invoke('get_config');
-  const res = await fetch('./sample-settings.json');
-  if (!res.ok) throw new Error(`sample-settings.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_config', 'sample-settings.json');
 }
 
 async function fetchStatus() {
@@ -89,7 +128,7 @@ async function fetchStatus() {
     const res = await fetch('./sample-settings-status.json');
     if (res.ok) return res.json();
   } catch (_) { /* no sample present in preview — fine */ }
-  return { ffmpeg: null, ascent: null, clipUsage: null, backups: [] };
+  return { ffmpeg: null, clipUsage: null, backups: [] };
 }
 
 // ── toggle helpers ──────────────────────────────────────────────────────────
@@ -101,14 +140,10 @@ function setToggle(el, on) {
 function toggleState(el) { return el ? el.getAttribute('aria-checked') === 'true' : false; }
 
 // ── render: editable config surface ──────────────────────────────────────────
-function render(d) {
+function render(d, { savedFields = [] } = {}) {
+  const draft = _data ? preserveSettingsDraft(configValues(), _baseline, savedFields) : {};
   _data = d;
   clearError();
-  // Fresh canonical config rendered → any pending "explicit clear" is moot (the
-  // fields now reflect the saved truth). Reset so an empty folder after this is
-  // "unchanged", not "cleared" (P-023).
-  _clearedFolders.clear();
-
   for (const f of TEXT_FIELDS) {
     const el = $(f);
     if (el) el.value = d[f] != null ? String(d[f]) : '';
@@ -170,12 +205,14 @@ function render(d) {
 
   // Header status line.
   const statusB = document.querySelector('#statusline b');
-  if (statusB) statusB.textContent = d.riotId ? `Configured · ${d.riotId}` : 'Configured';
-
-  playEntrance();
+  if (statusB) statusB.textContent = d.riotId ? `Connected as ${d.riotId}` : 'Your preferences';
+  _baseline = configValues();
+  restoreValues(draft);
+  for (const id of CONFIG_FIELDS) if ($(id)) $(id).disabled = false;
+  updateDirtyGroups();
 }
 
-// ── render: read-only diagnostics (ffmpeg / Ascent / clip usage / backups) ────
+// ── render: read-only diagnostics (ffmpeg / clip usage / backups) ─────────────
 function applyStatusText(el, status, fallbackText) {
   if (!el) return;
   const text = status && status.text != null ? status.text : (fallbackText || '');
@@ -189,7 +226,6 @@ function renderStatus(s) {
   if (!s) return;
 
   applyStatusText($('ffmpeg-status'), s.ffmpeg, 'ffmpeg status unavailable.');
-  applyStatusText($('ascent-status'), s.ascent, '');
   applyStatusText($('clip-usage'), s.clipUsage, '');
 
   // Backups list — each row is selectable; selecting one enables Restore.
@@ -240,6 +276,11 @@ document.addEventListener('click', (ev) => {
   document.querySelectorAll('.set-backup-row').forEach((r) => r.classList.toggle('on', r === row));
   syncRestoreEnabled();
 });
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const row = event.target.closest?.('.set-backup-row');
+  if (row) { event.preventDefault(); row.click(); }
+});
 // Reset button enables only when the confirm box reads exactly RESET.
 document.addEventListener('input', (ev) => {
   if (ev.target && ev.target.id === 'reset-confirm') {
@@ -251,22 +292,14 @@ document.addEventListener('input', (ev) => {
 // ── collect the editable surface into a save payload ────────────────────────
 // Only fields the page owns; the sidecar read-modify-writes so unrelated config
 // keys (secrets, keybinds, puuid) are never touched.
-function collectPayload() {
+function collectPayload(group) {
   const p = {};
   for (const f of TEXT_FIELDS) {
     const el = $(f);
-    if (!el) continue;
+    if (!el || !group.contains(el)) continue;
     const v = el.value.trim();
-    // P-023: never let an empty folder input OVERWRITE an already-saved path.
-    // Sending "" blanks the stored folder — which is what zeroed ascent_folder/
-    // clips_folder/backup_folder on a save made before the config finished
-    // rendering. For an empty folder field: send the explicit-clear SENTINEL if the
-    // user pressed Clear (the sidecar maps it to ""), otherwise OMIT the key so the
-    // server leaves the saved value untouched. Non-empty folders send normally.
-    if (FOLDER_FIELDS.has(f) && v === '') {
-      if (_clearedFolders.has(f)) p[f] = FOLDER_CLEAR_SENTINEL;
-      continue;
-    }
+    // Never blank a saved folder when Save runs before the config has rendered.
+    if (FOLDER_FIELDS.has(f) && v === '') continue;
     // Same empty-overwrite class for the Riot identity (riotId/region): a save
     // fired before render() populates the inputs would otherwise send "" and blank
     // the linked Riot account, detaching match-history sync (RiotProxyEnabled). The
@@ -277,20 +310,20 @@ function collectPayload() {
   }
   for (const f of NUM_FIELDS) {
     const el = $(f);
-    if (el) {
+    if (el && group.contains(el)) {
       const n = parseInt(el.value, 10);
       // Mirror the WinUI clamp/reject: only send a valid in-range int.
       if (Number.isFinite(n) && n >= 100 && n <= 50000) p[f] = n;
     }
   }
   for (const f of TOGGLE_FIELDS) {
-    p[f] = toggleState($(f));
+    if (group.contains($(f))) p[f] = toggleState($(f));
   }
   // Window size: only send once the page has rendered real config (_data set) —
   // a pre-hydration save would otherwise send the select's built-in "default"
   // and reset a saved Maximized preference (same P-020/P-023 clobber class).
   const winRes = $('windowResolution');
-  if (winRes && _data) p.windowResolution = winRes.value || 'default';
+  if (winRes && _data && group.contains(winRes)) p.windowResolution = winRes.value || 'default';
   return p;
 }
 
@@ -301,15 +334,6 @@ function renderError(err) {
   show($('errpanel'), true);
 }
 function clearError() { show($('errpanel'), false); }
-
-// ── entrance stagger ────────────────────────────────────────────────────────
-let _entranceDone = false;
-function playEntrance() {
-  if (_entranceDone) return;
-  _entranceDone = true;
-  const cards = Array.from(document.querySelectorAll('.set-card, .set-saverow'));
-  cards.forEach((el, i) => el.classList.add('anim-rise', `anim-d${Math.min(i + 1, 5)}`));
-}
 
 // ── load orchestration ──────────────────────────────────────────────────────
 let _loading = false;
@@ -364,12 +388,11 @@ function setStatusEl(el, text, tone, autoClear) {
     }, 2400);
   }
 }
-function setSaveStatus(text, tone) { setStatusEl($('save-status'), text, tone, true); }
-
 // ── single delegated action handler ─────────────────────────────────────────
 const ACTIONS = new Set([
-  'save_config', 'pick_ascent', 'pick_clips', 'pick_backup', 'clear_ascent',
-  'scan_vods', 'refresh_backups', 'export_data', 'open_logs',
+  'save_config', 'discard_config', 'pick_ascent', 'pick_clips', 'pick_backup',
+  'disconnect_ascent', 'scan_vods',
+  'refresh_backups', 'export_data', 'open_logs',
   'restore_backup', 'reset_all_data', 'check_update', 'install_update',
   'run_backfill',
 ]);
@@ -379,31 +402,27 @@ document.addEventListener('click', async (ev) => {
   if (!target) return;
   const action = target.dataset.action;
   if (!ACTIONS.has(action)) return;
+  if (target.disabled) return;
   ev.preventDefault();
 
-  // Local-only action (no backend needed).
-  if (action === 'clear_ascent') {
-    const f = $('ascentFolder');
-    if (f) f.value = '';
-    // Mark this as a DELIBERATE clear so the next Save actually blanks the stored
-    // folder (P-023): collectPayload otherwise omits empty folders to avoid the
-    // fetch-race overwrite. Persisted on the next Save, like Browse.
-    _clearedFolders.add('ascentFolder');
-    applyStatusText($('ascent-status'), { text: 'Ascent VOD disabled', colorHex: '#8A80A8' });
-    return;
+  if (action === 'discard_config') {
+    const group = target.closest('[data-config-group]');
+    restoreValues(Object.fromEntries(groupFields(group).map(id => [id, _baseline[id]])));
+    updateDirtyGroups(); cardStatus(group, 'Changes discarded.'); return;
   }
 
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info(`[settings] (preview) ${action} — no Tauri backend.`);
-    if (action === 'save_config') setSaveStatus('Preview only; not saved.', 'bad');
+    console.info(`[settings] (preview) ${action} — no Electron backend.`);
+    if (action === 'save_config') cardStatus(target.closest('[data-config-group]'), 'Preview only. Changes are not saved.', 'bad');
     return;
   }
 
   try {
     if (action === 'save_config') return await doSave(invoke, target);
+    if (action === 'disconnect_ascent') return await doSave(invoke, target, { disconnectAscent: true });
+    if (action === 'scan_vods') return await doScanAscent(invoke);
     if (action in PICK_TARGETS) return await doPick(invoke, action);
-    if (action === 'scan_vods') return await doScan(invoke, target);
     if (action === 'run_backfill') return await doBackfill(invoke, target);
     if (action === 'refresh_backups') return await loadStatus();
     if (action === 'export_data') return await doExport(invoke, target);
@@ -457,7 +476,7 @@ async function doReset(invoke, target) {
   }
 }
 
-// Normalize a sidecar/Tauri error to a readable string (strip the HTTP prefix).
+// Normalize a sidecar/Electron error to a readable string (strip the HTTP prefix).
 function errText(err) {
   const s = (err && err.message) ? err.message : String(err);
   const m = s.match(/sidecar HTTP \d+:\s*(.*)$/i);
@@ -525,14 +544,21 @@ async function doInstallUpdate(invoke, target) {
 
 // save_config = persist the editable surface; refetch after to reflect the
 // canonical (and server-normalized, e.g. lower-cased region) values + status.
-async function doSave(invoke, target) {
-  const payload = collectPayload();
-  const canDisable = 'disabled' in target;
-  if (canDisable) target.disabled = true;
-  setSaveStatus('Saving…');
+async function doSave(invoke, target, { disconnectAscent = false } = {}) {
+  const group = target.closest('[data-config-group]');
+  if (!group || !_data || _savingGroup) return;
+  const isAscent = group.dataset.configGroup === 'ascent';
+  if (isAscent && (!_ascentAvailable || _ascentScanning || (!disconnectAscent && !$('ascentFolder').value.trim()))) return;
+  if (disconnectAscent && (!isAscent || !_data.ascentFolder)) return;
+  for (const field of group.querySelectorAll('input,select')) if (!field.reportValidity()) return;
+  const fields = groupFields(group);
+  const payload = disconnectAscent ? { ascentFolder: FOLDER_CLEAR_SENTINEL } : collectPayload(group);
+  _savingGroup = group;
+  for (const field of group.querySelectorAll('input,select,button')) field.disabled = true;
+  updateDirtyGroups(); cardStatus(group, 'Saving…');
   try {
-    await invoke('save_config', { payload });
-    setSaveStatus('Settings saved.', 'good');
+    const result = await invoke('save_config', { payload });
+    if (result?.ok === false) throw new Error(result.message || 'These changes could not be saved.');
     // Apply the window-size choice immediately (no relaunch needed) — but ONLY
     // when the user actually changed it. Applying unconditionally would snap a
     // manually resized/moved window back to the preset on every unrelated save.
@@ -546,13 +572,43 @@ async function doSave(invoke, target) {
         console.warn('[settings] live window resize failed (non-fatal):', resizeErr);
       }
     }
-    await loadConfig(); // manual invalidation — no message bus
+    let canonical;
+    try { canonical = await fetchConfig(); }
+    catch { canonical = { ..._data, ...payload, ...(disconnectAscent ? { ascentFolder: '' } : {}) }; }
+    if (isAscent) _ascentScanResult = null;
+    render(canonical, { savedFields: fields });
+    cardStatus(group, disconnectAscent ? 'Disconnected. Existing videos and match links are kept.' : 'Changes saved.', 'good');
+    loadStatus();
   } catch (err) {
-    renderError(err);
-    setSaveStatus('Error saving settings.', 'bad');
+    cardStatus(group, errText(err) || 'Could not save. Your changes are still here.', 'bad');
     console.error('[settings] save_config failed:', err);
   } finally {
-    if (canDisable) target.disabled = false;
+    _savingGroup = null;
+    for (const field of group.querySelectorAll('input,select,button')) field.disabled = false;
+    updateDirtyGroups();
+  }
+}
+
+async function doScanAscent(invoke) {
+  const group = $('ascent-settings');
+  const folder = String(_data?.ascentFolder || '').trim();
+  if (!_ascentAvailable || _ascentScanning || _savingGroup || !folder || group?.dataset.dirty === 'true') return;
+  _ascentScanning = true;
+  syncAscentControls();
+  try {
+    const result = await invoke('scan_vods');
+    if (result?.ok !== true) throw new Error(result?.message || 'Could not scan this folder. Check the path and try again.');
+    const matched = Number.isSafeInteger(result.matched) && result.matched >= 0 ? result.matched : null;
+    const count = Number.isSafeInteger(result.recordingCount) && result.recordingCount >= 0 ? result.recordingCount : null;
+    const summary = matched !== null && count !== null
+      ? `${matched} ${matched === 1 ? 'match linked' : 'matches linked'} · ${count} ${count === 1 ? 'recording found' : 'recordings found'}.`
+      : 'Recording scan completed.';
+    _ascentScanResult = { folder, text: String(result.message || '').trim() || summary, tone: 'good' };
+  } catch (error) {
+    _ascentScanResult = { folder, text: errText(error), tone: 'bad' };
+  } finally {
+    _ascentScanning = false;
+    syncAscentControls();
   }
 }
 
@@ -564,54 +620,29 @@ async function doPick(invoke, action) {
   if (picked) {
     const el = $(fieldId);
     if (el) el.value = String(picked);
-    // Picking a real path supersedes any pending "explicit clear" for this folder.
-    _clearedFolders.delete(fieldId);
-  }
-}
-
-// Scan = read+write (auto-matches recordings to games). Shows the result text the
-// sidecar built; refresh status after so any clip/ascent counts update.
-async function doScan(invoke, target) {
-  const canDisable = 'disabled' in target;
-  const prev = target.textContent;
-  if (canDisable) target.disabled = true;
-  target.textContent = 'Scanning…';
-  setStatusEl($('scan-result'), 'Scanning your recordings folder…', null, false);
-  try {
-    const res = await invoke('scan_vods');
-    const text = res && res.text ? String(res.text) : 'Scan complete.';
-    setStatusEl($('scan-result'), text, res && res.ok === false ? 'bad' : 'good', false);
-    await loadStatus();
-    window.dispatchEvent(new CustomEvent('revu:first-review-vod-scan-done', {
-      detail: { ok: !(res && res.ok === false), text },
-    }));
-  } catch (err) {
-    setStatusEl($('scan-result'), `Scan failed: ${err && err.message ? err.message : err}`, 'bad', false);
-  } finally {
-    if (canDisable) target.disabled = false;
-    target.textContent = prev;
+    updateDirtyGroups();
   }
 }
 
 // Backfill = long-running write (enemy laners + laning@10 + map-state events via
 // Match-V5). The sidecar walks every unprocessed game throttled, so this can run
-// minutes on a deep backlog; the Rust command allows up to 10. Shows the result
+// minutes on a deep backlog; the shared command contract supplies its deadline. Shows the result
 // text the sidecar built. ranBackfill=false means the account gate refused (not
 // signed in) — surface that as an error tone so the user knows to sign in first.
 async function doBackfill(invoke, target) {
   const canDisable = 'disabled' in target;
   const prev = target.textContent;
   if (canDisable) target.disabled = true;
-  target.textContent = 'Backfilling…';
+  target.textContent = 'Filling in data…';
   setStatusEl($('backfill-status'),
-    'Backfilling… walks every unprocessed game (throttled). A deep backlog takes a few minutes.', null, false);
+    'Looking up missing match details. A large history can take a few minutes.', null, false);
   try {
     const res = await invoke('run_backfill');
-    const text = res && res.text ? String(res.text) : 'Backfill complete.';
+    const text = res && res.text ? String(res.text) : 'Missing match data checked.';
     const failed = (res && res.ok === false) || (res && res.ranBackfill === false);
     setStatusEl($('backfill-status'), text, failed ? 'bad' : 'good', false);
   } catch (err) {
-    setStatusEl($('backfill-status'), `Backfill failed: ${err && err.message ? err.message : err}`, 'bad', false);
+    setStatusEl($('backfill-status'), `Could not fill in match data: ${err && err.message ? err.message : err}`, 'bad', false);
   } finally {
     if (canDisable) target.disabled = false;
     target.textContent = prev;
@@ -619,7 +650,7 @@ async function doBackfill(invoke, target) {
 }
 
 // Export = build the Markdown (sidecar read) then write it via the native save
-// dialog (Rust). 'saved:false' means the user cancelled (no error).
+// dialog. 'saved:false' means the user cancelled (no error).
 async function doExport(invoke, target) {
   const canDisable = 'disabled' in target;
   if (canDisable) target.disabled = true;
@@ -649,21 +680,62 @@ async function doExport(invoke, target) {
 // Toggle buttons flip their own visual state on click (saved on Save).
 document.addEventListener('click', (ev) => {
   const t = ev.target.closest('.set-toggle[role="switch"]');
-  if (!t) return;
+  if (!t || t.disabled) return;
   setToggle(t, !toggleState(t));
+  settingsEdited(t);
 });
 
 // Keyboard activation for the role="switch" toggles (Enter / Space).
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
   const t = ev.target.closest('.set-toggle[role="switch"]');
-  if (!t) return;
+  if (!t || t.disabled) return;
   ev.preventDefault();
   setToggle(t, !toggleState(t));
+  settingsEdited(t);
 });
 
+function settingsEdited(target) {
+  if (target.closest('[data-config-group]')) updateDirtyGroups();
+  const group = target.closest('[data-native-group]');
+  if (group) {
+    const dirty = nativeValues(group) !== _nativeBaseline.get(group.id);
+    group.dataset.dirty = String(dirty);
+    const id = group.dataset.nativeGroup === 'recording' ? 'recording-settings-status' : 'background-settings-status';
+    const saveId = group.dataset.nativeGroup === 'recording' ? 'save-recording-settings' : 'save-background-settings';
+    $(saveId).disabled = !dirty;
+    $(id).textContent = dirty ? 'Unsaved changes' : 'No unsaved changes';
+    syncCategoryDrafts();
+  }
+}
+function nativeValues(group) {
+  return JSON.stringify([...group.querySelectorAll('select,[role="switch"]')].map(field =>
+    field.getAttribute('role') === 'switch' ? toggleState(field) : field.value));
+}
+document.addEventListener('input', event => { if (event.target.matches('input,select')) settingsEdited(event.target); });
+document.addEventListener('change', event => { if (event.target.matches('input,select')) settingsEdited(event.target); });
+
 // ── boot ────────────────────────────────────────────────────────────────────
-function boot() { loadConfig(); loadAppVersion(); }
+function boot() {
+  initializeSettingsNavigation();
+  for (const id of CONFIG_FIELDS) if ($(id)) $(id).disabled = true;
+  for (const [id, groupId] of [['recording-settings-status', 'recording-settings'], ['background-settings-status', 'background-settings']]) {
+    new MutationObserver(() => {
+      if ($(id).textContent.trim() === 'Saved.') {
+        _nativeBaseline.set(groupId, nativeValues($(groupId)));
+        $(groupId === 'recording-settings' ? 'save-recording-settings' : 'save-background-settings').disabled = true;
+        $(groupId).dataset.dirty = 'false'; syncCategoryDrafts();
+      }
+    }).observe($(id), { childList: true, characterData: true, subtree: true });
+  }
+  loadConfig(); loadAppVersion(); loadAscentAccess();
+  initializeRecordingSettings().then(() => {
+    for (const group of document.querySelectorAll('[data-native-group]')) {
+      _nativeBaseline.set(group.id, nativeValues(group));
+      $(group.dataset.nativeGroup === 'recording' ? 'save-recording-settings' : 'save-background-settings').disabled = true;
+    }
+  });
+}
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {

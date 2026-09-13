@@ -67,7 +67,7 @@ public sealed class AutoClipService : IAutoClipService
         var champion = game?.ChampionName ?? "";
         var durationS = game?.GameDuration > 0 ? game!.GameDuration : 0;
 
-        var events = await _events.GetEventsAsync(gameId);
+        var events = await _events.GetEligibleEventsAsync(gameId);
         var resolver = ObjectiveEventTieResolver.FromTies(await _objectives.GetActiveObjectiveEventTokensAsync());
 
         // Existing auto-clip keys (incl. dismissed) so re-runs and user-deleted clips

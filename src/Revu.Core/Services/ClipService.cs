@@ -109,6 +109,14 @@ public sealed partial class ClipService : IClipService
             return null;
         }
 
+        (double Start, double End) media;
+        try { media = RecordingTimeline.ToMediaRange(vodPath, startS, endS); }
+        catch (Exception ex) when (ex is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            _logger.LogError(ex, "Could not align game clip range with the recording");
+            return null;
+        }
+
         var clipsDir = outputFolder ?? _config.ClipsFolder;
         Directory.CreateDirectory(clipsDir);
 
@@ -127,7 +135,7 @@ public sealed partial class ClipService : IClipService
 
         // Attempt 1: Stream copy (fast, no CPU load, keyframe-aligned)
         var result = await RunFfmpegClipAsync(
-            ffmpeg, vodPath, startS, endS, outputPath,
+            ffmpeg, vodPath, media.Start, media.End, outputPath,
             ["-c", "copy", "-avoid_negative_ts", "make_zero"],
             GameConstants.FfmpegClipTimeoutS).ConfigureAwait(false);
 
@@ -142,7 +150,7 @@ public sealed partial class ClipService : IClipService
 
         // Attempt 2: Lightweight re-encode
         result = await RunFfmpegClipAsync(
-            ffmpeg, vodPath, startS, endS, outputPath,
+            ffmpeg, vodPath, media.Start, media.End, outputPath,
             [
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", GameConstants.FfmpegCrf.ToString(),
                 "-c:a", "aac", "-b:a", "128k",
@@ -219,8 +227,8 @@ public sealed partial class ClipService : IClipService
     private async Task<string?> RunFfmpegClipAsync(
         string ffmpeg,
         string vodPath,
-        int startS,
-        int endS,
+        double startS,
+        double endS,
         string outputPath,
         string[] extraArgs,
         int timeoutS)
@@ -229,9 +237,9 @@ public sealed partial class ClipService : IClipService
         var args = new List<string>
         {
             "-y",
-            "-ss", startS.ToString(),
+            "-ss", startS.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
             "-i", vodPath,
-            "-t", duration.ToString(),
+            "-t", duration.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
         };
         args.AddRange(extraArgs);
         args.Add(outputPath);

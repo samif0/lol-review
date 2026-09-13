@@ -1,11 +1,8 @@
-name: Build & Release (Tauri)
+name: Build & Release (Overwolf Electron)
 
-# NOTE (untested packaging path): this workflow was migrated from the old WinUI
-# MSBuild pipeline to build the Tauri app + the C# sidecar and pack them with
-# Velopack. The Velopack identity is preserved (packId=LoLReview) so existing
-# installs update IN PLACE. The end-to-end packaging path (Tauri build → sidecar
-# bundling → Velopack → auto-update) has NOT been validated by a real release yet.
-# Shake it out with a PRERELEASE tag before trusting it for a public release.
+# Overwolf Electron builds the app directory; Velopack retains the installed
+# LoLReview identity, signing pipeline, release feed and delta chain.
+# Validate the installer and update path with a prerelease before public rollout.
 
 on:
   workflow_dispatch:
@@ -23,6 +20,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # Match CI's canonical fixture root without relaxing app path safeguards.
+      - name: Configure canonical temporary directory
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
@@ -43,39 +46,52 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Configure canonical temporary directory
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 8.0.x
 
-      - name: Setup Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Node 20
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Extract version from tag
-        shell: bash
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "TAG=$TAG" >> $GITHUB_ENV
-          echo "Building version $VERSION from tag $TAG"
+      - name: Install pinned desktop dependencies
+        working-directory: desktop
+        run: npm ci --ignore-scripts
 
-      # Stamp the version into tauri.conf.json so the title bar (app_version) and the
-      # bundle metadata match the tag. The sidecar/Core have no shipped version
-      # surface that needs stamping for the desktop app.
-      - name: Stamp version in tauri.conf.json
+      - name: Extract and stamp release version
         shell: pwsh
+        env:
+          RELEASE_REF: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
         run: |
-          $conf = "desktop/src-tauri/tauri.conf.json"
-          $json = Get-Content $conf -Raw | ConvertFrom-Json
-          $json.version = "${{ env.VERSION }}"
-          $json | ConvertTo-Json -Depth 64 | Set-Content $conf
-          Write-Host "Stamped tauri.conf.json version: ${{ env.VERSION }}"
+          if ($env:RELEASE_REF_TYPE -ne "tag" -or $env:RELEASE_REF -notmatch '^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
+            throw "Run this release workflow on a v<version> tag."
+          }
+          $version = $Matches[1]
+          "VERSION=$version" >> $env:GITHUB_ENV
+          "TAG=$env:RELEASE_REF" >> $env:GITHUB_ENV
+          # npm stamps package.json and the root lock metadata together, without a commit.
+          npm --prefix desktop version $version --no-git-tag-version --allow-same-version --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify desktop and diagnostics
+        working-directory: desktop
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check:probes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:probes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # ffmpeg ships INSIDE the signed release (clip extraction), so it is
       # supply-chain pinned: a fixed (dated) BtbN build + SHA-256 verification.
@@ -115,58 +131,39 @@ jobs:
               } else { Write-Warning "ffmpeg.exe not found in archive" }
             }
           } finally {
-            Remove-Item ffmpeg.zip, ffmpeg_tmp -Recurse -Force -ErrorAction SilentlyContinue
+            $workflowRoot = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+            foreach ($relative in @('ffmpeg.zip', 'ffmpeg_tmp')) {
+              $target = [IO.Path]::GetFullPath((Join-Path $workflowRoot $relative))
+              if ([IO.Path]::GetDirectoryName($target) -ne $workflowRoot) { throw "Unexpected cleanup path" }
+              if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+            }
           }
 
-      # ── Build the C# sidecar (self-contained win-x64). Tauri spawns this exe at
-      #    runtime; sidecar.rs's bundled lookup finds it next to the app exe. ──
-      - name: Publish sidecar (self-contained)
+      # Same isolated, allowlisted layout used by local packaging and CI. The
+      # sidecar and self-contained dependencies sit next to revu-desktop.exe.
+      - name: Package Overwolf Electron app directory
+        working-directory: desktop
+        run: |
+          npm run runtime:install
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run package:dir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify packaged startup and synthetic playback
         shell: pwsh
         run: |
-          dotnet publish src/Revu.Sidecar/Revu.Sidecar.csproj `
-            -c Release -r win-x64 --self-contained true `
-            -p:Platform=x64 `
-            -o sidecar_publish
-
-      # ── Build the Tauri app (release). cargo build (not `tauri build`) so we own
-      #    the publish layout Velopack packs, instead of Tauri's own MSI/NSIS. ──
-      - name: Install Tauri CLI + frontend deps
-        shell: pwsh
-        run: |
-          npm --prefix desktop install
-          cargo install tauri-cli --version "^2" --locked
-
-      - name: Build Tauri app (cargo, release)
-        shell: pwsh
-        working-directory: desktop/src-tauri
-        run: cargo build --release
-
-      # ── Assemble the publish dir Velopack will pack: the Tauri exe, the bundled
-      #    frontend (../ui), the sidecar published output, and ffmpeg. The frontend
-      #    is served from frontendDist (../ui); in a packaged build it must sit where
-      #    the exe expects it. Tauri embeds the frontend into the binary for release
-      #    builds (frontendDist is read at compile time), so only the exe + sidecar
-      #    + ffmpeg need to ship. ──
-      - name: Assemble publish dir
-        shell: pwsh
-        run: |
-          $pub = "publish"
-          New-Item -ItemType Directory -Force -Path $pub | Out-Null
-          Copy-Item "desktop/src-tauri/target/release/revu-desktop.exe" "$pub/revu-desktop.exe"
-          # Sidecar next to the app exe (sidecar.rs bundled lookup checks here first).
-          Copy-Item "sidecar_publish/*" $pub -Recurse -Force
-          if (Test-Path deps\ffmpeg.exe) { Copy-Item deps\ffmpeg.exe "$pub/ffmpeg.exe" }
-          Write-Host "Publish contents:"; Get-ChildItem $pub | Select-Object Name, Length
-
-      - name: Verify publish output
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "publish/revu-desktop.exe")) { Write-Error "revu-desktop.exe missing"; exit 1 }
-          if (-not (Test-Path "publish/Revu.Sidecar.exe")) { Write-Error "Revu.Sidecar.exe missing"; exit 1 }
-          Write-Host "OK: app + sidecar present"
+          $fixtureTool = Join-Path $env:GITHUB_WORKSPACE 'deps\ffmpeg.exe'
+          if (Test-Path -LiteralPath $fixtureTool -PathType Leaf) {
+            $env:PATH = (Split-Path -Parent $fixtureTool) + [IO.Path]::PathSeparator + $env:PATH
+            $packagedSmokeExe = Join-Path $env:GITHUB_WORKSPACE 'artifacts\desktop-package\win-unpacked\revu-desktop.exe'
+            & ./scripts/Test-ElectronHost.ps1 -PackagedExe $packagedSmokeExe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Warning 'Packaged playback smoke skipped: the optional pinned FFmpeg download was unavailable.'
+          }
 
       # ── Code signing (Azure Artifact Signing) — unchanged identity. OIDC login
-      #    first so the signing action's DefaultAzureCredential picks up AZURE_*. ──
+      #    also authenticates Velopack's bundled SignTool via AzureCliCredential. ──
       - name: Azure login (OIDC)
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
@@ -174,7 +171,7 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      # Sign the app + sidecar exes in publish/ BEFORE vpk packs. (exe only — the
+      # Sign the packaged app + sidecar exes BEFORE vpk packs. (exe only — the
       # bundled .NET runtime DLLs aren't what SmartScreen judges, and signing them
       # one-at-a-time blows the timeout, same rationale as the old WinUI flow.)
       - name: Sign published binaries
@@ -183,7 +180,7 @@ jobs:
           endpoint: https://eus.codesigning.azure.net/
           signing-account-name: revu-signing
           certificate-profile-name: revu-public
-          files-folder: ${{ github.workspace }}\publish
+          files-folder: ${{ github.workspace }}\artifacts\desktop-package\win-unpacked
           files-folder-filter: exe
           files-folder-recurse: true
           file-digest: SHA256
@@ -192,7 +189,19 @@ jobs:
           timeout: 900
 
       - name: Install vpk CLI
-        run: dotnet tool install -g vpk
+        # Match the sidecar client and retain its installed launcher layout.
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Configure Velopack signing
+        shell: pwsh
+        run: |
+          $metadataPath = Join-Path $env:RUNNER_TEMP 'revu-signing-metadata.json'
+          @{
+            Endpoint = 'https://eus.codesigning.azure.net/'
+            CodeSigningAccountName = 'revu-signing'
+            CertificateProfileName = 'revu-public'
+          } | ConvertTo-Json | Set-Content -LiteralPath $metadataPath -Encoding utf8NoBOM
+          "SIGNING_METADATA=$metadataPath" >> $env:GITHUB_ENV
 
       - name: Download previous Velopack release (for delta generation)
         shell: pwsh
@@ -201,8 +210,9 @@ jobs:
             --repoUrl "https://github.com/${{ github.repository }}" `
             --token "${{ secrets.GITHUB_TOKEN }}"
 
-      # packId stays LoLReview so existing installs update IN PLACE (delta chain
-      # intact); only --mainExe changes to the Tauri exe.
+      # Keep install identity and launcher continuity. Sign during packing so the
+      # updater and launcher INSIDE each package are signed as well as Setup.exe.
+      # Already-signed app exes are skipped; DLLs retain their original signatures.
       - name: Pack Velopack release
         shell: pwsh
         run: |
@@ -210,24 +220,44 @@ jobs:
             --packId LoLReview `
             --packTitle "Revu" `
             --packVersion "${{ env.VERSION }}" `
-            --packDir publish `
+            --packDir artifacts/desktop-package/win-unpacked `
             --mainExe revu-desktop.exe `
+            --aumid gg.revu.desktop `
+            --icon desktop/electron/branding/revu.ico `
+            --azureTrustedSignFile "$env:SIGNING_METADATA" `
+            --signExclude '(?i)^(?!.*\.exe$).*' `
             --outputDir Releases
 
-      # Sign the Velopack wrapper exes (Setup.exe + Update.exe) it injected into
-      # Releases/ — not present in publish/, so the first signing pass missed them.
-      - name: Sign Velopack wrapper exes
-        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
-        with:
-          endpoint: https://eus.codesigning.azure.net/
-          signing-account-name: revu-signing
-          certificate-profile-name: revu-public
-          files-folder: ${{ github.workspace }}\Releases
-          files-folder-filter: exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-          timeout: 900
+      - name: Verify installer and packaged executable signatures
+        shell: pwsh
+        run: |
+          function Assert-Signed([string] $file) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file
+            if ($signature.Status -ne 'Valid') {
+              throw "Invalid release signature ($($signature.Status)): $file"
+            }
+          }
+          Assert-Signed (Join-Path $env:GITHUB_WORKSPACE 'Releases/LoLReview-win-Setup.exe')
+          $package = Join-Path $env:GITHUB_WORKSPACE "Releases/LoLReview-$env:VERSION-full.nupkg"
+          $verifyRoot = Join-Path $env:RUNNER_TEMP ('revu-signatures-' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $verifyRoot | Out-Null
+          $archive = [IO.Compression.ZipFile]::OpenRead($package)
+          try {
+            foreach ($name in @('revu-desktop.exe', 'Revu.Sidecar.exe', 'Squirrel.exe', 'revu-desktop_ExecutionStub.exe')) {
+              $entries = @($archive.Entries | Where-Object Name -eq $name)
+              if ($entries.Count -ne 1) { throw "Expected one packaged executable: $name" }
+              $destination = Join-Path $verifyRoot $name
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0], $destination)
+              Assert-Signed $destination
+            }
+          } finally {
+            $archive.Dispose()
+            $resolved = [IO.Path]::GetFullPath($verifyRoot)
+            if ([IO.Path]::GetDirectoryName($resolved) -ne [IO.Path]::GetFullPath($env:RUNNER_TEMP)) {
+              throw 'Unexpected signature verification cleanup path'
+            }
+            Remove-Item -LiteralPath $resolved -Recurse -Force
+          }
 
       - name: Upload Velopack release to GitHub
         shell: pwsh

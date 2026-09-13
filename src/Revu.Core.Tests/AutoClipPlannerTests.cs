@@ -130,6 +130,7 @@ public sealed class AutoClipPlannerTests
             Ev(3, "ASSIST", 612),
             Ev(4, "KILL", 618),
             Ev(5, "DEATH", 624),
+            ConfirmedEventFixture.Fight(99, 600, 624),
         };
 
         var clips = AutoClipPlanner.SelectClips(100, events, resolver, null, gameDurationS: 1800, NoKeys, out _);
@@ -151,6 +152,7 @@ public sealed class AutoClipPlannerTests
             Ev(1, "KILL", 600), Ev(2, "DEATH", 606), Ev(3, "ASSIST", 612),
             // Fight B ~1200 (far past min-gap)
             Ev(4, "KILL", 1200), Ev(5, "DEATH", 1206), Ev(6, "ASSIST", 1212),
+            ConfirmedEventFixture.Fight(98, 600, 612), ConfirmedEventFixture.Fight(99, 1200, 1212),
         };
 
         var clips = AutoClipPlanner.SelectClips(100, events, resolver, null, 1800, NoKeys, out _);
@@ -176,6 +178,7 @@ public sealed class AutoClipPlannerTests
             Ev(1, "KILL", 600), Ev(2, "DEATH", 606), Ev(3, "ASSIST", 612),
             // A lone death at 1200, not part of any cluster.
             Ev(4, "DEATH", 1200),
+            ConfirmedEventFixture.Fight(99, 600, 612),
         };
 
         var clips = AutoClipPlanner.SelectClips(100, events, resolver, null, 1800, NoKeys, out _);
@@ -195,7 +198,7 @@ public sealed class AutoClipPlannerTests
         // Objective tracks ONLY teamfight. The in-fight death must NOT produce its own
         // clip (the bug: per-event clipping of cluster members).
         var resolver = ObjectiveEventTieResolver.FromTies(new[] { ("TEAMFIGHT", 7L, "Fights") });
-        var events = new[] { Ev(1, "KILL", 600), Ev(2, "DEATH", 606), Ev(3, "ASSIST", 612) };
+        var events = new[] { Ev(1, "KILL", 600), Ev(2, "DEATH", 606), Ev(3, "ASSIST", 612), ConfirmedEventFixture.Fight(99, 600, 612) };
 
         var clips = AutoClipPlanner.SelectClips(100, events, resolver, null, 1800, NoKeys, out _);
 
@@ -219,6 +222,7 @@ public sealed class AutoClipPlannerTests
         {
             Ev(1, "KILL", 5), Ev(2, "DEATH", 8), Ev(3, "ASSIST", 11),     // fight A 5..11
             Ev(4, "KILL", 40), Ev(5, "DEATH", 43), Ev(6, "ASSIST", 46),   // fight B 40..46
+            ConfirmedEventFixture.Fight(98, 5, 11), ConfirmedEventFixture.Fight(99, 40, 46),
         };
 
         var clips = AutoClipPlanner.SelectClips(100, events, resolver, null, 1800, NoKeys, out _);
@@ -241,6 +245,7 @@ public sealed class AutoClipPlannerTests
         {
             Ev(1, "DEATH", 585),                                          // lone death (no cluster)
             Ev(2, "KILL", 600), Ev(3, "DEATH", 606), Ev(4, "ASSIST", 612), // fight 600..612
+            ConfirmedEventFixture.Fight(99, 600, 612),
         };
 
         var clips = AutoClipPlanner.SelectClips(100, events, resolver, null, 1800, NoKeys, out _);

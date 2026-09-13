@@ -1,0 +1,238 @@
+/* Cinema fills the current content viewport. Keep fixed positioning independent
+   of the normal page's entrance effects and reserved scrollbar gutter. */
+html:has(.vod-review-page #vp-wrap.vp-expanded),
+body.vod-review-page:has(#vp-wrap.vp-expanded) {
+  overflow: hidden !important;
+  scrollbar-gutter: auto !important;
+  overscroll-behavior: none;
+}
+
+body.vod-review-page:has(#vp-wrap.vp-expanded),
+.vod-review-page .shell:has(#vp-wrap.vp-expanded),
+.vod-review-page .shell :has(#vp-wrap.vp-expanded) {
+  transform: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  perspective: none !important;
+  contain: none !important;
+  will-change: auto !important;
+  isolation: auto !important;
+  animation: none !important;
+  z-index: auto !important;
+}
+
+.vod-review-page #vp-wrap > .vp-cinema-header {
+  display: none;
+}
+
+.vod-review-page #vp-wrap.vp-expanded {
+  position: fixed;
+  inset: 0 0 0 var(--sidebar-width);
+  z-index: 50;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  isolation: isolate;
+  opacity: 1;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--bg) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  transform: none !important;
+}
+
+html.framed .vod-review-page #vp-wrap.vp-expanded {
+  inset: 0;
+}
+
+.vod-review-page #vp-wrap.vp-expanded > .vp-cinema-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font: 500 14px/1.5 var(--fb);
+}
+
+.vod-review-page #vp-wrap .vp-cinema-exit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px !important;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: 500 13px/1.5 var(--fb);
+  white-space: nowrap;
+}
+
+.vod-review-page #vp-wrap .vp-cinema-exit:hover {
+  background: var(--surface-raised);
+  border-color: #666;
+}
+
+.vod-review-page #vp-wrap .vp-cinema-exit kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 21px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font: 400 12px/1 var(--fb);
+}
+
+.vod-review-page #vp-wrap.vp-expanded > .cols {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 20px 16px;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-watch-column {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.vod-review-page #vp-wrap.vp-expanded :is(.vp-review-column, #vp-event-tools, #vp-clip-tools) {
+  display: none !important;
+}
+
+/* The media's intrinsic aspect ratio must never determine a grid row's height.
+   The video fits the space left after controls and the timeline are laid out. */
+.vod-review-page #vp-wrap.vp-expanded .vp-video-card {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 8px !important;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-stage {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  border-radius: 8px;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-video {
+  width: 100%;
+  height: 100% !important;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto !important;
+  object-fit: contain;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-transport-card {
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-transport {
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .transport-options {
+  flex-shrink: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .ttime {
+  min-width: 0;
+  white-space: normal;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .tspring {
+  display: none;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-watch-column > .seclabel {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+  margin: 0;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-timeline-card {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px !important;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-tl-row {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-timeline {
+  flex: 1 1 240px;
+  height: clamp(120px, 20vh, 144px);
+  min-width: 0;
+}
+
+.vod-review-page #vp-wrap.vp-expanded .vp-mkstep {
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: center;
+  width: auto;
+  min-width: 112px;
+  gap: 5px;
+}
+
+@media (max-height: 620px), (max-width: 600px) {
+  .vod-review-page #vp-wrap.vp-expanded > .vp-cinema-header {
+    padding: 6px 12px;
+  }
+
+  .vod-review-page #vp-wrap.vp-expanded > .cols {
+    padding: 8px 12px;
+  }
+
+  .vod-review-page #vp-wrap.vp-expanded .vp-timeline-card {
+    padding: 8px;
+  }
+
+  .vod-review-page #vp-wrap.vp-expanded .vp-timeline {
+    height: 120px;
+  }
+}
+
+@media (max-width: 600px) {
+  .vod-review-page #vp-wrap.vp-expanded .vp-mkstep {
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+  }
+}

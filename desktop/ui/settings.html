@@ -7,17 +7,11 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./settings.css">
 </head>
-<body>
-  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
-  <div class="grain"></div>
-  <script type="module" src="./shell.js" data-page="settings"></script>
-
-  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
-  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
-  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
-  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
-  <nav class="nav nav-ready">
+<body class="settings-page">
+<script type="module" src="./shell.js" data-page="settings"></script>
+<nav class="nav nav-ready">
     <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
     <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
     <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
@@ -29,277 +23,131 @@
     <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
     <a class="nav-i active" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
-  <div class="shell">
-    <!-- HERO -->
-    <div class="hero">
-      <div class="eyebrow">Configuration</div>
-      <h1>Settings</h1>
-      <div class="set-subt">VOD FOLDERS // BACKUPS // INTEGRATIONS</div>
-    </div>
-
-    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
-
-    <!-- RECORDINGS & CLIPS -->
-    <div class="seclabel seclabel-lead">Recordings &amp; Clips</div>
-
-    <div class="card set-card">
-      <div class="seclabel">Ascent VOD Recordings</div>
-      <div class="set-row-s">Your Ascent recordings folder. Revu scans it to match VODs to games.</div>
-      <div class="obj-field">
-        <div class="obj-field-k">Recordings folder</div>
-        <input class="obj-input" id="ascentFolder" type="text" spellcheck="false"
-               placeholder="Path to your Ascent recordings folder" />
+<main class="shell settings-shell">
+  <header class="settings-header">
+    <div><h1>Settings</h1><p>Make Revu work the way you play and review.</p></div>
+    <div class="statusline" id="statusline"><b id="status-text">Loading your preferences…</b></div>
+  </header>
+  <div id="errpanel" role="alert" hidden><div id="err-line">Settings need your attention.</div><div id="err-detail"></div></div>
+  <div class="settings-layout">
+    <aside class="settings-sidebar" aria-label="Settings navigation">
+      <label class="settings-search-label" for="settings-search">Find a setting</label>
+      <div class="settings-search-wrap">
+        <input id="settings-search" type="search" placeholder="Search settings…" autocomplete="off" spellcheck="false" aria-controls="settings-content" />
+        <button id="settings-search-clear" type="button" aria-label="Clear settings search" hidden>×</button>
       </div>
-      <div class="set-status" id="ascent-status"></div>
-      <div class="set-btnrow">
-        <button class="rule-act" type="button" data-action="pick_ascent">Browse…</button>
-        <button class="rule-act" type="button" data-action="clear_ascent">Clear folder</button>
-        <button class="rule-act set-act-primary" type="button" data-action="scan_vods" id="scan-btn">Scan for VODs</button>
-      </div>
-      <div class="set-status" id="scan-result" hidden></div>
-    </div>
+      <nav class="settings-categories" aria-label="Settings categories">
+        <button type="button" data-settings-category="recording" class="is-current" aria-current="page"><span>Recording</span><span data-search-count hidden></span></button>
+        <button type="button" data-settings-category="playback"><span>Playback &amp; clips</span><span data-search-count hidden></span></button>
+        <button type="button" data-settings-category="appearance"><span>Appearance &amp; startup</span><span data-search-count hidden></span></button>
+        <button type="button" data-settings-category="account"><span>Account</span><span data-search-count hidden></span></button>
+        <button type="button" data-settings-category="data"><span>Data &amp; storage</span><span data-search-count hidden></span></button>
+        <button type="button" data-settings-category="advanced"><span>Advanced</span><span data-search-count hidden></span></button>
+      </nav>
+      <p class="settings-sidebar-note"><kbd>Ctrl</kbd> + <kbd>K</kbd> to search.<br>Save changes in each setting group.</p>
+    </aside>
+    <div class="settings-content" id="settings-content">
+      <div id="settings-search-status" role="status" aria-live="polite" hidden></div>
+      <div id="settings-search-empty" hidden><h2>No matching settings</h2><p>Try a shorter term, such as “recording”, “clips”, or “backup”.</p><button class="rule-act" id="settings-search-reset" type="button">Clear search</button></div>
 
-    <div class="card set-card">
-      <div class="seclabel">Clip Settings</div>
-      <div class="set-status" id="ffmpeg-status">Checking ffmpeg…</div>
-      <div class="set-row-s">Where extracted clips are saved. Oldest clips auto-delete past the size cap.</div>
-      <div class="obj-field">
-        <div class="obj-field-k">Clips folder</div>
-        <input class="obj-input" id="clipsFolder" type="text" spellcheck="false"
-               placeholder="Where extracted clips are saved" />
-      </div>
-      <div class="set-btnrow">
-        <button class="rule-act" type="button" data-action="pick_clips">Browse…</button>
-      </div>
-      <div class="obj-field" style="max-width:220px">
-        <div class="obj-field-k">Max folder size (MB)</div>
-        <input class="obj-input" id="clipsMaxSizeMb" type="number" min="100" max="50000" step="1" />
-      </div>
-      <div class="set-status" id="clip-usage"></div>
-    </div>
-
-    <!-- BACKUPS -->
-    <div class="seclabel seclabel-lead">Backups</div>
-
-    <div class="card set-card">
-      <div class="seclabel">Database Backup</div>
-      <div class="set-row" data-toggle="backupEnabled">
-        <div class="set-row-txt">
-          <div class="set-row-h">Enable automatic backups</div>
-          <div class="set-row-s">Snapshots your review DB on startup (keeps the last few).</div>
+      <section class="settings-section" id="settings-recording" data-settings-section="recording" aria-labelledby="recording-heading">
+        <header class="settings-section-header"><h2 id="recording-heading" tabindex="-1">Recording</h2><p>Choose how your match recordings reach Revu.</p></header>
+        <div class="set-card" id="ascent-settings" data-settings-card data-config-group="ascent" data-search="ascent external recorder recordings folder automatic link import scan full match video temporary alternative">
+          <div><h3>Ascent recordings</h3><p class="settings-card-description">Ascent records in its own app. Connect its recordings folder so Revu can link videos to your matches automatically, including while built-in recording is unavailable.</p></div>
+          <div class="obj-field"><label class="obj-field-k" for="ascentFolder">Ascent recordings folder</label><div class="settings-path-field"><input class="obj-input" id="ascentFolder" type="text" spellcheck="false" placeholder="Choose the folder Ascent saves recordings in" aria-describedby="ascent-folder-help" disabled /><button class="rule-act" id="ascent-browse" type="button" data-action="pick_ascent" disabled>Browse…</button></div><p class="settings-field-help" id="ascent-folder-help">Keep Ascent running to record. Revu does not start or control it. Disconnecting keeps existing videos and match links.</p></div>
+          <div class="set-status" id="ascent-status" role="status" aria-live="polite">Checking folder linking availability…</div>
+          <div class="set-btnrow"><button class="rule-act" id="ascent-scan" type="button" data-action="scan_vods" disabled>Scan and link recordings</button><button class="settings-text-button" id="ascent-disconnect" type="button" data-action="disconnect_ascent" disabled>Disconnect</button></div>
+          <div class="settings-save-footer"><div data-save-status role="status" aria-live="polite">Loading preferences…</div><div class="set-btnrow"><button class="settings-text-button" type="button" data-action="discard_config" disabled>Discard changes</button><button class="rule-act set-act-primary" id="ascent-save" type="button" data-action="save_config" disabled>Connect folder</button></div></div>
         </div>
-        <button class="set-toggle" id="backupEnabled" type="button" role="switch" aria-checked="false"><i></i></button>
-      </div>
-      <div class="obj-field">
-        <div class="obj-field-k">Backup folder</div>
-        <input class="obj-input" id="backupFolder" type="text" spellcheck="false"
-               placeholder="Backup destination (blank = default)" />
-      </div>
-      <div class="set-btnrow">
-        <button class="rule-act" type="button" data-action="pick_backup">Browse…</button>
-      </div>
-    </div>
-
-    <div class="card set-card">
-      <div class="seclabel">Available Backups</div>
-      <div class="set-row-s">Saved DB snapshots, newest first. Select one to restore.</div>
-      <div class="set-backups" id="backups-list"></div>
-      <div class="set-status" id="backups-empty" hidden>No backups found yet.</div>
-      <div class="set-btnrow">
-        <button class="rule-act" type="button" data-action="refresh_backups">Refresh list</button>
-        <button class="rule-act" type="button" id="restore-btn" data-action="restore_backup" disabled
-                title="Select a backup above to restore">Restore selected</button>
-      </div>
-      <div class="set-status" id="restore-status" hidden></div>
-      <div class="set-acct-note">Restoring takes a safety backup of your current data first, then relaunches the app.</div>
-    </div>
-
-    <!-- DANGER ZONE: reset all data. Type-to-confirm; a full backup is taken first. -->
-    <div class="card set-card set-danger">
-      <div class="seclabel set-danger-k">Danger zone</div>
-      <div class="seclabel">Reset all data</div>
-      <div class="set-row-s">Wipes every game, review, objective, rule, and note and starts fresh. A full backup is taken first, then the app relaunches. This cannot be undone except by restoring that backup.</div>
-      <div class="obj-field" style="margin-top:10px">
-        <div class="obj-field-k">Type RESET to confirm</div>
-        <input class="obj-input" id="reset-confirm" type="text" spellcheck="false" autocomplete="off" placeholder="RESET" />
-      </div>
-      <div class="set-btnrow">
-        <button class="rule-act set-danger-btn" type="button" id="reset-btn" data-action="reset_all_data" disabled>Reset all data</button>
-      </div>
-      <div class="set-status" id="reset-status" hidden></div>
-    </div>
-
-    <!-- APP BEHAVIOR -->
-    <div class="seclabel seclabel-lead">App Behavior</div>
-
-    <div class="card set-card">
-      <div class="set-row" data-toggle="tiltFixMode">
-        <div class="set-row-txt">
-          <div class="set-row-h">Tilt Fix mode</div>
-          <div class="set-row-s">Nudge a guided reset after a rough stretch.</div>
+        <div class="set-card" id="recording-settings" data-settings-card data-native-group="recording" data-search="automatic capture full match video audio microphone quality resolution fps bitrate 720p 1080p performance coming soon future">
+          <div><div class="settings-title-row"><h3>Built-in match recording</h3><span class="settings-availability" id="recording-coming-soon">Coming soon</span></div><p class="settings-card-description" id="recording-status" role="status" aria-live="polite">Automatic match recording is coming in a future update. Use Ascent recordings above for now.</p></div>
+          <div class="set-row"><div class="set-row-txt"><div class="set-row-h" id="recordingEnabled-label">Record my League matches</div><div class="set-row-s">Capture League gameplay and game audio. Your desktop and microphone are excluded.</div></div><button class="set-toggle" id="recordingEnabled" type="button" role="switch" aria-checked="false" aria-labelledby="recordingEnabled-label" disabled><i></i></button></div>
+          <div class="obj-field"><label class="obj-field-k" for="recordingPreset">Recording quality</label><select class="obj-input obj-select" id="recordingPreset" disabled><option value="720p30">720p · 30 FPS · 5 Mbps</option><option value="1080p30">1080p · 30 FPS · 8 Mbps</option><option value="1080p60">1080p · 60 FPS · 12 Mbps</option></select><p class="settings-field-help">Higher quality uses more resources and storage.</p></div>
+          <div class="settings-save-footer"><div class="set-status" id="recording-settings-status" role="status" aria-live="polite"></div><div class="set-btnrow"><button class="rule-act" type="button" id="open-recordings-folder" disabled>Open recordings folder</button><button class="rule-act set-act-primary" type="button" id="save-recording-settings" disabled>Save recording settings</button></div></div>
         </div>
-        <button class="set-toggle" id="tiltFixMode" type="button" role="switch" aria-checked="false"><i></i></button>
-      </div>
-      <div class="set-row" data-toggle="requireReviewNotes">
-        <div class="set-row-txt">
-          <div class="set-row-h">Require review notes before save</div>
-          <div class="set-row-s">When off, a game can be marked reviewed with blank notes.</div>
+        <p class="settings-inline-note">Want Revu ready when you play? Use <a href="#settings-appearance" data-category-link="appearance">Appearance &amp; startup</a> to keep it in the system tray or start it with Windows.</p>
+      </section>
+
+      <section class="settings-section" id="settings-playback" data-settings-section="playback" aria-labelledby="playback-heading" hidden>
+        <header class="settings-section-header"><h2 id="playback-heading" tabindex="-1">Playback &amp; clips</h2><p>Choose where clips go and what appears during your review.</p></header>
+        <div class="set-card" id="clips-settings" data-settings-card data-config-group="clips" data-search="storage disk folder size limit cap video ffmpeg">
+          <div><h3>Clip storage</h3><p class="settings-card-description">Clips are short videos extracted from your match recording. The oldest clips are removed when the folder reaches its size limit.</p></div>
+          <div class="obj-field"><label class="obj-field-k" for="clipsFolder">Clips folder</label><div class="settings-path-field"><input class="obj-input" id="clipsFolder" type="text" spellcheck="false" placeholder="Choose where to save clips" /><button class="rule-act" type="button" data-action="pick_clips">Browse…</button></div></div>
+          <div class="obj-field settings-short-field"><label class="obj-field-k" for="clipsMaxSizeMb">Maximum clips folder size (MB)</label><input class="obj-input" id="clipsMaxSizeMb" type="number" min="100" max="50000" step="1" required /><p class="settings-field-help">Between 100 and 50,000 MB.</p></div>
+          <div class="set-status" id="clip-usage"></div><div class="set-status" id="ffmpeg-status">Checking clip tools…</div>
+          <div class="settings-save-footer"><div class="set-savestatus" id="save-status" data-save-status role="status" aria-live="polite">Loading preferences…</div><div class="set-btnrow"><button class="settings-text-button" type="button" data-action="discard_config" disabled>Discard changes</button><button class="rule-act set-act-primary" id="save-btn" type="button" data-action="save_config" disabled>Save clip settings</button></div></div>
         </div>
-        <button class="set-toggle" id="requireReviewNotes" type="button" role="switch" aria-checked="false"><i></i></button>
-      </div>
-      <div class="set-row" data-toggle="autoTimelineClippingEnabled">
-        <div class="set-row-txt">
-          <div class="set-row-h">Auto-fill Timeline Inbox from game events</div>
-          <div class="set-row-s">After each game, adds the trades, teamfights and other events your objectives track to the Review page and the VOD inbox as moments. Off keeps those pages to what you noted or clipped yourself. Patterns count the events either way.</div>
+        <div class="set-card" id="review-settings" data-settings-card data-config-group="review" data-search="timeline inbox moments objectives death auto clip notes tilt review workflow">
+          <div><h3>Review workflow</h3><p class="settings-card-description">Control the suggestions and review steps Revu adds around your games.</p></div>
+          <div class="set-row" data-toggle="autoTimelineClippingEnabled"><div class="set-row-txt"><div class="set-row-h" id="timeline-label">Add game events to the Timeline Inbox</div><div class="set-row-s">Add trades, teamfights, and events tied to your objectives after each game. Turn this off to keep only your own notes and clips.</div></div><button class="set-toggle" id="autoTimelineClippingEnabled" type="button" role="switch" aria-checked="false" aria-labelledby="timeline-label"><i></i></button></div>
+          <div class="set-row" data-toggle="autoClipObjectivesEnabled"><div class="set-row-txt"><div class="set-row-h" id="autoclip-label">Show objective clip tools</div><div class="set-row-s">Add a player button that saves a 45-second clip around each objective event: 30 seconds before and 15 seconds after.</div></div><button class="set-toggle" id="autoClipObjectivesEnabled" type="button" role="switch" aria-checked="false" aria-labelledby="autoclip-label"><i></i></button></div>
+          <div class="set-row" data-toggle="requireReviewNotes"><div class="set-row-txt"><div class="set-row-h" id="notes-label">Require notes to finish a review</div><div class="set-row-s">Keep at least one written takeaway before marking a game reviewed.</div></div><button class="set-toggle" id="requireReviewNotes" type="button" role="switch" aria-checked="false" aria-labelledby="notes-label"><i></i></button></div>
+          <div class="set-row" data-toggle="tiltFixMode"><div class="set-row-txt"><div class="set-row-h" id="tilt-label">Suggest a reset after a rough stretch</div><div class="set-row-s">Enable Tilt Fix prompts to help you pause and refocus.</div></div><button class="set-toggle" id="tiltFixMode" type="button" role="switch" aria-checked="false" aria-labelledby="tilt-label"><i></i></button></div>
+          <div class="settings-save-footer"><div data-save-status role="status" aria-live="polite">Loading preferences…</div><div class="set-btnrow"><button class="settings-text-button" type="button" data-action="discard_config" disabled>Discard changes</button><button class="rule-act set-act-primary" type="button" data-action="save_config" disabled>Save review settings</button></div></div>
         </div>
-        <button class="set-toggle" id="autoTimelineClippingEnabled" type="button" role="switch" aria-checked="false"><i></i></button>
-      </div>
-      <div class="set-row" data-toggle="minimizeDuringGame">
-        <div class="set-row-txt">
-          <div class="set-row-h">Minimize during games</div>
-          <div class="set-row-s">Minimizes the window + pauses trails while a game is live.</div>
+      </section>
+
+      <section class="settings-section" id="settings-appearance" data-settings-section="appearance" aria-labelledby="appearance-heading" hidden>
+        <header class="settings-section-header"><h2 id="appearance-heading" tabindex="-1">Appearance &amp; startup</h2><p>Set up your window and decide when Revu runs in the background.</p></header>
+        <div class="set-card" id="window-settings" data-settings-card data-config-group="window" data-search="window size resolution maximize screen display minimize game">
+          <h3>Window &amp; display</h3>
+          <div class="obj-field"><label class="obj-field-k" for="windowResolution">Window size</label><select class="obj-input obj-select" id="windowResolution"><option value="default">Default (1600 × 1000)</option><option value="1280x800">1280 × 800</option><option value="1920x1080">1920 × 1080</option><option value="2560x1440">2560 × 1440</option><option value="maximized">Maximized</option></select><p class="settings-field-help">Applied when saved and on your next launch.</p></div>
+          <div class="set-row" data-toggle="minimizeDuringGame"><div class="set-row-txt"><div class="set-row-h" id="minimize-label">Minimize when a game starts</div><div class="set-row-s">Move the Revu window out of the way while you play. Recording can continue.</div></div><button class="set-toggle" id="minimizeDuringGame" type="button" role="switch" aria-checked="false" aria-labelledby="minimize-label"><i></i></button></div>
+          <div class="settings-save-footer"><div data-save-status role="status" aria-live="polite">Loading preferences…</div><div class="set-btnrow"><button class="settings-text-button" type="button" data-action="discard_config" disabled>Discard changes</button><button class="rule-act set-act-primary" type="button" data-action="save_config" disabled>Save display settings</button></div></div>
         </div>
-        <button class="set-toggle" id="minimizeDuringGame" type="button" role="switch" aria-checked="false"><i></i></button>
-      </div>
-      <div class="set-row" data-toggle="autoClipObjectivesEnabled">
-        <div class="set-row-txt">
-          <div class="set-row-h">Auto-clip objective events</div>
-          <div class="set-row-s">Adds a button on the VOD player that saves a 45s clip (30s before to 15s after) around every event tied to your active objectives.</div>
+        <div class="set-card" id="background-settings" data-settings-card data-native-group="background" data-search="background tray close launch login boot startup windows running">
+          <div><h3>Keep Revu ready</h3><p class="settings-card-description">Revu needs to be running to record your matches.</p></div>
+          <div class="set-row"><div class="set-row-txt"><div class="set-row-h" id="closeToTray-label">Keep running when I close the window</div><div class="set-row-s">Keep Revu in the system tray. Use its tray menu to open or quit the app.</div></div><button class="set-toggle" id="closeToTray" type="button" role="switch" aria-checked="false" aria-labelledby="closeToTray-label" disabled><i></i></button></div>
+          <div class="set-row"><div class="set-row-txt"><div class="set-row-h" id="startWithWindows-label">Start with Windows</div><div class="set-row-s">Open Revu when you sign in. With the system tray enabled, it starts in the background.</div></div><button class="set-toggle" id="startWithWindows" type="button" role="switch" aria-checked="false" aria-labelledby="startWithWindows-label" disabled><i></i></button></div>
+          <div class="settings-save-footer"><div class="set-status" id="background-settings-status" role="status" aria-live="polite">Loading preferences…</div><button class="rule-act set-act-primary" type="button" id="save-background-settings" disabled>Save startup settings</button></div>
         </div>
-        <button class="set-toggle" id="autoClipObjectivesEnabled" type="button" role="switch" aria-checked="false"><i></i></button>
-      </div>
-      <div class="set-row">
-        <div class="set-row-txt">
-          <div class="set-row-h">First review tutorial</div>
-          <div class="set-row-s">Restart the guided flow for objective setup, queueing, death clipping, sharing, and saving a review.</div>
+      </section>
+
+      <section class="settings-section" id="settings-account" data-settings-section="account" aria-labelledby="account-heading" hidden>
+        <header class="settings-section-header"><h2 id="account-heading" tabindex="-1">Account</h2><p>Connect your League identity so Revu can find your match history.</p></header>
+        <div class="set-card" id="account-settings" data-settings-card data-config-group="account" data-search="riot id region account identity username summoner email sign in login">
+          <h3>Riot account</h3><div class="set-acct-status" id="acct-status"><span class="set-acct-dot" id="acct-dot"></span><span class="set-acct-state" id="acct-state">Checking account…</span></div><div class="set-acct-email" id="acct-email" hidden></div>
+          <div class="settings-field-grid"><div class="obj-field"><label class="obj-field-k" for="riotId">Riot ID</label><input class="obj-input" id="riotId" type="text" spellcheck="false" placeholder="gameName#tagLine" /><p class="settings-field-help">Include your game name and the tag after #.</p></div><div class="obj-field"><label class="obj-field-k" for="region">Region</label><select class="obj-input obj-select" id="region"><option value="na1">North America (NA)</option><option value="br1">Brazil (BR)</option><option value="la1">Latin America North (LAN)</option><option value="la2">Latin America South (LAS)</option><option value="euw1">Europe West (EUW)</option><option value="eun1">Europe Nordic &amp; East (EUNE)</option><option value="tr1">Türkiye (TR)</option><option value="ru">Russia (RU)</option><option value="kr">Korea (KR)</option><option value="jp1">Japan (JP)</option><option value="oc1">Oceania (OCE)</option><option value="ph2">Philippines (PH)</option><option value="sg2">Singapore (SG)</option><option value="th2">Thailand (TH)</option><option value="tw2">Taiwan (TW)</option><option value="vn2">Vietnam (VN)</option></select></div></div>
+          <div class="set-acct-note">Need to sign in or switch accounts? <a class="rule-act" href="onboarding.html">Manage sign-in</a></div>
+          <div class="settings-save-footer"><div data-save-status role="status" aria-live="polite">Loading preferences…</div><div class="set-btnrow"><button class="settings-text-button" type="button" data-action="discard_config" disabled>Discard changes</button><button class="rule-act set-act-primary" type="button" data-action="save_config" disabled>Save account settings</button></div></div>
         </div>
-        <button class="rule-act" type="button" data-action="start_first_review_tutorial">Start tutorial</button>
-      </div>
+      </section>
+
+      <section class="settings-section" id="settings-data" data-settings-section="data" aria-labelledby="data-heading" hidden>
+        <header class="settings-section-header"><h2 id="data-heading" tabindex="-1">Data &amp; storage</h2><p>Protect your review history and keep a copy of what you have learned.</p></header>
+        <div class="set-card" id="backup-settings" data-settings-card data-config-group="backup" data-search="database backups automatic folder storage safety snapshot">
+          <div><h3>Automatic backups</h3><p class="settings-card-description">Save snapshots of your review database when Revu starts. These backups do not include video files.</p></div>
+          <div class="set-row" data-toggle="backupEnabled"><div class="set-row-txt"><div class="set-row-h" id="backup-label">Create automatic backups</div><div class="set-row-s">Keep recent snapshots of games, reviews, objectives, and notes.</div></div><button class="set-toggle" id="backupEnabled" type="button" role="switch" aria-checked="false" aria-labelledby="backup-label"><i></i></button></div>
+          <div class="obj-field"><label class="obj-field-k" for="backupFolder">Backup folder</label><div class="settings-path-field"><input class="obj-input" id="backupFolder" type="text" spellcheck="false" placeholder="Default backup location" /><button class="rule-act" type="button" data-action="pick_backup">Browse…</button></div><p class="settings-field-help">Leaving this empty keeps your current backup location.</p></div>
+          <div class="settings-save-footer"><div data-save-status role="status" aria-live="polite">Loading preferences…</div><div class="set-btnrow"><button class="settings-text-button" type="button" data-action="discard_config" disabled>Discard changes</button><button class="rule-act set-act-primary" type="button" data-action="save_config" disabled>Save backup settings</button></div></div>
+        </div>
+        <details class="set-card" id="restore-settings" data-settings-card data-search="restore recover backup database history undo">
+          <summary>Restore a backup<span>Replace your current review data with a saved snapshot.</span></summary><div class="settings-disclosure-body"><p class="settings-card-description">Select a backup below. Revu creates a safety copy of your current data before restoring, then restarts.</p><div class="set-backups" id="backups-list"></div><div class="set-status" id="backups-empty" hidden>No backups available.</div><div class="set-btnrow"><button class="rule-act" type="button" data-action="refresh_backups">Refresh backups</button><button class="rule-act" type="button" id="restore-btn" data-action="restore_backup" disabled title="Select a backup first">Restore selected backup</button></div><div class="set-status" id="restore-status" hidden></div></div>
+        </details>
+        <div class="set-card" id="export-settings" data-settings-card data-search="export download markdown notes history objectives bookmarks save copy">
+          <div><h3>Export your review data</h3><p class="settings-card-description">Save games, notes, objectives, tags, matchups, and bookmarks as a Markdown document. Videos are not included.</p></div><div class="set-btnrow"><button class="rule-act" type="button" data-action="export_data" id="export-btn">Export review data</button></div><div class="set-status" id="export-status" hidden></div>
+        </div>
+      </section>
+
+      <section class="settings-section" id="settings-advanced" data-settings-section="advanced" aria-labelledby="advanced-heading" hidden>
+        <header class="settings-section-header"><h2 id="advanced-heading" tabindex="-1">Advanced</h2><p>Updates, troubleshooting, and tools you only need occasionally.</p></header>
+        <div class="set-card" id="updates-settings" data-settings-card data-search="version update install download restart about release">
+          <div><h3>App updates</h3><p class="settings-card-description">Revu checks for updates when it starts. Installing an update restarts the app.</p></div><div class="set-update-row"><div class="set-update-ver" id="update-ver">Checking version…</div><div class="set-btnrow"><button class="rule-act" type="button" data-action="check_update" id="check-update-btn">Check for updates</button><button class="rule-act set-act-primary" type="button" data-action="install_update" id="install-update-btn" hidden>Update &amp; restart</button></div></div><div class="set-status" id="update-status" hidden></div>
+        </div>
+        <details class="set-card" id="backfill-settings" data-settings-card data-search="missing match data backfill history repair riot timeline jungle fog laning enemy ranked">
+          <summary>Fill in missing match data<span>Look up missing details for previously saved games.</span></summary><div class="settings-disclosure-body"><p class="settings-card-description">Fill in missing enemy laners and laning stats. Revu also checks timeline events for unreviewed ranked games from the last 14 days.</p><p class="set-row-s">You must be signed in. Large histories take longer because requests are spaced out.</p><div class="set-btnrow"><button class="rule-act" type="button" data-action="run_backfill" id="backfill-btn">Fill in missing data</button></div><div class="set-status" id="backfill-status" hidden></div></div>
+        </details>
+        <div class="set-card" id="help-settings" data-settings-card data-search="tutorial guide first review learn help logs diagnostics troubleshoot">
+          <h3>Help &amp; diagnostics</h3><div class="set-row"><div class="set-row-txt"><div class="set-row-h">First review tutorial</div><div class="set-row-s">Walk through setting an objective, playing a match, and reviewing a moment.</div></div><button class="rule-act" type="button" data-action="start_first_review_tutorial">Start tutorial</button></div><div class="set-row"><div class="set-row-txt"><div class="set-row-h">Application logs</div><div class="set-row-s">Open local logs to investigate a problem with Revu.</div></div><button class="rule-act" type="button" data-action="open_logs">Open log folder</button></div>
+        </div>
+        <details class="set-card set-danger" id="reset-settings" data-settings-card data-search="reset erase delete all data fresh start danger database">
+          <summary>Reset all review data<span>Delete your saved games, reviews, objectives, rules, and notes.</span></summary><div class="settings-disclosure-body"><p class="settings-card-description">Revu creates a safety backup, clears the database, and restarts. Restoring a backup is the only way to recover this data.</p><div class="obj-field settings-short-field"><label class="obj-field-k" for="reset-confirm">Type RESET to confirm</label><input class="obj-input" id="reset-confirm" type="text" spellcheck="false" autocomplete="off" placeholder="RESET" /></div><div class="set-btnrow"><button class="rule-act set-danger-btn" type="button" id="reset-btn" data-action="reset_all_data" disabled>Reset all data</button></div><div class="set-status" id="reset-status" hidden></div></div>
+        </details>
+      </section>
     </div>
-
-    <!-- APPEARANCE -->
-    <div class="seclabel seclabel-lead">Appearance</div>
-
-    <div class="card set-card">
-      <div class="set-row" data-toggle="sidebarAnimationEnabled">
-        <div class="set-row-txt">
-          <div class="set-row-h">Sidebar energy trails</div>
-          <div class="set-row-s">The animated glow on the left nav rail.</div>
-        </div>
-        <button class="set-toggle" id="sidebarAnimationEnabled" type="button" role="switch" aria-checked="false"><i></i></button>
-      </div>
-      <div class="set-row">
-        <div class="set-row-txt">
-          <div class="set-row-h">Window size</div>
-          <div class="set-row-s">Applied when you save, and on every launch. Pick Maximized to fill the screen.</div>
-        </div>
-        <select class="obj-input obj-select" id="windowResolution" style="max-width:240px">
-          <option value="default">Default (1600 x 1000)</option>
-          <option value="1280x800">1280 x 800</option>
-          <option value="1920x1080">1920 x 1080</option>
-          <option value="2560x1440">2560 x 1440</option>
-          <option value="maximized">Maximized (fill screen)</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- EXPORT -->
-    <div class="seclabel seclabel-lead">Export &amp; Tools</div>
-
-    <div class="card set-card set-export">
-      <div class="seclabel">Export Review Data</div>
-      <div class="set-row-s">Bundles your games, notes, prompt answers, objectives, tags, matchup
-        notes and bookmarks into a single Markdown file.</div>
-      <div class="set-btnrow">
-        <button class="rule-act set-act-primary" type="button" data-action="export_data" id="export-btn">Export all review data</button>
-        <button class="rule-act" type="button" data-action="open_logs">Open log folder</button>
-      </div>
-      <div class="set-status" id="export-status" hidden></div>
-    </div>
-
-    <!-- RIOT ACCOUNT (config-backed fields only; OTP login is deferred) -->
-    <div class="seclabel seclabel-lead">Riot Account</div>
-
-    <div class="card set-card set-account">
-      <div class="set-acct-status" id="acct-status">
-        <span class="set-acct-dot" id="acct-dot"></span>
-        <span class="set-acct-state" id="acct-state">Not signed in</span>
-      </div>
-      <div class="set-acct-email" id="acct-email" hidden></div>
-      <div class="obj-field">
-        <div class="obj-field-k">Riot ID</div>
-        <input class="obj-input" id="riotId" type="text" spellcheck="false" placeholder="gameName#tagLine" />
-      </div>
-      <div class="obj-field">
-        <div class="obj-field-k">Region</div>
-        <select class="obj-input obj-select" id="region">
-          <option value="na1">NA</option><option value="br1">BR</option>
-          <option value="la1">LAN</option><option value="la2">LAS</option>
-          <option value="euw1">EUW</option><option value="eun1">EUNE</option>
-          <option value="tr1">TR</option><option value="ru">RU</option>
-          <option value="kr">KR</option><option value="jp1">JP</option>
-          <option value="oc1">OCE</option><option value="ph2">PH</option>
-          <option value="sg2">SG</option><option value="th2">TH</option>
-          <option value="tw2">TW</option><option value="vn2">VN</option>
-        </select>
-      </div>
-      <div class="set-acct-note">Account sign-in (email code) and sign-out stay in the current build for now.</div>
-    </div>
-
-    <!-- MATCH DATA BACKFILL — walks past games missing Riot match data and fills
-         enemy laners, laning@10, and map-state events (jungle proximity, fog
-         deaths, teamfight numbers) from the Match-V5 timeline; the map-state leg
-         covers the last 14 days of unreviewed ranked games. Long-running
-         (throttled); needs a signed-in account so the proxy accepts the calls. -->
-    <div class="card set-card">
-      <div class="seclabel">Match Data Backfill</div>
-      <div class="set-row-s">Fills missing Riot match data: map-state timeline events (jungle
-        proximity, fog deaths, teamfight numbers) for your unreviewed ranked games from the last
-        14 days, plus enemy laners and laning@10 for any game still missing them. Throttled to the
-        Riot API budget, so a deep backlog takes a while. Requires sign-in.</div>
-      <div class="set-btnrow">
-        <button class="rule-act set-act-primary" type="button" data-action="run_backfill" id="backfill-btn">Run backfill</button>
-      </div>
-      <div class="set-status" id="backfill-status" hidden></div>
-    </div>
-
-    <!-- ABOUT & UPDATES (deferred — installer-managed) -->
-    <div class="seclabel seclabel-lead">About &amp; Updates</div>
-
-    <div class="card set-card">
-      <div class="seclabel">App Updates</div>
-      <div class="set-row-s">Revu checks for updates on launch. You can also check now. Installing
-        an update downloads it and restarts the app into the new version.</div>
-      <div class="set-update-row">
-        <div class="set-update-ver" id="update-ver">Version: …</div>
-        <div class="set-btnrow" style="margin:0">
-          <button class="rule-act" type="button" data-action="check_update" id="check-update-btn">Check for updates</button>
-          <button class="rule-act set-act-primary" type="button" data-action="install_update" id="install-update-btn" hidden>Update &amp; restart</button>
-        </div>
-      </div>
-      <div class="set-status" id="update-status" hidden></div>
-    </div>
-
-    <!-- GLOBAL SAVE -->
-    <div class="set-saverow">
-      <div class="set-savestatus" id="save-status"></div>
-      <button class="cta" id="save-btn" type="button" data-action="save_config">SAVE SETTINGS →</button>
-    </div>
-
-    <!-- ERROR PANEL -->
-    <div class="card errpanel" id="errpanel" hidden>
-      <div class="crow">
-        <div>
-          <div class="vline" id="err-line">Couldn't load your settings.</div>
-          <div class="vsmall" id="err-detail"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="set-spacer"></div>
   </div>
-
-  <script type="module" src="./settings.js"></script>
-  <script type="module" src="./tutorial.js"></script>
+</main>
+<script type="module" src="./settings.js"></script>
+<script type="module" src="./tutorial.js"></script>
 </body>
 </html>

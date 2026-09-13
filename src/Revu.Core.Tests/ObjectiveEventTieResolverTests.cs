@@ -11,7 +11,7 @@ namespace Revu.Core.Tests;
 public sealed class ObjectiveEventTieResolverTests
 {
     private static GameEvent Ev(int id, string type, int t, string details = "{}") =>
-        new() { Id = id, EventType = type, GameTimeS = t, Details = details };
+        new() { Id = id, EventType = type, GameTimeS = t, Details = ConfirmedEventFixture.Reviewed(details) };
 
     [Fact]
     public void TokenMatch_TiesEventToObjectiveTrackingThatToken()
@@ -50,6 +50,7 @@ public sealed class ObjectiveEventTieResolverTests
             Ev(2, "DEATH", 605),
             Ev(3, "ASSIST", 612),
             Ev(4, "KILL", 1200), // lone, far away → not a cluster
+            ConfirmedEventFixture.Fight(99, 600, 612),
         };
 
         var ties = resolver.ResolveForGame(events);
@@ -221,6 +222,7 @@ public sealed class ObjectiveEventTieResolverTests
             Ev(2, "DEATH", 606),
             Ev(3, "ASSIST", 612),   // fight A: 600..612, 3 members
             Ev(4, "KILL", 1200),    // lone, far → no cluster
+            ConfirmedEventFixture.Fight(99, 600, 612),
         };
 
         var clusters = resolver.ResolveTeamfightClusters(events);
@@ -228,7 +230,7 @@ public sealed class ObjectiveEventTieResolverTests
         var c = Assert.Single(clusters);
         Assert.Equal(600, c.StartS);
         Assert.Equal(612, c.EndS);
-        Assert.Equal(new[] { 1, 2, 3 }, c.MemberEventIds.OrderBy(x => x).ToArray());
+        Assert.Equal(new[] { 1, 2, 3, 99 }, c.MemberEventIds.OrderBy(x => x).ToArray());
         Assert.Contains(c.Objectives, t => t.ObjectiveId == 9L);
     }
 

@@ -7,7 +7,7 @@ namespace Revu.Sidecar;
 //
 // These reproduce the WinUI DashboardViewModel's display shape WITHOUT any
 // XAML/WinUI types: there are NO SolidColorBrush properties — every color is a
-// plain *Hex string the Tauri frontend resolves itself. Property names are
+// plain *Hex string the desktop renderer resolves itself. Property names are
 // PascalCase here; the serializer is configured with
 // JsonNamingPolicy.CamelCase in Program.cs, so the wire shape is camelCase and
 // matches desktop/sample-dashboard.json verbatim.
@@ -52,7 +52,7 @@ public sealed record DashboardStatsDto(
 /// <summary>
 /// Empty-state "next step" card copy. Derived from the dashboard stage. The
 /// frontend already renders this; <see cref="Action"/> is a stable token the
-/// Tauri shell maps to navigation.
+/// desktop shell maps to navigation.
 /// </summary>
 public sealed record NextStepDto(
     string Kicker,

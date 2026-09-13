@@ -5,10 +5,10 @@ namespace Revu.Core.Services;
 /// <summary>
 /// Guards for the config-save read-modify-write path (P-023 / P-020). The Settings
 /// save sends every editable field; the contract is "null = leave unchanged". For the
-/// FOLDER paths (Ascent / Clips / Backup) an empty string must ALSO mean "leave
+/// FOLDER paths (Clips / Backup) an empty string must ALSO mean "leave
 /// unchanged" rather than "blank the saved path" — otherwise a save issued before the
 /// Settings page finished rendering (or any caller that sends "") zeroes the stored
-/// folders, which is exactly how ascent_folder/clips_folder/backup_folder got wiped
+/// folders, which is exactly how clips_folder/backup_folder got wiped
 /// while the rest of config survived. A DELIBERATE clear (the Clear button) sends
 /// <see cref="FolderClearSentinel"/>, which resolves to an explicit empty string.
 /// Pure + side-effect-free so it is unit-testable from Revu.Core.Tests.
@@ -61,7 +61,7 @@ public static class ConfigSaveGuards
 
     /// <summary>
     /// Minimum window size the resolution setting accepts. Matches the main window's
-    /// minWidth/minHeight in desktop/src-tauri/tauri.conf.json — a saved size below
+    /// minWidth/minHeight in desktop/electron/main.mjs — a saved size below
     /// the window minimum would fight the OS on every launch.
     /// </summary>
     public const int MinWindowWidth = 980;

@@ -7,7 +7,7 @@ name: Create release tag
 #
 # NOTE: a tag created here does NOT itself trigger release.yml — GitHub never
 # chains workflow runs off the Actions token. After this succeeds, dispatch
-# "Build & Release (Tauri)" on the new tag (the tag ref is what the Azure
+# "Build & Release (Overwolf Electron)" on the new tag (the tag ref is what the Azure
 # code-signing federated credential trusts).
 
 on:

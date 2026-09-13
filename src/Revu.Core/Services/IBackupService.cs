@@ -36,7 +36,7 @@ public interface IBackupService
     /// 1. Copy the live DB to a pre-reset backup (prefix <c>pre_reset_</c>,
     ///    so the standard safety-backup pruner leaves it alone).
     /// 2. Delete <c>revu.db</c> (and its sibling -shm/-wal files) + config.json.
-    /// Leaves the backups folder and Ascent VOD contents untouched.
+    /// Leaves the backups folder and source recording files untouched.
     /// Caller is responsible for quitting the app afterward.
     /// </summary>
     Task<ResetResult> ResetAllDataAsync();

@@ -1,7 +1,7 @@
 param(
     [int]$Hours = 24,
     [int]$SampleMinutes = 5,
-    [string]$ProcessName = "LoLReview.App",
+    [string]$ProcessName = "revu-desktop",
     [string]$OutputPath = ""
 )
 

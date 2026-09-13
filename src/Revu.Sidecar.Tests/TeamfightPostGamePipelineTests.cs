@@ -18,6 +18,60 @@ namespace Revu.Sidecar.Tests;
 /// </summary>
 public sealed class TeamfightPostGamePipelineTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TargetedRecovery_PreservesSnapshotAndLiveRows_AndRerunsWithoutDuplicates(bool hasSnapshot)
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        await scope.SeedGameAsync(GameId, champion: "Ahri");
+        var events = new GameEventsRepository(scope.ConnectionFactory);
+        await events.SaveEventsAsync(GameId, [new GameEvent { EventType = "KILL", GameTimeS = 600 }]);
+        var originalId = Assert.Single(await events.GetEventsAsync(GameId)).Id;
+        var originalObjective = await TrackAsync(scope, "Original trade objective", "TRADE");
+        if (hasSnapshot)
+        {
+            var live = await Revu.Core.Services.EventProcessing.LiveProcessingCatalog.Create(
+                [new(originalObjective,"TRADE")]).CompleteAsync();
+            await events.SaveProcessingReportAsync(GameId, live);
+        }
+        var laterObjective = await TrackAsync(scope, "Next match objective", "TRADE");
+        var match = System.Text.Json.Nodes.JsonNode.Parse(MatchPayload().GetRawText())!;
+        match["metadata"] = new System.Text.Json.Nodes.JsonObject { ["matchId"] = "TEST_1" };
+        var roster = match["info"]!["participants"]!.AsArray();
+        foreach (var id in new[] { 4,5,9,10 }) roster.Add(new System.Text.Json.Nodes.JsonObject
+        {
+            ["participantId"] = id, ["puuid"] = $"p{id}", ["teamId"] = id <= 5 ? 100 : 200,
+            ["championName"] = $"Champion{id}"
+        });
+        var timeline = System.Text.Json.Nodes.JsonNode.Parse(Timeline(Kill(600,1,6)).GetRawText())!;
+        timeline["metadata"] = new System.Text.Json.Nodes.JsonObject { ["matchId"] = "TEST_1" };
+        var death = timeline["info"]!["frames"]![1]!["events"]![0]!;
+        death["victimDamageDealt"] = System.Text.Json.Nodes.JsonNode.Parse("""[{"participantId":1,"name":"Zed","type":"OTHER","magicDamage":20,"physicalDamage":0,"trueDamage":0}]""");
+        death["victimDamageReceived"] = System.Text.Json.Nodes.JsonNode.Parse("""[{"participantId":1,"name":"Ahri","type":"OTHER","magicDamage":40,"physicalDamage":0,"trueDamage":0}]""");
+        var client = new StubMatchClient { Match = Parse(match.ToJsonString()), Timeline = Parse(timeline.ToJsonString()) };
+        var config = new TestConfigService(new AppConfig { RiotRegion = "na1", RiotPuuid = SelfPuuid });
+        var service = new MapStateBackfillService(scope.Games, events, client, config, NullLogger<MapStateBackfillService>.Instance);
+        for (int run = 0; run < 2; run++)
+        {
+            Assert.Equal(0, (await service.RunForGameAsync(GameId)).Failed);
+            var report = await events.GetProcessingReportAsync(GameId);
+            if (!hasSnapshot) Assert.Null(report);
+            else
+            {
+                Assert.Equal("unavailable", Assert.Single(report!.Coverage).Status);
+                var candidate = Assert.Single(report.Recovery!.Events);
+                Assert.True(Revu.Core.Services.EventProcessing.EventEligibility.WasSubscribed(candidate, originalObjective));
+                Assert.False(Revu.Core.Services.EventProcessing.EventEligibility.WasSubscribed(candidate, laterObjective));
+                Assert.False(Revu.Core.Services.EventProcessing.EventEligibility.IsEligible(candidate));
+            }
+            var rows = await events.GetEventsAsync(GameId);
+            Assert.Equal(originalId, Assert.Single(rows, e=>e.EventType == "KILL").Id);
+            Assert.DoesNotContain(rows, e=>e.EventType == "RECORDED_EXCHANGE");
+        }
+    }
+
     private const string SelfPuuid = "self-puuid";
     private const long GameId = 5_598_958_690;
 
@@ -147,6 +201,12 @@ public sealed class TeamfightPostGamePipelineTests
 
         var vod = await Snapshot(scope, events).BuildAsync(GameId);
 
+        Assert.DoesNotContain(vod.GameEvents, e => e.EventType == "TEAMFIGHT");
+        // A user-confirmed encounter remains visible with its original identity.
+        var confirmed = System.Text.Json.Nodes.JsonNode.Parse(row.Details)!.AsObject();
+        confirmed["correction"] = new System.Text.Json.Nodes.JsonObject { ["fixture"] = true };
+        await events.UpdateEventDetailsAsync(row.Id, confirmed.ToJsonString());
+        vod = await Snapshot(scope, events).BuildAsync(GameId);
         var pin = Assert.Single(vod.GameEvents, e => e.EventType == "TEAMFIGHT");
         Assert.Equal(row.Id, pin.Id);
         Assert.Equal("2v1", pin.ShortLabel);
@@ -192,7 +252,7 @@ public sealed class TeamfightPostGamePipelineTests
         Assert.Single(stream, e => e.EventType == "TEAMFIGHT");
 
         var vod = await Snapshot(scope, events).BuildAsync(GameId);
-        Assert.Single(vod.GameEvents, e => e.EventType == "TEAMFIGHT");
+        Assert.DoesNotContain(vod.GameEvents, e => e.EventType == "TEAMFIGHT");
     }
 
     [Fact]
@@ -209,6 +269,11 @@ public sealed class TeamfightPostGamePipelineTests
         var stream = await events.GetEventsAsync(GameId);
         var row = Assert.Single(stream, e => e.EventType == "TEAMFIGHT");
         Assert.Equal("away", D(row).GetProperty("self").GetString());
+
+        Assert.DoesNotContain((await Snapshot(scope, events).BuildAsync(GameId)).GameEvents, e => e.EventType == "TEAMFIGHT");
+        var confirmed = System.Text.Json.Nodes.JsonNode.Parse(row.Details)!.AsObject();
+        confirmed["correction"] = new System.Text.Json.Nodes.JsonObject { ["fixture"] = true };
+        await events.UpdateEventDetailsAsync(row.Id, confirmed.ToJsonString());
 
         var vod = await Snapshot(scope, events).BuildAsync(GameId);
         var pin = Assert.Single(vod.GameEvents, e => e.EventType == "TEAMFIGHT");
@@ -243,6 +308,14 @@ public sealed class TeamfightPostGamePipelineTests
         var stream = await events.GetEventsAsync(GameId);
         Assert.Equal(2, stream.Count(e => e.EventType == "TEAMFIGHT"));
 
+        Assert.DoesNotContain((await Snapshot(scope, events).BuildAsync(GameId)).GameEvents, e => e.EventType == "TEAMFIGHT");
+        foreach (var row in stream.Where(e => e.EventType == "TEAMFIGHT"))
+        {
+            var confirmed = System.Text.Json.Nodes.JsonNode.Parse(row.Details)!.AsObject();
+            confirmed["correction"] = new System.Text.Json.Nodes.JsonObject { ["fixture"] = true };
+            await events.UpdateEventDetailsAsync(row.Id, confirmed.ToJsonString());
+        }
+
         var vod = await Snapshot(scope, events).BuildAsync(GameId);
         var pins = vod.GameEvents.Where(e => e.EventType == "TEAMFIGHT").ToList();
         Assert.Equal(2, pins.Count);
@@ -273,6 +346,6 @@ public sealed class TeamfightPostGamePipelineTests
         Assert.Equal(1, (await Service(scope, events, OwnFightTimeline(), materializer).RunAsync(maxGames: 5)).Updated);
 
         var rows = await scope.Evidence.GetForGameAsync(GameId, includeDismissed: true);
-        Assert.Contains(rows, r => r.SourceKey.StartsWith("objev:TEAMFIGHT:", StringComparison.Ordinal));
+        Assert.DoesNotContain(rows, r => r.SourceKey.StartsWith("objev:TEAMFIGHT:", StringComparison.Ordinal));
     }
 }

@@ -66,9 +66,8 @@ public sealed class ConfigService : IConfigService
     // ── IConfigService convenience properties ───────────────────────
 
     public string GithubToken => GetCached().GithubToken;
-    public string? AscentFolder => GetValidatedFolder(GetCached().AscentFolder);
-    public string AscentFolderRaw => GetCached().AscentFolder;
     public bool TiltFixEnabled => GetCached().TiltFixMode;
+    public string AscentFolder => GetCached().AscentFolder ?? "";
     public string ClipsFolder => GetValidatedClipsFolder();
     public int ClipsMaxSizeMb => GetCached().ClipsMaxSizeMb;
     public bool BackupEnabled => GetCached().BackupEnabled;
@@ -83,14 +82,12 @@ public sealed class ConfigService : IConfigService
     public string RiotPuuid => GetCached().RiotPuuid;
     public string PrimaryRole => GetCached().PrimaryRole;
     public bool OnboardingSkipped => GetCached().OnboardingSkipped;
-    public bool AscentReminderDismissed => GetCached().AscentReminderDismissed;
     public bool SidebarAnimationEnabled => GetCached().SidebarAnimationEnabled;
     public bool MinimizeDuringGame => GetCached().MinimizeDuringGame;
     public bool AutoTimelineClippingEnabled => GetCached().AutoTimelineClippingEnabled;
     public bool AutoTimelineClippingHintDismissed => GetCached().AutoTimelineClippingHintDismissed;
     public bool AutoClipObjectivesEnabled => GetCached().AutoClipObjectivesEnabled;
 
-    public bool IsAscentEnabled => AscentFolder is not null;
 
     public bool HasValidRiotSession =>
         !string.IsNullOrWhiteSpace(RiotSessionToken)
@@ -246,7 +243,7 @@ public sealed class ConfigService : IConfigService
         {
             // P-009: never fabricate an empty AppConfig here — a fabricated
             // config silently misconfigures every read that races a writer
-            // (Ascent folder, Tilt Fix gate, clips folder, riot session).
+            // (Tilt Fix gate, clips folder, riot session).
             // Writes are atomic (temp + move), so an uncached disk read is
             // safe; the one-time secret-migration write stays lock-guarded.
             if (_cached is not null) return _cached;

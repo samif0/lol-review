@@ -46,7 +46,7 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
 {
     /// <summary>Bump to re-queue every window game for the backfill (the exact
     /// MapStateAnalyzer.Version contract). v2 = objective-only anchors + retired-row cleanup.</summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     private readonly IGameEventsRepository _gameEvents;
     private readonly IEvidenceRepository _evidence;
@@ -93,7 +93,7 @@ public sealed class PatternEvidenceMaterializer : IPatternEvidenceMaterializer
             ties.Select(static t => PatternConstants.Canonical(t.Token)).Where(static t => t.Length > 0),
             StringComparer.Ordinal);
 
-        var events = await _gameEvents.GetEventsAsync(gameId);
+        var events = await _gameEvents.GetEligibleEventsAsync(gameId);
 
         // Every objev: key this game's events COULD produce, tracked or not. A token an
         // objective merely stopped tracking keeps its history because its keys stay live;

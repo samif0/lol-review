@@ -31,6 +31,8 @@ namespace Revu.Sidecar;
 public sealed class WriteServices : IDisposable
 {
     private readonly ServiceProvider _provider;
+    private readonly SidecarBackgroundWork? _backgroundWork;
+    private readonly ILogger<WriteServices> _logger;
 
     public ReviewedEncountersRepository ReviewedEncounters => _provider.GetRequiredService<ReviewedEncountersRepository>();
     // v3.11: the event corrections ledger (POST /api/event/correct, /api/correction/revert)
@@ -39,8 +41,10 @@ public sealed class WriteServices : IDisposable
     public EventCorrectionWorkflow EventCorrections => _provider.GetRequiredService<EventCorrectionWorkflow>();
     public EventCorrectionSweep EventCorrectionSweep => _provider.GetRequiredService<EventCorrectionSweep>();
 
-    public WriteServices(ILoggerFactory loggerFactory)
+    public WriteServices(ILoggerFactory loggerFactory, SidecarBackgroundWork? backgroundWork = null)
     {
+        _backgroundWork = backgroundWork;
+        _logger = loggerFactory.CreateLogger<WriteServices>();
         var services = new ServiceCollection();
         services.AddSingleton(loggerFactory);
         services.AddLogging();
@@ -79,6 +83,8 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IReviewDraftRepository, ReviewDraftRepository>();
         services.AddSingleton<IEvidenceRepository, EvidenceRepository>();
         services.AddSingleton<IVodRepository, VodRepository>();
+        services.AddSingleton<IVodService, VodService>();
+        services.AddSingleton<RecordingLinkStore>();
         // Review-page write slices (Batch 2): per-death cause classification,
         // per-objective custom-prompt answers. (Evidence triage reuses the
         // IEvidenceRepository above; focus-adherence reuses ISessionLogRepository;
@@ -86,11 +92,8 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IDeathClassificationsRepository, DeathClassificationsRepository>();
         services.AddSingleton<IPromptsRepository, PromptsRepository>();
 
-        // Review-save's deeper graph: IReviewWorkflowService.SaveAsync needs
-        // IVodService + ICoachSidecarNotifier too. VodService has its own deps;
-        // the coach notifier is the null no-op (same as WinUI ships).
+        // Review-save's coach notifier is a no-op; clip extraction is on demand.
         services.AddSingleton<IClipService, ClipService>();
-        services.AddSingleton<IVodService, VodService>();
         services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
         // On-demand objective auto-clipper (POST /api/clip/auto-objectives). Reuses
         // the ClipService + the objective/event/evidence repos registered here.
@@ -163,7 +166,7 @@ public sealed class WriteServices : IDisposable
     public IReviewDraftRepository ReviewDrafts => _provider.GetRequiredService<IReviewDraftRepository>();
     public IBackupService Backup => _provider.GetRequiredService<IBackupService>();
     // App config read-modify-write (POST /api/config/save). Reuses the WRITE-graph
-    // ConfigService so it mutates the same config.json the WinUI app owns; never
+    // ConfigService so it mutates the application's config.json; never
     // touches secrets beyond what IConfigService.SaveAsync already round-trips.
     public IConfigService Config => _provider.GetRequiredService<IConfigService>();
     // Game deletion (POST /api/game/delete). GameRepository.DeleteAsync cascades
@@ -188,9 +191,10 @@ public sealed class WriteServices : IDisposable
     // VOD bookmark CRUD (POST /api/bookmark/add, /note, /delete, /objective, /tag,
     // /quality). VodRepository is already registered above (it's a
     // ReviewWorkflowService dependency); this exposes the write slice for the VOD
-    // player's Quick Bookmark + bookmark-list edit actions. Clips/ffmpeg are NOT
-    // here (deferred Batch 3) — these are plain note-bookmark + tagging writes.
+    // player's Quick Bookmark + bookmark-list edit actions. Media extraction is
+    // exposed separately through Clips; these are bookmark and tagging writes.
     public IVodRepository Vod => _provider.GetRequiredService<IVodRepository>();
+    public RecordingLinkStore RecordingLinks => _provider.GetRequiredService<RecordingLinkStore>();
     // Per-death cause classification (POST /api/death/classify, /api/death/clear).
     public IDeathClassificationsRepository DeathClassifications => _provider.GetRequiredService<IDeathClassificationsRepository>();
     // Per-objective custom-prompt answers (POST /api/prompt/answer/save).
@@ -201,7 +205,7 @@ public sealed class WriteServices : IDisposable
 
     // ── Clip extraction (Batch 3) ─────────────────────────────────────────────
     // ffmpeg clip extraction (POST /api/clip/extract, POST /api/pattern/moment/note).
-    // ClipService is already registered above (it's a VodService dependency); this
+    // ClipService is already registered above; this
     // exposes the write slice. ExtractClipAsync writes the .mp4 to ClipsFolder, then
     // the endpoint upserts the bookmark + evidence row — mirroring the WinUI VOD
     // player's ExtractClipCommand verbatim. Its ctor needs IConfigService + logger
@@ -213,15 +217,6 @@ public sealed class WriteServices : IDisposable
     public IAutoClipService AutoClip => _provider.GetRequiredService<IAutoClipService>();
     // App-config READ (ClipsFolder for the clip output dir). The Config property
     // above is the same singleton; alias kept explicit for the clip endpoints.
-
-    // ── Settings VOD scan (Batch 6) ───────────────────────────────────────────
-    // POST /api/settings/scan-vods. IVodService.AutoMatchRecordingsAsync writes
-    // newly-matched VOD links into the DB (a write — hence WRITE graph); the scan
-    // diagnostics (FindRecordingsAsync + IVodRepository.GetAllVodsAsync) are reads
-    // on the same service. VodService is already registered above (it's a
-    // ReviewWorkflowService dependency); this exposes the scan slice. Mirrors the
-    // SettingsPage code-behind OnScanVodsClick verbatim.
-    public IVodService VodScan => _provider.GetRequiredService<IVodService>();
 
     // ── Riot auth / account / clip-share / backfill (Batch 4) ─────────────────
     // SECURITY-SENSITIVE: these endpoints persist the session token (DPAPI via
@@ -251,13 +246,24 @@ public sealed class WriteServices : IDisposable
     // review-save signals, startup window backfill).
     public IPatternEvidenceMaterializer PatternMaterializer => _provider.GetRequiredService<IPatternEvidenceMaterializer>();
 
+    public IVodService VodScan => _provider.GetRequiredService<IVodService>();
+
     public SessionBackupGuard BackupGuard => _provider.GetRequiredService<SessionBackupGuard>();
 
     // The write graph's resolved DB path — used by endpoints to diagnose open
     // failures (SqliteOpenHealth.Describe) with the path writes actually target.
     public string DatabasePath => _provider.GetRequiredService<IDbConnectionFactory>().DatabasePath;
 
-    public void Dispose() => _provider.Dispose();
+    public void Dispose()
+    {
+        if (_backgroundWork?.HasOutstandingWork == true)
+        {
+            _logger.LogCritical("Write services still have pending work after shutdown timed out; " +
+                "their database services will not be disposed underneath an active operation.");
+            return;
+        }
+        _provider.Dispose();
+    }
 }
 
 /// <summary>

@@ -16,23 +16,19 @@ public sealed class TeamfightClusteringTests
 
     private static GameEvent Fight(int id, int startS, int endS, string self = "in", string verdict = "down", string numbers = "2v3") =>
         Ev(id, "TEAMFIGHT", startS,
-            $$"""{ "detected": true, "start_s": {{startS}}, "end_s": {{endS}}, "self": "{{self}}", "numbers": "{{numbers}}", "verdict": "{{verdict}}" }""");
+            ConfirmedEventFixture.Reviewed($$"""{ "detected": true, "start_s": {{startS}}, "end_s": {{endS}}, "self": "{{self}}", "numbers": "{{numbers}}", "verdict": "{{verdict}}" }"""));
 
     // ── TeamfightClustering ─────────────────────────────────────────────────
 
     [Fact]
-    public void Resolve_WithoutStoredRows_IsTodaysSyntheticRule()
+    public void Resolve_WithoutConfirmedRows_DoesNotPromoteSyntheticClusters()
     {
         var events = new[] { Ev(1, "KILL", 600), Ev(2, "DEATH", 606), Ev(3, "ASSIST", 612), Ev(4, "KILL", 1200) };
 
         var spans = TeamfightClustering.Resolve(events);
 
-        var s = Assert.Single(spans);
-        Assert.Null(s.Stored);
-        Assert.Equal(600, s.StartS);
-        Assert.Equal(612, s.EndS);
-        Assert.Equal(3, s.Members.Count);
-        Assert.True(s.IsOwn);
+        Assert.Empty(spans);
+        Assert.Single(TeamfightClustering.SyntheticClusters(events));
     }
 
     [Fact]
@@ -80,7 +76,7 @@ public sealed class TeamfightClusteringTests
     }
 
     [Fact]
-    public void Resolve_AwayRow_TakesNoMembers_AndSyntheticClusterOverIt_Survives()
+    public void Resolve_AwayRow_TakesNoMembers_AndDoesNotInventAnotherFight()
     {
         var events = new[]
         {
@@ -90,12 +86,11 @@ public sealed class TeamfightClusteringTests
 
         var spans = TeamfightClustering.Resolve(events);
 
-        Assert.Equal(2, spans.Count);
+        Assert.Single(spans);
         var away = Assert.Single(spans, s => s.Stored is not null);
         Assert.Empty(away.Members);
         Assert.False(away.IsOwn);
-        var synthetic = Assert.Single(spans, s => s.Stored is null);
-        Assert.Equal(3, synthetic.Members.Count);
+        Assert.DoesNotContain(spans, s => s.Stored is null);
     }
 
     [Fact]
@@ -110,10 +105,8 @@ public sealed class TeamfightClusteringTests
 
         var spans = TeamfightClustering.Resolve(events);
 
-        Assert.Equal(2, spans.Count);
+        Assert.Single(spans);
         Assert.NotNull(spans[0].Stored);
-        Assert.Null(spans[1].Stored);
-        Assert.Equal(900, spans[1].StartS);
     }
 
     [Fact]

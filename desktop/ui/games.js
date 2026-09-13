@@ -1,8 +1,11 @@
-// Revu desktop — Games (workspace) page renderer for the glass-aurora layout.
-// Renders the JSON returned by the Tauri command `get_games`
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+
+// Revu desktop — Match library page renderer.
+// Renders the JSON returned by the Electron command `get_games`
 // (see Revu.Sidecar GET /api/games). Mirrors app.js conventions exactly:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • Outside Tauri it fetches ./sample-games.json so the page previews in a
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron it fetches ./sample-games.json so the page previews in a
 //     plain browser.
 //   • Every server string is written via textContent (never innerHTML) so the
 //     surface stays XSS-free; colors arrive as *Hex strings applied to style
@@ -13,36 +16,9 @@
 // Queue (unreviewed, 14d) / Today / History (paged) / VOD (on-disk recordings).
 // Switching a view refetches from the backend (the server owns each view's data
 // source); History additionally supports append-mode "Load More" paging
-// (?page=N). There is no message bus — writes (deferred) would refetch manually.
-
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
+// (?page=N). Recording-link notifications update existing rows in place.
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 
 // ── module state ────────────────────────────────────────────────────────────
 // _data    : the last loaded snapshot (server-owned per view).
@@ -54,18 +30,16 @@ let _data = null;
 let _view = 'queue';
 let _page = 0;
 let _rows = [];
+const _linkedRecordingGames = new Set();
+let _loadVersion = 0;
+let _vodListRefreshRequested = false;
+let _vodListRefreshing = false;
 
 // ── data fetch ──────────────────────────────────────────────────────────────
-// Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
+// Prefer the REAL backend (Electron invoke → sidecar → your DB); fall back to the
 // bundled sample only when invoke is genuinely unavailable (browser preview).
 async function fetchGames(view, page) {
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_games', { view, page });
-  }
-  const res = await fetch('./sample-games.json');
-  if (!res.ok) throw new Error(`sample-games.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_games', 'sample-games.json', { view, page });
 }
 
 // ── render: header status line ──────────────────────────────────────────────
@@ -88,17 +62,17 @@ function renderQueueBar(d) {
   const bar = $('queue-bar');
   const heading = d.heading || 'Games';
 
-  if (k) k.textContent = `Workspace · ${heading}`;
+  if (k) k.textContent = 'Your games';
   if (h) h.textContent = heading;
 
   const shown = _rows.length;
 
   if (_view === 'queue') {
     if (shown === 0) {
-      if (cnt) cnt.textContent = 'every game reviewed. nice';
+      if (cnt) cnt.textContent = 'No games waiting for review';
       if (bar) bar.classList.add('queue-clear');
     } else {
-      if (cnt) cnt.textContent = `${shown} game${shown === 1 ? '' : 's'} waiting. clear the queue`;
+      if (cnt) cnt.textContent = `${shown} game${shown === 1 ? '' : 's'} ready to review`;
       if (bar) bar.classList.remove('queue-clear');
     }
     return;
@@ -154,66 +128,157 @@ function renderStrip(d) {
 }
 
 // ── render: one game row ────────────────────────────────────────────────────
-// The WHOLE ROW is the primary action (open_review) — role=button + tabindex
-// for keyboard, with the hype hover animation defined on .gamerow in styles.css.
-// State tokens (reviewed / VOD / objective) replace the dashboard's plain meta.
+// The whole row retains its server-selected primary action and keyboard behavior.
+// Plain status text adds only confirmed review/recording/objective information.
 function buildRow(g) {
   const el = tpl('tpl-gamerow');
   const wl = el.querySelector('.grow-wl');
   const champ = el.querySelector('.grow-champ');
   const meta = el.querySelector('.grow-meta');
-  const tokens = el.querySelector('.grow-tokens');
   const kdaN = el.querySelector('.grow-kda-n');
   const kdaR = el.querySelector('.grow-kda-r');
-  const cue = el.querySelector('.gamerow-cue');
 
-  // W/L capsule + matchup name. "Champ vs Enemy" is the headline.
-  wl.textContent = g.winLossText || '';
-  if (g.winLossColorHex) {
-    wl.style.color = g.winLossColorHex;
-    wl.style.borderColor = g.winLossColorHex;
-  }
+  const win = knownBoolean(g.win, g.winLossText, ['w', 'win', 'victory'], ['l', 'loss', 'defeat']);
+  wl.textContent = win === true ? 'W' : win === false ? 'L' : g.winLossText || '—';
+  wl.title = win === true ? 'Win' : win === false ? 'Loss' : '';
+  if (wl.title) wl.setAttribute('aria-label', wl.title);
+  el.dataset.result = wl.dataset.result = win === true ? 'win' : win === false ? 'loss' : 'unknown';
   const enemy = g.enemyChampion ? ` vs ${g.enemyChampion}` : '';
-  champ.textContent = `${g.championName || ''}${enemy}`;
+  champ.textContent = g.championName ? `${g.championName}${enemy}` : 'Match';
 
-  // Meta line: GAMEMODE · DATE · DURATION (vision is OUT, per spec).
-  meta.textContent = g.metaLine || g.statsLine || '';
+  meta.textContent = gameMetadata(g);
 
   // KDA in its own right-aligned column so the numbers read fast.
-  kdaN.textContent = g.kdaText || '';
-  kdaR.textContent = g.kdaRatioText || '';
+  const numericKda = [g.kills, g.deaths, g.assists];
+  const textKda = String(g.kdaText || '').match(/^\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*$/);
+  kdaN.textContent = numericKda.every(n => Number.isSafeInteger(n) && n >= 0)
+    ? numericKda.join(' / ') : textKda ? textKda.slice(1).join(' / ') : g.kdaText || '—';
+  const ratioText = String(g.kdaRatioText || '').trim();
+  const parsedRatio = ratioText.match(/^\(?\s*(\d+(?:\.\d+)?)\s*\)?\s*(?:KDA)?$/i);
+  const ratio = typeof g.kdaRatio === 'number' ? g.kdaRatio : parsedRatio ? Number(parsedRatio[1]) : null;
+  kdaR.textContent = Number.isFinite(ratio) && ratio >= 0 ? `${Number(ratio.toFixed(2))} KDA` : ratioText;
 
-  // State tokens — review / VOD / objective. Colored by meaning.
-  const tokenSpecs = [
-    { text: g.reviewStateText, tone: g.reviewStateText === 'Reviewed' ? 'good' : 'warn' },
-    // A linked-but-unannotated recording (hasVod, no notes) reads as a warn
-    // affordance, not the settled 'good' green of an annotated VOD.
-    { text: g.vodStateText, tone: g.hasVod ? (g.hasNotes ? 'good' : 'warn') : 'muted' },
-    { text: g.objectiveStateText, tone: tokenTone(g) },
-  ];
-  for (const spec of tokenSpecs) {
-    if (!spec.text) continue;
+  updateRowRecording(el, g);
+  return el;
+}
+
+function updateRowRecording(el, g) {
+  const tokens = el.querySelector('.grow-tokens');
+  const cue = el.querySelector('.gamerow-cue');
+  clear(tokens);
+  for (const spec of gameStatuses(g)) {
     const t = tpl('tpl-token');
     t.textContent = spec.text;
-    if (spec.tone) t.classList.add(spec.tone);
+    t.dataset.status = spec.kind;
+    if (spec.title) t.title = spec.title;
     tokens.appendChild(t);
   }
 
   // The whole row carries the gameId + a re-review/open/VOD cue label.
   if (g.gameId != null) el.dataset.gameId = String(g.gameId);
   if (g.action) el.dataset.action = g.action;
-  if (cue) cue.firstChild.textContent = (g.primaryAction ? g.primaryAction.toUpperCase() : 'REVIEW') + ' ';
+  const reviewed = reviewedState(g);
+  const cueText = el.dataset.action === 'watch_vod' ? 'Watch VOD'
+    : el.dataset.action === 'open_review' ? (reviewed === true || String(g.primaryAction || '').toLowerCase() === 'open' ? 'Open' : 'Review')
+    : 'Open';
+  if (cue) cue.firstChild.textContent = `${cueText} `;
 
-  // Left edge bar rests in the game's win/loss color, energizes to accent on hover.
-  if (g.winLossColorHex) el.style.setProperty('--wl', g.winLossColorHex);
-
-  return el;
 }
 
-function tokenTone(g) {
-  if (g.hasObjectiveEvidence) return 'good';
-  if (g.objectivePracticed) return 'warn';
-  return 'muted';
+function withLinkedRecording(game) {
+  return _linkedRecordingGames.has(Number(game.gameId))
+    ? { ...game, hasVod: true, action: 'watch_vod', primaryAction: 'Watch VOD' } : game;
+}
+
+window.addEventListener('revu:vod-linked', event => {
+  const gameId = Number(event.detail?.gameId);
+  if (!Number.isSafeInteger(gameId) || gameId <= 0) return;
+  _linkedRecordingGames.add(gameId);
+  if (_linkedRecordingGames.size > 128) _linkedRecordingGames.delete(_linkedRecordingGames.values().next().value);
+  const index = _rows.findIndex(game => Number(game.gameId) === gameId);
+  if (index >= 0) {
+    const game = _rows[index] = withLinkedRecording(_rows[index]);
+    const row = [...$('games-list').children].find(element => Number(element.dataset.gameId) === gameId);
+    if (row) updateRowRecording(row, game);
+    if (_data) renderStrip(_data);
+  } else if (_view === 'vod') {
+    _vodListRefreshRequested = true;
+    return refreshLinkedVodList();
+  }
+});
+
+// VOD is not paginated. A newly linked match that is absent from that filter
+// needs a fresh list; other filters keep their mounted rows and History pages.
+async function refreshLinkedVodList() {
+  if (_loading || _vodListRefreshing || !_vodListRefreshRequested || _view !== 'vod') return;
+  _vodListRefreshing = true;
+  try {
+    while (_vodListRefreshRequested && !_loading && _view === 'vod') {
+      _vodListRefreshRequested = false;
+      const version = _loadVersion;
+      const data = await fetchGames('vod', 0);
+      if (_loading || _view !== 'vod' || version !== _loadVersion) {
+        _vodListRefreshRequested = _view === 'vod';
+        break;
+      }
+      const left = window.scrollX, top = window.scrollY;
+      const focused = document.activeElement?.closest?.('[data-game-id]')?.dataset.gameId;
+      _rows = (Array.isArray(data?.items) ? data.items : []).map(withLinkedRecording);
+      render(data);
+      if (focused) [...$('games-list').children].find(row => row.dataset.gameId === focused)?.focus({ preventScroll: true });
+      window.scrollTo({ left, top, behavior: 'instant' });
+    }
+  } catch (error) {
+    console.error('[games] linked recording refresh failed:', error);
+  } finally {
+    _vodListRefreshing = false;
+  }
+}
+
+function knownBoolean(value, label, yes, no) {
+  if (typeof value === 'boolean') return value;
+  const normalized = String(label || '').trim().toLowerCase();
+  return yes.includes(normalized) ? true : no.includes(normalized) ? false : null;
+}
+
+function reviewedState(g) {
+  return knownBoolean(g.hasReview, g.reviewStateText, ['reviewed'], ['unreviewed', 'to review']);
+}
+
+function gameStatuses(g) {
+  const states = [];
+  const reviewed = reviewedState(g);
+  if (reviewed !== null) states.push({ kind: 'review', text: reviewed ? 'Reviewed' : 'To review' });
+  const recorded = knownBoolean(g.hasVod, g.vodStateText,
+    ['vod linked', 'vod linked - no notes', 'recording', 'recording with notes'], ['no vod', 'no recording']);
+  if (recorded === true) {
+    // HasNotes means timestamped bookmarks, not the separate written Review.
+    const notes = knownBoolean(g.hasNotes, g.vodStateText, ['recording with notes'], ['vod linked - no notes']);
+    states.push({ kind: 'recording', text: notes === true ? 'Recording with notes' : 'Recording',
+      title: notes === true ? 'A linked recording was available at the last check and has timestamped bookmarks.'
+        : notes === false ? 'A linked recording was available at the last check. No timestamped bookmarks yet.'
+          : 'A linked recording was available at the last check.' });
+  } else if (recorded === false) {
+    states.push({ kind: 'recording', text: 'No recording', title: 'No linked recording was available at the last check.' });
+  }
+  const evidence = knownBoolean(g.hasObjectiveEvidence, g.objectiveStateText, ['evidence tagged'], []);
+  const practiced = knownBoolean(g.objectivePracticed, g.objectiveStateText, ['objective practiced', 'vod evidence pending'], []);
+  if (evidence === true) states.push({ kind: 'objective', text: 'Evidence tagged' });
+  else if (practiced === true) states.push({ kind: 'objective', text: 'Objective practiced' });
+  return states;
+}
+
+function gameMetadata(g) {
+  const modes = { 'ranked solo/duo': 'Ranked solo/duo', 'ranked flex': 'Ranked flex',
+    'normal draft': 'Normal draft', 'normal blind': 'Normal blind', quickplay: 'Quickplay', aram: 'ARAM', arena: 'Arena' };
+  const readable = value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return modes[text.toLowerCase()] || text.replace(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/g,
+      month => month[0] + month.slice(1).toLowerCase());
+  };
+  const parts = [g.gameMode, g.datePlayed, g.duration].map(readable).filter(Boolean);
+  if (parts.length) return parts.join(' · ');
+  return String(g.metaLine || g.statsLine || '').split(/\s*·\s*/).map(readable).join(' · ');
 }
 
 // ── render: the game list ────────────────────────────────────────────────────
@@ -224,7 +289,7 @@ function renderList(d) {
   const items = _rows;
 
   const sub = $('games-sub');
-  if (sub) sub.textContent = `showing ${items.length}`;
+  if (sub) sub.textContent = `${items.length} shown`;
 
   if (items.length === 0) {
     show($('games-label'), false);
@@ -247,11 +312,11 @@ function renderList(d) {
 
 function emptyHint(view) {
   switch (view) {
-    case 'queue':   return 'Play a ranked or normal game and it lands here for review.';
+    case 'queue':   return 'New Ranked Solo/Duo games appear here while Revu is open. Find older games in History, or add one manually.';
     case 'today':   return 'Games you play today show up here for a same-day review.';
-    case 'vod':     return 'Link a recording to a game and it appears in this view.';
+    case 'vod':     return 'Games with an available recording appear here. Connect your Ascent recordings folder in Settings → Recording, then scan to link existing videos.';
     case 'history':
-    default:        return 'Play a ranked or normal game and it lands here for review.';
+    default:        return 'Keep Revu open during a Ranked Solo/Duo game, or use Add a game manually.';
   }
 }
 
@@ -310,6 +375,7 @@ async function loadView(view) {
   if (_loading) return;
   if (!VIEWS.includes(view)) view = 'queue';
   _loading = true;
+  ++_loadVersion;
   const prevView = _view;
   _view = view;
   _page = 0;
@@ -320,7 +386,7 @@ async function loadView(view) {
     if (data && typeof data.view === 'string' && VIEWS.includes(data.view)) {
       _view = data.view;
     }
-    _rows = Array.isArray(data?.items) ? data.items.slice() : [];
+    _rows = (Array.isArray(data?.items) ? data.items : []).map(withLinkedRecording);
     render(data);
   } catch (err) {
     // The switch failed — roll _view back to the view whose rows are still on
@@ -332,6 +398,7 @@ async function loadView(view) {
     console.error('[games] load failed:', err);
   } finally {
     _loading = false;
+    if (_view === 'vod') void refreshLinkedVodList();
   }
 }
 
@@ -346,7 +413,7 @@ async function loadMore() {
     const data = await fetchGames('history', next);
     const more = Array.isArray(data?.items) ? data.items : [];
     _page = next;
-    _rows = _rows.concat(more);
+    _rows = _rows.concat(more.map(withLinkedRecording));
     render(data); // re-renders the accumulated _rows + updated hasMore/page.
   } catch (err) {
     renderError(err);

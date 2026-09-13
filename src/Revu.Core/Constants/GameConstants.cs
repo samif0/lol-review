@@ -86,19 +86,6 @@ public static class GameConstants
     /// <summary>Loss-streak flash animation interval in milliseconds.</summary>
     public const int FlashWarningIntervalMs = 500;
 
-    /// <summary>Delay before scanning for VOD files on startup (milliseconds).</summary>
-    public const int StartupVodScanDelayMs = 3_000;
-
-    /// <summary>
-    /// v2.18 (P-007): VOD-match retry ladder after game end — delays between
-    /// successive attempts. Ascent finalizes its file seconds-to-minutes after
-    /// the game ends; a single 90s shot lost that race once and the recording
-    /// stayed orphaned until the next startup scan. Attempts land ~1.5, ~4.5
-    /// and ~9.5 minutes after EOG. In-memory only: app restarts are covered by
-    /// the startup scan and the review-open rematch.
-    /// </summary>
-    public static readonly int[] VodRetryLadderMs = [90_000, 180_000, 300_000];
-
     /// <summary>Delay before restarting after update install (milliseconds).</summary>
     public const int UpdateRestartDelayMs = 1_500;
 
@@ -214,22 +201,6 @@ public static class GameConstants
 
     /// <summary>Max unreviewed games shown on home page.</summary>
     public const int UnreviewedGamesDisplayLimit = 8;
-
-    // ── VOD matching ──────────────────────────────────────────────────────
-
-    /// <summary>40-minute window for matching VODs to games (seconds).
-    /// Ascent starts recording at queue/champ-select time, but Riot's gameCreation
-    /// is at loading-screen start. Queue waits, champ select, and dodges can add
-    /// 20-30+ minutes between the two timestamps.</summary>
-    public const int VodMatchWindowS = 2400;
-
-    /// <summary>Max positive delta (recording started AFTER gameCreation) for filename matching.
-    /// Ascent normally starts before gameCreation, so a large positive delta means wrong file.
-    /// 5 minutes covers minute-precision rounding plus minor clock drift.</summary>
-    public const int VodFilenamePositiveSlackS = 300;
-
-    /// <summary>Grace period for mtime fallback matching (seconds).</summary>
-    public const int VodMtimeGraceS = 30;
 
     // ── Clip extraction ───────────────────────────────────────────────────
 

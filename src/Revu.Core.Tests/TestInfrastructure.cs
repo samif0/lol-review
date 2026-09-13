@@ -115,11 +115,8 @@ internal sealed class TestConfigService : IConfigService
 
     public string GithubToken => Current.GithubToken;
 
-    public string? AscentFolder => string.IsNullOrWhiteSpace(Current.AscentFolder) ? null : Current.AscentFolder;
-
-    public string AscentFolderRaw => Current.AscentFolder;
-
     public bool TiltFixEnabled => Current.TiltFixMode;
+    public string AscentFolder => Current.AscentFolder;
 
     public string ClipsFolder => Current.ClipsFolder;
 
@@ -139,14 +136,11 @@ internal sealed class TestConfigService : IConfigService
     public string RiotPuuid => Current.RiotPuuid;
     public string PrimaryRole => Current.PrimaryRole;
     public bool OnboardingSkipped => Current.OnboardingSkipped;
-    public bool AscentReminderDismissed => Current.AscentReminderDismissed;
     public bool SidebarAnimationEnabled => Current.SidebarAnimationEnabled;
     public bool MinimizeDuringGame => Current.MinimizeDuringGame;
     public bool AutoTimelineClippingEnabled => Current.AutoTimelineClippingEnabled;
     public bool AutoTimelineClippingHintDismissed => Current.AutoTimelineClippingHintDismissed;
     public bool AutoClipObjectivesEnabled => Current.AutoClipObjectivesEnabled;
-
-    public bool IsAscentEnabled => !string.IsNullOrWhiteSpace(AscentFolder);
 
     public bool HasValidRiotSession =>
         !string.IsNullOrWhiteSpace(RiotSessionToken)
@@ -188,21 +182,6 @@ internal sealed class TestConfigService : IConfigService
 
         return merged;
     }
-}
-
-internal sealed class StubVodService : IVodService
-{
-    public bool TryLinkResult { get; set; }
-
-    public Task<List<VodRecordingInfo>> FindRecordingsAsync(string? folder = null) =>
-        Task.FromResult<List<VodRecordingInfo>>([]);
-
-    public string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings,
-        IReadOnlySet<string>? excludePaths = null) => null;
-
-    public Task<bool> TryLinkRecordingAsync(GameStats game, string? folder = null) => Task.FromResult(TryLinkResult);
-
-    public Task<int> AutoMatchRecordingsAsync() => Task.FromResult(0);
 }
 
 internal static class TestGameStatsFactory

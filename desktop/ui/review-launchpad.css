@@ -1,0 +1,114 @@
+/* Review is the match launchpad; the VOD remains the learning workspace. */
+body.review-launchpad-page .shell{max-width:1200px;padding:24px 32px 48px}
+html.framed body.review-launchpad-page .shell{padding:24px 32px 48px}
+.review-launchpad-page .rv-hero{margin:0;padding:0;border:0;background:none;box-shadow:none}
+.review-launchpad-page .rv-hero-row{align-items:center;gap:20px 28px}
+.review-launchpad-page .rv-page-label{margin-bottom:8px;font-size:13px;line-height:1.5;color:var(--muted)}
+.review-launchpad-page #hero-title{margin:0;font:600 28px/1.3 var(--fb);letter-spacing:-.02em;color:var(--text);overflow-wrap:anywhere}
+.review-launchpad-page .rv-resline{gap:8px 14px;margin-top:10px}
+.review-launchpad-page .rv-resline>span{font:400 13px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}
+.review-launchpad-page .rv-resline>.rv-res{font-weight:500}
+.review-launchpad-page .rv-kda{font:500 23px/1.4 var(--fb);letter-spacing:0;color:var(--text);font-variant-numeric:tabular-nums}
+.review-launchpad-page .rv-kdar{font:400 12px/1.5 var(--fb);letter-spacing:0;margin-top:3px;color:var(--muted)}
+.review-launchpad-page .rv-reviewed{display:inline-block;margin-top:9px;font:400 12px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}
+.review-launchpad-page .rv-reviewed[hidden]{display:none}
+
+.review-launchpad-page #rv-body{display:flex;flex-direction:column;align-items:stretch;gap:30px;margin-top:28px}
+.review-launchpad-page #rv-body[hidden]{display:none}
+.review-launchpad-page #rv-body h2{margin:0;font:600 20px/1.4 var(--fb);letter-spacing:-.015em;color:var(--text)}
+.review-launchpad-page #rv-body h3{margin:0;font:500 14px/1.5 var(--fb);letter-spacing:0;color:var(--text)}
+.review-launchpad-page .rv-launchpad{padding:24px;border:1px solid var(--border);border-radius:16px;background:var(--surface)}
+.review-launchpad-page .rv-launch-top{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:18px}
+.review-launchpad-page .rv-launch-icon{display:grid;place-items:center;width:48px;height:48px;border:1px solid #525252;border-radius:12px;color:var(--text)}
+.review-launchpad-page .rv-launch-icon svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round}
+.review-launchpad-page .rv-launch-copy p{max-width:52ch;margin:6px 0 0;color:var(--muted);font-size:14px;line-height:1.6}
+body.review-launchpad-page .rv-open-vod{display:inline-flex;align-items:center;justify-content:center;align-self:center;gap:14px;
+  min-height:46px;margin:0;padding:12px 19px;font:500 15px/1.4 var(--fb);letter-spacing:0;text-transform:none;box-shadow:none}
+.review-launchpad-page #rv-body .rv-deathsec{margin:24px 0 0;padding-top:20px;border-top:1px solid var(--border)}
+.review-launchpad-page .rv-section-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px 16px}
+.review-launchpad-page .rv-count,.review-launchpad-page .rv-section-hint{color:var(--muted);font-size:13px;line-height:1.5}
+.review-launchpad-page #rv-body .rv-death-help{margin:4px 0 14px;font-size:13px}
+.review-launchpad-page #rv-deaths{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
+.review-launchpad-page #rv-deaths .rv-death{padding:0;margin:0;background:none!important}
+body.review-launchpad-page #rv-body .rv-death-jump{min-height:66px;height:100%;padding:11px 13px;gap:10px;flex-wrap:nowrap;border-radius:10px!important;background:var(--bg)!important}
+.review-launchpad-page #rv-body .rv-death-identity{flex-direction:column;align-items:flex-start;gap:2px}
+.review-launchpad-page #rv-body .rv-death-number{font-size:12px;font-weight:400;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-death-time{font-size:15px;line-height:1.5;font-weight:500}
+.review-launchpad-page #rv-body .rv-death-watch{color:var(--muted)}
+.review-launchpad-page #rv-body .rv-tosortsec{margin:20px 0 0}
+.review-launchpad-page #rv-body .rv-tosortsec>summary{padding:16px 0 0}
+.review-launchpad-page #rv-tosort{margin-top:16px}
+
+.review-launchpad-page .rv-takeaway-section{padding:0 2px}
+.review-launchpad-page .rv-takeaway-section>.rv-section-heading{margin-bottom:18px}
+body.review-launchpad-page #rv-body .rv-review{margin:0 0 16px;padding:0}
+.review-launchpad-page #rv-body .rv-field-in{font-size:15px;line-height:1.65;min-height:112px;margin-top:9px;padding:14px 16px}
+.review-launchpad-page #rv-body .rv-field-k{font-size:14px;font-weight:400;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-review .learning-details{margin-top:16px}
+.review-launchpad-page #rv-body .rv-review .learning-details>summary{padding:12px 0;font-size:13px;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-note-saved{padding:0;margin:0 0 16px;border:0;background:none;font-size:13px;line-height:1.6;flex-wrap:wrap}
+.review-launchpad-page #rv-body .rv-commitbar{gap:12px 18px;margin:0;padding:0;min-height:42px}
+body.review-launchpad-page #rv-body .rv-savebtn{padding:10px 17px;min-height:42px;font-size:14px;line-height:1.5;font-weight:500;letter-spacing:0}
+body.review-launchpad-page #rv-body .rv-nextbtn{margin-left:auto;padding:10px 14px;min-height:42px;background:transparent!important;border:1px solid var(--border)!important;color:var(--text)!important;font-size:14px}
+.review-launchpad-page #rv-body .rv-commit-msg{font:400 13px/1.5 var(--fb);letter-spacing:0;overflow-wrap:anywhere}
+.review-launchpad-page #rv-body .rv-commit-msg.err{color:#ffaaaa}
+
+.review-launchpad-page #rv-body .rv-supporting>h2{margin:0 0 12px;font-size:14px;font-weight:500;color:var(--muted)}
+.review-launchpad-page #rv-body .learning-details{margin:0;border:0;border-top:1px solid var(--border);border-radius:0;background:none}
+.review-launchpad-page #rv-body .learning-details>summary{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;min-height:52px;
+  padding:17px 2px;list-style:none;font:500 15px/1.5 var(--fb);color:var(--text);cursor:pointer}
+.review-launchpad-page #rv-body .learning-details>summary::-webkit-details-marker{display:none}
+.review-launchpad-page #rv-body .learning-details>summary>span{margin:0;color:var(--muted);font-size:13px;font-weight:400}
+.review-launchpad-page #rv-body .learning-details>summary::after{content:'';width:7px;height:7px;margin:0 4px 3px auto;flex-shrink:0;
+  border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg)}
+.review-launchpad-page #rv-body .learning-details[open]>summary::after{transform:rotate(225deg);margin-bottom:-3px}
+.review-launchpad-page #rv-body .learning-details>summary:hover{color:#fff}
+.review-launchpad-page #rv-body .learning-details>summary:focus-visible{outline-offset:-2px}
+.review-launchpad-page #rv-body .learning-details-body{padding:10px 2px 24px}
+.review-launchpad-page #rv-launchpad #rv-tosortsec{margin-top:18px}
+.review-launchpad-page #rv-launchpad #rv-tosortsec>summary{min-height:38px;padding:14px 0 0;font-size:14px}
+.review-launchpad-page .rv-check-in{display:grid;grid-template-columns:1fr 1fr;gap:20px 32px;margin:0 0 24px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+body.review-launchpad-page #rv-body .rv-check-in .rv-focus{margin:0;padding:0;border:0!important}
+.review-launchpad-page #rv-body .rv-check-in .rv-mentalrow{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:16px;margin:0;padding:0;border:0}
+.review-launchpad-page #rv-body .rv-mental-ctl{justify-content:flex-start;flex:0;gap:18px}
+.review-launchpad-page #rv-body .rv-range{max-width:220px}
+.review-launchpad-page #rv-body .rv-mental{font-size:22px;min-width:28px;color:var(--text)!important}
+.review-launchpad-page #rv-body .rv-focus .field-help{font-size:12px}
+.review-launchpad-page #rv-body .rv-strip{grid-template-columns:repeat(4,minmax(0,1fr));gap:24px 16px;margin:0 0 24px}
+.review-launchpad-page #rv-body .rv-strip .stat{padding:0;background:none!important;border:0!important}
+.review-launchpad-page #rv-body .rv-strip .k{font-size:13px;letter-spacing:0;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-strip .v{font-size:22px;font-weight:500;line-height:1.4}
+.review-launchpad-page #rv-body .rv-strip .s{font-size:12px;line-height:1.5}
+.review-launchpad-page #rv-body .rv-matchup{margin-top:24px;color:var(--text);font-size:15px;font-weight:500;text-shadow:none}
+.review-launchpad-page #rv-body .rv-lobby{gap:20px 32px;margin-top:18px}
+.review-launchpad-page #rv-body .rv-lobby-role{font:400 12px/1.5 var(--fb);letter-spacing:0;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-lobby-pair{font-size:14px;line-height:1.6}
+.review-launchpad-page #rv-body .rv-lobby-pair i{font-size:13px}
+.review-launchpad-page #rv-body .rv-fixes{display:block;margin-top:20px;font:400 13px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-fixes[hidden]{display:none}
+.review-launchpad-page #rv-body .rv-matchsec{margin-top:24px}
+.review-launchpad-page #rv-matchlist{margin-top:14px}
+.review-launchpad-page #rv-body .rv-tags-wrap{margin:0;padding:0}
+.review-launchpad-page #rv-body .rv-tagcat{margin-top:22px}
+.review-launchpad-page #rv-body .rv-tagcat-grid{margin-top:12px}
+.review-launchpad-page .rv-secondary-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:24px}
+.review-launchpad-page #rv-body .rv-secondary-actions>button{font-size:14px;padding:9px 14px;min-height:40px}
+.review-launchpad-page #rv-body .rv-secondary-actions .rv-deletebtn{margin-left:0}
+
+@media(max-width:760px){
+  html.framed body.review-launchpad-page .shell{padding:20px 22px 40px}
+  .review-launchpad-page .rv-launch-top{grid-template-columns:40px minmax(0,1fr);gap:14px}
+  .review-launchpad-page .rv-launch-icon{width:40px;height:40px}
+  .review-launchpad-page .rv-open-vod{grid-column:2;justify-self:start}
+  .review-launchpad-page #hero-title{font-size:25px}
+  .review-launchpad-page .rv-hero-row{align-items:flex-start;flex-wrap:wrap}
+  .review-launchpad-page .rv-hero-kda{text-align:left}
+  .review-launchpad-page .rv-check-in{grid-template-columns:1fr}
+  .review-launchpad-page #rv-body .rv-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:440px){
+  .review-launchpad-page .rv-launchpad{padding:18px}
+  .review-launchpad-page .rv-open-vod{grid-column:1/-1;justify-self:stretch}
+  .review-launchpad-page #rv-body .learning-details>summary>span{flex-basis:75%;order:1}
+  .review-launchpad-page #rv-body .rv-commit-msg{flex-basis:100%;order:1}
+}

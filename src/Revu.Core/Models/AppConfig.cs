@@ -12,9 +12,10 @@ public class AppConfig
     /// protected storage and writes an empty value back to config.json.
     /// </summary>
     public string GithubToken { get; set; } = "";
-    public string AscentFolder { get; set; } = "";
     public Dictionary<string, string> Keybinds { get; set; } = new();
     public bool TiltFixMode { get; set; }
+    /// <summary>Optional Ascent recording folder. Empty disables discovery; existing VOD links remain.</summary>
+    public string AscentFolder { get; set; } = "";
     public string ClipsFolder { get; set; } = "";
     public int ClipsMaxSizeMb { get; set; } = 2048;
     public bool BackupEnabled { get; set; }
@@ -62,13 +63,6 @@ public class AppConfig
     // ignored harmlessly by the deserializer.)
 
     /// <summary>
-    /// True if the user dismissed the Dashboard reminder to point at an
-    /// Ascent recordings folder. The reminder only shows when this is false
-    /// AND no folder is configured.
-    /// </summary>
-    public bool AscentReminderDismissed { get; set; }
-
-    /// <summary>
     /// v2.15.0: sidebar page-enter animation. Some users find it distracting.
     /// Default true to keep the existing feel for anyone who hasn't touched
     /// the toggle.
@@ -96,7 +90,7 @@ public class AppConfig
 
     /// <summary>
     /// v2.17.8: user permanently hid the VOD-viewer hint that explains the
-    /// auto-clipping toggle. Mirrors <see cref="AscentReminderDismissed"/>.
+    /// auto-clipping toggle.
     /// </summary>
     public bool AutoTimelineClippingHintDismissed { get; set; }
 
@@ -127,7 +121,7 @@ public class AppConfig
     public long FirstReviewTutorialGameId { get; set; }
 
     /// <summary>
-    /// v3.4: preferred main-window size, applied by the Tauri host on launch and
+    /// v3.4: preferred main-window size, applied by the Electron host on launch and
     /// live on Settings save. "" = the built-in default (1600x1000, tauri.conf.json),
     /// "maximized" = fill the screen, or "WxH" (e.g. "1920x1080") for a fixed size.
     /// Values are validated by <see cref="Services.ConfigSaveGuards.TryResolveWindowResolution"/>

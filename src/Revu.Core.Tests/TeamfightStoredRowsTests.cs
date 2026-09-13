@@ -22,7 +22,7 @@ public sealed class TeamfightStoredRowsTests
 
     private static GameEvent Fight(long gameId, int startS, int endS, string self = "in", string verdict = "down", string numbers = "2v3") =>
         Ev(gameId, "TEAMFIGHT", startS,
-            $$"""{ "detected": true, "start_s": {{startS}}, "end_s": {{endS}}, "self": "{{self}}", "numbers": "{{numbers}}", "verdict": "{{verdict}}" }""");
+            ConfirmedEventFixture.Supported($$"""{ "detected": true, "start_s": {{startS}}, "end_s": {{endS}}, "self": "{{self}}", "numbers": "{{numbers}}", "verdict": "{{verdict}}" }"""));
 
     private static PatternEvidenceMaterializer Materializer(TestDatabaseScope scope) => new(
         scope.GameEvents, scope.Evidence, scope.Objectives, scope.Games,
@@ -97,7 +97,8 @@ public sealed class TeamfightStoredRowsTests
         });
         var materializer = Materializer(scope);
 
-        // Game end: synthetic anchors at 600 and 900. The user notes the second one.
+        // Confirmed inputs produce anchors at 600 and 900. The user notes the second one.
+        await scope.GameEvents.AppendEventsAsync(gameId, new[] { Fight(gameId, 600, 612), Fight(gameId, 900, 910) });
         await materializer.MaterializeForGameAsync(gameId);
         var before = await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true);
         Assert.Equal(2, before.Count);
@@ -130,6 +131,7 @@ public sealed class TeamfightStoredRowsTests
             Ev(gameId, "KILL", 600), Ev(gameId, "DEATH", 606), Ev(gameId, "ASSIST", 612),
             Ev(gameId, "KILL", 900), Ev(gameId, "DEATH", 905), Ev(gameId, "ASSIST", 910),
         });
+        await scope.GameEvents.AppendEventsAsync(gameId, new[] { Fight(gameId, 600, 612), Fight(gameId, 900, 910) });
         var materializer = Materializer(scope);
         await materializer.MaterializeForGameAsync(gameId);
         var rows = await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true);
@@ -147,6 +149,7 @@ public sealed class TeamfightStoredRowsTests
         // The second fight vanishes from the event stream: its dismissed anchor is the
         // user's triage and survives; an untouched stale anchor would not.
         await scope.GameEvents.SaveEventsAsync(gameId, new[] { Ev(gameId, "KILL", 600), Ev(gameId, "DEATH", 606), Ev(gameId, "ASSIST", 612) });
+        await scope.GameEvents.AppendEventsAsync(gameId, new[] { Fight(gameId, 600, 612) });
         await materializer.MaterializeForGameAsync(gameId);
         keys = (await scope.Evidence.GetForGameAsync(gameId, includeDismissed: true)).Select(r => r.SourceKey).ToList();
         Assert.Contains("objev:TEAMFIGHT:900", keys);

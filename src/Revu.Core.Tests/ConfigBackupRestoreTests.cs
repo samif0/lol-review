@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Revu.Core.Models;
 using Revu.Core.Services;
+using System.Text.Json;
 
 namespace Revu.Core.Tests;
 
@@ -22,10 +23,10 @@ public sealed class ConfigBackupRestoreTests
         {
             var service = new ConfigService(NullLogger<ConfigService>.Instance, new MemorySecretStore(), configPath);
 
-            await service.SaveAsync(new AppConfig { AscentFolder = root, TiltFixMode = true });
+            await service.SaveAsync(new AppConfig { ClipsFolder = root, TiltFixMode = true });
             Assert.True(File.Exists(configPath));
             // First write had nothing to back up; the second one does.
-            await service.SaveAsync(new AppConfig { AscentFolder = root, TiltFixMode = true, AutoTimelineClippingEnabled = false });
+            await service.SaveAsync(new AppConfig { ClipsFolder = root, TiltFixMode = true, AutoTimelineClippingEnabled = false });
             Assert.True(File.Exists(configPath + ".bak"), "a rolling backup must be kept beside config.json");
 
             // Something deletes the file (the historical failure). A fresh load
@@ -34,7 +35,7 @@ public sealed class ConfigBackupRestoreTests
             var reloaded = await new ConfigService(NullLogger<ConfigService>.Instance, new MemorySecretStore(), configPath).LoadAsync();
 
             Assert.True(File.Exists(configPath), "config.json must be restored from config.json.bak");
-            Assert.Equal(root, reloaded.AscentFolder);
+            Assert.Equal(root, reloaded.ClipsFolder);
             Assert.True(reloaded.TiltFixMode);
         }
         finally
@@ -76,8 +77,74 @@ public sealed class ConfigBackupRestoreTests
         try
         {
             var loaded = await new ConfigService(NullLogger<ConfigService>.Instance, new MemorySecretStore(), Path.Combine(root, "config.json")).LoadAsync();
-            Assert.Equal("", loaded.AscentFolder);
+            Assert.Equal("", loaded.ClipsFolder);
+            Assert.Equal("", loaded.BackupFolder);
             Assert.False(File.Exists(Path.Combine(root, "config.json")));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadAsync_AscentFolderSurvivesConfigOrBackup_WhileRetiredReminderIsIgnored(bool restoreBackup)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Revu.ConfigBackup.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var configPath = Path.Combine(root, "config.json");
+        var legacyFolder = Path.Combine(root, "LegacyRecordings");
+        var clips = Path.Combine(root, "Clips");
+        var backups = Path.Combine(root, "Backups");
+        Directory.CreateDirectory(legacyFolder);
+        Directory.CreateDirectory(clips);
+        Directory.CreateDirectory(backups);
+        var legacyMedia = Path.Combine(legacyFolder, "07-10-2026-20-36.mp4");
+        try
+        {
+            await File.WriteAllTextAsync(legacyMedia, "existing user recording");
+            var legacy = JsonSerializer.Serialize(new
+            {
+                ascent_folder = legacyFolder,
+                ascent_reminder_dismissed = false,
+                is_ascent_enabled = true,
+                clips_folder = clips,
+                backup_folder = backups,
+                tilt_fix_mode = true,
+                riot_id = "existing#player",
+                riot_region = "euw1",
+                primary_role = "SUPPORT",
+            });
+            await File.WriteAllTextAsync(configPath + (restoreBackup ? ".bak" : ""), legacy);
+
+            var service = new ConfigService(NullLogger<ConfigService>.Instance, new MemorySecretStore(), configPath);
+            var loaded = await service.LoadAsync();
+            Assert.Equal(legacyFolder, loaded.AscentFolder);
+            Assert.Equal(legacyFolder, service.AscentFolder);
+            Assert.Equal(clips, service.ClipsFolder);
+            Assert.Equal(backups, service.BackupFolder);
+            Assert.True(loaded.TiltFixMode);
+            Assert.Equal("existing#player", loaded.RiotId);
+            Assert.Equal("euw1", loaded.RiotRegion);
+            Assert.Equal("SUPPORT", loaded.PrimaryRole);
+
+            // Folder compatibility returns; removed reminder/derived flags do not.
+            loaded.ClipsMaxSizeMb = 4096;
+            await service.SaveAsync(loaded);
+            using var saved = JsonDocument.Parse(await File.ReadAllTextAsync(configPath));
+            Assert.Equal(legacyFolder, saved.RootElement.GetProperty("ascent_folder").GetString());
+            Assert.False(saved.RootElement.TryGetProperty("ascent_reminder_dismissed", out _));
+            Assert.False(saved.RootElement.TryGetProperty("is_ascent_enabled", out _));
+            var reloaded = await new ConfigService(NullLogger<ConfigService>.Instance, new MemorySecretStore(), configPath).LoadAsync();
+            Assert.Equal(legacyFolder, reloaded.AscentFolder);
+            Assert.Equal(clips, reloaded.ClipsFolder);
+            Assert.Equal(backups, reloaded.BackupFolder);
+            Assert.Equal(4096, reloaded.ClipsMaxSizeMb);
+            Assert.True(reloaded.TiltFixMode);
+            Assert.Equal("existing#player", reloaded.RiotId);
+            Assert.Equal("existing user recording", await File.ReadAllTextAsync(legacyMedia));
         }
         finally
         {

@@ -593,6 +593,150 @@ public sealed class GameMonitorServiceTests
         Assert.Equal(GamePhase.None, GamePhaseExtensions.ParsePhase("SomethingNew"));
     }
 
+    [Fact]
+    public async Task RecordingContextReplaysExactLiveIdentityAndOnlyConfirmsAnActualEndPhase()
+    {
+        var lcu = new FakeLcuClient { IsConnected = true, QueueId = 0, CurrentGameId = 9876,
+            Phases = new([GamePhase.ChampSelect, GamePhase.GameStart, GamePhase.InProgress,
+                GamePhase.Reconnect, GamePhase.WaitingForStats, GamePhase.Lobby]) };
+        var live = new FakeLiveEventApi { Available = true, GameSeconds = 123.5 };
+        using var service = CreateService(new(new LcuCredentials { Port = 2999, Password = "pw" }),
+            lcu, new StrongReferenceMessenger(), new(), new(), live);
+        service.ObserveRecordingContext();
+        await service.TickOnceAsync();
+        Assert.Null(service.CurrentRecordingContext.GameId);
+        await service.TickOnceAsync();
+        Assert.Equal(9876, service.CurrentRecordingContext.GameId);
+        Assert.True(service.CurrentRecordingContext.IsGameInProgress);
+        Assert.Equal(123.5, service.CurrentRecordingContext.GameTimeSeconds);
+        Assert.NotNull(service.CurrentRecordingContext.ObservedAt);
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        Assert.Equal(9876, service.CurrentRecordingContext.GameId);
+        Assert.Null(service.CurrentRecordingContext.LastEndedGameId);
+        var finalClockReceipt = service.CurrentRecordingContext.ObservedAt;
+        await service.TickOnceAsync();
+        Assert.False(service.CurrentRecordingContext.IsGameInProgress);
+        Assert.Null(service.CurrentRecordingContext.GameId);
+        Assert.Equal(9876, service.CurrentRecordingContext.LastEndedGameId);
+        Assert.Equal(123.5, service.CurrentRecordingContext.LastEndedGameTimeSeconds);
+        Assert.Equal(finalClockReceipt, service.CurrentRecordingContext.LastEndedObservedAt);
+        var confirmedAt = service.CurrentRecordingContext.LastEndedConfirmedAt;
+        Assert.NotNull(confirmedAt);
+        Assert.True(confirmedAt >= finalClockReceipt);
+        await service.TickOnceAsync();
+        Assert.Null(service.CurrentRecordingContext.GameId);
+        Assert.Equal(9876, service.CurrentRecordingContext.LastEndedGameId);
+        Assert.Equal(123.5, service.ObserveRecordingContext().LastEndedGameTimeSeconds);
+        Assert.Equal(finalClockReceipt, service.CurrentRecordingContext.LastEndedObservedAt);
+        Assert.Equal(confirmedAt, service.CurrentRecordingContext.LastEndedConfirmedAt);
+    }
+
+    [Fact]
+    public async Task RecordingContextCanIdentifyLoadingGameWithoutLiveClockAndDoesNotTreatDisconnectAsCompletion()
+    {
+        var lcu = new FakeLcuClient { IsConnected = true, QueueId = 0, CurrentGameId = 4321,
+            Phases = new([GamePhase.ChampSelect, GamePhase.GameStart]) };
+        var live = new FakeLiveEventApi { ThrowGameStats = true };
+        using var service = CreateService(new(new LcuCredentials { Port = 2999, Password = "pw" }),
+            lcu, new StrongReferenceMessenger(), new(), new(), live);
+        service.ObserveRecordingContext();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        Assert.Equal(4321, service.CurrentRecordingContext.GameId);
+        Assert.Null(service.CurrentRecordingContext.GameTimeSeconds);
+        lcu.ThrowOnNextPhase = true;
+        await service.TickOnceAsync();
+        Assert.Null(service.CurrentRecordingContext.GameId);
+        Assert.False(service.CurrentRecordingContext.IsGameInProgress);
+        Assert.Null(service.CurrentRecordingContext.LastEndedGameId);
+        Assert.Null(service.CurrentRecordingContext.LastEndedGameTimeSeconds);
+        Assert.Null(service.CurrentRecordingContext.LastEndedObservedAt);
+    }
+
+    [Fact]
+    public async Task RecordingContextNeverSubstitutesAnotherMatchOrAnInvalidClock()
+    {
+        var lcu = new FakeLcuClient { IsConnected = true, QueueId = 0, CurrentGameId = 4321,
+            Phases = new([GamePhase.ChampSelect, GamePhase.GameStart, GamePhase.InProgress, GamePhase.EndOfGame]) };
+        var live = new FakeLiveEventApi { GameSeconds = -1 };
+        using var service = CreateService(new(new LcuCredentials { Port = 2999, Password = "pw" }),
+            lcu, new StrongReferenceMessenger(), new(), new(), live);
+        service.ObserveRecordingContext();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        Assert.Equal(4321, service.CurrentRecordingContext.GameId);
+        Assert.Null(service.CurrentRecordingContext.GameTimeSeconds);
+        lcu.CurrentGameId = 0;
+        await service.TickOnceAsync();
+        Assert.True(service.CurrentRecordingContext.IsGameInProgress);
+        Assert.Null(service.CurrentRecordingContext.GameId);
+        lcu.CurrentGameId = 9999;
+        await service.TickOnceAsync();
+        Assert.Null(service.CurrentRecordingContext.LastEndedGameId);
+    }
+
+    [Fact]
+    public async Task EndedRecordingClockKeepsOriginalReceiptWhenLiveClockStopsResponding()
+    {
+        var lcu = new FakeLcuClient { IsConnected = true, QueueId = 0, CurrentGameId = 4321,
+            Phases = new([GamePhase.ChampSelect, GamePhase.GameStart, GamePhase.InProgress, GamePhase.EndOfGame]) };
+        var live = new FakeLiveEventApi { GameSeconds = 1800 };
+        using var service = CreateService(new(new LcuCredentials { Port = 2999, Password = "pw" }),
+            lcu, new StrongReferenceMessenger(), new(), new(), live);
+        service.ObserveRecordingContext();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        var receipt = service.CurrentRecordingContext.ObservedAt;
+        live.ThrowGameStats = true;
+        await service.TickOnceAsync();
+        Assert.Null(service.CurrentRecordingContext.GameTimeSeconds);
+        await service.TickOnceAsync();
+        Assert.Equal(4321, service.CurrentRecordingContext.LastEndedGameId);
+        Assert.Equal(1800, service.CurrentRecordingContext.LastEndedGameTimeSeconds);
+        Assert.Equal(receipt, service.CurrentRecordingContext.LastEndedObservedAt);
+    }
+
+    [Fact]
+    public async Task EndedRecordingClockNeverBorrowsAClockFromAnotherMatch()
+    {
+        var lcu = new FakeLcuClient { IsConnected = true, QueueId = 0, CurrentGameId = 4321,
+            Phases = new([GamePhase.ChampSelect, GamePhase.GameStart, GamePhase.InProgress, GamePhase.EndOfGame]) };
+        var live = new FakeLiveEventApi { GameSeconds = 1800 };
+        using var service = CreateService(new(new LcuCredentials { Port = 2999, Password = "pw" }),
+            lcu, new StrongReferenceMessenger(), new(), new(), live);
+        service.ObserveRecordingContext();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        lcu.CurrentGameId = 9876;
+        live.ThrowGameStats = true;
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        Assert.Equal(9876, service.CurrentRecordingContext.LastEndedGameId);
+        Assert.Null(service.CurrentRecordingContext.LastEndedGameTimeSeconds);
+        Assert.Null(service.CurrentRecordingContext.LastEndedObservedAt);
+    }
+
+    [Fact]
+    public async Task RecordingContextDoesNotAddGameRequestsWithoutAnActiveObserver()
+    {
+        var lcu = new FakeLcuClient { IsConnected = true, QueueId = 0, CurrentGameId = 1234,
+            Phases = new([GamePhase.ChampSelect, GamePhase.GameStart, GamePhase.InProgress]) };
+        var live = new FakeLiveEventApi { Available = true, GameSeconds = 12 };
+        using var service = CreateService(new(new LcuCredentials { Port = 2999, Password = "pw" }),
+            lcu, new StrongReferenceMessenger(), new(), new(), live);
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        Assert.Equal(0, lcu.CurrentGameIdCalls);
+        Assert.Equal(0, live.GameStatsCalls);
+        service.ObserveRecordingContext();
+        await service.TickOnceAsync();
+        Assert.Equal(1, lcu.CurrentGameIdCalls);
+        Assert.Equal(1, live.GameStatsCalls);
+        Assert.Equal(1234, service.CurrentRecordingContext.GameId);
+    }
+
     private static GameMonitorService CreateService(
         FakeCredentialDiscovery credentialDiscovery,
         FakeLcuClient lcuClient,
@@ -666,6 +810,10 @@ public sealed class GameMonitorServiceTests
 
     private sealed class FakeLcuClient : ILcuClient
     {
+        public long CurrentGameId { get; set; }
+        public int CurrentGameIdCalls { get; private set; }
+        public Task<long> GetCurrentGameIdAsync(CancellationToken ct = default)
+        { CurrentGameIdCalls++; return Task.FromResult(CurrentGameId); }
         public Queue<GamePhase> Phases { get; set; } = new();
 
         public bool IsConnected { get; set; }
@@ -743,6 +891,16 @@ public sealed class GameMonitorServiceTests
 
     private sealed class FakeLiveEventApi : ILiveEventApi
     {
+        public double? GameSeconds { get; set; }
+        public bool ThrowGameStats { get; set; }
+        public int GameStatsCalls { get; private set; }
+        public Task<System.Text.Json.JsonElement?> FetchGameStatsAsync(CancellationToken ct = default)
+        {
+            GameStatsCalls++;
+            return ThrowGameStats ? Task.FromException<System.Text.Json.JsonElement?>(new HttpRequestException("Loading"))
+                : Task.FromResult<System.Text.Json.JsonElement?>(GameSeconds.HasValue
+                    ? System.Text.Json.JsonSerializer.SerializeToElement(new { gameTime = GameSeconds.Value }) : null);
+        }
         /// <summary>Drives IsAvailableAsync — simulates the live client data API
         /// being up (player past the loading screen) or not (still loading).</summary>
         public bool Available { get; set; }

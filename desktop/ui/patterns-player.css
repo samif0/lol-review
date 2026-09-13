@@ -1,0 +1,113 @@
+/* Expanded playback occupies the content-frame viewport. Ancestor effects must
+   not turn its fixed positioning into a card-sized containing block. */
+html:has(.pat-stage.pat-expanded),
+body:has(.pat-stage.pat-expanded) {
+  overflow: hidden !important;
+  scrollbar-gutter: auto !important;
+  overscroll-behavior: none;
+}
+
+body:has(.pat-stage.pat-expanded),
+body .shell:has(.pat-stage.pat-expanded),
+body .shell :has(.pat-stage.pat-expanded) {
+  transform: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  perspective: none !important;
+  contain: none !important;
+  will-change: auto !important;
+  isolation: auto !important;
+  animation: none !important;
+  z-index: auto !important;
+}
+
+body .pat-stage .pat-collapse {
+  display: none;
+}
+
+body .pat-stage.pat-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  isolation: isolate;
+  opacity: 1;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--bg) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  transform: none !important;
+}
+
+body .pat-stage.pat-expanded .pat-mstrip {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+body .pat-stage.pat-expanded .pat-collapse {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+body .pat-stage.pat-expanded .pat-surface {
+  flex: 1 1 0;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: auto;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg) !important;
+  box-shadow: none;
+}
+
+body .pat-stage.pat-expanded .pat-video {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
+body .pat-stage.pat-expanded .pat-video[hidden] {
+  display: none;
+}
+
+body .pat-stage.pat-expanded .pat-transport {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 14px 20px;
+  border: 0 !important;
+  border-top: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  background: var(--bg) !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 600px) {
+  body .pat-stage.pat-expanded .pat-mstrip,
+  body .pat-stage.pat-expanded .pat-transport {
+    padding: 10px 12px;
+  }
+
+  body .pat-stage.pat-expanded .vp-transport {
+    gap: 8px;
+  }
+}

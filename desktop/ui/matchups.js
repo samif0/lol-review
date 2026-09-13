@@ -1,11 +1,15 @@
-// Revu desktop — Matchups (matchup journal) page renderer for the glass-aurora
-// layout. Renders the JSON returned by the Tauri command `get_matchups`
+import { $, show, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke, getListen } from './platform/index.mjs';
+
+// Revu desktop — searchable Matchup notes with one open matchup at a time.
+// Renders the JSON returned by the Electron command `get_matchups`
 // (see Revu.Sidecar GET /api/matchups) AND drives the card CRUD via the
 // create_matchup / create_matchup_from_last_game / update_matchup /
 // save_matchup_notes / delete_matchup commands, plus the Markdown export
 // (get_matchups_export_markdown → clipboard). Mirrors rules.js conventions:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • Outside Tauri it fetches ./sample-matchups.json so the page previews in a
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron it fetches ./sample-matchups.json so the page previews in a
 //     plain browser (writes no-op with a console note; the export builds its
 //     Markdown client-side so COPY still demonstrates).
 //   • Every server string is written via textContent (never innerHTML); ids ride
@@ -19,47 +23,11 @@
 //     comes back into view — deferred while you are mid-edit — so "New card from
 //     last game" points at the game you just played without a manual reload.
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
+// Electron event listener (the Electron host re-emits the sidecar's SSE stream as
+// 'lcu-event'). Same resolver shape as pregame.js; null outside Electron.
 
-// Tauri event listener (the Rust host re-emits the sidecar's SSE stream as
-// 'lcu-event'). Same resolver shape as pregame.js; null outside Tauri.
-async function getListen() {
-  try {
-    const mod = await import('@tauri-apps/api/event');
-    if (mod && typeof mod.listen === 'function') return mod.listen;
-  } catch (_) { /* fall through */ }
-  if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
-    return window.__TAURI__.event.listen.bind(window.__TAURI__.event);
-  }
-  return null;
-}
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 function setVal(id, v) { const el = $(id); if (el) el.value = v == null ? '' : String(v); }
 function getVal(id) { const el = $(id); return el ? el.value.trim() : ''; }
 function plural(n, one) { return `${n} ${one}${n === 1 ? '' : 's'}`; }
@@ -82,15 +50,7 @@ const ENEMY_IDS = ['f-enemy1', 'f-enemy2'];
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchMatchups() {
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
-  // bundled sample only when invoke is genuinely unavailable (browser preview).
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_matchups');
-  }
-  const res = await fetch('./sample-matchups.json');
-  if (!res.ok) throw new Error(`sample-matchups.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_matchups', 'sample-matchups.json');
 }
 
 // Flatten lanes → groups → cards from a snapshot (fixed server order kept).
@@ -113,9 +73,9 @@ function renderHeader(d) {
 
   const parts = [];
   if (total === 0) {
-    parts.push('No cards yet');
+    parts.push('No notes yet');
   } else {
-    parts.push(plural(total, 'card'), plural(groups, 'matchup'), plural(lanes.length, 'lane'));
+    parts.push(plural(total, 'note'), plural(groups, 'matchup'), plural(lanes.length, 'lane'));
   }
 
   const statusB = document.querySelector('#statusline b');
@@ -138,16 +98,16 @@ function renderLastGame(d) {
   const enemyKnown = !available || existing || lg.enemyKnown !== false;
   const opensForm = available && !existing && (!enemyKnown || !!lg.hint);
 
-  btn.textContent = existing ? "OPEN LAST GAME'S CARD" : 'NEW CARD FROM LAST GAME';
+  btn.textContent = existing ? 'Open last match note' : 'From last match';
   btn.disabled = !available;
   if (!available) {
     btn.title = (lg && lg.unavailableReason) || 'No last game available.';
   } else if (existing) {
-    btn.title = 'Jump to the card already linked to your last game.';
+    btn.title = 'Open the note already linked to your last match.';
   } else if (opensForm) {
-    btn.title = lg.hint || 'Start a card from your last game; some details still need filling in.';
+    btn.title = lg.hint || 'Start a note from your last match; some details still need filling in.';
   } else {
-    btn.title = 'Start a card pre-filled with your last game’s lane and champions.';
+    btn.title = 'Start a note with your last match’s lane and champions filled in.';
   }
 
   // The mono line under the buttons — always in the page, never only in a
@@ -192,52 +152,131 @@ function autosizeAllNotes() {
   document.querySelectorAll('.mj-note-in').forEach(autosizeNote);
 }
 
-function buildCard(c) {
-  const el = tpl('tpl-card');
+function buildCard(c, existing) {
+  const el = existing || tpl('tpl-card');
   if (c.id != null) el.dataset.cardId = String(c.id);
 
-  el.querySelector('.mj-card-date').textContent = c.createdAtText || c.dateText || '';
+  const date = c.createdAtText || c.dateText || '';
+  const dateEl = el.querySelector('.mj-card-date');
+  dateEl.textContent = date;
+  const gameLabel = c.hasGame ? c.gameLabel || '' : '';
+  show(dateEl, !!date && !gameLabel.split(/\s*[·•]\s*/).includes(date));
 
   const game = el.querySelector('.mj-card-game');
-  if (c.hasGame && c.gameLabel) {
-    game.textContent = c.gameLabel;
-    show(game, true);
-  } else {
-    show(game, false);
-  }
+  game.textContent = gameLabel;
+  show(game, !!gameLabel);
+  show(el.querySelector('.mj-card-context'), !!date || !!gameLabel);
 
-  el.querySelector('.mj-note-in[data-field="prior"]').value = c.prior || '';
-  el.querySelector('.mj-note-in[data-field="observed"]').value = c.observed || '';
+  const known = _notes.get(Number(c.id)) || {};
+  for (const field of NOTE_FIELDS) {
+    const input = el.querySelector(`.mj-note-in[data-field="${field}"]`);
+    // Refresh saved content, but retain any newer raw edit or failed save.
+    if (!existing || (input.dataset.busy !== '1' && input.value === (known[field] ?? ''))) input.value = c[field] || '';
+  }
   return el;
 }
 
-function buildGroup(g) {
-  const el = tpl('tpl-group');
-  if (g.key) el.dataset.groupKey = String(g.key);
+let _openGroupKey = null;
+function openGroup(group) {
+  _openGroupKey = group.dataset.groupKey;
+  for (const other of document.querySelectorAll('.mj-group')) other.open = other === group;
+  group.querySelectorAll('.mj-note-in').forEach(autosizeNote);
+}
+
+// Move only changed entries. Collapsing and filtering never detach an editor,
+// and an ordinary refresh keeps stable cards (including pending saves) mounted.
+function reconcileChildren(host, children) {
+  let next = host.firstElementChild;
+  for (const child of children) {
+    if (child === next) next = next.nextElementSibling;
+    else host.insertBefore(child, next);
+  }
+  const keep = new Set(children);
+  for (const child of [...host.children]) if (!keep.has(child)) child.remove();
+}
+
+function normalizeSearch(value) {
+  return String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[’']/g, '');
+}
+
+function buildGroup(g, lane, existing, cardNodes) {
+  const el = existing || tpl('tpl-group');
+  el.dataset.groupKey = String(g.key || `${lane.lane}|${g.title || ''}`);
+  el.setAttribute('name', 'matchup-notes');
+  el.open = el.dataset.groupKey === _openGroupKey;
   el.querySelector('.mj-group-title').textContent = g.title || '';
   const cards = Array.isArray(g.cards) ? g.cards : [];
-  el.querySelector('.mj-group-n').textContent = plural(g.cardCount ?? cards.length, 'card');
+  el.querySelector('.mj-group-n').textContent = plural(g.cardCount ?? cards.length, 'note');
+  const newest = [...cards].sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
+    .find(card => card.createdAtText || card.dateText);
+  const date = newest?.createdAtText || newest?.dateText || '';
+  const dateEl = el.querySelector('.mj-group-date');
+  dateEl.textContent = date ? `Latest ${date}` : '';
+  show(dateEl, !!date);
+  el.dataset.search = normalizeSearch([g.title, lane.lane, lane.laneLabel,
+    ...(g.allyChamps || []), ...(g.enemyChamps || []),
+    ...cards.flatMap(card => [card.matchupTitle, ...(card.allyChamps || []), ...(card.enemyChamps || [])]),
+  ].join(' '));
   const host = el.querySelector('.mj-group-cards');
-  for (const c of cards) host.appendChild(buildCard(c));
+  reconcileChildren(host, cards.map(card => buildCard(card, cardNodes.get(String(card.id)))));
+  if (!existing) el.addEventListener('toggle', () => {
+    if (el.open) openGroup(el);
+    else if (_openGroupKey === el.dataset.groupKey) _openGroupKey = null;
+  });
   return el;
 }
 
-function buildLane(l) {
-  const el = tpl('tpl-lane');
+function buildLane(l, existing, groupNodes, cardNodes) {
+  const el = existing || tpl('tpl-lane');
   if (l.lane) el.dataset.lane = String(l.lane);
   el.querySelector('.mj-lane-name').textContent = l.laneLabel || (LANE_BY[l.lane] ? LANE_BY[l.lane].label : l.lane) || '';
   const groups = Array.isArray(l.groups) ? l.groups : [];
   const count = l.cardCount ?? groups.reduce((n, g) => n + (Array.isArray(g.cards) ? g.cards.length : 0), 0);
   el.querySelector('.mj-lane-n').textContent = String(count);
   const host = el.querySelector('.mj-lane-groups');
-  for (const g of groups) host.appendChild(buildGroup(g));
+  reconcileChildren(host, groups.map(group => buildGroup(group, l,
+    groupNodes.get(String(group.key || `${l.lane}|${group.title || ''}`)), cardNodes)));
   return el;
 }
 
 function renderLanes(lanes) {
   const host = $('mj-lanes');
-  clear(host);
-  for (const l of lanes) host.appendChild(buildLane(l));
+  const oldLanes = new Map([...host.querySelectorAll('.mj-lane')].map(el => [el.dataset.lane, el]));
+  const oldGroups = new Map([...host.querySelectorAll('.mj-group')].map(el => [el.dataset.groupKey, el]));
+  const oldCards = new Map([...host.querySelectorAll('[data-card-id]')].map(el => [el.dataset.cardId, el]));
+  _openGroupKey = [...oldGroups.values()].find(el => el.open)?.dataset.groupKey || null;
+  reconcileChildren(host, lanes.map(lane => buildLane(lane, oldLanes.get(lane.lane), oldGroups, oldCards)));
+  applyFilters();
+}
+
+function applyFilters() {
+  const tokens = normalizeSearch($('mj-search')?.value).trim().split(/\s+/).filter(Boolean);
+  const laneFilter = $('mj-lane-filter')?.value || 'all';
+  let total = 0, matched = 0;
+  for (const lane of document.querySelectorAll('.mj-lane')) {
+    let visible = 0;
+    for (const group of lane.querySelectorAll('.mj-group')) {
+      total++;
+      const content = `${group.dataset.search} ${normalizeSearch([...group.querySelectorAll('.mj-note-in')].map(input => input.value).join(' '))}`;
+      const matches = (laneFilter === 'all' || laneFilter === lane.dataset.lane) && tokens.every(token => content.includes(token));
+      show(group, matches);
+      if (matches) { visible++; matched++; }
+    }
+    lane.querySelector('.mj-lane-n').textContent = String(visible);
+    show(lane, visible > 0);
+  }
+  if ($('mj-results')) $('mj-results').textContent = plural(matched, 'matchup');
+  show($('mj-no-results'), total > 0 && matched === 0);
+  // Revealed textareas may have been measured while their details were closed.
+  for (const group of document.querySelectorAll('.mj-group')) {
+    if (group.open && !group.hidden && !group.closest('.mj-lane')?.hidden) group.querySelectorAll('.mj-note-in').forEach(autosizeNote);
+  }
+}
+
+function clearFilters() {
+  setVal('mj-search', '');
+  setVal('mj-lane-filter', 'all');
+  applyFilters();
 }
 
 // ── error panel ─────────────────────────────────────────────────────────────
@@ -271,6 +310,8 @@ const _savedTimers = new WeakMap();
 // save_matchup_notes calls still in flight — a refetch waits for them so the
 // rebuilt textareas show what the user just typed, not the pre-edit copy.
 const _pendingSaves = new Set();
+const _noteWrites = new WeakMap();
+let _notesRevision = 0;
 const NOTE_FIELDS = new Set(['prior', 'observed']);
 const SAVED_FLASH_MS = 1200;
 
@@ -302,47 +343,45 @@ function setCardError(card, msg) {
   show(e, !!msg);
 }
 
-async function saveNote(ta) {
+function saveNote(ta) {
+  if (_noteWrites.has(ta)) return _noteWrites.get(ta);
+  const write = performNoteSave(ta);
+  _noteWrites.set(ta, write);
+  _pendingSaves.add(write);
+  const done = () => { _noteWrites.delete(ta); _pendingSaves.delete(write); };
+  write.then(done, done);
+  return write;
+}
+
+async function flushPendingNotes() {
+  while (_pendingSaves.size) await Promise.allSettled([..._pendingSaves]);
+}
+
+async function performNoteSave(ta) {
   const card = ta.closest('[data-card-id]');
   const id = Number(card && card.dataset.cardId);
   const field = ta.dataset.field;
   if (!(id > 0) || !NOTE_FIELDS.has(field)) return;
 
-  // A write for this box is already in flight — re-check once it lands.
-  if (ta.dataset.busy === '1') { ta.dataset.dirty = '1'; return; }
-
-  const known = _notes.get(id) || { prior: '', observed: '' };
-  const text = ta.value;
-  if (text === (known[field] ?? '')) return;   // unchanged — never write
-
-  const invoke = await getInvoke();
-  if (!invoke) {
-    console.info(`[matchups] (preview) save ${field} — no Tauri backend.`);
-    known[field] = text;
-    _notes.set(id, known);
-    flashSaved(ta);
-    return;
-  }
-
   ta.dataset.busy = '1';
-  const write = invoke('save_matchup_notes', { payload: { id, [field]: text } });
-  _pendingSaves.add(write);
   try {
-    await write;
-    known[field] = text;
-    _notes.set(id, known);
-    setCardError(card, '');
-    flashSaved(ta);
+    // Keep follow-up edits inside the same pending operation. Refresh must not
+    // rebuild from the first response while a newer answer is still being saved.
+    while (ta.value !== (_notes.get(id)?.[field] ?? '')) {
+      const text = ta.value;
+      const invoke = await getInvoke();
+      if (invoke) await invoke('save_matchup_notes', { payload: { id, [field]: text } });
+      else console.info(`[matchups] (preview) save ${field} — no Electron backend.`);
+      _notes.set(id, { ...(_notes.get(id) || {}), [field]: text });
+      _notesRevision++;
+      setCardError(card, '');
+      flashSaved(ta);
+    }
   } catch (err) {
     setCardError(card, errText(err));
     console.error('[matchups] save_matchup_notes failed:', err);
   } finally {
-    _pendingSaves.delete(write);
     delete ta.dataset.busy;
-    if (ta.dataset.dirty === '1') {
-      delete ta.dataset.dirty;
-      saveNote(ta);
-    }
   }
 }
 
@@ -355,6 +394,12 @@ const HIGHLIGHT_MS = 1800;
 function scrollToCard(id, opts) {
   const el = cardElById(id);
   if (!el) return false;
+  const group = el.closest('.mj-group');
+  if (group) {
+    if (group.hidden || group.closest('.mj-lane')?.hidden) clearFilters();
+    openGroup(group);
+    if (!opts?.focusPrior) group.querySelector('summary')?.focus({ preventScroll: true });
+  }
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   el.classList.add('mj-card-hi');
   setTimeout(() => el.classList.remove('mj-card-hi'), HIGHLIGHT_MS);
@@ -405,7 +450,7 @@ let _formGameId = null; // game a NEW card will link to (prefilled path only)
 function openCreateForm(prefill) {
   _editId = null;
   _formGameId = null;
-  $('form-title').textContent = 'New Card';
+  $('form-title').textContent = 'New note';
   $('form-submit').textContent = 'Create';
   const lane = prefill && LANE_BY[prefill.lane] ? prefill.lane : 'top';
   $('f-lane').value = lane;
@@ -439,7 +484,7 @@ function openEditForm(id) {
   if (!c) { openCreateForm(); return; }
   _editId = c.id;
   _formGameId = null;
-  $('form-title').textContent = 'Edit Card';
+  $('form-title').textContent = 'Edit note';
   $('form-submit').textContent = 'Save';
   $('f-lane').value = LANE_BY[c.lane] ? c.lane : 'top';
 
@@ -514,22 +559,36 @@ async function submitForm(submitBtn) {
   const payload = readFormPayload();
   if (!payload) return;
 
-  const invoke = await getInvoke();
-  if (!invoke) {
-    console.info('[matchups] (preview) submit — no Tauri backend.');
-    closeForm();
-    return;
-  }
-
   if (_editId != null) payload.id = _editId;
   const cmd = _editId != null ? 'update_matchup' : 'create_matchup';
+  const oldCard = payload.id != null ? cardElById(payload.id) : null;
+  const submittedLive = Object.fromEntries([...NOTE_FIELDS].map(field => [field,
+    oldCard?.querySelector(`.mj-note-in[data-field="${field}"]`)?.value]));
 
   _submitting = true;
   if (submitBtn) submitBtn.disabled = true;
   try {
-    await invoke(cmd, { payload });
+    const invoke = await getInvoke();
+    if (!invoke) {
+      console.info('[matchups] (preview) submit — no Electron backend.');
+      closeForm();
+      return;
+    }
+    await flushPendingNotes();
+    const result = await invoke(cmd, { payload });
+    if (payload.id != null) {
+      // The full edit form is an explicit save. Replace its old inline values,
+      // while preserving any additional inline edits made during the request.
+      for (const field of NOTE_FIELDS) {
+        const input = oldCard?.querySelector(`.mj-note-in[data-field="${field}"]`);
+        if (input && input.value === submittedLive[field]) input.value = payload[field];
+      }
+      _notes.set(Number(payload.id), { prior: payload.prior, observed: payload.observed });
+    }
     closeForm();
     await loadMatchups();
+    const id = result?.id ?? payload.id;
+    if (id != null) scrollToCard(id);
   } catch (err) {
     setFormError(errText(err));
     console.error(`[matchups] ${cmd} failed:`, err);
@@ -553,7 +612,7 @@ async function fromLastGame(btn) {
 
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info('[matchups] (preview) action "from_last_game" — no Tauri backend.');
+    console.info('[matchups] (preview) action "from_last_game" — no Electron backend.');
     return;
   }
 
@@ -711,18 +770,18 @@ async function copyMarkdown(btn) {
       ? await invoke('get_matchups_export_markdown', { lane, last })
       : buildPreviewMarkdown(_lastData, lane, last);
     if (!built || typeof built.markdown !== 'string') {
-      flashButton(btn, 'COPY FAILED', 'err');
+      flashButton(btn, 'Copy failed', 'err');
       return;
     }
     const count = Number(built.count) || 0;
     if (count === 0) {
-      flashButton(btn, 'NOTHING TO COPY', null);
+      flashButton(btn, 'Nothing to copy', null);
       return;
     }
     await navigator.clipboard.writeText(built.markdown);
-    flashButton(btn, `COPIED ${count}`, 'ok');
+    flashButton(btn, `Copied ${count}`, 'ok');
   } catch (err) {
-    flashButton(btn, 'COPY FAILED', 'err');
+    flashButton(btn, 'Copy failed', 'err');
     console.error('[matchups] copy_markdown failed:', err);
   } finally {
     if (btn) btn.disabled = false;
@@ -734,17 +793,20 @@ function render(d) {
   clearError();
   renderHeader(d);
   renderLastGame(d);
-  rememberNotes(d);
 
   const lanes = Array.isArray(d.lanes) ? d.lanes : [];
   const empty = d.isEmpty || lanes.length === 0;
 
   renderLanes(lanes);
+  rememberNotes(d);
   autosizeAllNotes();
   show($('x-copy'), !empty);
+  show($('mj-browser'), !empty);
 
   if (empty) {
-    if (d.emptyMessage) $('mj-empty-h').textContent = d.emptyMessage;
+    // Keep the heading separate from guidance, including for older snapshots
+    // whose emptyMessage contains the entire onboarding paragraph.
+    $('mj-empty-h').textContent = 'No matchup notes yet';
     show($('mj-empty'), true);
   } else {
     show($('mj-empty'), false);
@@ -772,11 +834,17 @@ function loadMatchups() {
   return _loadPromise;
 }
 async function runLoad() {
-  // Let inline note saves still in flight land first — the re-render rebuilds
-  // every textarea from the snapshot, which must already carry the new text.
-  if (_pendingSaves.size) await Promise.allSettled(Array.from(_pendingSaves));
   try {
-    const data = await fetchMatchups();
+    let data;
+    while (true) {
+      await flushPendingNotes();
+      const revision = _notesRevision;
+      data = await fetchMatchups();
+      await flushPendingNotes();
+      // A completed save may have overtaken this response. Fetch again before
+      // comparing live fields with their newly confirmed baseline.
+      if (revision === _notesRevision) break;
+    }
     _lastData = data;
     render(data);
   } catch (err) {
@@ -811,10 +879,10 @@ function cardIdForTarget(target) {
 //   copy_card      = this one card as Markdown → clipboard (local, no backend).
 // Per-card mutation (carries {id}):
 //   delete_card (confirms first) → delete_matchup.
-const LOCAL_ACTIONS = new Set(['new_card', 'edit_card', 'cancel_form', 'copy_card']);
+const LOCAL_ACTIONS = new Set(['new_card', 'edit_card', 'cancel_form', 'copy_card', 'clear_filters']);
 const ACTIONS = new Set([
   'new_card', 'edit_card', 'cancel_form', 'submit_form',
-  'from_last_game', 'copy_markdown', 'copy_card', 'delete_card',
+  'from_last_game', 'copy_markdown', 'copy_card', 'delete_card', 'clear_filters',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -830,6 +898,7 @@ document.addEventListener('click', async (ev) => {
     else if (action === 'edit_card') openEditForm(cardIdForTarget(target));
     else if (action === 'cancel_form') closeForm();
     else if (action === 'copy_card') await copyCard(target);
+    else if (action === 'clear_filters') { clearFilters(); $('mj-search')?.focus(); }
     return;
   }
 
@@ -844,12 +913,13 @@ document.addEventListener('click', async (ev) => {
 
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info(`[matchups] (preview) action "${action}" — no Tauri backend.`);
+    console.info(`[matchups] (preview) action "${action}" — no Electron backend.`);
     return;
   }
 
   target.disabled = true;
   try {
+    await flushPendingNotes();
     await invoke('delete_matchup', { payload: { id: Number(id) } });
     if (_editId != null && String(_editId) === String(id)) closeForm();
     await loadMatchups();
@@ -864,6 +934,7 @@ document.addEventListener('click', async (ev) => {
 // Lane select drives the form's champion inputs.
 document.addEventListener('change', (ev) => {
   if (ev.target && ev.target.id === 'f-lane') syncLaneFields();
+  if (ev.target && ev.target.id === 'mj-lane-filter') applyFilters();
 });
 
 // Enter inside a form input must never navigate — route it to the same submit.
@@ -877,6 +948,7 @@ document.addEventListener('submit', (ev) => {
 // Inline note boxes grow as you type …
 document.addEventListener('input', (ev) => {
   const ta = ev.target;
+  if (ta?.id === 'mj-search') applyFilters();
   if (ta && ta.classList && ta.classList.contains('mj-note-in')) autosizeNote(ta);
 });
 let _resizeTimer = null;
@@ -965,7 +1037,7 @@ async function wireLiveChannel() {
     if (msg.type === 'gameEnded' && msg.payload && msg.payload.saved === true) requestRefresh();
   });
 
-  // Ask the Rust host to open (or join) the SSE stream — idempotent; the shell
+  // Ask the Electron host to open (or join) the SSE stream — idempotent; the shell
   // normally already has it running.
   try { await invoke('start_lcu_events'); }
   catch (err) { console.error('[matchups] start_lcu_events failed:', err); }

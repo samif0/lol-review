@@ -21,6 +21,7 @@ public sealed class ReviewExportService : IReviewExportService
     private readonly IEvidenceRepository _evidence;
     private readonly ISessionLogRepository _sessionLog;
     private readonly IConfigService _config;
+    private readonly IGameEventsRepository? _gameEvents;
 
     public ReviewExportService(
         IGameHistoryQuery gameHistory,
@@ -31,7 +32,8 @@ public sealed class ReviewExportService : IReviewExportService
         IMatchupNotesRepository matchupNotes,
         IEvidenceRepository evidence,
         ISessionLogRepository sessionLog,
-        IConfigService config)
+        IConfigService config,
+        IGameEventsRepository? gameEvents = null)
     {
         _gameHistory = gameHistory;
         _objectives = objectives;
@@ -42,6 +44,7 @@ public sealed class ReviewExportService : IReviewExportService
         _evidence = evidence;
         _sessionLog = sessionLog;
         _config = config;
+        _gameEvents = gameEvents;
     }
 
     public async Task<string> ExportAllAsync(CancellationToken cancellationToken = default)
@@ -95,7 +98,8 @@ public sealed class ReviewExportService : IReviewExportService
         // only appear in the Moments section while auto-fill is on.
         var evidence = EvidenceAutoAnchors.ForSurface(
             await _evidence.GetForGameAsync(game.GameId),
-            _config.AutoTimelineClippingEnabled);
+            _config.AutoTimelineClippingEnabled,
+            _gameEvents is null ? [] : await _gameEvents.GetEligibleEventsAsync(game.GameId));
         var sessionEntry = await _sessionLog.GetEntryAsync(game.GameId);
         var tagIds = await _conceptTags.GetIdsForGameAsync(game.GameId);
         var allTags = await _conceptTags.GetAllAsync();

@@ -108,6 +108,8 @@ public sealed class ObjectiveEventTieResolver
         GameEvent e,
         IReadOnlyDictionary<int, IReadOnlyList<ObjectiveTie>> teamfightTies)
     {
+        if (!EventProcessing.EventEligibility.IsEligible(e)) return [];
+        e = EventProcessing.EventEligibility.ForConsumers([e])[0];
         var matches = new List<ObjectiveTie>();
         // An event can match more than one trackable token (a trade matches both the
         // generic TRADE and its kind-specific token); add every tracking objective,
@@ -121,7 +123,7 @@ public sealed class ObjectiveEventTieResolver
         if (teamfightTies.TryGetValue(e.Id, out var tfObjs))
             foreach (var t in tfObjs)
                 if (!matches.Any(m => m.ObjectiveId == t.ObjectiveId)) matches.Add(t);
-        return matches;
+        return matches.Where(t => EventProcessing.EventEligibility.WasSubscribed(e, t.ObjectiveId)).ToArray();
     }
 
     /// <summary>
@@ -133,12 +135,14 @@ public sealed class ObjectiveEventTieResolver
     /// </summary>
     public IReadOnlyList<ObjectiveTie> TokenTiesForEvent(GameEvent e)
     {
+        if (!EventProcessing.EventEligibility.IsEligible(e)) return [];
+        e = EventProcessing.EventEligibility.ForConsumers([e])[0];
         var matches = new List<ObjectiveTie>();
         foreach (var token in EventTokens(e))
             if (_tokenMap.TryGetValue(token, out var tokenObjs))
                 foreach (var t in tokenObjs)
                     if (!matches.Any(m => m.ObjectiveId == t.ObjectiveId)) matches.Add(t);
-        return matches;
+        return matches.Where(t => EventProcessing.EventEligibility.WasSubscribed(e, t.ObjectiveId)).ToArray();
     }
 
     /// <summary>
@@ -158,6 +162,8 @@ public sealed class ObjectiveEventTieResolver
     /// </summary>
     public static IReadOnlyList<string> EventTokens(GameEvent e)
     {
+        var processingTokens = EventProcessing.EventEligibility.StoredTokens(e);
+        if (processingTokens.Count > 0) return processingTokens;
         var type = (e.EventType ?? "").ToUpperInvariant();
         if (type is "FLASH" or "SUMMONER_SPELL")
         {
@@ -238,8 +244,7 @@ public sealed class ObjectiveEventTieResolver
     /// <summary>
     /// The teamfights in a game that some active objective tracks, each tagged with the
     /// objectives it ties to. Fights are the shared <see cref="TeamfightClustering.Resolve"/>
-    /// set (stored post-game rows with numbers, else the synthetic own-event clusters —
-    /// the same definition the client timeline band uses). A fight the player was in
+    /// set of eligible stored rows. A fight the player was in
     /// ties to the TEAMFIGHT trackers plus the trackers of its numbers verdict; a fight
     /// without the player ties to the ABSENT_TEAMFIGHT trackers only. Fights nobody
     /// tracks are omitted; empty when no objective tracks any fight token. Used by the
@@ -284,7 +289,8 @@ public sealed class ObjectiveEventTieResolver
         void AddAll(IReadOnlyList<ObjectiveTie> ties)
         {
             foreach (var t in ties)
-                if (!list.Any(x => x.ObjectiveId == t.ObjectiveId)) list.Add(t);
+                if ((span.Stored is null || EventProcessing.EventEligibility.WasSubscribed(span.Stored, t.ObjectiveId))
+                    && !list.Any(x => x.ObjectiveId == t.ObjectiveId)) list.Add(t);
         }
 
         if (span.Stored is not null)

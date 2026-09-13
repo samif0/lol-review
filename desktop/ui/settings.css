@@ -1,0 +1,132 @@
+/* Preferences share the app palette; rules and type replace nested panels. */
+.settings-page{background:var(--bg);color:var(--text);font:15px/1.55 var(--fb)}
+.settings-page *,.settings-page button,.settings-page input,.settings-page select{font-family:var(--fb);letter-spacing:normal}
+.settings-page [hidden]{display:none!important}
+body.settings-page .settings-shell{max-width:1100px;padding-bottom:56px}
+.settings-page .settings-header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:36px}
+.settings-page h1{font-size:26px;font-weight:600;line-height:1.25;margin:0 0 8px;color:var(--text);text-shadow:none}
+.settings-page .settings-header p{margin:0;color:var(--muted);font-size:15px}
+.settings-page .statusline{font-size:13px;color:var(--muted);margin:0;background:none;border:0;padding:0;white-space:nowrap}
+.settings-page .statusline b{font-weight:400}
+.settings-page .statusline .dot{display:none}
+.settings-page .settings-layout{display:grid;grid-template-columns:196px minmax(0,1fr);gap:40px;align-items:start}
+.settings-page .settings-sidebar{position:sticky;top:24px}
+.settings-page .settings-search-label{display:block;font-size:13px;font-weight:500;margin-bottom:8px;color:var(--muted)}
+.settings-page .settings-search-wrap{position:relative;margin-bottom:20px}
+body.settings-page #settings-search{width:100%;height:40px;border-radius:10px!important;background:transparent!important;border:1px solid var(--border)!important;padding:0 35px 0 12px;color:var(--text);font-size:14px;outline:none}
+.settings-page #settings-search::placeholder{color:var(--muted)}
+.settings-page #settings-search::-webkit-search-cancel-button{-webkit-appearance:none}
+body.settings-page #settings-search:focus{border-color:var(--muted)!important}
+body.settings-page #settings-search-clear{position:absolute;right:5px;top:5px;width:30px;height:30px;min-height:0;padding:0;background:transparent!important;border:0!important;border-radius:50%!important;color:var(--muted)!important;cursor:pointer;font-size:20px}
+.settings-page .settings-categories{display:flex;flex-direction:column;gap:3px}
+body.settings-page .settings-categories button{display:flex;align-items:center;gap:8px;justify-content:space-between;width:100%;padding:10px 12px;text-align:left;font-size:14px;font-weight:400;border:1px solid transparent;border-radius:8px!important;background:transparent!important;color:var(--muted)!important;border-color:transparent!important;cursor:pointer;min-height:42px}
+body.settings-page .settings-categories button:hover:not(:disabled){background:var(--surface)!important;color:var(--text)!important;border-color:transparent!important}
+body.settings-page .settings-categories button.is-current,body.settings-page .settings-categories button.is-current:hover{background:var(--surface-raised)!important;color:var(--text)!important;border-color:transparent!important;font-weight:600}
+.settings-page .settings-categories button[data-dirty="true"]::after{content:'';width:5px;height:5px;background:var(--text);border-radius:50%;flex-shrink:0}
+.settings-page [data-search-count]{color:var(--muted);font-size:12px;padding:0 3px}
+.settings-page .settings-sidebar-note{font-size:12px;color:var(--muted);margin:20px 12px 0;line-height:1.8}
+.settings-page kbd{font:inherit;border:1px solid var(--border);border-radius:4px;padding:2px 5px;color:var(--muted)}
+.settings-page .settings-content{min-width:0}
+.settings-page .settings-section{margin-bottom:32px}
+.settings-page .settings-section-header{margin:0;padding:0 0 22px;border-bottom:1px solid var(--border)}
+.settings-page h2{font-size:20px;font-weight:600;line-height:1.4;margin:0 0 6px;outline:none;color:var(--text)}
+.settings-page .settings-section-header p{margin:0;font-size:13px;color:var(--muted);max-width:620px}
+body.settings-page .set-card{display:flex;flex-direction:column;gap:22px;padding:24px 0 28px;margin:0;border:0!important;border-bottom:1px solid var(--border)!important;border-radius:0!important;background:transparent!important;box-shadow:none;opacity:1;transform:none;animation:none;overflow:visible}
+body.settings-page .set-card:last-child{border-bottom:0!important}
+.settings-page .set-card::before,.settings-page .set-card::after{display:none}
+.settings-page h3{font-size:15px;font-weight:600;line-height:1.5;margin:0;color:var(--text)}
+.settings-page .settings-card-description{margin:5px 0 0;color:var(--muted);font-size:13px}
+.settings-page .settings-title-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px}
+.settings-page .settings-availability{font-size:12px;line-height:1.5;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:2px 8px;white-space:nowrap}
+.settings-page .set-row{display:flex;gap:24px;align-items:center;justify-content:space-between;padding:0;min-height:40px}
+.settings-page .set-row+.set-row{padding-top:20px;border-top:1px solid var(--border)}
+.settings-page .set-row-txt{max-width:580px;min-width:0}
+.settings-page .set-row-h{font-size:15px;color:var(--text);font-weight:400;line-height:1.5}
+.settings-page .set-row-s{font-size:13px;color:var(--muted);line-height:1.65;margin-top:4px}
+.settings-page .settings-field-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,.7fr);gap:18px}
+.settings-page .obj-field{display:flex;flex-direction:column;gap:8px;margin:0;min-width:0}
+.settings-page .obj-field-k{font-size:13px;font-weight:400;color:var(--text);line-height:1.5;margin:0;text-transform:none}
+body.settings-page .obj-input{width:100%;min-height:40px;padding:9px 12px;border:1px solid var(--border)!important;border-radius:10px!important;background:var(--surface)!important;color:var(--text);font-size:14px;line-height:1.5;box-shadow:none}
+.settings-page .obj-input::placeholder{color:var(--muted)}
+body.settings-page .obj-input:focus{border-color:var(--muted)!important;outline:none;background:var(--surface)!important}
+.settings-page select.obj-input option{background:var(--surface);color:var(--text)}
+.settings-page .settings-field-help{font-size:13px;color:var(--muted);margin:0;line-height:1.65}
+.settings-page .settings-path-field{display:flex;gap:8px;min-width:0}
+.settings-page .settings-path-field input{min-width:0;flex:1}
+.settings-page .settings-path-field button{flex-shrink:0}
+.settings-page .settings-short-field{max-width:240px}
+body.settings-page .set-toggle{position:relative;width:38px;height:22px;min-height:0;border:1px solid var(--muted)!important;border-radius:12px!important;background:var(--surface-raised)!important;flex-shrink:0;box-shadow:none;padding:0;cursor:pointer}
+.settings-page .set-toggle>i{position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transform:none;box-shadow:none;transition:transform .12s ease}
+body.settings-page .set-toggle.on,body.settings-page .set-toggle.on:hover:not(:disabled){background:var(--primary)!important;border-color:var(--primary)!important}
+.settings-page .set-toggle.on>i{background:var(--primary-ink);transform:translateX(16px)}
+body.settings-page .set-toggle:hover:not(:disabled){background:var(--surface-raised)!important;border-color:var(--text)!important}
+body.settings-page :is(button,a,summary):focus-visible{outline:2px solid var(--text)!important;outline-offset:3px;box-shadow:none}
+.settings-page .set-btnrow{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0}
+body.settings-page .rule-act,body.settings-page .cta{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 15px;border:1px solid var(--border)!important;border-radius:999px!important;background:transparent!important;color:var(--text)!important;font-size:14px;font-weight:500;line-height:1.4;text-decoration:none;text-transform:none;box-shadow:none;cursor:pointer;white-space:nowrap}
+body.settings-page .rule-act:hover:not(:disabled),body.settings-page .cta:hover:not(:disabled){background:var(--surface-raised)!important;border-color:var(--muted)!important;transform:none;box-shadow:none}
+body.settings-page .set-act-primary,body.settings-page .cta{background:var(--primary)!important;border-color:var(--primary)!important;color:var(--primary-ink)!important}
+body.settings-page .set-act-primary:hover:not(:disabled),body.settings-page .cta:hover:not(:disabled){background:var(--text)!important;border-color:var(--text)!important;color:var(--primary-ink)!important}
+body.settings-page .settings-text-button{border:0!important;background:transparent!important;color:var(--muted)!important;font-size:14px;padding:8px;cursor:pointer;border-radius:999px!important}
+body.settings-page .settings-text-button:hover:not(:disabled),body.settings-page #settings-search-clear:hover{background:var(--surface)!important;color:var(--text)!important}
+.settings-page .settings-save-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:2px;margin-top:0;border:0}
+.settings-page .settings-save-footer>.set-btnrow:last-child,.settings-page .settings-save-footer>button:last-child{margin-left:auto}
+.settings-page .settings-save-footer [data-save-status],.settings-page .set-savestatus{font-size:13px;color:var(--muted);min-height:18px}
+.settings-page [data-dirty="true"]>[data-save-status],.settings-page [data-dirty="true"] [data-save-status]{color:var(--text)}
+.settings-page .set-status{font-size:13px;line-height:1.65;color:var(--muted);margin:0;min-height:0}
+.settings-page .set-status:empty{display:none}
+.settings-page .set-status.good,.settings-page [data-save-status].good{color:var(--text)}
+.settings-page .set-status.bad,.settings-page [data-save-status].bad{color:var(--text);font-weight:600}
+.settings-page .settings-status-box{background:transparent;border:0;padding:0;border-radius:0}
+.settings-page #recording-status{color:var(--muted);line-height:1.65}
+.settings-page .settings-inline-note{display:block;background:transparent;border:0;padding:18px 0 0;font-size:13px;line-height:1.7;color:var(--muted);margin:0}
+.settings-page .settings-inline-note a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+body.settings-page details.set-card{display:block;padding:0;overflow:hidden}
+.settings-page details.set-card>summary{list-style:none;cursor:pointer;position:relative;padding:22px 32px 22px 0;color:var(--text);font-size:15px;font-weight:500}
+.settings-page details.set-card>summary::-webkit-details-marker{display:none}
+.settings-page details.set-card>summary::after{content:'+';position:absolute;right:3px;top:20px;color:var(--muted);font-size:20px;font-weight:400}
+.settings-page details.set-card[open]>summary::after{content:'−'}
+.settings-page details.set-card>summary span{display:block;margin-top:5px;font-size:13px;line-height:1.65;font-weight:400;color:var(--muted)}
+.settings-page .settings-disclosure-body{display:flex;flex-direction:column;gap:18px;border:0;padding:0 0 26px}
+body.settings-page .set-danger>summary{color:var(--text)!important}
+body.settings-page .set-danger-btn{background:transparent!important;border-color:var(--muted)!important;color:var(--text)!important}
+body.settings-page .set-danger-btn:hover:not(:disabled){background:var(--surface-raised)!important;border-color:var(--text)!important;color:var(--text)!important}
+.settings-page .set-acct-status{display:flex;align-items:center;gap:8px;font-family:inherit;font-size:13px;color:var(--muted)}
+.settings-page .set-acct-status.on{color:var(--text)}
+.settings-page .set-acct-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);box-shadow:none}
+.settings-page .set-acct-dot.on{background:var(--text);box-shadow:none}
+.settings-page .set-acct-email,.settings-page .set-acct-note{font-size:13px;color:var(--muted);font-family:inherit}
+.settings-page .set-update-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.settings-page .set-update-ver{font-size:13px;color:var(--muted);font-family:inherit}
+.settings-page .set-backup-row{padding:12px;border:1px solid var(--border);background:transparent;border-radius:8px;box-shadow:none;margin-bottom:8px;cursor:pointer}
+.settings-page .set-backup-row.on{border-color:var(--text);background:var(--surface);box-shadow:none}
+.settings-page .set-backup-label{font-size:13px;font-family:inherit;color:var(--text)}
+.settings-page .set-backup-meta{font-size:13px;font-family:inherit;color:var(--muted)}
+.settings-page #settings-search-status{font-size:13px;color:var(--muted);margin-bottom:20px}
+.settings-page #settings-search-empty{padding:24px 0;background:transparent;border:0;border-radius:0}
+.settings-page #settings-search-empty p{color:var(--muted);font-size:13px;margin:7px 0 18px}
+.settings-page #errpanel{background:transparent;border:1px solid var(--border);padding:14px 18px;border-radius:10px;margin:0 0 24px;color:var(--text);box-shadow:none}
+.settings-page #err-line{font-size:13px;font-weight:600;color:var(--text)}
+.settings-page #err-detail{font-size:13px;margin-top:5px;color:var(--muted)}
+/* Keep disabled preferences distinct under the shared button reset. */
+body.settings-page button[disabled]:disabled{background:var(--surface)!important;color:var(--muted)!important;border-color:var(--border)!important;opacity:.5!important;cursor:not-allowed!important}
+body.settings-page .settings-text-button[disabled]:disabled{background:transparent!important}
+body.settings-page input:disabled,body.settings-page select:disabled{opacity:.5!important;cursor:not-allowed}
+@media(max-width:1050px){
+  .settings-page .settings-layout{grid-template-columns:184px minmax(0,1fr);gap:28px}
+  .settings-page .settings-field-grid{grid-template-columns:1fr}
+  .settings-page .settings-header{align-items:flex-start}
+  .settings-page .statusline{white-space:normal}
+}
+@media(max-width:730px){
+  .settings-page .settings-layout{display:block}
+  .settings-page .settings-sidebar{position:static;margin-bottom:24px}
+  .settings-page .settings-search-wrap{max-width:420px;margin-bottom:14px}
+  .settings-page .settings-categories{flex-direction:row;overflow-x:auto;padding-bottom:6px;gap:4px}
+  body.settings-page .settings-categories button{width:auto;flex-shrink:0;min-height:36px;padding:8px 11px}
+  .settings-page .settings-sidebar-note{display:none}
+  .settings-page .settings-header{display:block;margin-bottom:26px}
+  .settings-page .statusline{margin-top:12px}
+  .settings-page .settings-save-footer{align-items:flex-start;flex-direction:column;gap:10px}
+  .settings-page .settings-save-footer>.set-btnrow:last-child,.settings-page .settings-save-footer>button:last-child{margin-left:0}
+  .settings-page .set-row{gap:14px}
+}

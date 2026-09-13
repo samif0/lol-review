@@ -8,7 +8,7 @@ namespace Revu.Sidecar;
 // Read-only mirror of the WinUI Pattern Review surface
 // (PatternReviewViewModel + PatternMomentItem), WITHOUT any XAML/WinUI types:
 // there are NO SolidColorBrush properties — every color is a plain *Hex string
-// the Tauri frontend resolves itself. Property names are PascalCase here; the
+// the desktop renderer resolves itself. Property names are PascalCase here; the
 // serializer is configured with JsonNamingPolicy.CamelCase in Program.cs, so the
 // wire shape is camelCase and matches desktop/ui/sample-patterns.json verbatim.
 //
@@ -122,4 +122,5 @@ public sealed record PatternMomentDto(
     bool HasVod,
     // The clip file this moment was promoted to, when it is still on disk ("" otherwise).
     string ClipPath = "",
-    bool HasClip = false);
+    bool HasClip = false,
+    double GameTimeAtVideoStart = 0);

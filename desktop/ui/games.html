@@ -3,12 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Revu: Games</title>
+<title>Revu: Match library</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./learning-pages.css">
+<link rel="stylesheet" href="./games-page.css">
 </head>
-<body>
+<body class="games-page">
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
   <div class="grain"></div>
   <script type="module" src="./shell.js" data-page="games"></script>
@@ -30,28 +32,29 @@
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
   <div class="shell">
-    <div class="eyebrow">Objective Loop</div>
+    <div class="eyebrow">Review</div>
     <!-- Hero row: title on the left, Manual Entry action on the right (moved off the
          nav rail — manual entry is a Games-page action, not a daily-loop destination). -->
     <div class="games-hero">
-      <div class="hero"><h1>Games</h1></div>
-      <button class="cta games-manual-btn" id="manual-entry" data-action="manual_entry" type="button">+ MANUAL ENTRY</button>
+      <div class="hero"><h1>Match library</h1></div>
+      <button class="review games-manual-btn" id="manual-entry" data-action="manual_entry" type="button">Add a game manually</button>
     </div>
+    <p class="page-intro">Choose a game to review your practice, save a takeaway, or watch its recording.</p>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
     <!-- PRIMARY: Review-Queue command bar (the one loud element) + filter segment.
          Carries the live unreviewed count and switches the list below. -->
     <div class="glass primary games-bar" id="queue-bar">
       <div class="games-bar-lead">
-        <div class="k" id="queue-k">Workspace · Review Queue</div>
+        <div class="k" id="queue-k">Your games</div>
         <h2 id="queue-h">Review Queue</h2>
         <div class="games-bar-cnt" id="queue-cnt"><span class="pdot"></span> <span id="queue-cnt-text">…</span></div>
       </div>
       <div class="seg" id="seg" role="tablist" aria-label="Switch games view">
-        <button class="on" data-action="view" data-view="queue" role="tab" aria-selected="true">Queue</button>
+        <button class="on" data-action="view" data-view="queue" role="tab" aria-selected="true">To review</button>
         <button data-action="view" data-view="today" role="tab" aria-selected="false">Today</button>
         <button data-action="view" data-view="history" role="tab" aria-selected="false">History</button>
-        <button data-action="view" data-view="vod" role="tab" aria-selected="false">VOD</button>
+        <button data-action="view" data-view="vod" role="tab" aria-selected="false">With recordings</button>
       </div>
     </div>
 
@@ -59,13 +62,13 @@
     <div class="strip" id="strip"></div>
 
     <!-- THE LIST — clickable game rows. The most prominent section. -->
-    <div class="seclabel seclabel-lead" id="games-label">Games <span class="n" id="games-sub"></span></div>
+    <div class="games-list-heading" id="games-label"><h2>Matches</h2><span id="games-sub"></span></div>
     <div id="games-list"></div>
 
     <!-- Empty / filtered-empty state. -->
     <div class="games-empty" id="games-empty" hidden>
       <div class="games-empty-h" id="games-empty-h">No games recorded yet.</div>
-      <div class="games-empty-p" id="games-empty-p">Play a ranked or normal game and it lands here for review.</div>
+      <div class="games-empty-p" id="games-empty-p">Keep Revu open during a Ranked Solo/Duo game, or add a game manually.</div>
     </div>
 
     <!-- Load more — only when the server has more pages. Small, calm glass. -->
@@ -93,17 +96,14 @@
     </div>
   </template>
 
-  <!-- One game row. Whole row is the primary action (open_review). The KDA sits
-       in its own column so numbers read fast; state tokens + an inline VOD link
-       fill the meta row. Reuses .gamerow hover hype + W/L edge bar. -->
+  <!-- One match, one primary action. Result, matchup and the action each have
+       a clear position; supporting status text remains part of the same row. -->
   <template id="tpl-gamerow">
     <div class="card gamerow gamerow-game" data-action="open_review" tabindex="0" role="button">
-      <span class="gamerow-sweep" aria-hidden="true"></span>
-      <span class="gamerow-edge" aria-hidden="true"></span>
       <div class="crow">
+        <span class="grow-wl"></span>
         <div class="grow-main">
           <div class="grow-top">
-            <span class="grow-wl"></span>
             <span class="vline grow-champ"></span>
           </div>
           <div class="vsmall grow-meta"></div>
@@ -111,13 +111,13 @@
         </div>
         <div class="grow-right">
           <div class="grow-kda"><span class="grow-kda-n"></span><span class="grow-kda-r"></span></div>
-          <div class="gamerow-cue" aria-hidden="true">REVIEW <span class="arr">→</span></div>
+          <div class="gamerow-cue">Review <span class="arr" aria-hidden="true">→</span></div>
         </div>
       </div>
     </div>
   </template>
 
-  <!-- A single state token chip (reviewed / VOD / objective state). -->
+  <!-- Compact status text; unavailable objective tagging adds no extra badge. -->
   <template id="tpl-token">
     <span class="gtoken"></span>
   </template>

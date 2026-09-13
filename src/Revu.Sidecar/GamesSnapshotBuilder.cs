@@ -380,7 +380,7 @@ public sealed class GamesSnapshotBuilder
             ReviewStateText: HasPersistedReview(game) ? "Reviewed" : "Unreviewed",
             VodStateText: "No VOD",
             PrimaryAction: HasPersistedReview(game) ? "Open" : "Review",
-            // Stable token the Tauri shell maps to navigation. Row-body click =
+            // Stable token the desktop shell maps to navigation. Row-body click =
             // always open the Review page (mirrors GamesViewModel.OpenReview).
             Action: "open_review");
     }

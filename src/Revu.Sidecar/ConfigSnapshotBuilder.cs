@@ -8,8 +8,7 @@ namespace Revu.Sidecar;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/config — read the app config the Settings page (and several other
-// pages) edit. SHARED endpoint: Dashboard greeting (RiotId), the Ascent VOD
-// reminder (IsAscentEnabled / AscentReminderDismissed), and the VOD viewer's
+// pages) edit. SHARED endpoint: Dashboard greeting (RiotId) and the VOD viewer's
 // auto-clipping hint (AutoTimelineClippingHintDismissed) all read config too.
 //
 // Same conventions as the other snapshot builders: PascalCase here, camelCase on
@@ -19,7 +18,7 @@ namespace Revu.Sidecar;
 // convenience properties: the sidecar's read-graph IConfigService is a separate
 // singleton/cache from the write-graph one, so forcing a disk read here makes
 // GET reflect whatever POST /api/config/save just persisted. The folder fields
-// are returned RAW (config.AscentFolder/ClipsFolder/BackupFolder), not the
+// are returned RAW (config.ClipsFolder/BackupFolder), not the
 // validated convenience-property variants, because the editor must round-trip
 // exactly what the user typed even if the folder is currently missing.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,9 +56,6 @@ public sealed class ConfigSnapshotBuilder
         var loggedIn = _config.HasValidRiotSession;
 
         return new ConfigDto(
-            AscentFolder: cfg.AscentFolder ?? "",
-            AscentReminderDismissed: cfg.AscentReminderDismissed,
-            IsAscentEnabled: _config.IsAscentEnabled,
             ClipsFolder: cfg.ClipsFolder ?? "",
             ClipsMaxSizeMb: cfg.ClipsMaxSizeMb,
             BackupEnabled: cfg.BackupEnabled,
@@ -81,22 +77,18 @@ public sealed class ConfigSnapshotBuilder
             Region: cfg.RiotRegion ?? "",
             PrimaryRole: cfg.PrimaryRole ?? "",
             RiotSessionEmail: cfg.RiotSessionEmail ?? "",
-            RiotAuthState: loggedIn ? "loggedIn" : "loggedOut");
+            RiotAuthState: loggedIn ? "loggedIn" : "loggedOut",
+            AscentFolder: cfg.AscentFolder ?? "");
     }
 }
 
 /// <summary>
 /// Editable + derived app-config surface returned by GET /api/config. Field set
-/// matches the WinUI SettingsViewModel save list plus the cross-page reads the
-/// Batch-0 spec calls out (AscentReminderDismissed, IsAscentEnabled,
-/// AutoTimelineClippingHintDismissed). RiotSessionToken/Puuid are deliberately
+/// includes settings and the cross-page AutoTimelineClippingHintDismissed flag.
+/// RiotSessionToken/Puuid are deliberately
 /// NOT exposed — secrets stay server-side.
 /// </summary>
 public sealed record ConfigDto(
-    string AscentFolder,
-    bool AscentReminderDismissed,
-    // Derived: true when AscentFolder validates to a real directory.
-    bool IsAscentEnabled,
     string ClipsFolder,
     int ClipsMaxSizeMb,
     bool BackupEnabled,
@@ -106,7 +98,7 @@ public sealed record ConfigDto(
     bool RequireReviewNotes,
     bool SidebarAnimationEnabled,
     // Main-window size: "" = built-in default (1600x1000), "maximized", or "WxH".
-    // Applied by the Tauri host on launch + live on Settings save.
+    // Applied by the Electron host on launch + live on Settings save.
     string WindowResolution,
     bool MinimizeDuringGame,
     bool AutoTimelineClippingEnabled,
@@ -124,4 +116,5 @@ public sealed record ConfigDto(
     // Read-only: which email is signed in (display only; "" when logged out).
     string RiotSessionEmail,
     // "loggedIn" | "loggedOut" — drives which account sub-panel the page shows.
-    string RiotAuthState);
+    string RiotAuthState,
+    string AscentFolder = "");

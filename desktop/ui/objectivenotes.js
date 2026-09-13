@@ -1,42 +1,19 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { objectiveDisplayText, objectivePhaseLabel } from './objective-labels.mjs';
+
 // Revu desktop — Objective Notes page renderer for the glass-aurora layout.
-// Renders the JSON returned by the Tauri command `get_objective_notes`
+// Renders the JSON returned by the Electron command `get_objective_notes`
 // (see Revu.Sidecar GET /api/objective/notes?id=N): a read-only aggregation of
 // review notes + execution notes + clips/bookmarks for ONE objective. Each row
 // jumps back to its source (review page / VOD player) via plain file routing.
 // Mirrors app.js conventions exactly:
-//   • getInvoke() prefers @tauri-apps/api/core, falls back to window.__TAURI__.
-//   • Outside Tauri it fetches ./sample-objective-notes.json (browser preview).
+//   • getInvoke() uses the shared platform boundary and detects browser previews.
+//   • Outside Electron it fetches ./sample-objective-notes.json (browser preview).
 //   • Every server string is written via textContent (never innerHTML).
 //   • ONE delegated [data-action] click handler.
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
-
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 
 // The objective id this page was opened for (?id=N).
 function objectiveId() {
@@ -46,21 +23,13 @@ function objectiveId() {
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchObjectiveNotes() {
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
-  // bundled sample only when invoke is genuinely unavailable (browser preview).
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_objective_notes', { id: objectiveId() });
-  }
-  const res = await fetch('./sample-objective-notes.json');
-  if (!res.ok) throw new Error(`sample-objective-notes.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_objective_notes', 'sample-objective-notes.json', { id: objectiveId() });
 }
 
 // ── render: header ────────────────────────────────────────────────────────
 function renderHeader(d) {
   $('obj-title').textContent = d.objectiveTitle || 'Objective';
-  $('obj-status').textContent = d.objectiveStatus || '';
+  $('obj-status').textContent = objectiveDisplayText(d.objectiveStatus);
 
   const parts = [];
   const r = Array.isArray(d.reviewNotes) ? d.reviewNotes.length : 0;
@@ -116,7 +85,7 @@ function renderPrompts(d) {
     groupEl.querySelector('.on-group-label').textContent = g.label || '';
     const phaseEl = groupEl.querySelector('.on-group-phase');
     show(phaseEl, !!g.phase);
-    if (g.phase) phaseEl.textContent = g.phase;
+    if (g.phase) phaseEl.textContent = objectivePhaseLabel(g.phase);
 
     const answers = Array.isArray(g.answers) ? g.answers : [];
     const answerHost = groupEl.querySelector('.on-group-answers');

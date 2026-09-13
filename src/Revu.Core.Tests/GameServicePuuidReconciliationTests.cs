@@ -28,7 +28,6 @@ public sealed class GameServicePuuidReconciliationTests
             rules,
             scope.GameEvents,
             scope.DerivedEvents,
-            new StubVodService(),
             config,
             NullLogger<GameService>.Instance);
     }

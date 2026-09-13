@@ -96,6 +96,31 @@ public sealed class PatternsSnapshotContractTests
         Status: EvidenceStatuses.Evidence);
 
     [Fact]
+    public async Task NativeRecordingOffsetsAreExposedWithoutMovingPatternGameTimes()
+    {
+        using var scope = new SidecarWriteScope();
+        using var vods = new TempVods();
+        await scope.InitializeAsync();
+        var gameIds = await SeedTrackedDeathsAsync(scope, vods);
+        foreach (var gameId in gameIds)
+        {
+            var path = vods.For(gameId);
+            await File.WriteAllTextAsync(path + RecordingTimeline.Suffix,
+                System.Text.Json.JsonSerializer.Serialize(new RecordingTiming(1, gameId, Path.GetFileName(path), -45.125),
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        }
+        var snapshot = await Builder(scope).BuildAsync();
+        var moments = snapshot.Patterns.SelectMany(card => card.Moments).ToList();
+        Assert.NotEmpty(moments);
+        Assert.All(moments, moment =>
+        {
+            Assert.True(moment.HasVod);
+            Assert.Equal(-45.125, moment.GameTimeAtVideoStart);
+            Assert.Contains(moment.StartTimeSeconds!.Value + PatternConstants.MomentLeadSeconds, new[] { 300, 700, 400, 800, 500 });
+        });
+    }
+
+    [Fact]
     public async Task BuildAsync_StartLessMoments_RenderWithoutFabricatedTime()
     {
         using var scope = new SidecarWriteScope();
@@ -157,7 +182,7 @@ public sealed class PatternsSnapshotContractTests
         var games = await SeedTrackedDeathsAsync(scope, vods: null);
 
         // games[0]: recording on disk. games[2]: vod_files row outlived its file
-        // (Ascent retention). games[1]: never recorded. Only games[0]'s two
+        // (removed from disk). games[1]: never recorded. Only games[0]'s two
         // moments can be watched.
         await scope.Vod.LinkVodAsync(games[2], Path.Combine(Path.GetTempPath(), "definitely-deleted.mp4"));
         var realVod = vods.For(games[0]);

@@ -7,16 +7,24 @@ churn of an unwanted refactor or a feature that overlaps something I'm
 already building. For tiny fixes (typos, broken links, obvious bug fixes)
 just open the PR — no preamble needed.
 
-To build locally you need Windows 10/11, the .NET 8 SDK, Node 20+, and Rust
-stable with the Tauri v2 prerequisites. Clone, then
-`dotnet build Revu.sln -c Debug -p:Platform=x64` for the backend and
-`cd desktop && npm ci && npm run tauri dev` for the app (see the README's
-Development section for the full layout). The tests live in
-`src/Revu.Core.Tests/` and `src/Revu.Sidecar.Tests/` and run with
-`dotnet test <project> -c Release -p:Platform=x64` (the `-p:Platform=x64` is
-required — the projects only declare an x64 platform). The data layer uses an
-isolated SQLite test fixture so tests don't touch your real Revu database at
-`%LOCALAPPDATA%\LoLReviewData\revu.db`.
+Development requires Windows 10/11 x64, the .NET 8 SDK, and Node 22.12 or newer.
+From `desktop/`, run `npm ci --ignore-scripts`, then `npm run setup` to install
+the pinned Overwolf Electron runtime and build the sidecar. `npm start` opens
+the normal application using your existing Revu data. Use
+`npm run start:isolated` for a restricted scratch profile; see
+[README.md](README.md) for commands and the host/frontend/backend layout.
+
+Run both `src/Revu.Core.Tests/Revu.Core.Tests.csproj` and
+`src/Revu.Sidecar.Tests/Revu.Sidecar.Tests.csproj` with
+`dotnet test <project> -c Release -p:Platform=x64`. The platform flag is required.
+These suites use temporary SQLite fixtures rather than your real database.
+For desktop changes, run `npm test`, `npm run build`, `npm run check:probes`,
+and `npm run test:probes` from `desktop/` after the dependency install.
+
+`npm run readiness` checks runtime startup without gaming packages. Live GEP
+and Recorder tests require reviewed access and explicit manual activation;
+never put developer credentials in code, logs, or fixtures. A passing diagnostic
+does not establish recording approval or production capture behavior.
 
 PR-acceptance bar: builds clean (0 warnings, 0 errors on Release), tests
 pass, and the change is scoped to a single concern — a bug fix doesn't

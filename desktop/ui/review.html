@@ -6,9 +6,11 @@
 <title>Revu: Review</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=match-navigation-20260912">
+<link rel="stylesheet" href="./learning-pages.css">
+<link rel="stylesheet" href="./review-launchpad.css?v=match-navigation-20260912">
 </head>
-<body>
+<body class="review-launchpad-page">
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
   <div class="grain"></div>
   <script type="module" src="./shell.js" data-page="review"></script>
@@ -29,157 +31,166 @@
     <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
+  <div class="match-navigation" id="match-navigation" hidden>
+    <a class="match-library-link" href="games.html"><span aria-hidden="true">←</span> Match library</a>
+    <nav class="match-view-switch" aria-label="Match view">
+      <a data-match-view="review" href="review.html">Review</a>
+      <a data-match-view="vod" href="vodplayer.html">VOD</a>
+    </nav>
+    <span class="match-navigation-status" data-match-status role="status" hidden></span>
+  </div>
   <div class="shell">
-    <div class="eyebrow">Game Analysis</div>
-    <div class="hero"><h1 id="hero-title">Review</h1></div>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
-    <!-- HERO GAME CARD — gold-rim glass, read-only result header (champ · result · KDA · VOD). -->
-    <div class="glass rv-hero" id="rv-hero" hidden>
+    <!-- One compact match identity; supporting stats live in Match details. -->
+    <header class="rv-hero" id="rv-hero" hidden>
       <div class="rv-hero-row">
         <div class="rv-hero-lead">
-          <div class="rv-champ" id="rv-champ">—</div>
+          <div class="rv-page-label">Match review</div>
+          <h1 id="hero-title">Match review</h1>
           <div class="rv-resline">
             <span class="rv-res" id="rv-res">—</span>
             <span class="rv-gmode" id="rv-gmode"></span>
             <span class="rv-gdur" id="rv-gdur"></span>
+            <span id="rv-date"></span>
           </div>
-          <div class="rv-matchup" id="rv-matchup"></div>
-          <!-- FULL LOBBY — one cell per lane (champions only, both teams), from the
-               participant map. Hidden until the map exists (Settings → Backfill
-               fills older games). -->
-          <div class="rv-lobby" id="rv-lobby" hidden></div>
         </div>
         <div class="rv-hero-kda">
           <div class="rv-kda" id="rv-kda">— / — / —</div>
           <div class="rv-kdar" id="rv-kdar"></div>
+          <span class="rv-reviewed" id="rv-reviewed" hidden>Review saved</span>
         </div>
       </div>
-      <div class="rv-vodbar">
-        <button type="button" class="review rv-vodbtn" id="rv-vodbtn" data-action="review_vod">▶ Review VOD</button>
-        <span class="rv-reviewed" id="rv-reviewed" hidden>Already reviewed</span>
-        <span class="rv-fixes" id="rv-fixes" hidden>Timeline fixes: <b id="rv-fixes-n">0</b></span>
-      </div>
-    </div>
+    </header>
 
-    <!-- OBJECTIVES IN PLAY — the focus, lifted to the TOP (first section after the
-         game header). Animated ring card + practiced switch + custom prompts. -->
-    <div class="rv-objsec" id="rv-objsec" hidden>
-      <div class="seclabel" id="rv-obj-label" hidden>Objectives in play <span class="n">what you could practice</span></div>
-      <div id="rv-objectives"></div>
-      <div class="rv-emptyline" id="rv-obj-empty" hidden>No active objectives. Set one from the Objectives page.</div>
-    </div>
-
-    <!-- TWO-COLUMN BODY: stats (left) / debrief review (right) — AFTER the objectives. -->
+    <!-- Start in the VOD, capture a takeaway, then open optional match context. -->
     <div class="rv-body" id="rv-body" hidden>
-      <div class="rv-col-main">
-        <!-- AUTO-CAPTURED STAT STRIP — reuse the dashboard .strip / .stat cells. -->
-        <div class="seclabel">Game Stats <span class="n">auto-captured</span></div>
-        <div class="strip rv-strip" id="rv-strip"></div>
-
-        <!-- LANING @10 — the "did I win lane?" line from the timeline backfill. -->
-        <div class="rv-laning" id="rv-laning" hidden></div>
-
-        <!-- DEATH AUDIT — one row per death + its saved cause chips (read-only). -->
-        <div class="rv-deathsec" id="rv-deathsec" hidden>
-          <div class="seclabel">Death Audit <span class="n">cause of each death</span></div>
-          <div id="rv-deaths"></div>
-        </div>
-
-        <!-- TO SORT — fully-untagged auto-moments (no objective AND no prompt) for
-             THIS game. The prompt/objective clips live under their prompts +
-             objective sub-blocks above; these are the leftovers, homed here so
-             nothing becomes unreachable (P-027). Each card jumps to the VOD and
-             carries the triage controls (Good/Bad/attach/dismiss). -->
-        <div class="rv-evidsec rv-tosortsec" id="rv-tosortsec" hidden>
-          <div class="seclabel">To Sort <span class="n">untagged moments</span></div>
-          <div id="rv-tosort"></div>
-        </div>
-      </div>
-
-      <div class="rv-col-side">
-        <!-- YOUR REVIEW — editable form. Save commits (no un-review); Skip marks reviewed. -->
-        <div class="seclabel">Your Review <span class="n">debrief &amp; commit</span></div>
-
-        <!-- Already-saved banner (this game carries a prior review). The NEXT
-             link chains straight to the newest unreviewed game so a multi-game
-             review session never bounces through the Games list. -->
-        <div class="rv-note rv-note-saved" id="rv-savednote" hidden>
-          <span class="rv-note-dot"></span>
-          <span class="rv-note-text" id="rv-savednote-text">This game already has a saved review; saving again overwrites it.</span>
-          <button type="button" class="review rv-nextbtn" id="rv-savednote-next" data-action="next_unreviewed" hidden>Next unreviewed →</button>
-        </div>
-
-        <!-- FOCUS CHECK — did you play to the session's intention this game? The
-             Yes/Partly/No buttons persist IMMEDIATELY (set_focus_adherence);
-             re-tapping the selected one clears it. -->
-        <div class="card glass rv-focus" id="rv-focus">
-          <div class="rv-focus-lbl">Focus Check</div>
-          <div class="rv-focus-intent" id="rv-focus-intent" hidden></div>
-          <div class="rv-focus-q">Did you actually play to it this game?</div>
-          <div class="rv-focus-btns" id="rv-focus-btns">
-            <button type="button" class="rv-focus-btn" data-focus="2">Yes</button>
-            <button type="button" class="rv-focus-btn" data-focus="1">Partly</button>
-            <button type="button" class="rv-focus-btn" data-focus="0">No</button>
+      <section class="rv-launchpad" id="rv-launchpad" aria-labelledby="rv-launch-title">
+        <div class="rv-launch-top">
+          <span class="rv-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></span>
+          <div class="rv-launch-copy">
+            <h2 id="rv-launch-title">Start with the recording</h2>
+            <p>Review by learning objective, revisit key events, and save what you learn.</p>
           </div>
+          <button type="button" class="cta rv-open-vod" id="rv-open-vod" data-action="review_vod">Review in VOD <span aria-hidden="true">→</span></button>
+        </div>
+
+        <section class="rv-deathsec" id="rv-deathsec" aria-labelledby="rv-death-title" hidden>
+          <div class="rv-section-heading">
+            <h3 id="rv-death-title">Jump to a death</h3>
+            <span class="rv-count" id="rv-death-count"></span>
+          </div>
+          <p class="field-help rv-death-help">Each opens the 10 seconds leading up to it.</p>
+          <div id="rv-deaths"></div>
+        </section>
+
+        <!-- Existing clip triage stays accessible without filling the launchpad. -->
+        <details class="rv-tosortsec learning-details" id="rv-tosortsec" hidden>
+          <summary>Clips to organize <span id="rv-unsorted-count"></span></summary>
+          <div class="learning-details-body">
+            <p class="field-help">Open a clip in VOD or connect it to a learning objective.</p>
+            <div id="rv-tosort"></div>
+          </div>
+        </details>
+      </section>
+
+      <section class="rv-takeaway-section" aria-labelledby="rv-takeaway-title">
+        <div class="rv-section-heading">
+          <h2 id="rv-takeaway-title">Your takeaway</h2>
+          <span class="rv-section-hint">After watching</span>
+        </div>
+        <div class="rv-note rv-note-saved" id="rv-savednote" hidden>
+          <span class="rv-note-text" id="rv-savednote-text">Review saved. You can keep editing.</span>
         </div>
 
         <form class="card glass rv-review" id="rv-form" novalidate>
-          <!-- Mental rating — 1–10 slider with a tinted live readout. -->
-          <div class="rv-mentalrow" id="rv-mentalrow">
-            <label class="rv-field-k" for="rv-mental-input">Mental Rating</label>
-            <div class="rv-mental-ctl">
-              <input type="range" id="rv-mental-input" class="rv-range" min="1" max="10" step="1" value="5"
-                     aria-label="Mental rating, 1 to 10">
-              <span class="rv-mental" id="rv-mental">5</span>
-            </div>
-          </div>
-
-          <!-- Debrief textareas. Each pairs a small-caps label with a glass textarea. -->
+          <!-- Both primary and optional reflection fields keep their save collectors. -->
           <div id="rv-fields"></div>
-
-          <!-- Concept tags — comma/Enter-separated editable chips. -->
-          <div class="rv-tags-wrap" id="rv-tags-wrap">
-            <label class="rv-field-k" for="rv-tag-input">Concept Tags</label>
-            <div class="rv-tagedit" id="rv-tagedit">
-              <span class="rv-tags" id="rv-tags"></span>
-              <input type="text" id="rv-tag-input" class="rv-taginput" placeholder="Add a tag, press Enter"
-                     autocomplete="off" aria-label="Add a concept tag">
-            </div>
-          </div>
         </form>
 
-        <!-- COMMIT BAR — Save (commits) + Skip (mark reviewed) + Copy/Export this
-             game's review as markdown + Delete (un-review, shown only when a prior
-             review exists). -->
         <div class="rv-commitbar" id="rv-commitbar">
-          <button type="button" class="cta rv-savebtn" id="rv-savebtn" data-action="save_review">SAVE REVIEW</button>
-          <button type="button" class="review rv-skipbtn" id="rv-skipbtn" data-action="skip_review">Skip</button>
-          <button type="button" class="review rv-copybtn" id="rv-copybtn" data-action="copy_review" title="Copy this game's review as markdown">Copy</button>
-          <button type="button" class="review rv-exportbtn" id="rv-exportbtn" data-action="export_review" title="Export this game's review as a markdown file">Export</button>
-          <button type="button" class="rv-deletebtn" id="rv-deletebtn" data-action="delete_review" hidden>Delete review</button>
+          <button type="button" class="cta rv-savebtn" id="rv-savebtn" data-action="save_review">Save review</button>
+          <span class="rv-commit-msg" id="rv-commit-msg" role="status" hidden></span>
           <button type="button" class="review rv-nextbtn" id="rv-nextbtn" data-action="next_unreviewed" hidden>Next game →</button>
-          <span class="rv-commit-msg" id="rv-commit-msg" hidden></span>
         </div>
+      </section>
 
-        <!-- CONCEPT-TAG CATALOG — full tag list w/ selection state (read-only grid). -->
-        <div class="rv-tagcat" id="rv-tagcat" hidden>
-          <div class="seclabel rv-seclabel-sub">Concept Tags <span class="n">catalog</span></div>
-          <div class="rv-tagcat-grid" id="rv-tagcat-grid"></div>
-        </div>
+      <section class="rv-supporting" aria-labelledby="rv-supporting-title">
+        <h2 id="rv-supporting-title">More from this match</h2>
 
-        <!-- MATCHUP HISTORY — past notes for this champ vs enemy (read-only list). -->
-        <div class="rv-matchsec" id="rv-matchsec" hidden>
-          <div class="seclabel rv-seclabel-sub">Matchup History <span class="n">past notes</span></div>
-          <div id="rv-matchlist"></div>
-        </div>
-      </div>
+        <!-- Inputs remain mounted while collapsed, preserving drafts and autosaves. -->
+        <details class="rv-objsec learning-details" id="rv-objsec" hidden>
+          <summary>Practice check-in <span id="rv-goal-count"></span></summary>
+          <div class="learning-details-body">
+            <div class="rv-check-in">
+              <div class="rv-focus" id="rv-focus">
+                <div class="rv-focus-lbl">Did you practice what you intended?</div>
+                <div class="rv-focus-intent" id="rv-focus-intent" hidden></div>
+                <div class="rv-focus-btns" id="rv-focus-btns">
+                  <button type="button" class="rv-focus-btn" data-focus="2">Yes</button>
+                  <button type="button" class="rv-focus-btn" data-focus="1">Partly</button>
+                  <button type="button" class="rv-focus-btn" data-focus="0">No</button>
+                </div>
+                <p class="field-help">Saved when you choose an answer.</p>
+              </div>
+              <div class="rv-mentalrow" id="rv-mentalrow">
+                <label class="rv-field-k" for="rv-mental-input">How focused and calm were you? <span class="field-help">1–10</span></label>
+                <div class="rv-mental-ctl">
+                  <input type="range" id="rv-mental-input" class="rv-range" min="1" max="10" step="1" value="5" aria-label="Mental rating, 1 to 10">
+                  <span class="rv-mental" id="rv-mental">5</span>
+                </div>
+              </div>
+            </div>
+            <div class="seclabel" id="rv-obj-label" hidden>Your practice</div>
+            <div id="rv-objectives"></div>
+            <div class="rv-emptyline" id="rv-obj-empty" hidden>No active learning objectives. Choose one from the Learning objectives page.</div>
+          </div>
+        </details>
+
+        <details class="learning-details" id="rv-match-details">
+          <summary>Match details <span>Stats and matchups</span></summary>
+          <div class="learning-details-body">
+            <div class="strip rv-strip" id="rv-strip"></div>
+            <div class="rv-laning" id="rv-laning" hidden></div>
+            <div class="rv-matchup" id="rv-matchup"></div>
+            <div class="rv-lobby" id="rv-lobby" hidden></div>
+            <span class="rv-fixes" id="rv-fixes" hidden>Timeline corrections: <b id="rv-fixes-n">0</b></span>
+            <div class="rv-matchsec" id="rv-matchsec" hidden>
+              <h3>Past matchup notes</h3>
+              <div id="rv-matchlist"></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="learning-details" id="rv-more-options">
+          <summary>Review options <span>Topics, export, and more</span></summary>
+          <div class="learning-details-body">
+            <div class="rv-tags-wrap" id="rv-tags-wrap">
+              <label class="rv-field-k" for="rv-tag-input">Topics</label>
+              <div class="rv-tagedit" id="rv-tagedit">
+                <span class="rv-tags" id="rv-tags"></span>
+                <input type="text" id="rv-tag-input" class="rv-taginput" placeholder="Add a tag, press Enter" autocomplete="off" aria-label="Add a concept tag">
+              </div>
+            </div>
+            <div class="rv-tagcat" id="rv-tagcat" hidden>
+              <h3>Choose a topic</h3>
+              <div class="rv-tagcat-grid" id="rv-tagcat-grid"></div>
+            </div>
+            <div class="rv-secondary-actions">
+              <button type="button" class="review rv-copybtn" id="rv-copybtn" data-action="copy_review" title="Copy this game's review as markdown">Copy review</button>
+              <button type="button" class="review rv-exportbtn" id="rv-exportbtn" data-action="export_review" title="Export this game's review as a markdown file">Export review</button>
+              <button type="button" class="review rv-skipbtn" id="rv-skipbtn" data-action="skip_review">Skip review</button>
+              <button type="button" class="rv-deletebtn" id="rv-deletebtn" data-action="delete_review" hidden>Delete review</button>
+            </div>
+          </div>
+        </details>
+      </section>
     </div>
 
     <!-- EMPTY STATE — no reviewable game. -->
     <div class="rv-empty" id="rv-empty" hidden>
       <div class="rv-empty-h">No game to review.</div>
-      <div class="rv-empty-p">Play a ranked or normal game and it lands here for review.</div>
+      <div class="rv-empty-p">Keep Revu open while you play a Ranked Solo/Duo game. Completed games appear in Games, where you can also add one manually.</div>
     </div>
 
     <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
@@ -216,7 +227,7 @@
           <div class="pc"></div>
         </div>
         <div class="rv-obj-text">
-          <span class="pill" hidden>PRIORITY</span>
+          <span class="pill" hidden>Priority</span>
           <div class="oname"></div>
           <div class="ometa"></div>
           <div class="rv-crit" hidden></div>
@@ -234,7 +245,7 @@
       <!-- Objective evidence (no prompt) — clips tagged to THIS objective but not
            bound to a specific prompt, so they aren't lost (P-027 homing). -->
       <div class="rv-obj-unprompted" hidden>
-        <div class="rv-clipgroup-lbl">Objective evidence <span class="n">no prompt</span></div>
+        <div class="rv-clipgroup-lbl">Learning objective evidence <span class="n">no prompt</span></div>
         <div class="rv-clips rv-obj-unprompted-list"></div>
       </div>
       <input type="text" class="rv-objnote" placeholder="How did it go? (optional)"
@@ -275,36 +286,19 @@
     </span>
   </template>
 
-  <!-- One death-audit row — timestamp + saved cause + the six read-only chips,
-       plus a "watch" jump that opens this game's VOD at the death (P-006/P-010 /
-       brief 2026-06-17-15: you can finally see each death before tagging it). The
-       jump is hidden when the game has no VOD. -->
+  <!-- The whole row is a keyboard-accessible jump to this death in the VOD. -->
   <template id="tpl-death">
-    <div class="card glass rv-death">
-      <div class="rv-death-head">
-        <span class="rv-death-time"></span>
-        <span class="rv-death-cause" hidden></span>
-        <button type="button" class="review rv-death-jump" data-action="view_moment" hidden>▶ Watch</button>
-        <!-- v3.11 timeline fixes: two quiet links that write a correction for this
-             DEATH (remove / retime) plus an inline m:ss field and an undo. -->
-        <span class="rv-death-fixes">
-          <button type="button" class="rv-death-fix" data-fix="remove">not a death</button>
-          <button type="button" class="rv-death-fix" data-fix="retime">wrong time</button>
+    <div class="rv-death">
+      <button type="button" class="rv-death-jump" data-action="view_moment" disabled>
+        <span class="rv-death-identity">
+          <span class="rv-death-number"></span>
+          <span class="rv-death-time"></span>
         </span>
-        <span class="rv-death-retime" hidden>
-          <input class="inp rv-death-retime-in" inputmode="numeric" autocomplete="off" aria-label="Corrected time, m:ss">
-          <button type="button" class="rv-death-fix" data-fix="retime_apply">apply</button>
-          <button type="button" class="rv-death-fix" data-fix="retime_cancel">cancel</button>
+        <span class="rv-death-watch">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M5 3.5 12 8l-7 4.5z" fill="currentColor"/></svg>
         </span>
-        <button type="button" class="rv-death-fix rv-death-undo" data-fix="undo" hidden>undo</button>
-      </div>
-      <div class="rv-death-chips"></div>
+      </button>
     </div>
-  </template>
-
-  <!-- One read-only death-cause chip (selected one gets .on). -->
-  <template id="tpl-deathchip">
-    <span class="rv-dchip"><span class="rv-dchip-lbl"></span></span>
   </template>
 
   <!-- One prompt/objective/to-sort CLIP card (P-027). A flattened evidence slice:

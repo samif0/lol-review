@@ -1,0 +1,178 @@
+/* Guidance and form rhythm inherit the app's neutral theme. */
+.page-intro{max-width:68ch;margin:10px 0 28px;color:var(--muted);font-size:15px;line-height:1.7}
+.field-help{margin:0;color:var(--muted);font-size:14px;line-height:1.65}
+body .shell :is(.obj-field-k,.rv-field-k,.pat-nk){
+  color:var(--text);font-size:14px;font-weight:500;line-height:1.55;letter-spacing:0;text-transform:none;
+}
+body .shell .obj-field-hint{color:var(--muted);font-size:13px;font-weight:400;line-height:1.55;letter-spacing:0}
+body .shell :is(.obj-input,.rv-field-in,.rv-objnote,.rv-prompt-input,.rv-taginput,.pat-noteinput){
+  background:var(--surface-raised)!important;color:var(--text)!important;
+  border:1px solid var(--border)!important;border-radius:12px!important;
+  min-height:44px;padding:12px 14px;font-size:14px;line-height:1.6;box-shadow:none;
+}
+body .shell :is(.obj-input,.rv-field-in,.rv-objnote,.rv-prompt-input,.rv-taginput,.pat-noteinput):focus{
+  border-color:var(--muted)!important;outline:2px solid var(--border);outline-offset:2px;box-shadow:none;
+}
+body .shell :is(.obj-input,.rv-field-in,.rv-objnote,.rv-prompt-input,.rv-taginput,.pat-noteinput)::placeholder{
+  color:var(--muted);opacity:1;
+}
+body .shell :is(.obj-textarea,.rv-field-in){min-height:100px}
+
+/* Disclosures are rows with a divider, rather than another nested panel. */
+.learning-details{border:0;border-top:1px solid var(--border);border-radius:0;background:transparent}
+.learning-details>summary{
+  cursor:pointer;padding:18px 0;color:var(--text);font-size:14px;font-weight:500;line-height:1.6;
+}
+.learning-details>summary::marker{color:var(--muted);font-size:12px}
+.learning-details>summary>span{margin-left:10px;color:var(--muted);font-size:13px;font-weight:400}
+.learning-details>summary:focus-visible{outline:2px solid var(--primary);outline-offset:4px;border-radius:8px}
+.learning-details[open]>summary{border-bottom:0}
+.learning-details-body{display:flex;flex-direction:column;gap:22px;padding:4px 0 24px}
+.learning-details .rv-field:last-child{margin-bottom:0}
+.learning-details .rv-reappraisal{margin:0;padding:0;border:0;background:none}
+
+/* Goal creation reads as a simple form on the page. */
+body .shell #obj-form{
+  max-width:760px;margin:28px 0;padding:28px 0 8px;background:transparent!important;
+  border:0!important;border-top:1px solid var(--border)!important;border-radius:0!important;box-shadow:none;
+}
+#obj-form .obj-form-head{margin-bottom:24px}
+#obj-form .obj-form-title{font-size:20px;font-weight:600;letter-spacing:-.02em}
+#obj-form .obj-form-grid{gap:24px}
+#obj-form .obj-field{gap:9px}
+#obj-form .obj-field-row2{gap:20px}
+#obj-form .obj-checks{gap:16px;flex-wrap:wrap}
+#obj-form .obj-check{font-size:14px;line-height:1.5}
+#obj-form .obj-form-act{gap:12px;margin-top:4px}
+/* Each objective keeps its progress and actions inside one clear boundary. */
+.objectives-shell #active-list{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;margin:0}
+.objectives-shell :is(#focus-list,#completed-list){gap:16px}
+body .objectives-shell :is(.obj-card,.obj-mini,.obj-done){
+  background:var(--surface)!important;border:1px solid var(--border)!important;
+  border-radius:16px!important;padding:24px;margin:0;box-shadow:none;
+}
+body .objectives-shell :is(#active-label,#focus-label,#spotted-label){
+  color:var(--text);font-size:16px;font-weight:600;line-height:1.5;margin:0 0 16px;
+}
+body .objectives-shell :is(#focus-label,#spotted-label){
+  flex-direction:column;align-items:flex-start;gap:4px;margin-top:36px;
+}
+.objectives-shell :is(#focus-label,#spotted-label) .n{font-size:13px;font-weight:400;opacity:1}
+.objectives-shell .obj-completed-toggle{margin-top:36px}
+.objectives-shell .obj-card-mastery{margin-top:16px;padding-top:0;border-top:0}
+.objectives-shell :is(.obj-card-actrow,.obj-mini-actrow,.obj-done-actrow){margin-top:20px;padding-top:16px}
+body .shell .obj-card-top{gap:20px;align-items:flex-start}
+.obj-card-top .ringwrap{margin-top:4px}
+body .shell .obj-card-name{margin-top:10px}
+body .shell .obj-card-meta{margin-top:6px}
+body .shell .obj-badges :is(.pill,.obj-tag){
+  display:inline-flex;align-items:center;min-height:26px;padding:3px 9px;margin:0;
+  color:var(--t2);background:var(--surface-raised);border:0;border-radius:6px;
+}
+body .shell .obj-card .ladder{gap:8px 24px;margin-top:20px}
+body .shell .obj-card .ladder span{font-size:13px}
+.obj-mastery-gate{white-space:normal}
+body .shell .obj-empty{padding:56px 20px}
+body .shell .obj-empty-h{color:var(--text);font-size:22px;line-height:1.4;letter-spacing:-.02em}
+body .shell .obj-empty-p{color:var(--muted);font-size:15px;line-height:1.7;max-width:48ch;margin-top:12px}
+
+.pat-empty-action{
+  display:inline-flex;align-items:center;justify-content:center;margin-top:20px;min-height:40px;padding:9px 16px;
+  border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);
+  font-family:var(--fb);font-size:14px;font-weight:500;line-height:1.5;text-decoration:none;
+}
+.pat-empty-action:hover{background:var(--surface-raised);border-color:var(--muted)}
+.pat-empty-action:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+
+/* Review remains first in both reading and keyboard order. */
+#rv-body{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:36px;margin-top:32px}
+#rv-body>.rv-col-main{padding-left:32px;border-left:1px solid var(--border)}
+body #rv-body :is(.rv-focus,.rv-review){
+  background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none;
+}
+body #rv-body .rv-focus{padding:0 0 24px;margin:0 0 28px;border-bottom:1px solid var(--border)!important}
+#rv-body :is(.rv-focus-lbl,.rv-reappraisal-hd){color:var(--text);font-size:14px;font-weight:500;letter-spacing:0;text-transform:none}
+#rv-body .rv-focus-q{color:var(--muted);font-size:14px;line-height:1.6;margin-top:8px}
+#rv-body .rv-focus-btns{gap:10px;margin-top:14px}
+#rv-body .rv-focus .field-help{margin-top:12px}
+body #rv-body .rv-review{padding:0;margin-bottom:24px}
+.rv-review-intro{margin-bottom:24px}
+#rv-body .rv-mentalrow{padding-bottom:22px;margin-bottom:24px;border-color:var(--border)}
+#rv-body .rv-mental{font-size:26px;font-weight:500}
+#rv-body .rv-field-in{margin-top:10px}
+#rv-body .rv-field+.rv-field{margin-top:22px}
+#rv-body .rv-review .learning-details{margin-top:24px}
+#rv-body .rv-tags-wrap{margin-top:22px;padding-top:0;border-top:0}
+#rv-body .rv-objsec{margin:0 0 20px}
+#rv-body .rv-objsec .seclabel{margin-top:0}
+body #rv-body .rv-obj{
+  background:transparent!important;border:0!important;border-bottom:1px solid var(--border)!important;
+  border-radius:0!important;padding:0 0 24px;margin-bottom:24px;box-shadow:none;
+}
+body #rv-body .rv-obj:last-child{margin-bottom:0;padding-bottom:0;border-bottom:0!important}
+#rv-body .rv-objsec .ring{flex-wrap:wrap}
+#rv-body .rv-objsec .rv-switch{margin-left:0}
+body #rv-body .rv-prompt{background:transparent!important;border:0!important;padding:12px 0;box-shadow:none}
+#rv-body .rv-prompt-q{align-items:center;gap:10px}
+#rv-body .rv-prompt-q::before{margin-top:0}
+#rv-body .rv-prompt-phase{padding:3px 8px}
+#rv-body .rv-prompt-input{display:block;margin:12px 0 0;max-width:100%}
+#rv-body .rv-prompt-txt{font-size:14px;line-height:1.6}
+body #rv-body :is(.rv-death,.rv-evid){border:0!important;border-radius:12px!important;box-shadow:none}
+#rv-body .rv-death-help{margin:0 0 14px}
+body #rv-body .rv-death-jump{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 20px;
+  width:100%;min-height:60px;padding:14px 16px;text-align:left;
+  background:var(--surface)!important;border:1px solid var(--border)!important;color:var(--text)!important}
+body #rv-body .rv-death-jump:hover:not(:disabled){background:var(--surface-raised)!important;border-color:#626262!important}
+#rv-body .rv-death-identity{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;min-width:0}
+#rv-body .rv-death-number{font-size:14px;font-weight:500;color:var(--t2)}
+#rv-body .rv-death-time{font-family:var(--fb);font-size:16px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--text);letter-spacing:0}
+#rv-body .rv-death-watch{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:500;color:var(--t2)}
+#rv-body .rv-death-watch svg{flex-shrink:0}
+#rv-body .rv-death-jump:disabled{opacity:.5}
+#rv-body .rv-commitbar{gap:10px;padding-top:4px}
+
+/* A centered, unframed welcome flow with comfortable sign-in fields. */
+body .shell.onb-shell{
+  max-width:760px;width:calc(100% - var(--sidebar-width,220px));
+  margin-left:max(var(--sidebar-width,220px),calc((100vw + var(--sidebar-width,220px) - 760px)/2));margin-right:auto;
+}
+html.framed body .shell.onb-shell{max-width:760px;width:100%;margin-left:auto;margin-right:auto}
+.onb-shell .onb-hero{margin:24px 0 32px}
+body .onb-shell .onb-hero h1{font-size:36px;font-weight:600;line-height:1.25;letter-spacing:-.03em}
+body .onb-shell .onb-subt{margin-top:12px;font-size:15px;letter-spacing:0;text-transform:none;line-height:1.6;color:var(--muted)}
+.onb-shell .onb-step{margin:0 0 16px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6}
+body .onb-shell .onb-card{
+  width:100%;max-width:576px;align-self:center;gap:22px;padding:16px 8px 24px;
+  /* Leave room for focus borders on full-width fields and buttons. This plain
+     form no longer needs the decorative clipping inherited from .card. */
+  overflow:visible;
+  background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none;
+}
+.onb-shell .onb-card::before,.onb-shell .onb-card::after{display:none}
+body .onb-shell .onb-sectitle{color:var(--text);font-size:18px;font-weight:600;line-height:1.5;letter-spacing:-.01em}
+.onb-shell .onb-how{gap:22px;margin:6px 0}
+.onb-shell .onb-how-dot{display:none}
+.onb-shell .onb-how-h{font-size:15px;font-weight:500}
+.onb-shell .onb-how-p{margin-top:5px;color:var(--muted);font-size:14px;line-height:1.65}
+.onb-shell .onb-body{margin:0;color:var(--muted);font-size:15px;line-height:1.7}
+.onb-shell .onb-field{gap:9px;margin-top:0}
+.onb-shell .onb-roles{gap:10px}
+body .onb-shell .onb-role{min-height:48px;font-size:13px;letter-spacing:0}
+body .onb-shell .onb-cta{min-height:46px;font-size:14px;margin-top:4px}
+body .onb-shell .onb-link{font-size:14px;line-height:1.5}
+
+@media(max-width:1050px){
+  #rv-body{grid-template-columns:minmax(0,1fr);gap:32px}
+  #rv-body>.rv-col-main{margin-top:8px;padding:28px 0 0;border-left:0;border-top:1px solid var(--border)}
+}
+@media(max-width:600px){
+  body .objectives-shell :is(.obj-card,.obj-mini,.obj-done){padding:18px}
+  .objectives-shell #active-list{gap:16px}
+  .learning-details>summary>span{display:block;margin:4px 0 0}
+  #obj-form .obj-field-row2{grid-template-columns:minmax(0,1fr)}
+  #rv-body .rv-mentalrow{flex-wrap:wrap;gap:12px}
+  .onb-shell .onb-hero{margin-top:12px}
+  .onb-shell .onb-roles{gap:6px}
+  body .onb-shell .onb-role{font-size:12px;padding-inline:5px}
+}

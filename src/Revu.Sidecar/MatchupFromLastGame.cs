@@ -18,7 +18,7 @@ namespace Revu.Sidecar;
 /// <see cref="HealAsync"/> first resolves the game from Match-V5 — the same
 /// single-game lookup the Settings backfill does in bulk — and re-reads the
 /// row, so the card is built from <c>teamPosition</c> data. The lookup is
-/// bounded by <see cref="DefaultLookupBudget"/>: the Tauri side gives the
+/// bounded by <see cref="DefaultLookupBudget"/>: the Electron host gives the
 /// whole request 30 s, and the match client sleeps through 429s (20 s by
 /// default, up to 3 min) for the bulk sweep's sake, so an unbounded lookup
 /// would time the request out and the page would show an error instead of a

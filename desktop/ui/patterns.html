@@ -7,6 +7,9 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./learning-pages.css">
+<link rel="stylesheet" href="./patterns-page.css">
+<link rel="stylesheet" href="./patterns-player.css">
 </head>
 <body>
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
@@ -29,34 +32,44 @@
     <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
-  <div class="shell">
-    <div class="eyebrow">Objective Loop</div>
+  <div class="shell patterns-shell">
+    <div class="eyebrow">Learn across games</div>
     <div class="hero"><h1>Patterns</h1></div>
+    <p class="page-intro">Find decisions that repeat across your games. Watch the related moments, compare what happened, and write one thing to try next time.</p>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
     <!-- PATTERN SELECTOR — pending + reviewed cross-game patterns as clickable
          cards. The active card drives the moment playlist below. The whole strip
          is the page's navigation between patterns. -->
-    <div class="seclabel seclabel-lead" id="pat-label" hidden>Cross-game patterns <span class="n" id="pat-sub"></span></div>
+    <h2 class="pat-section-heading" id="pat-label" hidden><span class="pat-step-number">1</span> Choose a pattern <span class="n" id="pat-sub"></span></h2>
     <div class="pat-pick" id="pat-pick"></div>
 
     <!-- ACTIVE PATTERN — the selected pattern's VOD surface + note (left) beside
          its moment rail (right). Hidden until a pattern is selected. -->
     <div class="pat-main" id="pat-main" hidden>
 
+      <div class="pat-review-heading">
+        <h2 class="pat-section-heading"><span class="pat-step-number">2</span> Compare the moments</h2>
+        <h3 id="pat-review-title" tabindex="-1"></h3>
+        <p class="field-help">Watch a moment, then use Next moment to compare another. Look for the decision you keep making.</p>
+      </div>
+      <p class="field-help pat-no-moments" id="pat-no-moments" hidden>No moments are available to compare for this pattern. Choose another pattern above.</p>
+
       <!-- PLAYER COLUMN — active-moment strip over a VOD surface, then the note. -->
       <div class="pat-playcol">
+        <div class="pat-player-label"><span id="m-position"></span><span>Recording</span></div>
         <div class="glass pat-stage">
           <div class="pat-mstrip">
             <span class="pat-rtag" id="m-rtag"></span>
             <span class="pat-mtitle" id="m-title"></span>
             <span class="pat-glabel" id="m-glabel"></span>
+            <button class="pat-collapse" data-action="fullscreen" type="button" aria-label="Exit expanded player">Back to patterns</button>
           </div>
-          <div class="pat-surface" id="m-surface" data-action="play_moment" role="button" tabindex="0">
+          <div class="pat-surface" id="m-surface" data-action="play_moment" role="button" tabindex="0" aria-label="Play this moment">
             <div class="pat-scan" aria-hidden="true"></div>
             <div class="pat-play" id="m-play" aria-hidden="true"></div>
             <div class="pat-vhead" id="m-vhead"></div>
-            <div class="pat-novod" id="m-novod" hidden>No VOD matched for this moment</div>
+            <div class="pat-novod" id="m-novod" hidden>No recording available for this moment</div>
             <div class="pat-scrub" aria-hidden="true">
               <span id="m-tstart"></span>
               <div class="pat-bar"><i></i></div>
@@ -75,51 +88,49 @@
           <div class="pat-transport" id="m-transport" hidden></div>
         </div>
 
+        <div class="pat-nav">
+          <button class="pat-btn pat-btn-sec" id="m-prev" data-action="prev_moment" type="button">&#8592; Previous moment</button>
+          <button class="pat-btn pat-btn-gold" id="m-next" data-action="next_moment" type="button">Next moment &#8594;</button>
+        </div>
+
         <!-- This-moment note panel — editable, autosaves on pause/blur. Saving a
              non-empty note silently clips the moment's window the first time. -->
         <div class="card pat-npanel">
           <div class="pat-nhead">
-            <span class="pat-nk">Your note on this moment</span>
+            <h2 class="pat-section-heading"><span class="pat-step-number">3</span> Write a takeaway</h2>
             <span class="pat-nstatus" id="m-nstatus" hidden></span>
-            <span class="pat-clipt" id="m-clipt" hidden>CLIP KEPT</span>
+            <span class="pat-clipt" id="m-clipt" hidden>Clip saved</span>
           </div>
-          <textarea class="pat-noteinput" id="m-note" rows="3" placeholder="What happened here? What should have happened?"></textarea>
+          <label class="field-help" for="m-note">What would you do differently in this moment?</label>
+          <textarea class="pat-noteinput" id="m-note" rows="3" placeholder="Next time, I will…" aria-label="Your takeaway for this moment" aria-describedby="m-note-help"></textarea>
+          <p class="field-help" id="m-note-help">Notes save automatically. When a recording is available, your first note also keeps a clip.</p>
         </div>
 
-        <!-- Prev / next within the active pattern's playlist. -->
-        <div class="pat-nav">
-          <button class="pat-btn pat-btn-sec" id="m-prev" data-action="prev_moment">&#8592; PREV MOMENT</button>
-          <button class="pat-btn pat-btn-gold" id="m-next" data-action="next_moment">NEXT MOMENT &#8594;</button>
+        <div class="pat-review-finish">
+          <div class="card pat-closed" id="pat-closed" hidden>
+            <div class="pat-ck"><span class="pat-chk">&#10003;</span> Pattern reviewed</div>
+            <div class="pat-csum" id="pat-csum"></div>
+          </div>
+          <div class="pat-pending" id="pat-pending" hidden>
+            <p class="field-help" id="pat-pending-text"></p>
+            <button class="pat-btn pat-btn-gold pat-markrev" id="pat-markrev" data-action="mark_reviewed" type="button">Finish reviewing this pattern</button>
+            <p class="field-help" id="pat-review-status" role="status" hidden></p>
+          </div>
         </div>
       </div>
 
       <!-- PATTERN RAIL — the moments composing the active pattern. -->
       <div class="pat-railcol">
-        <div class="seclabel" id="rail-label">The pattern <span class="n" id="rail-sub"></span></div>
+        <h3 class="pat-rail-heading" id="rail-label">Moments to compare <span class="n" id="rail-sub"></span></h3>
         <div class="pat-rail" id="pat-rail"></div>
-
-        <div class="pat-rdiv"></div>
-
-        <!-- CLOSURE — read-only state. Reviewed shows the closed panel; pending
-             shows the calm "review deferred" note (mark-reviewed is a WRITE). -->
-        <div class="card pat-closed" id="pat-closed" hidden>
-          <div class="pat-ck"><span class="pat-chk">&#10003;</span> Pattern reviewed</div>
-          <div class="pat-csum" id="pat-csum"></div>
-        </div>
-        <div class="pat-pending" id="pat-pending" hidden>
-          <div class="hint">
-            <span class="hint-dot"></span>
-            <span class="hint-text" id="pat-pending-text"></span>
-          </div>
-          <button class="pat-btn pat-btn-gold pat-markrev" id="pat-markrev" data-action="mark_reviewed" type="button">&#10003; MARK REVIEWED</button>
-        </div>
       </div>
     </div>
 
     <!-- EMPTY STATE — no patterns surfaced. -->
     <div class="pat-empty" id="pat-empty" hidden>
-      <div class="pat-empty-h" id="pat-empty-h">No recurring patterns on your learning objectives yet.</div>
-      <div class="pat-empty-p" id="pat-empty-p">Patterns build from the objectives you set — clips you mark bad on them, structured criteria that keep failing, and recurrences of the events they track.</div>
+      <div class="pat-empty-h" id="pat-empty-h">No recurring patterns yet.</div>
+      <div class="pat-empty-p" id="pat-empty-p">Start with a learning objective and review a few games. Revu looks for repeated mistakes in clips, missed stat targets, and events you track.</div>
+      <a class="pat-empty-action" href="objectives.html">Go to learning objectives</a>
     </div>
 
     <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
@@ -152,7 +163,7 @@
         </div>
         <div class="pat-card-right">
           <span class="pat-card-state"></span>
-          <div class="gamerow-cue" aria-hidden="true">OPEN <span class="arr">→</span></div>
+          <div class="gamerow-cue" aria-hidden="true">Review moments <span class="arr">→</span></div>
         </div>
       </div>
     </div>
@@ -163,6 +174,7 @@
   <template id="tpl-momrow">
     <div class="pat-row" data-action="goto_moment" tabindex="0" role="button">
       <div class="pat-rtop">
+        <span class="pat-moment-number"></span>
         <span class="pat-rg"></span>
         <span class="pat-rright">
           <span class="pat-rclip" hidden>CLIP</span>

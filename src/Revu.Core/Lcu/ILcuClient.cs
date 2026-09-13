@@ -30,6 +30,9 @@ public interface ILcuClient
     /// </summary>
     Task<GamePhase> GetGameflowPhaseAsync(CancellationToken ct = default);
 
+    /// <summary>Stable identity for retaining captured evidence when EOG results arrive late.</summary>
+    Task<long> GetCurrentGameIdAsync(CancellationToken ct = default) => Task.FromResult(0L);
+
     /// <summary>
     /// Get the end-of-game stats block. Only available right after a game.
     /// </summary>

@@ -1,0 +1,45 @@
+/* Match library rows: quiet surfaces, a clear matchup, and one obvious action. */
+.games-page .games-list-heading{display:flex;align-items:baseline;gap:12px;margin:28px 0 14px}
+.games-page .games-list-heading[hidden]{display:none}
+.games-page .games-list-heading h2{margin:0;font:500 15px/1.5 var(--fb);letter-spacing:0;color:var(--text)}
+.games-page #games-sub{font-size:13px;line-height:1.5;color:var(--muted)}
+.games-page #games-list{display:grid;gap:10px;padding:2px}
+body.games-page #games-list .gamerow-game{margin:0;padding:18px 20px;border:1px solid var(--border)!important;
+  border-radius:14px!important;background:var(--surface)!important;box-shadow:none;transition:background .15s,border-color .15s}
+body.games-page #games-list .gamerow-game:hover,
+body.games-page #games-list .gamerow-game:focus-visible{background:var(--surface-raised)!important;border-color:#5b5b5b!important}
+.games-page #games-list .gamerow-game:focus-visible{outline-offset:-2px}
+.games-page #games-list .gamerow-game .crow{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:18px;padding:0}
+.games-page #games-list .grow-wl{width:40px;height:44px;margin:0;align-self:start;border:0;border-radius:10px;
+  background:var(--bg);font:600 14px/1 var(--fb);letter-spacing:0}
+.games-page #games-list .grow-top{display:block}
+.games-page #games-list .grow-champ{display:block;white-space:normal;overflow-wrap:anywhere;
+  font:600 17px/1.45 var(--fb);letter-spacing:-.01em;color:var(--text);text-shadow:none}
+.games-page #games-list .gamerow-game .vline{transform:none}
+.games-page #games-list .grow-meta{margin-top:5px;font:400 13px/1.6 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}
+.games-page #games-list .grow-tokens{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;margin-top:10px}
+.games-page #games-list .gtoken{display:inline-flex;align-items:center;gap:10px;padding:0;min-height:0;border:0;
+  border-radius:0;background:none;color:var(--muted);font:400 13px/1.5 var(--fb);letter-spacing:0;text-transform:none;white-space:normal}
+.games-page #games-list .gtoken+.gtoken::before{content:'·';color:#707070}
+.games-page #games-list .grow-right{min-width:124px;gap:12px}
+.games-page #games-list .grow-kda{font-variant-numeric:tabular-nums}
+.games-page #games-list .grow-kda-n{font:500 16px/1.5 var(--fb);letter-spacing:0;color:var(--text)}
+.games-page #games-list .grow-kda-r{margin-top:2px;font:400 12px/1.5 var(--fb);letter-spacing:0;color:var(--muted)}
+.games-page #games-list .gamerow-cue{display:inline-flex;align-items:center;gap:10px;opacity:1;transform:none;
+  font:500 14px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--t2)}
+.games-page #games-list .gamerow-cue .arr{font-size:17px;transform:none}
+.games-page #games-list .gamerow-game:hover .gamerow-cue{color:var(--text)}
+.games-page .loadmore{font-size:14px;letter-spacing:0;text-transform:none}
+
+@media(max-width:680px){
+  body.games-page #games-list .gamerow-game{padding:16px}
+  .games-page #games-list .gamerow-game .crow{grid-template-columns:36px minmax(0,1fr);gap:12px 14px}
+  .games-page #games-list .grow-wl{width:36px;height:40px}
+  .games-page #games-list .grow-right{grid-column:2;min-width:0;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+  .games-page #games-list .grow-kda{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;text-align:left}
+  .games-page #games-list .grow-kda-r{margin:0}
+  .games-page #games-list .grow-champ{font-size:16px}
+}
+@media(prefers-reduced-motion:reduce){
+  body.games-page #games-list .gamerow-game{transition:none}
+}

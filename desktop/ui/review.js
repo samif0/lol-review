@@ -1,5 +1,11 @@
+import { $, show, clear, tpl } from './dom.mjs';
+import { readSnapshot } from './data.mjs';
+import { getInvoke } from './platform/index.mjs';
+import { objectiveMetaText, objectivePhaseLabel } from './objective-labels.mjs';
+import { createMatchNavigation } from './match-navigation.mjs';
+
 // Revu desktop review — data-driven renderer for ONE game's review snapshot.
-// Renders the JSON returned by the Tauri command `get_review` (GET /api/review).
+// Renders the JSON returned by the Electron command `get_review` (GET /api/review).
 // All server-supplied strings are written via textContent (never innerHTML) to
 // keep the surface XSS-free. Colors arrive as *Hex strings and are applied to
 // style/stroke properties only.
@@ -12,7 +18,6 @@
 //
 // GRANULAR WRITES (Batch 2): some interactions persist IMMEDIATELY, one field at
 // a time, then refetch:
-//   • death cause chips    → classify_death / clear_death
 //   • evidence triage      → set_evidence_polarity / set_evidence_objective /
 //                            set_evidence_status   (SHARED with the VOD player)
 //   • prompt answer boxes  → save_prompt_answer (on blur; empty deletes)
@@ -20,54 +25,23 @@
 // The objective practiced toggles + execution notes + concept-tag selection ride
 // the batched save_review payload (collected in gatherForm).
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-// Prefer the official @tauri-apps/api/core import; fall back to the global the
-// Tauri webview injects. In a plain browser (no Tauri) both are absent and we
-// fall through to a local sample JSON so the page previews standalone.
-let _invoke = null;
-async function getInvoke() {
-  if (_invoke) return _invoke;
-  try {
-    const mod = await import('@tauri-apps/api/core');
-    if (mod && typeof mod.invoke === 'function') {
-      _invoke = mod.invoke;
-      return _invoke;
-    }
-  } catch (_) {
-    // module not resolvable outside the Tauri bundler — fall through
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    _invoke = window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-    return _invoke;
-  }
-  return null;
-}
-
-const isTauri = () => typeof window.__TAURI__ !== 'undefined';
-
 // ── granular-write helper ────────────────────────────────────────────────────
-// Fire one immediate-persist write (death classify, evidence triage, prompt
-// answer, focus adherence). In browser preview (no Tauri) it's a logged no-op so
+// Fire one immediate-persist write (evidence triage, prompt
+// answer, focus adherence). In browser preview (no Electron) it's a logged no-op so
 // the page stays interactive. Returns true on success, false on failure.
 async function postWrite(cmd, args) {
   const invoke = await getInvoke();
   if (!invoke) {
-    console.info(`[review] (preview) ${cmd} — no Tauri backend.`, args);
+    console.info(`[review] (preview) ${cmd} — no Electron backend.`, args);
     return true;
   }
   try {
-    // Every review WRITE command (save_review/skip_review/classify_death/
-    // set_evidence_*/save_prompt_answer/set_focus_adherence …) takes a single
-    // `payload` arg in Rust, so the body must be wrapped — otherwise Tauri rejects
-    // it with "missing required key payload" (which surfaces as a blank-message
-    // error → the "Save failed." fallback).
+    // Review writes use the same payload envelope as the shared command registry.
     await invoke(cmd, { payload: args });
     return true;
   } catch (err) {
     console.error(`[review] ${cmd} failed:`, err);
-    // A Tauri command that fails rejects with a plain STRING ("sidecar HTTP 400:
-    // <sentence>"), not an Error, so read both shapes and surface the sidecar's own
-    // sentence (the corrections routes answer with exact user-facing messages).
+    // Accept Error objects and string failures, showing the sidecar's message.
     const raw = (err && err.message) ? err.message : (err == null ? '' : String(err));
     const m = raw.match(/sidecar HTTP \d+(?:\s+[^:]+)?:\s*(.*)$/i);
     showCommit((m ? m[1] : raw) || `${cmd} failed.`, 'err');
@@ -88,6 +62,7 @@ let _suppressDraft = false; // true while rendering or while save/skip commits
 
 function markDraftDirty() {
   if (_suppressDraft || !_subject) return;
+  matchNav.enableCapture();
   _draftDirty = true;
   if (_draftTimer) clearTimeout(_draftTimer);
   _draftTimer = setTimeout(() => { flushDraft(); }, 1200);
@@ -99,19 +74,24 @@ async function flushDraft() {
   // in-flight save re-raise _draftDirty and must also reach the server before
   // a navigation proceeds (the naive clear-after-await version silently
   // dropped them).
-  while (!_suppressDraft && (_draftSaving || _draftDirty)) {
+  while (!_suppressDraft && (_draftSaving || _draftDirty || _promptWrites.size)) {
     if (_draftSaving) {
       await new Promise((r) => setTimeout(r, 40));
       continue;
     }
+    if (!_draftDirty) {
+      // A prompt blur can start just before navigation. Wait for that write,
+      // then check again for debrief edits made while it was finishing.
+      await Promise.allSettled([..._promptWrites]);
+      continue;
+    }
     const payload = gatherForm();
-    if (!payload || !(payload.gameId > 0)) { _draftDirty = false; return; }
-    const invoke = await getInvoke();
-    if (!invoke) { _draftDirty = false; return; } // browser preview: nothing to save to
+    if (!payload || !(payload.gameId > 0)) { _draftDirty = false; break; }
     _draftSaving = true;
     _draftDirty = false; // claimed by this write; a new edit re-raises it
     try {
-      await invoke('save_review_draft', { payload });
+      const invoke = await getInvoke();
+      if (invoke) await invoke('save_review_draft', { payload });
     } catch (err) {
       // Autosave is best-effort — never surface an error mid-typing, and don't
       // re-raise dirty (a dead backend would spin the loop forever).
@@ -130,13 +110,6 @@ function cancelDraft() {
 }
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) {
-  const t = $(id);
-  return t.content.firstElementChild.cloneNode(true);
-}
 // Grow a textarea to fit its content (prompt answer boxes start one row tall).
 function autoSize(ta) {
   if (!ta) return;
@@ -151,6 +124,99 @@ let _subject = null;
 // The whole snapshot (subject + queue info) — the Next-game chaining reads
 // nextUnreviewedGameId / unreviewedRemaining off this.
 let _snapshot = null;
+const matchNav = createMatchNavigation({
+  view: 'review', capture: captureReviewState, restore: restoreReviewState, beforeLeave: flushDraft,
+});
+let _restoreAttempted = false;
+let _linkedRecordingGameId = 0;
+
+function captureReviewState() {
+  if (!_subject) return null;
+  const mental = $('rv-mental-input');
+  return {
+    version: 1, gameId: Number(_subject.gameId), draftDirty: _draftDirty,
+    fields: [...document.querySelectorAll('#rv-fields .rv-field-in')]
+      .map(input => ({ field: input.dataset.field, value: input.value })),
+    mental: { value: mental.value, touched: mental.dataset.touched || '' },
+    tags: [...document.querySelectorAll('#rv-tags .rv-tag-txt')].map(tag => tag.textContent),
+    pendingTag: $('rv-tag-input').value,
+    selectedTagIds: [...document.querySelectorAll('#rv-tagcat-grid .rv-tagcat-chip.on')].map(chip => chip.dataset.tagId),
+    focus: document.querySelector('#rv-focus .rv-focus-btn.on')?.dataset.focus ?? null,
+    objectives: [...document.querySelectorAll('#rv-objectives [data-objective-id]')].map(card => ({
+      id: card.dataset.objectiveId, practiced: !!card.querySelector('.rv-practiced-cb')?.checked,
+      note: card.querySelector('.rv-objnote')?.value || '',
+      prompts: [...card.querySelectorAll('.rv-prompt-input')].map((input, index) => ({
+        id: input.dataset.promptId || null, index, value: input.value, savedValue: input.dataset.savedValue ?? null,
+      })),
+    })),
+  };
+}
+
+async function restoreReviewState(state) {
+  if (state?.version !== 1 || Number(state.gameId) !== Number(_subject?.gameId)) return;
+  const previousSuppress = _suppressDraft;
+  const before = JSON.stringify(gatherForm());
+  _suppressDraft = true;
+  try {
+    const fields = new Map((state.fields || []).map(field => [field.field, field.value]));
+    for (const input of document.querySelectorAll('#rv-fields .rv-field-in')) {
+      if (typeof fields.get(input.dataset.field) === 'string') input.value = fields.get(input.dataset.field);
+      autoSize(input);
+    }
+    updateReflectionCount();
+    if (typeof state.mental?.value === 'string') {
+      const mental = $('rv-mental-input');
+      mental.value = state.mental.value;
+      mental.dataset.touched = state.mental.touched === '1' ? '1' : '';
+      $('rv-mental').textContent = mental.value;
+    }
+    clear($('rv-tags'));
+    for (const tag of state.tags || []) if (typeof tag === 'string') addTagChip(tag);
+    $('rv-tag-input').value = typeof state.pendingTag === 'string' ? state.pendingTag : '';
+    const selectedTags = new Set(state.selectedTagIds || []);
+    for (const chip of document.querySelectorAll('#rv-tagcat-grid .rv-tagcat-chip')) {
+      applyTagcatSelected(chip, selectedTags.has(chip.dataset.tagId));
+    }
+    for (const button of document.querySelectorAll('#rv-focus .rv-focus-btn')) {
+      button.classList.toggle('on', state.focus != null && button.dataset.focus === state.focus);
+    }
+    const objectives = new Map((state.objectives || []).map(objective => [objective.id, objective]));
+    for (const card of document.querySelectorAll('#rv-objectives [data-objective-id]')) {
+      const saved = objectives.get(card.dataset.objectiveId);
+      if (!saved) continue;
+      const checkbox = card.querySelector('.rv-practiced-cb'), note = card.querySelector('.rv-objnote');
+      checkbox.checked = saved.practiced === true;
+      card.classList.toggle('is-practiced', checkbox.checked);
+      const label = card.querySelector('.rv-switch-lbl');
+      if (label) label.textContent = checkbox.checked ? 'Practiced' : 'Not practiced';
+      if (note) {
+        note.value = typeof saved.note === 'string' ? saved.note : '';
+        show(note, checkbox.checked);
+        autoSize(note);
+      }
+      const prompts = [...card.querySelectorAll('.rv-prompt-input')];
+      for (const draft of saved.prompts || []) {
+        const input = draft.id ? prompts.find(prompt => prompt.dataset.promptId === draft.id) : prompts[draft.index];
+        if (!input || typeof draft.value !== 'string') continue;
+        // A completed blur write may already be in the fresh snapshot. Otherwise
+        // retain the confirmed baseline; restoring raw text never marks it saved.
+        const confirmed = input.dataset.savedValue;
+        input.value = draft.value;
+        if (confirmed !== draft.value) {
+          if (typeof draft.savedValue === 'string') input.dataset.savedValue = draft.savedValue;
+          else delete input.dataset.savedValue;
+        }
+        autoSize(input);
+      }
+    }
+    _draftDirty = state.draftDirty === true || before !== JSON.stringify(gatherForm());
+    const pendingPrompt = [...document.querySelectorAll('.rv-prompt-input')]
+      .some(input => input.value !== (input.dataset.savedValue ?? ''));
+    if (_draftDirty || pendingPrompt || $('rv-tag-input').value) showCommit('Unsaved edits restored.', null);
+  } finally {
+    _suppressDraft = previousSuppress;
+  }
+}
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchReview() {
@@ -160,32 +226,24 @@ async function fetchReview() {
   const gid = params.get('gameId');
   const gameId = gid ? Number(gid) : null;
 
-  // Prefer the REAL backend (Tauri invoke → sidecar → your DB); fall back to the
-  // bundled sample only when invoke is genuinely unavailable (browser preview).
-  const invoke = await getInvoke();
-  if (invoke) {
-    return invoke('get_review', gameId ? { gameId } : {});
-  }
-  const res = await fetch('./sample-review.json');
-  if (!res.ok) throw new Error(`sample-review.json ${res.status}`);
-  return res.json();
+  return readSnapshot('get_review', 'sample-review.json', gameId ? { gameId } : {});
 }
 
 // ── render: header (the hero game card) ─────────────────────────────────────
 function renderHeader(subject) {
+  updateRecordingLaunch(subject.gameId);
   const h = subject.header || {};
-  $('hero-title').textContent = h.championName
-    ? `${h.championName}: Review`
-    : 'Review';
-
-  $('rv-champ').textContent = h.championName || '—';
+  $('hero-title').textContent = h.championName && h.enemyChampion
+    ? `${h.championName} vs ${h.enemyChampion}` : h.championName || 'Match review';
 
   const res = $('rv-res');
-  res.textContent = h.resultText || '';
+  const result = String(h.resultText || '').trim();
+  res.textContent = result ? result[0].toUpperCase() + result.slice(1).toLowerCase() : '';
   if (h.resultColorHex) res.style.color = h.resultColorHex;
 
   $('rv-gmode').textContent = h.gameMode || '';
   $('rv-gdur').textContent = h.duration || '';
+  const date = $('rv-date'); if (date) date.textContent = h.datePlayed || '';
   // The matchup line reads "you vs them". Without an opponent on record the
   // builder degrades it to the bare champion name, which would just echo the
   // title above it ("Qiyana" / "Qiyana") — show nothing until the matchup lands.
@@ -203,7 +261,9 @@ function renderHeader(subject) {
       cell.className = 'rv-lobby-cell' + (r.isUserLane ? ' me' : '');
       const role = document.createElement('span');
       role.className = 'rv-lobby-role';
-      role.textContent = r.roleLabel || '';
+      const roleLabels = { TOP: 'Top', JUNGLE: 'Jungle', JG: 'Jungle', MID: 'Mid', MIDDLE: 'Mid',
+        BOT: 'Bot', BOTTOM: 'Bot', SUP: 'Support', SUPPORT: 'Support', UTILITY: 'Support' };
+      role.textContent = roleLabels[String(r.roleLabel || '').toUpperCase()] || r.roleLabel || '';
       const pair = document.createElement('span');
       pair.className = 'rv-lobby-pair';
       const own = document.createElement('b');
@@ -230,9 +290,11 @@ function renderHeader(subject) {
   if (fixesN) fixesN.textContent = String(fixes);
   show($('rv-fixes'), fixes > 0);
 
-  // Statusline: the subject-source explanation (which game was chosen).
+  // The loaded header carries the match context; reserve the status line for
+  // loading and empty states instead of repeating its date/mode/duration.
   const statusB = document.querySelector('#statusline b');
-  statusB.textContent = h.metaLine || '';
+  if (statusB) statusB.textContent = h.metaLine || '';
+  show($('statusline'), false);
   show($('rv-hero'), true);
 
   // LANING @10 line — sits under the stat strip; shows only when the timeline
@@ -268,12 +330,16 @@ function renderObjectives(subject) {
   const objs = Array.isArray(subject.objectives) ? subject.objectives : [];
   const host = $('rv-objectives');
   clear(host);
+  $('rv-goal-count').textContent = objs.length > 0
+    ? `${objs.length} learning objective${objs.length === 1 ? '' : 's'}` : 'None for this game';
 
-  // The objectives section is the focus block at the top; hide it wholesale when
-  // there are no objectives so the debrief rises directly under the game header.
+  // Keep practice controls mounted inside their disclosure. Opening or closing
+  // it never changes the values collected by the existing save/draft flow.
   if (objs.length === 0) {
     show($('rv-obj-label'), false);
-    show($('rv-objsec'), subject.hasObjectives === false);
+    // Focus and mental-rating controls share this disclosure, including when
+    // this match has no learning objectives attached.
+    show($('rv-objsec'), true);
     show($('rv-obj-empty'), subject.hasObjectives === false);
     return;
   }
@@ -310,8 +376,7 @@ function renderObjectives(subject) {
     const pill = el.querySelector('.pill');
     if (o.isPriority) { pill.hidden = false; } else { pill.remove(); }
     el.querySelector('.oname').textContent = o.title || '';
-    el.querySelector('.ometa').textContent =
-      o.metaText || [o.levelName, o.phaseLabel].filter(Boolean).join(' · ').toUpperCase();
+    el.querySelector('.ometa').textContent = objectiveMetaText(o);
 
     const crit = el.querySelector('.rv-crit');
     if (o.completionCriteria) {
@@ -332,7 +397,7 @@ function renderObjectives(subject) {
       const row = tpl('tpl-prompt');
       const phaseEl = row.querySelector('.rv-prompt-phase');
       const phase = String(p && p.phase || '').trim();
-      if (phase) { phaseEl.textContent = phase; show(phaseEl, true); } else { phaseEl.remove(); }
+      if (phase) { phaseEl.textContent = objectivePhaseLabel(phase); show(phaseEl, true); } else { phaseEl.remove(); }
       row.querySelector('.rv-prompt-txt').textContent = label;
       const ansInput = row.querySelector('.rv-prompt-input');
       if (ansInput) {
@@ -393,9 +458,9 @@ function renderObjectives(subject) {
 // saved values from _subject.form (NOT '') so a re-save can't blank a value an
 // older review/WinUI build wrote (the sidecar UPDATE is unconditional — see FIX-3).
 const FIELD_ORDER = [
-  ['attribution',     'Attribution',          'My play / teammates / matchup / variance…'],
-  ['reviewNotes',     'Review notes',         'Anything else worth keeping…'],
+  ['reviewNotes',     'One thing to take into your next game', 'One decision to repeat or change, and why…'],
 ];
+const REFLECTION_FIELD = ['attribution', 'What shaped the result?', 'Your decisions, the matchup, team play, or something else…'];
 
 // R-001: the cognitive-reappraisal pair, rendered as ONE blame-vs-improvable unit
 // (not two stray fields). The "outside" box accepts the blame instinct; the
@@ -405,10 +470,19 @@ const FIELD_ORDER = [
 // outsideControl/withinControl). Descriptive only — never scored or flagged.
 const REAPPRAISAL_PAIR = [
   ['outsideControl', 'What was outside your control',
-    'Granting the game went sideways — what genuinely wasn’t on you?'],
-  ['withinControl', 'What you can still repeat',
-    'Whatever else happened, the ONE thing YOU could do again regardless…'],
+    'What happened that you could not change?'],
+  ['withinControl', 'What was within your control',
+    'What decision could you repeat or change next time?'],
 ];
+
+function updateReflectionCount() {
+  const reflection = document.getElementById('rv-reflection');
+  const count = reflection?.querySelector('.rv-reflection-count');
+  if (!count) return;
+  const answered = [...reflection.querySelectorAll('.rv-field-in')]
+    .filter(input => typeof input.value === 'string' && input.value.trim().length > 0).length;
+  count.textContent = answered ? `${answered} ${answered === 1 ? 'answer' : 'answers'}` : 'Optional';
+}
 
 function parseTags(tagsJson) {
   if (!tagsJson) return [];
@@ -481,16 +555,35 @@ function renderForm(subject) {
   };
   for (const spec of FIELD_ORDER) fieldHost.appendChild(buildField(spec));
 
-  // R-001: the cognitive-reappraisal pair as ONE labelled unit (blame box +
-  // improvable box), set off from the main fields so the two read together.
+  // Reflection stays optional even when prior answers exist. Its count makes
+  // those answers discoverable; mounted fields still participate in save/draft.
+  // Shared navigation restores a user's expansion after this initial render.
+  const reflection = document.createElement('details');
+  reflection.id = 'rv-reflection';
+  reflection.className = 'learning-details';
+  reflection.open = false;
+  const reflectionSummary = document.createElement('summary');
+  reflectionSummary.textContent = 'Reflect on the result';
+  const optional = document.createElement('span');
+  optional.className = 'rv-reflection-count';
+  optional.textContent = 'Optional';
+  reflectionSummary.appendChild(optional);
+  const reflectionBody = document.createElement('div');
+  reflectionBody.className = 'learning-details-body';
+  reflectionBody.appendChild(buildField(REFLECTION_FIELD));
+
+  // Keep both sides of the reappraisal together for wins and losses.
   const pairWrap = document.createElement('div');
   pairWrap.className = 'rv-reappraisal';
   const pairHd = document.createElement('div');
   pairHd.className = 'rv-reappraisal-hd';
-  pairHd.textContent = 'Reframe the loss';
+  pairHd.textContent = 'Separate what you can change';
   pairWrap.appendChild(pairHd);
   for (const spec of REAPPRAISAL_PAIR) pairWrap.appendChild(buildField(spec));
-  fieldHost.appendChild(pairWrap);
+  reflectionBody.appendChild(pairWrap);
+  reflection.append(reflectionSummary, reflectionBody);
+  fieldHost.appendChild(reflection);
+  updateReflectionCount();
 
   // Concept tags — seed editable chips from the saved tagsJson.
   const tagHost = $('rv-tags');
@@ -553,6 +646,7 @@ async function onFocusClick(btn) {
   if (!card) return;
   const gameId = Number(_subject && _subject.gameId);
   if (!(gameId > 0)) return;
+  matchNav.enableCapture();
   const value = Number(btn.dataset.focus);
   const wasSelected = btn.classList.contains('on');
 
@@ -571,189 +665,44 @@ async function onFocusClick(btn) {
   await postWrite('set_focus_adherence', { gameId, value: payloadValue });
 }
 
-// ── render: death audit (one-tap cause chips, immediate write) ──────────────
-// One row per death: the timestamp, the saved cause (if classified), and the
-// six cause chips. Tapping a chip classifies the death (classify_death);
-// re-tapping the selected chip clears it (clear_death). The death is keyed on
-// its gameTimeSeconds (stamped on the row + each chip). Persist is immediate;
-// the snapshot refetches after so the saved cause label + selection stay true.
+// ── render: death review ─────────────────────────────────────────────────────
+// One keyboard-accessible watch action per death. Timeline corrections remain
+// in the VOD player; the Review list follows the snapshot's chronological order.
+function deathClock(seconds) {
+  const whole = Math.floor(seconds);
+  return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
+}
+
 function renderDeaths(subject) {
   const deaths = Array.isArray(subject.deaths) ? subject.deaths : [];
+  const count = $('rv-death-count'); if (count) count.textContent = `${deaths.length} ${deaths.length === 1 ? 'death' : 'deaths'}`;
   const host = $('rv-deaths');
   clear(host);
   show($('rv-deathsec'), deaths.length > 0);
-  if (deaths.length === 0) return;
 
-  for (const d of deaths) {
-    const el = tpl('tpl-death');
-    const timeS = Number(d.gameTimeSeconds);
-    el.dataset.timeS = String(Number.isFinite(timeS) ? timeS : 0);
-    el.querySelector('.rv-death-time').textContent = d.timeText || '';
-    // v3.11: the DEATH row's ledger identity, so the fix links can name it. An older
-    // snapshot carries neither, and then the links stay hidden.
-    el.dataset.eventKey = d.eventKey || '';
-    el.dataset.eventId = String(d.eventId || 0);
-    show(el.querySelector('.rv-death-fixes'), !!(d.eventKey || d.eventId));
-
-    // "Watch" jumps to this game's VOD ~10s before the death so you can see it
-    // before tagging the cause (P-006/P-010, brief 2026-06-17-15). Reuses the
-    // delegated view_moment handler (reads _subject.gameId + data-seek). Shown
-    // whenever the death has a real game time; the VOD page shows its own
-    // "no recording" state if the game has no recording (same as evidence rows).
-    const jump = el.querySelector('.rv-death-jump');
-    if (jump && Number.isFinite(timeS) && timeS > 0) {
-      const seek = Math.max(0, Math.floor(timeS) - 10);
-      jump.dataset.seek = String(seek);
-      show(jump, true);
-    } else if (jump) {
-      jump.remove();
+  deaths.forEach((death, index) => {
+    const row = tpl('tpl-death');
+    const timeS = death?.gameTimeSeconds;
+    const timed = Number.isFinite(timeS) && timeS >= 0;
+    const label = timed ? deathClock(timeS) : 'Time unavailable';
+    row.querySelector('.rv-death-number').textContent = `Death ${index + 1}`;
+    row.querySelector('.rv-death-time').textContent = label;
+    const jump = row.querySelector('.rv-death-jump');
+    jump.disabled = !timed;
+    jump.setAttribute('aria-label', timed ? `Watch death ${index + 1} at ${label}` : `Death ${index + 1}: time unavailable`);
+    if (timed) {
+      row.dataset.timeS = String(timeS);
+      // A match without a linked recording still opens the existing no-recording
+      // VOD state, with a link back to this Review and its preserved draft.
+      jump.dataset.seek = String(Math.max(0, timeS - 10));
+      jump.title = `Watch death ${index + 1} at ${label}, starting up to 10 seconds earlier`;
+    } else {
+      delete jump.dataset.seek;
+      jump.title = 'This death has no available timestamp.';
     }
-
-    const cause = el.querySelector('.rv-death-cause');
-    if (d.isClassified && d.selectedLabel) {
-      cause.textContent = d.selectedLabel;
-      show(cause, true);
-    }
-    const chipHost = el.querySelector('.rv-death-chips');
-    const chips = Array.isArray(d.chips) ? d.chips : [];
-    for (const c of chips) {
-      const chip = tpl('tpl-deathchip');
-      chip.querySelector('.rv-dchip-lbl').textContent = c.label || '';
-      if (c.hint) chip.title = c.hint;
-      // Stamp the class key so the click handler knows what to write.
-      chip.dataset.deathKey = String(c.key || '');
-      if (c.isSelected) chip.classList.add('on');
-      chip.setAttribute('role', 'button');
-      chip.tabIndex = 0;
-      chipHost.appendChild(chip);
-    }
-    host.appendChild(el);
-  }
-}
-
-// Classify (or clear) one death from a chip click. Updates the row in place so
-// the selection feels instant, then writes + refetches to confirm.
-async function onDeathChipClick(chip) {
-  const row = chip.closest('.rv-death');
-  if (!row) return;
-  const gameId = Number(_subject && _subject.gameId);
-  const timeS = Number(row.dataset.timeS);
-  const key = String(chip.dataset.deathKey || '');
-  if (!(gameId > 0) || !Number.isFinite(timeS) || !key) return;
-
-  const wasSelected = chip.classList.contains('on');
-  // Sibling chips deselect; re-tapping the selected chip clears it.
-  for (const sib of row.querySelectorAll('.rv-dchip')) sib.classList.remove('on');
-  const causeEl = row.querySelector('.rv-death-cause');
-  let ok;
-  if (wasSelected) {
-    if (causeEl) { causeEl.textContent = ''; show(causeEl, false); }
-    ok = await postWrite('clear_death', { gameId, timeS });
-  } else {
-    chip.classList.add('on');
-    if (causeEl) {
-      causeEl.textContent = chip.querySelector('.rv-dchip-lbl')?.textContent || '';
-      show(causeEl, true);
-    }
-    ok = await postWrite('classify_death', { gameId, timeS, key });
-  }
-  // No re-render: the chip + cause label are already updated above. A loadReview()
-  // would rebuild the form and discard unsaved debrief/tag text (same bug as focus).
-}
-
-// v3.11 timeline fixes on a death row: "not a death" removes the DEATH event,
-// "wrong time" retimes it (inline m:ss), "undo" reverts whichever landed. Each is
-// one correction row keyed on the event (save_event_correction / revert_event_
-// correction); the row updates in place and NOTHING re-renders (P-035), so unsaved
-// debrief text survives. postWrite surfaces failures through showCommit.
-const DEATH_CLOCK_RE = /^(\d{1,4}):([0-5]\d)$/;
-function deathClock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
-// Correction ids this page wrote (added BEFORE the write: the sidecar publishes
-// eventsCorrected before it replies). The SSE listener refreshes the header count
-// for them but leaves the death rows alone, so the in-row undo survives its own
-// write instead of being rebuilt away with the fresh snapshot.
-const _ownFixIds = new Set();
-async function onDeathFixClick(btn) {
-  const row = btn.closest('.rv-death');
-  if (!row) return;
-  const gameId = Number(_subject && _subject.gameId);
-  const timeS = Number(row.dataset.timeS);
-  if (!(gameId > 0) || !Number.isFinite(timeS)) return;
-  const fix = String(btn.dataset.fix || '');
-  const retimeBox = row.querySelector('.rv-death-retime');
-  const retimeIn = row.querySelector('.rv-death-retime-in');
-  const fixes = row.querySelector('.rv-death-fixes');
-  const undo = row.querySelector('.rv-death-undo');
-  const chips = row.querySelector('.rv-death-chips');
-  const timeEl = row.querySelector('.rv-death-time');
-  const jump = row.querySelector('.rv-death-jump');
-  const subject = () => ({
-    eventKey: row.dataset.eventKey || null,
-    eventId: Number(row.dataset.eventId) || null,
-    type: 'DEATH',
-    timeS: Number(row.dataset.timeS),
+    host.appendChild(row);
   });
-
-  if (fix === 'remove') {
-    const correctionId = crypto.randomUUID();
-    _ownFixIds.add(correctionId);
-    const ok = await postWrite('save_event_correction', { gameId, correctionId, op: 'remove', subject: subject(), patch: null, reason: 'Not a death' });
-    if (!ok) { _ownFixIds.delete(correctionId); return; }
-    row.dataset.correctionId = correctionId;
-    row.dataset.fixKind = 'remove';
-    row.classList.add('is-removed');
-    show(chips, false);
-    show(fixes, false);
-    show(retimeBox, false);
-    show(undo, true);
-    return;
-  }
-  if (fix === 'retime') {
-    if (retimeIn) retimeIn.value = deathClock(timeS);
-    show(retimeBox, true);
-    if (retimeIn) retimeIn.focus();
-    return;
-  }
-  if (fix === 'retime_cancel') { show(retimeBox, false); return; }
-  if (fix === 'retime_apply') {
-    const m = DEATH_CLOCK_RE.exec(String(retimeIn ? retimeIn.value : '').trim());
-    if (!m) { showCommit('Enter a time as m:ss.', 'err'); return; }
-    const newS = Number(m[1]) * 60 + Number(m[2]);
-    const correctionId = crypto.randomUUID();
-    _ownFixIds.add(correctionId);
-    const ok = await postWrite('save_event_correction', { gameId, correctionId, op: 'retime', subject: subject(), patch: { gameTimeS: newS }, reason: 'Wrong time' });
-    if (!ok) { _ownFixIds.delete(correctionId); return; }
-    row.dataset.correctionId = correctionId;
-    row.dataset.fixKind = 'retime';
-    row.dataset.prevTimeS = row.dataset.timeS;
-    row.dataset.prevTimeText = timeEl ? timeEl.textContent : '';
-    row.dataset.timeS = String(newS);
-    if (timeEl) timeEl.textContent = deathClock(newS);
-    if (jump) jump.dataset.seek = String(Math.max(0, newS - 10));
-    show(retimeBox, false);
-    show(undo, true);
-    return;
-  }
-  if (fix === 'undo') {
-    const correctionId = String(row.dataset.correctionId || '');
-    if (!correctionId) return;
-    _ownFixIds.add(correctionId); // the revert publishes the same correctionId; the row restores itself below
-    const ok = await postWrite('revert_event_correction', { gameId, correctionId });
-    if (!ok) { _ownFixIds.delete(correctionId); return; }
-    if (row.dataset.fixKind === 'retime' && row.dataset.prevTimeS != null) {
-      row.dataset.timeS = row.dataset.prevTimeS;
-      if (timeEl) timeEl.textContent = row.dataset.prevTimeText || deathClock(Number(row.dataset.prevTimeS));
-      if (jump) jump.dataset.seek = String(Math.max(0, Number(row.dataset.prevTimeS) - 10));
-    }
-    delete row.dataset.correctionId;
-    delete row.dataset.fixKind;
-    row.classList.remove('is-removed');
-    show(chips, true);
-    show(fixes, true);
-    show(undo, false);
-  }
 }
-
 // ── render: evidence triage (immediate writes) ──────────────────────────────
 // P-027 replaced the old two-list evidence UI (ATTACHED / EVIDENCE TO SORT) with
 // prompt-centric homing: clips render UNDER their prompt, under an objective's
@@ -864,6 +813,7 @@ function renderUnsorted(subject) {
   const objs = Array.isArray(subject.objectives) ? subject.objectives : [];
   const objectiveOptions = objs.map((o) => ({ id: Number(o.id), title: o.title }));
   const n = renderClipList($('rv-tosort'), clips, objectiveOptions);
+  const count = $('rv-unsorted-count'); if (count) count.textContent = `${n} ${n === 1 ? 'clip' : 'clips'}`;
   show($('rv-tosortsec'), n > 0);
 }
 
@@ -878,6 +828,8 @@ function pruneEmptyClipSections() {
     }
   }
   const tosort = $('rv-tosort');
+  const count = $('rv-unsorted-count');
+  if (count && tosort) count.textContent = `${tosort.childElementCount} ${tosort.childElementCount === 1 ? 'clip' : 'clips'}`;
   if (tosort && tosort.childElementCount === 0) show($('rv-tosortsec'), false);
 }
 
@@ -1067,6 +1019,7 @@ function showCommit(text, kind) {
 // ── empty / error states ────────────────────────────────────────────────────
 function renderEmpty() {
   _subject = null;
+  matchNav.setGame(null);
   // The form isn't rendered in the empty state, so a queued commit message would
   // otherwise leak onto a later render — drop it here.
   _pendingCommitMsg = null;
@@ -1074,12 +1027,18 @@ function renderEmpty() {
   show($('rv-body'), false);
   show($('rv-empty'), true);
   const statusB = document.querySelector('#statusline b');
-  statusB.textContent = 'Nothing to review right now.';
+  if (statusB) statusB.textContent = 'Nothing to review right now.';
+  show($('statusline'), true);
 }
 
 function renderError(err) {
   $('err-detail').textContent = (err && err.message) ? err.message : String(err);
   show($('errpanel'), true);
+  if (!_subject) {
+    const status = document.querySelector('#statusline b');
+    if (status) status.textContent = 'Could not load this review.';
+    show($('statusline'), true);
+  }
 }
 function clearError() { show($('errpanel'), false); }
 
@@ -1089,15 +1048,12 @@ let _entranceDone = false;
 function playEntrance() {
   if (_entranceDone) return;
   _entranceDone = true;
-  // Reflects the on-page order: hero → objectives (the focus) → stats → death
-  // audit → to-sort strip → debrief form.
+  // Follow the launchpad's reading order: match → watch → takeaway → save.
   const order = [
     $('rv-hero'),
-    $('rv-objsec'),
-    $('rv-strip'),
-    $('rv-deathsec'),
-    $('rv-tosortsec'),
+    $('rv-launchpad'),
     $('rv-form'),
+    $('rv-commitbar'),
   ].filter((el) => el && !el.hidden);
   order.forEach((el, i) => {
     el.classList.add('anim-rise', `anim-d${Math.min(i + 1, 5)}`);
@@ -1127,22 +1083,20 @@ function render(d) {
   renderTagCatalog(subject);
   renderMatchupHistory(subject);
   renderNextGame(d);
+  matchNav.setGame(subject.gameId);
   playEntrance();
 }
 
 // ── render: "Next game →" chaining ──────────────────────────────────────────
 // The snapshot carries the newest OTHER unreviewed game + the remaining count,
 // so a session of several reviews chains directly instead of bouncing through
-// the Games list after every save. Both buttons (commit bar + already-reviewed
-// banner) navigate to review.html?gameId=<next>.
+// the Games list after every save. The commit bar links to review.html?gameId=<next>.
 function renderNextGame(d) {
   const nextId = Number(d && d.nextUnreviewedGameId) || 0;
   const remaining = Number(d && d.unreviewedRemaining) || 0;
   const suffix = remaining > 1 ? ` (${remaining} left)` : '';
   const nextBtn = $('rv-nextbtn');
   if (nextBtn) { nextBtn.textContent = `Next game${suffix} →`; show(nextBtn, nextId > 0); }
-  const bannerBtn = $('rv-savednote-next');
-  if (bannerBtn) { bannerBtn.textContent = `Next unreviewed${suffix} →`; show(bannerBtn, nextId > 0); }
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────
@@ -1150,9 +1104,18 @@ let _loading = false;
 async function loadReview() {
   if (_loading) return;
   _loading = true;
+  if (!_subject) {
+    const status = document.querySelector('#statusline b');
+    if (status) status.textContent = 'Loading review…';
+    show($('statusline'), true);
+  }
   try {
     const data = await fetchReview();
     render(data);
+    if (!_restoreAttempted && _subject) {
+      _restoreAttempted = true;
+      if (new URLSearchParams(window.location.search).get('resume') === '1') await matchNav.restoreState();
+    }
   } catch (err) {
     renderError(err);
     // Surface to console for diagnosis without leaking into the DOM markup.
@@ -1162,9 +1125,25 @@ async function loadReview() {
   }
 }
 
-// v3.10: the post-game matchup pass filled this game's enemy laner / lobby map
-// (~90s after EOG, from Match-V5). Re-render ONLY the hero header from a fresh
-// snapshot — never the form, which may hold unsaved text (P-035).
+// The link event confirms availability without refetching or touching the form.
+function updateRecordingLaunch(gameId) {
+  const button = $('rv-open-vod');
+  if (!button) return;
+  const linked = Number(gameId) === _linkedRecordingGameId && _linkedRecordingGameId > 0;
+  button.dataset.recordingLinked = String(linked);
+  button.title = linked ? 'A recording was just linked to this match.' : '';
+  if (button.firstChild?.nodeType === 3) button.firstChild.textContent = linked ? 'Review linked recording ' : 'Review in VOD ';
+}
+
+window.addEventListener('revu:vod-linked', event => {
+  const gameId = Number(event.detail?.gameId);
+  const shown = Number(_subject?.gameId || new URLSearchParams(window.location.search).get('gameId'));
+  if (!Number.isSafeInteger(gameId) || gameId <= 0 || gameId !== shown) return;
+  _linkedRecordingGameId = gameId;
+  updateRecordingLaunch(gameId);
+});
+
+// Post-game matchup enrichment refreshes the header, never the mounted form.
 window.addEventListener('revu:matchup-updated', async (ev) => {
   const gid = Number(ev && ev.detail && ev.detail.gameId);
   const shown = Number(_subject && _subject.gameId) || 0;
@@ -1177,25 +1156,17 @@ window.addEventListener('revu:matchup-updated', async (ev) => {
   }
 });
 
-// v3.11: a timeline correction landed (this page's death links, the VOD panel, or
-// another window). Re-render ONLY the header count and the death rows from a fresh
-// snapshot; never the form (P-035). Skipped while an inline "wrong time" field is
-// open so the user's typing is not rebuilt away. A correction THIS page wrote has
-// already updated its row in place (with its undo button), so only the header count
-// refreshes for it; a rebuild would drop the row (remove) or its undo (retime).
+// Timeline corrections from the VOD player refresh death links and the header
+// count without rebuilding the user's debrief fields.
 window.addEventListener('revu:events-corrected', async (ev) => {
   const gid = Number(ev && ev.detail && ev.detail.gameId);
   const shown = Number(_subject && _subject.gameId) || 0;
   if (!shown || (gid > 0 && gid !== shown)) return;
-  const cid = String((ev && ev.detail && ev.detail.correctionId) || '');
-  const own = !!cid && _ownFixIds.has(cid);
-  if (own) _ownFixIds.delete(cid); // a later external correction on the same id still refreshes
-  if (!own && document.querySelector('#rv-deaths .rv-death-retime:not([hidden])')) return;
   try {
     const data = await fetchReview();
-    if (data && data.subject) {
+    if (Number(data?.subject?.gameId) === shown && Number(_subject?.gameId) === shown) {
       renderHeader(data.subject);
-      if (!own) renderDeaths(data.subject);
+      renderDeaths(data.subject);
     }
   } catch (err) {
     console.error('[review] refresh after events corrected failed:', err);
@@ -1203,6 +1174,17 @@ window.addEventListener('revu:events-corrected', async (ev) => {
 });
 
 // ── live form interactions: mental slider + tag input ───────────────────────
+// Hidden prompt textareas have no measurable height during initial rendering.
+// Recalculate after an explicit open so existing multi-line answers stay readable.
+const goalDetails = $('rv-objsec');
+goalDetails.addEventListener('toggle', () => {
+  if (!goalDetails.open) return;
+  requestAnimationFrame(() => {
+    for (const input of goalDetails.querySelectorAll('.rv-prompt-input')) autoSize(input);
+  });
+});
+goalDetails.addEventListener('invalid', () => { goalDetails.open = true; }, true);
+
 // Mental slider mirrors its value into the readout as it moves (and counts as
 // a real answer from the first move). Any edit to a debrief textarea, objective
 // note, or the slider marks the draft dirty for the debounced autosave.
@@ -1216,6 +1198,7 @@ document.addEventListener('input', (ev) => {
     return;
   }
   if (t.classList && (t.classList.contains('rv-field-in') || t.classList.contains('rv-objnote') || t.id === 'rv-tag-input')) {
+    if (t.classList.contains('rv-field-in')) updateReflectionCount();
     markDraftDirty();
   }
 });
@@ -1274,18 +1257,11 @@ document.addEventListener('blur', (ev) => {
 
 // ── delegated granular-write handlers (immediate persist) ───────────────────
 // One click handler routes all the immediate-write controls by what was hit:
-//   • a death cause chip (.rv-dchip)          → onDeathChipClick
 //   • an evidence triage button ([data-evid-action] button) → onEvidenceAction
 //   • a focus-check button (.rv-focus-btn)     → onFocusClick
 //   • a concept-tag catalog chip (.rv-tagcat-chip) → toggle selection (local)
 // These coexist with the [data-action] handler below (save/skip/vod).
 document.addEventListener('click', (ev) => {
-  const fixBtn = ev.target.closest('.rv-death-fix');
-  if (fixBtn && fixBtn.closest('#rv-deaths')) { ev.preventDefault(); onDeathFixClick(fixBtn); return; }
-
-  const chip = ev.target.closest('.rv-dchip');
-  if (chip && chip.closest('#rv-deaths')) { ev.preventDefault(); onDeathChipClick(chip); return; }
-
   const evidBtn = ev.target.closest('button[data-evid-action]');
   if (evidBtn) { ev.preventDefault(); onEvidenceAction(evidBtn.dataset.evidAction, evidBtn); return; }
 
@@ -1301,12 +1277,12 @@ document.addEventListener('click', (ev) => {
   }
 });
 
-// Keyboard activation (Enter/Space) for the role=button chips (death + tag) and
+// Keyboard activation (Enter/Space) for the role=button tag chips and
 // the clickable evidence cards.
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
   const t = ev.target;
-  if (t && t.classList && (t.classList.contains('rv-dchip') || t.classList.contains('rv-tagcat-chip') || t.classList.contains('rv-evid-clickable'))) {
+  if (t && t.classList && (t.classList.contains('rv-tagcat-chip') || t.classList.contains('rv-evid-clickable'))) {
     ev.preventDefault();
     t.click();
   }
@@ -1328,32 +1304,40 @@ document.addEventListener('change', (ev) => {
   if (pick) onEvidenceAction('objective', pick);
 });
 
-// Prompt-answer boxes save on blur (empty deletes). Only writes when the value
-// actually changed from what was loaded/last-saved, to avoid redundant writes.
-document.addEventListener('blur', async (ev) => {
-  const input = ev.target;
-  if (!input || !input.classList || !input.classList.contains('rv-prompt-input')) return;
+// Serialize blur saves per answer, keeping the confirmed value separate from
+// its raw draft. Failed saves remain retryable after navigation and restoration.
+const _promptWrites = new Set();
+const _promptWriteTails = new WeakMap();
+function savePromptAnswer(input) {
   const promptId = Number(input.dataset.promptId);
-  if (!(promptId > 0)) return;
   const gameId = Number(_subject && _subject.gameId);
-  if (!(gameId > 0)) return;
+  if (!(promptId > 0) || !(gameId > 0)) return Promise.resolve();
   const text = input.value;
-  if (text === (input.dataset.savedValue ?? '')) return; // unchanged
-  input.dataset.savedValue = text;
-  await postWrite('save_prompt_answer', { promptId, gameId, text });
-  // No refetch here — re-rendering would steal focus / rebuild the form. The
-  // saved value is already reflected locally; the next full load reconciles.
+  const write = (_promptWriteTails.get(input) || Promise.resolve()).catch(() => {}).then(async () => {
+    if (text === (input.dataset.savedValue ?? '')) return;
+    if (await postWrite('save_prompt_answer', { promptId, gameId, text })) input.dataset.savedValue = text;
+  });
+  _promptWrites.add(write);
+  _promptWriteTails.set(input, write);
+  write.then(() => _promptWrites.delete(write), () => _promptWrites.delete(write));
+  return write;
+}
+document.addEventListener('blur', (ev) => {
+  const input = ev.target;
+  if (!input?.classList?.contains('rv-prompt-input')) return;
+  savePromptAnswer(input).catch(err => console.warn('[review] prompt answer save failed:', err));
 }, true);
 
 // Grow prompt-answer boxes as the user types.
 document.addEventListener('input', (ev) => {
   if (ev.target && ev.target.classList && ev.target.classList.contains('rv-prompt-input')) {
+    matchNav.enableCapture();
     autoSize(ev.target);
   }
 });
 
 // ── single delegated action handler ─────────────────────────────────────────
-// review_vod  = VOD button on the hero card (→ vod viewer, deferred).
+// review_vod  = primary launch action (resume this match's VOD workspace).
 // save_review = gather the editable form and COMMIT (no un-review), then refetch.
 // skip_review = mark the game reviewed without notes, then refetch.
 const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed']);
@@ -1369,13 +1353,12 @@ document.addEventListener('click', async (ev) => {
   if (!ACTIONS.has(action)) return;
   ev.preventDefault();
 
-  // "Review VOD" navigates to the VOD player for the loaded game (not a backend
-  // command). Uses the subject's gameId. Unsaved edits flush as a draft first.
+  // The shared controller adds resume=1 for this match and waits for draft
+  // writes. Omitting t/clip retains the user's saved VOD position and tools.
   if (action === 'review_vod') {
     const gid = (_subject && _subject.gameId) || target.dataset.gameId;
     if (gid) {
-      await flushDraft();
-      window.location.href = `vodplayer.html?gameId=${encodeURIComponent(gid)}`;
+      await matchNav.navigate(`vodplayer.html?gameId=${encodeURIComponent(gid)}`);
     }
     return;
   }
@@ -1385,8 +1368,7 @@ document.addEventListener('click', async (ev) => {
   if (action === 'next_unreviewed') {
     const nextId = Number(_snapshot && _snapshot.nextUnreviewedGameId) || 0;
     if (nextId > 0) {
-      await flushDraft();
-      window.location.href = `review.html?gameId=${encodeURIComponent(nextId)}`;
+      await matchNav.navigate(`review.html?gameId=${encodeURIComponent(nextId)}`);
     }
     return;
   }
@@ -1406,8 +1388,7 @@ document.addEventListener('click', async (ev) => {
       if (Number.isFinite(clipId) && clipId > 0) {
         url += `&clip=${encodeURIComponent(clipId)}`;
       }
-      await flushDraft();
-      window.location.href = url;
+      await matchNav.navigate(url);
     }
     return;
   }
@@ -1428,11 +1409,16 @@ document.addEventListener('click', async (ev) => {
     if (delBtn) delBtn.disabled = true;
     showCommit('Deleting…', null);
     try {
-      // delete_review takes a single {payload} arg in Rust (the {payload} convention).
+      await flushDraft();
+      cancelDraft();
+      _suppressDraft = true;
+      // delete_review takes a single {payload} arg in the bridge (the {payload} convention).
       await invoke('delete_review', { payload: { gameId: gid } });
+      matchNav.invalidate();
       // Back to Games — the game is now unreviewed and back in the queue.
       window.location.href = 'games.html';
     } catch (err) {
+      _suppressDraft = false;
       renderError(err);
       showCommit((err && err.message) ? err.message : 'Delete failed.', 'err');
       if (delBtn) delBtn.disabled = false;
@@ -1491,14 +1477,14 @@ document.addEventListener('click', async (ev) => {
       setTimeout(() => {
         delete skipBtn.dataset.confirm;
         skipBtn.classList.remove('rv-skip-confirm');
-        skipBtn.textContent = 'Skip';
+        skipBtn.textContent = 'Skip review';
       }, 4000);
       return;
     }
     if (skipBtn) {
       delete skipBtn.dataset.confirm;
       skipBtn.classList.remove('rv-skip-confirm');
-      skipBtn.textContent = 'Skip';
+      skipBtn.textContent = 'Skip review';
     }
   }
 
@@ -1518,7 +1504,7 @@ document.addEventListener('click', async (ev) => {
   if (!invoke) {
     // Browser preview: no backend to talk to. Acknowledge the click so the
     // standalone preview still feels responsive.
-    console.info(`[review] (preview) action "${action}" — no Tauri backend.`, args);
+    console.info(`[review] (preview) action "${action}" — no Electron backend.`, args);
     if (action === 'save_review') showCommit('Saved (preview, no backend).', 'ok');
     if (action === 'skip_review') showCommit('Skipped (preview, no backend).', 'ok');
     return;
@@ -1535,14 +1521,18 @@ document.addEventListener('click', async (ev) => {
   if (action === 'skip_review') showCommit('Skipping…', null);
   // The commit deletes the server-side draft — cancel any pending autosave so
   // it can't fire mid-save and resurrect the draft.
-  if (action === 'save_review' || action === 'skip_review') {
-    cancelDraft();
-    _suppressDraft = true;
-  }
   try {
-    // save_review / skip_review take a single `payload` arg in Rust — wrap the
-    // gathered form/body so Tauri doesn't reject with "missing required key payload".
+    if (action === 'save_review' || action === 'skip_review') {
+      await flushDraft();
+      cancelDraft();
+      _suppressDraft = true;
+      // Include edits made while an earlier autosave was finishing.
+      if (action === 'save_review') args = gatherForm();
+    }
+    // save_review / skip_review take a single `payload` arg in the bridge — wrap the
+    // gathered form/body so Electron doesn't reject with "missing required key payload".
     await invoke(action, { payload: args });
+    if (action === 'save_review' || action === 'skip_review') matchNav.invalidate();
     // RE-FETCH so the UI reflects the committed state (next subject / reviewed
     // mark). Queue the confirmation so it SURVIVES the renderForm() the reload
     // runs — renderForm resets the commit line on every render, so a plain

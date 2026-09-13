@@ -118,6 +118,13 @@ public sealed class LcuClient : ILcuClient
     }
 
     /// <inheritdoc />
+    public async Task<long> GetCurrentGameIdAsync(CancellationToken ct = default)
+    {
+        var session = await GetAsync("/lol-gameflow/v1/session", ct).ConfigureAwait(false);
+        return session is { } value && value.TryGetProperty("gameData", out var data)
+            && data.TryGetProperty("gameId", out var id) && id.TryGetInt64(out var gameId) ? gameId : 0;
+    }
+
     public async Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default)
     {
         try

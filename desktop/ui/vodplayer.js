@@ -1,5 +1,6 @@
-// Revu desktop — VOD player. Plays the local Ascent recording for a game via an
-// HTML <video> fed by Tauri's asset: protocol (convertFileSrc). Custom transport
+import { $, show, clear, tpl } from './dom.mjs';
+// Revu desktop — VOD player. Plays the linked local recording for a game via an
+// HTML <video> fed by the desktop media resolver. Custom transport
 // (play/seek/rate), a seek bar with bookmark markers, and a moments list that
 // jumps the video. Opened as vodplayer.html?gameId=N.
 //
@@ -10,17 +11,17 @@
 // timeline + markers, moments list, clip/bookmark/evidence/share tools, the ?t=
 // deep-link, OPEN REVIEW) and delegates only the transport to the core (_T).
 
-import { createTransport, resolveAssetUrl, tauriCore } from './vodtransport.js';
+import { createTransport, resolveAssetUrl, getMedia } from './vodtransport.js';
 import { createCorrections } from './vodcorrections.js';
+import { findTimelineEventAtPoint } from './timeline-event-hit.mjs';
+import { objectiveTypeLabel, objectivePhaseLabel } from './objective-labels.mjs';
+import { createMatchNavigation } from './match-navigation.mjs';
+import { createVodViewRestorer, createVodWriteBarrier, sameVodDraft, vodRestorePlan } from './vod-view-state.mjs';
 
-const $ = (id) => document.getElementById(id);
-function show(el, on) { if (el) el.hidden = !on; }
-function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-function tpl(id) { return $(id).content.firstElementChild.cloneNode(true); }
 function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
 let _vod = null;       // the loaded VOD snapshot
-let _core = null;      // cached Tauri core ({invoke, convertFileSrc}) or null
+let _core = null;      // cached platform media interface ({invoke, resolveMedia}) or null
 let _gameId = 0;       // the game id from ?gameId=N
 let _objectives = [];  // active objectives (with prompts) for the objective/prompt pickers
 let _autoClipEnabled = false; // config.autoClipObjectivesEnabled — gates the auto-clip button
@@ -29,6 +30,10 @@ let _autoClipHintMsg = '';    // last auto-clip result message (survives objbar 
 let _autoClipHintErr = false; // whether _autoClipHintMsg is an error
 let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarge)
 let _fx = null;        // timeline corrections module (selection, keys, form, ghosts, list)
+let _vodInitialLoading = true;
+let _linkedVodPending = false;
+let _linkedVodLoading = false;
+let _vodReadVersion = 0;
 // ── Objective-framed viewer state ────────────────────────────────────────────
 // The VOD page opens framed on ONE objective at a time (the default, not a mode).
 // _focusedObjId is the currently-framed objective id; its events/moments are loud,
@@ -43,7 +48,118 @@ let _framed = false;        // true when ≥1 objective and we're framing
 // independently, so the user can aim a clip at a different objective than a bookmark.
 let _bmObjUserSet = false;
 let _clipObjUserSet = false;
+let _pendingMediaTime = null; // Keep the same-file position when media is temporarily unavailable.
+let _savedVideoSize = null;
+let _selectedReviewEvent = '';
+let _revealRestoredClipDraft = false;
+let _revealLinkedMoment = false;
 const video = () => $('vp-video');
+const _viewRestorer = createVodViewRestorer(() => _matchNav.restoreState());
+const _viewWrites = createVodWriteBarrier();
+const _matchNav = createMatchNavigation({
+  view: 'vod', capture: captureVodViewState, restore: restoreVodViewState,
+  canCapture: () => _viewRestorer.ready && !!_vod,
+  beforeLeave: async showStatus => {
+    _T?.pause();
+    if (_viewWrites.pending) showStatus?.('Finishing save…');
+    await _fx?.flushPending();
+    await _viewWrites.flush();
+  },
+});
+
+function captureVodViewState() {
+  if (!_vod || !(_vod.gameId > 0)) return null;
+  const v = video();
+  return {
+    schema: 1, gameId: Number(_vod.gameId), filePath: _vod.filePath || '',
+    mediaTime: _pendingMediaTime ?? (Number.isFinite(v?.currentTime) ? v.currentTime : 0),
+    videoWidth: v?.videoWidth || _savedVideoSize?.width || 0,
+    videoHeight: v?.videoHeight || _savedVideoSize?.height || 0,
+    step: _T?.stepSeconds || 5, rate: v?.playbackRate || 1,
+    muted: !!v?.muted, volume: v?.volume ?? 1, focusedObjectiveId: _focusedObjId,
+    reviewEvent: _selectedReviewEvent,
+    filter: _bmFilter, zoom: _tlZoom, pan: _tlPan,
+    clip: { start: _clipIn, end: _clipOut, quality: _clipQuality,
+      note: $('vp-clip-note')?.value || '', picker: $('vp-clip-obj')?.value || '', userSet: _clipObjUserSet },
+    bookmark: { note: $('vp-bm-note')?.value || '', picker: $('vp-bm-obj')?.value || '', userSet: _bmObjUserSet },
+    corrections: _fx?.captureState() || null,
+  };
+}
+
+async function restoreVodViewState(state) {
+  const v = video();
+  const plan = vodRestorePlan(state, {
+    gameId: Number(_vod?.gameId), filePath: _vod?.filePath,
+    mediaDuration: v?.duration, gameDuration: _vod?.gameDurationSeconds,
+    objectiveIds: _objectives.map(o => Number(o.objectiveId)), search: window.location.search,
+  });
+  if (!plan) return;
+  if (v && plan.videoSize) {
+    _savedVideoSize = plan.videoSize;
+    v.style.aspectRatio = `${plan.videoSize.width} / ${plan.videoSize.height}`;
+    v.style.height = 'auto';
+  }
+  _T?.setStep(plan.step);
+  _T?.setRate(plan.rate);
+  if (v) { v.muted = plan.muted; v.volume = plan.volume; }
+  if (plan.focusedObjectiveId !== null) setFocusedObjective(plan.focusedObjectiveId);
+  if (plan.filter) {
+    _bmFilter = plan.filter;
+    document.querySelectorAll('#vp-tabs .tab').forEach(tab => tab.classList.toggle('on', tab.dataset.filter === _bmFilter));
+    renderMoments();
+  }
+  _tlZoom = plan.zoom; _tlPan = plan.pan;
+  applyTimelineZoom();
+  _clipIn = plan.clip.start; _clipOut = plan.clip.end; _clipQuality = plan.clip.quality;
+  if ($('vp-clip-note')) $('vp-clip-note').value = plan.clip.note;
+  if ($('vp-bm-note')) $('vp-bm-note').value = plan.bookmark.note;
+  const restorePicker = (id, saved) => {
+    const el = $(id);
+    if (plan.explicit && !saved.userSet) return false;
+    if (!el || !Array.from(el.options).some(option => option.value === saved.picker)) return false;
+    el.value = saved.picker;
+    return saved.userSet;
+  };
+  _clipObjUserSet = restorePicker('vp-clip-obj', plan.clip);
+  _bmObjUserSet = restorePicker('vp-bm-obj', plan.bookmark);
+  renderClipState();
+  _revealRestoredClipDraft = !!(plan.clip.note || plan.clip.start >= 0 || plan.clip.end >= 0);
+  if (!plan.explicit && typeof state.reviewEvent === 'string') {
+    _selectedReviewEvent = state.reviewEvent;
+    renderReviewEvents();
+  }
+  if (plan.corrections) _fx?.restoreState(plan.corrections);
+  _pendingMediaTime = plan.mediaTime;
+  applyPendingMediaTime();
+  // A new explicit moment retains its existing deep-link playback behavior.
+  // Ordinary Review → VOD resumes at the saved frame and waits for Play.
+  if (!plan.explicit) _T?.pause();
+  _T?.refreshReadout();
+  renderMarkerStepper();
+}
+
+function restoreMatchView() {
+  // A failed snapshot request gives us no fresh match/asset identity to restore
+  // against. Keep the saved view intact for the next successful visit.
+  if (!_vod) return Promise.resolve(false);
+  return _viewRestorer.finish().then(result => {
+    // Shared navigation restores disclosure choices after the raw draft. Reveal a
+    // resumed clip once, so its unfinished range/note is immediately discoverable.
+    if (_revealRestoredClipDraft) { _revealRestoredClipDraft = false; openClipTools(); }
+    if (_revealLinkedMoment) {
+      _revealLinkedMoment = false;
+      const saved = $('vp-saved-moments'); if (saved) saved.open = true;
+    }
+    return result;
+  }).catch(error => console.warn('[vodplayer] view state restore failed:', error));
+}
+
+function applyPendingMediaTime() {
+  const v = video();
+  if (_pendingMediaTime === null || !(v?.readyState >= 1)) return;
+  v.currentTime = Math.min(_pendingMediaTime, Number.isFinite(v.duration) ? v.duration : _pendingMediaTime);
+  _pendingMediaTime = null;
+}
 
 // This game's MARKERS for an objective: the AUTOMATED extractions only (game events —
 // deaths, flashes, recalls, objectives, etc.), sorted by time. Manually-made clips and
@@ -56,15 +172,95 @@ const video = () => $('vp-video');
 function markersForObjective(objId) {
   if (objId == null) return [];
   const id = Number(objId);
-  const v = _vod || {};
-  const out = [];
-  for (const e of (v.gameEvents || [])) {
+  return reviewableEvents().filter(e => {
     const hit = Array.isArray(e.objectiveIds)
       ? e.objectiveIds.some((x) => Number(x) === id)
       : (e.objectiveId != null && Number(e.objectiveId) === id);
-    if (hit) out.push({ seconds: e.gameTimeSeconds || 0, label: e.label || '', kind: e.kind || '', key: e.eventKey || '', id: e.id, type: e.eventType });
-  }
-  return out.sort((a, b) => a.seconds - b.seconds);
+    return hit;
+  }).map(reviewMarker);
+}
+
+function reviewableEvents() {
+  return (_vod?.gameEvents || []).filter(e => e.removed !== true
+    && typeof e.gameTimeSeconds === 'number' && Number.isFinite(e.gameTimeSeconds) && e.gameTimeSeconds >= 0)
+    .slice().sort((a, b) => a.gameTimeSeconds - b.gameTimeSeconds);
+}
+
+function reviewMarker(e) {
+  return { seconds: e.gameTimeSeconds, label: e.label || '', kind: e.kind || '',
+    key: e.eventKey || '', id: e.id, type: e.eventType };
+}
+
+function reviewEvents() {
+  return _framed ? markersForObjective(_focusedObjId) : reviewableEvents().map(reviewMarker);
+}
+
+function reviewEventKey(mark) {
+  return mark.key ? `key:${mark.key}` : mark.id > 0 ? `id:${mark.id}` : `event:${mark.type || ''}:${mark.seconds}`;
+}
+
+function reviewEventLabel(mark) {
+  if (String(mark.label || '').trim()) return mark.label.trim();
+  const entry = (_vod?.eventTypeCatalog || []).find(e => String(e.type).toUpperCase() === String(mark.type).toUpperCase());
+  if (entry?.label) return entry.label;
+  const words = String(mark.type || '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim().toLowerCase();
+  return words ? words[0].toUpperCase() + words.slice(1) : 'Game event';
+}
+
+function highlightReviewEvent() {
+  document.querySelectorAll('#vp-event-list .vp-review-event').forEach(row => {
+    const selected = row.dataset.reviewKey === _selectedReviewEvent;
+    row.classList.toggle('is-current', selected);
+    if (selected) row.setAttribute('aria-current', 'true');
+    else row.removeAttribute('aria-current');
+  });
+}
+
+function renderReviewEvents() {
+  const host = $('vp-event-list');
+  if (!host) return;
+  const marks = reviewEvents();
+  const focused = document.activeElement?.closest?.('.vp-review-event')?.dataset.reviewKey;
+  if (!marks.some(mark => reviewEventKey(mark) === _selectedReviewEvent)) _selectedReviewEvent = '';
+  const heading = $('vp-review-objective');
+  if (heading) heading.textContent = _framed ? objectiveTitle(_focusedObjId) : 'Match events';
+  const count = $('vp-event-count');
+  if (count) count.textContent = `${marks.length} ${marks.length === 1 ? 'event' : 'events'}`;
+  const empty = $('vp-event-empty');
+  if (empty) empty.textContent = _framed
+    ? 'No events linked yet. Watch the recording and add a note for this objective.'
+    : 'No events detected. Watch the recording and add a review note.';
+  show(empty, marks.length === 0);
+  show(document.querySelector('.vp-event-help'), marks.length > 0);
+  clear(host);
+  marks.forEach((mark, index) => {
+    const row = document.createElement('button');
+    row.type = 'button'; row.className = 'vp-review-event';
+    row.dataset.action = 'review_event'; row.dataset.reviewKey = reviewEventKey(mark);
+    const label = reviewEventLabel(mark);
+    row.setAttribute('aria-label', `Watch event ${index + 1}: ${label} at ${clock(mark.seconds)}`);
+    const part = (name, text) => { const span = document.createElement('span'); span.className = name; span.textContent = text; return span; };
+    row.appendChild(part('vp-event-number', String(index + 1)));
+    const info = part('vp-event-info', '');
+    info.appendChild(part('vp-event-title', label));
+    info.appendChild(part('vp-event-time', clock(mark.seconds)));
+    row.appendChild(info);
+    const play = part('vp-event-play', '▶'); play.setAttribute('aria-hidden', 'true'); row.appendChild(play);
+    host.appendChild(row);
+    if (focused === row.dataset.reviewKey) row.focus({ preventScroll: true });
+  });
+  highlightReviewEvent();
+}
+
+function watchReviewEvent(key) {
+  const mark = reviewEvents().find(event => reviewEventKey(event) === key);
+  if (!mark) return;
+  _selectedReviewEvent = key;
+  seekTo(Math.max(0, mark.seconds - 10));
+  _fx?.selectEvent?.({ key: mark.key, id: mark.id });
+  highlightReviewEvent();
+  const v = video();
+  if (v?.paused) v.play().catch(() => {});
 }
 
 // Count of this game's automated markers for an objective. 0 = "empty this game" (the
@@ -93,8 +289,7 @@ function hasObjectiveTie(e) {
 // Game-wide count of objective-tied events the auto-clipper WILL clip (drives the
 // unscoped "Auto-clip N objective events" panel), so away fights are excluded here too.
 function objectiveTiedEventCount() {
-  const v = _vod || {};
-  return (v.gameEvents || []).filter((e) => hasObjectiveTie(e) && isClippableMarker(e)).length;
+  return reviewableEvents().filter((e) => hasObjectiveTie(e) && isClippableMarker(e)).length;
 }
 
 function objectiveTitle(objId) {
@@ -132,37 +327,6 @@ function objTypeClass(o) {
   return 't-primary';
 }
 
-// The tracked-event TOKENS for an objective, as short codes with a color family, for
-// the active tab's chip row. Tokens are raw types (KILL/DEATH/DRAGON…), SPELL_* spells,
-// or TEAMFIGHT — each mapped to its proper 3-letter code (reusing the timeline's
-// deriveShortLabel) rather than blind-sliced. Degrades to nothing if absent (graceful).
-function objTokenChips(o) {
-  const toks = (o && (o.trackedTokens || o.tokens || o.eventTokens)) || [];
-  const arr = Array.isArray(toks) ? toks : [];
-  return arr.slice(0, 6).map((raw) => {
-    const tok = String(raw && (raw.code || raw.label) || raw).toUpperCase();
-    let code, fam = '';
-    if (tok.endsWith('TEAMFIGHT')) {
-      // The fight family: TF/OTF/ETF/UTF/ATF. Numbers-up reads as a win, the rest as
-      // a loss; ABSENT (fights without you) stays on the neutral default.
-      code = deriveShortLabel(tok, tok);
-      fam = tok === 'NUMBERS_UP_TEAMFIGHT' ? 'tok-win' : tok === 'ABSENT_TEAMFIGHT' ? '' : 'tok-loss';
-    }
-    else if (tok.startsWith('SPELL_')) { code = tok.slice(6, 9); fam = 'tok-summoner'; }
-    else { code = deriveShortLabel(tok, tok); }
-    // Color family by the canonical token (so DRG/HLD/BAR read gold, DTH red, etc.).
-    if (!fam) {
-      if (/DRAGON|HERALD|BARON|TOWER|TURRET|RIFT|ELDER|INHIB/.test(tok)) fam = 'tok-gold';
-      else if (/RECALL|BACK/.test(tok)) fam = 'tok-recall';
-      else if (/TRADE/.test(tok)) fam = 'tok-trade';
-      else if (/FLASH|SUMMONER|IGNITE|TELEPORT|SMITE|EXHAUST|HEAL|BARRIER|CLEANSE|GHOST/.test(tok)) fam = 'tok-summoner';
-      else if (/GANK|DEATH|FIRST/.test(tok)) fam = 'tok-loss';
-      else if (/KILL|ASSIST|MULTI/.test(tok)) fam = 'tok-win';
-    }
-    return { code, fam };
-  });
-}
-
 // ── Clip-tool state (in/out points, quality) ────────────────────────────────
 // Mirrors the WinUI VodPlayerViewModel clip range: -1 = unset. HasClipRange is a
 // range >= 1s. SelectedClipQuality is '' | good | neutral | bad.
@@ -182,7 +346,7 @@ async function fetchVod() {
   const params = new URLSearchParams(window.location.search);
   const gameId = Number(params.get('gameId') || 0);
   _gameId = gameId;
-  const core = await tauriCore();
+  const core = await getMedia();
   _core = core;
   if (core && gameId > 0) {
     const data = await core.invoke('get_vod', { gameId });
@@ -198,9 +362,18 @@ async function fetchVod() {
     } catch (_) { _autoClipEnabled = false; }
     return { data, core };
   }
-  // Browser preview: no Tauri / no real file. Use the sample (no playable video).
-  const res = await fetch('./sample-vod.json');
+  // Browser preview: use the existing objective cards as well as the VOD sample
+  // so the real objective-framed viewer renders here (no playable local video).
+  const [res, objectivesRes] = await Promise.all([
+    fetch('./sample-vod.json'), fetch('./sample-objectives.json'),
+  ]);
   if (!res.ok) throw new Error(`sample-vod.json ${res.status}`);
+  if (!objectivesRes.ok) throw new Error(`sample-objectives.json ${objectivesRes.status}`);
+  const sampleObjectives = await objectivesRes.json();
+  const active = Array.isArray(sampleObjectives.activeObjectives) ? sampleObjectives.activeObjectives : [];
+  const focus = Array.isArray(sampleObjectives.focusObjectives) ? sampleObjectives.focusObjectives : [];
+  const uniqueObjectives = new Map([...active, ...focus].map(objective => [objective.id, objective]));
+  _objectives = [...uniqueObjectives.values()].map(objective => ({ ...objective, objectiveId: objective.id }));
   return { data: await res.json(), core: null };
 }
 
@@ -210,6 +383,44 @@ async function fetchVod() {
 // reloadBookmarks() already re-renders every marker lane and never touches playback.
 // gameId 0 is the backfill's broadcast (many games stamped at once): refresh whatever
 // game is open; reloadBookmarks() is a no-op without a real game.
+function hasLoadedRecording() {
+  const v = video();
+  return !!(v?.currentSrc || v?.getAttribute('src') || v?.srcObject
+    || (_vod?.hasVod && _vod.filePath && $('vp-novod')?.hidden));
+}
+
+window.addEventListener('revu:vod-linked', event => {
+  const gameId = Number(event.detail?.gameId);
+  const shown = _gameId || Number(new URLSearchParams(window.location.search).get('gameId'));
+  if (!Number.isSafeInteger(gameId) || gameId <= 0 || gameId !== shown || hasLoadedRecording()) return;
+  _linkedVodPending = true;
+  return refreshLinkedRecording();
+});
+
+async function refreshLinkedRecording() {
+  if (_vodInitialLoading || _linkedVodLoading || !_linkedVodPending || !_core || _gameId <= 0) return;
+  if (hasLoadedRecording()) { _linkedVodPending = false; return; }
+  _linkedVodPending = false;
+  _linkedVodLoading = true;
+  ++_vodReadVersion; // an older passive metadata response must not undo this link
+  const gameId = _gameId, core = _core;
+  try {
+    await restoreMatchView();
+    const data = await core.invoke('get_vod', { gameId });
+    if (gameId !== _gameId || core !== _core || Number(data?.gameId) !== gameId || hasLoadedRecording()) return;
+    if (!data.hasVod || !data.filePath) return;
+    const draft = captureVodViewState();
+    render(data, core);
+    if (draft) await restoreVodViewState(draft);
+    show($('errpanel'), false);
+  } catch (error) {
+    console.warn('[vodplayer] linked recording refresh failed:', error);
+  } finally {
+    _linkedVodLoading = false;
+    if (_linkedVodPending) void refreshLinkedRecording();
+  }
+}
+
 window.addEventListener('revu:map-state-updated', (ev) => {
   const gid = Number(ev && ev.detail && ev.detail.gameId);
   if (gid === 0 || (gid > 0 && gid === _gameId)) reloadBookmarks();
@@ -236,12 +447,14 @@ window.addEventListener('revu:events-corrected', (ev) => {
 // WITHOUT touching the <video> element (so playback position is preserved).
 // Manual invalidation — there's no message bus.
 async function reloadBookmarks() {
-  if (!_core || _gameId <= 0) return;
+  if (!_core || _gameId <= 0 || _vodInitialLoading || _linkedVodLoading) return;
+  const gameId = _gameId, version = ++_vodReadVersion;
   try {
-    const data = await _core.invoke('get_vod', { gameId: _gameId });
+    const data = await _core.invoke('get_vod', { gameId });
+    if (gameId !== _gameId || version !== _vodReadVersion) return;
     _vod = data;
     const v = video();
-    placeMarkers(v.duration || _vod.gameDurationSeconds || 0);
+    placeMarkers(_T?.duration || _vod.gameDurationSeconds || 0);
     renderMoments();
     // Marker counts per objective may have changed (a write can add/retag a marker),
     // so refresh the tab-bar counts + the in-objective stepper too.
@@ -256,6 +469,9 @@ async function reloadBookmarks() {
 // ── render ──────────────────────────────────────────────────────────────────
 function render(data, core) {
   _vod = data;
+  if (Number.isSafeInteger(Number(data.gameId)) && Number(data.gameId) > 0) _gameId = Number(data.gameId);
+  _matchNav.setGame(Number(data.gameId || _gameId || 0));
+  _T?.setTimeOrigin(data.gameTimeAtVideoStart || 0);
   const champ = data.championName || 'Game';
   const matchup = data.enemyChampion ? `${champ} vs ${data.enemyChampion}` : champ;
   $('vp-title').textContent = matchup;
@@ -271,9 +487,14 @@ function render(data, core) {
     const back = $('vp-novod-review');
     if (back) {
       const gid = Number(data.gameId || _gameId || 0);
-      if (gid > 0) back.setAttribute('href', `review.html?gameId=${encodeURIComponent(gid)}`);
+      if (gid > 0) {
+        const href = `review.html?gameId=${encodeURIComponent(gid)}`;
+        back.setAttribute('href', href);
+        back.onclick = event => { event.preventDefault(); _matchNav.navigate(href); };
+      }
       show(back, gid > 0);
     }
+    restoreMatchView();
     return;
   }
   show($('vp-novod'), false);
@@ -282,19 +503,9 @@ function render(data, core) {
   // Context line takes over from the loading statusline (the old eyebrow/hero are gone).
   show($('statusline'), false);
   show($('vp-context'), true);
-  const ctx = $('vp-ctx-meta');
+  const ctx = $('vp-ctx-details');
   if (ctx) {
-    // DOM building, not innerHTML — this file's contract is textContent-only for
-    // server-supplied strings (champion/result/mode come from the DB).
-    const bits = [matchup, data.resultText, data.gameMode].filter(Boolean).join(' · ');
-    clear(ctx);
-    const b = document.createElement('b');
-    b.textContent = bits;
-    const sep = document.createTextNode('  ·  ');
-    const frame = document.createElement('span');
-    frame.className = 'vp-ctx-frame';
-    frame.textContent = 'reviewing by objective';
-    ctx.append(b, sep, frame);
+    ctx.textContent = [data.resultText, data.gameMode].filter(Boolean).join(' · ');
   }
 
   // OPEN REVIEW → the structured review for this game (this nav IS wired). Now a link
@@ -304,7 +515,7 @@ function render(data, core) {
     const gid = data.gameId;
     const href = gid ? `review.html?gameId=${encodeURIComponent(gid)}` : 'review.html';
     openBtn.setAttribute('href', href);
-    openBtn.onclick = (e) => { e.preventDefault(); window.location.href = href; };
+    openBtn.onclick = (e) => { e.preventDefault(); _matchNav.navigate(href); };
   }
 
   // Establish the objective frame BEFORE first paint: pick the focused objective and
@@ -324,6 +535,9 @@ function render(data, core) {
   // P-027: honor the &clip=<evidenceId> deep-link the review page's clip cards
   // build — surface the right Moments lane, scroll to the row, flash it.
   applyClipDeepLink();
+  // Drafts and controls are usable before a recording finishes loading. Restore
+  // them now; metadata only applies the pending media position afterwards.
+  restoreMatchView();
 
   // The key step: convert the absolute file path → an asset URL the webview can
   // stream (with range requests, so seeking works).
@@ -331,8 +545,8 @@ function render(data, core) {
   const assetUrl = resolveAssetUrl(core, data.filePath);
   if (!assetUrl) {
     renderError(new Error(
-      'No way to load the local video. convertFileSrc is unavailable; the asset ' +
-      'protocol may not be enabled. Path: ' + data.filePath));
+      'This local video could not be opened. It may have moved or be unavailable.'));
+    restoreMatchView();
     return;
   }
   v.src = assetUrl;
@@ -348,6 +562,7 @@ function render(data, core) {
     renderError(new Error(
       `video failed to load (code ${me ? me.code : '?'}). ` +
       `src=${v.src.slice(0, 80)}…; file moved, codec unsupported, or asset scope blocks it.`));
+    restoreMatchView();
   });
   // Kick off loading explicitly.
   v.load();
@@ -358,7 +573,7 @@ function render(data, core) {
 
 function onMeta() {
   const v = video();
-  const dur = v.duration || _vod.gameDurationSeconds || 0;
+  const dur = _T?.duration || _vod.gameDurationSeconds || 0;
   // The mono time readout + seek-fill + playhead are owned by the transport core
   // (its timeupdate listener, wired in boot() via the seekFillEl/playheadEl/timeEl
   // refs); refresh the readout once here so the right duration shows immediately.
@@ -370,8 +585,9 @@ function onMeta() {
   // A ?t=SECONDS param (from a pattern moment / bookmark) jumps straight there.
   // t=0 is a real target (a moment at the game start), so key on presence.
   const tRaw = new URLSearchParams(window.location.search).get('t');
-  const t = tRaw == null ? NaN : Number(tRaw);
+  const t = tRaw == null || tRaw.trim() === '' ? NaN : Number(tRaw);
   if (Number.isFinite(t) && t >= 0) { if (_T) _T.seekTo(t); v.play().catch(() => {}); }
+  restoreMatchView().then(applyPendingMediaTime);
 }
 
 
@@ -396,99 +612,43 @@ function initObjectiveFrame() {
   _focusedObjId = priority != null ? Number(priority.objectiveId) : null;
 }
 
-// Build the objective tab bar (the permanent framed-viewer header). One tab per
-// active objective, color-by-type, with this game's marker count; the focused one
-// is expanded and carries type·phase + title + tokens + "markers this game".
+// Compact native selectors keep the objective frame visible while the event list
+// carries the review actions. Rebuilding counts preserves keyboard focus.
 function renderObjBar() {
   const bar = $('vp-objbar');
+  show($('vp-objective-heading'), _framed);
   if (!bar) return;
   if (!_framed) { show(bar, false); clear(bar); return; }
+  const focusedId = document.activeElement?.closest?.('.vp-objtab')?.dataset.objId;
   show(bar, true);
   clear(bar);
   for (const o of _objectives) {
     const id = Number(o.objectiveId);
     const count = markerCountForObjective(id);
     const active = id === _focusedObjId;
-    const tab = document.createElement('div');
+    const tab = document.createElement('button');
+    tab.type = 'button';
     tab.className = `vp-objtab ${objTypeClass(o)}` + (active ? ' is-active' : '') + (count === 0 ? ' is-empty' : '');
     tab.dataset.objId = String(id);
-    tab.setAttribute('role', 'button');
-    tab.tabIndex = 0;
-
-    const typeLabel = (o.type || (o.isMini ? 'mini' : o.isMental ? 'mental' : 'primary')).toUpperCase();
-    const phase = (o.phaseLabel || '').toUpperCase();
-
-    const top = document.createElement('div');
+    tab.setAttribute('aria-pressed', String(active));
+    const typeLabel = objectiveTypeLabel(o) || 'Gameplay skill';
+    const phase = objectivePhaseLabel(o.phaseLabel);
+    const top = document.createElement('span');
     top.className = 'vp-objtab-top';
     const typeEl = document.createElement('span');
     typeEl.className = 'vp-objtab-type';
-    typeEl.textContent = active && phase ? `${typeLabel} · ${phase}` : typeLabel;
+    typeEl.textContent = phase ? `${typeLabel} · ${phase}` : typeLabel;
     const countEl = document.createElement('span');
     countEl.className = 'vp-objtab-count';
-    countEl.textContent = String(count);
+    countEl.textContent = `${count} ${count === 1 ? 'event' : 'events'}`;
     top.appendChild(typeEl); top.appendChild(countEl);
     tab.appendChild(top);
-
-    const nameEl = document.createElement('div');
+    const nameEl = document.createElement('span');
     nameEl.className = 'vp-objtab-name';
     nameEl.textContent = o.title || '(untitled objective)';
     tab.appendChild(nameEl);
-
-    if (active) {
-      const detail = document.createElement('div');
-      detail.className = 'vp-objtab-detail';
-      const marks = document.createElement('span');
-      marks.className = 'vp-objtab-marks';
-      marks.innerHTML = `<b>${count}</b> markers this game`;
-      detail.appendChild(marks);
-      const chips = objTokenChips(o);
-      if (chips.length) {
-        const wrap = document.createElement('span');
-        wrap.className = 'vp-objtab-tokens';
-        for (const c of chips) {
-          const t = document.createElement('span');
-          t.className = `vp-objtok ${c.fam}`;
-          t.textContent = c.code;
-          wrap.appendChild(t);
-        }
-        detail.appendChild(wrap);
-      }
-      tab.appendChild(detail);
-
-      // Auto-clip button for THIS objective. Shown only when the Settings toggle is on,
-      // there's a recording on disk, and this objective has markers this game. One click
-      // saves a ~45s clip (30s before to 15s after) around each of its events. Idempotent.
-      // Gate + count on the CLIPPABLE markers only: away fights (kind "teamfight-away")
-      // are steppable pins the sidecar never clips, so `count` above may be > 0 while
-      // there is nothing to clip (an ABSENT_TEAMFIGHT-only objective shows no button).
-      const clipCount = clippableMarkerCountForObjective(id);
-      if (_autoClipEnabled && _vod && _vod.hasVod && _vod.filePath && clipCount > 0) {
-        const acRow = document.createElement('div');
-        acRow.className = 'vp-objtab-autoclip';
-        const acBtn = document.createElement('button');
-        acBtn.type = 'button';
-        acBtn.className = 'vp-objclip-btn';
-        acBtn.dataset.action = 'autoclip_objective';
-        acBtn.dataset.objId = String(id);
-        acBtn.disabled = _autoClipBusy;
-        // A teamfight objective's markers are now ONE synthetic event per fight (not one
-        // per kill/death/assist), so the count is accurate AND matches the clip count —
-        // label it as fights. Other objectives keep the per-event wording.
-        const tfLabel = objTracksTeamfight(o);
-        acBtn.textContent = _autoClipBusy ? 'Auto-clipping…'
-          : (tfLabel ? `⬇ Auto-clip ${clipCount} fight${clipCount === 1 ? '' : 's'}`
-                     : `⬇ Auto-clip ${clipCount} event${clipCount === 1 ? '' : 's'}`);
-        acRow.appendChild(acBtn);
-        const acHint = document.createElement('div');
-        acHint.className = 'vp-objclip-hint';
-        acHint.id = 'vp-objclip-hint';
-        if (_autoClipHintMsg) { acHint.textContent = _autoClipHintMsg; acHint.classList.toggle('err', _autoClipHintErr); }
-        else { acHint.hidden = true; }
-        acRow.appendChild(acHint);
-        tab.appendChild(acRow);
-      }
-    }
     bar.appendChild(tab);
+    if (focusedId === tab.dataset.objId) tab.focus({ preventScroll: true });
   }
 }
 
@@ -560,13 +720,14 @@ function renderAutoClipPanel() {
 function setFocusedObjective(objId) {
   if (!_framed || objId == null) return;
   const id = Number(objId);
-  if (id === _focusedObjId) return;
+  if (id === _focusedObjId || !_objectives.some(o => Number(o.objectiveId) === id)) return;
   _focusedObjId = id;
+  _selectedReviewEvent = '';
   _autoClipHintMsg = ''; _autoClipHintErr = false; // clear stale auto-clip status from the prior objective
   const v = video();
   renderObjBar();
   renderAutoClipPanel();
-  placeMarkers((v && v.duration) || _vod.gameDurationSeconds || 0);
+  placeMarkers(_T?.duration || _vod.gameDurationSeconds || 0);
   renderMoments();
   renderMarkerStepper();
   // Keep the Quick Bookmark + Clip pickers tracking the frame so the next bookmark/clip
@@ -581,7 +742,7 @@ function setFocusedObjective(objId) {
 function currentMarkerOrdinal(marks) {
   if (!marks.length) return 0;
   const v = video();
-  const t = (v && v.currentTime) || 0;
+  const t = _T?.currentTime || 0;
   // The last marker at/<= the playhead (with a small tolerance), else the first one.
   let idx = -1;
   for (let i = 0; i < marks.length; i++) { if (marks[i].seconds <= t + 0.25) idx = i; else break; }
@@ -602,7 +763,7 @@ function renderMarkerStepper() {
   const cnt = $('vp-mk-count');
   if (cnt) cnt.innerHTML = `marker <b>${ord}</b> / ${marks.length}`;
   const v = video();
-  const t = (v && v.currentTime) || 0;
+  const t = _T?.currentTime || 0;
   const prev = $('vp-mk-prev'); const next = $('vp-mk-next');
   // Disable based on whether a marker exists strictly before / after the playhead.
   if (prev) prev.disabled = !marks.some((m) => m.seconds < t - 0.25);
@@ -616,7 +777,7 @@ function stepMarker(delta) {
   const marks = markersForObjective(_focusedObjId);
   if (!marks.length) return;
   const v = video();
-  const t = (v && v.currentTime) || 0;
+  const t = _T?.currentTime || 0;
   let target = null;
   if (delta > 0) {
     target = marks.find((m) => m.seconds > t + 0.25);          // first strictly after
@@ -624,6 +785,8 @@ function stepMarker(delta) {
     for (const m of marks) { if (m.seconds < t - 0.25) target = m; else break; } // last before
   }
   if (target && _T) {
+    _selectedReviewEvent = reviewEventKey(target);
+    highlightReviewEvent();
     _T.seekTo(target.seconds);
     if (v && v.paused) v.play().catch(() => {});
   }
@@ -1042,33 +1205,35 @@ function normBookmark(b, isClip) {
 }
 
 function renderMoments() {
+  renderReviewEvents();
   const { auto, clips, bm } = momentLanes();
   const total = auto.length + clips.length + bm.length;
+  const disclosure = $('vp-saved-moments');
+  if (disclosure && !disclosure.dataset.initialized) {
+    disclosure.open = total > 0;
+    disclosure.dataset.initialized = '1';
+  }
+  document.querySelectorAll('#vp-tabs .tab').forEach(tab => {
+    const selected = tab.dataset.filter === _bmFilter;
+    tab.classList.toggle('on', selected);
+    tab.setAttribute('aria-pressed', String(selected));
+  });
 
   // Tab counts + open badge.
   const setTxt = (id, txt) => { const e = $(id); if (e) e.textContent = txt; };
   setTxt('vp-c-all', `(${auto.length})`);
   setTxt('vp-c-clips', `(${clips.length})`);
   setTxt('vp-c-bm', `(${bm.length})`);
-  setTxt('vp-open-count', `${total} open`);
+  setTxt('vp-open-count', `${total} saved`);
 
   const shown = _bmFilter === 'clips' ? clips : _bmFilter === 'bm' ? bm : auto;
 
   const host = $('vp-bookmarks');
   clear(host);
-  // Empty-state copy. When FRAMED, clarify that "moments" (tagged clips/bookmarks)
-  // are distinct from the timeline "markers" the objective tab counts — otherwise
-  // "36 markers this game" next to "no moments" reads as a contradiction.
   const emptyEl = $('vp-moments-empty');
   if (emptyEl) {
-    if (_framed && _focusedObjId != null) {
-      const marks = markerCountForObjective(_focusedObjId);
-      emptyEl.textContent = marks > 0
-        ? `No moments tagged for this objective yet. Its ${marks} automated marker${marks === 1 ? '' : 's'} (deaths, flashes, recalls…) are on the track — clip or bookmark one to add it here.`
-        : 'No moments for this objective this game.';
-    } else {
-      emptyEl.textContent = 'No moments tagged for this game yet.';
-    }
+    const kind = _bmFilter === 'clips' ? 'clips' : _bmFilter === 'bm' ? 'bookmarks' : 'suggested moments';
+    emptyEl.textContent = `No ${kind} for this ${_framed ? 'objective' : 'match'} yet.`;
   }
   show($('vp-moments-empty'), shown.length === 0);
   for (const m of shown) {
@@ -1239,16 +1404,10 @@ function wireFraming() {
   const bar = $('vp-objbar');
   if (bar) {
     const pick = (target) => {
-      // The per-objective auto-clip button lives inside the active tab; its own action
-      // handler owns the click, so don't also treat it as a frame switch.
-      if (target.closest('[data-action="autoclip_objective"]')) return;
       const tab = target.closest('.vp-objtab');
       if (tab && tab.dataset.objId) setFocusedObjective(Number(tab.dataset.objId));
     };
     bar.addEventListener('click', (ev) => pick(ev.target));
-    bar.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(ev.target); }
-    });
   }
   const prev = $('vp-mk-prev'); if (prev) prev.addEventListener('click', () => stepMarker(-1));
   const next = $('vp-mk-next'); if (next) next.addEventListener('click', () => stepMarker(1));
@@ -1259,7 +1418,7 @@ function wireFraming() {
     let last = 0;
     v.addEventListener('timeupdate', () => {
       if (!_framed) return;
-      const now = Math.floor(v.currentTime);
+      const now = Math.floor(_T?.currentTime || 0);
       if (now === last) return;
       last = now;
       renderMarkerStepper();
@@ -1286,7 +1445,10 @@ document.addEventListener('click', (ev) => {
   // playpause / seek (◀▶ by current step) / mute / fullscreen-enlarge are all owned
   // by the shared transport core; forward them through its one entry point.
   if (_T && _T.handleAction(action, t)) return;
+  if (action === 'review_event') { watchReviewEvent(t.dataset.reviewKey); return; }
   if (action === 'jump') {
+    _selectedReviewEvent = '';
+    highlightReviewEvent();
     seekTo(Number(t.dataset.seconds || 0));
     if (v.paused) v.play();
   }
@@ -1295,17 +1457,14 @@ document.addEventListener('click', (ev) => {
 // The speed dropdown's change → playbackRate is wired by the transport core (it
 // receives the rateSel ref in boot()), so no separate wireSpeedSelect is needed.
 
-// ENLARGE (not OS fullscreen) is owned by the transport core's toggleEnlarge: it
-// toggles .vp-expanded on #vp-wrap (CSS hides the OPEN REVIEW card, the clip/quick-
-// bookmark "duo", and the Moments panel, and stretches the video) and flips the
-// button glyph. The onExpandChange callback (wired in boot()) scrolls the stage
-// into view on enlarge. A second press (button, F, or Esc) restores the layout.
+// Cinema uses a viewport-sized player with room reserved for its controls and
+// timeline. The transport restores focus and scroll when the player closes.
 
 // ── Quick Bookmark + bookmark CRUD (WRITE) ───────────────────────────────────
 // Add a note-bookmark at the current video time, edit a bookmark's note, delete a
 // bookmark. Each invokes the sidecar then reloadBookmarks() (re-fetches the VOD
 // snapshot and re-renders markers/list without touching <video>). No-ops in
-// preview (no Tauri backend).
+// preview (no Electron backend).
 
 // Fill the Quick Bookmark + Clip pickers from the active objectives loaded in
 // fetchVod(). When the viewer is FRAMED on an objective, default the picker to THAT
@@ -1443,12 +1602,17 @@ function bmHint(msg, isErr) {
 // (The combat-moment editor that lived here became the timeline corrections panel in
 // v3.11 — see ./vodcorrections.js; encounter fixes now ride the corrections ledger.)
 
-async function addBookmark() {
+function addBookmark() {
+  return _viewWrites.run('bookmark', addBookmarkNow);
+}
+
+async function addBookmarkNow() {
   if (!_core || _gameId <= 0) { bmHint('Preview only; no backend to save to.', false); return; }
   const v = video();
-  const timeS = Math.max(0, Math.floor(v.currentTime || 0));
+  const timeS = Math.max(0, Math.floor(_T?.currentTime || 0));
   const noteEl = $('vp-bm-note');
-  const note = noteEl ? noteEl.value.trim() : '';
+  const submittedNote = noteEl?.value || '';
+  const note = submittedNote.trim();
   // Tag the bookmark to the Quick Bookmark picker's pick (objective or prompt), or
   // (when framed, no explicit pick) the focused objective — so it shows in the
   // focused panel, not vanishing (P-034).
@@ -1461,9 +1625,10 @@ async function addBookmark() {
     if (objectiveId) payload.objectiveId = objectiveId;
     if (promptId) payload.promptId = promptId;
     await _core.invoke('add_bookmark', { payload });
-    if (noteEl) noteEl.value = '';
-    bmHint(`Bookmark added at ${clock(timeS)}.`, false);
+    if (noteEl && noteEl.value === submittedNote) noteEl.value = '';
+    bmHint(`Note saved at ${clock(timeS)}.`, false);
     await reloadBookmarks();
+    showSavedMoments('bm');
   } catch (err) {
     bmHint('Couldn’t save the bookmark.', true);
     console.error('[vodplayer] add_bookmark failed:', err);
@@ -1639,6 +1804,7 @@ function openShareLogin(bmId, prefillEmail) {
   _pendingShareBmId = Number(bmId) || 0;
   const panel = $('vp-sharelogin');
   if (!panel) return;
+  openClipTools();
   show(panel, true);
   show($('vp-sl-email'), true);
   show($('vp-sl-otp'), false);
@@ -2034,7 +2200,7 @@ function setShareBtnDone(bmId, url, copied) {
   setShareCopyVisible(bmId, url, true);
 }
 
-// Normalize a Tauri/sidecar error to a displayable string (strips the HTTP prefix).
+// Normalize an Electron/sidecar error to a displayable string (strips the HTTP prefix).
 function errText(err) {
   const s = (err && err.message) ? err.message : String(err);
   const m = s.match(/sidecar HTTP \d+(?:\s+[^:]+)?:\s*(.*)$/i);
@@ -2194,7 +2360,7 @@ function renderClipOverlay() {
   if (!band && !flagIn && !flagOut) return;
 
   const v = video();
-  const dur = (v && v.duration) || (_vod && _vod.gameDurationSeconds) || 0;
+  const dur = _T?.duration || (_vod && _vod.gameDurationSeconds) || 0;
   const pct = (s) => (dur > 0 ? Math.max(0, Math.min(100, (s / dur) * 100)) : 0);
 
   if (flagIn) {
@@ -2219,15 +2385,34 @@ function renderClipOverlay() {
   }
 }
 
+function leaveCinema() {
+  if (_T?.isExpanded()) _T.toggleEnlarge();
+}
+
+function openClipTools() {
+  leaveCinema();
+  const tools = $('vp-clip-tools');
+  if (tools) tools.open = true;
+}
+
+function showSavedMoments(filter) {
+  if (filter) _bmFilter = filter;
+  const saved = $('vp-saved-moments');
+  if (saved) { saved.dataset.initialized = '1'; saved.open = true; }
+  renderMoments();
+}
+
 function setClipIn() {
+  openClipTools();
   const v = video();
-  _clipIn = Math.max(0, Math.floor(v.currentTime || 0));
+  _clipIn = Math.max(0, Math.floor(_T?.currentTime || 0));
   clipHint('');
   renderClipState();
 }
 function setClipOut() {
+  openClipTools();
   const v = video();
-  _clipOut = Math.max(0, Math.floor(v.currentTime || 0));
+  _clipOut = Math.max(0, Math.floor(_T?.currentTime || 0));
   clipHint('');
   renderClipState();
 }
@@ -2249,12 +2434,18 @@ function setClipQuality(q) {
   renderClipState();
 }
 
-async function saveClip() {
+function saveClip() {
+  return _viewWrites.run('clip', saveClipNow);
+}
+
+async function saveClipNow() {
   if (_clipBusy) return;
+  openClipTools();
   const hasRange = _clipIn >= 0 && _clipOut >= 0 && Math.abs(_clipOut - _clipIn) >= 1;
   if (!hasRange) { clipHint('Set an In and Out point first (I / O).', true); return; }
   if (!_core || _gameId <= 0) { clipHint('Preview only; no backend to export to.', false); return; }
   if (!_vod || !_vod.filePath) { clipHint('No recording on disk to clip from.', true); return; }
+  const submittedDraft = captureVodViewState().clip;
 
   const startTimeS = Math.min(_clipIn, _clipOut);
   const endTimeS = Math.max(_clipIn, _clipOut);
@@ -2282,13 +2473,11 @@ async function saveClip() {
     if (promptId) payload.promptId = promptId;
     const res = await _core.invoke('extract_clip', { payload });
     if (res && res.ok) {
-      const qualMsg = _clipQuality ? ` as ${_clipQuality}` : '';
+      const qualMsg = payload.quality ? ` as ${payload.quality}` : '';
       clipHint(`Clip saved${qualMsg} (${clock(startTimeS)}–${clock(endTimeS)}).`, false);
-      clearClip();
+      if (sameVodDraft(captureVodViewState().clip, submittedDraft)) clearClip();
       await reloadBookmarks();
-      _bmFilter = 'clips';            // surface the new clip in the Clips lane
-      document.querySelectorAll('#vp-tabs .tab').forEach((t) => t.classList.toggle('on', t.dataset.filter === 'clips'));
-      renderMoments();
+      showSavedMoments('clips');
     } else {
       clipHint((res && res.error) || 'Clip save failed.', true);
     }
@@ -2324,6 +2513,7 @@ function setAutoClipHint(msg, isErr) {
 
 async function runAutoClipForObjective(objId) {
   if (_autoClipBusy) return;
+  openClipTools();
   const hasObjId = objId != null && objId !== '';
   const oid = hasObjId ? Number(objId) : null;
   if (hasObjId && !oid) return;
@@ -2354,9 +2544,7 @@ async function runAutoClipForObjective(objId) {
         const extra = skipped > 0 ? ` (${skipped} skipped)` : '';
         setAutoClipHint(`Saved ${created} clip${created === 1 ? '' : 's'}${extra}.`, false);
         await reloadBookmarks();
-        _bmFilter = 'clips';          // surface the new clips in the Clips lane
-        document.querySelectorAll('#vp-tabs .tab').forEach((tb) => tb.classList.toggle('on', tb.dataset.filter === 'clips'));
-        renderMoments();
+        showSavedMoments('clips');
         window.dispatchEvent(new CustomEvent('revu:first-review-autoclip-done', {
           detail: { gameId: _gameId, objectiveId: oid || null, created, skipped },
         }));
@@ -2452,6 +2640,40 @@ function timelineFractionFromClientX(clientX) {
 
 function wireSeekBar() {
   const seek = $('vp-seek');
+  const markers = $('vp-markers');
+  const eventAt = ev => findTimelineEventAtPoint(seek, markers, ev);
+  let hoveredEvent = null;
+  const showEventHover = bar => {
+    if (bar === hoveredEvent) return;
+    hoveredEvent?.classList.remove('evbar-hit-hover');
+    hoveredEvent = bar;
+    hoveredEvent?.classList.add('evbar-hit-hover');
+    seek.classList.toggle('is-event-hover', !!bar);
+  };
+
+  // Resolve forgiving pointer targets before the correction controller's marker
+  // capture listener. Forward to the real bar so selection, ghosts, and exact-time
+  // playback all use the existing action path. Programmatic clicks stay exact.
+  seek.addEventListener('click', ev => {
+    if (seek._suppressClick) { ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+    if (ev.detail === 0) return;
+    const bar = eventAt(ev);
+    if (!bar || ev.target.closest?.('.evbar') === bar) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    bar.click();
+  }, true);
+  seek.addEventListener('contextmenu', ev => {
+    if (seek._suppressClick) { ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+    const bar = eventAt(ev);
+    if (!bar || ev.target.closest?.('.evbar') === bar) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    bar.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, button: 2, clientX: ev.clientX, clientY: ev.clientY,
+    }));
+  }, true);
+  seek.addEventListener('pointerleave', () => showEventHover(null));
 
   // Ctrl+wheel → zoom at cursor. Plain wheel is left alone (page scroll).
   seek.addEventListener('wheel', (ev) => {
@@ -2470,11 +2692,12 @@ function wireSeekBar() {
     down = { x: ev.clientX, pan: _tlPan, dragging: false };
   });
   seek.addEventListener('pointermove', (ev) => {
-    if (!down) return;
+    if (!down) { showEventHover(eventAt(ev)); return; }
     const dx = ev.clientX - down.x;
     if (!down.dragging && Math.abs(dx) < DRAG_PX) return;
     if (_tlZoom <= 1.001) return;                 // nothing to pan at 1×
     down.dragging = true;
+    showEventHover(null);
     seek.classList.add('is-panning');
     try { seek.setPointerCapture(ev.pointerId); } catch (_) {}
     _tlPan = down.pan + dx;
@@ -2496,8 +2719,10 @@ function wireSeekBar() {
   seek.addEventListener('click', (ev) => {
     if (seek._suppressClick) return;
     if (ev.target && ev.target.closest('#vp-tl-zoom')) return; // badge handles its own
+    // Exact marker/bookmark actions seek once through the delegated jump handler.
+    if (ev.target?.closest('.evbar, .ev-bm')) return;
     const v = video();
-    const dur = v.duration || _vod?.gameDurationSeconds || 0;
+    const dur = _T?.duration || _vod?.gameDurationSeconds || 0;
     if (!dur) return;
     seekTo(timelineFractionFromClientX(ev.clientX) * dur);
   });
@@ -2513,15 +2738,23 @@ function wireSeekBar() {
 // Keyboard: space = play/pause, arrows = seek, B = quick bookmark. Enter/Space on
 // a focused moment row jumps to its time (the rows are role=button divs).
 document.addEventListener('keydown', (ev) => {
+  // Modal navigation wins over timeline selection and native editing guards.
+  // In particular, Escape must close cinema even with the speed menu focused.
+  if (_T?.isExpanded() && (ev.key === 'Escape' || ev.key === 'Tab') && _T.handleShortcut(ev)) return;
+  if (ev.target?.id === 'vp-bm-note' && ev.key === 'Enter') {
+    // The review note is multiline. Save only on the explicit field shortcut;
+    // plain Enter remains a newline and does not invoke the backend.
+    if (!ev.defaultPrevented && !ev.isComposing && !ev.altKey && !ev.shiftKey && (ev.ctrlKey || ev.metaKey)) {
+      ev.preventDefault();
+      if (!ev.repeat) addBookmark();
+    }
+    return;
+  }
+  if (ev.defaultPrevented || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
   // Field-local Enter shortcuts FIRST (these fields are exempt from the global
   // typing-guard below): Enter in the Quick Bookmark note adds a bookmark; Enter
   // in a per-row edit-note field saves + blurs.
   if (ev.key === 'Enter') {
-    if (ev.target && ev.target.id === 'vp-bm-note') {
-      ev.preventDefault();
-      addBookmark();
-      return;
-    }
     if (ev.target && ev.target.id === 'vp-clip-note') {
       ev.preventDefault();
       saveClip(); // Enter in the clip note saves the clip (mirrors WinUI ClipNoteBox)
@@ -2541,12 +2774,8 @@ document.addEventListener('keydown', (ev) => {
     }
   }
   // Never hijack typing in a text field, or the arrow/Space keys of a focused
-  // <select> (the speed dropdown), for the global shortcuts.
-  if (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT') return;
-  // Never treat a chorded key as a shortcut: Ctrl+S is a save reflex, not "save
-  // clip"; Ctrl+B is not "bookmark". (Arrow/Space/Escape handling below is
-  // unaffected — browsers don't send those chorded in this context.)
-  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  // <select> or its focused option, for the global shortcuts.
+  if (ev.target.isContentEditable || ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT' || ev.target.closest?.('select')) return;
   // Timeline corrections (E / N / Delete / [ ] / Z, and Escape while its form or a
   // selection is live). Consumed keys stop here; everything else falls through.
   if (_fx && _fx.handleKey(ev)) { ev.preventDefault(); return; }
@@ -2569,23 +2798,8 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'i' || ev.key === 'I') { ev.preventDefault(); setClipIn(); return; }
   if (ev.key === 'o' || ev.key === 'O') { ev.preventDefault(); setClipOut(); return; }
   if (ev.key === 's' || ev.key === 'S') { ev.preventDefault(); saveClip(); return; }
-  // F — enlarge / restore the video (mirrors the transport button).
-  if (ev.key === 'f' || ev.key === 'F') { ev.preventDefault(); if (_T) _T.toggleEnlarge(); return; }
-  // Esc — restore the layout if currently enlarged.
-  if (ev.key === 'Escape') {
-    if (_T && _T.isExpanded()) { ev.preventDefault(); _T.toggleEnlarge(); }
-    return;
-  }
-  // Up / Down change the seek STEP (work even before the video has a src).
-  if (ev.key === 'ArrowUp') { ev.preventDefault(); if (_T) _T.nudgeStep(1); return; }
-  if (ev.key === 'ArrowDown') { ev.preventDefault(); if (_T) _T.nudgeStep(-1); return; }
-  const v = video();
-  if (!v || !v.src) return;
-  if (ev.key === ' ') { ev.preventDefault(); if (_T) _T.toggle(); }
-  // Left / Right seek backward / forward by the current step. preventDefault so
-  // the arrows never scroll the page (the old behavior the user hit).
-  else if (ev.key === 'ArrowLeft') { ev.preventDefault(); if (_T) _T.seekByStep(-1); }
-  else if (ev.key === 'ArrowRight') { ev.preventDefault(); if (_T) _T.seekByStep(1); }
+  // Shared seek, step, speed, mute and expansion keys follow page-specific keys.
+  _T?.handleShortcut(ev);
 });
 
 // ── &clip= deep-link (P-027) ──────────────────────────────────────────────
@@ -2630,6 +2844,8 @@ function applyClipDeepLink() {
     }
   }
   if (row) {
+    _revealLinkedMoment = true;
+    const saved = $('vp-saved-moments'); if (saved) saved.open = true;
     row.classList.add('vp-bm-flash');
     row.scrollIntoView({ block: 'center', behavior: 'smooth' });
     setTimeout(() => row.classList.remove('vp-bm-flash'), 3200);
@@ -2646,8 +2862,7 @@ function renderError(err) {
 async function boot() {
   // Build the shared transport core over the (full-chrome) player. It owns the
   // play/pause + mute glyphs, the time readout, the seek-fill + playhead, the speed
-  // select, mute, and the in-app enlarge (toggling .vp-expanded on #vp-wrap, with a
-  // scrollIntoView on enlarge). The page keeps its own click + keydown handlers and
+  // select, mute, and cinema (with focus and scroll restoration). The page keeps its own click + keydown handlers and
   // forwards transport actions to _T.
   _T = createTransport({
     video: video(),
@@ -2660,11 +2875,9 @@ async function boot() {
     rateSel: $('vp-rate-sel'),
     expandTarget: $('vp-wrap'),
     expandClass: 'vp-expanded',
+    modalExpand: true,
     fullGlyphs: true,
     durationFallback: () => (_vod && _vod.gameDurationSeconds) || 0,
-    onExpandChange: (expanded) => {
-      if (expanded) { const stage = document.querySelector('.vp-stage'); if (stage) stage.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-    },
   });
   _T.attachVideo({ clickToToggle: true, stopProp: false });
 
@@ -2676,8 +2889,13 @@ async function boot() {
   _fx = createCorrections({
     $, show, clear, tpl, clock, errText,
     video, seekTo, reloadBookmarks,
+    onRevealEditor: leaveCinema,
+    currentGameTime: () => _T?.currentTime || 0,
+    gameDuration: () => _T?.duration || _vod?.gameDurationSeconds || 0,
     // The focused objective's marker the playhead is on (drives the stepper's Fix).
     currentMarker: () => {
+      const selected = reviewEvents().find(mark => reviewEventKey(mark) === _selectedReviewEvent);
+      if (selected) return selected;
       const marks = markersForObjective(_focusedObjId);
       const ord = currentMarkerOrdinal(marks);
       return ord > 0 ? marks[ord - 1] : null;
@@ -2692,6 +2910,11 @@ async function boot() {
   } catch (err) {
     renderError(err);
     console.error('[vodplayer] load failed:', err);
+    _matchNav.setGame(_gameId);
+    await restoreMatchView();
+  } finally {
+    _vodInitialLoading = false;
+    await refreshLinkedRecording();
   }
   // Best-effort: surface the "sign in to share" hint when signed out. Never
   // blocks the player — a failed/absent auth check just leaves the banner hidden.

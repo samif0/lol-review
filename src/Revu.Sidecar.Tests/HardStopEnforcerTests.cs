@@ -18,6 +18,10 @@ namespace Revu.Sidecar.Tests;
 public sealed class HardStopEnforcerTests
 {
     private static long NowUnix => DateTimeOffset.Now.ToUnixTimeSeconds();
+    // The real repository queries today's local day. A ten-minute-old seed
+    // would belong to yesterday when this suite runs just after midnight.
+    private static long RecentGameTodayUnix => Math.Max(NowUnix - 600,
+        new DateTimeOffset(DateTime.Today).ToUnixTimeSeconds());
 
     private sealed class Harness : IDisposable
     {
@@ -63,7 +67,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         var ruleId = await h.RuleAsync("max_games", "1", enforce: true);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
         var (reader, sub) = h.Hub.Subscribe();
         using var _ = sub;
 
@@ -95,7 +99,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         await h.RuleAsync("max_games", "1", enforce: false);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
 
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
         Assert.Equal(0, h.Lcu.CancelCalls);
@@ -109,7 +113,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         await h.RuleAsync("max_games", "6", enforce: true);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
 
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
         Assert.Equal(0, h.Lcu.CancelCalls);
@@ -121,7 +125,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         await h.RuleAsync("max_games", "1", enforce: true);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
 
         var snapshot = await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck);
 
@@ -137,7 +141,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         var ruleId = await h.RuleAsync("max_games", "1", enforce: true);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
 
         Assert.NotNull(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
         await h.Enforcer.OverrideAsync(ruleId);
@@ -157,7 +161,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         await h.RuleAsync("max_games", "1", enforce: true);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
         h.Lcu.Accept = false;
 
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
@@ -172,7 +176,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         await h.RuleAsync("max_games", "1", enforce: true);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
 
         Assert.NotNull(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
@@ -192,7 +196,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         await h.RuleAsync("custom", "", enforce: true);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
 
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
         Assert.Equal(0, h.Lcu.CancelCalls);
@@ -204,7 +208,7 @@ public sealed class HardStopEnforcerTests
         using var h = new Harness();
         await h.InitializeAsync();
         await h.RuleAsync("max_games", "1", enforce: true);
-        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: NowUnix - 600);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
 
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Lobby));
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.ChampSelect));
