@@ -1853,15 +1853,19 @@ let _shareQueue = [];
 let _shareQueueActive = false;
 let _shareQueuePaused = false;
 let _shareReloadNeeded = false;
+const _copyLinkResets = new WeakMap();
 
-function copyToClipboard(text) {
+async function copyToClipboard(text) {
+  if (!_core || typeof text !== 'string' || !text.trim()) return false;
   try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch (_) { /* clipboard blocked — fall through */ }
-  return false;
+    // Embedded pages use the native bridge. Browser clipboard promises can be
+    // rejected by WebView permissions, so calling writeText is not confirmation.
+    const result = await _core.invoke('copy_text_to_clipboard', { text });
+    return result?.ok === true;
+  } catch (_) {
+    // Copy failure must not turn a completed upload into another upload attempt.
+    return false;
+  }
 }
 
 function shareLoginErr(msg) {
@@ -2044,7 +2048,7 @@ async function uploadShareJob(job) {
         failShareJob(job, 'Share finished, but no link came back.');
         return 'failed';
       }
-      const copied = copyToClipboard(url);
+      const copied = await copyToClipboard(url);
       job.status = 'done';
       job.url = url;
       job.copied = copied;
@@ -2122,15 +2126,30 @@ function shareClip(btn) {
 }
 
 // Copy an already-shared clip's link from the dedicated Copy button.
-function copyClipLink(btn) {
+async function copyClipLink(btn) {
+  if (!btn || btn.disabled) return false;
   const url = (btn && btn.dataset && btn.dataset.shareUrl) || '';
-  if (!url) return;
-  const copied = copyToClipboard(url);
+  if (!url.trim()) return false;
+  clearTimeout(_copyLinkResets.get(btn));
+  _copyLinkResets.delete(btn);
   const span = btn.querySelector('span');
-  if (span) {
-    const prev = span.textContent;
-    span.textContent = copied ? 'Copied' : 'Copy failed';
-    setTimeout(() => { if (span) span.textContent = prev || 'Copy'; }, 1600);
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  if (span) span.textContent = 'Copying…';
+  try {
+    const copied = await copyToClipboard(url);
+    btn.title = copied ? 'Copy link' : 'Copy failed. Please try again.';
+    if (span) span.textContent = copied ? 'Copied' : 'Copy failed';
+    if (copied) {
+      _copyLinkResets.set(btn, setTimeout(() => {
+        if (span) span.textContent = 'Copy';
+        _copyLinkResets.delete(btn);
+      }, 1600));
+    }
+    return copied;
+  } finally {
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
   }
 }
 
@@ -2341,7 +2360,7 @@ document.addEventListener('click', async (ev) => {
   } else if (action === 'copy_clip_link') {
     ev.preventDefault();
     ev.stopPropagation(); // don't let the row's jump fire
-    copyClipLink(t);
+    await copyClipLink(t);
   } else if (action === 'delete_clip') {
     ev.preventDefault();
     ev.stopPropagation(); // don't let the row's jump fire

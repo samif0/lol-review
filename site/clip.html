@@ -350,6 +350,32 @@
       visibility: visible;
     }
 
+    .copied-flash.is-error {
+      max-width: 220px;
+      color: var(--fg-secondary);
+      text-transform: none;
+      white-space: normal;
+    }
+
+    .clip-copy-fallback {
+      grid-column: 1 / -1;
+      min-width: 0;
+      color: var(--fg-secondary);
+      font-size: 13px;
+    }
+
+    .clip-copy-fallback input {
+      box-sizing: border-box;
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 2px;
+      background: #110F1A;
+      color: var(--fg-primary);
+      font: inherit;
+    }
+
     .clip-side-panel {
       position: sticky;
       top: 22px;
@@ -572,8 +598,12 @@
             </div>
           </div>
           <div class="clip-actions">
-            <span id="copied" class="copied-flash" aria-live="polite">Link copied</span>
+            <span id="copied" class="copied-flash" role="status" aria-live="polite" aria-atomic="true"></span>
             <button id="copy-btn" class="clip-button clip-button-primary" type="button">Copy link</button>
+          </div>
+          <div id="copy-fallback" class="clip-copy-fallback" hidden>
+            <label for="copy-link">Copy this link manually</label>
+            <input id="copy-link" type="text" readonly spellcheck="false" aria-describedby="copied" />
           </div>
         </div>
       </div>
@@ -895,28 +925,44 @@
 
       var copyBtn = document.getElementById("copy-btn");
       var copied = document.getElementById("copied");
-      copyBtn.addEventListener("click", function () {
+      var copyFallback = document.getElementById("copy-fallback");
+      var copyLink = document.getElementById("copy-link");
+      var copyTimer;
+      copyBtn.addEventListener("click", async function () {
+        if (copyBtn.disabled) return;
         var link = "https://clips.revu.lol/" + id;
-        var done = function () {
-          copied.classList.add("show");
-          setTimeout(function () { copied.classList.remove("show"); }, 1600);
-        };
+        copyBtn.disabled = true;
+        copyBtn.textContent = "Copying...";
+        copyBtn.setAttribute("aria-busy", "true");
+        clearTimeout(copyTimer);
+        copied.classList.remove("show", "is-error");
+        copied.textContent = "";
+        copyFallback.hidden = true;
 
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(link).then(done).catch(done);
-          return;
-        }
-
-        var ta = document.createElement("textarea");
-        ta.value = link;
-        document.body.appendChild(ta);
-        ta.select();
         try {
-          document.execCommand("copy");
+          if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+            throw new Error("Clipboard unavailable");
+          }
+          await navigator.clipboard.writeText(link);
+          copied.textContent = "Link copied";
+          copied.classList.add("show");
+          copyTimer = setTimeout(function () {
+            copied.classList.remove("show");
+            copied.textContent = "";
+          }, 1600);
         } catch (e) {
+          copied.textContent = "Copy unavailable. Copy the link below.";
+          copied.classList.add("is-error");
+          copied.classList.add("show");
+          copyLink.value = link;
+          copyFallback.hidden = false;
+          copyLink.focus();
+          copyLink.select();
+        } finally {
+          copyBtn.disabled = false;
+          copyBtn.textContent = "Copy link";
+          copyBtn.removeAttribute("aria-busy");
         }
-        document.body.removeChild(ta);
-        done();
       });
     })();
   </script>
