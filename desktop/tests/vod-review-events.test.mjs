@@ -10,7 +10,7 @@ import { objectiveTypeLabel, objectivePhaseLabel } from '../ui/objective-labels.
 const source = (await readFile(new URL('../ui/vodplayer.js', import.meta.url), 'utf8')).replace(/^import .*?;\r?\n/gm, '');
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'Plan the fight' }, { objectiveId: 11, title: 'Keep a safe position' }], search = '', noVod = false, initialLoading = false, invokeReply, invokeWrite } = {}) {
+function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'Plan the fight' }, { objectiveId: 11, title: 'Keep a safe position' }], search = '', noVod = false, initialLoading = false, invokeReply, invokeWrite, timers } = {}) {
   const ids = new Map(), listeners = new Map(), windowListeners = new Map(), writes = [], reads = [], seeks = [], selections = [], confirmations = [];
   let navOptions, restoreState = null, snapshot;
   const document = { readyState: 'loading', activeElement: null,
@@ -133,12 +133,14 @@ function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'Plan the
       } };
     },
     createVodViewRestorer, createVodWriteBarrier, sameVodDraft, vodRestorePlan,
-    objectiveTypeLabel, objectivePhaseLabel, URLSearchParams, setTimeout: () => 0, clearTimeout() {},
+    objectiveTypeLabel, objectivePhaseLabel, URLSearchParams,
+    setTimeout: timers?.setTimeout || (() => 0), clearTimeout: timers?.clearTimeout || (() => {}),
     resolveAssetUrl: (_core, path) => `revu-media://fixture/${path}`,
     console: { error() {}, warn() {} }, CustomEvent: class {},
   });
   vm.runInContext(`${source}\n globalThis.hooks = { markersForObjective, reviewEvents, renderReviewEvents, renderMoments, renderObjBar,
     setFocusedObjective, wireFraming, watchReviewEvent, momentLanes, setClipIn, setClipOut, openShareLogin,
+    copyToClipboard, copyClipLink, uploadShareJob, shareJob, setCore(core) { _core = core; },
     captureVodViewState, restoreVodViewState, restoreMatchView, applyClipDeepLink, render, reloadBookmarks,
     setInitialLoading(value) { _vodInitialLoading = value; }, refreshLinkedRecording,
     async flush() { await _viewWrites.flush(); },
@@ -592,4 +594,154 @@ test('a link never resets active playback and a mismatched response cannot open 
   assert.equal(missing.$('vp-video').loads, undefined);
   assert.equal(missing.$('vp-novod').hidden, false);
   assert.equal(missing.hooks.captureVodViewState().gameId, 42);
+});
+
+function deferredClipboard() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+function clipboardTimers() {
+  let now = 0, nextId = 0;
+  const pending = new Map();
+  return {
+    setTimeout(callback, delay) { const id = ++nextId; pending.set(id, { callback, at: now + delay }); return id; },
+    clearTimeout(id) { pending.delete(id); },
+    advance(ms) {
+      now += ms;
+      for (const [id, timer] of [...pending]) {
+        if (timer.at <= now) { pending.delete(id); timer.callback(); }
+      }
+    },
+    get size() { return pending.size; },
+  };
+}
+
+function sharedClipControls(f, url = 'https://revu.lol/clip-42?view=full#moment') {
+  const wrap = f.document.createElement('div'); wrap.className = 'vp-bm-share';
+  const share = f.document.createElement('button'); share.className = 'vp-share-btn';
+  share.dataset.action = 'share_clip'; share.dataset.shareBmId = '301';
+  const shareLabel = f.document.createElement('span'); shareLabel.className = 'vp-share-lbl'; shareLabel.textContent = 'Share';
+  share.appendChild(shareLabel); wrap.appendChild(share);
+  const copy = f.document.createElement('button'); copy.className = 'vp-copy-btn';
+  copy.dataset.action = 'copy_clip_link'; copy.dataset.shareUrl = url; copy.title = 'Copy link';
+  const label = f.document.createElement('span'); label.textContent = 'Copy'; copy.appendChild(label); wrap.appendChild(copy);
+  const link = f.document.createElement('span'); link.className = 'vp-share-url'; wrap.appendChild(link);
+  f.$('vp-bookmarks').appendChild(wrap);
+  return { copy, label, share, shareLabel, link };
+}
+
+test('Copy clip link waits for native acknowledgment and suppresses duplicate clicks without seeking', async () => {
+  const started = deferredClipboard(), copied = deferredClipboard(), timers = clipboardTimers();
+  const f = fixture({ timers, invokeWrite: (command) => {
+    assert.equal(command, 'copy_text_to_clipboard'); started.resolve(); return copied.promise;
+  } });
+  const url = 'https://revu.lol/clip-42?view=full&name=Tempo%20reset#moment';
+  const { copy, label } = sharedClipControls(f, url);
+  let finished = false;
+  const copying = f.emit('click', copy).then(() => { finished = true; });
+  await started.promise;
+  assert.equal(copy.disabled, true); assert.equal(label.textContent, 'Copying…');
+  assert.equal(finished, false, 'the delegated click handler must await the native acknowledgment');
+  await f.emit('click', copy);
+  assert.deepEqual(f.writes, [{ command: 'copy_text_to_clipboard', args: { text: url } }]);
+  assert.deepEqual(f.seeks, []);
+  copied.resolve({ ok: true }); await copying;
+  assert.equal(copy.disabled, false); assert.equal(label.textContent, 'Copied');
+  assert.equal(copy.title, 'Copy link'); assert.equal(copy.dataset.shareUrl, url);
+  timers.advance(1599); assert.equal(label.textContent, 'Copied');
+  timers.advance(1); assert.equal(label.textContent, 'Copy');
+});
+
+test('failed clip-link copies stay visible and retryable until native copying succeeds', async () => {
+  for (const failure of ['reject', 'not-ok', 'missing-acknowledgment']) {
+    let attempt = 0;
+    const timers = clipboardTimers();
+    const f = fixture({ timers, invokeWrite: () => {
+      if (++attempt > 1) return { ok: true };
+      if (failure === 'reject') throw new Error('Clipboard is unavailable');
+      return failure === 'not-ok' ? { ok: false } : undefined;
+    } });
+    const { copy, label } = sharedClipControls(f);
+    await f.emit('click', copy);
+    assert.equal(label.textContent, 'Copy failed', failure);
+    assert.equal(copy.disabled, false);
+    assert.match(copy.title, /copy failed|try again/i);
+    timers.advance(5000); assert.equal(label.textContent, 'Copy failed', 'failure must not disappear before the user retries');
+    await f.emit('click', copy);
+    assert.equal(attempt, 2); assert.equal(label.textContent, 'Copied'); assert.equal(copy.disabled, false);
+  }
+});
+
+test('blank URLs and preview mode never claim that a clip link was copied', async () => {
+  const f = fixture();
+  for (const text of ['', ' \n\t ']) {
+    assert.equal(await f.hooks.copyToClipboard(text), false);
+  }
+  const empty = sharedClipControls(f, '');
+  assert.equal(await f.hooks.copyClipLink(empty.copy), false);
+  assert.equal(empty.label.textContent, 'Copy');
+  assert.equal(empty.copy.disabled, false);
+  assert.deepEqual(f.writes, []);
+  f.hooks.setCore(null);
+  const preview = sharedClipControls(f);
+  await f.emit('click', preview.copy);
+  assert.equal(preview.label.textContent, 'Copy failed');
+  assert.equal(preview.copy.disabled, false);
+  assert.deepEqual(f.writes, []);
+});
+
+test('a previous Copied timer cannot overwrite a new pending copy or its failure', async () => {
+  let attempts = 0;
+  const timers = clipboardTimers(), started = deferredClipboard(), second = deferredClipboard();
+  const f = fixture({ timers, invokeWrite: () => {
+    if (++attempts === 1) return { ok: true };
+    started.resolve(); return second.promise;
+  } });
+  const { copy, label } = sharedClipControls(f);
+  await f.emit('click', copy);
+  assert.equal(label.textContent, 'Copied');
+  timers.advance(800);
+  const retry = f.emit('click', copy);
+  await started.promise;
+  timers.advance(800);
+  assert.equal(label.textContent, 'Copying…');
+  assert.equal(copy.disabled, true);
+  second.resolve({ ok: false }); await retry;
+  timers.advance(5000);
+  assert.equal(label.textContent, 'Copy failed'); assert.equal(copy.disabled, false);
+});
+
+test('a published clip keeps its URL and completed upload when copying fails, without uploading again', async () => {
+  for (const failure of ['reject', 'not-ok']) {
+    const timers = clipboardTimers(), started = deferredClipboard(), copied = deferredClipboard();
+    let copyAttempts = 0;
+    const url = 'https://revu.lol/shared-tempo-301';
+    const f = fixture({ timers, invokeWrite: (command) => {
+      if (command === 'share_clip') return { ok: true, shareUrl: url };
+      assert.equal(command, 'copy_text_to_clipboard');
+      if (++copyAttempts > 1) return { ok: true };
+      started.resolve(); return copied.promise;
+    } });
+    const { copy, share, link, label } = sharedClipControls(f, '');
+    const job = f.hooks.shareJob(301);
+    let finished = false;
+    const uploading = f.hooks.uploadShareJob(job).then(result => { finished = true; return result; });
+    await started.promise;
+    assert.equal(finished, false, 'sharing waits for copying before choosing the accurate completion message');
+    if (failure === 'reject') copied.reject(new Error('503 temporarily unavailable'));
+    else copied.resolve({ ok: false });
+    assert.equal(await uploading, 'done');
+    assert.equal(job.status, 'done'); assert.equal(job.url, url); assert.equal(job.copied, false);
+    assert.equal(job.attempts, 0); assert.match(job.message, /shared.*copy/i);
+    assert.equal(copy.dataset.shareUrl, url); assert.equal(copy.hidden, false); assert.equal(link.textContent, url);
+    assert.equal(share.dataset.shareUrl, url);
+    assert.equal(timers.size, 0, 'clipboard failure must not schedule an upload retry');
+    await f.emit('click', share);
+    await f.emit('click', copy);
+    assert.equal(label.textContent, 'Copied');
+    assert.deepEqual(f.writes.map(write => write.command), ['share_clip', 'copy_text_to_clipboard', 'copy_text_to_clipboard']);
+    assert.equal(job.url, url);
+  }
 });
