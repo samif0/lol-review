@@ -10,7 +10,7 @@
  */
 
 import { handleLogin, handleLogout, handleSignup, handleVerify } from "./auth";
-import { findSession, deleteExpiredSessions } from "./db";
+import { findSession, deleteExpiredLoginRequests, deleteExpiredSessions } from "./db";
 import { Env } from "./types";
 import { GlobalRateLimiter } from "./ratelimit";
 import { sha256Hex, sha256Prefix } from "./crypto";
@@ -50,7 +50,10 @@ const PLATFORM_TO_REGIONAL: Record<string, string> = {
 };
 
 function regionalFor(platform: string): string | null {
-  return PLATFORM_TO_REGIONAL[platform.toLowerCase()] ?? null;
+  // Own-property check: a bare index on a plain object would resolve
+  // "__proto__" / "constructor" to a truthy non-string.
+  const key = platform.toLowerCase();
+  return Object.hasOwn(PLATFORM_TO_REGIONAL, key) ? PLATFORM_TO_REGIONAL[key] : null;
 }
 
 // ── Rate limiting ───────────────────────────────────────────────────────
@@ -606,12 +609,14 @@ export { GlobalRateLimiter };
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Daily housekeeping: purge expired clips (R2 + D1) and stale sessions.
+    // Daily housekeeping: purge expired clips (R2 + D1), stale sessions, and
+    // expired one-time login codes.
     ctx.waitUntil(
       (async () => {
         try {
           const purged = await purgeExpiredClips(env);
           await deleteExpiredSessions(env.DB);
+          await deleteExpiredLoginRequests(env.DB);
           console.log(JSON.stringify({ scope: "cron.purge", clips: purged }));
         } catch (err) {
           console.error(JSON.stringify({ scope: "cron.purge", error: (err as Error).message }));

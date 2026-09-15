@@ -78,6 +78,31 @@ describe("worker proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects a region that only exists on Object.prototype and never calls Riot", async () => {
+    // The region map is a plain object, so a bare index lookup for
+    // "__proto__" / "constructor" returns a truthy non-string instead of
+    // null. The lookup must be an own-property check.
+    const token = "proto-region-token";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (const region of ["__proto__", "constructor", "hasOwnProperty"]) {
+      const response = await worker.fetch(
+        new Request(`https://proxy.example/account?riotId=a%23b&region=${region}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        env(token),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await json(response)).toEqual({
+        error: "bad_request",
+        message: `unknown region '${region}'`,
+      });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("maps platform region to Riot regional route", async () => {
     const token = "region-token";
     const fetchMock = vi.fn().mockResolvedValue(
@@ -279,6 +304,47 @@ describe("worker proxy", () => {
     expect(await json(response)).toEqual({ error: "rate_limit_aggregate" });
     // Riot was never called — the aggregate gate stopped it first.
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("scheduled housekeeping", () => {
+  it("purges expired login_requests alongside clips and sessions", async () => {
+    // /auth/login is unauthenticated and inserts a login_requests row per call,
+    // so the daily cron must reap expired rows or the table grows without bound.
+    const statements: string[] = [];
+    const db = {
+      prepare(sql: string) {
+        statements.push(sql);
+        const api = {
+          bind() { return api; },
+          async run() { return { meta: { changes: 0 } }; },
+          async all() { return { results: [] }; },
+          async first() { return null; },
+        };
+        return api;
+      },
+    } as unknown as D1Database;
+
+    const pending: Promise<unknown>[] = [];
+    const cronCtx = {
+      waitUntil(p: Promise<unknown>) { pending.push(p); },
+      passThroughOnException() {},
+      props: {},
+    } as unknown as ExecutionContext;
+
+    await worker.scheduled(
+      {} as ScheduledController,
+      { ...env("unused"), DB: db, CLIPS: {} as R2Bucket },
+      cronCtx,
+    );
+    await Promise.all(pending);
+
+    const deletes = statements.filter((s) => /^DELETE FROM login_requests\b/.test(s));
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]).toMatch(/WHERE expires_at <= \?1/);
+    // The existing purges are still issued.
+    expect(statements.some((s) => /^DELETE FROM sessions\b/.test(s))).toBe(true);
+    expect(statements.some((s) => /FROM clips WHERE expires_at/.test(s))).toBe(true);
   });
 });
 
