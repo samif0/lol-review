@@ -50,8 +50,10 @@ public static partial class SidecarEndpoints
             await w.BackupGuard.EnsureBackedUpAsync();
             try
             {
-                var id = await w.Matchups.CreateAsync(
-                    body.Lane, body.AllyChamps, body.EnemyChamps, body.Prior, body.Observed, body.GameId);
+                var id = body.GameId is > 0
+                    ? (await MatchupJournalPreparation.CreateLinkedAsync(body.GameId.Value, w.Games, w.Matchups,
+                        body.Lane, body.AllyChamps, body.EnemyChamps, body.Prior, body.Observed, fromManualForm: true)).Id
+                    : await w.Matchups.CreateAsync(body.Lane, body.AllyChamps, body.EnemyChamps, body.Prior, body.Observed);
                 log.LogInformation("Matchup card created: {Id} ({Lane})", id, body.Lane);
                 return Results.Json(new { ok = true, id }, jsonOptions);
             }
@@ -75,45 +77,16 @@ public static partial class SidecarEndpoints
         // the player to finish instead of creating a half-empty card.
         app.MapPost("/api/matchup/from-last-game", async (WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
-            var last = await MatchupsSnapshotBuilder.ResolveLastGameAsync(w.Games, w.Matchups, w.Config.PrimaryRole);
-            if (last.Game is null)
+            var recent = await w.Games.GetRecentAsync(limit: 1);
+            if (recent.Count == 0)
                 return Results.Json(new { ok = false, error = MatchupsSnapshotBuilder.NoGamesReason }, jsonOptions, statusCode: 422);
-            if (last.Existing is not null)
-                return Results.Json(new { ok = true, id = last.Existing.Id, created = false }, jsonOptions);
-            if (last.Prefill is null)
-                return Results.Json(new { ok = false, error = MatchupsSnapshotBuilder.NoPrefillReason }, jsonOptions, statusCode: 422);
+            return await PrepareMatchupFromGameAsync(recent[0].GameId, w, log, jsonOptions, ct);
+        });
 
-            await w.BackupGuard.EnsureBackedUpAsync();
-            var (game, prefill) = await MatchupFromLastGame.HealAsync(
-                last.Game, last.Prefill, w.Config, w.EnemyLanerBackfill, w.Games, log, ct: ct);
-
-            if (!MatchupFromLastGame.ShouldCreateOutright(game, prefill))
-            {
-                return Results.Json(new
-                {
-                    ok = true,
-                    created = false,
-                    partial = true,
-                    gameId = game.GameId,
-                    gameLabel = MatchupsSnapshotBuilder.GameLabel(game),
-                    lane = prefill.Lane,
-                    laneIsGuess = prefill.LaneIsGuess,
-                    // v3.10.1: the matchup is a game-end estimate Riot has not confirmed yet.
-                    estimated = Revu.Core.Models.MatchupSources.NeedsConfirmation(game.MatchupSource),
-                    // By form slot ("" = unknown), so a lone support lands in the support field.
-                    allyChamps = prefill.AllySlots,
-                    enemyChamps = prefill.EnemySlots,
-                }, jsonOptions);
-            }
-
-            try
-            {
-                var id = await w.Matchups.CreateAsync(
-                    prefill.Lane, prefill.AllyChamps, prefill.EnemyChamps, gameId: game.GameId);
-                log.LogInformation("Matchup card {Id} pre-filled from game {GameId} ({Title})", id, game.GameId, prefill.Title);
-                return Results.Json(new { ok = true, id, created = true }, jsonOptions);
-            }
-            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        app.MapPost("/api/matchup/from-game", async (FromGameMatchupBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
+        {
+            if (body is null || body.GameId <= 0) return Results.BadRequest(new { error = "gameId required" });
+            return await PrepareMatchupFromGameAsync(body.GameId, w, log, jsonOptions, ct);
         });
 
         // POST /api/matchup/update  { id, lane, allyChamps[], enemyChamps[], prior?, observed? }
@@ -158,5 +131,37 @@ public static partial class SidecarEndpoints
             log.LogInformation("Matchup card deleted: {Id}", body.Id);
             return Results.Json(new { ok = true }, jsonOptions);
         });
+    }
+
+    private static async Task<IResult> PrepareMatchupFromGameAsync(
+        long gameId, WriteServices w, ILogger log, JsonSerializerOptions jsonOptions, CancellationToken ct)
+    {
+        await w.BackupGuard.EnsureBackedUpAsync();
+        try
+        {
+            var result = await MatchupJournalPreparation.FromGameAsync(
+                gameId, w.Games, w.Matchups, w.Config, w.EnemyLanerBackfill, log, ct);
+            if (result.Error is { } error)
+                return Results.Json(new { ok = false, error }, jsonOptions, statusCode: 422);
+            if (result.Id is long id)
+                return Results.Json(new { ok = true, id, created = result.Created }, jsonOptions);
+
+            var game = result.Game!;
+            var prefill = result.Prefill!;
+            return Results.Json(new
+            {
+                ok = true,
+                created = false,
+                partial = true,
+                gameId = game.GameId,
+                gameLabel = MatchupsSnapshotBuilder.GamePreviewLabel(game),
+                lane = prefill.Lane,
+                laneIsGuess = prefill.LaneIsGuess,
+                estimated = Revu.Core.Models.MatchupSources.NeedsConfirmation(game.MatchupSource),
+                allyChamps = prefill.AllySlots,
+                enemyChamps = prefill.EnemySlots,
+            }, jsonOptions);
+        }
+        catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
     }
 }

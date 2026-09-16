@@ -258,6 +258,10 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                     _logger.LogWarning(ex, "Pattern-evidence materialization failed for game {GameId}", gameId);
                 }
 
+                // Prepare only when the player opted in and the captured pairing
+                // is trustworthy. The confirmation pass retries incomplete games.
+                await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
+
                 _logger.LogInformation("Live game captured + saved: game {GameId} ({Champ})", gameId, stats.ChampionName);
                 _eventHub.Publish("gameEnded", new
                 {
@@ -409,8 +413,10 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                 }
 
                 var row = await _write.Games.GetAsync(gameId).ConfigureAwait(false);
-                if (row is null || row.MatchupSource is MatchupSources.MatchV5 or MatchupSources.User)
+                if (row is null) return;
+                if (row.MatchupSource is MatchupSources.MatchV5 or MatchupSources.User)
                 {
+                    await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
                     return; // gone, confirmed by an earlier attempt, or the player's own word
                 }
 
@@ -418,6 +424,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                 switch (outcome)
                 {
                     case EnemyLanerBackfillOutcome.Updated:
+                        await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
                         _eventHub.Publish("matchupUpdated", new { gameId, updated = 1 });
                         _logger.LogInformation(
                             "Post-game matchup confirmed from Match-V5 for game {GameId} (game end had '{Source}')",
@@ -456,6 +463,8 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
             var result = await _write.EnemyLanerBackfill.RunAsync(maxGames: 5).ConfigureAwait(false);
             if (result.Updated > 0)
             {
+                foreach (var gameId in pending.Take(5))
+                    await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
                 _eventHub.Publish("matchupUpdated", new { gameId = (long?)null, updated = result.Updated });
                 _logger.LogInformation(
                     "Matchup backlog: {Updated} older game(s) confirmed after game {GameId} ({Failed} not yet available)",
@@ -465,6 +474,24 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Matchup backlog drain after game {GameId} failed (non-fatal)", freshGameId);
+        }
+    }
+
+    private async Task TryPrepareMatchupNoteAsync(long gameId)
+    {
+        try
+        {
+            var result = await MatchupJournalPreparation.TryAutoPrepareAsync(
+                gameId, _write.Games, _write.Matchups, _write.Config, _backgroundWork.Stopping).ConfigureAwait(false);
+            if (result?.Created == true)
+            {
+                _logger.LogInformation("Matchup note {CardId} prepared for game {GameId}", result.Id, gameId);
+                _eventHub.Publish("matchupUpdated", new { gameId, updated = 1 });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Optional matchup note preparation failed for game {GameId}", gameId);
         }
     }
 

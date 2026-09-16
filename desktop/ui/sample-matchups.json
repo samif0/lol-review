@@ -164,6 +164,33 @@
       ]
     }
   ],
+  "recentGames": [
+    {
+      "available": true, "gameId": 5581790011, "lane": "mid", "laneLabel": "Mid",
+      "allyChamps": ["Ahri"], "enemyChamps": ["Syndra"], "enemyKnown": true,
+      "matchupTitle": "Ahri vs Syndra", "gameLabel": "Sep 7, 2026 · Win",
+      "hint": "", "existingCardId": null, "unavailableReason": ""
+    },
+    {
+      "available": true, "gameId": 5581743310, "lane": "top", "laneLabel": "Top",
+      "allyChamps": ["Aatrox"], "enemyChamps": ["Fiora"], "enemyKnown": true,
+      "matchupTitle": "Aatrox vs Fiora", "gameLabel": "Sep 6, 2026 · Loss",
+      "hint": "", "existingCardId": 9, "unavailableReason": ""
+    },
+    {
+      "available": true, "gameId": 5581701721, "lane": "bot", "laneLabel": "Bot",
+      "allyChamps": ["Kai'Sa", "Nautilus"], "enemyChamps": ["Tristana", "Renata Glasc"], "enemyKnown": true,
+      "matchupTitle": "Kai'Sa + Nautilus vs Tristana + Renata Glasc", "gameLabel": "Sep 5, 2026 · Win",
+      "hint": "", "existingCardId": 12, "unavailableReason": ""
+    },
+    {
+      "available": true, "gameId": 5581618724, "lane": "mid", "laneLabel": "Mid",
+      "allyChamps": ["Ahri"], "enemyChamps": [], "enemyKnown": false,
+      "matchupTitle": "Ahri vs ?", "gameLabel": "Sep 4, 2026 · Loss",
+      "hint": "Opponents weren't recorded for this game — you'll add them when the note opens.",
+      "existingCardId": null, "unavailableReason": ""
+    }
+  ],
   "lastGame": {
     "available": true,
     "gameId": 5581790011,

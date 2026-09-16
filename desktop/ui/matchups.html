@@ -31,7 +31,7 @@
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
   <div class="shell">
-    <!-- New notes can start blank or use the last match's champions. -->
+    <!-- New notes can start blank or use a recent match's champions. -->
     <div class="mj-hero">
       <div class="hero">
         <div class="eyebrow">Improve</div>
@@ -41,16 +41,21 @@
       <div class="mj-actions">
         <div class="mj-actions-row">
           <button class="mj-btn-last" id="x-copy" data-action="copy_markdown" type="button" title="Copy all notes as Markdown" hidden>Copy all</button>
-          <button class="mj-btn-last" id="from-last" data-action="from_last_game" type="button" disabled>From last match</button>
           <button class="cta mj-new-btn" id="new-card" data-action="new_card" type="button">New note</button>
         </div>
-        <details class="mj-lastgame-details">
-          <summary>Last match details</summary>
-          <div class="mj-lastgame" id="mj-lastgame" hidden>
+        <div class="mj-recent">
+          <label class="mj-recent-label" for="recent-match">Start from a recent match</label>
+          <div class="mj-recent-row">
+            <select id="recent-match" aria-describedby="mj-lastgame" disabled>
+              <option value="">Loading recent matches…</option>
+            </select>
+            <button class="mj-btn-last" id="from-last" data-action="from_selected_game" type="button" disabled>Create note</button>
+          </div>
+          <div class="mj-lastgame" id="mj-lastgame" role="status" aria-live="polite" hidden>
             <b id="mj-lastgame-title"></b>
             <span class="mj-lastgame-g" id="mj-lastgame-game"></span>
           </div>
-        </details>
+        </div>
       </div>
     </div>
 
@@ -155,7 +160,7 @@
     <!-- EMPTY STATE — no cards at all. -->
     <div class="mj-empty" id="mj-empty" hidden>
       <div class="mj-empty-h" id="mj-empty-h">No matchup notes yet</div>
-      <div class="mj-empty-p" id="mj-empty-p">Start a <b>New note</b>, or use <b>From last match</b> to reflect on the game you just played.</div>
+      <div class="mj-empty-p" id="mj-empty-p">Choose a recent match to fill in its lane and champions, or start a <b>New note</b>.</div>
     </div>
 
     <!-- ERROR PANEL -->

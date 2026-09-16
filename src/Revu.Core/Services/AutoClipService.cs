@@ -23,6 +23,7 @@ public sealed class AutoClipService : IAutoClipService
     private readonly IEvidenceRepository _evidence;
     private readonly IClipService _clips;
     private readonly ILogger<AutoClipService> _logger;
+    private readonly IReviewDraftRepository? _reviewDrafts;
 
     public AutoClipService(
         IConfigService config,
@@ -32,7 +33,8 @@ public sealed class AutoClipService : IAutoClipService
         IObjectivesRepository objectives,
         IEvidenceRepository evidence,
         IClipService clips,
-        ILogger<AutoClipService> logger)
+        ILogger<AutoClipService> logger,
+        IReviewDraftRepository? reviewDrafts = null)
     {
         _config = config;
         _games = games;
@@ -42,6 +44,7 @@ public sealed class AutoClipService : IAutoClipService
         _evidence = evidence;
         _clips = clips;
         _logger = logger;
+        _reviewDrafts = reviewDrafts;
     }
 
     public async Task<AutoClipResult> ClipObjectiveEventsAsync(long gameId, long? objectiveId, CancellationToken ct = default)
@@ -109,7 +112,8 @@ public sealed class AutoClipService : IAutoClipService
                     note: note,
                     quality: "",
                     objectiveId: clip.ObjectiveId,
-                    sourceKey: clip.SourceKey);
+                    sourceKey: clip.SourceKey,
+                    reviewDrafts: _reviewDrafts);
                 created++;
             }
             catch (Exception ex)

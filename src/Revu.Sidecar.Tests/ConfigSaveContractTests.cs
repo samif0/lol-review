@@ -31,6 +31,33 @@ public sealed class ConfigSaveContractTests
 {
     private const long FarFutureExpiry = 4102444800; // 2100-01-01, well past "now".
 
+    [Fact]
+    public async Task AutomaticMatchupNotesAreOptInAndPersistAcrossFreshReaders()
+    {
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+        var writer = CreateService(scope.ConfigPath, secrets);
+        var config = await writer.LoadAsync();
+        Assert.False(config.AutoMatchupNotesEnabled);
+
+        config.AutoMatchupNotesEnabled = true;
+        await writer.SaveAsync(config);
+        var reader = CreateService(scope.ConfigPath, secrets);
+        var builder = new ConfigSnapshotBuilder(reader, NullLogger<ConfigSnapshotBuilder>.Instance);
+        Assert.True((await builder.BuildAsync()).AutoMatchupNotesEnabled);
+
+        // A different settings group leaves the opt-in intact, including on disk.
+        await ApplySaveConfig(writer, clipsMaxSizeMb: 4096);
+        Assert.True((await builder.BuildAsync()).AutoMatchupNotesEnabled);
+
+        config = await writer.LoadAsync();
+        config.AutoMatchupNotesEnabled = false;
+        await writer.SaveAsync(config);
+        var disabled = await builder.BuildAsync();
+        Assert.False(disabled.AutoMatchupNotesEnabled);
+        Assert.Equal(4096, disabled.ClipsMaxSizeMb);
+    }
+
     // ── (A) P-020 / P-023 empty-string-overwrite guards ───────────────────────
 
     [Fact]

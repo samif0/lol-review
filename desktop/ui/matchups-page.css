@@ -2,12 +2,15 @@
 .matchups-page .mj-hero{gap:20px 32px;margin-bottom:30px}
 .matchups-page .mj-hero .hero{margin:0}
 .matchups-page .mj-subt{margin-top:10px}
-.matchups-page .mj-actions{gap:12px}
+.matchups-page .mj-actions{gap:16px;min-width:0;max-width:100%}
 .matchups-page .mj-actions-row{gap:10px}
 .matchups-page .mj-btn-last{font:500 14px/1.4 var(--fb);letter-spacing:0;padding:10px 16px;min-height:40px}
-.matchups-page .mj-lastgame-details{max-width:400px;color:var(--muted);font-size:13px;line-height:1.5;text-align:right}
-.matchups-page .mj-lastgame-details>summary{cursor:pointer;padding:3px 0}
-.matchups-page .mj-lastgame{display:flex;flex-direction:column;align-items:flex-end;gap:5px;margin-top:8px;font:400 13px/1.5 var(--fb);letter-spacing:0}
+.matchups-page .mj-recent{width:540px;max-width:100%;min-width:0}
+.matchups-page .mj-recent-label{display:block;margin-bottom:8px;font-size:13px;color:var(--muted)}
+.matchups-page .mj-recent-row{display:flex;align-items:center;gap:10px}
+.matchups-page #recent-match{flex:1;min-width:0;width:100%;min-height:42px;padding:10px 12px;border-radius:10px;font:400 13px/1.5 var(--fb);letter-spacing:0}
+.matchups-page .mj-recent-row .mj-btn-last{flex-shrink:0}
+.matchups-page .mj-lastgame{display:flex;flex-direction:column;align-items:flex-start;gap:3px;max-width:none;text-align:left;margin-top:8px;font:400 13px/1.5 var(--fb);letter-spacing:0}
 .matchups-page .mj-lastgame[hidden]{display:none}
 .matchups-page .mj-lastgame-g{color:var(--muted)}
 .matchups-page .mj-toolbar{display:flex;align-items:center;gap:12px}
@@ -61,11 +64,13 @@
 @media(max-width:900px){
   .matchups-page .mj-actions{align-items:flex-start;margin-top:0}
   .matchups-page .mj-actions-row{justify-content:flex-start}
-  .matchups-page .mj-lastgame-details{text-align:left}
   .matchups-page .mj-lastgame{align-items:flex-start;text-align:left}
   .matchups-page .mj-notes{grid-template-columns:minmax(0,1fr)}
 }
 @media(max-width:520px){
+  .matchups-page .mj-actions{width:100%}
+  .matchups-page .mj-recent-row{flex-wrap:wrap}
+  .matchups-page #recent-match{flex-basis:100%}
   .matchups-page .mj-toolbar{gap:8px;flex-wrap:wrap}
   .matchups-page .mj-search-wrap{flex-basis:100%}
   .matchups-page #mj-lane-filter{width:100%}

@@ -21,12 +21,14 @@ public static partial class SidecarEndpoints
             if (body is null || body.GameId <= 0)
                 return Results.BadRequest(new { error = "gameId required" });
             await w.BackupGuard.EnsureBackedUpAsync();
-            var id = await w.Vod.AddBookmarkAsync(
+            var id = await BookmarkPersistence.AddAsync(
+                w.Vod, w.Objectives,
                 gameId: body.GameId,
                 gameTimeSeconds: body.TimeS,
                 note: body.Note ?? "",
                 objectiveId: body.ObjectiveId,
-                promptId: body.PromptId);
+                promptId: body.PromptId,
+                reviewDrafts: w.ReviewDrafts);
             log.LogInformation("Bookmark added for game {GameId} @{TimeS}s -> id {Id}", body.GameId, body.TimeS, id);
             return Results.Json(new { ok = true, id }, jsonOptions);
         });
@@ -60,7 +62,8 @@ public static partial class SidecarEndpoints
             if (body is null || body.BookmarkId <= 0)
                 return Results.BadRequest(new { error = "bookmarkId required" });
             await w.BackupGuard.EnsureBackedUpAsync();
-            await w.Vod.SetBookmarkObjectiveAsync(body.BookmarkId, body.ObjectiveId);
+            await BookmarkPersistence.SetTagAsync(w.Vod, w.Objectives,
+                body.BookmarkId, body.ObjectiveId, reviewDrafts: w.ReviewDrafts);
             log.LogInformation("Bookmark {Id} objective={ObjectiveId}", body.BookmarkId, body.ObjectiveId);
             return Results.Json(new { ok = true }, jsonOptions);
         });
@@ -73,7 +76,8 @@ public static partial class SidecarEndpoints
             if (body is null || body.BookmarkId <= 0)
                 return Results.BadRequest(new { error = "bookmarkId required" });
             await w.BackupGuard.EnsureBackedUpAsync();
-            await w.Vod.SetBookmarkTagAsync(body.BookmarkId, body.ObjectiveId, body.PromptId);
+            await BookmarkPersistence.SetTagAsync(w.Vod, w.Objectives,
+                body.BookmarkId, body.ObjectiveId, body.PromptId, w.ReviewDrafts);
             log.LogInformation("Bookmark {Id} tag objective={ObjectiveId} prompt={PromptId}", body.BookmarkId, body.ObjectiveId, body.PromptId);
             return Results.Json(new { ok = true }, jsonOptions);
         });
@@ -154,7 +158,8 @@ public static partial class SidecarEndpoints
                 note: note,
                 quality: quality,
                 objectiveId: objectiveId,
-                promptId: promptId);
+                promptId: promptId,
+                reviewDrafts: w.ReviewDrafts);
 
             log.LogInformation("Clip extracted: game {GameId} {StartS}-{EndS}s -> {Path} (bookmark {Id})", body.GameId, startS, endS, clipPath, bookmarkId);
             return Results.Json(new { ok = true, clipPath, bookmarkId }, jsonOptions);

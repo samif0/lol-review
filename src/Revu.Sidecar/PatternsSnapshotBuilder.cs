@@ -8,46 +8,12 @@ using Revu.Core.Services;
 namespace Revu.Sidecar;
 
 /// <summary>
-/// Builds the read-only Patterns snapshot served at GET /api/patterns.
-///
-/// <para>
-/// Reproduces the WinUI Pattern Review surface
-/// (<c>PatternReviewViewModel</c> + <c>PatternMomentItem</c>) EXACTLY for display
-/// — title / severity / subtitle on each card and the labels/accent hexes on each
-/// moment — minus all WinUI/dispatcher concerns, and emits the camelCase JSON
-/// contract (see <see cref="PatternsSnapshotDto"/> and
-/// desktop/ui/sample-patterns.json). It deliberately does NOT reference the WinUI
-/// ViewModel — only the Core <see cref="IEvidenceRepository"/>.
-/// </para>
-///
-/// <para>
-/// Unlike the WinUI viewer (which loads one pattern at a time), the snapshot
-/// carries pending pattern cards with their full ordered moment playlists so the desktop
-/// Patterns page can render the cross-game cards and drill into each moment
-/// without a second round-trip.
-/// </para>
-///
-/// <para>
-/// READ-ONLY: review writes live in the pattern endpoints. Reviewed patterns
-/// stay out of this queue until enough new evidence re-arms them through the
-/// shared review gate. Per-pattern moment loads are
-/// each wrapped in try/catch that degrades to an empty playlist so one bad
-/// pattern never blanks the whole page.
-/// </para>
-///
-/// <para>
-/// COLOR PARITY: mirrors <see cref="DashboardSnapshotBuilder"/> — the glass-aurora
-/// mockup palette is hardcoded here (win/positive #8ee7ba, loss/negative #f3a3a8,
-/// gold #f3c794, neutral #8a80a8) because the WinUI
-/// <c>Revu.App.Styling.AppSemanticPalette</c> isn't visible to Core. TODO: lift
-/// these constants into Revu.Core so the app and the sidecar share one source.
-/// </para>
+/// Builds saved-moment collections and cross-game mistake trends for active
+/// objectives. The full saved playlists remain available for paginated revision,
+/// including reviewed trends and notes whose recording has since been removed.
 /// </summary>
 public sealed class PatternsSnapshotBuilder
 {
-    // ── Tunables (mirror PatternReviewViewModel / dashboard nag) ────────────────
-    private const int PatternCardLimit = 6;
-
     // ── Mockup palette (mirror DashboardSnapshotBuilder; TODO: extract to Core) ──
     private const string GoldHex = "#f3c794";
     private const string WinHex = "#8ee7ba";   // PositiveHex equivalent
@@ -71,15 +37,12 @@ public sealed class PatternsSnapshotBuilder
 
         var cards = new List<PatternCardDto>();
         var reviewedCount = 0;
-        var closedCount = 0;
         var errorText = "";
 
         try
         {
-            // Fetch the FULL candidate set so the review gate runs before the
-            // display cap — a reviewed-closed card must never crowd a pending
-            // one out of the page.
-            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: PatternConstants.PatternCandidateLimit);
+            // Collections must remain reachable even after reviewing a trend.
+            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: int.MaxValue);
             var reviewedStamps = await _evidenceRepo.GetReviewedPatternsAsync();
             reviewedCount = await _evidenceRepo.CountReviewedPatternsAsync();
 
@@ -87,14 +50,9 @@ public sealed class PatternsSnapshotBuilder
             {
                 var rawMoments = await LoadMomentsAsync(pattern);
 
-                // Reviewed with re-arm hysteresis (PatternReviewGate) — the ONE
-                // rule the dashboard nag also applies, so page and nag agree.
-                if (PatternReviewGate.IsReviewed(reviewedStamps, pattern.PatternKey, rawMoments))
-                {
-                    closedCount++;
-                    continue;
-                }
-                var newMoments = PatternReviewGate.NewMomentCount(reviewedStamps, pattern.PatternKey, rawMoments);
+                var savedCollection = pattern.Kind == PatternConstants.KindSavedObjectiveEvidence;
+                var isReviewed = !savedCollection && PatternReviewGate.IsReviewed(reviewedStamps, pattern.PatternKey, rawMoments);
+                var newMoments = savedCollection ? 0 : PatternReviewGate.NewMomentCount(reviewedStamps, pattern.PatternKey, rawMoments);
                 var (moments, playableCount) = MapMoments(rawMoments);
 
                 var distinctGames = moments.Select(m => m.GameId).Distinct().Count();
@@ -113,7 +71,7 @@ public sealed class PatternsSnapshotBuilder
                     SeverityLabel: pattern.Severity.ToUpperInvariant(),
                     // "high" -> negative red, else gold (mirror SeverityHex).
                     SeverityHex: pattern.Severity == "high" ? LossHex : GoldHex,
-                    IsReviewed: false,
+                    IsReviewed: isReviewed,
                     MomentCount: momentCount,
                     GameCount: distinctGames,
                     Subtitle: BuildSubtitle(momentCount, totalMoments, distinctGames),
@@ -122,7 +80,8 @@ public sealed class PatternsSnapshotBuilder
                     Moments: moments,
                     NewMomentCount: newMoments,
                     TotalMomentCount: totalMoments,
-                    UnwatchableMomentCount: unwatchable));
+                    UnwatchableMomentCount: unwatchable,
+                    ReviewMode: savedCollection ? "saved" : "trend"));
             }
         }
         catch (Exception ex)
@@ -133,11 +92,11 @@ public sealed class PatternsSnapshotBuilder
             errorText = "Couldn't load patterns from the local database. See the sidecar log for details.";
         }
 
-        // Count every pending candidate before the display cap. Closed reviews
-        // are already excluded; the repo's severity/volume ordering is preserved.
-        var pendingCount = cards.Count;
+        // Keep reviewed trends and saved collections available for revision.
+        // The viewer paginates the playlist instead of silently dropping moments.
+        var pendingCount = cards.Count(card => card.ReviewMode == "trend" && !card.IsReviewed);
         cards = cards
-            .Take(PatternCardLimit)
+            .OrderBy(card => card.ReviewMode == "saved" ? 2 : card.IsReviewed ? 1 : 0)
             .ToList();
 
         return new PatternsSnapshotDto(
@@ -146,11 +105,8 @@ public sealed class PatternsSnapshotBuilder
             HasPending: pendingCount > 0,
             PendingCount: pendingCount,
             EmptyText: cards.Count == 0 && errorText.Length == 0
-                ? closedCount > 0
-                  ? "You're all caught up. Reviewed patterns will return if enough new evidence appears."
-                  : $"No recurring patterns on your learning objectives in the last {PatternConstants.WindowDays} days of ranked games. "
-                  + "Patterns build from the objectives you set — clips you mark bad on them, "
-                  + "structured criteria that keep failing, and recurrences of the events they track."
+                ? "Save clips or bookmarks with your current learning objectives to revisit them here. "
+                  + $"Mistake trends compare saved moments marked bad across at least two games in the last {PatternConstants.WindowDays} days."
                 : "",
             Patterns: cards,
             ErrorText: errorText,
@@ -178,8 +134,7 @@ public sealed class PatternsSnapshotBuilder
         }
     }
 
-    /// <summary>The capped, watchable playlist plus the watchable count BEFORE the
-    /// cap (the builder is a singleton, so nothing is kept on the instance).</summary>
+    /// <summary>All saved moments plus the number with playable media.</summary>
     private static (IReadOnlyList<PatternMomentDto> Moments, int PlayableCount) MapMoments(IReadOnlyList<PatternMoment> moments)
     {
         // vod_files rows may outlive the recordings they point at (files can be
@@ -201,39 +156,17 @@ public sealed class PatternsSnapshotBuilder
             return exists;
         }
 
-        // v3.10: the playlist is what the user can actually sit through.
-        //   1. Only WATCHABLE moments: the game's recording is still on disk, or
-        //      the moment kept a clip file. An anchor whose VOD is gone and that
-        //      was never clipped has nothing to play — it still counts on the
-        //      card (TotalMomentCount) but never enters the playlist. Start-less
-        //      anchors (a failed criterion is a fact about the whole game, not a
-        //      second to watch) are never filtered: they open the game as before.
-        //   2. Capped at PatternMomentDisplayLimit. Everything the user touched
-        //      (a note, a kept clip) is kept first; the remaining slots go to the
-        //      NEWEST auto anchors, since a recurring pattern's latest instances
-        //      are the ones to review. The final order stays chronological.
-        var playable = moments
+        // The viewer limits each batch, while notes remain revisitable even
+        // after the source video has gone. Never substitute raw event anchors.
+        var saved = moments
             .Select(m => (Moment: m, HasVod: OnDisk(m.VodPath), HasClip: OnDisk(m.ClipPath)))
-            .Where(x => x.HasVod || x.HasClip || x.Moment.StartTimeSeconds is null)
             .ToList();
-
-        var chosen = playable.Count <= PatternConstants.PatternMomentDisplayLimit
-            ? playable
-            : playable
-                .Select((x, i) => (x, i))
-                .OrderByDescending(t => t.x.HasClip || !string.IsNullOrWhiteSpace(t.x.Moment.Note))
-                .ThenByDescending(t => t.i)   // newest first (source order is oldest-first)
-                .Take(PatternConstants.PatternMomentDisplayLimit)
-                .OrderBy(t => t.i)
-                .Select(t => t.x)
-                .ToList();
-
         var ordinal = 0;
-        return (chosen.Select(x => MapMoment(x.Moment, ++ordinal, x.HasVod, x.HasClip)).ToList(), playable.Count);
+        var mapped = saved.Select(x => MapMoment(x.Moment, ++ordinal, x.HasVod, x.HasClip)).ToList();
+        return (mapped, mapped.Count(moment => moment.HasVod || moment.HasClip));
     }
 
-    /// <summary>Mirror of PatternReviewViewModel.PatternSubtitle, plus the
-    /// "N of M" form when the playlist shows fewer moments than the card counted.</summary>
+    /// <summary>Describe the saved collection without implying every match event is included.</summary>
     private static string BuildSubtitle(int shownCount, int totalCount, int gameCount)
     {
         if (totalCount == 0)
@@ -268,6 +201,17 @@ public sealed class PatternsSnapshotBuilder
         var resultHex = m.Win ? WinHex : LossHex;
         var note = m.Note ?? "";
         var polarity = m.Polarity;
+        var startTimeSeconds = m.StartTimeSeconds;
+        var endTimeSeconds = m.EndTimeSeconds;
+        if (m.SourceKind == "bookmark" && startTimeSeconds is int point)
+        {
+            // Virtual clip: play a bounded window from the existing recording.
+            // Keep TimeLabel at the bookmark itself and never export a file.
+            var upperBound = m.GameDurationSeconds > 0 ? m.GameDurationSeconds : int.MaxValue;
+            point = Math.Clamp(point, 0, upperBound);
+            startTimeSeconds = Math.Max(0, point - 15);
+            endTimeSeconds = (int)Math.Min(upperBound, (long)point + 15);
+        }
 
         // A start-less moment (game-level anchor: recurring tag, rule break) has
         // no in-game second — render no time rather than a fabricated "0:00".
@@ -286,8 +230,8 @@ public sealed class PatternsSnapshotBuilder
             ResultLabel: resultLabel,
             ResultHex: resultHex,
             GameTimestamp: m.GameTimestamp,
-            StartTimeSeconds: m.StartTimeSeconds,
-            EndTimeSeconds: m.EndTimeSeconds,
+            StartTimeSeconds: startTimeSeconds,
+            EndTimeSeconds: endTimeSeconds,
             TimeLabel: timeLabel,
             VideoHeaderText: videoHeaderText,
             Title: m.Title,
@@ -303,7 +247,8 @@ public sealed class PatternsSnapshotBuilder
             HasVod: vodOnDisk,
             ClipPath: clipOnDisk ? m.ClipPath : "",
             HasClip: clipOnDisk,
-            GameTimeAtVideoStart: gameTimeAtVideoStart);
+            GameTimeAtVideoStart: gameTimeAtVideoStart,
+            BookmarkId: m.BookmarkId);
     }
 
     /// <summary>Mirror of PatternMomentItem.PolarityLabel.</summary>

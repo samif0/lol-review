@@ -16,6 +16,7 @@ internal sealed record EndBlockBody(int Rating, string? Note, string? Date = nul
 internal sealed record StartStintBody(string Name, string? PlannedEndDate = null);
 internal sealed record RestoreBackupBody(string BackupFilePath);
 internal sealed record GameIdBody(long GameId);
+internal sealed record FromGameMatchupBody(long GameId);
 internal sealed record ObjectiveIdBody(long Id);
 
 // ── Review-page granular write bodies (Batch 2) ──────────────────────────────
@@ -162,7 +163,8 @@ internal sealed record SaveConfigBody(
     // Main-window size: "default" | "maximized" | "WxH" (validated by
     // ConfigSaveGuards.TryResolveWindowResolution); null/blank = unchanged.
     string? WindowResolution = null,
-    string? AscentFolder = null);
+    string? AscentFolder = null,
+    bool? AutoMatchupNotesEnabled = null);
 
 // POST /api/review/draft/save body — same shape as SaveReviewBody minus the
 // championName/win/requireReviewNotes fields a finalized save needs (a draft
@@ -245,9 +247,8 @@ internal sealed record AutoObjectiveClipsBody(
 // /api/patterns snapshot; both optional so the server can re-resolve them.
 internal sealed record MarkPatternReviewedBody(string PatternKey, string? Kind, int? MomentCount);
 
-// Per-moment note autosave (+ silent one-time clip). EvidenceId + Text are
-// required; the clip fields ride from the loaded snapshot. AlreadyClipped lets the
-// frontend suppress re-extraction once a moment has a clip (mirrors HasClip gate).
+// Saved-bookmark or evidence note. Cross-game review passes AutoClip=false;
+// the VOD editor retains its existing opt-in-by-default promotion behavior.
 internal sealed record PatternMomentNoteBody(
     long EvidenceId,
     string? Text,
@@ -258,7 +259,9 @@ internal sealed record PatternMomentNoteBody(
     string? Polarity,
     int? StartTimeS,
     int? EndTimeS,
-    bool AlreadyClipped);
+    bool AlreadyClipped,
+    long? BookmarkId = null,
+    bool AutoClip = true);
 
 // ── Riot auth / account bodies (Batch 4) ─────────────────────────────────────
 // Email-OTP login. The proxy sends the code; nothing persists until /verify.

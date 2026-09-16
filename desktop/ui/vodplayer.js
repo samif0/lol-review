@@ -2511,6 +2511,9 @@ let _bookmarkTime = null;
 
 function returnComposerEditor() {
   if (!_composerHome) return;
+  // Closing or switching away from an empty bookmark abandons its captured
+  // time. Unfinished notes keep their original moment when reopened.
+  if (_composerKind === 'bookmark' && !$('vp-bm-note')?.value.trim()) _bookmarkTime = null;
   const { element, parent, next } = _composerHome;
   if (parent) parent.insertBefore(element, next?.parentNode === parent ? next : null);
   _composerHome = null;
@@ -2562,7 +2565,10 @@ function openClipTools({ focusNote = false } = {}) {
 }
 
 function openBookmarkTools() {
-  if (_bookmarkTime === null) _bookmarkTime = Math.max(0, Math.floor(_T?.currentTime || 0));
+  // An empty editor can also be restored from an earlier visit to this match.
+  if (_bookmarkTime === null || !$('vp-bm-note')?.value.trim()) {
+    _bookmarkTime = Math.max(0, Math.floor(_T?.currentTime || 0));
+  }
   bmHint('');
   openComposer('bookmark', { focusNote: true });
 }

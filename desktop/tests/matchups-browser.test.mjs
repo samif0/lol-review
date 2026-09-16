@@ -14,7 +14,7 @@ const deferred = () => {
 };
 const dataKey = name => name.replace(/^data-/, '').replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 
-function fixture({ invoke, snapshot } = {}) {
+function fixture({ invoke, snapshot, search = '' } = {}) {
   let document;
   class Element {
     constructor(tag = 'div', classes = '', dataset = {}) {
@@ -69,6 +69,10 @@ function fixture({ invoke, snapshot } = {}) {
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
     closest(selector) { for (let el = this; el; el = el.parentElement) if (el.matches(selector)) return el; return null; }
     appendChild(child) { return this.insertBefore(child, null); }
+    replaceChildren(...children) {
+      for (const child of [...this.children]) child.remove();
+      for (const child of children) this.appendChild(child);
+    }
     insertBefore(child, next) {
       if (child === next) return child;
       child.remove();
@@ -114,13 +118,14 @@ function fixture({ invoke, snapshot } = {}) {
     child(el, 'div', 'mj-card-err').hidden = true; return el;
   };
   document = new Element('document'); document.children = [body]; body.parentElement = document;
+  document.createElement = tag => new Element(tag);
   document.readyState = 'loading'; document.activeElement = null;
   child($('statusline'), 'b'); $('mj-form').hidden = true; $('mj-lane-filter').value = 'all'; $('f-lane').value = 'top';
   let timerId = 0;
   const calls = [];
   const context = vm.createContext({
     $, show: (el, visible) => { if (el) el.hidden = !visible; }, tpl: template,
-    document, window: { addEventListener() {}, confirm: () => true },
+    document, window: { addEventListener() {}, confirm: () => true, location: { search } }, URLSearchParams,
     getInvoke: async () => invoke ? async (...args) => { calls.push(plain(args)); return invoke(...args); } : null,
     getListen: async () => null, readSnapshot: async () => snapshot ? snapshot() : sample(),
     setTimeout: fn => { timers.set(++timerId, fn); return timerId; }, clearTimeout: id => timers.delete(id),
@@ -128,7 +133,8 @@ function fixture({ invoke, snapshot } = {}) {
   });
   vm.runInContext(`${source}\n globalThis.hooks = { render(data) { _lastData = data; render(data); },
     applyFilters, clearFilters, openGroup, scrollToCard, saveNote, flushPendingNotes, loadMatchups,
-    submitForm, openEditForm, fromLastGame, cardElById, get notes() { return _notes; } };`, context, { filename: 'matchups.js' });
+    submitForm, openEditForm, fromLastGame, fromSelectedGame, openRequestedGame,
+    cardElById, get notes() { return _notes; } };`, context, { filename: 'matchups.js' });
   return { $, document, hooks: context.hooks, calls,
     groups: () => document.querySelectorAll('.mj-group'),
     notes: id => context.hooks.cardElById(id).querySelectorAll('.mj-note-in'),
@@ -301,4 +307,128 @@ test('updating a note reveals its regrouped card and does not restore the old in
   assert.equal(f.hooks.cardElById(1).closest('.mj-group').open, true);
   assert.equal(f.hooks.cardElById(1).closest('.mj-lane').dataset.lane, 'bot');
   assert.equal(f.$('mj-search').value, ''); assert.equal(f.$('mj-form').hidden, true);
+});
+
+function recentSample() {
+  const data = sample();
+  data.recentGames = [
+    { available: true, gameId: 300, lane: 'mid', laneLabel: 'Mid', matchupTitle: 'Ahri vs Syndra',
+      gameLabel: 'Sep 8, 2026 · Win', allyChamps: ['Ahri'], enemyChamps: ['Syndra'], existingCardId: null },
+    { available: true, gameId: 200, lane: 'bot', laneLabel: 'Bot', matchupTitle: "Kai'Sa vs Vayne",
+      gameLabel: 'Sep 7, 2026 · Loss', allyChamps: ["Kai'Sa"], enemyChamps: ['Vayne'], existingCardId: null },
+    { available: true, gameId: 100, lane: 'top', laneLabel: 'Top', matchupTitle: 'Gnar vs Darius',
+      gameLabel: 'Sep 3, 2026 · Win', allyChamps: ['Gnar'], enemyChamps: ['Darius'], existingCardId: 3 },
+  ];
+  data.lastGame = data.recentGames[0];
+  return data;
+}
+async function selectMatch(f, id) {
+  f.$('recent-match').value = String(id);
+  await f.document.emit('change', { target: f.$('recent-match') });
+}
+
+test('recent match choices show context and preserve the selected older game across refresh', async () => {
+  const f = fixture({ invoke: () => { throw new Error('Selection must not write'); } });
+  f.hooks.render(recentSample());
+  assert.equal(f.$('recent-match').value, '300');
+  assert.match(f.$('recent-match').children[1].textContent, /Sep 7, 2026 · Loss · Bot · Kai'Sa vs Vayne · No note yet/);
+  assert.match(f.$('recent-match').children[2].textContent, /Note saved/);
+  await selectMatch(f, 200);
+  const fresh = recentSample(); fresh.recentGames.unshift({ ...fresh.recentGames[0], gameId: 400 });
+  f.hooks.render(fresh);
+  assert.equal(f.$('recent-match').value, '200');
+  assert.equal(f.$('mj-lastgame-title').textContent, "Kai'Sa vs Vayne");
+  assert.equal(f.calls.length, 0);
+});
+
+test('creating from an older selection sends that exact game and preserves partial champion slots', async () => {
+  const f = fixture({ invoke: async command => {
+    if (command === 'create_matchup_from_game') return {
+      partial: true, gameId: 200, lane: 'bot', gameLabel: 'Sep 7, 2026 · Loss',
+      allyChamps: ["Kai'Sa", 'Nautilus'], enemyChamps: ['', 'Lulu'],
+    };
+    return { id: 4 };
+  } });
+  f.hooks.render(recentSample()); await selectMatch(f, 200);
+  await f.action('from_selected_game');
+  assert.deepEqual(f.calls[0], ['create_matchup_from_game', { payload: { gameId: 200 } }]);
+  assert.equal(f.$('mj-form').hidden, false);
+  assert.equal(f.$('f-lane').value, 'bot');
+  assert.equal(f.$('f-ally2').value, 'Nautilus');
+  assert.equal(f.$('f-enemy1').value, ''); assert.equal(f.$('f-enemy2').value, 'Lulu');
+  assert.equal(f.document.activeElement, f.$('f-enemy1'));
+  f.$('f-enemy1').value = 'Vayne';
+  await f.hooks.submitForm(f.$('form-submit'));
+  assert.equal(f.calls[1][0], 'create_matchup');
+  assert.equal(f.calls[1][1].payload.gameId, 200);
+  assert.deepEqual(f.calls[1][1].payload.enemyChamps, ['Vayne', 'Lulu']);
+});
+
+test('an existing older match note opens without another create request', async () => {
+  const f = fixture({ invoke: () => { throw new Error('Existing note must not be recreated'); } });
+  f.hooks.render(recentSample()); await selectMatch(f, 100);
+  assert.equal(f.$('from-last').textContent, 'Open note');
+  f.$('mj-search').value = 'aatrox'; f.hooks.applyFilters();
+  await f.action('from_selected_game');
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.hooks.cardElById(3).closest('.mj-group').open, true);
+  assert.equal(f.$('mj-search').value, '');
+});
+
+test('empty recent history and unresolved matches explain why creation is unavailable', async () => {
+  const f = fixture({ invoke: () => { throw new Error('Unavailable match must not be created'); } });
+  const data = recentSample(); data.recentGames = []; data.lastGame = { unavailableReason: 'No games recorded yet.' };
+  f.hooks.render(data);
+  assert.equal(f.$('recent-match').disabled, true); assert.equal(f.$('from-last').disabled, true);
+  assert.equal(f.$('mj-lastgame-game').textContent, 'No games recorded yet.');
+  await f.action('from_selected_game'); assert.equal(f.calls.length, 0);
+  data.recentGames = [{ gameId: 50, available: false, unavailableReason: 'Could not determine your lane.' }];
+  f.hooks.render(data);
+  assert.equal(f.$('recent-match').disabled, false); assert.equal(f.$('from-last').disabled, true);
+  assert.equal(f.$('mj-lastgame-game').textContent, 'Could not determine your lane.');
+});
+
+test('repeated clicks while preparing a selected match only create one request', async () => {
+  const reply = deferred();
+  const f = fixture({ invoke: async () => reply.promise });
+  f.hooks.render(recentSample()); await selectMatch(f, 200);
+  const first = f.hooks.fromSelectedGame(f.$('from-last'));
+  await f.hooks.fromSelectedGame(f.$('from-last'));
+  assert.equal(f.$('recent-match').disabled, true);
+  assert.equal(f.$('new-card').disabled, true);
+  assert.equal(f.calls.length, 1);
+  reply.resolve({ id: 3, created: false }); await first;
+  assert.equal(f.$('recent-match').disabled, false);
+  assert.equal(f.$('new-card').disabled, false);
+});
+
+test('review deep links prepare their exact match, including games outside the recent list', async () => {
+  const f = fixture({ search: '?gameId=25', invoke: async () => ({ partial: true, gameId: 25,
+    lane: 'top', allyChamps: ['Gnar'], enemyChamps: ['Darius'] }) });
+  f.hooks.render(recentSample()); await f.hooks.openRequestedGame();
+  assert.deepEqual(f.calls, [['create_matchup_from_game', { payload: { gameId: 25 } }]]);
+  assert.equal(f.$('f-ally1').value, 'Gnar');
+  assert.match(f.$('f-game').textContent, /game 25/);
+});
+
+test('a delayed review deep link cannot overwrite a form already being edited', async () => {
+  const f = fixture({ search: '?gameId=200', invoke: () => { throw new Error('Must preserve draft'); } });
+  f.hooks.render(recentSample()); await f.action('new_card');
+  f.$('f-observed').value = 'An unfinished matchup lesson';
+  await f.hooks.openRequestedGame();
+  assert.equal(f.$('f-observed').value, 'An unfinished matchup lesson');
+  assert.equal(f.calls.length, 0);
+});
+
+test('selecting another recent match cannot replace an unfinished form', async () => {
+  const f = fixture({ invoke: () => { throw new Error('Must preserve open form'); } });
+  f.hooks.render(recentSample()); await f.action('new_card');
+  f.$('f-observed').value = 'Keep this reflection';
+  await selectMatch(f, 200); await f.action('from_selected_game');
+  assert.equal(f.$('from-last').disabled, true);
+  assert.equal(f.$('f-observed').value, 'Keep this reflection');
+  assert.equal(f.calls.length, 0);
+  await f.action('cancel_form');
+  assert.equal(f.$('from-last').disabled, false);
+  assert.equal(f.$('recent-match').value, '200');
 });

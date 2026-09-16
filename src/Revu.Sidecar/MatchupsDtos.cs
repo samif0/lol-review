@@ -14,7 +14,7 @@ namespace Revu.Sidecar;
 // from-last-game write would create, or why it can't.
 //
 // Null vs empty:
-//   - `lanes` is always present (possibly empty), never null.
+//   - `lanes` and `recentGames` are always present (possibly empty), never null.
 //   - a card's `gameId` is null when it is not linked to a game; `gameLabel` is
 //     "" then (and also when the linked game is no longer on record).
 //   - `lastGame.existingCardId` is null unless a card already links to that game.
@@ -27,7 +27,8 @@ public sealed record MatchupsDto(
     bool IsEmpty,
     string EmptyMessage,
     IReadOnlyList<MatchupLaneDto> Lanes,
-    LastGamePrefillDto LastGame);
+    LastGamePrefillDto LastGame,
+    IReadOnlyList<LastGamePrefillDto> RecentGames);
 
 /// <summary>One lane bucket: its label, how many champions a side holds, and its matchup groups.</summary>
 public sealed record MatchupLaneDto(

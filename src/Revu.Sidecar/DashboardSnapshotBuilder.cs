@@ -317,8 +317,7 @@ public sealed class DashboardSnapshotBuilder
         {
             // Full candidate set, so reviewed-closed cards can't crowd pending
             // ones out of the nag (the gate below decides, not the fetch cap).
-            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(
-                limit: Revu.Core.Constants.PatternConstants.PatternCandidateLimit);
+            var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: int.MaxValue);
             var reviewedStamps = await _evidenceRepo.GetReviewedPatternsAsync();
             var reviewedCount = await _evidenceRepo.CountReviewedPatternsAsync();
 
@@ -328,6 +327,7 @@ public sealed class DashboardSnapshotBuilder
             var pending = new List<ObjectivePatternItemDto>();
             foreach (var p in rawPatterns)
             {
+                if (p.Kind == Revu.Core.Constants.PatternConstants.KindSavedObjectiveEvidence) continue;
                 if (pending.Count >= PatternsTake) break;
                 var moments = await _evidenceRepo.GetPatternMomentsAsync(p);
                 if (PatternReviewGate.IsReviewed(reviewedStamps, p.PatternKey, moments)) continue;

@@ -80,9 +80,8 @@ public static partial class SidecarEndpoints
                 // preserving any existing execution note (mirror MarkObjectivePracticed-
                 // FromEvidenceAsync: only flips practiced->true, never clobbers the note).
                 await w.Evidence.UpdateStatusAsync(body.EvidenceId, Revu.Core.Data.Repositories.EvidenceStatuses.Evidence);
-                var existing = await w.Objectives.GetGameObjectivesAsync(body.GameId.Value);
-                var note = existing.FirstOrDefault(r => r.ObjectiveId == oid)?.ExecutionNote ?? "";
-                await w.Objectives.RecordGameAsync(body.GameId.Value, oid, practiced: true, executionNote: note);
+                await ObjectivePracticePersistence.MarkPracticedAsync(
+                    w.Objectives, body.GameId.Value, oid, w.ReviewDrafts);
             }
             log.LogInformation("Evidence {Id} -> objective {ObjectiveId}", body.EvidenceId, objectiveId);
             return Results.Json(new { ok = true }, jsonOptions);

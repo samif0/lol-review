@@ -176,6 +176,7 @@ public sealed class SidecarEndpointContractTests
         POST /api/matchup/create
         POST /api/matchup/delete
         POST /api/matchup/from-last-game
+        POST /api/matchup/from-game
         POST /api/matchup/notes
         POST /api/matchup/update
         POST /api/objective/complete

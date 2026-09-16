@@ -1,4 +1,13 @@
 /* Review is the match launchpad; the VOD remains the learning workspace. */
+.review-launchpad-page .rv-journal{margin:22px 0;padding-top:20px;border-top:1px solid var(--border)}
+.review-launchpad-page .rv-journal[hidden]{display:none}
+.review-launchpad-page .rv-journal-link{font-size:12px;color:var(--muted);text-decoration:none}
+.review-launchpad-page .rv-journal-link:hover{color:var(--text)}
+.review-launchpad-page .rv-journal-prior{font-size:13px;line-height:1.6;color:var(--muted);white-space:pre-wrap}
+.review-launchpad-page .rv-journal-input{display:block;width:100%;box-sizing:border-box;min-height:78px;margin-top:8px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,.12);color:var(--text);font:400 14px/1.6 var(--fb);resize:vertical}
+.review-launchpad-page .rv-journal-input:focus{outline:1px solid var(--accent);outline-offset:1px}
+.review-launchpad-page .rv-journal-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:10px}
+.review-launchpad-page #rv-journal-status.err{color:#ffaaaa}
 body.review-launchpad-page .shell{max-width:1200px;padding:24px 32px 48px}
 html.framed body.review-launchpad-page .shell{padding:24px 32px 48px}
 .review-launchpad-page .rv-hero{margin:0;padding:0;border:0;background:none;box-shadow:none}

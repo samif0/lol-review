@@ -30,6 +30,7 @@ function node(id = '', tag = 'DIV', action = '') {
     closest(selector) {
       if (selector === '[data-action]') return this.dataset.action ? this : null;
       if (selector === '[data-config-group]') return this.group || null;
+      if (selector === '.set-toggle[role="switch"]') return this.getAttribute('role') === 'switch' ? this : null;
       return null;
     },
     querySelectorAll(selector) {
@@ -58,6 +59,8 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
   const ascent = group('ascent', ['ascentFolder']);
   const clips = group('clips', ['clipsFolder', 'clipsMaxSizeMb']);
   const account = group('account', ['riotId', 'region']);
+  const review = group('review', ['autoMatchupNotesEnabled']);
+  ids.get('autoMatchupNotesEnabled').setAttribute('role', 'switch');
   for (const [id, action] of [['ascent-browse', 'pick_ascent'], ['ascent-disconnect', 'disconnect_ascent'], ['ascent-scan', 'scan_vods']]) {
     const button = add(id, 'BUTTON', action); button.group = ascent; ascent.children.push(button);
   }
@@ -99,7 +102,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     for (const listener of listeners.get(type) || []) await listener({ target, preventDefault() {} });
   };
   return {
-    ids, groups: { ascent, clips, account }, config, requests,
+    ids, groups: { ascent, clips, account, review }, config, requests,
     $: id => ids.get(id),
     click: id => emit('click', ids.get(id)),
     edit: async (id, value) => { ids.get(id).value = value; await emit('input', ids.get(id)); },
@@ -108,6 +111,25 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     failRead: () => { failRead = true; },
   };
 }
+
+test('automatic matchup notes default off, save only review preferences and keep unrelated drafts', async () => {
+  const f = await fixture();
+  assert.equal(f.$('autoMatchupNotesEnabled').getAttribute('aria-checked'), 'false');
+  await f.edit('clipsFolder', 'unfinished folder draft');
+  await f.click('autoMatchupNotesEnabled');
+  assert.equal(f.$('review-save').disabled, false);
+  await f.click('review-save');
+  assert.deepEqual(f.requests.find(request => request.command === 'save_config').args,
+    { payload: { autoMatchupNotesEnabled: true } });
+  assert.equal(f.$('autoMatchupNotesEnabled').getAttribute('aria-checked'), 'true');
+  assert.equal(f.$('clipsFolder').value, 'unfinished folder draft');
+  await f.click('autoMatchupNotesEnabled');
+  await f.click('review-discard');
+  assert.equal(f.$('autoMatchupNotesEnabled').getAttribute('aria-checked'), 'true');
+  await f.click('autoMatchupNotesEnabled');
+  await f.click('review-save');
+  assert.equal(f.config.autoMatchupNotesEnabled, false);
+});
 
 test('browser preview disables folder access, scanning and connection writes without implying local availability', async () => {
   const f = await fixture({ native: false, ascentFolder: 'D:\\Ascent' });

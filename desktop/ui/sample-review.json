@@ -230,6 +230,28 @@
       }
     ],
     "hasMatchupHistory": true,
+    "matchupJournal": {
+      "enabled": true,
+      "card": {
+        "id": 31,
+        "lane": "bot",
+        "laneLabel": "Bot",
+        "allyChamps": ["Jinx", "Nautilus"],
+        "enemyChamps": ["Caitlyn", "Lux"],
+        "matchupKey": "bot|Jinx,Nautilus|Caitlyn,Lux",
+        "matchupTitle": "Jinx + Nautilus vs Caitlyn + Lux",
+        "prior": "Respect their range until Nautilus can engage.",
+        "observed": "",
+        "hasPrior": true,
+        "hasObserved": false,
+        "gameId": 5581701721,
+        "hasGame": true,
+        "gameLabel": "Jun 14, 2026 · Win",
+        "createdAt": 1781477100,
+        "createdAtText": "Jun 14, 2026 20:45",
+        "dateText": "Jun 14, 2026"
+      }
+    },
     "tagCatalog": [
       { "id": 1, "name": "Dominated lane", "polarity": "good", "colorHex": "#8ee7ba", "isSelected": true },
       { "id": 2, "name": "Good CS", "polarity": "good", "colorHex": "#8ee7ba", "isSelected": true },

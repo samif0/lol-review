@@ -68,6 +68,7 @@ public sealed class ConfigSnapshotBuilder
             AutoTimelineClippingEnabled: cfg.AutoTimelineClippingEnabled,
             AutoTimelineClippingHintDismissed: cfg.AutoTimelineClippingHintDismissed,
             AutoClipObjectivesEnabled: cfg.AutoClipObjectivesEnabled,
+            AutoMatchupNotesEnabled: cfg.AutoMatchupNotesEnabled,
             FirstReviewTutorialStep: cfg.FirstReviewTutorialStep ?? "",
             FirstReviewTutorialCompleted: cfg.FirstReviewTutorialCompleted,
             FirstReviewTutorialDismissed: cfg.FirstReviewTutorialDismissed,
@@ -117,4 +118,5 @@ public sealed record ConfigDto(
     string RiotSessionEmail,
     // "loggedIn" | "loggedOut" — drives which account sub-panel the page shows.
     string RiotAuthState,
-    string AscentFolder = "");
+    string AscentFolder = "",
+    bool AutoMatchupNotesEnabled = false);

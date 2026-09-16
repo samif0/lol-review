@@ -21,6 +21,8 @@ public class AppConfig
     public bool BackupEnabled { get; set; }
     public string BackupFolder { get; set; } = "";
     public bool RequireReviewNotes { get; set; }
+    /// <summary>Prepare a matchup journal card after each game and include it in review. Opt-in.</summary>
+    public bool AutoMatchupNotesEnabled { get; set; }
 
     // ── Riot API proxy (Path B: session-based auth) ─────────────────
     // Session token is issued by POST /auth/verify after the user enters an

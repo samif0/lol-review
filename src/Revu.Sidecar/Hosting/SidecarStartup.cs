@@ -213,12 +213,25 @@ public static class SidecarStartup
                     if (pending.Count == 0) return;
 
                     await write.BackupGuard.EnsureBackedUpAsync();
-                    var result = await write.EnemyLanerBackfill.RunAsync(maxGames: 10);
+                    var result = await write.EnemyLanerBackfill.RunAsync(maxGames: 10, ct: backgroundWork.Stopping);
                     programLogger.LogInformation(
                         "Startup matchup heal: {Updated} confirmed, {Failed} not yet available, {Skipped} without positions ({Pending} waiting)",
                         result.Updated, result.Failed, result.Skipped, pending.Count);
                     if (result.Updated > 0)
                     {
+                        foreach (var gameId in pending.Take(10))
+                        {
+                            try
+                            {
+                                await MatchupJournalPreparation.TryAutoPrepareAsync(
+                                    gameId, write.Games, write.Matchups, write.Config, backgroundWork.Stopping);
+                            }
+                            catch (OperationCanceledException) when (backgroundWork.Stopping.IsCancellationRequested) { throw; }
+                            catch (Exception ex)
+                            {
+                                programLogger.LogDebug(ex, "Startup matchup note preparation failed for game {GameId}", gameId);
+                            }
+                        }
                         app.Services.GetRequiredService<SidecarEventHub>()
                             .Publish("matchupUpdated", new { gameId = (long?)null, updated = result.Updated });
                     }
