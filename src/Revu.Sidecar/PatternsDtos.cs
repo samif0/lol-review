@@ -14,9 +14,8 @@ namespace Revu.Sidecar;
 //
 // One pattern card carries its full ordered moment playlist (oldest-first) so the
 // frontend can render the cross-game pattern cards + drill into each moment
-// without a second round-trip. Only pending patterns are returned; reviewed
-// patterns stay out until enough new evidence re-arms them. Review history is
-// preserved separately and contributes to reviewedPatternCount.
+// without a second round-trip. Reviewed trends remain available for revision;
+// saved collections have no pending lifecycle. The viewer paginates moments.
 //
 // Null vs empty:
 //   - moment.startTimeSeconds / endTimeSeconds are nullable (null = no timed
@@ -61,10 +60,9 @@ public sealed record PatternCardDto(
     string SeverityLabel,
     // "high" -> negative red, else gold. No SolidColorBrush. Mirrors SeverityHex.
     string SeverityHex,
-    // Kept for wire compatibility. Returned cards are pending (false), including
-    // previously reviewed patterns that re-armed with enough new evidence.
+    // True for a reviewed trend that has not re-armed; always false for a collection.
     bool IsReviewed,
-    // Moments in the playlist below (playable, capped at PatternMomentDisplayLimit).
+    // Saved moments in the playlist, including notes with unavailable video.
     int MomentCount,
     int GameCount,
     // "N moments across M games" / "24 of 500 moments across 9 games" / "No moments …".
@@ -76,11 +74,13 @@ public sealed record PatternCardDto(
     // Moments created after this pattern's last review — non-zero only on a
     // pattern that re-armed (PatternReviewGate hysteresis).
     int NewMomentCount = 0,
-    // Every moment the detector counted for this pattern, before the playable
-    // filter and the display cap. MomentCount <= TotalMomentCount.
+    // Every saved moment selected for this objective collection or trend.
     int TotalMomentCount = 0,
     // Counted moments with nothing left to watch (recording pruned, no clip kept).
-    int UnwatchableMomentCount = 0);
+    int UnwatchableMomentCount = 0,
+    // Saved collections are always available for revision; only trends have a
+    // pending/reviewed lifecycle.
+    string ReviewMode = "trend");
 
 /// <summary>
 /// One moment composing a pattern — an evidence item joined to its game's
@@ -123,4 +123,6 @@ public sealed record PatternMomentDto(
     // The clip file this moment was promoted to, when it is still on disk ("" otherwise).
     string ClipPath = "",
     bool HasClip = false,
-    double GameTimeAtVideoStart = 0);
+    double GameTimeAtVideoStart = 0,
+    // A saved bookmark can exist without an evidence ledger row.
+    long? BookmarkId = null);

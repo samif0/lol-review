@@ -318,11 +318,12 @@ public sealed record ObjectivePatternCard(
 }
 
 /// <summary>
-/// One moment composing a cross-game pattern — an evidence item, joined to its
+/// One saved clip or bookmark composing an objective review, joined to its
 /// game's champion/result and (when available) its matched VOD path. Ordered
 /// oldest-first so the Pattern Review viewer walks them chronologically.
 /// </summary>
 public sealed record PatternMoment(
+    // Zero for a bookmark with no evidence row. BookmarkId is its stable identity.
     long EvidenceId,
     long GameId,
     string ChampionName,
@@ -335,9 +336,11 @@ public sealed record PatternMoment(
     string Polarity,
     string SourceKind,
     string VodPath,
-    // evidence_items.created_at (unix seconds, 0 when unset) — compared against
+    // Saved bookmark/evidence creation time (unix seconds, 0 when unset) — compared against
     // pattern_reviews.reviewed_at by PatternReviewGate for the re-arm rule.
     long CreatedAt = 0,
-    // vod_bookmarks.clip_path of the clip this moment was promoted to (source_kind
-    // 'clip' → source_id is the bookmark). "" for auto anchors and clip-less rows.
-    string ClipPath = "");
+    // Empty for a point bookmark; the viewer previews its source VOD without
+    // creating a clip file. Point bookmarks have equal start/end timestamps.
+    string ClipPath = "",
+    long? BookmarkId = null,
+    int GameDurationSeconds = 0);

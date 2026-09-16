@@ -169,12 +169,14 @@ function fixture(t, invoke = null, { realNavigation = false, invokeError = null 
   });
   vm.runInContext(`${source}\n globalThis.hooks = { captureReviewState, restoreReviewState, savePromptAnswer, renderDeaths,
     render, renderHeader, renderUnsorted, pruneEmptyClipSections, clipCard, onEvidenceAction, flushEvidenceWrites,
-    flushDraft, gatherForm, cancelDraft, markDraftDirty, setSubject(value) { _subject = value; },
+    flushDraft, gatherForm, cancelDraft, markDraftDirty, renderMatchupJournal, flushMatchupNotes, flushReviewWrites,
+    clearMatchupTimers() { for (const state of _matchupNotes.values()) clearTimeout(state.timer); },
+    setSubject(value) { _subject = value; },
     get dirty() { return _draftDirty; } };`, context, { filename: 'review.js' });
   const hooks = context.hooks;
   hooks.setSubject({ gameId: 42, header: { championName: 'Ahri', win: true }, form: { wentWell: 'Legacy saved note' } });
   if (realNavigation) nav.setGame(42);
-  t.after(() => hooks.cancelDraft());
+  t.after(() => { hooks.cancelDraft(); hooks.clearMatchupTimers(); });
   return { $, fields, mental, tag, focus, checkbox, note, prompt, objective, nav, hooks, calls, scope, store,
     linked: gameId => windowListeners.get('revu:vod-linked')({ detail: { gameId } }),
     addTag(value) {
@@ -186,6 +188,152 @@ function fixture(t, invoke = null, { realNavigation = false, invokeError = null 
     },
   };
 }
+
+function matchupSubject({ gameId = 42, enabled = true, card = true, observed = 'Wait for the stun' } = {}) {
+  return { gameId, header: { championName: 'Ahri', win: true }, form: {}, matchupJournal: { enabled,
+    card: card ? { id: 71, gameId, prior: 'Respect her range', observed, laneLabel: 'Mid', matchupTitle: 'Ahri vs Syndra' } : null } };
+}
+
+function showMatchup(f, options) {
+  const subject = matchupSubject(options);
+  f.hooks.setSubject(subject);
+  f.hooks.renderMatchupJournal(subject);
+  return subject;
+}
+
+test('matchup note appears for a linked card or opted-in preparation, without creating on render', t => {
+  const f = fixture(t);
+  showMatchup(f, { enabled: false, card: false });
+  assert.equal(f.$('rv-journal').hidden, true);
+  showMatchup(f, { enabled: true, card: false });
+  assert.equal(f.$('rv-journal').hidden, false);
+  assert.equal(f.$('rv-journal-prepare').hidden, false);
+  showMatchup(f, { enabled: false });
+  assert.equal(f.$('rv-journal').hidden, false);
+  assert.equal(f.$('rv-journal-editor').hidden, false);
+  assert.equal(f.$('rv-journal-prepare').hidden, true);
+  assert.equal(f.$('rv-journal-prior').textContent, 'Before this match: Respect her range');
+  assert.equal(f.$('rv-journal-link').href, 'matchups.html?gameId=42');
+  assert.deepEqual(f.calls, []);
+});
+
+test('matchup note writes only this card observation and keeps edits made during a save', async t => {
+  const gate = deferred();
+  let writes = 0;
+  const f = fixture(t, command => command === 'save_matchup_notes' && ++writes === 1 ? gate.promise : { ok: true });
+  const subject = showMatchup(f);
+  const input = f.$('rv-journal-observed');
+  input.value = 'First takeaway';
+  await f.emit('input', input);
+  const pending = f.hooks.flushMatchupNotes();
+  await new Promise(resolve => setImmediate(resolve));
+  input.value = 'Revised while saving';
+  await f.emit('input', input);
+  f.hooks.renderMatchupJournal(subject);
+  assert.equal(input.value, 'Revised while saving', 'same-game refresh must preserve the raw draft');
+  gate.resolve({ ok: true });
+  assert.equal(await pending, true);
+  assert.deepEqual(f.calls, [
+    ['save_matchup_notes', { payload: { id: 71, observed: 'First takeaway' } }],
+    ['save_matchup_notes', { payload: { id: 71, observed: 'Revised while saving' } }],
+  ]);
+  assert.equal(f.$('rv-journal-status').textContent, 'Saved to matchup notes');
+});
+
+test('failed matchup note blocks real VOD navigation, retains text and retries successfully', async t => {
+  let failed = true;
+  const f = fixture(t, () => failed ? { ok: false, error: 'Offline' } : { ok: true }, { realNavigation: true });
+  showMatchup(f);
+  const input = f.$('rv-journal-observed');
+  input.value = 'Do not lose this note';
+  await f.emit('input', input);
+  assert.equal(await f.nav.navigate('vodplayer.html?gameId=42'), false);
+  assert.match(f.scope.location.href, /review\.html/);
+  assert.equal(input.value, 'Do not lose this note');
+  assert.equal(f.$('rv-journal-retry').hidden, false);
+  failed = false;
+  assert.equal(await f.nav.navigate('vodplayer.html?gameId=42'), true);
+  assert.match(f.scope.location.href, /vodplayer\.html\?gameId=42&resume=1/);
+  assert.equal(f.$('rv-journal-retry').hidden, true);
+});
+
+test('failed matchup note prevents Save review from committing', async t => {
+  const f = fixture(t, () => ({ ok: false, error: 'Offline' }));
+  showMatchup(f);
+  const input = f.$('rv-journal-observed'); input.value = 'Still unsaved';
+  await f.emit('input', input);
+  await f.emit('click', node({ dataset: { action: 'save_review' } }));
+  assert.equal(f.calls.some(([command]) => command === 'save_review'), false);
+  assert.equal(input.value, 'Still unsaved');
+  assert.equal(f.$('rv-savebtn').disabled, false);
+});
+
+test('a matchup note requires an explicit save acknowledgement before navigation', async t => {
+  const f = fixture(t, () => undefined, { realNavigation: true });
+  showMatchup(f);
+  const input = f.$('rv-journal-observed'); input.value = 'Needs confirmed persistence';
+  await f.emit('input', input);
+  assert.equal(await f.nav.navigate('vodplayer.html?gameId=42'), false);
+  assert.equal(f.$('rv-journal-retry').hidden, false);
+  assert.match(f.scope.location.href, /review\.html/);
+});
+
+test('navigation also saves matchup edits typed while a review draft is still saving', async t => {
+  const gate = deferred();
+  const f = fixture(t, command => command === 'save_review_draft' ? gate.promise : { ok: true }, { realNavigation: true });
+  showMatchup(f);
+  f.fields[0].value = 'Review draft';
+  f.hooks.markDraftDirty();
+  const navigation = f.nav.navigate('vodplayer.html?gameId=42');
+  await new Promise(resolve => setImmediate(resolve));
+  const input = f.$('rv-journal-observed'); input.value = 'Typed during draft save';
+  await f.emit('input', input);
+  gate.resolve({ ok: true });
+  assert.equal(await navigation, true);
+  assert.deepEqual(f.calls.map(([command]) => command), ['save_review_draft', 'save_matchup_notes']);
+  assert.equal(f.calls[1][1].payload.observed, 'Typed during draft save');
+});
+
+test('preparing an incomplete matchup opens the exact match in the journal with real navigation', async t => {
+  const f = fixture(t, () => ({ ok: true, partial: true, gameId: 42 }), { realNavigation: true });
+  showMatchup(f, { card: false });
+  const button = node({ dataset: { action: 'prepare_matchup_note' } });
+  await f.emit('click', button);
+  assert.deepEqual(f.calls, [['create_matchup_from_game', { payload: { gameId: 42 } }]]);
+  assert.equal(f.scope.location.href, 'matchups.html?gameId=42');
+  assert.equal(button.disabled, false);
+});
+
+test('journal link waits for note persistence before leaving review', async t => {
+  const gate = deferred();
+  const f = fixture(t, () => gate.promise);
+  showMatchup(f);
+  const input = f.$('rv-journal-observed'); input.value = 'Save before opening journal';
+  await f.emit('input', input);
+  const link = node({ classes: ['rv-journal-link'] }); link.setAttribute('href', 'matchups.html?gameId=42');
+  const navigation = f.emit('click', link);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(f.scope.location.href, /review\.html/);
+  gate.resolve({ ok: true });
+  await navigation;
+  assert.equal(f.scope.location.href, 'matchups.html?gameId=42');
+});
+
+test('matchup view restoration keeps only unsaved text and respects a newer saved observation', async t => {
+  const f = fixture(t, () => ({ ok: true }));
+  const subject = showMatchup(f);
+  const captured = plain(f.hooks.captureReviewState());
+  subject.matchupJournal.card.observed = 'Edited in matchup notes';
+  f.hooks.renderMatchupJournal(subject);
+  await f.hooks.restoreReviewState(captured);
+  assert.equal(f.$('rv-journal-observed').value, 'Edited in matchup notes');
+
+  captured.matchupNote.value = 'Unsaved review observation';
+  await f.hooks.restoreReviewState(captured);
+  assert.equal(f.$('rv-journal-observed').value, 'Unsaved review observation');
+  await f.hooks.flushMatchupNotes();
+  assert.deepEqual(f.calls, [['save_matchup_notes', { payload: { id: 71, observed: 'Unsaved review observation' } }]]);
+});
 
 test('a matching recording link updates the Review launch action without writes or draft replacement', async t => {
   const f = fixture(t, () => {});
@@ -233,6 +381,74 @@ test('Review resumes raw same-game drafts and selections without sending writes'
   assert.equal(payload.reviewNotes, 'Keep this spacing\nnext time');
   assert.deepEqual(payload.freeTextTags, ['Wave control']);
   assert.equal(payload.wentWell, 'Legacy saved note', 'unrendered saved fields stay intact');
+});
+
+test('returning from a tagged VOD save keeps fresh practice and raw review notes, including older cached views', async t => {
+  for (const legacy of [false, true]) {
+    const f = fixture(t, () => ({ ok: true }));
+    f.objective.dataset.practicedSaved = 'false';
+    f.fields[1].value = '  Keep my review\n  '; f.note.value = '  Keep my execution note  ';
+    const saved = plain(f.hooks.captureReviewState());
+    if (legacy) delete saved.objectives[0].practicedBaseline;
+    // The fresh snapshot reflects the clip/bookmark saved while Review was away.
+    f.checkbox.checked = true; f.objective.dataset.practicedSaved = 'true';
+    f.fields[1].value = ''; f.note.value = '';
+    await f.hooks.restoreReviewState(saved);
+    assert.equal(f.checkbox.checked, true);
+    assert.equal(f.objective.classList.contains('is-practiced'), true);
+    assert.equal(f.objective.querySelector('.rv-switch-lbl').textContent, 'Practiced');
+    assert.equal(f.note.hidden, false); assert.equal(f.note.value, '  Keep my execution note  ');
+    assert.equal(f.fields[1].value, '  Keep my review\n  ');
+    assert.deepEqual(f.calls, [], 'restoring the view does not itself write');
+    await f.hooks.flushDraft();
+    assert.deepEqual(f.calls[0][1].payload.objectivePractices, [
+      { objectiveId: 9, practiced: true, executionNote: 'Keep my execution note' },
+    ]);
+  }
+});
+
+test('unchanged server practice preserves an unsaved manual toggle in either direction', async t => {
+  for (const baseline of [false, true]) {
+    const f = fixture(t);
+    f.objective.dataset.practicedSaved = String(baseline);
+    f.checkbox.checked = !baseline;
+    const saved = plain(f.hooks.captureReviewState());
+    f.checkbox.checked = baseline;
+    await f.hooks.restoreReviewState(saved);
+    assert.equal(f.checkbox.checked, !baseline);
+    assert.equal(f.hooks.gatherForm().objectivePractices[0].practiced, !baseline);
+  }
+});
+
+test('a confirmed manual uncheck advances the cached baseline before a new VOD save marks practice', async t => {
+  const f = fixture(t, () => ({ ok: true }), { realNavigation: true });
+  f.objective.dataset.practicedSaved = 'true';
+  f.checkbox.checked = false; f.note.value = '  Retain this note  ';
+  f.hooks.markDraftDirty();
+  await f.nav.navigate('vodplayer.html?gameId=42');
+  const saved = f.store.peek(42, 'review').state;
+  assert.equal(saved.objectives[0].practiced, false);
+  assert.equal(saved.objectives[0].practicedBaseline, false);
+  f.checkbox.checked = true; f.objective.dataset.practicedSaved = 'true';
+  await f.hooks.restoreReviewState(saved);
+  assert.equal(f.checkbox.checked, true);
+  assert.equal(f.note.value, '  Retain this note  ');
+  f.fields[1].value = 'Review after clipping'; f.hooks.markDraftDirty();
+  await f.hooks.flushDraft();
+  assert.deepEqual(f.calls.map(([, { payload }]) => payload.objectivePractices[0].practiced), [false, true]);
+});
+
+test('failed and preview draft saves retain the previous practice baseline and unsaved choice', async t => {
+  for (const invoke of [null, () => ({ ok: false }), () => { throw new Error('Offline'); }]) {
+    const f = fixture(t, invoke);
+    f.objective.dataset.practicedSaved = 'true'; f.checkbox.checked = false;
+    f.hooks.markDraftDirty(); await f.hooks.flushDraft();
+    const saved = plain(f.hooks.captureReviewState());
+    assert.equal(saved.objectives[0].practicedBaseline, true);
+    f.checkbox.checked = true;
+    await f.hooks.restoreReviewState(saved);
+    assert.equal(f.checkbox.checked, false);
+  }
 });
 
 test('loaded launchpad renders one matchup title and concise context without querying recording availability', t => {
@@ -437,6 +653,68 @@ test('objective reassignment restores Tempo after failure and preserves a later 
     { evidenceId: 301, objectiveId: 12, gameId: 42 },
     { evidenceId: 301, objectiveId: 12, gameId: 42 },
     { evidenceId: 301, objectiveId: null, gameId: 42 },
+  ]);
+});
+
+test('confirmed clip attachment marks practice in the open review and survives later draft saves and detachment', async t => {
+  let succeeds = false;
+  const f = fixture(t, () => ({ ok: succeeds }));
+  f.objective.dataset.practicedSaved = 'false'; f.note.value = '  Existing execution note  ';
+  const row = f.hooks.clipCard(evidenceClip({ objectiveId: null }), evidenceOptions);
+  const { pick } = evidenceControls(row);
+  pick.value = '9'; await f.hooks.onEvidenceAction('objective', pick);
+  assert.equal(f.checkbox.checked, false, 'failed attachments leave practice untouched');
+  succeeds = true;
+  pick.value = '9'; await f.hooks.onEvidenceAction('objective', pick);
+  assert.equal(f.checkbox.checked, true);
+  assert.equal(f.objective.dataset.practicedSaved, 'true');
+  assert.equal(f.objective.querySelector('.rv-switch-lbl').textContent, 'Practiced');
+  assert.equal(f.note.value, '  Existing execution note  '); assert.equal(f.note.hidden, false);
+  f.fields[1].value = 'New review note'; f.hooks.markDraftDirty(); await f.hooks.flushDraft();
+  assert.equal(f.calls.at(-1)[1].payload.objectivePractices[0].practiced, true);
+  pick.value = ''; await f.hooks.onEvidenceAction('objective', pick);
+  assert.equal(f.checkbox.checked, true, 'detaching does not undo practice');
+});
+
+test('a clip attachment finishing during an older draft write saves practice again afterward', async t => {
+  const started = deferred(), reply = deferred();
+  const f = fixture(t, async command => {
+    if (command === 'save_review_draft' && f.calls.length === 1) { started.resolve(); await reply.promise; }
+    return { ok: true };
+  });
+  f.objective.dataset.practicedSaved = 'false';
+  f.fields[1].value = 'In-flight draft'; f.hooks.markDraftDirty();
+  const flushing = f.hooks.flushDraft(); await started.promise;
+  const row = f.hooks.clipCard(evidenceClip({ objectiveId: null }), evidenceOptions);
+  const { pick } = evidenceControls(row); pick.value = '9';
+  await f.hooks.onEvidenceAction('objective', pick);
+  assert.equal(f.checkbox.checked, true);
+  reply.resolve(); await flushing;
+  assert.deepEqual(f.calls.filter(([command]) => command === 'save_review_draft')
+    .map(([, { payload }]) => payload.objectivePractices[0].practiced), [false, true]);
+  assert.equal(f.objective.dataset.practicedSaved, 'true');
+});
+
+test('an attachment completing after autosave re-saves the latest review text with practice', async t => {
+  const started = deferred(), reply = deferred();
+  const f = fixture(t, async command => {
+    if (command === 'set_evidence_objective') { started.resolve(); await reply.promise; }
+    return { ok: true };
+  });
+  f.objective.dataset.practicedSaved = 'false';
+  const row = f.hooks.clipCard(evidenceClip({ objectiveId: null }), evidenceOptions);
+  const { pick } = evidenceControls(row); pick.value = '9';
+  const attaching = f.hooks.onEvidenceAction('objective', pick); await started.promise;
+  f.fields[1].value = 'Latest debrief'; f.note.value = 'Latest execution note';
+  f.hooks.markDraftDirty(); await f.hooks.flushDraft();
+  assert.equal(f.hooks.dirty, false);
+  reply.resolve(); await attaching;
+  assert.equal(f.hooks.dirty, true);
+  await f.hooks.flushDraft();
+  const payload = f.calls.at(-1)[1].payload;
+  assert.equal(payload.reviewNotes, 'Latest debrief');
+  assert.deepEqual(payload.objectivePractices, [
+    { objectiveId: 9, practiced: true, executionNote: 'Latest execution note' },
   ]);
 });
 

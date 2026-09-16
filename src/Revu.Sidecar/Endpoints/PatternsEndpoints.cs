@@ -13,16 +13,13 @@ public static partial class SidecarEndpoints
     private static void MapPatterns(WebApplication app, JsonSerializerOptions jsonOptions)
     {
         // ── GET /api/patterns (token-gated): read-only cross-game pattern cards ───────
-        // Pattern cards + their ordered moment playlists. Mark-reviewed (and the
-        // per-moment note/clip writes) are WRITE ops and are DEFERRED — the DTO carries
-        // isReviewed + a carryForwardNote placeholder the frontend renders read-only.
+        // Saved collections and mistake trends, including reviewed trends for revision.
         app.MapGet("/api/patterns", async (PatternsSnapshotBuilder b, CancellationToken ct) =>
             Results.Json(await b.BuildAsync(ct), jsonOptions));
 
         // ─────────────────────────────────────────────────────────────────────────────
-        // PATTERN REVIEW writes (Batch 3). Close out a cross-game pattern + per-moment
-        // note autosave (which silently clips the moment's window the first time). Both
-        // reuse IEvidenceRepository methods verbatim. Token-gated + backup-guarded.
+        // Pattern-review writes. Saved moments edit their existing notes without
+        // video extraction. The shared VOD note path retains optional promotion.
         // ─────────────────────────────────────────────────────────────────────────────
 
         // POST /api/pattern/mark-reviewed  { patternKey, kind?, momentCount? }
@@ -35,6 +32,8 @@ public static partial class SidecarEndpoints
         {
             if (body is null || string.IsNullOrWhiteSpace(body.PatternKey))
                 return Results.BadRequest(new { error = "patternKey required" });
+            if (body.PatternKey.StartsWith(Revu.Core.Constants.PatternConstants.KindSavedObjectiveEvidence + ":", StringComparison.Ordinal))
+                return Results.BadRequest(new { error = "Saved moments remain available to revisit; only mistake trends are marked reviewed." });
             await w.BackupGuard.EnsureBackedUpAsync();
 
             var key = body.PatternKey.Trim();
@@ -75,11 +74,21 @@ public static partial class SidecarEndpoints
         // alreadyClipped lets the frontend suppress re-extraction (mirrors HasClip gate).
         app.MapPost("/api/pattern/moment/note", async (PatternMomentNoteBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
-            if (body is null || body.EvidenceId <= 0)
-                return Results.BadRequest(new { error = "evidenceId required" });
+            if (body is null || (body.EvidenceId <= 0 && body.BookmarkId is not > 0))
+                return Results.BadRequest(new { error = "evidenceId or bookmarkId required" });
             await w.BackupGuard.EnsureBackedUpAsync();
 
             var text = (body.Text ?? "").Trim();
+            if (body.BookmarkId is > 0)
+            {
+                if (body.GameId is not > 0)
+                    return Results.BadRequest(new { error = "gameId required for bookmark" });
+                var saved = await PatternBookmarkNotes.SaveAsync(w.Vod, w.Evidence,
+                    body.GameId.Value, body.BookmarkId.Value, text);
+                return saved
+                    ? Results.Json(new { ok = true, clipped = false }, jsonOptions)
+                    : Results.NotFound(new { error = "Saved moment not found for this game" });
+            }
             await w.Evidence.UpdateNoteAsync(body.EvidenceId, text);
 
             var clipped = false;
@@ -90,7 +99,7 @@ public static partial class SidecarEndpoints
             // moment (game-level anchor: recurring tag, rule break) saves its note but
             // never extracts a clip — there is no in-game second to clip around.
             var hasVod = !string.IsNullOrWhiteSpace(body.VodPath);
-            if (text.Length > 0 && hasVod && !body.AlreadyClipped && body.GameId is > 0 && body.StartTimeS is not null)
+            if (body.AutoClip && text.Length > 0 && hasVod && !body.AlreadyClipped && body.GameId is > 0 && body.StartTimeS is not null)
             {
                 try
                 {

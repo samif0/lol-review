@@ -70,6 +70,7 @@ const definitions = {
   get_matchups_export_markdown: get("/api/matchups/export", {"lane":"string?","last":"integer?"}, {"positiveQuery":["last"]}),
   create_matchup: post("/api/matchup/create"),
   create_matchup_from_last_game: post("/api/matchup/from-last-game"),
+  create_matchup_from_game: post("/api/matchup/from-game"),
   update_matchup: post("/api/matchup/update"),
   save_matchup_notes: post("/api/matchup/notes"),
   delete_matchup: post("/api/matchup/delete"),

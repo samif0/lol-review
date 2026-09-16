@@ -39,24 +39,34 @@ let _data = null;
 let _patIdx = 0;  // index into _data.patterns
 let _momIdx = 0;  // index into the active pattern's moments
 let _reviewSaving = false;
-let _completedAny = false;
+let _qualitySaving = false;
+let _trendRefreshNeeded = false;
+let _view = 'trend';
+let _viewInitialized = false;
 
 // ── note-autosave state ──────────────────────────────────────────────────────
 // Mirrors PatternReviewViewModel: a short pause after typing flushes the note
-// (and clips the moment's window once). _suppressNoteSave gates the programmatic
+// without extracting a clip. _suppressNoteSave gates the programmatic
 // value-set when a moment loads. We capture the moment being edited so leaving it
 // flushes the RIGHT moment (navigation changes activeMoment under us).
 let _suppressNoteSave = false;
 let _noteTimer = null;
 let _editingMoment = null;   // the moment object whose note is in the textarea
 const NOTE_DEBOUNCE_MS = 900;
+const MOMENT_BATCH_SIZE = 8;
 
 // Shared transport core (play/seek/step/rate/mute/enlarge + keyboard) and the
 // cached platform media interface ({invoke, resolveMedia}) used to resolve the asset URL.
 let _T = null;
 let _core = null;
 
-function patterns() { return Array.isArray(_data?.patterns) ? _data.patterns.filter(p => !p.isReviewed) : []; }
+function reviewMode(p) { return p?.reviewMode === 'saved' ? 'saved' : 'trend'; }
+function patterns() {
+  return Array.isArray(_data?.patterns)
+    ? _data.patterns.filter(p => reviewMode(p) === _view)
+      .sort((a, b) => Number(!!a.isReviewed) - Number(!!b.isReviewed))
+    : [];
+}
 function activePattern() { return patterns()[_patIdx] || null; }
 function activeMoments() {
   const p = activePattern();
@@ -71,6 +81,11 @@ function displayLabel(value) {
   return labels[String(value || '').toUpperCase()] || value || '';
 }
 
+function momentTime(seconds) {
+  const time = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${Math.floor(time / 60)}:${String(time % 60).padStart(2, '0')}`;
+}
+
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchPatterns() {
   return readSnapshot('get_patterns', 'sample-patterns.json');
@@ -78,18 +93,31 @@ async function fetchPatterns() {
 
 // ── render: header status line ──────────────────────────────────────────────
 function renderHeader(d) {
-  const parts = [];
-  const pending = d.pendingCount ?? patterns().length;
-  parts.push(pending === 0 ? 'No patterns to review' : `${pending} pattern${pending === 1 ? '' : 's'} to review`);
-  if (d.reviewedPatternCount != null) parts.push(`${d.reviewedPatternCount} reviewed all-time`);
+  const all = Array.isArray(d?.patterns) ? d.patterns : [];
+  const trends = all.filter(p => reviewMode(p) === 'trend');
+  const saved = all.filter(p => reviewMode(p) === 'saved');
+  const pending = d.pendingCount ?? trends.filter(p => !p.isReviewed).length;
+  const parts = [pending === 0 ? 'No new mistake trends' : `${pending} mistake trend${pending === 1 ? '' : 's'} to review`];
+  if (d.reviewedPatternCount) parts.push(`${d.reviewedPatternCount} reviewed`);
   const statusB = document.querySelector('#statusline b');
   if (statusB) statusB.textContent = parts.join(' · ');
+  for (const mode of ['trend', 'saved']) {
+    const button = $(`pat-view-${mode}`);
+    if (button) button.setAttribute('aria-pressed', String(_view === mode));
+  }
+  $('pat-trend-count').textContent = String(trends.length);
+  $('pat-saved-count').textContent = String(saved.length);
+  $('pat-view-help').textContent = _view === 'trend'
+    ? 'Compare clips and bookmarks marked To improve for your current learning objectives, repeated across at least two games. Reviewed trends stay here to revisit.'
+    : 'Revisit the clips and bookmarks you saved, grouped by learning objective. Good examples and mistakes belong here.';
+  $('pat-picker-title').textContent = _view === 'trend' ? 'Choose a mistake trend' : 'Choose saved moments';
+  show($('pat-refresh-trends'), _trendRefreshNeeded);
 }
 
 // ── render: pattern selector cards ──────────────────────────────────────────
 // The whole card selects the pattern (select_pattern). Reuses the .gamerow hover
-// hype; the left edge bar carries the pattern's severity color. Only pending
-// patterns belong in this queue.
+// hype; the left edge bar carries the pattern's severity color. Completed
+// reviews stay selectable so their saved moments can be revisited.
 function buildPatCard(p, idx) {
   const el = tpl('tpl-patcard');
   const sev = el.querySelector('.pat-sev');
@@ -99,7 +127,8 @@ function buildPatCard(p, idx) {
   const state = el.querySelector('.pat-card-state');
   const cue = el.querySelector('.gamerow-cue');
 
-  sev.textContent = displayLabel(p.severityLabel || p.severity);
+  const saved = reviewMode(p) === 'saved';
+  sev.textContent = saved ? 'Saved moments' : displayLabel(p.severityLabel || p.severity);
   if (p.severityHex) {
     sev.style.color = p.severityHex;
     sev.style.borderColor = p.severityHex;
@@ -109,14 +138,14 @@ function buildPatCard(p, idx) {
   detail.textContent = p.detail || '';
   sub.textContent = p.subtitle || '';
 
-  state.textContent = 'To review';
-  state.classList.add('warn');
+  state.textContent = saved ? 'Revisit' : p.isReviewed ? 'Reviewed' : 'To review';
+  state.classList.toggle('warn', !saved && !p.isReviewed);
 
   // Active card reads loud (accent rim) so the selection is obvious.
   if (idx === _patIdx) el.classList.add('pat-card-active');
   el.setAttribute('aria-pressed', String(idx === _patIdx));
 
-  if (cue) cue.firstChild.textContent = (idx === _patIdx ? 'Selected' : 'Review moments') + ' ';
+  if (cue) cue.firstChild.textContent = (idx === _patIdx ? 'Selected' : saved || p.isReviewed ? 'Revisit moments' : 'Compare moments') + ' ';
 
   // Left edge bar rests in the severity color, energizes to accent on hover.
   if (p.severityHex) el.style.setProperty('--wl', p.severityHex);
@@ -138,8 +167,9 @@ function renderPicker() {
 
   const sub = $('pat-sub');
   if (sub) {
-    const pending = _data?.pendingCount ?? 0;
-    sub.textContent = pending === 0 ? 'all reviewed' : `${pending} pending`;
+    const pending = list.filter(p => !p.isReviewed).length;
+    sub.textContent = _view === 'saved' ? `${list.length} collection${list.length === 1 ? '' : 's'}`
+      : `${pending} to review · ${list.length - pending} reviewed`;
   }
 
   list.forEach((p, i) => host.appendChild(buildPatCard(p, i)));
@@ -162,6 +192,8 @@ function renderPlayer() {
   }
   $('m-title').textContent = m.title || '';
   $('m-glabel').textContent = [m.championLabel, m.timeLabel].filter(Boolean).join(' · ');
+  $('m-source-label').textContent = m.sourceKind === 'bookmark' ? 'Bookmark preview · up to 15s each side'
+    : 'Saved clip';
 
   // VOD surface — header text + scrub endpoints; degrade gracefully with nothing
   // to play. A moment plays from the game's recording when it is on disk, else
@@ -180,12 +212,12 @@ function renderPlayer() {
   // Stamp the moment's start time so the VOD player can jump straight to it.
   if (m.startTimeSeconds != null) surface.dataset.startSeconds = String(m.startTimeSeconds);
   else delete surface.dataset.startSeconds;
-  $('m-tstart').textContent = m.timeLabel || '';
+  $('m-tstart').textContent = m.startTimeSeconds != null ? momentTime(m.startTimeSeconds) : m.timeLabel || '';
   // The scrub's right edge is the moment's END time (fall back to the start
   // label only when the moment has no timed end) — both ends showing the same
   // label made the strip meaningless.
   $('m-tend').textContent = m.endTimeSeconds != null
-    ? `${Math.floor(m.endTimeSeconds / 60)}:${String(m.endTimeSeconds % 60).padStart(2, '0')}`
+    ? momentTime(m.endTimeSeconds)
     : (m.timeLabel || '');
 
   // Note panel — editable, autosaves on pause/blur. Load WITHOUT triggering a
@@ -197,8 +229,8 @@ function renderPlayer() {
   note.value = m.note || '';
   _suppressNoteSave = false;
   setMomentStatus('');
-  // CLIP KEPT badge only once the moment actually has a saved clip.
-  show($('m-clipt'), !!m._clipped || !!m.hasClip || m.sourceKind === 'clip');
+  show($('m-clipt'), !!m.hasClip || m.sourceKind === 'clip');
+  renderQuality();
 
   // Prev / next bounds.
   const moms = activeMoments();
@@ -219,12 +251,8 @@ function buildMomRow(m, idx) {
 
   rg.textContent = [m.championLabel, m.timeLabel].filter(Boolean).join(' · ');
 
-  // CLIP badge when this moment kept a clip file (hasClip from the sidecar's disk
-  // probe; sourceKind for older snapshots / the browser-preview sample), VOD when
-  // only the game's recording is on disk.
-  const kept = !!m.hasClip || m.sourceKind === 'clip';
-  show(clip, kept || !!m.hasVod);
-  if (clip) clip.textContent = kept ? 'Clip' : 'Recording';
+  show(clip, true);
+  if (clip) clip.textContent = m.sourceKind === 'bookmark' ? 'Bookmark' : 'Clip';
 
   const polarity = m.polarity || 'neutral';
   pol.textContent = displayLabel(m.polarityLabel || polarity);
@@ -260,6 +288,8 @@ function renderRail() {
   const sub = $('rail-sub');
   const p = activePattern();
   const total = Number(p && p.totalMomentCount) || moms.length;
+  const batchStart = Math.floor(_momIdx / MOMENT_BATCH_SIZE) * MOMENT_BATCH_SIZE;
+  const batchEnd = Math.min(batchStart + MOMENT_BATCH_SIZE, moms.length);
   if (sub) {
     sub.textContent = total > moms.length
       ? `${moms.length} of ${total} moments`
@@ -270,18 +300,26 @@ function renderRail() {
       : '';
   }
 
-  moms.forEach((m, i) => host.appendChild(buildMomRow(m, i)));
+  moms.slice(batchStart, batchEnd).forEach((m, i) => host.appendChild(buildMomRow(m, batchStart + i)));
+  show($('pat-batches'), moms.length > MOMENT_BATCH_SIZE);
+  $('pat-batch-label').textContent = `${batchStart + 1}–${batchEnd} of ${moms.length}`;
+  $('pat-batch-prev').disabled = batchStart === 0;
+  $('pat-batch-next').disabled = batchEnd >= moms.length;
 }
 
 // ── render: finish-review controls ─────────────────────────────────────────
 function renderClosure() {
   const p = activePattern();
   if (!p) return;
+  const saved = reviewMode(p) === 'saved';
+  show($('pat-finish'), !saved);
+  show($('pat-pending'), !saved);
   $('pat-pending-text').textContent =
-    'When you have compared the moments and decided what to try next, finish this review.';
+    p.isReviewed ? 'You have reviewed this trend. You can return to these moments and update your takeaways anytime.'
+      : 'After comparing these saved mistakes, decide what to try next and finish this review.';
   const btn = $('pat-markrev');
-  if (btn) btn.disabled = _reviewSaving;
-  show($('pat-pending'), true);
+  if (btn) btn.disabled = _reviewSaving || _qualitySaving || _trendRefreshNeeded;
+  show(btn, !saved && !p.isReviewed);
 }
 
 // ── render: the active-pattern panel (player + rail + closure) ──────────────
@@ -293,6 +331,10 @@ function renderActive() {
   }
   show($('pat-main'), true);
   $('pat-review-title').textContent = p.title || 'Selected pattern';
+  $('pat-compare-title').textContent = reviewMode(p) === 'saved' ? 'Revisit your moments' : 'Compare the mistakes';
+  $('pat-compare-help').textContent = reviewMode(p) === 'saved'
+    ? 'Replay what you saved and revisit your takeaways. Bookmarks play a short window from the recording.'
+    : 'Watch these saved moments across games. What decision keeps repeating, and what will you change next time?';
   const hasMoments = activeMoments().length > 0;
   show($('pat-no-moments'), !hasMoments);
   show(document.querySelector('.pat-playcol'), hasMoments);
@@ -329,20 +371,16 @@ function playEntrance() {
 function render(d) {
   const selectedKey = activePattern()?.patternKey;
   _data = d;
+  if (!_viewInitialized && Array.isArray(d?.patterns) && d.patterns.length) {
+    _view = d.patterns.some(p => reviewMode(p) === 'trend') ? 'trend' : 'saved';
+    _viewInitialized = true;
+  }
   clearError();
 
   // A backend failure arrives as errorText on an otherwise-valid snapshot (the
   // sidecar still answers 200) — surface it instead of a clean empty state.
   if (d && d.errorText) {
     renderError(new Error(d.errorText));
-  }
-
-  // Seed each moment's local clip flag from the snapshot so Save never re-clips a
-  // moment that's already a saved clip (mirrors the VM's HasClip seed at load).
-  for (const p of patterns()) {
-    for (const m of (Array.isArray(p.moments) ? p.moments : [])) {
-      if (m._clipped == null) m._clipped = m.sourceKind === 'clip';
-    }
   }
 
   const list = patterns();
@@ -356,21 +394,17 @@ function render(d) {
     // copy — the two must never claim the empty state simultaneously.
     const empty = $('pat-empty');
     show(empty, !(d && d.errorText));
-    const morePending = (d.pendingCount ?? 0) > 0;
-    const caughtUp = _completedAny || (d.reviewedPatternCount ?? 0) > 0 ||
-      (d.patterns || []).some(p => p.isReviewed);
-    $('pat-empty-h').textContent = morePending ? 'More patterns are waiting.'
-      : caughtUp ? 'You’re all caught up.' : 'No recurring patterns yet.';
-    $('pat-empty-p').textContent = morePending ? 'Refresh to load the next patterns in your review list.' : caughtUp
-      ? 'Reviewed patterns are cleared from this list. They can return when enough new evidence appears.'
-      : (d.emptyText || 'Start with a learning objective and review a few games. Revu looks for repeated mistakes in clips, missed stat targets, and events you track.');
-    show($('pat-reload'), morePending);
+    $('pat-empty-h').textContent = _view === 'saved' ? 'No saved moments yet.' : 'No recurring mistakes yet.';
+    $('pat-empty-p').textContent = _view === 'saved'
+      ? 'Save a clip or bookmark while reviewing a game. Attach a learning objective to keep related moments together.'
+      : 'A trend appears when clips or bookmarks marked To improve repeat across at least two games for a current learning objective. Your other saved moments are ready to revisit in Saved moments.';
+    show($('pat-reload'), false);
     playEntrance();
     return;
   }
   show($('pat-empty'), false);
 
-  // Retain the selected pending pattern when a refresh refills the queue.
+  // Retain the selection when refreshing, including a completed review.
   const selectedIdx = list.findIndex(p => p.patternKey === selectedKey);
   if (selectedIdx >= 0) _patIdx = selectedIdx;
   else { _patIdx = Math.min(_patIdx, list.length - 1); _momIdx = 0; }
@@ -389,6 +423,7 @@ async function loadPatterns() {
   _loading = true;
   try {
     const data = await fetchPatterns();
+    _trendRefreshNeeded = false;
     render(data);
   } catch (err) {
     renderError(err);
@@ -399,8 +434,20 @@ async function loadPatterns() {
 }
 
 // ── selection helpers (pure client-side over the loaded snapshot) ────────────
+function selectView(mode) {
+  if (_reviewSaving || _qualitySaving || !['trend', 'saved'].includes(mode) || mode === _view) return;
+  flushOutgoingNote();
+  resetInlineVideo();
+  _editingMoment = null;
+  _view = mode;
+  _viewInitialized = true;
+  _patIdx = 0;
+  _momIdx = 0;
+  render(_data);
+}
+
 function selectPattern(idx) {
-  if (_reviewSaving) return;
+  if (_reviewSaving || _qualitySaving) return;
   const list = patterns();
   if (idx < 0 || idx >= list.length) return;
   if (idx === _patIdx) { focusReview(); return; }
@@ -422,7 +469,7 @@ function focusReview() {
 }
 
 function gotoMoment(idx) {
-  if (_reviewSaving) return;
+  if (_reviewSaving || _qualitySaving) return;
   const moms = activeMoments();
   if (idx < 0 || idx >= moms.length) return;
   // Flush the outgoing moment's note (background) before the index changes.
@@ -449,12 +496,9 @@ function flushOutgoingNote() {
   flushMomentNote(moment, text);
 }
 
-// ── note autosave + clip (WRITE) ─────────────────────────────────────────────
-// Mirrors PatternReviewViewModel.FlushNoteAsync: persist the note via the sidecar
-// (UpdateNoteAsync), which — first time, when the moment has a VOD + a non-empty
-// note — silently clips the moment's padded window and attaches it as evidence.
-// We pass the moment's clip fields from the loaded snapshot (the server has the
-// repo methods but not the VM's in-memory state). No-ops in browser preview.
+// ── note autosave (WRITE) ────────────────────────────────────────────────────
+// Notes update the saved clip or bookmark. Viewing or editing a bookmark never
+// extracts a clip; its preview remains a window into the original recording.
 
 function setMomentStatus(msg) {
   const el = $('m-nstatus');
@@ -477,19 +521,14 @@ async function saveMomentNote(moment, text) {
   if (!moment) return true;
   const trimmed = (text || '').trim();
   const prev = (moment.note || '').trim();
-  // Nothing changed and no clip pending → don't churn.
-  if (trimmed === prev && (trimmed.length === 0 || moment._clipped)) return true;
+  if (trimmed === prev) return true;
 
   const invoke = await getInvoke();
-  if (!invoke) {
-    // Preview: reflect locally so the UI feels right; no backend to persist to.
-    moment.note = trimmed;
-    moment.hasNote = trimmed.length > 0;
-    return true;
-  }
   try {
     const payload = {
       evidenceId: moment.evidenceId,
+      bookmarkId: moment.bookmarkId ?? null,
+      autoClip: false,
       text: trimmed,
       gameId: moment.gameId,
       championName: moment.championName || '',
@@ -500,18 +539,24 @@ async function saveMomentNote(moment, text) {
       // branch requires a real start so it never extracts a garbage 0:00 clip.
       startTimeS: moment.startTimeSeconds != null ? moment.startTimeSeconds : null,
       endTimeS: moment.endTimeSeconds != null ? moment.endTimeSeconds : null,
-      alreadyClipped: !!moment._clipped,
+      alreadyClipped: !!moment.hasClip || moment.sourceKind === 'clip',
     };
-    const res = await invoke('save_pattern_moment_note', { payload });
+    const res = invoke ? await invoke('save_pattern_moment_note', { payload }) : null;
     if (res?.ok === false) throw new Error(res.error || 'Note save failed');
     // Reflect the saved state on the in-memory moment so re-renders are correct.
     moment.note = trimmed;
     moment.hasNote = trimmed.length > 0;
-    if (res && res.clipped) moment._clipped = true;
+    // A moment can appear both in its objective collection and a mistake trend.
+    for (const p of (_data?.patterns || [])) {
+      for (const other of (p.moments || [])) {
+        const same = moment.bookmarkId != null ? other.bookmarkId === moment.bookmarkId
+          : moment.evidenceId != null && other.evidenceId === moment.evidenceId;
+        if (same) { other.note = trimmed; other.hasNote = trimmed.length > 0; }
+      }
+    }
 
     if (ReferenceEquals(moment, activeMoment())) {
-      setMomentStatus(res && res.clipped ? 'Saved · clip kept' : 'Saved');
-      show($('m-clipt'), !!moment._clipped || moment.sourceKind === 'clip');
+      setMomentStatus('Saved');
     }
     // Keep the rail note preview and finish controls in sync.
     renderRail();
@@ -544,22 +589,75 @@ async function commitPendingNote() {
   return flushMomentNote(moment, text);
 }
 
+function renderQuality() {
+  const m = activeMoment();
+  for (const quality of ['good', 'bad', 'neutral']) {
+    const button = $(`m-quality-${quality}`);
+    if (!button) continue;
+    button.setAttribute('aria-pressed', String((m?.polarity || 'neutral') === quality));
+    button.disabled = _qualitySaving || _reviewSaving;
+  }
+}
+
+async function setMomentQuality(quality) {
+  const moment = activeMoment();
+  if (!moment || _qualitySaving || _reviewSaving || !['good', 'bad', 'neutral'].includes(quality)
+    || quality === (moment.polarity || 'neutral')) return;
+  _qualitySaving = true;
+  renderQuality();
+  const note = $('m-note');
+  if (note) note.readOnly = true;
+  try {
+    if (!await commitPendingNote()) throw new Error('Save the note before changing the rating');
+    const invoke = await getInvoke();
+    const bookmark = Number(moment.bookmarkId) > 0;
+    const result = invoke ? await invoke(bookmark ? 'set_bookmark_quality' : 'set_evidence_polarity', {
+      payload: bookmark ? { bookmarkId: moment.bookmarkId, quality }
+        : { evidenceId: moment.evidenceId, polarity: quality },
+    }) : null;
+    if (result?.ok === false) throw new Error(result.error || 'Rating save failed');
+    for (const p of (_data?.patterns || [])) {
+      for (const other of (p.moments || [])) {
+        const same = moment.bookmarkId != null ? other.bookmarkId === moment.bookmarkId
+          : moment.evidenceId != null && other.evidenceId === moment.evidenceId;
+        if (same) {
+          other.polarity = quality;
+          other.polarityLabel = displayLabel(quality);
+          other.accentHex = quality === 'good' ? '#8ee7ba' : quality === 'bad' ? '#f3a3a8' : '#aaa7b5';
+        }
+      }
+    }
+    _trendRefreshNeeded = true;
+    renderHeader(_data);
+    renderRail();
+    setMomentStatus('Rating saved. Update trends to apply it.');
+  } catch (err) {
+    setMomentStatus("Couldn't save the rating. Please try again.");
+    console.error('[patterns] rating save failed:', err);
+  } finally {
+    _qualitySaving = false;
+    if (note) note.readOnly = false;
+    renderQuality();
+    renderClosure();
+  }
+}
+
 // ── mark pattern reviewed (WRITE) ────────────────────────────────────────────
-function removeReviewedPattern(p) {
-  _data.patterns = _data.patterns.filter(item => item.patternKey !== p.patternKey);
-  _data.pendingCount = Math.max(0, (_data.pendingCount ?? patterns().length + 1) - 1);
+function keepReviewedPattern(p) {
+  p.isReviewed = true;
+  _data.pendingCount = Math.max(0, (_data.pendingCount ?? 1) - 1);
+  _data.reviewedPatternCount = (_data.reviewedPatternCount ?? 0) + 1;
   _data.hasPending = _data.pendingCount > 0;
-  _completedAny = true;
   resetInlineVideo();
   _editingMoment = null;
-  _patIdx = Math.min(_patIdx, Math.max(0, patterns().length - 1));
+  _patIdx = 0;
   _momIdx = 0;
   render(_data);
 }
 
 async function markReviewed() {
   const p = activePattern();
-  if (!p || _reviewSaving) return;
+  if (!p || _reviewSaving || _qualitySaving || _trendRefreshNeeded || p.isReviewed || reviewMode(p) === 'saved') return;
   _reviewSaving = true;
   const btn = $('pat-markrev');
   if (btn) btn.disabled = true;
@@ -576,9 +674,8 @@ async function markReviewed() {
       },
     }) : null;
     if (result?.ok === false) throw new Error(result.error || 'Review save failed');
-    removeReviewedPattern(p);
-    // Refill the capped queue and read authoritative history counts. A refresh
-    // failure must not undo the successful removal already shown locally.
+    keepReviewedPattern(p);
+    // Refresh the authoritative counts while preserving access to review history.
     if (invoke) await loadPatterns();
     if (activePattern()) focusReview();
     else $('pat-empty-h')?.focus({ preventScroll: true });
@@ -604,6 +701,7 @@ let _patVideoLoadedFor = null; // the moment object whose clip is loaded, or nul
 // moment auto-loads + plays instead of dropping back to the poster. Cleared only by
 // a real reset (leaving the pattern, or a load error) — NOT by stepping moments.
 let _inlineActive = false;
+let _inlineWindow = null;
 
 // Reset the inline player back to the poster. The media half (pause + clear src) is
 // delegated to the transport core; this keeps the patterns-only chrome cleanup (hide
@@ -614,6 +712,7 @@ function resetInlineVideo() {
   show($('m-transport'), false);
   _patVideoLoadedFor = null;
   _inlineActive = false;
+  _inlineWindow = null;
   const surface = $('m-surface');
   if (surface) surface.classList.remove('pat-surface-playing');
 }
@@ -628,6 +727,7 @@ function resetInlineVideo() {
 function playableSource(m) {
   if (!m) return null;
   if (m.hasVod && m.vodPath) return { path: m.vodPath, startSeconds: m.startTimeSeconds != null ? Number(m.startTimeSeconds) : 0,
+    endSeconds: m.endTimeSeconds != null ? Number(m.endTimeSeconds) : null,
     gameTimeAtVideoStart: m.gameTimeAtVideoStart || 0 };
   if (m.hasClip && m.clipPath) return { path: m.clipPath, startSeconds: 0 };
   return null;
@@ -659,6 +759,8 @@ function playMoment() {
   show($('m-transport'), true);
   _patVideoLoadedFor = m;
   _inlineActive = true;   // we're now in "playing" mode → stepping moments keeps playing
+  _inlineWindow = Number.isFinite(src.endSeconds) && src.endSeconds > src.startSeconds
+    ? { start: src.startSeconds, end: src.endSeconds } : null;
   _T.load(url, {
     startSeconds: src.startSeconds,
     gameTimeAtVideoStart: src.gameTimeAtVideoStart || 0,
@@ -667,13 +769,25 @@ function playMoment() {
   });
 }
 
+// A bookmark preview is a short window of its VOD, not the rest of the match.
+// Transport times already include the recording's game-time offset.
+function constrainPlayback(replay = false) {
+  if (!_T || !_inlineWindow) return;
+  const { start, end } = _inlineWindow;
+  if (_T.currentTime < start) _T.seekTo(start);
+  else if (_T.currentTime >= end) {
+    if (replay) _T.seekTo(start);
+    else { _T.pause(); if (_T.currentTime > end) _T.seekTo(end); }
+  }
+}
+
 // ── single delegated action handler ─────────────────────────────────────────
 // select_pattern = clicking a pattern selector card (client-side, no backend).
 // goto_moment    = clicking a moment in the rail (client-side).
 // prev/next_moment = step the active playlist (client-side).
 // play_moment    = the VOD surface → load + play the moment's clip INLINE.
 // playpause/seek/mute/fullscreen = the shared transport bar, forwarded to _T.
-const ACTIONS = new Set(['select_pattern', 'goto_moment', 'prev_moment', 'next_moment', 'play_moment', 'mark_reviewed', 'reload_patterns', 'playpause', 'seek', 'mute', 'fullscreen']);
+const ACTIONS = new Set(['set_quality', 'select_view', 'select_pattern', 'goto_moment', 'prev_moment', 'next_moment', 'prev_batch', 'next_batch', 'play_moment', 'mark_reviewed', 'reload_patterns', 'playpause', 'seek', 'mute', 'fullscreen']);
 
 document.addEventListener('click', async (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -686,6 +800,19 @@ document.addEventListener('click', async (ev) => {
   // the shared core — forward them and stop. Keeps one delegated handler.
   if (_T && _T.handleAction(action, target)) return;
 
+  if (action === 'set_quality') {
+    await setMomentQuality(target.dataset.quality);
+    return;
+  }
+  if (action === 'select_view') {
+    selectView(target.dataset.view);
+    return;
+  }
+  if (action === 'prev_batch' || action === 'next_batch') {
+    const batchStart = Math.floor(_momIdx / MOMENT_BATCH_SIZE) * MOMENT_BATCH_SIZE;
+    gotoMoment(batchStart + (action === 'prev_batch' ? -MOMENT_BATCH_SIZE : MOMENT_BATCH_SIZE));
+    return;
+  }
   if (action === 'select_pattern') {
     selectPattern(Number(target.dataset.patIdx));
     return;
@@ -707,7 +834,11 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   if (action === 'reload_patterns') {
-    await loadPatterns();
+    if (_reviewSaving || _qualitySaving) return;
+    if (await commitPendingNote()) {
+      resetInlineVideo();
+      await loadPatterns();
+    }
     return;
   }
 
@@ -781,6 +912,9 @@ async function boot() {
     fullGlyphs: true,
   });
   _T.attachVideo({ clickToToggle: true, stopProp: true });
+  $('m-video').addEventListener('timeupdate', () => constrainPlayback());
+  $('m-video').addEventListener('seeking', () => constrainPlayback());
+  $('m-video').addEventListener('play', () => constrainPlayback(true));
   // Transport keyboard (Space, ◀▶ seek, Up/Down step, F/Esc enlarge). #m-note typing
   // is exempt (INPUT/TEXTAREA guard). When a role=button row/surface is focused, let
   // patterns' own keydown (below) handle Enter/Space activation instead of toggling.

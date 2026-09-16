@@ -150,6 +150,7 @@ public static partial class SidecarEndpoints
             if (body.AutoTimelineClippingEnabled is not null) cfg.AutoTimelineClippingEnabled = body.AutoTimelineClippingEnabled.Value;
             if (body.AutoTimelineClippingHintDismissed is not null) cfg.AutoTimelineClippingHintDismissed = body.AutoTimelineClippingHintDismissed.Value;
             if (body.AutoClipObjectivesEnabled is not null) cfg.AutoClipObjectivesEnabled = body.AutoClipObjectivesEnabled.Value;
+            if (body.AutoMatchupNotesEnabled is not null) cfg.AutoMatchupNotesEnabled = body.AutoMatchupNotesEnabled.Value;
             if (body.FirstReviewTutorialStep is not null) cfg.FirstReviewTutorialStep = body.FirstReviewTutorialStep.Trim();
             if (body.FirstReviewTutorialCompleted is not null) cfg.FirstReviewTutorialCompleted = body.FirstReviewTutorialCompleted.Value;
             if (body.FirstReviewTutorialDismissed is not null) cfg.FirstReviewTutorialDismissed = body.FirstReviewTutorialDismissed.Value;

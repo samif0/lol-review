@@ -106,6 +106,7 @@ public sealed class MatchupsSnapshotContractTests
         Assert.Equal(6101, snapshot.LastGame.GameId);
         Assert.Equal("top", snapshot.LastGame.Lane);
         Assert.Equal("Aatrox vs Sett", snapshot.LastGame.MatchupTitle);
+        Assert.Equal(6101, Assert.Single(snapshot.RecentGames).GameId);
     }
 
     [Fact]

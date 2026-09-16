@@ -218,306 +218,319 @@ public sealed class EvidenceRepositoryTests
         var obj = await scope.Objectives.GetAsync(objectiveId);
         Assert.Equal(0, obj!.Score);
     }
-    // ── Pattern detectors (v3.6: objective-driven only) ─────────────────────
+    // Cross-pattern selection uses only explicitly saved objective moments.
 
     private static async Task<long> SeedRankedGameAsync(
-        TestDatabaseScope scope, long gameId, long ageSeconds, string champion = "Ahri", bool win = false)
+        TestDatabaseScope scope, long gameId, long ageSeconds = 3600)
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         await scope.Games.SaveAsync(TestGameStatsFactory.Create(
-            gameId, champion: champion, win: win, timestamp: now - ageSeconds));
+            gameId, timestamp: DateTimeOffset.UtcNow.ToUnixTimeSeconds() - ageSeconds));
         return gameId;
     }
 
-    private static EvidenceUpsert ObjEventAnchor(long gameId, string token, int timeS) => new(
-        GameId: gameId,
-        SourceKind: EvidenceKinds.TimelineRegion,
-        SourceId: null,
-        SourceKey: PatternConstants.ObjEventSourceKey(token, timeS),
-        StartTimeSeconds: timeS - PatternConstants.MomentLeadSeconds,
-        EndTimeSeconds: timeS + PatternConstants.MomentTrailSeconds,
-        Title: PatternConstants.TokenLabel(token),
-        Polarity: EvidencePolarities.Bad,
-        Status: EvidenceStatuses.Evidence);
+    private static Task<long> SaveClipAsync(TestDatabaseScope scope, long gameId,
+        long objectiveId, int timeS, string polarity = EvidencePolarities.Neutral) =>
+        scope.Vod.AddBookmarkAsync(gameId, timeS, "reviewed moment",
+            clipStartSeconds: timeS, clipEndSeconds: timeS + 20,
+            clipPath: $@"C:\clips\{gameId}-{timeS}.mp4", objectiveId: objectiveId, quality: polarity);
 
-    private static EvidenceUpsert ObjCritAnchor(long gameId, long objectiveId, string objectiveTitle) => new(
-        GameId: gameId,
-        SourceKind: EvidenceKinds.TimelineRegion,
-        SourceId: null,
-        SourceKey: PatternConstants.ObjCritSourceKey(objectiveId),
-        StartTimeSeconds: null,
-        EndTimeSeconds: null,
-        Title: PatternConstants.ObjCritTitle(objectiveTitle),
-        Polarity: EvidencePolarities.Bad,
-        Status: EvidenceStatuses.Evidence);
+    private static ObjectivePatternCard SavedCard(long objectiveId) => new(
+        PatternConstants.KindSavedObjectiveEvidence, "", "", ObjectiveId: objectiveId);
+
+    private static Task<long> SaveLinkedEvidenceAsync(TestDatabaseScope scope, long gameId,
+        long bookmarkId, long objectiveId, string key, string polarity = EvidencePolarities.Neutral) =>
+        scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId, SourceKind: EvidenceKinds.Clip, SourceId: bookmarkId,
+            SourceKey: key, StartTimeSeconds: 100, EndTimeSeconds: 120,
+            Title: "Saved clip", ObjectiveId: objectiveId, Polarity: polarity,
+            Status: EvidenceStatuses.Evidence));
 
     [Fact]
-    public async Task ObjectiveEvents_FireAtThreshold_AndDieWhenTheTokenIsUntracked()
+    public async Task CrossPatterns_IgnoreAbundantRawEventsAndFailedCriteria_EvenWhenTaggedOrNoted()
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Find good fights", "macro");
+        await scope.Objectives.SetEventTokensForObjectiveAsync(objectiveId, new[] { "KILL", "DEATH" });
 
-        var objectiveId = await scope.Objectives.CreateAsync("Punish ganks with vision", "macro");
-        await scope.Objectives.SetEventTokensForObjectiveAsync(objectiveId, new[] { "DEATH" });
-
-        var games = new long[3];
-        for (var i = 0; i < games.Length; i++)
+        for (var gameIndex = 0; gameIndex < 3; gameIndex++)
         {
-            games[i] = await SeedRankedGameAsync(scope, 9201 + i, ageSeconds: (i + 1) * 86_400);
+            var gameId = await SeedRankedGameAsync(scope, 9200 + gameIndex);
+            await scope.Objectives.RecordGameAsync(gameId, objectiveId, practiced: true);
+            await scope.Objectives.SetCriteriaMetAsync(gameId, objectiveId, met: false);
+            for (var i = 0; i < 18; i++)
+            {
+                await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+                    GameId: gameId, SourceKind: EvidenceKinds.TimelineRegion, SourceId: null,
+                    SourceKey: PatternConstants.ObjEventSourceKey("KILL", i * 60),
+                    StartTimeSeconds: i * 60, EndTimeSeconds: i * 60 + 14, Title: "Kill",
+                    Note: "Tagged event is still not a saved clip or bookmark",
+                    ObjectiveId: objectiveId, Polarity: EvidencePolarities.Bad,
+                    Status: EvidenceStatuses.Evidence));
+            }
+            await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+                GameId: gameId, SourceKind: EvidenceKinds.TimelineRegion, SourceId: null,
+                SourceKey: PatternConstants.ObjCritSourceKey(objectiveId),
+                StartTimeSeconds: null, EndTimeSeconds: null, Title: "Missed criterion",
+                ObjectiveId: objectiveId, Polarity: EvidencePolarities.Bad,
+                Status: EvidenceStatuses.Evidence));
         }
 
-        // 5 tracked-death anchors across 3 games — the exact threshold.
-        await scope.Evidence.UpsertAsync(ObjEventAnchor(games[0], "DEATH", 300));
-        await scope.Evidence.UpsertAsync(ObjEventAnchor(games[0], "DEATH", 700));
-        await scope.Evidence.UpsertAsync(ObjEventAnchor(games[1], "DEATH", 400));
-        await scope.Evidence.UpsertAsync(ObjEventAnchor(games[1], "DEATH", 900));
-        await scope.Evidence.UpsertAsync(ObjEventAnchor(games[2], "DEATH", 500));
+        Assert.Empty(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Empty(await scope.Evidence.GetPatternMomentsAsync(SavedCard(objectiveId)));
+        foreach (var legacyKind in new[] { PatternConstants.KindObjectiveEvents, PatternConstants.KindObjectiveCriteria })
+        {
+            Assert.Empty(await scope.Evidence.GetPatternMomentsAsync(new ObjectivePatternCard(
+                legacyKind, "", "", ObjectiveId: objectiveId, Discriminator: "KILL")));
+        }
+    }
 
-        var card = Assert.Single(
-            await scope.Evidence.GetPatternCardsAsync(),
-            c => c.Kind == PatternConstants.KindObjectiveEvents);
-        Assert.Equal(objectiveId, card.ObjectiveId);
-        Assert.Equal("DEATH", card.Discriminator);
-        Assert.Equal($"objective_events:obj{objectiveId}:DEATH", card.PatternKey);
-        Assert.Equal(5, card.MomentCount);
-        Assert.Equal(3, card.GameCount);
+    [Fact]
+    public async Task SavedCollection_IncludesTaggedClipsAndBookmarks_WithoutRequiringEvidenceOrBadRating()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Tempo", "macro");
+        var gameId = await SeedRankedGameAsync(scope, 9210);
+        await scope.Vod.LinkVodAsync(gameId, @"C:\vods\tempo.mp4");
+        var bookmarkId = await scope.Vod.AddBookmarkAsync(gameId, 150, "missed reset", objectiveId: objectiveId);
+        var clipId = await SaveClipAsync(scope, gameId, objectiveId, 300, EvidencePolarities.Good);
+        await scope.Vod.AddBookmarkAsync(gameId, 600, "untagged");
 
+        var card = Assert.Single(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Equal(PatternConstants.KindSavedObjectiveEvidence, card.Kind);
+        Assert.Equal(2, card.MomentCount);
+        Assert.Equal(1, card.GameCount);
         var moments = await scope.Evidence.GetPatternMomentsAsync(card);
-        Assert.Equal(card.MomentCount, moments.Count);
-        Assert.All(moments, m => Assert.Equal("Death", m.Title));
+        Assert.Equal(2, moments.Count);
+        Assert.Equal(bookmarkId, moments[0].BookmarkId);
+        Assert.Equal(0, moments[0].EvidenceId);
+        Assert.Equal("bookmark", moments[0].SourceKind);
+        Assert.Equal(150, moments[0].StartTimeSeconds);
+        Assert.Equal(150, moments[0].EndTimeSeconds);
+        Assert.Equal("missed reset", moments[0].Note);
+        Assert.Equal(@"C:\vods\tempo.mp4", moments[0].VodPath);
+        Assert.Equal(clipId, moments[1].BookmarkId);
+        Assert.Equal(EvidenceKinds.Clip, moments[1].SourceKind);
+        Assert.Equal(300, moments[1].StartTimeSeconds);
+        Assert.Equal(320, moments[1].EndTimeSeconds);
+        Assert.Equal(EvidencePolarities.Good, moments[1].Polarity);
+        Assert.All(moments, moment => Assert.True(moment.CreatedAt > 0));
+        Assert.Empty(await scope.Evidence.GetForGameAsync(gameId));
+        Assert.Equal(3, (await scope.Vod.GetBookmarksAsync(gameId)).Count);
+    }
 
-        // Untracking the token kills card AND playlist (live-tie EXISTS).
-        await scope.Objectives.SetEventTokensForObjectiveAsync(objectiveId, Array.Empty<string>());
-        Assert.DoesNotContain(
-            await scope.Evidence.GetPatternCardsAsync(),
-            c => c.Kind == PatternConstants.KindObjectiveEvents);
+    [Fact]
+    public async Task SavedCollection_RequiresAnExplicitTagToACurrentActiveObjective()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var active = await scope.Objectives.CreateAsync("Tempo", "macro");
+        var archived = await scope.Objectives.CreateAsync("Old focus", "macro");
+        var gameId = await SeedRankedGameAsync(scope, 9220);
+        await scope.Objectives.RecordGameAsync(gameId, active, practiced: true);
+        await scope.Objectives.SetEventTokensForObjectiveAsync(active, new[] { "KILL" });
+        await scope.Vod.AddBookmarkAsync(gameId, 100, "Kill");
+        await SaveClipAsync(scope, gameId, archived, 200);
+        await SaveClipAsync(scope, gameId, active, 300);
+        using (var conn = scope.OpenConnection())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE objectives SET status = 'archived' WHERE id = @id";
+            cmd.Parameters.AddWithValue("@id", archived);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var card = Assert.Single(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Equal(active, card.ObjectiveId);
+        Assert.Equal(1, card.MomentCount);
+        Assert.Empty(await scope.Evidence.GetPatternMomentsAsync(SavedCard(archived)));
+        using (var conn = scope.OpenConnection())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE objectives SET status = 'archived' WHERE id = @id";
+            cmd.Parameters.AddWithValue("@id", active);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        Assert.Empty(await scope.Evidence.GetPatternCardsAsync());
         Assert.Empty(await scope.Evidence.GetPatternMomentsAsync(card));
     }
 
     [Fact]
-    public async Task ObjectiveEvents_BelowGameSpread_DoesNotFire()
+    public async Task SavedCollection_DeduplicatesBookmarkAndEvidenceRows_AndHonorsDismissal()
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Tempo", "macro");
+        var gameId = await SeedRankedGameAsync(scope, 9230);
+        var bookmarkId = await SaveClipAsync(scope, gameId, objectiveId, 100);
+        await SaveLinkedEvidenceAsync(scope, gameId, bookmarkId, objectiveId, "old-clip-row");
+        var currentEvidence = await SaveLinkedEvidenceAsync(scope, gameId, bookmarkId, objectiveId, "clip:" + bookmarkId);
 
-        var objectiveId = await scope.Objectives.CreateAsync("Track deaths", "macro");
-        await scope.Objectives.SetEventTokensForObjectiveAsync(objectiveId, new[] { "DEATH" });
-
-        // 5 anchors but only 2 games — cross-game spread requirement fails.
-        var gameA = await SeedRankedGameAsync(scope, 9211, ageSeconds: 86_400);
-        var gameB = await SeedRankedGameAsync(scope, 9212, ageSeconds: 2 * 86_400);
-        foreach (var (g, t) in new[] { (gameA, 100), (gameA, 200), (gameA, 300), (gameB, 150), (gameB, 250) })
-        {
-            await scope.Evidence.UpsertAsync(ObjEventAnchor(g, "DEATH", t));
-        }
-
-        Assert.DoesNotContain(
-            await scope.Evidence.GetPatternCardsAsync(),
-            c => c.Kind == PatternConstants.KindObjectiveEvents);
+        var card = Assert.Single(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Equal(1, card.MomentCount);
+        var moment = Assert.Single(await scope.Evidence.GetPatternMomentsAsync(card));
+        Assert.Equal(bookmarkId, moment.BookmarkId);
+        Assert.Equal(currentEvidence, moment.EvidenceId);
+        await scope.Evidence.UpdateStatusAsync(currentEvidence, EvidenceStatuses.Dismissed);
+        Assert.Empty(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Empty(await scope.Evidence.GetPatternMomentsAsync(card));
     }
 
     [Fact]
-    public async Task ObjectiveEvents_PromotedClipMoment_StaysInCountAndPlaylist()
+    public async Task BadTrends_RequireMistakesAcrossDistinctGames_AndDoNotRequireBadToOutnumberGood()
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Tempo", "macro");
+        var gameA = await SeedRankedGameAsync(scope, 9240);
+        var gameB = await SeedRankedGameAsync(scope, 9241);
+        for (var i = 0; i < 5; i++)
+            await SaveClipAsync(scope, gameA, objectiveId, 100 + i * 30, EvidencePolarities.Bad);
+        Assert.DoesNotContain(await scope.Evidence.GetPatternCardsAsync(),
+            card => card.Kind == PatternConstants.KindBadObjectiveEvidence);
 
-        var objectiveId = await scope.Objectives.CreateAsync("Track ganks", "macro");
-        await scope.Objectives.SetEventTokensForObjectiveAsync(objectiveId, new[] { "JUNGLE_GANK" });
-
-        var games = new long[3];
-        for (var i = 0; i < games.Length; i++)
-        {
-            games[i] = await SeedRankedGameAsync(scope, 9221 + i, ageSeconds: (i + 1) * 3600);
-        }
-        var ids = new List<long>();
-        foreach (var (g, t) in new[] { (games[0], 300), (games[0], 700), (games[1], 400), (games[1], 800), (games[2], 500) })
-        {
-            ids.Add(await scope.Evidence.UpsertAsync(ObjEventAnchor(g, "JUNGLE_GANK", t)));
-        }
-
-        // Promote one moment to a clip (the note flow's silent clip-keep):
-        // source key is rewritten, but its token-label title and exact window
-        // survive, and the OR-branch counts it back in.
-        var bookmarkId = await scope.Vod.AddBookmarkAsync(
-            games[0], 294, "noted", clipStartSeconds: 294, clipEndSeconds: 308, clipPath: @"C:\clips\g.mp4");
-        await scope.Evidence.AttachClipToEvidenceAsync(ids[0], bookmarkId, 294, 308);
-
-        var card = Assert.Single(
-            await scope.Evidence.GetPatternCardsAsync(),
-            c => c.Kind == PatternConstants.KindObjectiveEvents);
-        Assert.Equal(5, card.MomentCount);
-        var moments = await scope.Evidence.GetPatternMomentsAsync(card);
-        Assert.Equal(5, moments.Count);
-        Assert.Contains(moments, m => m.EvidenceId == ids[0] && m.SourceKind == EvidenceKinds.Clip);
-    }
-
-    [Fact]
-    public async Task ObjectiveCriteria_FiresOnFailShare_AndHealsWhenAGamePasses()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-
-        var objectiveId = await scope.Objectives.CreateAsync("CS 7+/min by 10", "laning");
-
-        var games = new long[4];
-        for (var i = 0; i < games.Length; i++)
-        {
-            games[i] = await SeedRankedGameAsync(scope, 9231 + i, ageSeconds: (i + 1) * 86_400);
-            await scope.Objectives.RecordGameAsync(games[i], objectiveId, practiced: true);
-        }
-
-        // Criterion evaluated on all 4; failed on 3 (share 75% → high severity).
-        await scope.Objectives.SetCriteriaMetAsync(games[0], objectiveId, met: false);
-        await scope.Objectives.SetCriteriaMetAsync(games[1], objectiveId, met: false);
-        await scope.Objectives.SetCriteriaMetAsync(games[2], objectiveId, met: false);
-        await scope.Objectives.SetCriteriaMetAsync(games[3], objectiveId, met: true);
-        foreach (var g in games.Take(3))
-        {
-            await scope.Evidence.UpsertAsync(ObjCritAnchor(g, objectiveId, "CS 7+/min by 10"));
-        }
-
-        var card = Assert.Single(
-            await scope.Evidence.GetPatternCardsAsync(),
-            c => c.Kind == PatternConstants.KindObjectiveCriteria);
-        Assert.Equal(objectiveId, card.ObjectiveId);
-        Assert.Equal($"objective_criteria:obj{objectiveId}", card.PatternKey);
-        Assert.Equal(3, card.MomentCount);
-        Assert.Equal("high", card.Severity);
-
-        var moments = await scope.Evidence.GetPatternMomentsAsync(card);
-        Assert.Equal(card.MomentCount, moments.Count);
-        Assert.All(moments, m => Assert.Null(m.StartTimeSeconds));
-
-        // A re-evaluation that passes drops that game from count AND playlist
-        // via the live game_objectives EXISTS → below the 3-fail threshold.
-        await scope.Objectives.SetCriteriaMetAsync(games[0], objectiveId, met: true);
-        Assert.DoesNotContain(
-            await scope.Evidence.GetPatternCardsAsync(),
-            c => c.Kind == PatternConstants.KindObjectiveCriteria);
-        Assert.Equal(2, (await scope.Evidence.GetPatternMomentsAsync(card)).Count);
-    }
-
-    [Fact]
-    public async Task GetPatternCardsAsync_CountsEvidenceFromReviewedAndSkippedGames()
-    {
-        // THE regression pin from the v3.5 overhaul, still binding: the app's
-        // own review flow must never hide a game's evidence from detection.
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-
-        var objectiveId = await scope.Objectives.CreateAsync("Stay in line with support", "laning");
-        var reviewedGame = await SeedRankedGameAsync(scope, 9241, ageSeconds: 86_400, champion: "Kai'Sa");
-        var skippedGame = await SeedRankedGameAsync(scope, 9242, ageSeconds: 2 * 86_400, champion: "Kai'Sa");
-
-        foreach (var (gameId, offset) in new[] { (reviewedGame, 0), (skippedGame, 100) })
-        {
-            await scope.Evidence.UpsertAsync(new EvidenceUpsert(
-                GameId: gameId,
-                SourceKind: EvidenceKinds.Clip,
-                SourceId: offset + 1,
-                SourceKey: $"clip:{offset + 1}",
-                StartTimeSeconds: 40 + offset,
-                EndTimeSeconds: 55 + offset,
-                Title: "Bad spacing with support",
-                ObjectiveId: objectiveId,
-                Polarity: EvidencePolarities.Bad,
-                Status: EvidenceStatuses.Evidence));
-        }
-
-        await scope.Games.UpdateReviewAsync(reviewedGame, new GameReview
-        {
-            Rating = 4,
-            Notes = "Reviewed the lane spacing clips."
-        });
-        await scope.SessionLog.LogGameAsync(skippedGame, "Kai'Sa", win: false, mentalRating: 5);
-        await scope.SessionLog.MarkSkippedAsync(skippedGame);
-
-        var card = Assert.Single(
-            await scope.Evidence.GetPatternCardsAsync(),
-            c => c.Kind == PatternConstants.KindBadObjectiveEvidence && c.ObjectiveId == objectiveId);
-        Assert.Equal(2, card.MomentCount);
-        Assert.Equal(2, (await scope.Evidence.GetPatternMomentsAsync(card)).Count);
-    }
-
-    [Fact]
-    public async Task GetPatternCardsAsync_WindowExcludesOldGames()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-
-        var objectiveId = await scope.Objectives.CreateAsync("Track deaths", "macro");
-        await scope.Objectives.SetEventTokensForObjectiveAsync(objectiveId, new[] { "DEATH" });
-
-        var recentA = await SeedRankedGameAsync(scope, 9251, ageSeconds: 86_400);
-        var recentB = await SeedRankedGameAsync(scope, 9252, ageSeconds: 2 * 86_400);
-        var stale = await SeedRankedGameAsync(scope, 9253, ageSeconds: (PatternConstants.WindowDays + 5) * 86_400L);
-
-        // 4 recent anchors over 2 games + 3 stale ones: only the recent set is
-        // countable, and it misses both the 5-count and 3-game thresholds.
-        foreach (var (g, t) in new[] { (recentA, 100), (recentA, 200), (recentB, 150), (recentB, 250), (stale, 100), (stale, 200), (stale, 300) })
-        {
-            await scope.Evidence.UpsertAsync(ObjEventAnchor(g, "DEATH", t));
-        }
-
-        Assert.DoesNotContain(
-            await scope.Evidence.GetPatternCardsAsync(),
-            c => c.Kind == PatternConstants.KindObjectiveEvents);
-    }
-
-    [Fact]
-    public async Task GetPatternCardsAsync_EveryCardsMomentCount_MatchesItsPlaylist()
-    {
-        // Anti-drift invariant: whatever detectors fire, the card's MomentCount
-        // must equal the playlist GetPatternMomentsAsync resolves for it.
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-
-        var eventsObjective = await scope.Objectives.CreateAsync("Track ganks", "macro");
-        await scope.Objectives.SetEventTokensForObjectiveAsync(eventsObjective, new[] { "JUNGLE_GANK" });
-        var clipsObjective = await scope.Objectives.CreateAsync("Reset before dragon", "macro");
-        var critObjective = await scope.Objectives.CreateAsync("CS 7+/min by 10", "laning");
-
-        var games = new long[4];
-        for (var i = 0; i < games.Length; i++)
-        {
-            games[i] = await SeedRankedGameAsync(scope, 9261 + i, ageSeconds: (i + 1) * 3600);
-            await scope.Objectives.RecordGameAsync(games[i], critObjective, practiced: true);
-            await scope.Objectives.SetCriteriaMetAsync(games[i], critObjective, met: false);
-            await scope.Evidence.UpsertAsync(ObjCritAnchor(games[i], critObjective, "CS 7+/min by 10"));
-        }
-
-        foreach (var (g, t) in new[] { (games[0], 300), (games[0], 700), (games[1], 400), (games[2], 500), (games[3], 600) })
-        {
-            await scope.Evidence.UpsertAsync(ObjEventAnchor(g, "JUNGLE_GANK", t));
-        }
-
-        // A dismissed anchor must leave BOTH count and playlist.
-        var dismissed = await scope.Evidence.UpsertAsync(ObjEventAnchor(games[1], "JUNGLE_GANK", 900));
-        await scope.Evidence.UpdateStatusAsync(dismissed, EvidenceStatuses.Dismissed);
-
-        // bad_objective_evidence with mixed polarity: count/list bad rows only.
-        foreach (var (key, polarity) in new[] { ("bo:1", EvidencePolarities.Bad), ("bo:2", EvidencePolarities.Bad), ("bo:3", EvidencePolarities.Good) })
-        {
-            await scope.Evidence.UpsertAsync(new EvidenceUpsert(
-                GameId: games[0],
-                SourceKind: EvidenceKinds.Clip,
-                SourceId: null,
-                SourceKey: key,
-                StartTimeSeconds: 50,
-                EndTimeSeconds: 60,
-                Title: "clip",
-                ObjectiveId: clipsObjective,
-                Polarity: polarity,
-                Status: EvidenceStatuses.Evidence));
-        }
-
+        await scope.Vod.AddBookmarkAsync(gameB, 200, "same mistake", objectiveId: objectiveId, quality: EvidencePolarities.Bad);
+        for (var i = 0; i < 8; i++)
+            await SaveClipAsync(scope, gameB, objectiveId, 300 + i * 30, EvidencePolarities.Good);
         var cards = await scope.Evidence.GetPatternCardsAsync();
-        Assert.Equal(3, cards.Select(c => c.Kind).Distinct().Count());
+        var trend = Assert.Single(cards, card => card.Kind == PatternConstants.KindBadObjectiveEvidence);
+        Assert.Equal(6, trend.MomentCount);
+        Assert.Equal(2, trend.GameCount);
+        Assert.All(await scope.Evidence.GetPatternMomentsAsync(trend), moment => Assert.Equal(EvidencePolarities.Bad, moment.Polarity));
+        var saved = Assert.Single(cards, card => card.Kind == PatternConstants.KindSavedObjectiveEvidence);
+        Assert.Equal(14, saved.MomentCount);
         foreach (var card in cards)
         {
             var moments = await scope.Evidence.GetPatternMomentsAsync(card);
             Assert.Equal(card.MomentCount, moments.Count);
+            Assert.Equal(card.GameCount, moments.Select(moment => moment.GameId).Distinct().Count());
         }
+    }
+
+    [Fact]
+    public async Task SavedCollectionsKeepHistory_WhileMistakeTrendsUseRecentGamesOnly()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Tempo", "macro");
+        var recentA = await SeedRankedGameAsync(scope, 9250);
+        var recentB = await SeedRankedGameAsync(scope, 9251);
+        var old = await SeedRankedGameAsync(scope, 9252, (PatternConstants.WindowDays + 5) * 86400L);
+        await SaveClipAsync(scope, recentA, objectiveId, 100, EvidencePolarities.Bad);
+        await SaveClipAsync(scope, old, objectiveId, 100, EvidencePolarities.Bad);
+        var saved = Assert.Single(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Equal(PatternConstants.KindSavedObjectiveEvidence, saved.Kind);
+        Assert.Equal(2, saved.MomentCount);
+        await SaveClipAsync(scope, recentB, objectiveId, 100, EvidencePolarities.Bad);
+        var cards = await scope.Evidence.GetPatternCardsAsync();
+        var trend = Assert.Single(cards, card => card.Kind == PatternConstants.KindBadObjectiveEvidence);
+        Assert.Equal(2, trend.MomentCount);
+        Assert.DoesNotContain(await scope.Evidence.GetPatternMomentsAsync(trend), moment => moment.GameId == old);
+        Assert.Equal(3, Assert.Single(cards, card => card.Kind == PatternConstants.KindSavedObjectiveEvidence).MomentCount);
+    }
+
+    [Fact]
+    public async Task SavedCollections_KeepReviewedAndSkippedGames_AndLegacyClipEvidence()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Stay in line with support", "laning");
+        var reviewed = await SeedRankedGameAsync(scope, 9260);
+        var skipped = await SeedRankedGameAsync(scope, 9261);
+        foreach (var gameId in new[] { reviewed, skipped })
+        {
+            await scope.Evidence.UpsertAsync(new EvidenceUpsert(
+                GameId: gameId, SourceKind: EvidenceKinds.Clip, SourceId: gameId,
+                SourceKey: "legacy-clip:" + gameId, StartTimeSeconds: 100, EndTimeSeconds: 120,
+                Title: "Spacing", ObjectiveId: objectiveId, Polarity: EvidencePolarities.Bad,
+                Status: EvidenceStatuses.Evidence));
+        }
+        await scope.Games.UpdateReviewAsync(reviewed, new GameReview { Rating = 4, Notes = "Reviewed" });
+        await scope.SessionLog.LogGameAsync(skipped, "Ahri", win: false, mentalRating: 5);
+        await scope.SessionLog.MarkSkippedAsync(skipped);
+        var cards = await scope.Evidence.GetPatternCardsAsync();
+        Assert.Equal(2, cards.Count);
+        foreach (var card in cards)
+        {
+            Assert.Equal(2, card.MomentCount);
+            var moments = await scope.Evidence.GetPatternMomentsAsync(card);
+            Assert.Equal(2, moments.Count);
+            Assert.All(moments, moment => Assert.Null(moment.BookmarkId));
+        }
+    }
+
+    [Fact]
+    public async Task SavedCollections_IncludeNormalGamesButExcludeHiddenGames()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Tempo", "macro");
+        var normal = await SeedRankedGameAsync(scope, 9270);
+        var hidden = await SeedRankedGameAsync(scope, 9271);
+        await SaveClipAsync(scope, normal, objectiveId, 100);
+        await SaveClipAsync(scope, hidden, objectiveId, 100);
+        using (var conn = scope.OpenConnection())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                UPDATE games SET queue_type = 'Normal Draft' WHERE game_id = @normal;
+                UPDATE games SET is_hidden = 1 WHERE game_id = @hidden;
+                """;
+            cmd.Parameters.AddWithValue("@normal", normal);
+            cmd.Parameters.AddWithValue("@hidden", hidden);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var card = Assert.Single(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Equal(1, card.MomentCount);
+        Assert.Equal(normal, Assert.Single(await scope.Evidence.GetPatternMomentsAsync(card)).GameId);
+    }
+
+    [Fact]
+    public async Task SavedCollection_LegacyEvidenceTagWorksAndDuplicateSourceIdsCountOnce()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Tempo", "macro");
+        var gameId = await SeedRankedGameAsync(scope, 9280);
+        var bookmarkId = await scope.Vod.AddBookmarkAsync(gameId, 50, "bookmark tagged through evidence");
+        await SaveLinkedEvidenceAsync(scope, gameId, bookmarkId, objectiveId, "tagged-bookmark");
+        await SaveLinkedEvidenceAsync(scope, gameId, 999, objectiveId, "legacy-first");
+        var latest = await SaveLinkedEvidenceAsync(scope, gameId, 999, objectiveId, "legacy-second");
+
+        var card = Assert.Single(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Equal(2, card.MomentCount);
+        var moments = await scope.Evidence.GetPatternMomentsAsync(card);
+        Assert.Equal(bookmarkId, moments[0].BookmarkId);
+        Assert.Equal("bookmark", moments[0].SourceKind);
+        Assert.Equal(50, moments[0].StartTimeSeconds);
+        Assert.Equal(latest, moments[1].EvidenceId);
+        Assert.Null(moments[1].BookmarkId);
+    }
+
+    [Fact]
+    public async Task LinkedClip_UsesLiveEvidenceTagAndNote_IncludingExplicitClears()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var originalObjective = await scope.Objectives.CreateAsync("Tempo", "macro");
+        var newObjective = await scope.Objectives.CreateAsync("Vision", "macro");
+        var gameId = await SeedRankedGameAsync(scope, 9290);
+        var bookmarkId = await SaveClipAsync(scope, gameId, originalObjective, 100);
+        var evidenceId = await SaveLinkedEvidenceAsync(scope, gameId, bookmarkId, originalObjective, "clip:" + bookmarkId);
+
+        await scope.Evidence.UpdateObjectiveAsync(evidenceId, newObjective);
+        await scope.Evidence.UpdateNoteAsync(evidenceId, "Reconsidered this decision");
+        var card = Assert.Single(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Equal(newObjective, card.ObjectiveId);
+        Assert.Equal("Reconsidered this decision", Assert.Single(await scope.Evidence.GetPatternMomentsAsync(card)).Note);
+        Assert.Empty(await scope.Evidence.GetPatternMomentsAsync(SavedCard(originalObjective)));
+
+        await scope.Evidence.UpdateNoteAsync(evidenceId, "");
+        Assert.Equal("", Assert.Single(await scope.Evidence.GetPatternMomentsAsync(card)).Note);
+        await scope.Evidence.UpdateObjectiveAsync(evidenceId, null);
+        Assert.Empty(await scope.Evidence.GetPatternCardsAsync());
+        Assert.Empty(await scope.Evidence.GetPatternMomentsAsync(card));
     }
 }

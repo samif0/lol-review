@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Models;
 using Revu.Core.Services;
@@ -52,7 +53,7 @@ public sealed class AutoClipServiceTests
         var clips = new FakeClipService();
         var svc = new AutoClipService(
             scope.Config, scope.Games, scope.Vod, new GameEventsRepository(scope.ConnectionFactory),
-            scope.Objectives, scope.Evidence, clips, NullLogger<AutoClipService>.Instance);
+            scope.Objectives, scope.Evidence, clips, NullLogger<AutoClipService>.Instance, scope.ReviewDrafts);
 
         return (scope, clips, svc, vodPath, game.GameId);
     }
@@ -88,6 +89,16 @@ public sealed class AutoClipServiceTests
             var events = new GameEventsRepository(scope.ConnectionFactory);
             // Two deaths far enough apart to both survive the min-gap.
             await events.SaveEventsAsync(gameId, new[] { Ev("DEATH", 600), Ev("DEATH", 900), Ev("KILL", 700) });
+            var objectiveId = (await scope.Objectives.GetActiveAsync())
+                .Single(objective => objective.Title == "Review every death").Id;
+            await scope.ReviewDrafts.UpsertAsync(new ReviewDraft
+            {
+                GameId = gameId,
+                ObjectiveAssessmentsJson = JsonSerializer.Serialize(new[]
+                {
+                    new SaveObjectivePracticeRequest(objectiveId, false, "Draft death review note"),
+                }),
+            });
 
             var result = await svc.ClipObjectiveEventsAsync(gameId, null);
 
@@ -107,6 +118,11 @@ public sealed class AutoClipServiceTests
             // The objective is marked practiced for this game.
             var perGame = await scope.Objectives.GetGameObjectivesAsync(gameId);
             Assert.Contains(perGame, r => r.Practiced);
+            var draft = await scope.ReviewDrafts.GetAsync(gameId);
+            var draftedPractice = Assert.Single(JsonSerializer.Deserialize<List<SaveObjectivePracticeRequest>>(
+                draft!.ObjectiveAssessmentsJson)!);
+            Assert.True(draftedPractice.Practiced);
+            Assert.Equal("Draft death review note", draftedPractice.ExecutionNote);
 
             File.Delete(vodPath);
         }

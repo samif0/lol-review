@@ -1,4 +1,19 @@
 /* The review follows one sequence: choose, compare, then write a takeaway. */
+.pat-views{display:flex;gap:8px;flex-wrap:wrap;padding:6px;width:fit-content;border:1px solid var(--border);border-radius:14px;background:var(--surface);margin:24px 0 12px}
+.pat-view{display:flex;align-items:center;gap:10px;min-height:44px;padding:10px 16px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--t2);font:500 14px/1.5 var(--fb);cursor:pointer}
+.pat-view:hover{background:var(--surface-raised);color:var(--text)}
+.pat-view[aria-pressed="true"]{background:var(--surface-raised);border-color:var(--border);color:var(--text)}
+.pat-view span{padding:1px 6px;border-radius:5px;background:var(--bg);color:var(--muted);font-size:12px}
+.pat-view-help{max-width:92ch;margin:0 0 26px}
+.pat-batches{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px}
+.pat-batches>span{color:var(--muted);font-size:12px;white-space:nowrap}
+.patterns-shell .pat-batches .pat-btn{min-height:36px;padding:7px 10px;font-size:12px}
+.pat-refresh-trends{margin:0 0 24px}
+.pat-quality{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid var(--border);font-size:14px;color:var(--t2)}
+.pat-quality-options{display:flex;gap:7px;flex-wrap:wrap}
+.pat-quality-options button{min-height:36px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:transparent;color:var(--t2);font:400 13px/1.5 var(--fb);cursor:pointer}
+.pat-quality-options button[aria-pressed="true"]{background:var(--surface-raised);border-color:var(--muted);color:var(--text)}
+.pat-quality-options button:disabled{opacity:.6;cursor:default}
 .patterns-shell .pat-section-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:17px;font-weight:600;line-height:1.5;color:var(--text)}
 .pat-step-number{display:inline-flex;align-items:center;justify-content:center;flex:0 0 26px;width:26px;height:26px;border-radius:50%;background:var(--surface-raised);color:var(--t2);font-size:13px;font-weight:600}
 .pat-section-heading .n{margin-left:auto;color:var(--muted);font-size:13px;font-weight:400}

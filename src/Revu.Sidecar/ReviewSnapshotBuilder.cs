@@ -84,6 +84,7 @@ public sealed class ReviewSnapshotBuilder
     // v3.11: the corrections ledger (header "Timeline fixes" count). Optional so the
     // fourteen-argument call sites keep compiling; MS.DI supplies the registration.
     private readonly IEventCorrectionsRepository? _corrections;
+    private readonly IMatchupsRepository? _matchups;
 
     public ReviewSnapshotBuilder(
         IGameHistoryQuery gameHistory,
@@ -100,7 +101,8 @@ public sealed class ReviewSnapshotBuilder
         IConfigService configService,
         IReviewDraftRepository draftRepo,
         ILogger<ReviewSnapshotBuilder> logger,
-        IEventCorrectionsRepository? corrections = null)
+        IEventCorrectionsRepository? corrections = null,
+        IMatchupsRepository? matchups = null)
     {
         _gameHistory = gameHistory;
         _gameRepo = gameRepo;
@@ -117,6 +119,7 @@ public sealed class ReviewSnapshotBuilder
         _draftRepo = draftRepo;
         _logger = logger;
         _corrections = corrections;
+        _matchups = matchups;
     }
 
     /// <param name="gameId">When &gt; 0, load THIS specific game (clicking a game
@@ -175,7 +178,8 @@ public sealed class ReviewSnapshotBuilder
             TagCatalog: tagCatalog,
             // Fully-untagged moments PLUS any prompt/objective-tagged clip whose
             // prompt/objective isn't rendered — the "To sort" strip catches all.
-            UnsortedClips: unsortedClips);
+            UnsortedClips: unsortedClips,
+            MatchupJournal: await BuildMatchupJournalAsync(game));
 
         var (nextUnreviewedGameId, unreviewedRemaining) = await ResolveNextUnreviewedAsync(game.GameId);
 
@@ -996,6 +1000,30 @@ public sealed class ReviewSnapshotBuilder
     // first, excluding this game's own note (mirror ReviewWorkflowService
     // .GetMatchupHistoryAsync + ReviewViewModel.BuildMatchupMetaText). Read-only.
     // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task<ReviewMatchupJournalDto> BuildMatchupJournalAsync(GameStats game)
+    {
+        var enabled = false;
+        try { enabled = (await _configService.LoadAsync()).AutoMatchupNotesEnabled; }
+        catch (Exception ex) { _logger.LogDebug(ex, "Review: matchup note preference could not be read"); }
+
+        MatchupCardDto? card = null;
+        if (_matchups is not null)
+        {
+            try
+            {
+                var linked = await _matchups.GetForGameAsync(game.GameId);
+                if (linked is not null)
+                    card = MatchupsSnapshotBuilder.MapCard(linked,
+                        new Dictionary<long, string> { [game.GameId] = MatchupsSnapshotBuilder.GameLabel(game) });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Review: matchup journal load failed for game {GameId}", game.GameId);
+            }
+        }
+        return new ReviewMatchupJournalDto(enabled, card);
+    }
 
     private async Task<IReadOnlyList<ReviewMatchupHistoryDto>> BuildMatchupHistoryAsync(GameStats game)
     {

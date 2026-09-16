@@ -35,11 +35,13 @@ public interface IEvidenceRepository
     /// <summary>
     /// Promote an existing evidence row to the saved clip backed by a bookmark
     /// (sets source_kind=clip + source_id, and unhides it from needs-review).
-    /// Used by the Pattern Review auto-clip so the moment becomes a real clip
-    /// without creating a duplicate evidence row.
+    /// Used when a moment is explicitly saved as a clip, without creating a
+    /// duplicate evidence row.
     /// </summary>
     Task AttachClipToEvidenceAsync(long evidenceId, long bookmarkId, int clipStartS, int clipEndS);
 
+    /// <summary>Saved-objective revision collections and recent cross-game
+    /// mistakes, drawn only from saved clips/bookmarks on active objectives.</summary>
     Task<IReadOnlyList<ObjectivePatternCard>> GetPatternCardsAsync(int limit = 6);
 
     /// <summary>

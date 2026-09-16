@@ -81,6 +81,7 @@ test('invalid preload version is an explicit host failure, never sample-data fal
 test('commands preserve read/write envelopes and backend failures across review flows', async () => {
   const cases = [
     ['get_objective', { id: 3 }], ['get_vod', { gameId: 9 }],
+    ['create_matchup_from_game', { payload: { gameId: 8 } }],
     ['get_pregame', { myChampion: 'Kai\'Sa', participantMap: '{"3":"Ally"}' }],
     ['save_event_correction', { payload: { gameId: 9, correctionId: 2, gameTimeSeconds: 123.5 } }],
     ['add_bookmark', { payload: { gameId: 9, timeSeconds: 100, note: 'spacing' } }],
@@ -225,7 +226,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 108);
+  assert.equal(Object.keys(COMMANDS).length, 109);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
     assert.ok(Object.isFrozen(definition), name);

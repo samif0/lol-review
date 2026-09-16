@@ -35,13 +35,17 @@
   <div class="shell patterns-shell">
     <div class="eyebrow">Learn across games</div>
     <div class="hero"><h1>Patterns</h1></div>
-    <p class="page-intro">Find decisions that repeat across your games. Watch the related moments, compare what happened, and write one thing to try next time.</p>
+    <p class="page-intro">Revisit the moments you saved. Find recurring mistakes that connect to what you’re learning now.</p>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
-    <!-- PATTERN SELECTOR — pending cross-game patterns as clickable
-         cards. The active card drives the moment playlist below. The whole strip
-         is the page's navigation between patterns. -->
-    <h2 class="pat-section-heading" id="pat-label" hidden><span class="pat-step-number">1</span> Choose a pattern <span class="n" id="pat-sub"></span></h2>
+    <div class="pat-views" role="group" aria-label="Choose how to review your saved moments">
+      <button class="pat-view" id="pat-view-trend" type="button" data-action="select_view" data-view="trend" aria-pressed="true">Mistake trends <span id="pat-trend-count">0</span></button>
+      <button class="pat-view" id="pat-view-saved" type="button" data-action="select_view" data-view="saved" aria-pressed="false">Saved moments <span id="pat-saved-count">0</span></button>
+    </div>
+    <p class="field-help pat-view-help" id="pat-view-help">Clips and bookmarks you saved, connected to your learning objectives.</p>
+    <button class="pat-btn pat-btn-sec pat-refresh-trends" id="pat-refresh-trends" type="button" data-action="reload_patterns" hidden>Update trends with your new ratings</button>
+
+    <h2 class="pat-section-heading" id="pat-label" hidden><span class="pat-step-number">1</span> <span id="pat-picker-title">Choose a mistake trend</span> <span class="n" id="pat-sub"></span></h2>
     <div class="pat-pick" id="pat-pick"></div>
 
     <!-- ACTIVE PATTERN — the selected pattern's VOD surface + note (left) beside
@@ -49,15 +53,15 @@
     <div class="pat-main" id="pat-main" hidden>
 
       <div class="pat-review-heading">
-        <h2 class="pat-section-heading"><span class="pat-step-number">2</span> Compare the moments</h2>
+        <h2 class="pat-section-heading"><span class="pat-step-number">2</span> <span id="pat-compare-title">Compare the mistakes</span></h2>
         <h3 id="pat-review-title" tabindex="-1"></h3>
-        <p class="field-help">Watch a moment, then use Next moment to compare another. Look for the decision you keep making.</p>
+        <p class="field-help" id="pat-compare-help">Watch these saved moments across games. What decision keeps repeating, and what will you change next time?</p>
       </div>
       <p class="field-help pat-no-moments" id="pat-no-moments" hidden>No moments are available to compare for this pattern. Choose another pattern above.</p>
 
       <!-- PLAYER COLUMN — active-moment strip over a VOD surface, then the note. -->
       <div class="pat-playcol">
-        <div class="pat-player-label"><span id="m-position"></span><span>Recording</span></div>
+        <div class="pat-player-label"><span id="m-position"></span><span id="m-source-label">Saved moment</span></div>
         <div class="glass pat-stage">
           <div class="pat-mstrip">
             <span class="pat-rtag" id="m-rtag"></span>
@@ -93,9 +97,16 @@
           <button class="pat-btn pat-btn-gold" id="m-next" data-action="next_moment" type="button">Next moment &#8594;</button>
         </div>
 
-        <!-- This-moment note panel — editable, autosaves on pause/blur. Saving a
-             non-empty note silently clips the moment's window the first time. -->
+        <!-- Notes update the saved moment without exporting a new clip. -->
         <div class="card pat-npanel">
+          <div class="pat-quality" role="group" aria-label="Rate this saved moment">
+            <span>How did this moment go?</span>
+            <div class="pat-quality-options">
+              <button id="m-quality-good" type="button" data-action="set_quality" data-quality="good" aria-pressed="false">Good example</button>
+              <button id="m-quality-bad" type="button" data-action="set_quality" data-quality="bad" aria-pressed="false">To improve</button>
+              <button id="m-quality-neutral" type="button" data-action="set_quality" data-quality="neutral" aria-pressed="false">Neutral</button>
+            </div>
+          </div>
           <div class="pat-nhead">
             <h2 class="pat-section-heading"><span class="pat-step-number">3</span> Write a takeaway</h2>
             <span class="pat-nstatus" id="m-nstatus" hidden></span>
@@ -103,10 +114,10 @@
           </div>
           <label class="field-help" for="m-note">What would you do differently in this moment?</label>
           <textarea class="pat-noteinput" id="m-note" rows="3" placeholder="Next time, I will…" aria-label="Your takeaway for this moment" aria-describedby="m-note-help"></textarea>
-          <p class="field-help" id="m-note-help">Notes save automatically. When a recording is available, your first note also keeps a clip.</p>
+          <p class="field-help" id="m-note-help">Notes save automatically to this clip or bookmark. Bookmark previews use the original recording and do not create a clip file.</p>
         </div>
 
-        <div class="pat-review-finish">
+        <div class="pat-review-finish" id="pat-finish">
           <div class="pat-pending" id="pat-pending" hidden>
             <p class="field-help" id="pat-pending-text"></p>
             <button class="pat-btn pat-btn-gold pat-markrev" id="pat-markrev" data-action="mark_reviewed" type="button">Finish reviewing this pattern</button>
@@ -119,13 +130,18 @@
       <div class="pat-railcol">
         <h3 class="pat-rail-heading" id="rail-label">Moments to compare <span class="n" id="rail-sub"></span></h3>
         <div class="pat-rail" id="pat-rail"></div>
+        <div class="pat-batches" id="pat-batches" hidden>
+          <button class="pat-btn pat-btn-sec" id="pat-batch-prev" data-action="prev_batch" type="button" aria-label="Previous saved moments">← Previous</button>
+          <span id="pat-batch-label"></span>
+          <button class="pat-btn pat-btn-sec" id="pat-batch-next" data-action="next_batch" type="button" aria-label="Next saved moments">Next →</button>
+        </div>
       </div>
     </div>
 
     <!-- EMPTY STATE — no patterns surfaced. -->
     <div class="pat-empty" id="pat-empty" hidden>
-      <div class="pat-empty-h" id="pat-empty-h" tabindex="-1">No recurring patterns yet.</div>
-      <div class="pat-empty-p" id="pat-empty-p">Start with a learning objective and review a few games. Revu looks for repeated mistakes in clips, missed stat targets, and events you track.</div>
+      <div class="pat-empty-h" id="pat-empty-h" tabindex="-1">No recurring mistakes yet.</div>
+      <div class="pat-empty-p" id="pat-empty-p">Save clips or bookmarks with a current learning objective. Moments marked To improve can become a trend when they repeat across games.</div>
       <button class="pat-btn pat-btn-sec" id="pat-reload" data-action="reload_patterns" type="button" hidden>Refresh patterns</button>
       <a class="pat-empty-action" href="objectives.html">Go to learning objectives</a>
     </div>

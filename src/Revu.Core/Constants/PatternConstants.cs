@@ -6,35 +6,17 @@ using Revu.Core.Models;
 namespace Revu.Core.Constants;
 
 /// <summary>
-/// The pattern-detection vocabulary and tunables, in ONE file shared by the
-/// writer (<c>PatternEvidenceMaterializer</c>) and the reader
-/// (<c>EvidenceRepository.GetPatternCardsAsync</c> / <c>GetPatternMomentsAsync</c>).
-///
-/// <para>
-/// v3.6: patterns are OBJECTIVE-DRIVEN ONLY. The v3.5 predefined heuristics
-/// (death-class mix, gank deaths, lost objective fights, deaths before
-/// objectives, recurring tags, rule breaks) were retired by explicit product
-/// decision — a pattern is only worth surfacing when it concerns something the
-/// player chose to work on. Three kinds remain, all anchored to learning
-/// objectives: bad-tagged clips per objective, a structured criterion failing
-/// across recent games, and recurrences of the event tokens an objective
-/// tracks. Exploratory "novel pattern" discovery away from objectives is an
-/// intended future direction — new kinds slot in beside these.
-/// </para>
-///
-/// <para>
-/// HISTORY: the original (pre-v3.5) detectors string-matched evidence titles
-/// only the removed WinUI app ever wrote, so the page sat empty for months
-/// while its tests passed on hand-fed fixtures. Keeping every matched key,
-/// threshold, and window here — and pinning materializer output against the
-/// queries in tests — is what prevents that reader/writer drift recurring.
-/// </para>
+/// Cross-pattern review uses saved clips and bookmarks explicitly attached to
+/// active objectives. All saved history is available for revision; only recent
+/// bad examples across distinct games are called a recurring mistake. Legacy
+/// event/criterion constants remain for timeline materialization and old review
+/// keys, but automatic anchors are not cross-pattern review candidates.
 /// </summary>
 public static class PatternConstants
 {
     /// <summary>
-    /// Recency window (days) shared by every card count, every moment playlist,
-    /// and the materializer backfill. games.timestamp is unix seconds.
+    /// Recency window for mistake trends and timeline materializer backfill.
+    /// Saved-objective revision collections deliberately retain all history.
     /// </summary>
     public const int WindowDays = 14;
 
@@ -44,43 +26,37 @@ public static class PatternConstants
     /// </summary>
     public const int ReArmNewMoments = 2;
 
-    /// <summary>Max cards in a patterns snapshot (pending first, then severity/count).</summary>
+    /// <summary>Max cards in bounded dashboard summaries.</summary>
     public const int PatternCardLimit = 6;
 
     /// <summary>
-    /// Max moments a pattern's playlist shows. A busy tracked token (every trade,
-    /// every fight) can anchor hundreds of moments in a window; the card still
-    /// COUNTS them all, but the playlist keeps the ones worth sitting through —
-    /// everything the user noted or clipped, then the newest auto anchors — and
-    /// only moments that can actually be watched (a clip file or the game's
-    /// recording still on disk).
+    /// Legacy display cap retained for callers that need a bounded preview.
+    /// Full saved-review playlists can be paginated without discarding history.
     /// </summary>
     public const int PatternMomentDisplayLimit = 24;
 
     /// <summary>
-    /// Candidate fetch size for the snapshot builders — every card the
-    /// detectors can emit (at most 9 under their per-kind limits), so the
-    /// review gate runs over the FULL candidate set and a reviewed-closed card
-    /// can never crowd a pending one out of the display cap.
+    /// Candidate fetch size for bounded dashboard summaries. The full Patterns
+    /// surface requests every objective collection and handles pagination.
     /// </summary>
     public const int PatternCandidateLimit = 12;
 
     // ── Per-kind thresholds (window-scoped counts) ──────────────────────────
 
     public const int BadObjectiveMinBad = 2;
+    public const int BadObjectiveMinGames = 2;
     public const int BadObjectiveHighBad = 5;
     public const int BadObjectiveCardLimit = 3;
 
-    /// <summary>objective_criteria: an ACTIVE objective's structured criterion
-    /// evaluated false in ≥ MinFails window games AND failing in ≥ MinFailShare
-    /// of its evaluated window games.</summary>
+    /// <summary>Legacy objective-criteria thresholds, retained for compatibility.
+    /// Failed-criterion anchors no longer produce cross-pattern cards.</summary>
     public const int ObjCritMinFails = 3;
     public const double ObjCritMinFailShare = 0.5;
     public const double ObjCritHighFailShare = 0.75;
     public const int ObjCritCardLimit = 3;
 
-    /// <summary>objective_events: a token an ACTIVE objective tracks recurring
-    /// across the window.</summary>
+    /// <summary>Legacy event-recurrence thresholds, retained for compatibility.
+    /// Raw event counts no longer produce cross-pattern cards.</summary>
     public const int ObjEventMinCount = 5;
     public const int ObjEventMinGames = 3;
     public const int ObjEventHighCount = 10;
@@ -89,6 +65,7 @@ public static class PatternConstants
     // ── Detected pattern kinds (card.Kind / pattern_reviews.kind values) ────
 
     public const string KindBadObjectiveEvidence = "bad_objective_evidence";
+    public const string KindSavedObjectiveEvidence = "saved_objective_evidence";
     public const string KindObjectiveCriteria = "objective_criteria";
     public const string KindObjectiveEvents = "objective_events";
 
@@ -120,15 +97,14 @@ public static class PatternConstants
         return colon <= 0 ? "" : Canonical(rest[..colon].ToString());
     }
 
-    /// <summary>One anchor per (game, tracked token, event second):
-    /// <c>objev:{TOKEN}:{timeS}</c>. Objective-agnostic — the detectors join the
-    /// LIVE objective_event_types tie, so untracking a token drops its cards
-    /// and playlists without any reconciliation pass.</summary>
+    /// <summary>One timeline anchor per (game, tracked token, event second):
+    /// <c>objev:{TOKEN}:{timeS}</c>. These objective-agnostic anchors never enter
+    /// saved cross-pattern review collections unless explicitly saved as clips.</summary>
     public const string ObjEventSourceKeyPrefix = "objev:";
 
     /// <summary>One anchor per (game, objective) failed structured criterion:
-    /// <c>objcrit:{objectiveId}</c>. Gated on the LIVE game_objectives row
-    /// (criteria_met = 0), so a re-evaluation that passes drops it everywhere.</summary>
+    /// <c>objcrit:{objectiveId}</c>. These remain timeline evidence; they are
+    /// not playable saved moments and do not enter cross-pattern collections.</summary>
     public const string ObjCritSourceKeyPrefix = "objcrit:";
 
     public static string ObjEventSourceKeyForToken(string token) =>
@@ -145,10 +121,8 @@ public static class PatternConstants
 
     /// <summary>
     /// Display label (and evidence title) for a trackable token, from the one
-    /// token catalog the timeline uses. Titles matter beyond display: a moment
-    /// the note flow promotes to a clip keeps its title but loses its source
-    /// key, and the objective_events queries count promoted clips back in BY
-    /// this exact title.
+    /// token catalog the timeline uses. Cross-pattern review never infers an
+    /// objective association from this label.
     /// </summary>
     public static string TokenLabel(string token)
     {
@@ -170,8 +144,7 @@ public static class PatternConstants
         return canonical.Length == 0 ? "" : char.ToUpperInvariant(canonical[0]) + canonical[1..].ToLowerInvariant();
     }
 
-    /// <summary>Anchor title for a failed-criterion moment (display only — the
-    /// detectors key these anchors by source key + live criteria state).</summary>
+    /// <summary>Display title for a failed-criterion timeline anchor.</summary>
     public static string ObjCritTitle(string objectiveTitle) => $"Missed: {objectiveTitle}";
 
     /// <summary>Padding around a point event for its moment window.</summary>

@@ -89,7 +89,11 @@ public sealed record ReviewSubjectDto(
     // dismissed. The review renders these as a top-level strip so the user can
     // home each onto a prompt/objective. Always present (possibly empty), never
     // null. Coexists with Evidence (attached/unassigned) — both shapes ship.
-    IReadOnlyList<ReviewPromptClipDto> UnsortedClips);
+    IReadOnlyList<ReviewPromptClipDto> UnsortedClips,
+    // The journal card linked to THIS game. Reading a review never creates it.
+    ReviewMatchupJournalDto? MatchupJournal = null);
+
+public sealed record ReviewMatchupJournalDto(bool Enabled, MatchupCardDto? Card);
 
 /// <summary>
 /// Hero header for the reviewed game. Mirrors ReviewViewModel.ApplyGameData's

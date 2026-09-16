@@ -24,7 +24,7 @@ public sealed class PatternReviewTests
         Status: EvidenceStatuses.Evidence);
 
     [Fact]
-    public async Task GetPatternMoments_ObjectiveEvents_ReturnsOrderedCrossGameMomentsWithVodPaths()
+    public async Task GetPatternMoments_SavedClips_ReturnsOrderedCrossGameMomentsWithVodPaths()
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
@@ -42,13 +42,13 @@ public sealed class PatternReviewTests
         await scope.Vod.LinkVodAsync(olderGame, @"C:\vods\older.mp4");
         await scope.Vod.LinkVodAsync(newerGame, @"C:\vods\newer.mp4");
 
-        await scope.Evidence.UpsertAsync(ObjEventAnchor(newerGame, "DEATH", 600));
-        await scope.Evidence.UpsertAsync(ObjEventAnchor(olderGame, "DEATH", 900));
-        await scope.Evidence.UpsertAsync(ObjEventAnchor(olderGame, "DEATH", 300));
+        await scope.Evidence.UpsertAsync(ObjEventAnchor(newerGame, "DEATH", 600) with { SourceKind = EvidenceKinds.Clip, ObjectiveId = objectiveId });
+        await scope.Evidence.UpsertAsync(ObjEventAnchor(olderGame, "DEATH", 900) with { SourceKind = EvidenceKinds.Clip, ObjectiveId = objectiveId });
+        await scope.Evidence.UpsertAsync(ObjEventAnchor(olderGame, "DEATH", 300) with { SourceKind = EvidenceKinds.Clip, ObjectiveId = objectiveId });
 
         var card = new ObjectivePatternCard(
-            Kind: PatternConstants.KindObjectiveEvents, Title: "x", Detail: "",
-            ObjectiveId: objectiveId, Discriminator: "DEATH");
+            Kind: PatternConstants.KindSavedObjectiveEvidence, Title: "x", Detail: "",
+            ObjectiveId: objectiveId);
         var moments = await scope.Evidence.GetPatternMomentsAsync(card);
 
         Assert.Equal(3, moments.Count);
@@ -79,8 +79,8 @@ public sealed class PatternReviewTests
         await scope.Objectives.SetEventTokensForObjectiveAsync(objectiveId, new[] { "DEATH" });
         var game = await scope.Games.SaveManualAsync("Ahri", win: false);
 
-        var keptId = await scope.Evidence.UpsertAsync(ObjEventAnchor(game, "DEATH", 100));
-        var dismissedId = await scope.Evidence.UpsertAsync(ObjEventAnchor(game, "DEATH", 200));
+        var keptId = await scope.Evidence.UpsertAsync(ObjEventAnchor(game, "DEATH", 100) with { SourceKind = EvidenceKinds.Clip, ObjectiveId = objectiveId });
+        var dismissedId = await scope.Evidence.UpsertAsync(ObjEventAnchor(game, "DEATH", 200) with { SourceKind = EvidenceKinds.Clip, ObjectiveId = objectiveId });
         await scope.Evidence.UpdateStatusAsync(dismissedId, EvidenceStatuses.Dismissed);
 
         // Fully review the game — the moment must STAY listed. (The pre-v3.5
@@ -93,8 +93,8 @@ public sealed class PatternReviewTests
         });
 
         var card = new ObjectivePatternCard(
-            Kind: PatternConstants.KindObjectiveEvents, Title: "x", Detail: "",
-            ObjectiveId: objectiveId, Discriminator: "DEATH");
+            Kind: PatternConstants.KindSavedObjectiveEvidence, Title: "x", Detail: "",
+            ObjectiveId: objectiveId);
         var moments = await scope.Evidence.GetPatternMomentsAsync(card);
 
         var moment = Assert.Single(moments);

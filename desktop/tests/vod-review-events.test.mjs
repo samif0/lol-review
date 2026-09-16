@@ -331,6 +331,68 @@ test('B opens a bookmark draft in cinema without saving and preserves its captur
   assert.equal(f.$('vp-bm-hint').hidden, false);
 });
 
+test('a fresh cinema bookmark at 19 minutes does not reuse the time of an empty composer opened at the start', async () => {
+  for (const revisit of ['same page', 'restored page', 'switched to clip']) {
+    let f = fixture();
+    f.snapshot.gameDurationSeconds = 2400; f.transport.duration = 2400; f.$('vp-video').duration = 2400;
+    f.transport.toggleEnlarge();
+    await f.emit('keydown', f.$('vp-video'), { key: 'b' });
+    f.$('vp-bm-note').value = '  \n  ';
+    if (revisit === 'switched to clip') {
+      f.$('vp-compose-clip').dataset.action = 'open_clip';
+      await f.emit('click', f.$('vp-compose-clip'));
+      assert.equal(plain(f.hooks.captureVodViewState()).bookmark.time, null, 'switching modes abandons an empty timestamp');
+    } else {
+      await f.emit('keydown', f.$('vp-bm-note'), { key: 'Escape' });
+    }
+    assert.equal(f.writes.length, 0);
+    if (revisit === 'restored page') {
+      const state = plain(f.hooks.captureVodViewState());
+      state.bookmark.time = 0; // older saved views retain the empty draft's stale timestamp
+      f = fixture();
+      f.snapshot.gameDurationSeconds = 2400; f.transport.duration = 2400; f.$('vp-video').duration = 2400;
+      f.setRestore(state); await f.hooks.restoreMatchView(); f.transport.toggleEnlarge();
+    }
+    f.transport.currentTime = 1140; f.$('vp-video').currentTime = 1140; f.$('vp-video').paused = false;
+    await f.emit('keydown', f.$('vp-video'), { key: 'b' });
+    f.$('vp-bm-note').value = 'Review the decision at nineteen minutes';
+    f.transport.currentTime = 1200; f.$('vp-video').currentTime = 1200;
+    await f.emit('keydown', f.$('vp-bm-note'), { key: 's', ctrlKey: true }); await f.hooks.flush();
+    assert.equal(f.writes.length, 1);
+    assert.equal(f.writes[0].args.payload.timeS, 1140, `${revisit}: capture the newly marked moment`);
+    assert.equal(f.snapshot.bookmarks[0].gameTimeSeconds, 1140);
+    assert.equal(f.$('vp-bookmarks').children[0].querySelector('.vp-bm-time').textContent, '19:00');
+    assert.match(f.$('vp-bm-hint').textContent, /19:00/);
+    assert.equal(f.transport.isExpanded(), true);
+  }
+});
+
+test('an authored bookmark draft retains its marked time across closing and navigation even when playback later advances', async () => {
+  for (const markedTime of [0, 1140]) {
+    for (const revisit of ['same page', 'restored page']) {
+      let f = fixture();
+      f.snapshot.gameDurationSeconds = 2400; f.transport.duration = 2400; f.$('vp-video').duration = 2400;
+      f.transport.currentTime = markedTime; f.$('vp-video').currentTime = markedTime; f.transport.toggleEnlarge();
+      await f.emit('keydown', f.$('vp-video'), { key: 'b' });
+      f.$('vp-bm-note').value = '  Keep this marked moment after returning from review  ';
+      await f.emit('keydown', f.$('vp-bm-note'), { key: 'Escape' });
+      if (revisit === 'restored page') {
+        const state = plain(f.hooks.captureVodViewState());
+        f = fixture();
+        f.snapshot.gameDurationSeconds = 2400; f.transport.duration = 2400; f.$('vp-video').duration = 2400;
+        f.setRestore(state); await f.hooks.restoreMatchView(); f.transport.toggleEnlarge();
+      }
+      f.transport.currentTime = 1200; f.$('vp-video').currentTime = 1200;
+      await f.emit('keydown', f.$('vp-video'), { key: 'b' });
+      await f.emit('keydown', f.$('vp-bm-note'), { key: 's', ctrlKey: true }); await f.hooks.flush();
+      assert.equal(f.writes.length, 1);
+      assert.equal(f.writes[0].args.payload.timeS, markedTime, `${revisit}: keep the authored draft's marked moment`);
+      assert.equal(f.writes[0].args.payload.note, 'Keep this marked moment after returning from review');
+      assert.equal(f.transport.isExpanded(), true);
+    }
+  }
+});
+
 test('Escape closes the composer before cinema, keeps drafts, and returns the real fields to their page', async () => {
   const f = fixture(); const video = f.$('vp-video'), note = f.$('vp-clip-note');
   const originalParent = f.$('vp-clip-tools').parentNode;

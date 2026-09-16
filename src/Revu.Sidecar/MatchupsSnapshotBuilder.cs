@@ -23,10 +23,9 @@ public sealed record LastGameResolution(GameStats? Game, MatchupPrefillResult? P
 /// Cards come from <see cref="IMatchupsRepository.GetAllAsync"/> (newest first)
 /// and are grouped by lane (fixed <see cref="MatchupLanes.All"/> order, empty
 /// lanes omitted) then by <see cref="MatchupLanes.Key"/>, the group holding the
-/// newest card first. The "New card from last game" preview resolves the most
-/// recent game through the SAME pure <see cref="MatchupPrefill"/> the write
-/// route uses (<see cref="ResolveLastGameAsync"/> is shared), so the button
-/// never promises a card the write can't create.
+/// newest card first. Recent-match previews use the same pure
+/// <see cref="MatchupPrefill"/> as the write routes. LastGame remains the first
+/// recent entry for clients offering a shortcut to the newest match.
 /// </para>
 ///
 /// <para>
@@ -41,8 +40,9 @@ public sealed class MatchupsSnapshotBuilder
     public const string EmptyMessage =
         "No matchup cards yet. Write a prior before you queue, then what you actually saw after.";
     public const string NoGamesReason = "No games recorded yet.";
-    public const string NoPrefillReason = "Couldn't tell which lane you played in your last game.";
-    public const string LoadFailedReason = "Couldn't read your last game.";
+    public const string NoPrefillReason = "Couldn't tell which lane you played in this game.";
+    public const string LoadFailedReason = "Couldn't read your recent games.";
+    public const int RecentGamesLimit = 30;
     /// <summary>Opponents missing and the player is signed in: the click looks them up first.</summary>
     public const string EnemyLookupHint = "Opponents weren't recorded for this game — Revu will look them up from Riot when you click.";
     /// <summary>Opponents missing and no Riot session: the click opens the form to add them.</summary>
@@ -91,7 +91,7 @@ public sealed class MatchupsSnapshotBuilder
         ct.ThrowIfCancellationRequested();
         var gameLabels = await BuildGameLabelsAsync(cards);
         var lanes = BuildLanes(cards, gameLabels);
-        var lastGame = await BuildLastGameAsync();
+        var (recentGames, lastGame) = await BuildRecentGamesAsync(cards);
 
         return new MatchupsDto(
             GeneratedAt: now.ToString("yyyy-MM-ddTHH:mm:ss"),
@@ -99,7 +99,8 @@ public sealed class MatchupsSnapshotBuilder
             IsEmpty: cards.Count == 0,
             EmptyMessage: EmptyMessage,
             Lanes: lanes,
-            LastGame: lastGame);
+            LastGame: lastGame,
+            RecentGames: recentGames);
     }
 
     /// <summary>
@@ -232,7 +233,8 @@ public sealed class MatchupsSnapshotBuilder
         return labels;
     }
 
-    private async Task<LastGamePrefillDto> BuildLastGameAsync()
+    private async Task<(IReadOnlyList<LastGamePrefillDto> Recent, LastGamePrefillDto Last)> BuildRecentGamesAsync(
+        IReadOnlyList<MatchupCard> cards)
     {
         try
         {
@@ -243,60 +245,77 @@ public sealed class MatchupsSnapshotBuilder
             try { await _config.LoadAsync(); }
             catch (Exception ex) { _logger.LogDebug(ex, "Matchups: config re-read failed; using the cached copy"); }
 
-            var last = await ResolveLastGameAsync(_games, _matchups, _config.PrimaryRole);
-            if (last.Game is null) return Unavailable(NoGamesReason);
-            var gameLabel = GameLabel(last.Game);
-
-            // A card already links to the game: the button opens it, and the
-            // line describes THAT card (not a re-derived, possibly partial,
-            // pre-fill) — the same order the write route checks in.
-            if (last.Existing is { } card)
-            {
-                return new LastGamePrefillDto(
-                    Available: true,
-                    GameId: last.Game.GameId,
-                    Lane: card.Lane,
-                    LaneLabel: MatchupLanes.Label(card.Lane),
-                    AllyChamps: card.AllyChamps,
-                    EnemyChamps: card.EnemyChamps,
-                    EnemyKnown: true,
-                    MatchupTitle: MatchupLanes.Title(card.AllyChamps, card.EnemyChamps),
-                    GameLabel: gameLabel,
-                    Hint: "",
-                    ExistingCardId: card.Id,
-                    UnavailableReason: "");
-            }
-
-            if (last.Prefill is null) return Unavailable(NoPrefillReason, last.Game.GameId, gameLabel);
-
-            var complete = last.Prefill.IsComplete;
-            var hint = !complete
-                ? (MatchupFromLastGame.CanLookUpMatches(_config) ? EnemyLookupHint : EnemyManualHint)
-                : last.Prefill.LaneIsGuess ? LaneGuessHint
-                // v3.10.1: an unconfirmed game-end estimate opens the form; the write
-                // route creates outright only once Riot has confirmed it.
-                : Revu.Core.Models.MatchupSources.NeedsConfirmation(last.Game.MatchupSource)
-                    ? (MatchupFromLastGame.CanLookUpMatches(_config) ? EstimateLookupHint : EstimateManualHint)
-                : "";
-            return new LastGamePrefillDto(
-                Available: true,
-                GameId: last.Game.GameId,
-                Lane: last.Prefill.Lane,
-                LaneLabel: MatchupLanes.Label(last.Prefill.Lane),
-                AllyChamps: last.Prefill.AllyChamps,
-                EnemyChamps: last.Prefill.EnemyChamps,
-                EnemyKnown: complete,
-                MatchupTitle: last.Prefill.Title,
-                GameLabel: gameLabel,
-                Hint: hint,
-                ExistingCardId: null,
-                UnavailableReason: "");
+            var games = await _games.GetRecentAsync(limit: RecentGamesLimit);
+            var byGame = cards.Where(c => c.GameId is > 0)
+                .GroupBy(c => c.GameId!.Value)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.CreatedAt).ThenByDescending(c => c.Id).First());
+            var recent = games.Select(game => MapGamePreview(new LastGameResolution(
+                game, MatchupPrefill.FromGame(game, _config.PrimaryRole), byGame.GetValueOrDefault(game.GameId)), _config)).ToList();
+            return (recent, recent.Count > 0 ? recent[0] : Unavailable(NoGamesReason));
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Matchups: last-game prefill failed (degrading)");
-            return Unavailable(LoadFailedReason);
+            _logger.LogDebug(ex, "Matchups: recent-game prefill failed (degrading)");
+            return ([], Unavailable(LoadFailedReason));
         }
+    }
+
+    internal static string GamePreviewLabel(GameStats game)
+    {
+        if (game.Timestamp <= 0) return GameLabel(game);
+        var playedAt = DateTimeOffset.FromUnixTimeSeconds(game.Timestamp).ToLocalTime();
+        return $"{MatchupJournalExporter.CreatedAtText(game.Timestamp)} · {playedAt:h:mm tt} · {(game.Win ? "Win" : "Loss")}";
+    }
+
+    internal static LastGamePrefillDto MapGamePreview(LastGameResolution last, IConfigService config)
+    {
+        if (last.Game is null) return Unavailable(NoGamesReason);
+        var gameLabel = GamePreviewLabel(last.Game);
+
+        // A card already links to the game: the button opens it, and the
+        // line describes THAT card (not a re-derived, possibly partial,
+        // pre-fill) — the same order the write route checks in.
+        if (last.Existing is { } card)
+        {
+            return new LastGamePrefillDto(
+                Available: true,
+                GameId: last.Game.GameId,
+                Lane: card.Lane,
+                LaneLabel: MatchupLanes.Label(card.Lane),
+                AllyChamps: card.AllyChamps,
+                EnemyChamps: card.EnemyChamps,
+                EnemyKnown: true,
+                MatchupTitle: MatchupLanes.Title(card.AllyChamps, card.EnemyChamps),
+                GameLabel: gameLabel,
+                Hint: "",
+                ExistingCardId: card.Id,
+                UnavailableReason: "");
+        }
+
+        if (last.Prefill is null) return Unavailable(NoPrefillReason, last.Game.GameId, gameLabel);
+
+        var complete = last.Prefill.IsComplete;
+        var hint = !complete
+            ? (MatchupFromLastGame.CanLookUpMatches(config) ? EnemyLookupHint : EnemyManualHint)
+            : last.Prefill.LaneIsGuess ? LaneGuessHint
+            // v3.10.1: an unconfirmed game-end estimate opens the form; the write
+            // route creates outright only once Riot has confirmed it.
+            : Revu.Core.Models.MatchupSources.NeedsConfirmation(last.Game.MatchupSource)
+                ? (MatchupFromLastGame.CanLookUpMatches(config) ? EstimateLookupHint : EstimateManualHint)
+            : "";
+        return new LastGamePrefillDto(
+            Available: true,
+            GameId: last.Game.GameId,
+            Lane: last.Prefill.Lane,
+            LaneLabel: MatchupLanes.Label(last.Prefill.Lane),
+            AllyChamps: last.Prefill.AllyChamps,
+            EnemyChamps: last.Prefill.EnemyChamps,
+            EnemyKnown: complete,
+            MatchupTitle: last.Prefill.Title,
+            GameLabel: gameLabel,
+            Hint: hint,
+            ExistingCardId: null,
+            UnavailableReason: "");
     }
 
     private static LastGamePrefillDto Unavailable(string reason, long gameId = 0, string gameLabel = "") => new(

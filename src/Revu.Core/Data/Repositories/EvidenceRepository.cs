@@ -9,19 +9,6 @@ public sealed class EvidenceRepository : IEvidenceRepository
 {
     private readonly IDbConnectionFactory _factory;
 
-    // The ONE game gate every pattern count, moment playlist, and backfill query
-    // shares: visible ranked/manual games inside the recency window. Reviewing,
-    // rating, or skipping a game has NO hiding effect — the predecessor predicate
-    // (13 ANDed "game is completely unreviewed" conditions) meant the app's own
-    // review flow permanently ejected evidence from every pattern count, which is
-    // why the Patterns page sat empty for anyone who actually used the app.
-    // @windowStart = now - PatternConstants.WindowDays, unix seconds.
-    private const string PatternGamePredicate = """
-        COALESCE(g.is_hidden, 0) = 0
-        AND COALESCE(g.queue_type, '') IN ('Ranked Solo/Duo', 'Manual')
-        AND COALESCE(g.timestamp, 0) >= @windowStart
-        """;
-
     private static long WindowStartUnixSeconds() =>
         DateTimeOffset.UtcNow.AddDays(-PatternConstants.WindowDays).ToUnixTimeSeconds();
 
@@ -337,378 +324,162 @@ public sealed class EvidenceRepository : IEvidenceRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    // A saved bookmark and its clip-evidence row describe ONE user-selected
+    // moment. Prefer the latest linked evidence row, then include legacy clips
+    // without bookmarks. Raw events and failed-criterion anchors never enter
+    // this set, even if they happen to track an active objective's event type.
+    // Evidence owns the live tag, note and rating when present, including null
+    // or empty values from explicit clears; stale bookmark fields cannot revive them.
+    private const string SavedPatternMomentsSql = """
+        WITH saved_moments AS (
+            SELECT COALESCE(e.id, 0) AS evidence_id,
+                   b.id AS bookmark_id,
+                   b.game_id,
+                   CASE WHEN e.id IS NOT NULL THEN e.objective_id ELSE b.objective_id END AS objective_id,
+                   CASE WHEN b.clip_start_s IS NOT NULL AND b.clip_end_s > b.clip_start_s
+                        THEN b.clip_start_s ELSE b.game_time_s END AS start_time_s,
+                   CASE WHEN b.clip_start_s IS NOT NULL AND b.clip_end_s > b.clip_start_s
+                        THEN b.clip_end_s ELSE b.game_time_s END AS end_time_s,
+                   COALESCE(NULLIF(TRIM(e.title), ''),
+                       CASE WHEN b.clip_start_s IS NOT NULL AND b.clip_end_s > b.clip_start_s
+                            THEN 'Saved clip' ELSE 'Bookmark' END) AS title,
+                   CASE WHEN e.id IS NOT NULL THEN COALESCE(e.note, '') ELSE COALESCE(b.note, '') END AS note,
+                   CASE WHEN e.id IS NOT NULL THEN COALESCE(e.polarity, 'neutral')
+                        ELSE COALESCE(NULLIF(b.quality, ''), 'neutral') END AS polarity,
+                   CASE WHEN b.clip_start_s IS NOT NULL AND b.clip_end_s > b.clip_start_s
+                        THEN 'clip' ELSE 'bookmark' END AS source_kind,
+                   COALESCE(b.created_at, e.created_at, 0) AS created_at,
+                   COALESCE(b.clip_path, '') AS clip_path
+            FROM vod_bookmarks b
+            LEFT JOIN evidence_items e ON e.id = (
+                SELECT linked.id FROM evidence_items linked
+                WHERE linked.game_id = b.game_id
+                  AND linked.source_kind = 'clip' AND linked.source_id = b.id
+                ORDER BY linked.updated_at DESC, linked.id DESC
+                LIMIT 1)
+            WHERE COALESCE(e.status, '') != 'dismissed'
+
+            UNION ALL
+
+            SELECT e.id, NULL, e.game_id, e.objective_id,
+                   e.start_time_s, e.end_time_s,
+                   COALESCE(e.title, ''), COALESCE(e.note, ''),
+                   COALESCE(e.polarity, 'neutral'), 'clip',
+                   COALESCE(e.created_at, 0), ''
+            FROM evidence_items e
+            WHERE e.source_kind = 'clip' AND e.status != 'dismissed'
+              AND NOT EXISTS (
+                  SELECT 1 FROM vod_bookmarks b
+                  WHERE b.id = e.source_id AND b.game_id = e.game_id)
+              AND (e.source_id IS NULL OR e.id = (
+                  SELECT duplicate.id FROM evidence_items duplicate
+                  WHERE duplicate.source_kind = 'clip'
+                    AND duplicate.game_id = e.game_id AND duplicate.source_id = e.source_id
+                  ORDER BY duplicate.updated_at DESC, duplicate.id DESC
+                  LIMIT 1))
+        ), eligible_moments AS (
+            SELECT s.*, COALESCE(o.title, '') AS objective_title,
+                   COALESCE(g.champion_name, '') AS champion_name,
+                   COALESCE(g.win, 0) AS win,
+                   COALESCE(g.timestamp, 0) AS game_timestamp,
+                   COALESCE(g.game_duration, 0) AS game_duration,
+                   COALESCE(v.file_path, '') AS vod_path
+            FROM saved_moments s
+            JOIN objectives o ON o.id = s.objective_id AND o.status = 'active'
+            JOIN games g ON g.game_id = s.game_id
+            LEFT JOIN vod_files v ON v.game_id = s.game_id
+            WHERE COALESCE(g.is_hidden, 0) = 0
+        )
+        """;
+
     /// <summary>
-    /// The objective-driven pattern detectors (v3.6: patterns exist ONLY where
-    /// they concern a learning objective the player set — the v3.5 predefined
-    /// heuristics were retired by product decision; see PatternConstants).
-    /// Three kinds: bad-tagged clips per objective, an active objective's
-    /// structured criterion failing across recent games, and recurrences of the
-    /// event tokens an objective tracks.
+    /// Revisit the clips/bookmarks explicitly saved for current objectives, and
+    /// surface repeated bad examples only when they span distinct recent games.
+    /// Saving a moment is the selection signal; raw event frequency is not.
     /// </summary>
     public async Task<IReadOnlyList<ObjectivePatternCard>> GetPatternCardsAsync(int limit = 6)
     {
-        var cards = new List<ObjectivePatternCard>();
-        var windowStart = WindowStartUnixSeconds();
         using var conn = _factory.CreateConnection();
-
-        await AddBadObjectiveEvidenceCardsAsync(conn, windowStart, cards);
-        await AddObjectiveCriteriaCardsAsync(conn, windowStart, cards);
-        await AddObjectiveEventCardsAsync(conn, windowStart, cards);
-
-        // Worst first (severity, then volume) under the card cap.
-        return cards
-            .OrderBy(static c => c.Severity == "high" ? 0 : c.Severity == "medium" ? 1 : 2)
-            .ThenByDescending(static c => c.MomentCount)
-            .Take(Math.Max(1, limit))
-            .ToArray();
-    }
-
-    private static async Task AddBadObjectiveEvidenceCardsAsync(
-        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
-    {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
-            SELECT e.objective_id,
-                   COALESCE(o.title, '') AS objective_title,
-                   SUM(CASE WHEN e.polarity = 'bad' THEN 1 ELSE 0 END) AS bad_count,
-                   SUM(CASE WHEN e.polarity = 'good' THEN 1 ELSE 0 END) AS good_count,
-                   COUNT(DISTINCT CASE WHEN e.polarity = 'bad' THEN e.game_id END) AS bad_games
-            FROM evidence_items e
-            JOIN games g ON g.game_id = e.game_id
-            LEFT JOIN objectives o ON o.id = e.objective_id
-            WHERE e.objective_id IS NOT NULL
-              AND e.status != 'dismissed'
-              AND {PatternGamePredicate}
-            GROUP BY e.objective_id
-            HAVING bad_count >= @minBad AND bad_count > good_count
-            ORDER BY bad_count DESC
-            LIMIT @cardLimit
+            {SavedPatternMomentsSql}
+            SELECT objective_id, objective_title,
+                   COUNT(*) AS saved_count, COUNT(DISTINCT game_id) AS saved_games,
+                   SUM(CASE WHEN polarity = 'bad' AND game_timestamp >= @windowStart THEN 1 ELSE 0 END) AS bad_count,
+                   COUNT(DISTINCT CASE WHEN polarity = 'bad' AND game_timestamp >= @windowStart THEN game_id END) AS bad_games
+            FROM eligible_moments
+            GROUP BY objective_id
             """;
-        cmd.Parameters.AddWithValue("@minBad", PatternConstants.BadObjectiveMinBad);
-        cmd.Parameters.AddWithValue("@cardLimit", PatternConstants.BadObjectiveCardLimit);
-        cmd.Parameters.AddWithValue("@windowStart", windowStart);
+        cmd.Parameters.AddWithValue("@windowStart", WindowStartUnixSeconds());
 
+        var cards = new List<ObjectivePatternCard>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             var objectiveId = reader.GetInt64(0);
-            var title = reader.IsDBNull(1) || reader.GetString(1).Length == 0 ? "Objective" : reader.GetString(1);
-            var badCount = Convert.ToInt32(reader.GetInt64(2));
-            var goodCount = Convert.ToInt32(reader.GetInt64(3));
-            var badGames = Convert.ToInt32(reader.GetInt64(4));
+            var title = reader.GetString(1);
+            if (string.IsNullOrWhiteSpace(title)) title = "Objective";
+            var savedCount = reader.GetInt32(2);
+            var savedGames = reader.GetInt32(3);
+            var badCount = reader.GetInt32(4);
+            var badGames = reader.GetInt32(5);
             cards.Add(new ObjectivePatternCard(
-                Kind: PatternConstants.KindBadObjectiveEvidence,
-                Title: $"{title}: mostly bad examples",
-                Detail: $"{badCount} bad vs {goodCount} good clips on {title} "
-                    + $"in the last {PatternConstants.WindowDays} days.",
+                Kind: PatternConstants.KindSavedObjectiveEvidence,
+                Title: title,
+                Detail: $"Revisit {savedCount} saved clips and bookmarks across {savedGames} games.",
                 ObjectiveId: objectiveId,
-                Severity: badCount >= PatternConstants.BadObjectiveHighBad ? "high" : "medium",
-                // MomentCount = the bad rows only, matching the playlist filter.
-                MomentCount: badCount,
-                GameCount: badGames));
+                Severity: "low",
+                MomentCount: savedCount,
+                GameCount: savedGames));
+
+            if (badCount >= PatternConstants.BadObjectiveMinBad && badGames >= PatternConstants.BadObjectiveMinGames)
+            {
+                cards.Add(new ObjectivePatternCard(
+                    Kind: PatternConstants.KindBadObjectiveEvidence,
+                    Title: $"{title}: recurring mistakes",
+                    Detail: $"{badCount} saved moments marked bad across {badGames} games in the last {PatternConstants.WindowDays} days.",
+                    ObjectiveId: objectiveId,
+                    Severity: badCount >= PatternConstants.BadObjectiveHighBad ? "high" : "medium",
+                    MomentCount: badCount,
+                    GameCount: badGames));
+            }
         }
+
+        return cards
+            .OrderBy(static c => c.Severity == "high" ? 0 : c.Severity == "medium" ? 1 : 2)
+            .ThenByDescending(static c => c.GameCount)
+            .ThenByDescending(static c => c.MomentCount)
+            .ThenBy(static c => c.ObjectiveId)
+            .Take(Math.Max(1, limit))
+            .ToArray();
     }
-
-    /// <summary>
-    /// An ACTIVE objective whose structured criterion keeps failing across
-    /// recent games. Counts the materialized per-game anchor rows (so the card
-    /// count always equals its playlist), each gated on the LIVE
-    /// game_objectives row still saying criteria_met = 0 — a re-evaluation that
-    /// passes, or archiving the objective, drops the game from count and
-    /// playlist symmetrically.
-    /// </summary>
-    private static async Task AddObjectiveCriteriaCardsAsync(
-        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
-    {
-        var candidates = new List<(long ObjectiveId, int Fails, long? LatestGameId)>();
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = $"""
-                SELECT e.source_key, COUNT(*) AS fails, MAX(e.game_id)
-                FROM evidence_items e
-                JOIN games g ON g.game_id = e.game_id
-                WHERE e.source_kind = '{EvidenceKinds.TimelineRegion}'
-                  AND e.source_key LIKE '{PatternConstants.ObjCritSourceKeyPrefix}%'
-                  AND e.status != 'dismissed'
-                  AND EXISTS (
-                        SELECT 1 FROM game_objectives go
-                        JOIN objectives o ON o.id = go.objective_id
-                        WHERE go.game_id = e.game_id
-                          AND '{PatternConstants.ObjCritSourceKeyPrefix}' || go.objective_id = e.source_key
-                          AND go.criteria_met = 0
-                          AND o.status = 'active')
-                  AND {PatternGamePredicate}
-                GROUP BY e.source_key
-                HAVING fails >= @minFails
-                ORDER BY fails DESC
-                """;
-            cmd.Parameters.AddWithValue("@minFails", PatternConstants.ObjCritMinFails);
-            cmd.Parameters.AddWithValue("@windowStart", windowStart);
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                var sourceKey = reader.GetString(0);
-                if (!long.TryParse(sourceKey[PatternConstants.ObjCritSourceKeyPrefix.Length..], out var oid))
-                {
-                    continue;
-                }
-                candidates.Add((
-                    oid,
-                    Convert.ToInt32(reader.GetInt64(1)),
-                    reader.IsDBNull(2) ? null : reader.GetInt64(2)));
-            }
-        }
-
-        var added = 0;
-        foreach (var (objectiveId, fails, latestGameId) in candidates)
-        {
-            if (added >= PatternConstants.ObjCritCardLimit) break;
-
-            // Share calibration: the criterion must be failing in a meaningful
-            // share of the window games it was actually evaluated on.
-            string title;
-            int evaluated;
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = $"""
-                    SELECT COALESCE(o.title, ''),
-                           (SELECT COUNT(go.criteria_met)
-                            FROM game_objectives go
-                            JOIN games g ON g.game_id = go.game_id
-                            WHERE go.objective_id = o.id
-                              AND go.criteria_met IS NOT NULL
-                              AND {PatternGamePredicate})
-                    FROM objectives o
-                    WHERE o.id = @objectiveId
-                    """;
-                cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
-                cmd.Parameters.AddWithValue("@windowStart", windowStart);
-                using var reader = await cmd.ExecuteReaderAsync();
-                if (!await reader.ReadAsync())
-                {
-                    continue;
-                }
-                title = reader.IsDBNull(0) || reader.GetString(0).Length == 0 ? "Objective" : reader.GetString(0);
-                evaluated = Convert.ToInt32(reader.GetInt64(1));
-            }
-
-            var failShare = fails / (double)Math.Max(1, evaluated);
-            if (failShare < PatternConstants.ObjCritMinFailShare)
-            {
-                continue;
-            }
-
-            cards.Add(new ObjectivePatternCard(
-                Kind: PatternConstants.KindObjectiveCriteria,
-                Title: $"{title}: criterion keeps failing",
-                Detail: $"Missed the '{title}' criterion in {fails} of {evaluated} evaluated games "
-                    + $"in the last {PatternConstants.WindowDays} days.",
-                GameId: latestGameId,
-                ObjectiveId: objectiveId,
-                Severity: failShare >= PatternConstants.ObjCritHighFailShare ? "high" : "medium",
-                MomentCount: fails,
-                GameCount: fails));
-            added++;
-        }
-    }
-
-    /// <summary>
-    /// Recurrence of an event token an ACTIVE objective tracks — the automatic
-    /// heuristics return only where the player CHOSE to work on them (an
-    /// objective tracking JUNGLE_GANK surfaces gank deaths; one tracking
-    /// TEAMFIGHT surfaces fight clusters). Counts the materialized objev
-    /// anchors plus clip-promoted moments (the note flow rekeys a promoted row
-    /// but preserves its token-label title), both gated on the LIVE
-    /// objective_event_types tie so untracking a token drops everything.
-    /// </summary>
-    private static async Task AddObjectiveEventCardsAsync(
-        SqliteConnection conn, long windowStart, List<ObjectivePatternCard> cards)
-    {
-        var ties = new List<(long ObjectiveId, string ObjectiveTitle, string Token)>();
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = """
-                SELECT et.objective_id, COALESCE(o.title, ''), et.event_token
-                FROM objective_event_types et
-                JOIN objectives o ON o.id = et.objective_id
-                WHERE o.status = 'active'
-                """;
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                ties.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2)));
-            }
-        }
-
-        var candidates = new List<ObjectivePatternCard>();
-        foreach (var (objectiveId, objectiveTitle, rawToken) in ties)
-        {
-            var token = PatternConstants.Canonical(rawToken);
-            if (token.Length == 0) continue;
-            var label = PatternConstants.TokenLabel(token);
-
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"""
-                SELECT COUNT(*), COUNT(DISTINCT e.game_id), MAX(e.game_id)
-                FROM evidence_items e
-                JOIN games g ON g.game_id = e.game_id
-                WHERE e.status != 'dismissed'
-                  AND (e.source_key LIKE @keyPrefix
-                       OR (e.source_kind = '{EvidenceKinds.Clip}' AND e.title = @label))
-                  AND {PatternGamePredicate}
-                """;
-            cmd.Parameters.AddWithValue("@keyPrefix", PatternConstants.ObjEventSourceKeyForToken(token) + "%");
-            cmd.Parameters.AddWithValue("@label", label);
-            cmd.Parameters.AddWithValue("@windowStart", windowStart);
-
-            using var reader = await cmd.ExecuteReaderAsync();
-            if (!await reader.ReadAsync()) continue;
-            var count = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetInt64(0));
-            var games = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetInt64(1));
-            var latestGameId = reader.IsDBNull(2) ? (long?)null : reader.GetInt64(2);
-            if (count < PatternConstants.ObjEventMinCount || games < PatternConstants.ObjEventMinGames)
-            {
-                continue;
-            }
-
-            var objTitle = objectiveTitle.Length == 0 ? "Objective" : objectiveTitle;
-            candidates.Add(new ObjectivePatternCard(
-                Kind: PatternConstants.KindObjectiveEvents,
-                Title: $"{objTitle}: recurring {label}",
-                Detail: $"{count} {label} moments across {games} games in the last "
-                    + $"{PatternConstants.WindowDays} days — tracked by '{objTitle}'.",
-                GameId: latestGameId,
-                ObjectiveId: objectiveId,
-                Severity: count >= PatternConstants.ObjEventHighCount ? "high" : "medium",
-                Discriminator: token,
-                MomentCount: count,
-                GameCount: games));
-        }
-
-        cards.AddRange(candidates
-            .OrderByDescending(static c => c.MomentCount)
-            .Take(PatternConstants.ObjEventCardLimit));
-    }
-
-    // ── Pattern Review viewer ───────────────────────────────────────────────
-
-    // Column projection shared by every pattern-moment query, joined to the
-    // games row (INNER — the window predicate needs it; session_log is NOT
-    // joined here: game_id has no unique constraint there, so joining it was a
-    // latent row duplicator) plus vod_files (UNIQUE game_id) for the recording
-    // path. Ordered oldest-first (game time, then in-game time with start-less
-    // anchors last) so the viewer walks the pattern chronologically.
-    private const string SelectPatternMomentSql = """
-        SELECT e.id,
-               e.game_id,
-               COALESCE(g.champion_name, ''),
-               COALESCE(g.win, 0),
-               COALESCE(g.timestamp, 0),
-               e.start_time_s,
-               e.end_time_s,
-               COALESCE(e.title, ''),
-               COALESCE(e.note, ''),
-               COALESCE(e.polarity, 'neutral'),
-               COALESCE(e.source_kind, ''),
-               COALESCE(v.file_path, ''),
-               COALESCE(e.created_at, 0),
-               COALESCE(b.clip_path, '')
-        FROM evidence_items e
-        JOIN games g ON g.game_id = e.game_id
-        LEFT JOIN vod_files v ON v.game_id = e.game_id
-        LEFT JOIN vod_bookmarks b ON b.id = e.source_id AND e.source_kind = 'clip'
-        """;
-
-    private const string PatternMomentOrderBy =
-        "ORDER BY g.timestamp ASC, COALESCE(e.start_time_s, 2147483647) ASC, e.id ASC";
 
     public async Task<IReadOnlyList<PatternMoment>> GetPatternMomentsAsync(ObjectivePatternCard pattern)
     {
+        if (pattern.ObjectiveId is not long objectiveId
+            || pattern.Kind is not (PatternConstants.KindSavedObjectiveEvidence or PatternConstants.KindBadObjectiveEvidence))
+        {
+            // Old event/criterion keys can still exist in review history; they
+            // must not reopen a raw-event playlist after the selection redesign.
+            return Array.Empty<PatternMoment>();
+        }
+
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.Parameters.AddWithValue("@windowStart", WindowStartUnixSeconds());
-
-        // Each kind reuses the exact predicate from GetPatternCardsAsync so the
-        // moment list is precisely the rows the card counted (pinned by tests:
-        // card.MomentCount == playlist length).
-        switch (pattern.Kind)
-        {
-            case PatternConstants.KindBadObjectiveEvidence:
-                if (pattern.ObjectiveId is not long objId) return Array.Empty<PatternMoment>();
-                cmd.CommandText = $"""
-                    {SelectPatternMomentSql}
-                    WHERE e.objective_id = @objectiveId
-                      AND e.polarity = 'bad'
-                      AND e.status != 'dismissed'
-                      AND {PatternGamePredicate}
-                    {PatternMomentOrderBy}
-                    """;
-                cmd.Parameters.AddWithValue("@objectiveId", objId);
-                break;
-
-            case PatternConstants.KindObjectiveCriteria:
-            {
-                // The per-game failed-criterion anchors, gated on the LIVE
-                // game_objectives row (a re-evaluation that passes, or archiving
-                // the objective, drops the game from count and playlist).
-                if (pattern.ObjectiveId is not long critObjId) return Array.Empty<PatternMoment>();
-                cmd.CommandText = $"""
-                    {SelectPatternMomentSql}
-                    WHERE e.source_kind = '{EvidenceKinds.TimelineRegion}'
-                      AND e.source_key = @sourceKey
-                      AND e.status != 'dismissed'
-                      AND EXISTS (
-                            SELECT 1 FROM game_objectives go
-                            JOIN objectives o ON o.id = go.objective_id
-                            WHERE go.game_id = e.game_id
-                              AND go.objective_id = @critObjectiveId
-                              AND go.criteria_met = 0
-                              AND o.status = 'active')
-                      AND {PatternGamePredicate}
-                    {PatternMomentOrderBy}
-                    """;
-                cmd.Parameters.AddWithValue("@sourceKey", PatternConstants.ObjCritSourceKey(critObjId));
-                cmd.Parameters.AddWithValue("@critObjectiveId", critObjId);
-                break;
-            }
-
-            case PatternConstants.KindObjectiveEvents:
-            {
-                // Discriminator carries the tracked token. The objev anchors are
-                // keyed by token+second; a moment the note flow promoted to a
-                // clip lost that key but kept its token-label title, so the OR
-                // branch counts it back in — the same predicate the card used,
-                // keeping count == playlist. The tie EXISTS makes untracking the
-                // token empty the playlist along with the card.
-                var token = PatternConstants.Canonical(pattern.Discriminator);
-                if (pattern.ObjectiveId is not long evObjId || token.Length == 0)
-                {
-                    return Array.Empty<PatternMoment>();
-                }
-                cmd.CommandText = $"""
-                    {SelectPatternMomentSql}
-                    WHERE e.status != 'dismissed'
-                      AND (e.source_key LIKE @keyPrefix
-                           OR (e.source_kind = '{EvidenceKinds.Clip}' AND e.title = @label))
-                      AND EXISTS (
-                            SELECT 1 FROM objective_event_types oet
-                            JOIN objectives o ON o.id = oet.objective_id
-                            WHERE oet.objective_id = @evObjectiveId
-                              AND UPPER(oet.event_token) = @token
-                              AND o.status = 'active')
-                      AND {PatternGamePredicate}
-                    {PatternMomentOrderBy}
-                    """;
-                cmd.Parameters.AddWithValue("@keyPrefix", PatternConstants.ObjEventSourceKeyForToken(token) + "%");
-                cmd.Parameters.AddWithValue("@label", PatternConstants.TokenLabel(token));
-                cmd.Parameters.AddWithValue("@evObjectiveId", evObjId);
-                cmd.Parameters.AddWithValue("@token", token);
-                break;
-            }
-
-            default:
-                return Array.Empty<PatternMoment>();
-        }
+        var trend = pattern.Kind == PatternConstants.KindBadObjectiveEvidence;
+        cmd.CommandText = $"""
+            {SavedPatternMomentsSql}
+            SELECT evidence_id, game_id, champion_name, win, game_timestamp,
+                   start_time_s, end_time_s, title, note, polarity, source_kind,
+                   vod_path, created_at, clip_path, bookmark_id, game_duration
+            FROM eligible_moments
+            WHERE objective_id = @objectiveId
+              {(trend ? "AND polarity = 'bad' AND game_timestamp >= @windowStart" : "")}
+            ORDER BY game_timestamp ASC, COALESCE(start_time_s, 2147483647) ASC,
+                     COALESCE(bookmark_id, evidence_id) ASC
+            """;
+        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
+        if (trend) cmd.Parameters.AddWithValue("@windowStart", WindowStartUnixSeconds());
 
         var moments = new List<PatternMoment>();
         using var reader = await cmd.ExecuteReaderAsync();
@@ -720,15 +491,17 @@ public sealed class EvidenceRepository : IEvidenceRepository
                 ChampionName: reader.GetString(2),
                 Win: reader.GetInt64(3) != 0,
                 GameTimestamp: reader.GetInt64(4),
-                StartTimeSeconds: reader.IsDBNull(5) ? null : Convert.ToInt32(reader.GetInt64(5)),
-                EndTimeSeconds: reader.IsDBNull(6) ? null : Convert.ToInt32(reader.GetInt64(6)),
+                StartTimeSeconds: reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                EndTimeSeconds: reader.IsDBNull(6) ? null : reader.GetInt32(6),
                 Title: reader.GetString(7),
                 Note: reader.GetString(8),
-                Polarity: reader.GetString(9),
+                Polarity: EvidencePolarities.Normalize(reader.GetString(9)),
                 SourceKind: reader.GetString(10),
                 VodPath: reader.GetString(11),
                 CreatedAt: reader.GetInt64(12),
-                ClipPath: reader.GetString(13)));
+                ClipPath: reader.GetString(13),
+                BookmarkId: reader.IsDBNull(14) ? null : reader.GetInt64(14),
+                GameDurationSeconds: reader.GetInt32(15)));
         }
         return moments;
     }

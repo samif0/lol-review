@@ -82,59 +82,61 @@ function renderHeader(d) {
   if (statusB) statusB.textContent = parts.join(' · ');
 }
 
-// ── render: the LAST GAME action + its mono line ────────────────────────────
-// Disabled (title = the sidecar's reason) when the last game can't be resolved;
-// reads "OPEN LAST GAME'S CARD" when a card is already linked to that game.
-function renderLastGame(d) {
-  const lg = (d && d.lastGame) || null;
+// ── recent matches: selecting a game never creates a card ────────────────────
+let _selectedGameId = null;
+let _preparingGame = false;
+function recentGames(d) {
+  if (Array.isArray(d?.recentGames)) return d.recentGames;
+  return d?.lastGame?.available ? [d.lastGame] : [];
+}
+function selectedGame() {
+  return recentGames(_lastData).find(game => String(game.gameId) === String(_selectedGameId)) || null;
+}
+function renderRecentGames(d) {
+  const games = recentGames(d);
+  const select = $('recent-match');
+  if (!games.some(game => String(game.gameId) === String(_selectedGameId))) {
+    _selectedGameId = games.length ? String(games[0].gameId) : null;
+  }
+  const options = games.map(game => {
+    const option = document.createElement('option');
+    option.value = String(game.gameId);
+    option.textContent = [game.gameLabel, game.laneLabel, game.matchupTitle || 'Matchup details unavailable',
+      game.existingCardId != null ? 'Note saved' : 'No note yet'].filter(Boolean).join(' · ');
+    return option;
+  });
+  if (!options.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No recent matches available';
+    options.push(option);
+  }
+  select.replaceChildren(...options);
+  select.value = _selectedGameId || '';
+  renderSelectedGame();
+}
+function renderSelectedGame() {
+  const game = selectedGame();
+  const available = !!game?.available;
+  const existing = game?.existingCardId != null;
+  const formOpen = !$('mj-form').hidden;
   const btn = $('from-last');
-  const available = !!(lg && lg.available);
-  const existing = available && lg.existingCardId != null;
-  // v3.9.2: the sidecar may know the lane + your side but not the opponents (a
-  // game recovered from the client's match history), or only be guessing the
-  // lane from your primary role; either way the click opens the form instead
-  // of creating the card, and `hint` says which. Older snapshots have neither
-  // field → treat as a plain create. An existing card is never "opens form".
-  const enemyKnown = !available || existing || lg.enemyKnown !== false;
-  const opensForm = available && !existing && (!enemyKnown || !!lg.hint);
-
-  btn.textContent = existing ? 'Open last match note' : 'From last match';
-  btn.disabled = !available;
-  if (!available) {
-    btn.title = (lg && lg.unavailableReason) || 'No last game available.';
-  } else if (existing) {
-    btn.title = 'Open the note already linked to your last match.';
-  } else if (opensForm) {
-    btn.title = lg.hint || 'Start a note from your last match; some details still need filling in.';
-  } else {
-    btn.title = 'Start a note with your last match’s lane and champions filled in.';
-  }
-
-  // The mono line under the buttons — always in the page, never only in a
-  // tooltip: the matchup + result when known; the opponents hint when only
-  // your side was recorded; the sidecar's reason when the button is off.
-  const line = $('mj-lastgame');
-  const title = $('mj-lastgame-title');
-  const detail = $('mj-lastgame-game');
-  if (!lg) { show(line, false); return; }
-  if (!available) {
-    title.textContent = lg.gameLabel || '';
-    detail.textContent = lg.unavailableReason || 'Not available yet.';
-    line.classList.add('mj-lastgame-off');
-    show(line, true);
-  } else if (opensForm) {
-    title.textContent = lg.matchupTitle || '';
-    detail.textContent = [lg.gameLabel, lg.hint].filter(Boolean).join(' · ');
-    line.classList.add('mj-lastgame-off');
-    show(line, true);
-  } else if (lg.matchupTitle || lg.gameLabel) {
-    title.textContent = lg.matchupTitle || '';
-    detail.textContent = lg.gameLabel || '';
-    line.classList.remove('mj-lastgame-off');
-    show(line, true);
-  } else {
-    show(line, false);
-  }
+  btn.textContent = _preparingGame ? 'Opening…' : existing ? 'Open note' : 'Create note';
+  btn.disabled = _preparingGame || !available || formOpen;
+  btn.title = formOpen ? 'Finish or cancel the open note first.'
+    : !available ? game?.unavailableReason || 'No recent match available.'
+    : existing ? 'Open the note already linked to this match.'
+      : 'Fill in the lane and champions from this match.';
+  $('recent-match').disabled = _preparingGame || !recentGames(_lastData).length;
+  $('new-card').disabled = _preparingGame;
+  $('mj-lastgame-title').textContent = game?.matchupTitle || '';
+  $('mj-lastgame-game').textContent = formOpen ? 'Finish or cancel the open note before starting another.' : !game
+    ? _lastData?.lastGame?.unavailableReason || 'Your recent matches will appear here after you play.'
+    : !available ? game.unavailableReason || 'Matchup details are unavailable.'
+      : existing ? 'This match already has a note. Open it to continue writing.'
+        : game.hint || 'Lane and champions will be filled in for you.';
+  $('mj-lastgame').classList.toggle('mj-lastgame-off', !available || !!game?.hint);
+  show($('mj-lastgame'), true);
 }
 
 // ── render: one card → one group → one lane ──────────────────────────────────
@@ -436,6 +438,7 @@ function revealForm() {
   clearFormError();
   syncLaneFields();
   show($('mj-form'), true);
+  renderSelectedGame();
   $('mj-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('f-ally1').focus();
 }
@@ -518,6 +521,7 @@ function closeForm() {
   _formGameId = null;
   clearFormError();
   show($('mj-form'), false);
+  renderSelectedGame();
 }
 
 // Assemble the create/update payload from the form. Only the VISIBLE champion
@@ -598,33 +602,35 @@ async function submitForm(submitBtn) {
   }
 }
 
-// ── "from last game" ─────────────────────────────────────────────────────────
-// existingCardId set → just scroll to / highlight that card. Otherwise ask the
-// sidecar to build the card, refetch, then scroll to the new card and drop the
-// cursor in its Prior box (created:false = it already existed; jump only).
+// ── start / reopen a note for the selected match ─────────────────────────────
 async function fromLastGame(btn) {
-  const lg = _lastData && _lastData.lastGame;
-  if (!lg || !lg.available) return;
-  if (lg.existingCardId != null) {
-    scrollToCard(lg.existingCardId, { focusPrior: false });
+  return prepareGame(_lastData?.lastGame, btn, 'create_matchup_from_last_game');
+}
+async function fromSelectedGame(btn) {
+  return prepareGame(selectedGame(), btn);
+}
+async function prepareGame(game, btn, command = 'create_matchup_from_game') {
+  if (_preparingGame || !game?.available || !$('mj-form').hidden) return;
+  if (game.existingCardId != null) {
+    scrollToCard(game.existingCardId, { focusPrior: false });
     return;
   }
 
-  const invoke = await getInvoke();
-  if (!invoke) {
-    console.info('[matchups] (preview) action "from_last_game" — no Electron backend.');
-    return;
-  }
-
-  btn.disabled = true;
+  _preparingGame = true;
+  renderSelectedGame();
+  if (btn) btn.disabled = true;
   try {
-    const res = await invoke('create_matchup_from_last_game', { payload: {} });
-    if (res && res.partial) {
-      // The card can't be created outright: the opponents weren't recorded
-      // (and couldn't be looked up), the lane is only a guess from your
-      // primary role, or (v3.10.1) the matchup was estimated when the game
-      // ended and Riot hasn't confirmed it yet. Open the form pre-filled and
-      // linked to the game instead of creating a half-empty or mis-filed card.
+    const invoke = await getInvoke();
+    if (!invoke) {
+      // Preview still demonstrates the selected match's prefilled form.
+      openCreateForm(game);
+      return;
+    }
+    const payload = command === 'create_matchup_from_last_game' ? {} : { gameId: Number(game.gameId) };
+    const res = await invoke(command, { payload });
+    if (res?.partial) {
+      // Unknown opponents and estimated lanes still need the user's input.
+      // Keep empty role slots intact, so a known support cannot become an ADC.
       const lane = LANE_BY[res.lane] ? res.lane : 'top';
       const slots = LANE_BY[lane].slots;
       const enemy = Array.isArray(res.enemyChamps) ? res.enemyChamps : [];
@@ -647,15 +653,30 @@ async function fromLastGame(btn) {
       return;
     }
     await loadMatchups();
-    if (res && res.id != null) scrollToCard(res.id, { focusPrior: res.created !== false });
+    if (res?.id != null) scrollToCard(res.id, { focusPrior: res.created !== false });
   } catch (err) {
     renderError(err);
-    console.error('[matchups] create_matchup_from_last_game failed:', err);
+    console.error(`[matchups] ${command} failed:`, err);
   } finally {
-    // Re-derive the button state from the latest snapshot rather than blindly
-    // re-enabling (the refetch may have flipped it to "open last game's card").
-    renderLastGame(_lastData);
+    _preparingGame = false;
+    renderSelectedGame();
   }
+}
+
+// Review links explicitly request a note for this game, even if it has fallen
+// outside the recent-match list. A slow initial fetch must not replace a form
+// the user has already started filling in while the page was loading.
+async function openRequestedGame() {
+  const value = new URLSearchParams(window.location?.search || '').get('gameId');
+  const gameId = Number(value);
+  if (!Number.isSafeInteger(gameId) || gameId <= 0 || isEditing()) return;
+  const game = recentGames(_lastData).find(item => Number(item.gameId) === gameId);
+  if (game) {
+    _selectedGameId = String(gameId);
+    $('recent-match').value = _selectedGameId;
+    renderSelectedGame();
+  }
+  await prepareGame(game || { gameId, available: true }, $('from-last'));
 }
 
 // ── copy as Markdown ─────────────────────────────────────────────────────────
@@ -792,7 +813,7 @@ async function copyMarkdown(btn) {
 function render(d) {
   clearError();
   renderHeader(d);
-  renderLastGame(d);
+  renderRecentGames(d);
 
   const lanes = Array.isArray(d.lanes) ? d.lanes : [];
   const empty = d.isEmpty || lanes.length === 0;
@@ -882,7 +903,7 @@ function cardIdForTarget(target) {
 const LOCAL_ACTIONS = new Set(['new_card', 'edit_card', 'cancel_form', 'copy_card', 'clear_filters']);
 const ACTIONS = new Set([
   'new_card', 'edit_card', 'cancel_form', 'submit_form',
-  'from_last_game', 'copy_markdown', 'copy_card', 'delete_card', 'clear_filters',
+  'from_last_game', 'from_selected_game', 'copy_markdown', 'copy_card', 'delete_card', 'clear_filters',
 ]);
 
 document.addEventListener('click', async (ev) => {
@@ -905,6 +926,7 @@ document.addEventListener('click', async (ev) => {
   if (action === 'submit_form') { await submitForm(target); return; }
   if (action === 'copy_markdown') { await copyMarkdown(target); return; }
   if (action === 'from_last_game') { await fromLastGame(target); return; }
+  if (action === 'from_selected_game') { await fromSelectedGame(target); return; }
 
   // delete_card — confirms before firing the hard delete.
   const id = cardIdForTarget(target);
@@ -933,6 +955,10 @@ document.addEventListener('click', async (ev) => {
 
 // Lane select drives the form's champion inputs.
 document.addEventListener('change', (ev) => {
+  if (ev.target?.id === 'recent-match') {
+    _selectedGameId = ev.target.value;
+    renderSelectedGame();
+  }
   if (ev.target && ev.target.id === 'f-lane') syncLaneFields();
   if (ev.target && ev.target.id === 'mj-lane-filter') applyFilters();
 });
@@ -1005,7 +1031,7 @@ function isEditing() {
   if (form && !form.hidden) return true;
   const el = document.activeElement;
   if (el && el.classList && el.classList.contains('mj-note-in')) return true;
-  return _pendingSaves.size > 0 || _submitting;
+  return _pendingSaves.size > 0 || _submitting || _preparingGame;
 }
 
 function requestRefresh() {
@@ -1055,7 +1081,7 @@ window.addEventListener('revu:matchup-updated', () => requestRefresh());
 
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
-  loadMatchups();
+  loadMatchups().then(openRequestedGame);
   wireLiveChannel();
 }
 if (document.readyState === 'loading') {

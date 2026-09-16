@@ -34,9 +34,11 @@ public static class ClipPersistence
         string quality,
         long? objectiveId,
         long? promptId = null,
-        string? sourceKey = null)
+        string? sourceKey = null,
+        IReviewDraftRepository? reviewDrafts = null)
     {
-        var bookmarkId = await vod.AddBookmarkAsync(
+        var bookmarkId = await BookmarkPersistence.AddAsync(
+            vod, objectives,
             gameId: gameId,
             gameTimeSeconds: startS,
             note: note,
@@ -45,16 +47,8 @@ public static class ClipPersistence
             clipPath: clipPath,
             objectiveId: objectiveId,
             quality: quality,
-            promptId: promptId);
-
-        // Tagging the clip to an objective marks it practiced for this game (preserve
-        // any existing execution note — only flip practiced->true, never clobber).
-        if (objectiveId is long oid)
-        {
-            var existing = await objectives.GetGameObjectivesAsync(gameId);
-            var exNote = existing.FirstOrDefault(r => r.ObjectiveId == oid)?.ExecutionNote ?? "";
-            await objectives.RecordGameAsync(gameId, oid, practiced: true, executionNote: exNote);
-        }
+            promptId: promptId,
+            reviewDrafts: reviewDrafts);
 
         // Evidence row: polarity = quality or neutral; a quality-tagged clip is already
         // a judgement (status=evidence), an untagged one needs review.

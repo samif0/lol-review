@@ -92,7 +92,18 @@ async function flushDraft() {
     _draftDirty = false; // claimed by this write; a new edit re-raises it
     try {
       const invoke = await getInvoke();
-      if (invoke) await invoke('save_review_draft', { payload });
+      if (invoke) {
+        const result = await invoke('save_review_draft', { payload });
+        if (result?.ok === false) throw new Error(result.error || 'Draft save failed.');
+        if (Number(_subject?.gameId) === payload.gameId) {
+          const practices = new Map(payload.objectivePractices.map(practice => [String(practice.objectiveId), practice.practiced]));
+          for (const card of document.querySelectorAll('#rv-objectives [data-objective-id]')) {
+            if (practices.has(card.dataset.objectiveId)) {
+              card.dataset.practicedSaved = String(practices.get(card.dataset.objectiveId));
+            }
+          }
+        }
+      }
     } catch (err) {
       // Autosave is best-effort — never surface an error mid-typing, and don't
       // re-raise dirty (a dead backend would spin the loop forever).
@@ -138,6 +149,7 @@ function captureReviewState() {
   const mental = $('rv-mental-input');
   return {
     version: 1, gameId: Number(_subject.gameId), draftDirty: _draftDirty,
+    matchupNote: _matchupState ? { cardId: _matchupState.id, value: _matchupState.value, savedValue: _matchupState.savedValue } : null,
     fields: [...document.querySelectorAll('#rv-fields .rv-field-in')]
       .map(input => ({ field: input.dataset.field, value: input.value })),
     mental: { value: mental.value, touched: mental.dataset.touched || '' },
@@ -147,6 +159,7 @@ function captureReviewState() {
     focus: document.querySelector('#rv-focus .rv-focus-btn.on')?.dataset.focus ?? null,
     objectives: [...document.querySelectorAll('#rv-objectives [data-objective-id]')].map(card => ({
       id: card.dataset.objectiveId, practiced: !!card.querySelector('.rv-practiced-cb')?.checked,
+      practicedBaseline: card.dataset.practicedSaved == null ? null : card.dataset.practicedSaved === 'true',
       note: card.querySelector('.rv-objnote')?.value || '',
       prompts: [...card.querySelectorAll('.rv-prompt-input')].map((input, index) => ({
         id: input.dataset.promptId || null, index, value: input.value, savedValue: input.dataset.savedValue ?? null,
@@ -188,7 +201,13 @@ async function restoreReviewState(state) {
       const saved = objectives.get(card.dataset.objectiveId);
       if (!saved) continue;
       const checkbox = card.querySelector('.rv-practiced-cb'), note = card.querySelector('.rv-objnote');
-      checkbox.checked = saved.practiced === true;
+      // A tagged clip/bookmark can mark practice while this view is away. Use
+      // that fresh value when it changed since capture; otherwise keep raw edits.
+      const freshPractice = checkbox.checked;
+      const practiceChanged = typeof saved.practicedBaseline === 'boolean'
+        ? freshPractice !== saved.practicedBaseline
+        : freshPractice && saved.practiced !== true;
+      checkbox.checked = practiceChanged ? freshPractice : saved.practiced === true;
       card.classList.toggle('is-practiced', checkbox.checked);
       const label = card.querySelector('.rv-switch-lbl');
       if (label) label.textContent = checkbox.checked ? 'Practiced' : 'Not practiced';
@@ -215,9 +234,35 @@ async function restoreReviewState(state) {
     _draftDirty = state.draftDirty === true || before !== JSON.stringify(gatherForm());
     const pendingPrompt = [...document.querySelectorAll('.rv-prompt-input')]
       .some(input => input.value !== (input.dataset.savedValue ?? ''));
+    const matchupDraft = state.matchupNote;
+    if (_matchupState && Number(matchupDraft?.cardId) === _matchupState.id
+        && typeof matchupDraft.value === 'string' && matchupDraft.value !== matchupDraft.savedValue) {
+      _matchupState.value = matchupDraft.value;
+      $('rv-journal-observed').value = matchupDraft.value;
+      autoSize($('rv-journal-observed'));
+      matchupSaveStatus(_matchupState);
+    }
     if (_draftDirty || pendingPrompt || $('rv-tag-input').value) showCommit('Unsaved edits restored.', null);
   } finally {
     _suppressDraft = previousSuppress;
+  }
+}
+
+function markObjectivePracticed(objectiveId, gameId) {
+  if (!(objectiveId > 0) || Number(_subject?.gameId) !== gameId) return;
+  for (const card of document.querySelectorAll('#rv-objectives [data-objective-id]')) {
+    if (Number(card.dataset.objectiveId) !== objectiveId) continue;
+    const checkbox = card.querySelector('.rv-practiced-cb');
+    if (!checkbox) continue;
+    checkbox.checked = true;
+    card.dataset.practicedSaved = 'true';
+    card.classList.add('is-practiced');
+    const label = card.querySelector('.rv-switch-lbl');
+    if (label) label.textContent = 'Practiced';
+    show(card.querySelector('.rv-objnote'), true);
+    // Re-save the latest form after the attachment, even if an overlapping
+    // autosave finished first, so neither write can restore older draft values.
+    markDraftDirty();
   }
 }
 
@@ -436,6 +481,7 @@ function renderObjectives(subject) {
     // save) shows the persisted "Practiced" state instead of reverting to OFF. The
     // server now returns o.practiced / o.executionNote (hydrated per game).
     cb.checked = !!o.practiced;
+    el.dataset.practicedSaved = String(cb.checked);
     el.classList.toggle('is-practiced', cb.checked);
     if (swLbl) swLbl.textContent = cb.checked ? 'Practiced' : 'Not practiced';
     if (note) { note.value = o.executionNote || ''; show(note, cb.checked); }
@@ -884,11 +930,22 @@ async function flushEvidenceWrites() {
 }
 
 async function flushReviewWrites(message) {
-  if (!await flushEvidenceWrites()) {
-    if (typeof message === 'function') message('An evidence change could not be saved. Please retry on its card.');
-    return false;
-  }
-  await flushDraft();
+  do {
+    if (!await flushEvidenceWrites()) {
+      if (typeof message === 'function') message('An evidence change could not be saved. Please retry on its card.');
+      return false;
+    }
+    if (!await flushMatchupNotes()) {
+      const text = 'Your matchup note could not be saved. Please retry before leaving.';
+      showCommit(text, 'err');
+      if (typeof message === 'function') message(text);
+      return false;
+    }
+    await flushDraft();
+    // Notes can change while a review draft (or another granular write) saves.
+    // Drain those edits too before navigating or committing the review.
+  } while (_evidenceWrites.size || _draftDirty || _draftSaving || _promptWrites.size
+    || [..._matchupNotes.values()].some(state => state.pending || state.value !== state.savedValue));
   return true;
 }
 
@@ -929,6 +986,7 @@ function onEvidenceAction(action, el) {
           state.objectiveTitle = objectiveTitle;
           state.clip.objectiveId = objectiveId;
           state.clip.objectiveTitle = objectiveTitle;
+          markObjectivePracticed(objectiveId, gameId);
         }
       } else if (action === 'dismiss') {
         saved = await postWrite('set_evidence_status', { evidenceId, status: 'dismissed' });
@@ -984,6 +1042,120 @@ function applyTagcatSelected(chip, on) {
   } else {
     chip.style.borderColor = '';
     chip.style.color = '';
+  }
+}
+
+// Matchup journal drafts are independent of the review form: they save to the
+// linked card and only update Observed, so an existing pre-game Prior survives.
+const _matchupNotes = new Map();
+let _matchupState = null;
+
+function matchupSaveStatus(state) {
+  if (_matchupState !== state) return;
+  const text = state.error ? 'Could not save this note. Your text is still here.'
+    : state.pending ? 'Saving…'
+      : state.value !== state.savedValue ? 'Unsaved changes' : 'Saved to matchup notes';
+  showCommit(text, state.error ? 'err' : null, 'rv-journal-status');
+  show($('rv-journal-retry'), !!state.error);
+}
+
+function renderMatchupJournal(subject) {
+  const journal = subject.matchupJournal;
+  const gameId = Number(subject.gameId);
+  const card = Number(journal?.card?.gameId) === gameId ? journal.card : null;
+  show($('rv-journal'), !!journal?.enabled || !!card);
+  $('rv-journal-link').href = `matchups.html?gameId=${encodeURIComponent(gameId)}`;
+  show($('rv-journal-editor'), !!card);
+  show($('rv-journal-empty'), !card);
+  show($('rv-journal-prepare'), !card);
+  $('rv-journal-matchup').textContent = card ? `${card.laneLabel} · ${card.matchupTitle}` : '';
+  $('rv-journal-prior').textContent = card?.prior ? `Before this match: ${card.prior}` : '';
+  show($('rv-journal-prior'), !!card?.prior);
+  if (!card) {
+    _matchupState = null;
+    show($('rv-journal-status'), false);
+    show($('rv-journal-retry'), false);
+    return;
+  }
+  const key = `${gameId}:${card.id}`;
+  let state = _matchupNotes.get(key);
+  if (!state) {
+    state = { id: Number(card.id), gameId, value: card.observed || '', savedValue: card.observed || '', pending: null, timer: null, error: false };
+    _matchupNotes.set(key, state);
+  } else if (!state.pending && state.value === state.savedValue) {
+    state.value = state.savedValue = card.observed || '';
+  }
+  _matchupState = state;
+  $('rv-journal-observed').value = state.value;
+  autoSize($('rv-journal-observed'));
+  matchupSaveStatus(state);
+}
+
+function saveMatchupNote(state) {
+  if (!state) return Promise.resolve(true);
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+  if (state.pending) return state.pending;
+  state.pending = (async () => {
+    while (state.value !== state.savedValue) {
+      const observed = state.value;
+      state.error = false;
+      matchupSaveStatus(state);
+      try {
+        const invoke = await getInvoke();
+        if (!invoke) throw new Error('Matchup notes cannot be saved in preview.');
+        const result = await invoke('save_matchup_notes', { payload: { id: state.id, observed } });
+        if (result?.ok !== true) throw new Error(result?.error || 'Note save failed.');
+        state.savedValue = observed;
+      } catch (error) {
+        state.error = true;
+        console.warn('[review] matchup note save failed:', error);
+        return false;
+      }
+    }
+    return true;
+  })().finally(() => {
+    state.pending = null;
+    matchupSaveStatus(state);
+  });
+  matchupSaveStatus(state);
+  return state.pending;
+}
+
+async function flushMatchupNotes() {
+  for (const state of _matchupNotes.values()) {
+    if (!await saveMatchupNote(state)) return false;
+  }
+  return true;
+}
+
+async function prepareMatchupNote(button) {
+  const gameId = Number(_subject?.gameId);
+  if (!(gameId > 0) || button.disabled) return;
+  button.disabled = true;
+  try {
+    if (!await flushReviewWrites()) return;
+    showCommit('Preparing matchup note…', null, 'rv-journal-status');
+    const invoke = await getInvoke();
+    if (!invoke) throw new Error('Preparing a matchup note requires the app.');
+    const result = await invoke('create_matchup_from_game', { payload: { gameId } });
+    if (result?.ok !== true) throw new Error(result?.error || 'Could not prepare this matchup note.');
+    if (Number(_subject?.gameId) !== gameId) return;
+    if (result.partial) {
+      if (await flushReviewWrites()) {
+        matchNav.captureState?.();
+        window.location.href = `matchups.html?gameId=${encodeURIComponent(gameId)}`;
+      }
+      return;
+    }
+    const data = await fetchReview();
+    if (Number(data?.subject?.gameId) === gameId && Number(_subject?.gameId) === gameId) {
+      _subject.matchupJournal = data.subject.matchupJournal;
+      renderMatchupJournal(data.subject);
+    }
+  } catch (error) {
+    showCommit(error?.message || 'Could not prepare this matchup note. Please try again.', 'err', 'rv-journal-status');
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1098,6 +1270,7 @@ function showCommit(text, kind, id = 'rv-commit-msg') {
 // ── empty / error states ────────────────────────────────────────────────────
 function renderEmpty() {
   _subject = null;
+  _matchupState = null;
   matchNav.setGame(null);
   // The form isn't rendered in the empty state, so a queued commit message would
   // otherwise leak onto a later render — drop it here.
@@ -1161,6 +1334,7 @@ function render(d) {
   renderForm(subject);
   renderTagCatalog(subject);
   renderMatchupHistory(subject);
+  renderMatchupJournal(subject);
   renderNextGame(d);
   matchNav.setGame(subject.gameId);
   playEntrance();
@@ -1229,7 +1403,11 @@ window.addEventListener('revu:matchup-updated', async (ev) => {
   if (!shown || (gid > 0 && gid !== shown)) return;
   try {
     const data = await fetchReview();
-    if (data && data.subject) renderHeader(data.subject);
+    if (Number(data?.subject?.gameId) === shown && Number(_subject?.gameId) === shown) {
+      renderHeader(data.subject);
+      _subject.matchupJournal = data.subject.matchupJournal;
+      renderMatchupJournal(data.subject);
+    }
   } catch (err) {
     console.error('[review] header refresh after matchup update failed:', err);
   }
@@ -1270,6 +1448,17 @@ goalDetails.addEventListener('invalid', () => { goalDetails.open = true; }, true
 document.addEventListener('input', (ev) => {
   const t = ev.target;
   if (!t) return;
+  if (t.id === 'rv-journal-observed' && _matchupState) {
+    const state = _matchupState;
+    state.value = t.value;
+    state.error = false;
+    matchNav.enableCapture();
+    autoSize(t);
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => { saveMatchupNote(state); }, 800);
+    matchupSaveStatus(state);
+    return;
+  }
   if (t.id === 'rv-mental-input') {
     $('rv-mental').textContent = t.value;
     t.dataset.touched = '1';
@@ -1308,7 +1497,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // Best-effort flush when the page is being torn down (navigation, app close).
-window.addEventListener('pagehide', () => { flushDraft(); });
+window.addEventListener('pagehide', () => { flushDraft(); flushMatchupNotes(); });
 
 // Tag input: Enter or comma commits the current text as a chip; Backspace on an
 // empty input removes the last chip. Blur also commits any pending text.
@@ -1332,6 +1521,7 @@ document.addEventListener('keydown', (ev) => {
 });
 document.addEventListener('blur', (ev) => {
   if (ev.target && ev.target.id === 'rv-tag-input') commitTagInput();
+  if (ev.target?.id === 'rv-journal-observed') saveMatchupNote(_matchupState);
 }, true);
 
 // ── delegated granular-write handlers (immediate persist) ───────────────────
@@ -1419,7 +1609,7 @@ document.addEventListener('input', (ev) => {
 // review_vod  = primary launch action (resume this match's VOD workspace).
 // save_review = gather the editable form and COMMIT (no un-review), then refetch.
 // skip_review = mark the game reviewed without notes, then refetch.
-const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed']);
+const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed', 'prepare_matchup_note', 'retry_matchup_note']);
 
 document.addEventListener('click', async (ev) => {
   // An evidence card jump must NOT fire when the click landed on its inner triage
@@ -1431,6 +1621,9 @@ document.addEventListener('click', async (ev) => {
   const action = target.dataset.action;
   if (!ACTIONS.has(action)) return;
   ev.preventDefault();
+
+  if (action === 'prepare_matchup_note') { await prepareMatchupNote(target); return; }
+  if (action === 'retry_matchup_note') { await saveMatchupNote(_matchupState); return; }
 
   // The shared controller adds resume=1 for this match and waits for draft
   // writes. Omitting t/clip retains the user's saved VOD position and tools.
@@ -1488,7 +1681,7 @@ document.addEventListener('click', async (ev) => {
     if (delBtn) delBtn.disabled = true;
     showCommit('Deleting…', null);
     try {
-      await flushDraft();
+      if (!await flushReviewWrites()) throw new Error('Please save your pending changes before deleting this review.');
       cancelDraft();
       _suppressDraft = true;
       // delete_review takes a single {payload} arg in the bridge (the {payload} convention).
@@ -1609,8 +1802,7 @@ document.addEventListener('click', async (ev) => {
   // it can't fire mid-save and resurrect the draft.
   try {
     if (action === 'save_review' || action === 'skip_review') {
-      if (!await flushEvidenceWrites()) throw new Error('An evidence change could not be saved. Please retry on its card.');
-      await flushDraft();
+      if (!await flushReviewWrites()) throw new Error('Please retry the pending changes before saving this review.');
       cancelDraft();
       _suppressDraft = true;
       // Include edits made while an earlier autosave was finishing.
@@ -1651,7 +1843,7 @@ document.addEventListener('click', async (ev) => {
 let _reviewLinkNavigation = 0;
 document.addEventListener('click', async (event) => {
   if (event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-  const link = event.target.closest('.match-library-link, .nav-i');
+  const link = event.target.closest('.match-library-link, .nav-i, .rv-journal-link');
   const href = link?.getAttribute('href');
   if (!href) return;
   event.preventDefault();

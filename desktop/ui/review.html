@@ -108,6 +108,25 @@
           <div id="rv-fields"></div>
         </form>
 
+        <section class="rv-journal" id="rv-journal" aria-labelledby="rv-journal-title" hidden>
+          <div class="rv-section-heading">
+            <h3 id="rv-journal-title">Matchup note</h3>
+            <a class="rv-journal-link" id="rv-journal-link" href="matchups.html">Open in matchup notes →</a>
+          </div>
+          <p class="field-help" id="rv-journal-matchup"></p>
+          <p class="rv-journal-prior" id="rv-journal-prior" hidden></p>
+          <div id="rv-journal-editor" hidden>
+            <label class="rv-field-k" for="rv-journal-observed">What did you learn about this matchup?</label>
+            <textarea class="rv-journal-input" id="rv-journal-observed" rows="2" placeholder="Trades, timings, or something to remember next time…"></textarea>
+          </div>
+          <p class="field-help" id="rv-journal-empty">Prepare a note with this match’s lane and champions, then add what you learned.</p>
+          <div class="rv-journal-actions">
+            <button type="button" class="review" id="rv-journal-prepare" data-action="prepare_matchup_note">Prepare matchup note</button>
+            <span class="field-help" id="rv-journal-status" role="status" hidden></span>
+            <button type="button" class="review" id="rv-journal-retry" data-action="retry_matchup_note" hidden>Retry save</button>
+          </div>
+        </section>
+
         <div class="rv-commitbar" id="rv-commitbar">
           <button type="button" class="cta rv-savebtn" id="rv-savebtn" data-action="save_review">Save review</button>
           <span class="rv-commit-msg" id="rv-commit-msg" role="status" hidden></span>
