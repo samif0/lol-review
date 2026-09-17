@@ -26,9 +26,10 @@ export const CLIP_TTL_SECONDS = 3 * 24 * 60 * 60;
 // public endpoint must bound size regardless of client.
 //
 // Capped at 100 MB — deliberately UNDER the Cloudflare Workers isolate memory
-// limit (~128 MB). The upload handler buffers the body with arrayBuffer()
-// before it can measure it, so a ceiling at/above the isolate limit would let a
-// large body OOM-crash the isolate before the size check runs (memory-DoS). A
+// limit (~128 MB). The upload handler never buffers the body (it is streamed to
+// R2 and the cap is enforced against the mandatory Content-Length before a byte
+// is read), but keep the ceiling below the isolate limit regardless so no future
+// buffered path can OOM the isolate before a size check runs (memory-DoS). A
 // 90s high-bitrate 1080p clip lands well under this; clients that need more
 // must transcode down first.
 export const MAX_CLIP_BYTES = 100 * 1024 * 1024;
@@ -56,6 +57,10 @@ function hasVideoMagicBytes(bytes: Uint8Array, contentType: string): boolean {
   return bytes.length >= 12
     && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70; // "ftyp"
 }
+
+// The sniff needs the first 12 bytes (mp4 "ftyp" box check reads [4..8)); read a
+// round 16 from the stored object.
+const MAGIC_PREFIX_BYTES = 16;
 
 // Slug shape: 7 chars of base62. ~62^7 ≈ 3.5e12 — plenty for a 30-day window.
 const SLUG_LENGTH = 7;
@@ -294,32 +299,37 @@ export async function handleUploadClip(
 
   const tooLargeMessage = `clip exceeds ${Math.floor(MAX_CLIP_BYTES / (1024 * 1024))} MB`;
 
-  // Fast-reject on a declared length before reading a single byte. Honest
-  // clients (the desktop app always sets Content-Length) never reach the
-  // streaming guard below.
-  const lenHeader = request.headers.get("Content-Length");
-  const declaredLen = lenHeader ? parseInt(lenHeader, 10) : NaN;
-  if (Number.isFinite(declaredLen) && declaredLen > MAX_CLIP_BYTES) {
+  // A declared Content-Length is REQUIRED, and it is checked before a single body
+  // byte is read. R2 can only stream a body natively when its length is known up
+  // front; the only alternative for an undeclared body is materialising it in
+  // isolate memory up to the cap, which costs roughly twice the cap (chunk list
+  // plus the merged copy) — over the ~128 MB isolate limit, i.e. a memory-DoS
+  // lever for any logged-in user. The desktop app always sets Content-Length
+  // (ClipUploadService.cs), so refusing an undeclared body loses nothing. Strict
+  // digits only: parseInt would accept "1e9" as 1.
+  const lenHeader = request.headers.get("Content-Length")?.trim() ?? null;
+  const declaredLen = lenHeader !== null && /^\d{1,15}$/.test(lenHeader) ? Number(lenHeader) : NaN;
+  if (!Number.isFinite(declaredLen)) {
+    return jsonResponse({ error: "length_required", message: "Content-Length is required" }, 411);
+  }
+  if (declaredLen > MAX_CLIP_BYTES) {
     return jsonResponse({ error: "payload_too_large", message: tooLargeMessage }, 413);
   }
-
-  if (!request.body) {
+  if (declaredLen === 0 || !request.body) {
     return badRequest("empty body");
   }
 
   const now = Math.floor(Date.now() / 1000);
 
-  // Pre-upload quota check on what we know UP FRONT: the active-clip COUNT (which
-  // doesn't depend on this file's size) and, when the client declares a length,
-  // the byte total. The honest desktop always sends Content-Length, so the byte
-  // ceiling is enforced here before a single byte is streamed; a missing length
-  // still gets the COUNT gate now and the precise byte recount after the stream.
+  // Pre-upload quota check on what we know UP FRONT: the active-clip COUNT and the
+  // byte total including this file's declared length — so the byte ceiling is
+  // enforced here before a single byte is streamed. A precise recount runs after
+  // the row is committed (see below) to close the concurrent-upload race.
   const usage = await env.DB
     .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND expires_at > ?2")
     .bind(userId, now)
     .first<{ n: number; total: number }>();
-  const declaredAddsBytes = Number.isFinite(declaredLen) ? declaredLen : 0;
-  if (usage && (usage.n >= MAX_ACTIVE_CLIPS_PER_USER || usage.total + declaredAddsBytes > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
+  if (usage && (usage.n >= MAX_ACTIVE_CLIPS_PER_USER || usage.total + declaredLen > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
     return jsonResponse(
       { error: "quota_exceeded", message: "active clip quota reached — delete old clips or let them expire" },
       403,
@@ -351,50 +361,40 @@ export async function handleUploadClip(
   //      kills on a warm isolate whose per-request budget was already drained by a
   //      prior upload — that's the "2 succeed then it breaks" pattern).
   //
-  // The fix: `env.CLIPS.put(r2Key, request.body, ...)`. When the incoming request
-  // has a Content-Length (the desktop always sets it — ClipUploadService.cs), R2
-  // treats request.body as a KNOWN-LENGTH stream and consumes it in the runtime's
-  // C++ layer — the isolate never touches the bulk bytes, so upload CPU no longer
-  // scales with file size. No TransformStream, no FixedLengthStream, no pipeTo, no
-  // custom ReadableStream, no allSettled: one producer, one consumer, one await.
+  // The fix: `env.CLIPS.put(r2Key, request.body, ...)`. The request carries a
+  // Content-Length (required above; the desktop always sets it —
+  // ClipUploadService.cs), so R2 treats request.body as a KNOWN-LENGTH stream and
+  // consumes it in the runtime's C++ layer — the isolate never touches the bulk
+  // bytes, so upload CPU no longer scales with file size. No TransformStream, no
+  // FixedLengthStream, no pipeTo, no custom ReadableStream, no allSettled: one
+  // producer, one consumer, one await. Cloudflare enforces the declared length on
+  // the wire, so the stored object is at most MAX_CLIP_BYTES.
   //
-  // The magic-byte sniff is dropped on this path: it's defense-in-depth, not a
-  // correctness gate — size is already bounded by the Content-Length fast-reject
-  // above AND Cloudflare's own Content-Length enforcement, and the only real client
-  // is the desktop app. The no-Content-Length path (abuse / misbehaving client) keeps
-  // the bounded buffered read + guard, which is where a byte cap + sniff actually
-  // matter and where buffering a capped amount is acceptable.
-  let uploadedBytes = 0;
+  // The magic-byte sniff runs AFTER the put, on a 16-byte ranged read of the
+  // stored object, so it costs O(1) regardless of file size and stays off the
+  // streaming hot path. It is what makes the declared video type mean something:
+  // without it any bytes at all would be served under video/mp4|webm.
+  const uploadedBytes = declaredLen;
+  let head: Uint8Array;
   try {
-    if (Number.isFinite(declaredLen) && declaredLen > 0) {
-      // Known length via the request's Content-Length → R2 streams it natively.
-      await env.CLIPS.put(r2Key, request.body, { httpMetadata: { contentType } });
-      uploadedBytes = declaredLen;
-    } else {
-      // Unknown length → bounded buffered read (rare path; still cap + magic enforced
-      // via the guard, which only matters here where the platform can't bound size).
-      const guard = new ClipUploadGuard(MAX_CLIP_BYTES, contentType);
-      const guarded = request.body.pipeThrough(guard.transform);
-      const buf = await readGuardedToBuffer(guarded);
-      uploadedBytes = buf.byteLength;
-      await env.CLIPS.put(r2Key, buf, { httpMetadata: { contentType } });
-    }
+    await env.CLIPS.put(r2Key, request.body, { httpMetadata: { contentType } });
+    const stored = await env.CLIPS.get(r2Key, { range: { offset: 0, length: MAGIC_PREFIX_BYTES } });
+    head = stored ? new Uint8Array(await stored.arrayBuffer()) : new Uint8Array(0);
   } catch (err) {
     // Best-effort delete any partial object R2 may have started.
     try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
-    if (err instanceof PayloadTooLargeError) {
-      return jsonResponse({ error: "payload_too_large", message: tooLargeMessage }, 413);
-    }
-    if (err instanceof BadMagicError) {
-      return jsonResponse(
-        { error: "unsupported_media_type", message: "file content does not match the declared video type" },
-        415,
-      );
-    }
-    if (err instanceof EmptyBodyError) {
-      return badRequest("empty body");
-    }
     throw err; // genuine R2 failure → bubbles to the dispatch catch (clean 502)
+  }
+  if (head.byteLength === 0) {
+    try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
+    return badRequest("empty body");
+  }
+  if (!hasVideoMagicBytes(head, contentType)) {
+    try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
+    return jsonResponse(
+      { error: "unsupported_media_type", message: "file content does not match the declared video type" },
+      415,
+    );
   }
 
   const expiresAt = now + CLIP_TTL_SECONDS;
@@ -575,110 +575,6 @@ export async function purgeExpiredClips(env: Env): Promise<number> {
 }
 
 // ── small utils ────────────────────────────────────────────────────────────
-
-/** Stream errored because the body exceeded the byte cap. */
-class PayloadTooLargeError extends Error {}
-/** Stream errored because the leading bytes aren't the declared video type. */
-class BadMagicError extends Error {}
-/** Stream errored because the body had zero bytes. */
-class EmptyBodyError extends Error {}
-
-// Magic-byte sniff needs the first 12 bytes (mp4 "ftyp" box check reads [4..8)).
-const MAGIC_PREFIX_BYTES = 16;
-
-/**
- * A pass-through guard for the clip upload stream. Sits between the request body
- * and R2.put: it counts bytes and ERRORS the stream past `maxBytes` (memory-DoS
- * cap, enforced even when Content-Length is absent/lying), validates the leading
- * bytes against the declared content type (magic-byte sniff), and rejects an
- * empty body — all WITHOUT buffering the whole file. Only a tiny header slice
- * (<= MAGIC_PREFIX_BYTES) is ever held; the rest flows straight through to R2.
- *
- * On any violation the underlying TransformStream is errored with the matching
- * typed error, which rejects the awaiting R2.put so the caller can map it to the
- * right HTTP status (same contract the old buffered path returned).
- */
-class ClipUploadGuard {
-  readonly transform: TransformStream<Uint8Array, Uint8Array>;
-  bytesSeen = 0;
-
-  constructor(maxBytes: number, contentType: string) {
-    let header: Uint8Array | null = null; // accumulates up to MAGIC_PREFIX_BYTES
-    let validated = false;
-
-    const validateMagic = (controller: TransformStreamDefaultController<Uint8Array>): boolean => {
-      if (validated || header === null) return true;
-      if (!hasVideoMagicBytes(header, contentType)) {
-        controller.error(new BadMagicError());
-        return false;
-      }
-      validated = true;
-      return true;
-    };
-
-    this.transform = new TransformStream<Uint8Array, Uint8Array>({
-      transform: (chunk, controller) => {
-        if (chunk.byteLength === 0) return;
-        this.bytesSeen += chunk.byteLength;
-        if (this.bytesSeen > maxBytes) {
-          controller.error(new PayloadTooLargeError());
-          return;
-        }
-
-        // Collect the header slice for the magic-byte sniff. Once we have enough
-        // (or the body ends), validate before passing anything further downstream.
-        if (!validated) {
-          if (header === null) {
-            header = chunk.slice(0, Math.min(chunk.byteLength, MAGIC_PREFIX_BYTES));
-          } else if (header.length < MAGIC_PREFIX_BYTES) {
-            const need = MAGIC_PREFIX_BYTES - header.length;
-            const merged = new Uint8Array(header.length + Math.min(need, chunk.byteLength));
-            merged.set(header, 0);
-            merged.set(chunk.slice(0, Math.min(need, chunk.byteLength)), header.length);
-            header = merged;
-          }
-          if (header.length >= MAGIC_PREFIX_BYTES && !validateMagic(controller)) return;
-        }
-
-        controller.enqueue(chunk);
-      },
-      flush: (controller) => {
-        if (this.bytesSeen === 0) {
-          controller.error(new EmptyBodyError());
-          return;
-        }
-        // A body shorter than MAGIC_PREFIX_BYTES never tripped the mid-stream
-        // validation — validate the short header now (and reject if it's bogus).
-        validateMagic(controller);
-      },
-    });
-  }
-}
-
-/**
- * Drain an already-guarded stream into one ArrayBuffer. Used only on the no-
- * Content-Length fallback (R2 needs a known length to stream; without one we have
- * to materialize). The guard upstream already capped bytes + sniffed magic and
- * propagates a typed error here, so this never holds more than the cap.
- */
-async function readGuardedToBuffer(stream: ReadableStream<Uint8Array>): Promise<ArrayBuffer> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) { chunks.push(value); total += value.byteLength; }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
-  return out.buffer;
-}
 
 function clampText(value: string | null, max: number): string | null {
   if (value === null) return null;

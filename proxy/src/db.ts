@@ -173,3 +173,14 @@ export async function tryConsumeLoginRequest(
   if ((upd.meta.changes ?? 0) === 0) return null; // race: another request consumed it
   return row;
 }
+
+/**
+ * Reap login requests past their expiry (consumed or not). /auth/login and
+ * /auth/signup are unauthenticated and insert a row per call, so without this
+ * the table grows without bound. Run from the daily cron alongside the session
+ * purge; idx_login_requests_expires makes it cheap.
+ */
+export async function deleteExpiredLoginRequests(db: D1Database): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  await db.prepare("DELETE FROM login_requests WHERE expires_at <= ?1").bind(now).run();
+}
