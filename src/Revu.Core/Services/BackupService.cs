@@ -1,9 +1,21 @@
 #nullable enable
 
 using Revu.Core.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
 namespace Revu.Core.Services;
+
+/// <summary>
+/// Outcome of vetting a restore candidate. When <see cref="Ok"/> is true,
+/// <see cref="FullPath"/> is the canonical path the restore should copy from;
+/// otherwise <see cref="Error"/> carries a user-facing reason.
+/// </summary>
+internal sealed record RestoreCandidateCheck(bool Ok, string? FullPath, string? Error)
+{
+    public static RestoreCandidateCheck Accept(string fullPath) => new(true, fullPath, null);
+    public static RestoreCandidateCheck Reject(string error) => new(false, null, error);
+}
 
 /// <summary>
 /// Database backup service. Two modes:
@@ -353,14 +365,23 @@ public sealed class BackupService : IBackupService
 
     public async Task<RestoreResult> RestoreFromBackupAsync(string backupFilePath)
     {
-        if (string.IsNullOrEmpty(backupFilePath) || !File.Exists(backupFilePath))
-        {
-            return new RestoreResult(false, null, "Backup file not found.");
-        }
-
         var dbPath = _connectionFactory.DatabasePath;
         var dataDir = Path.GetDirectoryName(dbPath)!;
         var backupDir = Path.Combine(dataDir, "backups");
+
+        // Vet the candidate BEFORE anything touches the live DB or the backups
+        // folder. The caller (sidecar route) forwards whatever path it was
+        // given; only a healthy SQLite file sitting in one of our two backup
+        // locations may replace revu.db. A rejection leaves no trace: no
+        // checkpoint, no pre-restore snapshot, no delete.
+        var check = ValidateRestoreCandidate(backupFilePath, backupDir, _config.BackupFolder);
+        if (!check.Ok)
+        {
+            _logger.LogWarning("Restore rejected for {Path}: {Reason}", backupFilePath, check.Error);
+            return new RestoreResult(false, null, check.Error);
+        }
+        var sourcePath = check.FullPath!;
+
         Directory.CreateDirectory(backupDir);
 
         // Back up the current DB first so the restore is itself reversible.
@@ -392,8 +413,8 @@ public sealed class BackupService : IBackupService
 
         try
         {
-            File.Copy(backupFilePath, dbPath, overwrite: false);
-            _logger.LogInformation("Restored DB from {Source}", backupFilePath);
+            File.Copy(sourcePath, dbPath, overwrite: false);
+            _logger.LogInformation("Restored DB from {Source}", sourcePath);
         }
         catch (Exception ex)
         {
@@ -419,6 +440,155 @@ public sealed class BackupService : IBackupService
 
         await Task.CompletedTask;
         return new RestoreResult(true, preRestorePath, null);
+    }
+
+    // ── Restore candidate validation ────────────────────────────────
+
+    /// <summary>First 16 bytes of every SQLite 3 database file.</summary>
+    private static readonly byte[] SqliteHeader = "SQLite format 3\0"u8.ToArray();
+
+    /// <summary>
+    /// Windows and macOS file systems are case-insensitive by default, so
+    /// directory comparisons must be too; Linux is case-sensitive.
+    /// </summary>
+    private static readonly StringComparison PathComparison =
+        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+    /// <summary>
+    /// Decides whether <paramref name="path"/> may be copied over the live DB.
+    /// It must (a) canonicalise to a file sitting DIRECTLY inside
+    /// <paramref name="backupsDir"/> (the only place <see cref="ListBackupsAsync"/>
+    /// enumerates) or the user's configured <paramref name="userBackupFolder"/>
+    /// when one is set; (b) carry a <c>.db</c> extension; (c) be non-empty and
+    /// start with the SQLite 3 magic header; (d) pass <c>PRAGMA quick_check</c>
+    /// when opened read-only. Any miss yields a user-facing rejection so a
+    /// stray, truncated, or non-SQLite file can never be swapped in.
+    /// </summary>
+    internal static RestoreCandidateCheck ValidateRestoreCandidate(
+        string path, string backupsDir, string? userBackupFolder)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return RestoreCandidateCheck.Reject("Backup file not found.");
+
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception)
+        {
+            return RestoreCandidateCheck.Reject("Backup file path is not valid.");
+        }
+
+        if (!File.Exists(fullPath))
+            return RestoreCandidateCheck.Reject("Backup file not found.");
+
+        // (a) Location allowlist. Compare the canonical parent directory
+        // against the canonical allowed directories — "directly inside", not
+        // "somewhere beneath", so sub-folders and traversal both fall out.
+        var parent = Path.GetDirectoryName(fullPath);
+        if (parent is null
+            || (!IsSameDirectory(parent, backupsDir) && !IsSameDirectory(parent, userBackupFolder)))
+        {
+            return RestoreCandidateCheck.Reject(
+                "Only backups in Revu's backups folder or your configured backup folder can be restored.");
+        }
+
+        // (b) Extension.
+        if (!string.Equals(Path.GetExtension(fullPath), ".db", StringComparison.OrdinalIgnoreCase))
+            return RestoreCandidateCheck.Reject("Backup file must be a .db file.");
+
+        // (c) Non-empty + SQLite magic header.
+        try
+        {
+            using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (stream.Length == 0)
+                return RestoreCandidateCheck.Reject("Backup file is empty.");
+
+            var header = new byte[SqliteHeader.Length];
+            var read = 0;
+            while (read < header.Length)
+            {
+                var n = stream.Read(header, read, header.Length - read);
+                if (n <= 0) break;
+                read += n;
+            }
+            if (read < header.Length || !header.AsSpan().SequenceEqual(SqliteHeader))
+                return RestoreCandidateCheck.Reject("Backup file is not a SQLite database.");
+        }
+        catch (Exception)
+        {
+            return RestoreCandidateCheck.Reject("Backup file could not be read.");
+        }
+
+        // (d) Structural integrity. Read-only + no pooling so the check never
+        // writes to the candidate and never leaves a cached handle behind
+        // that would fight the File.Copy / delete that follows.
+        //
+        // Our backups are copies of a WAL-mode DB, so even a read-only open
+        // makes SQLite create empty -wal/-shm sidecars next to the file.
+        // Remember which sidecars already existed and remove the ones the
+        // probe conjured up, so the backups folder stays exactly as it was.
+        var sidecars = new[] { fullPath + "-wal", fullPath + "-shm", fullPath + "-journal" };
+        var preExisting = sidecars.Where(File.Exists).ToHashSet(StringComparer.Ordinal);
+        try
+        {
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = fullPath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString();
+
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA quick_check;";
+            var verdict = cmd.ExecuteScalar() as string;
+            if (!string.Equals(verdict, "ok", StringComparison.OrdinalIgnoreCase))
+                return RestoreCandidateCheck.Reject("Backup file failed the SQLite integrity check.");
+        }
+        catch (Exception)
+        {
+            return RestoreCandidateCheck.Reject("Backup file could not be opened as a SQLite database.");
+        }
+        finally
+        {
+            foreach (var sidecar in sidecars)
+            {
+                if (preExisting.Contains(sidecar)) continue;
+                try
+                {
+                    if (File.Exists(sidecar)) File.Delete(sidecar);
+                }
+                catch (Exception)
+                {
+                    // Best-effort tidy-up; a stray empty sidecar is harmless.
+                }
+            }
+        }
+
+        return RestoreCandidateCheck.Accept(fullPath);
+    }
+
+    private static bool IsSameDirectory(string candidateParent, string? allowedDir)
+    {
+        if (string.IsNullOrWhiteSpace(allowedDir)) return false;
+
+        string canonicalAllowed;
+        try
+        {
+            canonicalAllowed = Path.GetFullPath(allowedDir);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(candidateParent),
+            Path.TrimEndingDirectorySeparator(canonicalAllowed),
+            PathComparison);
     }
 
     // filename format: <prefix>yyyyMMdd_HHmmss.db
