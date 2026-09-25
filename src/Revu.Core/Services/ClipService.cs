@@ -46,7 +46,7 @@ public sealed partial class ClipService : IClipService
             var pathResult = FindInPath("ffmpeg");
             if (pathResult is not null) { _logger.LogInformation("Found ffmpeg in PATH: {Path}", pathResult); return pathResult; }
 
-            // 3. Check common Windows locations
+            // 3. Check well-known per-user and Program Files locations
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -60,19 +60,8 @@ public sealed partial class ClipService : IClipService
                     .FirstOrDefault();
             }
 
-            string?[] commonPaths =
-            [
-                Path.Combine(localAppData, "Revu", "ffmpeg.exe"),
-                Path.Combine(programFiles, "ffmpeg", "bin", "ffmpeg.exe"),
-                @"C:\ffmpeg\bin\ffmpeg.exe",
-                @"C:\ffmpeg\ffmpeg.exe",
-                Path.Combine(userProfile, "scoop", "shims", "ffmpeg.exe"),
-                wingetFfmpeg,
-            ];
-
-            foreach (var path in commonPaths)
+            foreach (var path in FfmpegCandidatePaths(localAppData, programFiles, userProfile, wingetFfmpeg))
             {
-                if (path is null) continue;
                 _logger.LogDebug("Checking ffmpeg path: {Path}", path);
                 if (File.Exists(path)) { _logger.LogInformation("Found ffmpeg: {Path}", path); return path; }
             }
@@ -80,6 +69,30 @@ public sealed partial class ClipService : IClipService
             _logger.LogWarning("ffmpeg not found in any checked location");
             return null;
         });
+    }
+
+    /// <summary>
+    /// Ordered list of well-known ffmpeg install locations probed after the bundled
+    /// copy and PATH. Only directories owned by the current user or an administrator
+    /// are listed (the user's profile, Program Files); folders directly under a drive
+    /// root are deliberately excluded because any local account can create them.
+    /// Pure function of the caller-supplied folders so it can be unit tested; a null
+    /// <paramref name="wingetHit"/> is simply omitted.
+    /// </summary>
+    internal static IReadOnlyList<string> FfmpegCandidatePaths(
+        string localAppData,
+        string programFiles,
+        string userProfile,
+        string? wingetHit)
+    {
+        var candidates = new List<string>
+        {
+            Path.Combine(localAppData, "Revu", "ffmpeg.exe"),
+            Path.Combine(programFiles, "ffmpeg", "bin", "ffmpeg.exe"),
+            Path.Combine(userProfile, "scoop", "shims", "ffmpeg.exe"),
+        };
+        if (wingetHit is not null) candidates.Add(wingetHit);
+        return candidates;
     }
 
     /// <inheritdoc />
