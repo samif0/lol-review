@@ -19,7 +19,9 @@ update `tokens.css` to match.
 
 ## Files
 
-- `index.html` + `app.js`: home page and the in-browser web review tool
+- `index.html` + `app.js`: home page and the in-browser web review tool;
+  `turnstile-ready.js` reserves the Turnstile onload callback before the
+  async loader runs, and `version-chip.js` refreshes the header pill version
 - `learn.html` + `download.js`: desktop app page; `download.js` rewrites the
   download button href from the latest GitHub release on page load and falls
   back to the static installer URL
@@ -28,6 +30,17 @@ update `tokens.css` to match.
 - `privacy.html`, `terms.html`, `discord.html` (`discord/index.html` is an
   identical copy for the `/discord/` route)
 - `lightbox.js`: screenshot lightbox on the desktop app page
+- Web accounts (email code sign-in, served at `/sign-in`, `/my-clips`,
+  `/account`):
+  - `account-api.js`: the only client for `clips.revu.lol/auth/web/*`
+    (credentialed CORS, `X-Revu-CSRF`, error copy, formatters); it stores
+    only the `revu.web.signedIn.v1` hint, never a token or email
+  - `sign-in.html` + `sign-in.js`: email, Turnstile, then the one-time code
+  - `my-clips.html` + `my-clips.js`: the signed-in user's shared clips
+  - `account.html` + `account.js`: sign out, sign out everywhere on the web,
+    delete account
+  - `header-account.js`: swaps the header "Sign in" link for "My clips"
+    from the hint, with no network call
 - `_headers`: security headers and CSPs (the clip page has its own)
 - `revu.svg`, `favicon.ico`, `icon-*.png`, `revu-mark.png`: brand assets
   copied from `desktop/electron/branding/`
@@ -41,7 +54,22 @@ Every page loads the stylesheets in this order:
 2. `styles.css`: base, header, footer, buttons, forms, cards, lightbox, legal
    pages and the desktop app page
 3. the page stylesheet, if any: `webapp.css` (web review tool on the home
-   page) or `clip.css` (clip page)
+   page), `clip.css` (clip page) or `account.css` (sign-in, My clips and
+   Account pages)
+
+## Scripts and CSP
+
+Every revu.lol page sits inside the web account trust boundary: any script
+on revu.lol can call the credentialed account API on `clips.revu.lol`. So
+no page may use inline scripts or inline event handlers, and `_headers`
+never allows `'unsafe-inline'` in `script-src`. Put page JS in a `.js`
+file loaded with `src`.
+
+The one exception is `clip.html`, whose JS stays in its first inline
+`<script>` so `tests/` can run it. Its `/clip` and `/clip.html` CSPs allow
+that script by sha256, once for LF and once for CRLF line endings. Any edit
+to that script must update both hashes in `_headers`;
+`tests/headers.test.mjs` recomputes them and fails until they match.
 
 ## Edit + preview locally
 
@@ -53,6 +81,20 @@ python -m http.server 8000
 
 The clip page accepts `?proxy=http://localhost:8787` (localhost or 127.0.0.1
 only) to read clips from a local `wrangler dev` proxy.
+
+## Local account dev
+
+Run these in two terminals from the repo root:
+
+```sh
+cd proxy && npx wrangler dev            # Worker on 8787, with .dev.vars
+cd site && npx wrangler pages dev . --port 8788
+```
+
+Open http://localhost:8788 (not 127.0.0.1) in Chrome or Firefox. On
+localhost the account pages call `http://localhost:8787` and use the
+Turnstile test key. `wrangler pages dev` applies `_headers`, so CSP errors
+show up in the console the same way they would in production.
 
 ## Tests
 
@@ -68,6 +110,13 @@ Commit first, then deploy manually via wrangler (must `cd site` first):
 cd site
 npx wrangler pages deploy . --project-name=revu-site --branch=main
 ```
+
+For a change that touches web accounts, deploy in this order: apply the
+proxy D1 migration, deploy the proxy, commit, then run
+`npx wrangler pages deploy` for the site.
+
+Keep Cloudflare Rocket Loader off for revu.lol. It rewrites script tags,
+which breaks the strict CSP.
 
 Deploys are not triggered by git. Deploying an uncommitted or stale tree has
 clobbered the live site before, so always deploy from a committed checkout.

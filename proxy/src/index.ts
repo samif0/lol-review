@@ -10,7 +10,7 @@
  */
 
 import { handleLogin, handleLogout, handleSignup, handleVerify } from "./auth";
-import { findSession, deleteExpiredSessions } from "./db";
+import { findSession, deleteExpiredSessions, deleteExpiredLoginRequests } from "./db";
 import { Env } from "./types";
 import { GlobalRateLimiter } from "./ratelimit";
 import { sha256Hex, sha256Prefix } from "./crypto";
@@ -27,6 +27,8 @@ import {
   renderClipOgPage,
 } from "./clips";
 import { handleUploadComplete, handleUploadInit, handleUploadPart } from "./clip-uploads";
+import { dispatchWebAccount } from "./web-auth";
+import { webJson, webPreflight } from "./web-http";
 import {
   handleDeleteTranscript,
   handleGetTranscript,
@@ -163,6 +165,10 @@ async function authOrDeny(
   }
   const token = authHeader.slice(prefix.length).trim();
   if (!token) return jsonResponse({ error: "empty_token" }, 401);
+  // Web sessions are stored as sha256("web:" + token) (web-http.ts) and the desktop
+  // lookup below has no kind filter, so a Bearer of "web:<cookie token>" would hash to
+  // the web row. Desktop tokens are hex and never contain ':'; refuse the prefix outright.
+  if (token.startsWith("web:")) return jsonResponse({ error: "invalid_token" }, 401);
 
   const tokenHash = await sha256Hex(token);
 
@@ -687,6 +693,11 @@ export default {
           console.error(JSON.stringify({ scope: "cron.sessions", error: (err as Error).message }));
         }
         try {
+          await deleteExpiredLoginRequests(env.DB);
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.login_requests", error: (err as Error).message }));
+        }
+        try {
           await pruneTranscribeUsage(env);
         } catch (err) {
           console.error(JSON.stringify({ scope: "cron.transcribe_usage", error: (err as Error).message }));
@@ -701,6 +712,8 @@ export default {
     const cors = corsHeadersFor(origin, env);
 
     if (request.method === "OPTIONS") {
+      // The credentialed web account API has its own host-pinned preflight.
+      if (url.pathname.startsWith("/auth/web/")) return webPreflight(request, url, env);
       return new Response(null, { status: 204, headers: cors });
     }
 
@@ -720,7 +733,7 @@ export default {
         // Serve a server-rendered page with per-clip Open Graph **video** tags so
         // Discord/Twitter/Slack embed an inline player (crawlers don't run JS, so
         // the static watch page can't do this). Humans are redirected onward by
-        // the page's meta-refresh + JS. Missing/expired clip → plain redirect to
+        // the page's meta-refresh (no script). Missing/expired clip → plain redirect to
         // the watch page's "not found" state.
         const og = await renderClipOgPage(env, seg);
         if (og) return og;
@@ -758,6 +771,16 @@ export default {
         ),
         cors,
       );
+    }
+
+    // ── Web accounts (revu.lol, cookie sessions; host-pinned to AUTH_BASE) ──
+    // Never wrapped in withCors: these responses carry their own CORS and Set-Cookie.
+    try {
+      const webResponse = await dispatchWebAccount(request, url, env);
+      if (webResponse) return webResponse;
+    } catch (err) {
+      console.error(JSON.stringify({ scope: "web.dispatch", path: url.pathname, method: request.method, error: (err as Error)?.message ?? String(err) }));
+      return webJson({ error: "server_error" }, 500, request, env);
     }
 
     if (!env.RIOT_API_KEY) {

@@ -56,6 +56,27 @@ PUBLIC_BASE = "https://clips.revu.lol"
 # redirects clips.revu.lol/<id> here. No trailing slash.
 WATCH_BASE = "https://revu.lol"
 
+# Web accounts (revu.lol sign-in, My clips, Account). The cookie-authenticated
+# /auth/web/* API answers ONLY on this origin's host; on any other host
+# (including workers.dev, which is on the Public Suffix List) it is 404 and no
+# cookie is ever set. No trailing slash.
+AUTH_BASE = "https://clips.revu.lol"
+# Exact Origins allowed to call /auth/web/* with credentials. Kept separate from
+# ALLOWED_ORIGINS above, which includes localhost.
+CREDENTIALED_ORIGINS = "https://revu.lol,https://www.revu.lol"
+# Hostnames a web sign-in Turnstile token must be issued for. Leaving this
+# empty disables web sign-in (providers is [] and start returns 503).
+TURNSTILE_HOSTNAMES = "revu.lol,www.revu.lol"
+# Local dev overrides these in the gitignored proxy/.dev.vars (never commit it,
+# and never put TURNSTILE_DEV_RELAX in this file):
+#   AUTH_BASE=http://localhost:8787
+#   CREDENTIALED_ORIGINS=http://localhost:8788
+#   TURNSTILE_DEV_RELAX=1
+#   TURNSTILE_SECRET_KEY=<Cloudflare's documented always-pass test secret>
+#   RESEND_API_KEY=<your own Resend key>
+# TURNSTILE_DEV_RELAX only takes effect while AUTH_BASE starts with
+# http://localhost:, so it can never relax production.
+
 [[d1_databases]]
 binding = "DB"
 database_name = "revu-db"

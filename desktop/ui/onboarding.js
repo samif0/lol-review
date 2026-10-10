@@ -1,5 +1,6 @@
 import { $, show } from './dom.mjs';
-import { getInvoke } from './platform/index.mjs';
+import { getInvoke, platform } from './platform/index.mjs';
+import { canOpenExternal, openMyClips } from './web-links.mjs';
 
 // Revu desktop — first-launch ONBOARDING wizard.
 //
@@ -488,6 +489,7 @@ const HANDLERS = {
   finish_role: finishRole,
   go_dashboard: goDashboard,
   sign_out: signOut,
+  open_my_clips: () => openMyClips(platform),
 };
 
 document.addEventListener('click', (ev) => {
@@ -534,6 +536,9 @@ document.addEventListener('keydown', (ev) => {
 // returning), then render. chooseInitialState calls setState (which renders), so a
 // first paint of 'welcome' is avoided by rendering only after the decision resolves.
 async function boot() { await chooseInitialState(); render(); }
+// The My clips link shows only where the host can open external links; render()
+// never touches it.
+canOpenExternal(platform).then((ok) => { const b = document.getElementById('signedin-my-clips'); if (b) b.hidden = !ok; });
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {

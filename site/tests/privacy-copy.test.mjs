@@ -16,7 +16,18 @@ test('The policy discloses every kind of data the server holds', () => {
 test('Clip uploads and transcription are credited to the Worker host', () => {
   assert.match(text, /revu-proxy\.lol-review\.workers\.dev , with shared links served from clips\.revu\.lol/);
   assert.match(text, /clip sharing uploads, and narration transcription/);
-  assert.match(text, /clips\.revu\.lol \): only serves the links/);
+  // Changed on purpose for web accounts: clips.revu.lol now also serves sign-in.
+  assert.match(text, /serves the links for clips you share, and the sign-in and My clips requests/);
+});
+
+test('Web accounts are disclosed', () => {
+  assert.match(text, /__Host-revu_web/);
+  assert.match(text, /up to 30 days/);
+  assert.match(text, /never asks for or stores a password/);
+  assert.match(text, /Cloudflare Turnstile/);
+  assert.match(text, /delete your whole account/);
+  assert.match(text, /don't post your email address in a public issue/);
+  assert.match(text, /It holds no ID or email\./);
 });
 
 test('Remote delete is not promised as immediate', () => {

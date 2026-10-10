@@ -20,21 +20,23 @@ import {
   deleteSession,
   findUserByEmail,
   tryConsumeLoginRequest,
+  upsertEmailIdentity,
+  UserRow,
 } from "./db";
 import { randomOtpCode, randomSessionToken, sha256Hex } from "./crypto";
 import { sendMagicLinkEmail } from "./email";
 import { Env } from "./types";
 import { jsonResponse, badRequest } from "./http";
 
-const OTP_LIFETIME_SECONDS = 10 * 60;
-const SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
+export const OTP_LIFETIME_SECONDS = 10 * 60;
+export const SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
 // Per-email send throttle. The per-IP limit in index.ts slows one attacker;
 // this bounds what a *distributed* attacker can do to a single inbox.
 const EMAIL_SEND_WINDOW_SECONDS = 15 * 60;
 const EMAIL_SEND_MAX_PER_WINDOW = 3;
 
-function isValidEmail(email: string): boolean {
+export function isValidEmail(email: string): boolean {
   // Conservative check — Resend will reject actual bad addresses anyway.
   return typeof email === "string"
     && email.length >= 3
@@ -98,6 +100,30 @@ async function sendLoginCode(env: Env, email: string): Promise<Response> {
   return jsonResponse({ sent: true }, 200);
 }
 
+/**
+ * Find the account for an email, creating it on first sign-in. A concurrent
+ * verify for the same new email can lose the users.email UNIQUE race; the
+ * winner's row is then returned as an existing account.
+ */
+export async function findOrCreateUserByEmail(
+  db: D1Database,
+  email: string,
+): Promise<{ user: UserRow; created: boolean }> {
+  const existing = await findUserByEmail(db, email);
+  if (existing) return { user: existing, created: false };
+  try {
+    const newId = await createUser(db, email, null);
+    return {
+      user: { id: newId, email, created_at: Math.floor(Date.now() / 1000), invite_code_used: null },
+      created: true,
+    };
+  } catch (err) {
+    const raced = await findUserByEmail(db, email);
+    if (raced) return { user: raced, created: false };
+    throw err;
+  }
+}
+
 export async function handleVerify(request: Request, env: Env): Promise<Response> {
   let body: { code?: string };
   try {
@@ -116,15 +142,14 @@ export async function handleVerify(request: Request, env: Env): Promise<Response
 
   // Find-or-create. Login is the only flow now; first successful verify for
   // a new email becomes a signup. Invite codes are no longer required.
-  let user = await findUserByEmail(env.DB, req.email);
-  if (!user) {
-    const newId = await createUser(env.DB, req.email, null);
-    user = { id: newId, email: req.email, created_at: 0, invite_code_used: null };
-  }
+  const { user } = await findOrCreateUserByEmail(env.DB, req.email);
 
   const token = randomSessionToken();
   const tokenHash = await sha256Hex(token);
   const { expires_at } = await createSession(env.DB, tokenHash, user.id, SESSION_LIFETIME_SECONDS);
+  // Best effort: the identities row is informational in v1, so a failure here
+  // (or a database without migration 0004) must never fail a desktop sign-in.
+  try { await upsertEmailIdentity(env.DB, user.id, user.email); } catch (err) { console.error(JSON.stringify({ scope: 'auth.identity', error: (err as Error).message })); }
 
   return jsonResponse({ session_token: token, expires_at }, 200);
 }

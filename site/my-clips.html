@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>My clips - Revu</title>
+  <meta name="robots" content="noindex" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#171717" />
+
+  <link rel="icon" type="image/svg+xml" href="/revu.svg" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="96x96" href="/icon-96.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/tokens.css" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/account.css" />
+
+  <script src="/account-api.js" defer></script>
+  <script src="/my-clips.js" defer></script>
+  <script src="/header-account.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/">Review a game</a>
+        <a href="/learn">Desktop app</a>
+        <a href="/discord">Discord</a>
+      </nav>
+      <a class="header-account" href="/my-clips" data-header-account aria-current="page">My clips</a>
+      <a class="btn-primary header-cta" href="/learn">Download</a>
+    </div>
+  </header>
+
+  <main class="account-main is-wide">
+    <div class="page-head">
+      <h1 id="page-title" tabindex="-1">My clips</h1>
+      <span id="clip-count" class="count-pill" hidden>0 clips</span>
+      <a class="btn-secondary" href="/account">Account</a>
+    </div>
+    <p id="signed-in-line" class="signed-in-line" hidden>Signed in as <span id="signed-in-email"></span></p>
+
+    <div id="new-account-notice" class="notice" hidden>
+      <p>We created a new Revu account for <strong id="new-account-email"></strong>. If the desktop app uses a different email, sign out and sign in with that one.</p>
+      <button id="new-account-dismiss" class="btn-link" type="button">Dismiss</button>
+    </div>
+
+    <p class="clips-note">Shared clips stay up for 3 days, then Revu deletes them automatically.</p>
+
+    <section id="state-loading" class="state-panel">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>Loading your clips...</p>
+    </section>
+
+    <section id="state-empty" class="state-panel" hidden>
+      <p class="state-title">No shared clips for <span id="empty-email"></span> right now.</p>
+      <p>Clips you share from the Revu desktop app while signed in with this email show up here for 3 days.</p>
+      <a class="btn-secondary" href="/learn">Get the desktop app</a>
+    </section>
+
+    <section id="state-error" class="state-panel" hidden>
+      <p class="state-title">Couldn't load your clips.</p>
+      <button id="retry" class="btn-secondary" type="button">Retry</button>
+    </section>
+
+    <ul id="clip-grid" class="clip-grid" aria-label="Shared clips" hidden></ul>
+
+    <div id="live" class="visually-hidden" role="status" aria-live="polite"></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/samif0/lol-review" rel="noopener">GitHub</a>
+        <a href="/discord">Discord</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <span id="footer-version"></span>
+      </nav>
+      <p class="riot-disclaimer">
+        Revu isn't endorsed by Riot Games and doesn't reflect the views
+        or opinions of anyone officially involved in producing or managing
+        League of Legends. League of Legends and Riot Games are trademarks
+        or registered trademarks of Riot Games, Inc.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

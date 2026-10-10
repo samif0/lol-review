@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Account - Revu</title>
+  <meta name="robots" content="noindex" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#171717" />
+
+  <link rel="icon" type="image/svg+xml" href="/revu.svg" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="96x96" href="/icon-96.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/tokens.css" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/account.css" />
+
+  <script src="/account-api.js" defer></script>
+  <script src="/account.js" defer></script>
+  <script src="/header-account.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/">Review a game</a>
+        <a href="/learn">Desktop app</a>
+        <a href="/discord">Discord</a>
+      </nav>
+      <a class="header-account" href="/my-clips" data-header-account>My clips</a>
+      <a class="btn-primary header-cta" href="/learn">Download</a>
+    </div>
+  </header>
+
+  <main class="account-main">
+    <h1 class="account-title">Account</h1>
+
+    <div id="new-account-notice" class="notice" hidden>
+      <p>We created a new Revu account for <strong id="new-account-email"></strong>. If the desktop app uses a different email, sign out and sign in with that one.</p>
+      <button id="new-account-dismiss" class="btn-link" type="button">Dismiss</button>
+    </div>
+
+    <section id="state-loading" class="state-panel">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>Loading your account...</p>
+    </section>
+
+    <section id="state-error" class="state-panel" hidden>
+      <p class="state-title">Couldn't load your account.</p>
+      <button id="retry" class="btn-secondary" type="button">Retry</button>
+    </section>
+
+    <div id="account-cards" class="account-cards" hidden>
+      <section class="account-card card" aria-labelledby="card-signed-in">
+        <h2 id="card-signed-in">Signed in as</h2>
+        <p id="account-email" class="account-email"></p>
+        <p id="member-since"></p>
+      </section>
+
+      <section class="account-card card" aria-labelledby="card-sign-in-method">
+        <h2 id="card-sign-in-method">How you sign in</h2>
+        <div class="identity-row">
+          <span class="identity-label">Email code</span>
+          <span id="identity-email" class="identity-value"></span>
+        </div>
+        <p>Revu emails you a one-time code each time you sign in. There is no password to leak or reset.</p>
+      </section>
+
+      <section class="account-card card" aria-labelledby="card-desktop">
+        <h2 id="card-desktop">Desktop app</h2>
+        <p>The Revu desktop app signs in with the same email code. Sign in there with <strong id="desktop-email"></strong> and the clips you share show up in My clips.</p>
+        <div class="account-actions">
+          <a class="btn-secondary" href="/my-clips">My clips</a>
+          <a class="btn-link" href="/learn">Get the desktop app</a>
+        </div>
+      </section>
+
+      <section class="account-card card" aria-labelledby="card-sign-out">
+        <h2 id="card-sign-out">Sign out</h2>
+        <div class="account-actions">
+          <button id="sign-out" class="btn-secondary" type="button">Sign out</button>
+          <button id="sign-out-all" class="btn-link" type="button" aria-describedby="sign-out-all-help">Sign out everywhere on the web</button>
+        </div>
+        <p id="sign-out-all-help" class="account-small">Signs out every browser. The desktop app stays signed in.</p>
+        <p id="sign-out-error" class="account-error" role="alert"></p>
+      </section>
+
+      <section class="account-card card danger-zone" aria-labelledby="card-delete">
+        <h2 id="card-delete">Delete account</h2>
+        <p>Deletes your Revu account, your shared clips and every sign-in, including the desktop app. Clips saved on your PC are not affected. This can't be undone.</p>
+        <form id="delete-form" novalidate>
+          <label for="delete-confirm">Type your email to confirm</label>
+          <input id="delete-confirm" name="confirm-email" type="email" autocomplete="off" spellcheck="false" maxlength="254" />
+        </form>
+        <div class="account-actions">
+          <button id="delete-account" class="btn-danger" type="submit" form="delete-form" disabled>Delete account</button>
+        </div>
+        <p id="delete-error" class="account-error" role="alert"></p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/samif0/lol-review" rel="noopener">GitHub</a>
+        <a href="/discord">Discord</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <span id="footer-version"></span>
+      </nav>
+      <p class="riot-disclaimer">
+        Revu isn't endorsed by Riot Games and doesn't reflect the views
+        or opinions of anyone officially involved in producing or managing
+        League of Legends. League of Legends and Riot Games are trademarks
+        or registered trademarks of Riot Games, Inc.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>
