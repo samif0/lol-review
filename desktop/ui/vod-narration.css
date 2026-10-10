@@ -32,10 +32,23 @@
 .vp-nr-check{display:flex;align-items:center;gap:8px;font-size:var(--font-small)}
 .vp-nr-check input{accent-color:var(--primary)}
 .vp-nr-sync{display:flex;align-items:center;gap:10px;font-size:var(--font-small);font-variant-numeric:tabular-nums}
-.vp-nr-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.vp-nr-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-content:flex-end;margin-top:4px}
 .vp-nr-actions button[hidden],.vp-narration [hidden]{display:none!important}
-.vp-nr-primary:not(:disabled){background:var(--primary)!important;color:var(--primary-ink)!important;border-color:var(--primary)!important}
-.vp-nr-danger{color:var(--danger)!important}
+/* The global `body button` rule sets colors and radius but no border style, which
+   leaves Chromium's 2px outset default. Studio buttons use the app's pill shape. */
+.vp-narration :is(.vp-nr-actions,.vp-nr-blocked) button{display:inline-flex;align-items:center;justify-content:center;
+  min-height:38px;padding:9px 16px;border:1px solid var(--border);border-radius:999px!important;font-size:14px;
+  line-height:1.3;cursor:pointer;white-space:nowrap}
+.vp-narration .vp-nr-sync button{min-height:30px;padding:5px 12px;border:1px solid var(--border);
+  border-radius:999px!important;font-size:13px;line-height:1.3;cursor:pointer}
+.vp-narration .vp-nr-close{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);
+  border-radius:999px!important;font-size:14px;line-height:1;cursor:pointer}
+.vp-narration .vp-nr-primary:not(:disabled){background:var(--primary)!important;color:var(--primary-ink)!important;
+  border-color:var(--primary)!important}
+.vp-narration .vp-nr-primary:hover:not(:disabled){background:#e2e2e2!important;color:var(--primary-ink)!important;
+  border-color:#e2e2e2!important}
+.vp-narration .vp-nr-danger{color:var(--danger)!important;border-color:#674148!important}
+.vp-narration .vp-nr-danger:hover:not(:disabled){background:#352328!important;color:var(--danger)!important}
 .vp-nr-status{min-height:1.5em;margin-top:10px!important;font-size:var(--font-small);color:var(--muted)}
 
 /* Saved-clip row additions */
