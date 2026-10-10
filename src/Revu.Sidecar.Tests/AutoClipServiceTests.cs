@@ -20,12 +20,14 @@ public sealed class AutoClipServiceTests
     {
         public List<(int Start, int End)> Calls { get; } = new();
         public Task<string?> FindFfmpegAsync() => Task.FromResult<string?>("ffmpeg");
-        public Task<string?> ExtractClipAsync(string vodPath, int startS, int endS, string champion, string? outputFolder = null)
+        public Task<string?> ExtractClipAsync(string vodPath, int startS, int endS, string champion, string? outputFolder = null,
+            CancellationToken ct = default)
         {
             Calls.Add((startS, endS));
             return Task.FromResult<string?>(Path.Combine(Path.GetTempPath(), $"clip_{startS}_{endS}.mp4"));
         }
-        public Task EnforceFolderSizeLimitAsync(string folder, long maxSizeBytes) => Task.CompletedTask;
+        public Task EnforceFolderSizeLimitAsync(string folder, long maxSizeBytes, string? justWritten = null,
+            CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private static async Task<(SidecarWriteScope scope, FakeClipService clips, AutoClipService svc, string vodPath, long gameId)>

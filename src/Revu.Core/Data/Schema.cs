@@ -63,6 +63,12 @@ public static class Schema
     //               (eog / live / champselect / heuristic / history / matchv5) so an
     //               estimate shown at game end stays queued for Match-V5 confirmation.
     //               Additive ALTER, default ''. Forward-only.
+    // clip_narrations (3.14): created by AllCreateStatements WITHOUT a version bump, so
+    //               3.13.x can still open the DB (its downgrade check compares the stored
+    //               version). There is no VersionedMigrations entry; CREATE IF NOT EXISTS
+    //               runs on every startup. Foreign keys are off, so every delete path
+    //               removes clip_narrations rows explicitly, and a startup sweep removes
+    //               rows a downgraded build orphaned.
     public const int CurrentAppSchemaVersion = 18;
     public const int EventCorrectionsSchemaVersion = 16;
     public const string AppSchemaVersionKey = "app_schema_version";
@@ -240,6 +246,36 @@ public static class Schema
             created_at  INTEGER,
             FOREIGN KEY (game_id) REFERENCES games(game_id)
         );
+        """;
+
+    /// <summary>3.14 narrated clips: one row per narrated clip bookmark. Created only by
+    /// <see cref="AllCreateStatements"/> (no schema version bump).</summary>
+    public const string CreateClipNarrationsTable = """
+        CREATE TABLE IF NOT EXISTS clip_narrations (
+            bookmark_id            INTEGER PRIMARY KEY,
+            game_id                INTEGER NOT NULL,
+            narration_id           TEXT    NOT NULL,
+            audio_path             TEXT    NOT NULL,
+            narrated_clip_path     TEXT    NOT NULL DEFAULT '',
+            source_clip_path       TEXT    NOT NULL DEFAULT '',
+            offset_ms              INTEGER NOT NULL DEFAULT 0,
+            duration_ms            INTEGER NOT NULL DEFAULT 0,
+            game_volume            REAL    NOT NULL DEFAULT 0.8,
+            narration_volume       REAL    NOT NULL DEFAULT 1.0,
+            duck                   INTEGER NOT NULL DEFAULT 1,
+            transcript_status      TEXT    NOT NULL DEFAULT 'pending',
+            transcript_generation  INTEGER NOT NULL DEFAULT 0,
+            transcript_language    TEXT    NOT NULL DEFAULT '',
+            transcript_json        TEXT    NOT NULL DEFAULT '',
+            transcript_error       TEXT    NOT NULL DEFAULT '',
+            transcript_pushed_slug TEXT    NOT NULL DEFAULT '',
+            created_at             INTEGER NOT NULL,
+            updated_at             INTEGER NOT NULL
+        );
+        """;
+
+    public const string CreateClipNarrationsGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_clip_narrations_game ON clip_narrations(game_id);
         """;
 
     public const string CreateEvidenceItemsTable = """
@@ -1266,6 +1302,9 @@ public static class Schema
         CreatePersistentNotesTable,
         CreateVodFilesTable,
         CreateVodBookmarksTable,
+        // 3.14: no version bump; see CreateClipNarrationsTable.
+        CreateClipNarrationsTable,
+        CreateClipNarrationsGameIndex,
         CreateEvidenceItemsTable,
         CreateEvidenceItemsKeyIndex,
         CreateEvidenceItemsGameIndex,

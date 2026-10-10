@@ -16,535 +16,21 @@
   <meta name="twitter:description" content="Watch this League of Legends clip, shared with Revu." />
   <meta name="twitter:image" content="https://revu.lol/og-image.jpg" />
 
-  <link rel="icon" href="favicon.ico" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="styles.css" />
-  <style>
-    body.clip-watch {
-      background: #050409;
-    }
-
-    .clip-header {
-      position: relative;
-      z-index: 3;
-      border-bottom: 1px solid var(--border-subtle);
-      background: #0C0B12;
-    }
-
-    .clip-header-inner {
-      width: min(1180px, calc(100% - 40px));
-      min-height: 72px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-    }
-
-    .clip-brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--fg-primary);
-      text-decoration: none;
-      /* Match the landing-page wordmark exactly: Orbitron, wide tracking. */
-      font-family: var(--font-display);
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-    }
-
-    .clip-brand img {
-      width: 34px;
-      height: 34px;
-      object-fit: contain;
-    }
-
-    .clip-nav {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .clip-nav a,
-    .clip-button {
-      min-height: 38px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0 16px;
-      border: 1px solid rgba(167, 139, 250, 0.28);
-      border-radius: 2px;
-      background: #110F1A;
-      color: var(--fg-secondary);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0;
-      text-transform: uppercase;
-      text-decoration: none;
-      cursor: pointer;
-      transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
-    }
-
-    .clip-nav a:hover,
-    .clip-button:hover {
-      border-color: rgba(201, 149, 106, 0.72);
-      background: rgba(201, 149, 106, 0.1);
-      color: var(--accent-gold);
-    }
-
-    .clip-button-primary {
-      border-color: var(--accent-violet);
-      background: var(--accent-violet);
-      color: #050409;
-      font-weight: 700;
-    }
-
-    .clip-button-primary:hover {
-      border-color: #B89CFF;
-      background: #B89CFF;
-      color: #050409;
-    }
-
-    .clip-main {
-      width: min(1180px, calc(100% - 40px));
-      margin: 0 auto;
-      padding: 30px 0 56px;
-      display: block;
-      align-items: initial;
-    }
-
-    .clip-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 300px;
-      gap: 18px;
-      align-items: start;
-    }
-
-    .clip-player-panel {
-      position: relative;
-      border: 1px solid var(--border-subtle);
-      border-radius: 2px;
-      background: #020304;
-      overflow: hidden;
-    }
-
-    .clip-video-wrap {
-      position: relative;
-      background: #000;
-    }
-
-    .clip-video {
-      display: block;
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      max-height: calc(100vh - 190px);
-      min-height: 280px;
-      background: #000;
-      object-fit: contain;
-    }
-
-    /* Control bar — mirrors the /app/ VOD controls (.vod-controls in
-       styles.css) so the clip player feels like the same product. Flex
-       layout, 30px mono buttons, rail + violet fill + gold thumb. */
-    .clip-controls {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
-      border-top: 1px solid var(--border-subtle);
-      background: rgba(10, 9, 24, 0.96);
-    }
-
-    .clip-icon-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 36px;
-      height: 30px;
-      padding: 0 8px;
-      border: 1px solid var(--border-subtle);
-      border-radius: 2px;
-      background: var(--bg-input);
-      color: var(--fg-primary);
-      font-family: var(--font-mono);
-      font-size: 12px;
-      letter-spacing: 0;
-      text-transform: uppercase;
-      white-space: nowrap;
-      cursor: pointer;
-      transition: border-color 120ms ease-out, background 120ms ease-out, color 120ms ease-out;
-    }
-
-    .clip-icon-button:hover {
-      border-color: var(--accent-violet);
-      background: var(--accent-violet-dim);
-      color: var(--accent-violet);
-    }
-
-    .clip-icon-button:active {
-      transform: translateY(1px);
-    }
-
-    .clip-icon-button:focus-visible {
-      outline: none;
-      border-color: var(--accent-violet);
-      box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.3);
-    }
-
-    .clip-icon-button.is-speed {
-      min-width: 52px;
-    }
-
-    .clip-time {
-      min-width: 48px;
-      color: var(--fg-secondary);
-      font-family: var(--font-mono);
-      font-size: 12px;
-      text-align: center;
-    }
-
-    .clip-track {
-      position: relative;
-      flex: 1;
-      height: 34px;
-      padding: 0;
-      border: 1px solid var(--border-subtle);
-      border-radius: 2px;
-      background: var(--bg-input);
-      cursor: pointer;
-    }
-
-    .clip-track:hover {
-      border-color: var(--border-bright);
-    }
-
-    .clip-track:focus-visible {
-      outline: none;
-      border-color: var(--accent-violet);
-      box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.3);
-    }
-
-    .clip-track-rail {
-      position: absolute;
-      left: 10px;
-      right: 10px;
-      top: 50%;
-      height: 10px;
-      margin-top: -5px;
-      border-radius: 2px;
-      background: var(--bg-canvas);
-      overflow: hidden;
-    }
-
-    .clip-track-fill {
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 0%;
-      border-radius: 2px;
-      background: var(--accent-violet);
-    }
-
-    .clip-track-thumb {
-      position: absolute;
-      left: 10px;
-      top: 50%;
-      width: 3px;
-      height: 22px;
-      margin-top: -11px;
-      border-radius: 1px;
-      background: var(--accent-gold);
-      pointer-events: none;
-    }
-
-    .clip-info {
-      margin-top: 18px;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 20px;
-      align-items: start;
-    }
-
-    .clip-eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      margin: 0 0 10px;
-      color: var(--fg-secondary);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0;
-      text-transform: uppercase;
-    }
-
-    .clip-eyebrow::before {
-      content: "";
-      width: 28px;
-      height: 1px;
-      background: var(--fg-secondary);
-    }
-
-    .clip-title {
-      max-width: 760px;
-      margin: 0;
-      color: var(--fg-primary);
-      font-family: var(--font-heading);
-      font-size: 26px;
-      font-weight: 700;
-      letter-spacing: 0;
-      line-height: 1.18;
-      text-transform: none;
-      overflow-wrap: anywhere;
-    }
-
-    .clip-stat-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 14px;
-    }
-
-    .clip-pill {
-      min-height: 28px;
-      display: inline-flex;
-      align-items: center;
-      padding: 0 10px;
-      border: 1px solid var(--border-subtle);
-      border-radius: 2px;
-      background: #110F1A;
-      color: var(--fg-secondary);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0;
-      text-transform: uppercase;
-    }
-
-    .clip-pill-strong {
-      border-color: rgba(167, 139, 250, 0.5);
-      color: var(--accent-violet);
-    }
-
-    .clip-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      justify-content: flex-end;
-    }
-
-    .copied-flash {
-      color: var(--win-green);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0;
-      text-transform: uppercase;
-      opacity: 0;
-      visibility: hidden;
-      transition: opacity 160ms ease;
-      white-space: nowrap;
-    }
-
-    .copied-flash.show {
-      opacity: 1;
-      visibility: visible;
-    }
-
-    .copied-flash.is-error {
-      max-width: 220px;
-      color: var(--fg-secondary);
-      text-transform: none;
-      white-space: normal;
-    }
-
-    .clip-copy-fallback {
-      grid-column: 1 / -1;
-      min-width: 0;
-      color: var(--fg-secondary);
-      font-size: 13px;
-    }
-
-    .clip-copy-fallback input {
-      box-sizing: border-box;
-      width: 100%;
-      margin-top: 8px;
-      padding: 10px 12px;
-      border: 1px solid var(--border-subtle);
-      border-radius: 2px;
-      background: #110F1A;
-      color: var(--fg-primary);
-      font: inherit;
-    }
-
-    .clip-side-panel {
-      position: sticky;
-      top: 22px;
-      border: 1px solid var(--border-subtle);
-      border-radius: 2px;
-      background: #0C0B12;
-      padding: 18px;
-    }
-
-    .clip-side-title {
-      margin: 0 0 10px;
-      color: var(--fg-primary);
-      font-family: var(--font-heading);
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: 0;
-      text-transform: uppercase;
-    }
-
-    .clip-detail-list {
-      display: grid;
-      gap: 10px;
-      margin: 0 0 18px;
-    }
-
-    .clip-detail-row {
-      display: grid;
-      grid-template-columns: 96px minmax(0, 1fr);
-      gap: 12px;
-      align-items: baseline;
-      padding: 8px 0;
-      border-bottom: 1px solid rgba(36, 32, 58, 0.72);
-      color: var(--fg-secondary);
-      font-size: 13px;
-    }
-
-    .clip-detail-row span {
-      color: var(--fg-muted);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      text-transform: uppercase;
-    }
-
-    .clip-detail-row strong {
-      color: var(--fg-primary);
-      font-weight: 600;
-      overflow-wrap: anywhere;
-    }
-
-    .clip-side-panel .clip-button {
-      width: 100%;
-    }
-
-    .clip-state-panel {
-      width: min(680px, 100%);
-      margin: 64px auto;
-      padding: 42px;
-      border: 1px solid rgba(167, 139, 250, 0.22);
-      border-radius: 6px;
-      background: rgba(12, 11, 18, 0.86);
-      text-align: center;
-    }
-
-    .clip-state-title {
-      margin: 0 0 10px;
-      color: var(--fg-primary);
-      font-family: var(--font-heading);
-      font-size: 24px;
-      font-weight: 700;
-      letter-spacing: 0;
-      text-transform: uppercase;
-    }
-
-    .clip-state-copy {
-      max-width: 430px;
-      margin: 0 auto 22px;
-      color: var(--fg-secondary);
-    }
-
-    .spinner {
-      width: 30px;
-      height: 30px;
-      margin: 0 auto 18px;
-      border: 2px solid rgba(167, 139, 250, 0.2);
-      border-top-color: var(--accent-gold);
-      border-radius: 50%;
-      animation: spin 800ms linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    [hidden] {
-      display: none !important;
-    }
-
-    @media (max-width: 900px) {
-      .clip-layout {
-        grid-template-columns: 1fr;
-      }
-
-      .clip-side-panel {
-        position: static;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .clip-header-inner,
-      .clip-main {
-        width: min(100% - 24px, 1180px);
-      }
-
-      .clip-header-inner {
-        min-height: 64px;
-      }
-
-      .clip-nav {
-        display: none;
-      }
-
-      .clip-main {
-        padding-top: 18px;
-      }
-
-      .clip-video {
-        min-height: 210px;
-        max-height: none;
-      }
-
-      .clip-controls {
-        flex-wrap: wrap;
-      }
-
-      .clip-track {
-        order: 5;
-        flex-basis: 100%;
-      }
-
-      .clip-info {
-        grid-template-columns: 1fr;
-      }
-
-      .clip-title {
-        font-size: 22px;
-      }
-
-      .clip-actions {
-        justify-content: flex-start;
-        flex-wrap: wrap;
-      }
-
-      .clip-button {
-        width: 100%;
-      }
-
-      .clip-state-panel {
-        margin: 32px auto;
-        padding: 30px 20px;
-      }
-    }
-  </style>
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#171717" />
+
+  <link rel="icon" type="image/svg+xml" href="/revu.svg" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/tokens.css" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/clip.css" />
 </head>
 <body class="clip-watch">
-  <header class="clip-header">
-    <div class="clip-header-inner">
-      <a href="/" class="clip-brand" aria-label="Revu home">
-        <span>Revu</span>
-      </a>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <a class="btn-pill header-cta" href="/learn">Clip your own</a>
     </div>
   </header>
 
@@ -555,10 +41,10 @@
     </section>
 
     <section id="state-missing" class="clip-state-panel" hidden>
-      <p class="clip-eyebrow">Signal lost</p>
+      <p class="clip-eyebrow">Clip unavailable</p>
       <h1 class="clip-state-title">Clip not found</h1>
-      <p class="clip-state-copy">This clip does not exist, or it has expired. Clips are kept for 14 days.</p>
-      <a href="/" class="clip-button clip-button-primary">Back to Revu</a>
+      <p class="clip-state-copy">This clip does not exist, or it has expired. Clips are kept for 3 days.</p>
+      <a href="/" class="btn-primary">Back to Revu</a>
     </section>
 
     <section id="state-clip" class="clip-layout" hidden>
@@ -569,8 +55,8 @@
           </div>
           <div class="clip-controls" aria-label="Clip controls">
             <button id="clip-play" class="clip-icon-button" type="button">Play</button>
-            <button id="clip-back" class="clip-icon-button" type="button">-3</button>
-            <button id="clip-forward" class="clip-icon-button" type="button">+3</button>
+            <button id="clip-back" class="clip-icon-button" type="button" aria-label="Back 3 seconds">-3</button>
+            <button id="clip-forward" class="clip-icon-button" type="button" aria-label="Forward 3 seconds">+3</button>
             <span id="clip-current-time" class="clip-time">0:00</span>
             <div id="clip-track" class="clip-track" role="slider" tabindex="0" aria-label="Seek clip" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0">
               <span class="clip-track-rail">
@@ -579,9 +65,10 @@
               <span id="clip-track-thumb" class="clip-track-thumb"></span>
             </div>
             <span id="clip-total-time" class="clip-time">0:00</span>
+            <button id="clip-cc" class="clip-icon-button" type="button" aria-pressed="true" aria-label="Captions" hidden>CC</button>
             <button id="clip-speed" class="clip-icon-button is-speed" type="button" aria-label="Playback speed">1.0x</button>
             <button id="clip-mute" class="clip-icon-button" type="button">Mute</button>
-            <button id="clip-fullscreen" class="clip-icon-button" type="button">Full</button>
+            <button id="clip-fullscreen" class="clip-icon-button" type="button" aria-label="Fullscreen">Full</button>
           </div>
         </div>
 
@@ -591,6 +78,7 @@
             <h1 id="clip-title" class="clip-title">Clip</h1>
             <div class="clip-stat-row" aria-label="Clip details">
               <span id="chip-champ" class="clip-pill clip-pill-strong" hidden></span>
+              <span id="clip-narrated" class="clip-pill" hidden>Narrated</span>
               <span id="clip-duration" class="clip-pill" hidden></span>
               <span id="clip-views" class="clip-pill" hidden></span>
               <span id="clip-age" class="clip-pill" hidden></span>
@@ -599,7 +87,7 @@
           </div>
           <div class="clip-actions">
             <span id="copied" class="copied-flash" role="status" aria-live="polite" aria-atomic="true"></span>
-            <button id="copy-btn" class="clip-button clip-button-primary" type="button">Copy link</button>
+            <button id="copy-btn" class="btn-primary" type="button">Copy link</button>
           </div>
           <div id="copy-fallback" class="clip-copy-fallback" hidden>
             <label for="copy-link">Copy this link manually</label>
@@ -608,40 +96,70 @@
         </div>
       </div>
 
-      <aside class="clip-side-panel" aria-label="Clip details">
-        <h2 class="clip-side-title">Details</h2>
-        <div class="clip-detail-list">
-          <div class="clip-detail-row">
-            <span>Champion</span>
-            <strong id="detail-champion">-</strong>
+      <aside class="clip-aside" aria-label="Clip details">
+        <section id="clip-transcript" class="clip-side-panel clip-transcript" hidden aria-label="Transcript">
+          <div class="clip-transcript-head">
+            <div>
+              <h2 class="clip-side-title">Transcript</h2>
+              <p id="transcript-status" class="clip-caption">Auto-generated transcript</p>
+            </div>
+            <button id="transcript-copy" class="btn-secondary" type="button">Copy transcript</button>
           </div>
-          <div class="clip-detail-row">
-            <span>Length</span>
-            <strong id="detail-duration">-</strong>
+          <ol id="transcript-list" class="clip-transcript-list"></ol>
+        </section>
+
+        <section class="clip-side-panel">
+          <h2 class="clip-side-title">Details</h2>
+          <div class="clip-detail-list">
+            <div class="clip-detail-row">
+              <span>Champion</span>
+              <strong id="detail-champion">-</strong>
+            </div>
+            <div class="clip-detail-row">
+              <span>Length</span>
+              <strong id="detail-duration">-</strong>
+            </div>
+            <div class="clip-detail-row">
+              <span>Views</span>
+              <strong id="detail-views">-</strong>
+            </div>
+            <div class="clip-detail-row">
+              <span>Created</span>
+              <strong id="detail-created">-</strong>
+            </div>
+            <div class="clip-detail-row">
+              <span>Expires</span>
+              <strong id="detail-expires">-</strong>
+            </div>
           </div>
-          <div class="clip-detail-row">
-            <span>Views</span>
-            <strong id="detail-views">-</strong>
-          </div>
-          <div class="clip-detail-row">
-            <span>Created</span>
-            <strong id="detail-created">-</strong>
-          </div>
-          <div class="clip-detail-row">
-            <span>Expires</span>
-            <strong id="detail-expires">-</strong>
-          </div>
-        </div>
-        <a href="/learn" class="clip-button">Clip your own with Revu</a>
+        </section>
       </aside>
     </section>
   </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/samif0/lol-review" rel="noopener">GitHub</a>
+        <a href="/discord">Discord</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <span id="footer-version"></span>
+      </nav>
+      <p class="riot-disclaimer">
+        Revu isn't endorsed by Riot Games and doesn't reflect the views
+        or opinions of anyone officially involved in producing or managing
+        League of Legends. League of Legends and Riot Games are trademarks
+        or registered trademarks of Riot Games, Inc.
+      </p>
+    </div>
+  </footer>
 
   <script>
     (function () {
       var params = new URLSearchParams(location.search);
       // The proxy override exists for local dev (wrangler dev) ONLY. Never
-      // honor an arbitrary origin from the URL — a crafted share link could
+      // honor an arbitrary origin from the URL: a crafted share link could
       // otherwise make this trusted page fetch and play attacker-controlled
       // content under revu.lol.
       var PROXY_BASE = "https://clips.revu.lol";
@@ -678,6 +196,22 @@
       var knownDuration = 0;
       var SPEEDS = [0.5, 1, 1.5, 2];
       var speedIndex = 1;
+      var ccBtn = document.getElementById("clip-cc");
+      var transcriptPanel = document.getElementById("clip-transcript");
+      var transcriptStatus = document.getElementById("transcript-status");
+      var transcriptCopy = document.getElementById("transcript-copy");
+      var transcriptList = document.getElementById("transcript-list");
+      var segments = [];
+      var cueRows = [];
+      var activeCue = -1;
+      var captionTrack = null;
+      // null until an IntersectionObserver reports; then whether any part of
+      // the transcript list is on screen.
+      var listVisible = null;
+      var lastListInteraction = 0;
+      var transcriptCopyTimer;
+      var FOLLOW_PAUSE_MS = 4000;
+      var MAX_SEGMENTS = 3000;
 
       function show(el) {
         elLoading.hidden = el !== elLoading;
@@ -799,7 +333,10 @@
       video.addEventListener("click", togglePlay);
       video.addEventListener("loadedmetadata", updatePlayerUi);
       video.addEventListener("durationchange", updatePlayerUi);
-      video.addEventListener("timeupdate", updatePlayerUi);
+      video.addEventListener("timeupdate", function () {
+        updatePlayerUi();
+        syncTranscript();
+      });
       video.addEventListener("play", updatePlayerUi);
       video.addEventListener("pause", updatePlayerUi);
       video.addEventListener("volumechange", updatePlayerUi);
@@ -860,11 +397,13 @@
         }
       });
 
-      // Global keyboard shortcuts — mirror the /app/ VOD viewer.
+      // Global keyboard shortcuts mirror the home page VOD viewer.
       document.addEventListener("keydown", function (event) {
         if (elClip.hidden) return;
         var t = event.target;
         if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        // Let a focused button handle Space natively (transcript rows, CC, Copy).
+        if (event.key === " " && t && t.closest && t.closest("button, [role=button]")) return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         switch (event.key) {
           case " ":
@@ -882,9 +421,199 @@
             event.preventDefault(); video.muted = !video.muted; updatePlayerUi(); break;
           case "f":
             event.preventDefault(); fullscreenBtn.click(); break;
+          case "c":
+            if (!captionTrack) break;
+            event.preventDefault(); toggleCaptions(); break;
           default: break;
         }
       });
+
+      // Transcript and captions. Everything below runs only for clips whose
+      // metadata says has_transcript, so plain clips make no extra requests.
+      function captionLanguage(value) {
+        var lang = typeof value === "string" ? value.trim() : "";
+        return /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(lang) ? lang : "en";
+      }
+
+      // Accept only the C2 segment shape: finite numeric start and end, and
+      // string text. Rows that are empty or have no duration are skipped.
+      function validSegments(data) {
+        if (!data || typeof data !== "object" || !Array.isArray(data.segments)) return null;
+        var out = [];
+        for (var i = 0; i < data.segments.length && out.length < MAX_SEGMENTS; i++) {
+          var seg = data.segments[i];
+          if (!seg || typeof seg !== "object") return null;
+          if (!Number.isFinite(seg.start) || !Number.isFinite(seg.end) || typeof seg.text !== "string") return null;
+          var text = seg.text.replace(/\s+/g, " ").trim().slice(0, 500);
+          if (!text || seg.start < 0 || seg.end <= seg.start) continue;
+          out.push({ start: seg.start, end: seg.end, text: text });
+        }
+        out.sort(function (a, b) { return a.start - b.start; });
+        return out;
+      }
+
+      function transcriptUnavailable() {
+        transcriptPanel.hidden = false;
+        transcriptStatus.textContent = "Transcript unavailable.";
+        transcriptCopy.hidden = true;
+      }
+
+      function loadTranscript(metaLanguage) {
+        return fetch(PROXY_BASE + "/clip-transcript/" + encodeURIComponent(id))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            var segs = validSegments(data);
+            if (!segs) throw new Error("invalid transcript");
+            renderTranscript(segs, captionLanguage(metaLanguage || (data && data.language)));
+          })
+          .catch(transcriptUnavailable);
+      }
+
+      function addCaptions(segs, lang) {
+        if (typeof video.addTextTrack !== "function" || typeof VTTCue !== "function") return;
+        try {
+          captionTrack = video.addTextTrack("captions", "Transcript", lang || "en");
+          for (var i = 0; i < segs.length; i++) {
+            var cue = new VTTCue(segs[i].start, segs[i].end, segs[i].text);
+            // Four lines up from the bottom and 80% wide keeps captions above
+            // League's bottom HUD.
+            cue.line = -4;
+            cue.size = 80;
+            captionTrack.addCue(cue);
+          }
+          captionTrack.mode = "showing";
+        } catch (e) {
+          if (captionTrack) captionTrack.mode = "disabled";
+          captionTrack = null;
+          return;
+        }
+        ccBtn.hidden = false;
+        ccBtn.setAttribute("aria-pressed", "true");
+        ccBtn.addEventListener("click", toggleCaptions);
+      }
+
+      function toggleCaptions() {
+        if (!captionTrack) return;
+        var on = captionTrack.mode !== "showing";
+        captionTrack.mode = on ? "showing" : "hidden";
+        ccBtn.setAttribute("aria-pressed", on ? "true" : "false");
+      }
+
+      function noteListInteraction() {
+        lastListInteraction = Date.now();
+      }
+
+      function buildCueRow(seg, index) {
+        var item = document.createElement("li");
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "clip-cue";
+        button.setAttribute("data-i", String(index));
+        var time = document.createElement("span");
+        time.className = "clip-cue-time";
+        time.textContent = fmtPlayerTime(seg.start);
+        var text = document.createElement("span");
+        text.className = "clip-cue-text";
+        text.textContent = seg.text;
+        button.appendChild(time);
+        button.appendChild(text);
+        button.addEventListener("click", function () {
+          setVideoTime(seg.start + 0.01);
+          updatePlayerUi();
+        });
+        item.appendChild(button);
+        transcriptList.appendChild(item);
+        return button;
+      }
+
+      function renderTranscript(segs, lang) {
+        segments = segs;
+        transcriptPanel.hidden = false;
+        if (!segs.length) {
+          transcriptStatus.textContent = "No speech detected.";
+          transcriptCopy.hidden = true;
+          return;
+        }
+        transcriptStatus.textContent = "Auto-generated transcript";
+        transcriptCopy.hidden = false;
+        addCaptions(segs, lang);
+        for (var i = 0; i < segs.length; i++) cueRows.push(buildCueRow(segs[i], i));
+
+        ["wheel", "touchstart", "keydown", "focusin"].forEach(function (type) {
+          transcriptList.addEventListener(type, noteListInteraction, { passive: true });
+        });
+        if (typeof IntersectionObserver === "function") {
+          var observer = new IntersectionObserver(function (entries) {
+            for (var j = 0; j < entries.length; j++) listVisible = entries[j].intersectionRatio > 0;
+          });
+          observer.observe(transcriptList);
+        }
+        transcriptCopy.addEventListener("click", copyTranscript);
+        syncTranscript();
+      }
+
+      // Index of the last segment that starts at or before t, or -1.
+      function segmentIndexAt(t) {
+        var lo = 0;
+        var hi = segments.length - 1;
+        var found = -1;
+        while (lo <= hi) {
+          var mid = (lo + hi) >> 1;
+          if (segments[mid].start <= t) {
+            found = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        return found;
+      }
+
+      // Follow the active line only while the list is on screen and the
+      // viewer has not touched it for a few seconds. Only the list scrolls;
+      // the page never moves.
+      function canFollow() {
+        if (Date.now() - lastListInteraction < FOLLOW_PAUSE_MS) return false;
+        if (listVisible !== null) return listVisible;
+        return typeof innerWidth === "number" && innerWidth >= 1024;
+      }
+
+      function syncTranscript() {
+        if (!cueRows.length) return;
+        var index = segmentIndexAt(video.currentTime || 0);
+        if (index === activeCue) return;
+        if (activeCue >= 0) {
+          cueRows[activeCue].removeAttribute("aria-current");
+          cueRows[activeCue].classList.remove("is-active");
+        }
+        activeCue = index;
+        if (index < 0) return;
+        var row = cueRows[index];
+        row.setAttribute("aria-current", "true");
+        row.classList.add("is-active");
+        if (canFollow()) {
+          transcriptList.scrollTop = row.offsetTop - transcriptList.offsetTop - transcriptList.clientHeight / 3;
+        }
+      }
+
+      async function copyTranscript() {
+        var text = segments.map(function (seg) {
+          return fmtPlayerTime(seg.start) + " " + seg.text;
+        }).join("\n");
+        clearTimeout(transcriptCopyTimer);
+        try {
+          if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+            throw new Error("Clipboard unavailable");
+          }
+          await navigator.clipboard.writeText(text);
+          transcriptCopy.textContent = "Copied";
+        } catch (e) {
+          transcriptCopy.textContent = "Copy unavailable";
+        }
+        transcriptCopyTimer = setTimeout(function () {
+          transcriptCopy.textContent = "Copy transcript";
+        }, 1600);
+      }
 
       if (!id) {
         notFound();
@@ -899,6 +628,8 @@
         .then(function (meta) {
           knownDuration = Number(meta.duration_s) || 0;
           video.src = PROXY_BASE + "/clip-file/" + encodeURIComponent(id);
+          if (meta.narrated === true) document.getElementById("clip-narrated").hidden = false;
+          if (meta.has_transcript === true) loadTranscript(meta.transcript_language);
 
           var titleEl = document.getElementById("clip-title");
           var title = (meta.title && String(meta.title).trim()) || "Untitled clip";

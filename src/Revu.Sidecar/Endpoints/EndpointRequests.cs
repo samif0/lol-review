@@ -280,6 +280,15 @@ internal sealed record AuthResolveBody(string RiotId, string Region);
 internal sealed record ShareClipBody(long GameId, long BookmarkId, string? ChampionName, string? Title);
 internal sealed record DeleteClipBody(long GameId, long BookmarkId);
 
+// ── 3.14 narrated clips (C6 6.4 to 6.7) ──────────────────────────────────────
+// NarrationId is a lowercase D-format GUID; the sidecar derives the voice-track path
+// (<NarrationDirectory>/<narrationId>.webm) itself and never accepts a path.
+internal sealed record SaveNarrationBody(long GameId, long BookmarkId, string NarrationId, string MimeType,
+    int OffsetMs, int DurationMs, double GameVolume, double NarrationVolume, bool Duck);
+internal sealed record MixNarrationBody(long GameId, long BookmarkId, int OffsetMs, double GameVolume,
+    double NarrationVolume, bool Duck);
+internal sealed record NarrationTargetBody(long GameId, long BookmarkId);
+
 // ── Pre-game deferred-snapshot bodies (Batch 5 / LCU) ────────────────────────
 // These stage champ-select choices into LcuLiveState; the SidecarGameFlowCoordinator
 // persists them to session_log at game END (mirror the PreGameDialogViewModel

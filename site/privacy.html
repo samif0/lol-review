@@ -7,28 +7,47 @@
   <title>Privacy policy: Revu</title>
   <meta name="description" content="What data Revu reads, where it stores it, and what leaves your machine." />
   <meta name="robots" content="index, follow" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#171717" />
 
   <link rel="canonical" href="https://revu.lol/privacy" />
 
+  <link rel="icon" type="image/svg+xml" href="/revu.svg" />
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="icon" type="image/png" sizes="96x96" href="/icon-96.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/">Review a game</a>
+        <a href="/learn">Desktop app</a>
+        <a href="/discord">Discord</a>
+      </nav>
+      <a class="btn-primary header-cta" href="/learn">Download</a>
+    </div>
+  </header>
+
   <main>
     <article class="legal">
-      <p class="eyebrow">Legal // Privacy</p>
+      <p class="eyebrow">Legal</p>
       <h1 class="legal-h1">Privacy policy</h1>
-      <p class="legal-meta">Last updated: 2026-04-29</p>
+      <p class="legal-meta">Last updated: 2026-10-10</p>
 
       <p>
         Revu is a Windows desktop app. Your review data, game history,
-        notes, objectives, and clips live on your machine. We do not run
-        a server that holds your data. This page explains exactly what
-        Revu reads, what it stores, and what (if anything) leaves your
-        computer.
+        notes, objectives, and clips live on your machine. Revu's
+        server holds only what it needs to run its online features: the
+        email address and session you use to sign in, clips you choose
+        to share and their transcripts (deleted after 3 days), and daily
+        transcription usage counts (kept for 7 days). This page
+        explains exactly what Revu reads, what it stores, and what (if
+        anything) leaves your computer.
       </p>
 
       <h2>What Revu stores locally</h2>
@@ -39,10 +58,11 @@
         <li>
           <code>%LOCALAPPDATA%\LoLReviewData\</code>: your data,
           SQLite database (<code>revu.db</code>), config, safety
-          backups, captured clips. Persists across reinstalls.
+          backups, captured clips and narration recordings. Persists
+          across reinstalls.
         </li>
         <li>
-          <code>%LOCALAPPDATA%\LoLReview\</code>: app binaries +
+          <code>%LOCALAPPDATA%\LoLReview\</code>: app binaries and
           updater files. Replaced on each update; doesn't contain
           user data.
         </li>
@@ -58,22 +78,41 @@
       <h2>What leaves your machine</h2>
       <p>
         Revu makes outbound network calls to a small number of
-        third-party services. Nothing else.
+        services. Nothing else.
       </p>
       <ul>
         <li>
-          <strong>Cloudflare Worker proxy</strong>
-          (<code>revu-proxy.lol-review.workers.dev</code>):
-          forwards Riot Match-V5 requests using a server-side API
-          key. Your Riot ID, region, and match IDs flow through;
-          your local game data does not. The proxy logs request
-          metadata (timestamps, status codes) for rate limiting and
-          abuse prevention; it does not log request bodies.
+          <strong>Revu's Cloudflare Worker</strong>
+          (<code>revu-proxy.lol-review.workers.dev</code>, with shared
+          links served from <code>clips.revu.lol</code>): handles Riot
+          lookups, sign-in, clip sharing uploads, and narration
+          transcription. For Riot lookups it forwards Match-V5 requests
+          using a server-side API key; your Riot ID, region, and match
+          IDs flow through. Clips you share and narration you record
+          while signed in are uploaded here; see
+          <a href="#shared-clips">Shared clips and narration</a>. The
+          rest of your local game data does not leave your machine. The
+          Worker logs request metadata (timestamps, status codes) for
+          rate limiting and abuse prevention; it does not log request
+          bodies.
+        </li>
+        <li>
+          <strong>Email sign-in</strong>: when you sign in, your email
+          address is sent to Revu's Worker, which stores it with your
+          account and sign-in session. The sign-in code is emailed to
+          you through an email delivery provider (Resend), which
+          receives your email address only to send that message.
         </li>
         <li>
           <strong>Riot Games' Match-V5 API</strong> (via the proxy
           above): read-only, returns the same public match data
           you can see on op.gg.
+        </li>
+        <li>
+          <strong>Shared clip links</strong>
+          (<code>clips.revu.lol</code>): only serves the links for
+          clips you share. See
+          <a href="#shared-clips">Shared clips and narration</a>.
         </li>
         <li>
           <strong>GitHub Releases</strong>
@@ -96,17 +135,46 @@
         </li>
       </ul>
 
-      <h2>What we do NOT collect</h2>
+      <h2 id="shared-clips">Shared clips and narration</h2>
+      <ul>
+        <li>
+          When you share a clip, the clip and its transcript are
+          uploaded to Revu's server so the link works. They are stored
+          for 3 days, then deleted. Anyone with the link can watch the
+          clip and read its transcript during that time. Deleting the
+          clip in the app also removes the shared copy as soon as Revu
+          can reach its server while you are signed in; otherwise the
+          shared copy expires after 3 days.
+        </li>
+        <li>
+          When you are signed in, narration audio you record over a
+          clip is sent to Revu's server and processed by Cloudflare
+          Workers AI only to create a transcript. The audio is not
+          kept after the transcript is made.
+        </li>
+        <li>
+          Everything else stays on your PC: your games, notes, VODs,
+          clips you have not shared, and your narration recordings.
+        </li>
+      </ul>
+
+      <h2>What we do not collect</h2>
       <ul>
         <li>No third-party analytics (no Google Analytics, no Mixpanel, no Sentry).</li>
-        <li>No telemetry events, usage tracking, or feature pings.</li>
+        <li>No Revu telemetry events, usage tracking, or feature pings.</li>
         <li>No sale or sharing of any data with third parties.</li>
         <li>No advertising tracking or A/B-testing instrumentation.</li>
         <li>No remote feature flags that report your behavior back to us.</li>
       </ul>
       <p>
+        The desktop app runs on the Overwolf Electron runtime. Turning
+        off Overwolf's optional analytics still leaves the minimal
+        runtime telemetry that Overwolf requires, which is covered by
+        Overwolf's own privacy policy.
+      </p>
+      <p>
         If we ever add optional, anonymous crash telemetry in a
-        future version, it will be off-by-default, clearly labeled
+        future version, it will be off by default, clearly labeled
         in the app's settings, and announced in that version's
         release notes before it ships.
       </p>
@@ -116,27 +184,27 @@
         This site is hosted on Cloudflare Pages. Cloudflare logs
         request metadata (IP, User-Agent, timestamp) per their
         standard infrastructure logging. See
-        <a href="https://www.cloudflare.com/privacypolicy/">
-          Cloudflare's privacy policy
-        </a>.
+        <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare's privacy policy</a>.
         We do not run any analytics on this site.
       </p>
       <p>
-        The experimental web review lab at <code>/app</code> stores
-        review notes, objectives, file metadata, and timestamped evidence
-        in your browser's local storage. It does not upload ROFL files,
-        VODs, highlights, or other media. Clearing your browser data for
-        this site removes that local web review data.
+        The web review tool on this site's home page stores your recent
+        searches, cached match lists, review notes, and the name and size
+        of the file you attached in your browser's local storage. It does not upload ROFL files, VODs, or other media.
+        Clearing your browser data for this site removes that local web
+        review data.
       </p>
 
       <h2>Your rights</h2>
       <p>
-        Because Revu's data lives on your machine, "deleting your
-        data" means uninstalling Revu and removing the
-        <code>%LOCALAPPDATA%\LoLReviewData\</code> folder. We have
-        no remote copy to delete.
-        For the web review lab, delete this site's browser data to remove
-        the local web copy.
+        Because Revu's data lives on your machine, deleting your data
+        means uninstalling Revu and removing the
+        <code>%LOCALAPPDATA%\LoLReviewData\</code> folder. Shared clips
+        and their transcripts are deleted from Revu's server after 3
+        days, or sooner if you delete the clip in the app while signed
+        in and Revu can reach its server. For the
+        web review tool, delete this site's browser data to remove the
+        local web copy.
       </p>
 
       <h2>Changes to this policy</h2>
@@ -149,22 +217,31 @@
       <h2>Questions</h2>
       <p>
         Open an issue at
-        <a href="https://github.com/samif0/lol-review/issues">
-          github.com/samif0/lol-review/issues
-        </a>.
+        <a href="https://github.com/samif0/lol-review/issues">github.com/samif0/lol-review/issues</a>.
       </p>
 
       <p class="legal-back">
-        <a href="/">← back to revu.lol</a>
+        <a class="btn-link" href="/">Back to Revu</a>
       </p>
     </article>
   </main>
 
-  <footer>
-    <a href="https://github.com/samif0/lol-review" rel="noopener">github.com/samif0/lol-review</a>
-    <a href="/discord">discord</a>
-    <a href="/privacy.html">privacy</a>
-    <a href="/terms.html">terms</a>
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/samif0/lol-review" rel="noopener">GitHub</a>
+        <a href="/discord">Discord</a>
+        <a href="/privacy" aria-current="page">Privacy</a>
+        <a href="/terms">Terms</a>
+        <span id="footer-version"></span>
+      </nav>
+      <p class="riot-disclaimer">
+        Revu isn't endorsed by Riot Games and doesn't reflect the views
+        or opinions of anyone officially involved in producing or managing
+        League of Legends. League of Legends and Riot Games are trademarks
+        or registered trademarks of Riot Games, Inc.
+      </p>
+    </div>
   </footer>
 </body>
 </html>

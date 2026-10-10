@@ -147,6 +147,12 @@ async function wireLiveAutoShow() {
       case 'vodLinked':
         window.dispatchEvent(new CustomEvent('revu:vod-linked', { detail: p }));
         break;
+      case 'clipNarrationUpdated':
+      case 'clipShareProgress':
+        // Same narrow forwarding as shell-outer.js for a standalone VOD player.
+        if (here('vodplayer.html')) window.dispatchEvent(new CustomEvent(
+          t === 'clipNarrationUpdated' ? 'revu:clip-narration-updated' : 'revu:clip-share-progress', { detail: p }));
+        break;
       case 'champSelectStarted':
         liveGoto('pregame.html');
         break;

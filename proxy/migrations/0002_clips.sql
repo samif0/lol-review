@@ -1,6 +1,6 @@
 -- Shared clips. A user uploads a local clip file; we store the bytes in R2
 -- (key = r2_key) and the metadata here. The id is the public slug that appears
--- in revu.lol/<id>. Clips auto-expire after 30 days; a daily cron purges rows
+-- in revu.lol/<id>. Clips auto-expire after 3 days; an hourly cron purges rows
 -- where expires_at has passed (and the matching R2 object).
 CREATE TABLE clips (
     id           TEXT    PRIMARY KEY,        -- short base62 public slug (revu.lol/<id>)
@@ -12,7 +12,7 @@ CREATE TABLE clips (
     title        TEXT,                       -- uploader-typed caption (no account data)
     champion     TEXT,                       -- uploader-typed champion tag
     created_at   INTEGER NOT NULL,           -- unix seconds
-    expires_at   INTEGER NOT NULL,           -- unix seconds; created_at + 30 days
+    expires_at   INTEGER NOT NULL,           -- unix seconds; created_at + 3 days
     view_count   INTEGER NOT NULL DEFAULT 0,
     status       TEXT    NOT NULL DEFAULT 'ready',
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE

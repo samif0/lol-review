@@ -52,6 +52,14 @@ test('only trusted main-frame IPC, command allowlist, and query encoding', () =>
   assert.throws(() => commandRequest('save_config', { payload: { notes: 'x'.repeat(65536) } }));
   assert.equal(snapshotMedia('get_config', { filePath: 'secret' }), null);
   assert.deepEqual(snapshotMedia('get_patterns', { groups: [{ moments: [{ vodPath: 'vod', clipPath: 'clip' }] }] }), ['vod', 'clip']);
+  // Narrated renders are granted only as get_vod snapshot fields of bookmarks and saved-clip evidence.
+  assert.deepEqual(snapshotMedia('get_vod', { filePath: 'game.mp4',
+    bookmarks: [{ id: 3, clipPath: 'clips/a.mp4', narration: { bookmarkId: 3, narratedClipPath: 'clips/narrated/a_narrated.mp4' } },
+      { id: 4, clipPath: null, narration: { narratedClipPath: '' } }],
+    savedClips: [{ shareBookmarkId: 5, clipPath: 'clips/b.mp4', narration: { narratedClipPath: 'clips/narrated/b_narrated.mp4' } }] }),
+  ['game.mp4', 'clips/a.mp4', 'clips/narrated/a_narrated.mp4', 'clips/b.mp4', 'clips/narrated/b_narrated.mp4']);
+  assert.deepEqual(snapshotMedia('get_vod', { narration: { voicePath: 'narration/voice.webm', narratedClipPath: 7 } }), []);
+  assert.equal(snapshotMedia('mix_clip_narration', { narration: { narratedClipPath: 'x.mp4' } }), null);
 });
 test('stale and foreign handshakes never become an authenticated backend', () => {
   const identity = { launchId: 'test', processId: 12, dataDirectory: path.resolve('scratch') };

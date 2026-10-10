@@ -30,6 +30,8 @@ public static class SidecarServices
         services.AddSingleton<IRulesRepository, RulesRepository>();
         services.AddSingleton<IHardStopsRepository, HardStopsRepository>();
         services.AddSingleton<IVodRepository, VodRepository>();
+        // 3.14: narrations for the VOD snapshot (read-only graph; tolerates a missing table).
+        services.AddSingleton<IClipNarrationRepository, ClipNarrationRepository>();
         services.AddSingleton<ISessionLogRepository, SessionLogRepository>();
         services.AddSingleton<ICoachingStintsRepository, CoachingStintsRepository>();
         services.AddSingleton<IEvidenceRepository, EvidenceRepository>();
@@ -73,6 +75,30 @@ public static class SidecarServices
             sp.GetRequiredService<WriteServices>().BackupGuard.EnsureBackedUpAsync,
             sp.GetRequiredService<ILogger<RecordingRegistrationService>>(),
             gameId => sp.GetRequiredService<SidecarEventHub>().Publish("vodLinked", new { gameId })));
+
+        // 3.14 narrated clips: background sharing, automatic transcripts, and the remote
+        // clip cleanup queue. Singletons over the WRITE graph; started by SidecarStartup only
+        // when not isolated (an isolated host denies every route that would use them).
+        services.AddSingleton(sp => new RemoteClipCleanupStore(
+            AppDataPaths.RemoteClipCleanupPath,
+            sp.GetRequiredService<WriteServices>().ClipUpload,
+            sp.GetRequiredService<ILogger<RemoteClipCleanupStore>>()));
+        services.AddSingleton(sp =>
+        {
+            var w = sp.GetRequiredService<WriteServices>();
+            return new ClipShareWorker(w.Vod, w.ClipNarrations, w.Config, w.ClipUpload, w.ClipRetention,
+                w.NarrationMixer, w.BackupGuard.EnsureBackedUpAsync, sp.GetRequiredService<SidecarEventHub>(),
+                sp.GetRequiredService<SidecarBackgroundWork>(), sp.GetRequiredService<RemoteClipCleanupStore>(),
+                sp.GetRequiredService<ILogger<ClipShareWorker>>());
+        });
+        services.AddSingleton(sp =>
+        {
+            var w = sp.GetRequiredService<WriteServices>();
+            return new NarrationTranscriptionWorker(w.ClipNarrations, w.Vod, w.Config, w.Transcription,
+                w.TranscriptChunker, w.NarrationMixer, w.ClipUpload, w.BackupGuard.EnsureBackedUpAsync,
+                sp.GetRequiredService<SidecarEventHub>(), sp.GetRequiredService<SidecarBackgroundWork>(),
+                sp.GetRequiredService<ILogger<NarrationTranscriptionWorker>>());
+        });
 
         // LCU detection and desktop event delivery.
         services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);

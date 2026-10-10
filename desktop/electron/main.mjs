@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, screen, shell, session, Tray, Menu } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, screen, shell, session, systemPreferences, Tray, Menu } from 'electron';
 import { unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Sidecar } from './sidecar.mjs';
@@ -11,6 +11,7 @@ import { createCommandGate, createQuitHandler, shutdownOwnedApp } from './shutdo
 import { RecordingService } from './recording-service.mjs';
 import { createOverwolfRecorder } from './recorder-adapter.mjs';
 import { createBackgroundController } from './background.mjs';
+import { saveNarration } from './narration.mjs';
 
 app.setName('Revu');
 let window, backend, eventAbort, configuration, native, afterShutdown;
@@ -139,6 +140,17 @@ function registerIpc() {
     operation.then(() => pendingCommands.delete(operation), () => pendingCommands.delete(operation));
     return operation;
   });
+  // Narration audio has its own channel: bytes never travel through the JSON
+  // command envelope, and the renderer never chooses where the file is written.
+  // Tracked like a command so shutdown waits for it; the sidecar request is bounded at 280 s.
+  ipcMain.handle('revu:narration-save', (event, bytes, meta) => {
+    validateSender(event, window.webContents);
+    if (configuration.isolated || quitting || restart) throw new Error('Narration is unavailable while Revu is closing or in isolated mode');
+    const operation = saveNarration({ root: path.join(configuration.dataRoot, 'Revu', 'Narration'), backend, bytes, meta });
+    pendingCommands.add(operation);
+    operation.then(() => pendingCommands.delete(operation), () => pendingCommands.delete(operation));
+    return operation;
+  });
 }
 
 async function start() {
@@ -185,7 +197,7 @@ async function start() {
     if (!details.isSameDocument) { pageGeneration++; media.clear(); window.webContents.send('revu:media-clear'); }
   });
   window.webContents.on('render-process-gone', () => { process.exitCode = 1; app.quit(); });
-  native = nativeCommands({ app, clipboard, dialog, screen, shell, window, dataRoot, isolated,
+  native = nativeCommands({ app, clipboard, dialog, screen, shell, systemPreferences, window, dataRoot, isolated,
     quit: action => { afterShutdown = action; app.quit(); } });
   registerIpc();
   const config = await backend.request('/api/config');

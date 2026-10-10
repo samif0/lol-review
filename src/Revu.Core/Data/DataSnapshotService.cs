@@ -197,7 +197,8 @@ public sealed class DataSnapshotService
             .Where(item => item.column.PrimaryKeyOrder > 0)
             .OrderBy(item => item.column.PrimaryKeyOrder).Select(item => item.index).ToArray();
         var pathColumns = columns.Select((column, index) => (column, index))
-            .Where(item => item.column.Name is "file_path" or "clip_path").ToArray();
+            .Where(item => item.column.Name is "file_path" or "clip_path"
+                or "audio_path" or "narrated_clip_path" or "source_clip_path").ToArray();
         var rows = new List<string>();
         var identities = new List<string>();
         using var command = connection.CreateCommand();

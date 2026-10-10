@@ -17,6 +17,10 @@ import { findTimelineEventAtPoint } from './timeline-event-hit.mjs';
 import { objectiveTypeLabel, objectivePhaseLabel } from './objective-labels.mjs';
 import { createMatchNavigation } from './match-navigation.mjs';
 import { createVodViewRestorer, createVodWriteBarrier, sameVodDraft, vodRestorePlan } from './vod-view-state.mjs';
+import { clipRowNarrationContext, openNarrationStudio } from './clip-narration.mjs';
+import { noteTranscriptProgress, renderClipTranscript } from './clip-transcript.mjs';
+import { shareProgressLabel, waitForShareJob } from './clip-share-wait.mjs';
+import { platform } from './platform/index.mjs';
 
 function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
@@ -34,6 +38,8 @@ let _vodInitialLoading = true;
 let _linkedVodPending = false;
 let _linkedVodLoading = false;
 let _vodReadVersion = 0;
+let _narrationOk = false;   // host can save narration takes (not in isolated previews)
+let _studio = null;         // the open narration studio, if any
 // ── Objective-framed viewer state ────────────────────────────────────────────
 // The VOD page opens framed on ONE objective at a time (the default, not a mode).
 // _focusedObjId is the currently-framed objective id; its events/moments are loud,
@@ -361,6 +367,7 @@ async function fetchVod() {
       const cfg = await core.invoke('get_config');
       _autoClipEnabled = !!(cfg && cfg.autoClipObjectivesEnabled);
     } catch (_) { _autoClipEnabled = false; }
+    try { _narrationOk = await platform.narrationAvailable(); } catch (_) { _narrationOk = false; }
     return { data, core };
   }
   // Browser preview: use the existing objective cards as well as the VOD sample
@@ -442,6 +449,33 @@ window.addEventListener('revu:events-corrected', (ev) => {
     _fxReloadBusy = true;
     try { await reloadBookmarks(); } finally { _fxReloadBusy = false; }
   }, 300);
+});
+
+// 3.14: a narration render or transcript changed (shell-outer forwards the sidecar's
+// clipNarrationUpdated SSE). Coalesced like corrections; never touches playback, and
+// skipped while the studio is saving because the studio reloads itself. Transcript
+// progress arrives for the whole transcription, so the reload waits while a field in
+// the moments list has focus: re-rendering the rows would wipe a half-typed note
+// (notes save on blur) and drop focus onto the page shortcuts.
+let _narrationReloadTimer = null;
+function momentsFieldInUse() {
+  const el = document.activeElement;
+  if (!el || !el.closest || !el.closest('#vp-bookmarks')) return false;
+  return !!el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT';
+}
+function scheduleNarrationReload(delay) {
+  clearTimeout(_narrationReloadTimer);
+  _narrationReloadTimer = setTimeout(() => {
+    if (_studio?.state === 'saving') return;
+    if (momentsFieldInUse()) { scheduleNarrationReload(1000); return; }
+    reloadBookmarks();
+  }, delay);
+}
+window.addEventListener('revu:clip-narration-updated', (ev) => {
+  const detail = (ev && ev.detail) || {};
+  noteTranscriptProgress(detail);
+  if (Number(detail.gameId) !== _gameId || _gameId <= 0) return;
+  scheduleNarrationReload(300);
 });
 
 // Re-fetch the VOD snapshot after a write and re-render the bookmark/marker UI
@@ -1167,6 +1201,7 @@ function normMoment(m, srcLabel) {
     // Saved-clip rows carry the underlying bookmark id (= SourceId) + share state.
     shareBookmarkId: m.shareBookmarkId || 0,
     shareUrl: m.shareUrl || '',
+    narrationCtx: m.hasClip ? clipRowNarrationContext(m) : null,
   };
 }
 
@@ -1202,6 +1237,7 @@ function normBookmark(b, isClip) {
     // Clip bookmarks can be shared; the bookmark id IS the share target.
     shareBookmarkId: isClip && b.id != null ? b.id : 0,
     shareUrl: b.shareUrl || '',
+    narrationCtx: isClip ? clipRowNarrationContext(b) : null,
   };
 }
 
@@ -1407,6 +1443,7 @@ function renderMoments() {
         else { urlEl.textContent = ''; show(urlEl, false); }
       }
       renderShareJobForRow(m.shareBookmarkId, shared);
+      renderRowNarration(shareWrap, m);
       // No per-element click listeners here — rows re-render on every reload, which
       // would leak handlers. The document-level delegated handler owns share_clip +
       // copy_clip_link and stops propagation so the row's jump never fires.
@@ -1451,6 +1488,72 @@ function renderMoments() {
     }
     host.appendChild(el);
   }
+}
+
+// Narrate / Edit narration, the Narrated chip and the transcript for a clip row.
+function renderRowNarration(wrap, m) {
+  const ctx = m.narrationCtx, narrated = !!ctx?.narration;
+  const btn = wrap.querySelector('.vp-narrate-btn');
+  if (btn) {
+    btn.dataset.shareBmId = String(m.shareBookmarkId);
+    btn.textContent = narrated ? 'Edit narration' : 'Narrate';
+    show(btn, _narrationOk && !!ctx?.bookmarkId);
+  }
+  show(wrap.querySelector('.vp-narrated-chip'), narrated);
+  const host = wrap.querySelector('.vp-clip-transcript-host');
+  if (host) {
+    host.dataset.clipStart = String(ctx?.clipStartSeconds ?? m.seconds ?? 0);
+    renderClipTranscript(host, ctx?.narration || null);
+  }
+}
+
+// The freshest studio context for a clip's bookmark id (evidence row first).
+function narrationContextFor(bmId) {
+  const id = Number(bmId);
+  const row = (_vod?.savedClips || []).find(c => Number(c.shareBookmarkId) === id)
+    || (_vod?.bookmarks || []).find(b => b.hasClip && Number(b.id) === id);
+  return row ? clipRowNarrationContext(row) : null;
+}
+
+function openNarrationFor(btn) {
+  const bmId = Number(btn?.dataset?.shareBmId) || 0;
+  const ctx = narrationContextFor(bmId), dialog = $('vp-narration');
+  if (!ctx || !ctx.bookmarkId || !dialog || !_core || !_narrationOk) return;
+  _studio?.close();
+  _studio = openNarrationStudio({ dialog, ctx, gameId: _gameId, media: _core, invoke: _core.invoke, platform,
+    pauseMainVod: () => _T?.pause(), opener: btn,
+    onChanged: async () => { await reloadBookmarks(); return narrationContextFor(bmId); } });
+}
+
+// Transcript lines seek the VOD to clip start + line time (approximate: stream-copied
+// clips begin on the keyframe before the In point).
+function seekTranscriptLine(btn) {
+  const start = Number(btn.closest('.vp-clip-transcript-host')?.dataset.clipStart), t = Number(btn.dataset.t);
+  if (!Number.isFinite(start) || !Number.isFinite(t)) return;
+  _selectedReviewEvent = '';
+  highlightReviewEvent();
+  seekTo(start + t);
+  const v = video();
+  if (v && v.paused) v.play()?.catch?.(() => {});
+}
+
+// Transcript sign-in reuses the share login panel with no clip to upload. A share
+// already paused for that login keeps its place, so signing in still resumes it.
+function openTranscriptLogin() {
+  openShareLogin(_shareQueuePaused ? _pendingShareBmId : 0, _shareEmail, 'Sign in to get a transcript of your narration.');
+}
+
+async function retryTranscript(btn) {
+  const bookmarkId = Number(btn?.dataset?.bmId) || 0;
+  if (!_core || !bookmarkId) return;
+  btn.disabled = true;
+  try {
+    const res = await _core.invoke('transcribe_clip_narration', { payload: { gameId: _gameId, bookmarkId } });
+    if (res && res.needsLogin) openTranscriptLogin();
+  } catch (err) {
+    console.error('[vodplayer] transcribe_clip_narration failed:', err);
+  }
+  await reloadBookmarks();
 }
 
 // 3-way tab filter (Auto / Clips / Bookmarks) — client-side over the lanes.
@@ -1738,10 +1841,7 @@ async function deleteBookmark(bookmarkId) {
 async function deleteClip(btn) {
   const bmId = btn && btn.dataset ? Number(btn.dataset.shareBmId) : 0;
   if (!_core || !bmId) return;
-  if (!window.confirm(
-    'Delete this clip? This permanently removes the video file, its entry, and any shared link. This can’t be undone.')) {
-    return;
-  }
+  if (!window.confirm('Delete this clip? Its narration and transcript are deleted too.')) return;
   if ('disabled' in btn) btn.disabled = true;
   try {
     const res = await _core.invoke('delete_clip', {
@@ -1749,7 +1849,7 @@ async function deleteClip(btn) {
     });
     if (res && res.ok === false) {
       console.error('[vodplayer] delete_clip rejected:', res.error);
-    }
+    } else cancelShareJob(bmId); // the sidecar cancelled its share job too
     await reloadBookmarks();
   } catch (err) {
     console.error('[vodplayer] delete_clip failed:', err);
@@ -1883,7 +1983,7 @@ function shareLoginMsg(msg) {
 }
 
 // Reveal the inline login panel at the email step. Prefills the last-known email.
-function openShareLogin(bmId, prefillEmail) {
+function openShareLogin(bmId, prefillEmail, message) {
   _pendingShareBmId = Number(bmId) || 0;
   const panel = $('vp-sharelogin');
   if (!panel) return;
@@ -1892,7 +1992,7 @@ function openShareLogin(bmId, prefillEmail) {
   show($('vp-sl-email'), true);
   show($('vp-sl-otp'), false);
   shareLoginErr('');
-  shareLoginMsg('Log in to publish this clip to revu.lol.');
+  shareLoginMsg(message || 'Log in to publish this clip to revu.lol.');
   const box = $('vp-sl-emailbox');
   if (box) { box.value = prefillEmail || _shareEmail || ''; box.focus(); }
   // The panel renders as a centered popover (CSS .vp-sharelogin[ ... ]:not([hidden]))
@@ -2031,6 +2131,7 @@ async function uploadShareJob(job) {
   for (;;) {
     job.status = 'uploading';
     job.message = '';
+    job.progress = '';
     renderShareJob(job);
     try {
       const res = await _core.invoke('share_clip', {
@@ -2039,11 +2140,25 @@ async function uploadShareJob(job) {
       if (res && res.ok === false) {
         const message = res.error ? String(res.error) : 'Share failed.';
         if (res.needsLogin) return pauseShareQueueForLogin(job, message);
-        if (await retryShareJob(job, message)) continue;
+        const retryable = typeof res.retryable === 'boolean' ? res.retryable : isRetryableShareError(message);
+        if (await retryShareJob(job, message, '', retryable)) continue;
         failShareJob(job, message);
         return 'failed';
       }
-      const url = res && res.shareUrl ? String(res.shareUrl) : '';
+      let url = res && (res.url || res.shareUrl) ? String(res.url || res.shareUrl) : '';
+      if (!url && res && res.accepted) {
+        // 3.14: the upload runs as a sidecar job; its result arrives over SSE.
+        const outcome = await waitForShareOutcome(job);
+        if (outcome === 'cancelled') return 'failed';
+        if (outcome.error) {
+          const err = outcome.error, message = err.message || 'Share failed.';
+          if (err.needsLogin) return pauseShareQueueForLogin(job, message);
+          if (await retryShareJob(job, message, '', err.retryable === true)) continue;
+          failShareJob(job, message);
+          return 'failed';
+        }
+        url = outcome.url;
+      }
       if (!url) {
         failShareJob(job, 'Share finished, but no link came back.');
         return 'failed';
@@ -2065,12 +2180,37 @@ async function uploadShareJob(job) {
       if (/401|needsLogin|logged in|log in/i.test(raw)) {
         return pauseShareQueueForLogin(job, message);
       }
-      if (await retryShareJob(job, message, raw)) continue;
+      // A share that timed out on the client may still be running; never start it twice.
+      const timedOut = /timeout|timed out|aborted/i.test(raw);
+      if (!timedOut && await retryShareJob(job, message, raw)) continue;
       failShareJob(job, message);
       console.error('[vodplayer] share_clip failed:', err);
       return 'failed';
     }
   }
+}
+
+// Waits for the accepted sidecar job: { url } | { error } | 'cancelled'.
+async function waitForShareOutcome(job) {
+  const wait = waitForShareJob({ bookmarkId: Number(job.bmId), invoke: _core.invoke, onProgress: (detail) => {
+    const label = shareProgressLabel(detail);
+    if (label && job.status === 'uploading' && !job.cancelled) { job.progress = label; renderShareJob(job); }
+  } });
+  job.cancelWait = wait.cancel;
+  try { return { url: (await wait.promise).url }; }
+  catch (error) { return job.cancelled ? 'cancelled' : { error }; }
+  finally { job.cancelWait = null; }
+}
+
+// The clip was deleted: forget its share job without reporting a failure.
+function cancelShareJob(bmId) {
+  const id = Number(bmId), job = _shareJobs.get(id);
+  if (!job) return;
+  job.cancelled = true;
+  if (job.cancelWait) job.cancelWait();
+  _shareQueue = _shareQueue.filter(queued => queued !== id);
+  _shareJobs.delete(id);
+  renderShareBanner();
 }
 
 function pauseShareQueueForLogin(job, message) {
@@ -2085,14 +2225,15 @@ function pauseShareQueueForLogin(job, message) {
 
 function isRetryableShareError(message, raw) {
   const s = `${message || ''} ${raw || ''}`;
-  if (/clip file not found|too large|90s|90 seconds|only mp4|only webm|not found|log in|logged in|unauthorized/i.test(s)) {
+  if (/clip file not found|too large|90s|90 seconds|only mp4|only webm|not found|log in|logged in|unauthorized/i.test(s)
+    || /up to 10 minutes|2 GB max|still uploading|limit reached|quota|Narration changed|MP4 and WebM|missing/i.test(s)) {
     return false;
   }
   return /temporarily unavailable|try again|too many uploads|wait a moment|timeout|timed out|request failed|couldn'?t reach|502|503|504|429/i.test(s);
 }
 
-async function retryShareJob(job, message, raw) {
-  if (!isRetryableShareError(message, raw) || job.attempts >= SHARE_RETRY_DELAYS_MS.length) {
+async function retryShareJob(job, message, raw, retryable = isRetryableShareError(message, raw)) {
+  if (!retryable || job.cancelled || job.attempts >= SHARE_RETRY_DELAYS_MS.length) {
     return false;
   }
   const delay = SHARE_RETRY_DELAYS_MS[job.attempts];
@@ -2237,7 +2378,7 @@ function renderShareBanner() {
   if (queued) parts.push(`${queued} queued`);
   let msg;
   if (active > 0) {
-    msg = `Sharing clips — ${parts.join(', ')}. Uploads run one at a time and keep going if you switch objectives.`;
+    msg = 'Sharing clips. Long clips can take several minutes to upload.';
   } else {
     const bits = [];
     if (failed) bits.push(`${failed} share${failed === 1 ? '' : 's'} failed`);
@@ -2266,7 +2407,7 @@ function renderShareJob(job) {
     setShareCopyVisible(bmId, '', false);
   } else if (job.status === 'uploading') {
     setShareBtnState(bmId, 'Uploading…', { disabled: true, state: 'uploading' });
-    setShareStatusChip(bmId, 'Uploading now. Other shares will wait.', false);
+    setShareStatusChip(bmId, job.progress || 'Uploading now. Other shares will wait.', false);
     setShareCopyVisible(bmId, '', false);
   } else if (job.status === 'retry_wait') {
     setShareBtnState(bmId, 'Retrying…', { disabled: true, state: 'uploading', title: job.message });
@@ -2365,6 +2506,23 @@ document.addEventListener('click', async (ev) => {
     ev.preventDefault();
     ev.stopPropagation(); // don't let the row's jump fire
     await deleteClip(t);
+  } else if (action === 'narrate_clip') {
+    ev.preventDefault();
+    ev.stopPropagation(); // don't let the row's jump fire
+    openNarrationFor(t);
+  } else if (action === 'transcript_seek') {
+    ev.preventDefault();
+    ev.stopPropagation();
+    seekTranscriptLine(t);
+  } else if (action === 'transcript_retry') {
+    ev.preventDefault();
+    ev.stopPropagation();
+    await retryTranscript(t);
+  } else if (action === 'transcript_signin') {
+    ev.preventDefault();
+    ev.stopPropagation();
+    // Signing in is enough: the sidecar sweep transcribes pending narrations and SSE refreshes rows.
+    openTranscriptLogin();
   } else if (action === 'share_send_code') {
     ev.preventDefault();
     await shareSendCode();
@@ -2430,6 +2588,9 @@ function clipHint(msg, isErr) {
   if (msg && _composerKind === 'clip') $('vp-composer-body').scrollTop = 0;
 }
 
+const MAX_CLIP_SECONDS = 600;
+const CLIP_TOO_LONG = 'Clips can be up to 10 minutes.';
+
 // Reflect the in/out range + Save enablement into the Clip card.
 function renderClipState() {
   const inBtn = $('vp-clip-in');
@@ -2452,7 +2613,10 @@ function renderClipState() {
     }
   }
   if (clearBtn) show(clearBtn, _clipIn >= 0 || _clipOut >= 0);
-  if (saveBtn) saveBtn.disabled = !hasRange || _clipBusy;
+  const tooLong = hasRange && Math.abs(_clipOut - _clipIn) > MAX_CLIP_SECONDS;
+  if (saveBtn) saveBtn.disabled = !hasRange || tooLong || _clipBusy;
+  if (tooLong && $('vp-clip-hint')?.textContent !== CLIP_TOO_LONG) clipHint(CLIP_TOO_LONG, true);
+  else if (!tooLong && $('vp-clip-hint')?.textContent === CLIP_TOO_LONG) clipHint('');
 
   // Quality chip selection visuals.
   document.querySelectorAll('#vp-clip-qual .q').forEach((q) => {
@@ -2620,6 +2784,7 @@ async function saveClipNow() {
   openClipTools();
   const hasRange = _clipIn >= 0 && _clipOut >= 0 && Math.abs(_clipOut - _clipIn) >= 1;
   if (!hasRange) { clipHint('Set an In and Out point first (I / O).', true); return; }
+  if (Math.abs(_clipOut - _clipIn) > MAX_CLIP_SECONDS) { clipHint(CLIP_TOO_LONG, true); return; }
   if (!_core || _gameId <= 0) { clipHint('Preview only; no backend to export to.', false); return; }
   if (!_vod || !_vod.filePath) { clipHint('No recording on disk to clip from.', true); return; }
   const submittedDraft = captureVodViewState().clip;
@@ -2635,7 +2800,7 @@ async function saveClipNow() {
 
   _clipBusy = true;
   renderClipState();
-  clipHint('Saving clip…', false);
+  clipHint(endTimeS - startTimeS > 90 ? 'Saving clip... Long clips can take a minute to save.' : 'Saving clip...', false);
   try {
     const payload = {
       gameId: _gameId,
@@ -2664,7 +2829,8 @@ async function saveClipNow() {
   } catch (err) {
     // The sidecar returns "...ffmpeg..." in the message when it isn't installed.
     const msg = String(err && err.message ? err.message : err);
-    clipHint(/ffmpeg/i.test(msg) ? 'Clip save failed; is ffmpeg installed?' : 'Clip save failed.', true);
+    const known = msg.match(/(?:Clips can be up to 10 minutes|Revu could not save this clip)\..*$/);
+    clipHint(known ? known[0] : /ffmpeg/i.test(msg) ? 'Clip save failed; is ffmpeg installed?' : 'Clip save failed.', true);
     console.error('[vodplayer] extract_clip failed:', err);
   } finally {
     _clipBusy = false;
@@ -2919,6 +3085,17 @@ function wireSeekBar() {
 // a focused moment row jumps to its time (the rows are role=button divs).
 document.addEventListener('keydown', (ev) => {
   if (ev.defaultPrevented || ev.isComposing) return;
+  // The narration studio is modal. Keys aimed inside it stop at the dialog; keys that
+  // land on the body (focus fixup after a control hides) must not reach the VOD
+  // shortcuts either, or Space would play the paused VOD into the take. Escape asks
+  // the studio to close itself, so its confirm guards a recording take.
+  if (_studio && _studio.state !== 'closed') {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      if (!ev.repeat) _studio.requestClose?.();
+    }
+    return;
+  }
   if (ev.key === 'Escape' && _composerKind) {
     ev.preventDefault();
     if (!ev.repeat) closeComposer();
@@ -2960,7 +3137,7 @@ document.addEventListener('keydown', (ev) => {
   if (ev.target.isContentEditable || ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT' || ev.target.closest?.('select')) return;
   // Native card buttons must receive Enter/Space themselves, rather than having
   // the enclosing moment row turn their activation into a seek.
-  if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.closest?.('button')
+  if ((ev.key === 'Enter' || ev.key === ' ') && (ev.target.closest?.('button') || ev.target.closest?.('summary'))
     && ev.target.closest?.('.moment[data-action="jump"]')) return;
   // Timeline corrections (E / N / Delete / [ ] / Z, and Escape while its form or a
   // selection is live). Consumed keys stop here; everything else falls through.

@@ -7,7 +7,7 @@ namespace Revu.Core.Tests;
 /// deletion: it must drop the clip bookmark AND any evidence ledger row that referenced
 /// it, and hand back the on-disk path + share URL for the caller's file/remote cleanup.
 /// </summary>
-public sealed class VodRepositoryClipDeleteTests
+public sealed partial class VodRepositoryClipDeleteTests
 {
     [Fact]
     public async Task DeleteClipFullAsync_RemovesBookmarkAndEvidence_AndReturnsPathAndUrl()

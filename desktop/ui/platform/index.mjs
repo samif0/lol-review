@@ -1,5 +1,6 @@
 import { validateCommand } from './commands.mjs';
 
+const NARRATION_MAX_BYTES = 33554432;
 const WINDOW_ACTIONS = Object.freeze(['minimize', 'toggleMaximize', 'close', 'unminimize', 'show', 'setFocus', 'startDragging']);
 
 // Electron exposes its preload only on the trusted top-level document. Same-
@@ -155,6 +156,22 @@ export function createPlatform({ scope = globalThis.window, adapterFactory = res
       return adapter.openExternal(target.href);
     },
     async recorderStatus() { return (await requireAdapter('recorder')).recorder.status(); },
+    // Narration audio uses its own host channel; bytes never enter the command envelope.
+    async saveNarration(bytes, meta) {
+      const a = await requireAdapter('narration');
+      // Realm-agnostic: iframe pages hand over their own Uint8Array, or its
+      // ArrayBuffer when a typed view does not survive the context bridge.
+      const byteView = ArrayBuffer.isView(bytes) && bytes.BYTES_PER_ELEMENT === 1;
+      const rawBuffer = Object.prototype.toString.call(bytes) === '[object ArrayBuffer]';
+      if (!((byteView || rawBuffer) && bytes.byteLength <= NARRATION_MAX_BYTES)) {
+        throw new TypeError('Narration audio must be bytes of at most 32 MiB');
+      }
+      return a.saveNarration(bytes, meta);
+    },
+    async narrationAvailable() {
+      const adapter = await getAdapter();
+      return !disposed && adapter?.capabilities?.narration === true && typeof adapter.saveNarration === 'function';
+    },
   });
 }
 

@@ -42,3 +42,15 @@ test('copy supports large review exports but rejects serialized payloads over 4 
   assert.throws(() => commandRequest('copy_text_to_clipboard', { text: '한'.repeat(limit / 2) }), /payload limit/);
   assert.throws(() => commandRequest('save_config', { payload: { text: 'x'.repeat(64 * 1024) } }), /payload limit/);
 });
+
+test('microphone commands report Windows privacy status and open only the fixed settings page', async () => {
+  const opened = [];
+  const native = nativeCommands({ shell: { openExternal: async url => { opened.push(url); } },
+    systemPreferences: { getMediaAccessStatus: kind => { assert.equal(kind, 'microphone'); return 'denied'; } } });
+  const status = await native('get_microphone_access', {});
+  assert.equal(status.status, process.platform === 'win32' ? 'denied' : 'unknown');
+  assert.deepEqual(await native('open_microphone_settings', {}), { ok: true });
+  assert.deepEqual(opened, ['ms-settings:privacy-microphone']);
+  assert.throws(() => commandRequest('open_microphone_settings', { url: 'https://evil.example' }), /Unexpected argument/);
+  assert.equal(commandRequest('get_microphone_access').method, 'NATIVE');
+});

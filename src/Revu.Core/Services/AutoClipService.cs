@@ -93,7 +93,7 @@ public sealed class AutoClipService : IAutoClipService
             {
                 // Extract FIRST (the heavy ffmpeg step), then the quick DB writes — never
                 // hold a write across ffmpeg. ExtractClipAsync runs at BelowNormal priority.
-                var clipPath = await _clips.ExtractClipAsync(vodPath, clip.StartS, clip.EndS, champion, _config.ClipsFolder);
+                var clipPath = await _clips.ExtractClipAsync(vodPath, clip.StartS, clip.EndS, champion, _config.ClipsFolder, ct);
                 if (string.IsNullOrEmpty(clipPath))
                 {
                     _logger.LogWarning("Auto-clip: ffmpeg produced no output for game {GameId} event {EventId} ({Start}-{End}s)",
@@ -115,6 +115,10 @@ public sealed class AutoClipService : IAutoClipService
                     sourceKey: clip.SourceKey,
                     reviewDrafts: _reviewDrafts);
                 created++;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

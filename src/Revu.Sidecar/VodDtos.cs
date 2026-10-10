@@ -54,8 +54,13 @@ public sealed record VodBookmarkDto(
     long? PromptId = null,
     // Public share link (revu.lol/<id>) once the clip has been uploaded; "" until
     // shared. Drives the VOD player's Share-button label (Share vs Copy link).
-    // The clip PATH itself stays server-side (resolved on POST /api/clip/upload).
-    string ShareUrl = "");
+    string ShareUrl = "",
+    // 3.14: the clip file's absolute path when it is on disk, else null. Exposed so
+    // Electron can grant it to the narration studio; the host's media grant allowlist
+    // (not this field) is the security boundary.
+    string? ClipPath = null,
+    // 3.14: the clip's narration (render, mix settings, transcript), null when none.
+    NarrationDto? Narration = null);
 
 /// <summary>
 /// A live in-game event placed on the EVENT TIMELINE (kills/deaths/objectives).
@@ -136,7 +141,11 @@ public sealed record VodEvidenceDto(
     // P-027: the custom prompt this moment answers (evidence_items.prompt_id), null
     // when untagged. Lets the VOD row's picker re-select the saved prompt and the
     // '↳ prompt' badge render after a reload.
-    long? PromptId = null);
+    long? PromptId = null,
+    // 3.14 (saved-clip rows, keyed by ShareBookmarkId): the clip file's absolute path when
+    // on disk, else null, and the clip's narration. Both null on non-clip rows.
+    string? ClipPath = null,
+    NarrationDto? Narration = null);
 
 /// <summary>
 /// The fight behind a TEAMFIGHT timeline pin (v3.8 teamfight numbers). Start/End are the
