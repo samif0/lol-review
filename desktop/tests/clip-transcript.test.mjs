@@ -96,6 +96,15 @@ test('pending, processing, sign-in, failure and quota states render exact copy a
   }
 });
 
+test('a failed transcript shows the stored reason, such as transcription not being live yet', () => {
+  const el = host();
+  renderClipTranscript(el, narration('failed', { transcriptError: 'Transcripts are not available yet. Revu will try again later.' }));
+  assert.equal(el.textContent, 'Transcripts are not available yet. Revu will try again later.Retry');
+  const blank = host();
+  renderClipTranscript(blank, narration('failed', { transcriptError: '   ' }));
+  assert.equal(blank.textContent, 'Transcript failed. Try again.Retry');
+});
+
 test('no narration or an unknown status hides and clears the host', () => {
   const el = host();
   renderClipTranscript(el, narration('failed'));

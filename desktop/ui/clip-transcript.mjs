@@ -101,7 +101,10 @@ export function renderClipTranscript(container, narration, { onSeek, onRetry, on
     nodes.push(statusLine(doc, 'Sign in to get a transcript of your narration.'));
     nodes.push(actionButton(doc, 'transcript_signin', 'Sign in', bookmarkId, onSignIn));
   } else if (status === 'failed') {
-    nodes.push(statusLine(doc, 'Transcript failed. Try again.'));
+    // The sidecar stores user-facing copy in transcriptError, e.g. "not available yet"
+    // when the server has no transcription route; prefer it over the generic line.
+    const reason = typeof narration?.transcriptError === 'string' ? narration.transcriptError.trim() : '';
+    nodes.push(statusLine(doc, reason || 'Transcript failed. Try again.'));
     nodes.push(actionButton(doc, 'transcript_retry', 'Retry', bookmarkId, onRetry));
   } else if (status === 'quota') {
     nodes.push(statusLine(doc, 'Daily transcript limit reached. Try again tomorrow.'));
