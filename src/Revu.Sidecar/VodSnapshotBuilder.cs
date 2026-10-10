@@ -50,6 +50,8 @@ public sealed class VodSnapshotBuilder
     // v3.11: the corrections ledger. Optional (trailing, defaulted) so the seven-argument
     // call sites keep compiling; MS.DI supplies the read-graph registration.
     private readonly IEventCorrectionsRepository? _corrections;
+    // 3.14: narrations (render + transcript) per clip bookmark. Optional for the same reason.
+    private readonly IClipNarrationRepository? _narrations;
 
     public VodSnapshotBuilder(
         IGameRepository gameRepo,
@@ -59,7 +61,8 @@ public sealed class VodSnapshotBuilder
         IObjectivesRepository objectivesRepo,
         IConfigService config,
         ILogger<VodSnapshotBuilder> logger,
-        IEventCorrectionsRepository? corrections = null)
+        IEventCorrectionsRepository? corrections = null,
+        IClipNarrationRepository? narrations = null)
     {
         _gameRepo = gameRepo;
         _vodRepo = vodRepo;
@@ -69,6 +72,7 @@ public sealed class VodSnapshotBuilder
         _config = config;
         _logger = logger;
         _corrections = corrections;
+        _narrations = narrations;
     }
 
     public async Task<VodDto> BuildAsync(long gameId, CancellationToken ct = default)
@@ -110,12 +114,16 @@ public sealed class VodSnapshotBuilder
         // the share state for the VOD player's Share button.
         var bookmarks = new List<VodBookmarkDto>();
         var shareUrlByBookmarkId = new Dictionary<long, string>();
+        var clipPathByBookmarkId = new Dictionary<long, string>();
+        var narrationByBookmarkId = await VodNarrationLookup.LoadAsync(_narrations, gameId, _logger);
         try
         {
             var raw = await _vodRepo.GetBookmarksAsync(gameId);
             foreach (var b in raw)
             {
                 if (!string.IsNullOrWhiteSpace(b.ShareUrl)) shareUrlByBookmarkId[b.Id] = b.ShareUrl;
+                var onDisk = VodNarrationLookup.ClipPathOnDisk(b);
+                if (onDisk is not null) clipPathByBookmarkId[b.Id] = onDisk;
             }
             bookmarks.AddRange(raw
                 .OrderBy(b => b.GameTimeSeconds)
@@ -130,7 +138,9 @@ public sealed class VodSnapshotBuilder
                     ClipEndSeconds: b.ClipEndSeconds,
                     ObjectiveId: b.ObjectiveId,
                     PromptId: b.PromptId,
-                    ShareUrl: b.ShareUrl ?? "")));
+                    ShareUrl: b.ShareUrl ?? "",
+                    ClipPath: clipPathByBookmarkId.GetValueOrDefault(b.Id),
+                    Narration: NarrationDtos.MapOrNull(narrationByBookmarkId.GetValueOrDefault(b.Id)))));
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: bookmarks load failed for {GameId}", gameId); }
 
@@ -245,7 +255,13 @@ public sealed class VodSnapshotBuilder
                     // button targets; carry its share state from the lookup above.
                     var shareBmId = item.SourceId ?? 0;
                     var shareUrl = shareBmId > 0 && shareUrlByBookmarkId.TryGetValue(shareBmId, out var u) ? u : "";
-                    savedClips.Add(dto with { ShareBookmarkId = shareBmId, ShareUrl = shareUrl });
+                    savedClips.Add(dto with
+                    {
+                        ShareBookmarkId = shareBmId,
+                        ShareUrl = shareUrl,
+                        ClipPath = clipPathByBookmarkId.GetValueOrDefault(shareBmId),
+                        Narration = NarrationDtos.MapOrNull(narrationByBookmarkId.GetValueOrDefault(shareBmId)),
+                    });
                 }
                 else
                     autoMoments.Add(dto);

@@ -8,9 +8,23 @@ const contentTypes = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': '
   '.webp': 'image/webp', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf', '.ico': 'image/x-icon' };
 const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://raw.communitydragon.org https://ddragon.leagueoflegends.com; font-src 'self' data:; media-src revu-media:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
+const audioOnly = types => Array.isArray(types) && types.length > 0 && types.every(t => t === 'audio');
+// Microphone narration is the only renderer permission. Camera, screen/system capture,
+// speaker selection and every other permission stay denied. Pages run inside the
+// same-origin app iframe (ui/index.html), so isMainFrame is intentionally NOT required.
+export function allowMediaRequest(contents, permission, details) {
+  return permission === 'media' && audioOnly(details?.mediaTypes)
+    && isAppUrl(details?.securityOrigin) && isAppUrl(details?.requestingUrl) && isAppUrl(contents?.getURL?.());
+}
+export function allowMediaCheck(contents, permission, requestingOrigin, details) {
+  return permission === 'media' && details?.mediaType === 'audio' && isAppUrl(requestingOrigin)
+    && (!details?.securityOrigin || isAppUrl(details.securityOrigin))
+    && (!details?.embeddingOrigin || isAppUrl(details.embeddingOrigin)) && isAppUrl(contents?.getURL?.());
+}
+
 export function registerProtocols({ protocol, session, uiDirectory, media }) {
-  session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  session.setPermissionCheckHandler(() => false);
+  session.setPermissionRequestHandler((c, p, cb, d) => cb(allowMediaRequest(c, p, d)));
+  session.setPermissionCheckHandler((c, p, o, d) => allowMediaCheck(c, p, o, d));
   session.webRequest.onBeforeRequest((details, callback) => {
     try {
       const url = new URL(details.url);

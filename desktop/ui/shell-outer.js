@@ -154,6 +154,14 @@ function hideUpdateBanner() {
 }
 
 async function runUpdateAndRestart() {
+  // A page doing unsaved work (a narration take) can veto the restart, as with navigation.
+  try {
+    const src = frame?.contentWindow;
+    if (typeof src?.revuBeforeNavigate === 'function' && await src.revuBeforeNavigate() === false) return;
+  } catch (err) {
+    console.warn('[shell] could not finish the current page before updating:', err);
+    return;
+  }
   const invoke = await getInvoke();
   if (!invoke) return;
   const btn = document.getElementById('updbar-btn');
@@ -527,6 +535,18 @@ async function wireLiveAutoShow() {
             frame.contentWindow.dispatchEvent(new CustomEvent('revu:events-corrected', { detail: p }));
           }
         } catch (_) { /* best-effort */ }
+        break;
+      case 'clipNarrationUpdated':
+      case 'clipShareProgress':
+        // 3.14: a narration render/transcript changed, or a background clip share
+        // progressed. Only the VOD player shows clips; it matches gameId/bookmarkId
+        // itself and never interrupts playback.
+        try {
+          if (frameHas('vodplayer.html') && frame?.contentWindow) {
+            const name = t === 'clipNarrationUpdated' ? 'revu:clip-narration-updated' : 'revu:clip-share-progress';
+            frame.contentWindow.dispatchEvent(new CustomEvent(name, { detail: p }));
+          }
+        } catch (_) { /* best-effort; the share wait also polls its status */ }
         break;
       case 'liveState':
         // The replayed snapshot carries the current client state — seed the LCU

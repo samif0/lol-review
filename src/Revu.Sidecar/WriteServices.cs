@@ -83,6 +83,12 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IReviewDraftRepository, ReviewDraftRepository>();
         services.AddSingleton<IEvidenceRepository, EvidenceRepository>();
         services.AddSingleton<IVodRepository, VodRepository>();
+        // 3.14 narrated clips: the narration rows, the eviction protected set, the
+        // narrated-clip renderer and the transcription chunk exporter.
+        services.AddSingleton<IClipNarrationRepository, ClipNarrationRepository>();
+        services.AddSingleton<IClipRetentionGuard, ClipRetentionGuard>();
+        services.AddSingleton<INarrationMixer, NarrationMixer>();
+        services.AddSingleton<INarrationTranscriptChunker, NarrationTranscriptChunker>();
         services.AddSingleton<IVodService, VodService>();
         services.AddSingleton<RecordingLinkStore>();
         // Review-page write slices (Batch 2): per-death cause classification,
@@ -136,10 +142,13 @@ public sealed class WriteServices : IDisposable
         // talk to the Cloudflare proxy (RiotProxyEndpoint.BaseUrl); the proxy
         // injects the server-side Riot key. Timeouts mirror the WinUI app's
         // ServiceCollectionExtensions registration verbatim so a hung request can't
-        // wedge the sidecar (30s auth/match, 5min clip upload — a body can be large).
+        // wedge the sidecar (30s auth/match). The clip-share and transcription clients
+        // have NO client-wide timeout (a 2 GB multipart share runs for many minutes);
+        // every request they send carries its own linked-CTS timeout instead.
         services.AddHttpClient<IRiotAuthClient, RiotAuthClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddHttpClient<IRiotMatchClient, RiotMatchClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
-        services.AddHttpClient<IClipUploadService, ClipUploadService>(c => c.Timeout = TimeSpan.FromMinutes(5));
+        services.AddHttpClient<IClipUploadService, ClipUploadService>(c => c.Timeout = Timeout.InfiniteTimeSpan);
+        services.AddHttpClient<ITranscriptionClient, TranscriptionClient>(c => c.Timeout = Timeout.InfiniteTimeSpan);
         // Backfill services walk games missing enemy_laner / laning@10 / map state
         // and resolve them via Match-V5 (through IRiotMatchClient). All write to
         // GameRepository; the map-state leg also writes derived game_events rows.
@@ -229,6 +238,16 @@ public sealed class WriteServices : IDisposable
     // POST /api/clip/upload — IClipUploadService.UploadAsync(clipPath, token, ...)
     // returns the public revu.lol URL, then SetBookmarkShareUrlAsync persists it.
     public IClipUploadService ClipUpload => _provider.GetRequiredService<IClipUploadService>();
+
+    // ── 3.14 narrated clips ───────────────────────────────────────────────────
+    // clip_narrations rows (POST /api/clip/narration/*, the share and transcription
+    // workers), the clips-folder eviction protected set (also wired into ClipService),
+    // the narrated-clip renderer, POST /transcribe, and the chunk exporter.
+    public IClipNarrationRepository ClipNarrations => _provider.GetRequiredService<IClipNarrationRepository>();
+    public IClipRetentionGuard ClipRetention => _provider.GetRequiredService<IClipRetentionGuard>();
+    public INarrationMixer NarrationMixer => _provider.GetRequiredService<INarrationMixer>();
+    public ITranscriptionClient Transcription => _provider.GetRequiredService<ITranscriptionClient>();
+    public INarrationTranscriptChunker TranscriptChunker => _provider.GetRequiredService<INarrationTranscriptChunker>();
     // POST /api/backfill/start — enemy-laner + laning@10 + map-state resolution via Match-V5.
     public EnemyLanerBackfillService EnemyLanerBackfill => _provider.GetRequiredService<EnemyLanerBackfillService>();
     public LaningBackfillService LaningBackfill => _provider.GetRequiredService<LaningBackfillService>();

@@ -1,0 +1,62 @@
+/*
+ * revu.lol design tokens.
+ *
+ * The first block mirrors the desktop app's shared application system
+ * (desktop/ui/styles.css:3374, the ":root" block under "Shared application
+ * system"). Keep the variable names identical so rules can be compared side
+ * by side. The only change is the UI font stack, which adds -apple-system for
+ * visitors who are not on Windows. No webfonts are loaded anywhere.
+ *
+ * The second block names the literal colors the app uses inline across its
+ * page stylesheets (dashboard, games, vod-review, review-launchpad,
+ * learning-pages, patterns), plus site radii and layout tokens.
+ */
+:root{
+  color-scheme:dark;
+  --bg:#212121;--surface:#2b2b2b;--surface-raised:#303030;--border:#383838;
+  --primary-rgb:244,244,244;--neutral-rgb:163,163,163;--bg-rgb:33,33,33;
+  --text:#ececec;--muted:#a3a3a3;--primary:#f4f4f4;--primary-ink:#202020;--danger:#ef8b91;
+  --t1:var(--text);--t2:#cdcdcd;--t3:var(--muted);--t4:var(--muted);
+  --accent:var(--primary);--gold:var(--primary);--win:var(--primary);--loss:var(--muted);
+  --glass:var(--surface);--glass2:var(--surface-raised);--gline:var(--border);--gline2:var(--border);
+  --font-ui:'Segoe UI',system-ui,-apple-system,sans-serif;
+  --fo:var(--font-ui);--fb:var(--font-ui);--fm:var(--font-ui);
+  --font-caption:12px;--font-small:13px;--font-control:14px;--font-body:15px;
+  --tsh:none;--label-spacing:0;--label-bright:var(--muted);
+  --sidebar-width:248px;--titlebar-height:44px;--banner-height:40px;--radius:12px;
+}
+
+:root{
+  --font-mono:ui-monospace,Consolas,Menlo,monospace;
+
+  /* Named literals used by the app's page stylesheets. */
+  --chrome:#171717;
+  --hover:#3a3a3a;
+  --pressed:#333333;--pressed-border:#525252;
+  --border-strong:#515151;--border-active:#858585;
+  --divider-raised:#454545;
+  --primary-hover:#e2e2e2;
+  --danger-border:#674148;--danger-bg:#352328;
+  --result-win:#9ed7b9;--result-loss:#e6a5a8;
+  --pending:#e8cb9f;
+  --error:#ffaaaa;
+  --overlay:rgba(0,0,0,.6);
+  --selection:#444444;
+
+  /* Radii. */
+  --radius-chip:6px;--radius-row:10px;--radius-card:14px;--radius-panel:16px;
+  --radius-hero:24px;--radius-pill:999px;--radius-kbd:4px;
+
+  /* Layout. */
+  --header-h:56px;
+  --gutter:16px;
+  --container:1380px;--container-home:960px;--container-read:720px;
+}
+
+@media (min-width:640px){
+  :root{--gutter:24px}
+}
+
+@media (min-width:1024px){
+  :root{--gutter:32px}
+}

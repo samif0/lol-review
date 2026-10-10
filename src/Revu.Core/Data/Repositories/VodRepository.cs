@@ -6,7 +6,7 @@ using Microsoft.Data.Sqlite;
 namespace Revu.Core.Data.Repositories;
 
 /// <summary>CRUD for vod_files and vod_bookmarks tables.</summary>
-public sealed class VodRepository : IVodRepository
+public sealed partial class VodRepository : IVodRepository
 {
     private readonly IDbConnectionFactory _factory;
 
@@ -271,67 +271,6 @@ public sealed class VodRepository : IVodRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task DeleteBookmarkAsync(long bookmarkId)
-    {
-        using var conn = _factory.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM vod_bookmarks WHERE id = @id";
-        cmd.Parameters.AddWithValue("@id", bookmarkId);
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    public async Task<ClipDeletionInfo?> DeleteClipFullAsync(long bookmarkId)
-    {
-        using var conn = _factory.CreateConnection();
-
-        // Read the on-disk path + share URL BEFORE deleting — the caller needs them to
-        // delete the file and the uploaded copy, which live outside the DB.
-        string clipPath = "";
-        string shareUrl = "";
-        using (var read = conn.CreateCommand())
-        {
-            read.CommandText = "SELECT clip_path, share_url FROM vod_bookmarks WHERE id = @id LIMIT 1";
-            read.Parameters.AddWithValue("@id", bookmarkId);
-            using var reader = await read.ExecuteReaderAsync();
-            if (!await reader.ReadAsync()) return null; // no such bookmark
-            clipPath = reader.IsDBNull(0) ? "" : reader.GetString(0);
-            shareUrl = reader.IsDBNull(1) ? "" : reader.GetString(1);
-        }
-
-        using var tx = conn.BeginTransaction();
-        try
-        {
-            // Drop any evidence ledger row that pointed at this clip (so it doesn't
-            // linger as a dangling "clip" entry on the objective). source_id holds the
-            // bookmark id for source_kind='clip'.
-            using (var ev = conn.CreateCommand())
-            {
-                ev.Transaction = tx;
-                ev.CommandText = "DELETE FROM evidence_items WHERE source_kind = @kind AND source_id = @id";
-                ev.Parameters.AddWithValue("@kind", EvidenceKinds.Clip);
-                ev.Parameters.AddWithValue("@id", bookmarkId);
-                await ev.ExecuteNonQueryAsync();
-            }
-
-            using (var bm = conn.CreateCommand())
-            {
-                bm.Transaction = tx;
-                bm.CommandText = "DELETE FROM vod_bookmarks WHERE id = @id";
-                bm.Parameters.AddWithValue("@id", bookmarkId);
-                await bm.ExecuteNonQueryAsync();
-            }
-
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-
-        return new ClipDeletionInfo(clipPath, shareUrl);
-    }
-
     public async Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId)
     {
         using var conn = _factory.CreateConnection();
@@ -466,15 +405,6 @@ public sealed class VodRepository : IVodRepository
         return Convert.ToInt32(result);
     }
 
-    public async Task DeleteAllBookmarksAsync(long gameId)
-    {
-        using var conn = _factory.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM vod_bookmarks WHERE game_id = @gameId";
-        cmd.Parameters.AddWithValue("@gameId", gameId);
-        await cmd.ExecuteNonQueryAsync();
-    }
-
     private static async Task<IReadOnlyList<VodSummary>> ReadAllVodsAsync(SqliteCommand cmd)
     {
         var results = new List<VodSummary>();
@@ -563,27 +493,27 @@ public sealed class VodRepository : IVodRepository
             ShareUrl: ReadShareUrl(reader));
     }
 
-    public async Task SetBookmarkShareUrlAsync(long bookmarkId, string shareUrl)
+    public async Task<bool> SetBookmarkShareUrlAsync(long bookmarkId, string shareUrl)
     {
         using var conn = _factory.CreateConnection();
         try
         {
-            await SetBookmarkShareUrlAsync(conn, bookmarkId, shareUrl);
+            return await SetBookmarkShareUrlAsync(conn, bookmarkId, shareUrl);
         }
         catch (SqliteException ex) when (IsMissingColumn(ex, "share_url"))
         {
             await EnsureBookmarkShareUrlColumnAsync(conn);
-            await SetBookmarkShareUrlAsync(conn, bookmarkId, shareUrl);
+            return await SetBookmarkShareUrlAsync(conn, bookmarkId, shareUrl);
         }
     }
 
-    private static async Task SetBookmarkShareUrlAsync(SqliteConnection conn, long bookmarkId, string shareUrl)
+    private static async Task<bool> SetBookmarkShareUrlAsync(SqliteConnection conn, long bookmarkId, string shareUrl)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE vod_bookmarks SET share_url = @shareUrl WHERE id = @id";
         cmd.Parameters.AddWithValue("@shareUrl", shareUrl ?? "");
         cmd.Parameters.AddWithValue("@id", bookmarkId);
-        await cmd.ExecuteNonQueryAsync();
+        return await cmd.ExecuteNonQueryAsync() > 0;
     }
 
     private static async Task EnsureBookmarkShareUrlColumnAsync(SqliteConnection conn)

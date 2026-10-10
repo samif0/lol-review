@@ -36,7 +36,7 @@ export function snapshotMedia(command, value) {
   const visit = (node, depth = 0) => {
     if (!node || typeof node !== 'object' || depth > 12 || paths.length >= 512) return;
     for (const [key, value] of Object.entries(node)) {
-      if (['filePath', 'vodPath', 'clipPath'].includes(key) && typeof value === 'string' && value) paths.push(value);
+      if (['filePath', 'vodPath', 'clipPath', 'narratedClipPath'].includes(key) && typeof value === 'string' && value) paths.push(value);
       else if (value && typeof value === 'object') visit(value, depth + 1);
     }
   };

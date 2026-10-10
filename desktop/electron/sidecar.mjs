@@ -15,6 +15,35 @@ export function validateHandshake(value, { launchId, processId, dataDirectory })
   return value;
 }
 
+// One authenticated request to the owned backend. A rejected request carries the
+// HTTP status so callers can tell a definitive refusal from a lost response.
+export async function backendRequest(hs, route, { method = 'GET', body, timeoutMs = 10000 } = {}) {
+  if (!route.startsWith('/api/') || route.includes('#')) throw new Error('Invalid backend route');
+  const response = await fetch(`http://127.0.0.1:${hs.port}${route}`, {
+    method, redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
+    headers: { Authorization: `Bearer ${hs.token}`, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  // Bound even streamed responses; never log bodies (they can contain user data).
+  const reader = response.body.getReader();
+  const chunks = []; let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 16 * 1024 * 1024) throw new Error('Backend response limit exceeded');
+      chunks.push(value);
+    }
+  } finally { await reader.cancel(); }
+  const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  if (!response.ok) {
+    const e = new Error(typeof value?.error === 'string' ? value.error : `Backend HTTP ${response.status}`);
+    e.status = response.status;
+    throw e;
+  }
+  return value;
+}
+
 // A failed write is never retried: losing its response does not mean it failed.
 export class Sidecar {
   #child; #handshake; #stopping = false; #ready = false; #stopPromise;
@@ -61,29 +90,11 @@ export class Sidecar {
       throw new Error('The owned sidecar did not become ready within 20 seconds');
     } catch (error) { await this.stop().catch(() => {}); throw error; }
   }
-  async request(route, { method = 'GET', body, timeoutMs = 10000 } = {}) {
+  async request(route, options = {}) {
     const hs = this.#handshake;
     if (!hs) throw new Error('Sidecar unavailable');
     if (!route.startsWith('/api/') || route.includes('#')) throw new Error('Invalid backend route');
-    const response = await fetch(`http://127.0.0.1:${hs.port}${route}`, {
-      method, redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
-      headers: { Authorization: `Bearer ${hs.token}`, 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    // Bound even streamed responses; never log bodies (they can contain user data).
-    const reader = response.body.getReader();
-    const chunks = []; let bytes = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read(); if (done) break;
-        bytes += value.byteLength;
-        if (bytes > 16 * 1024 * 1024) throw new Error('Backend response limit exceeded');
-        chunks.push(value);
-      }
-    } finally { await reader.cancel(); }
-    const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    if (!response.ok) throw new Error(typeof value?.error === 'string' ? value.error : `Backend HTTP ${response.status}`);
-    return value;
+    return backendRequest(hs, route, options);
   }
   async events(signal, onEvent) {
     while (!signal.aborted) {

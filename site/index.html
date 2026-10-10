@@ -16,8 +16,12 @@
 
   <link rel="canonical" href="https://revu.lol/" />
 
-  <!-- P-011: PNG sizes alongside the .ico — Google's SERP favicon picker
-       wants an explicit ≥48px bitmap it can crawl. -->
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#171717" />
+
+  <!-- P-011: PNG sizes alongside the .ico. Google's SERP favicon picker
+       wants an explicit 48px or larger bitmap it can crawl. -->
+  <link rel="icon" type="image/svg+xml" href="/revu.svg" />
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="icon" type="image/png" sizes="96x96" href="/icon-96.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
@@ -47,12 +51,9 @@
   }
   </script>
 
-  <link rel="preload" href="/fonts/Orbitron.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/fonts/Rajdhani-Bold.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/fonts/ShareTechMono-Regular.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/fonts/Exo2.woff2" as="font" type="font/woff2" crossorigin />
-
+  <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/webapp.css" />
 
   <script>
     // Reserve the callback name before Turnstile's script loads, so the
@@ -64,24 +65,28 @@
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileReady" async defer></script>
 </head>
 <body>
-  <nav class="topbar" aria-label="Primary">
-    <a class="topbar-wordmark" href="/">Revu</a>
-    <a class="download-chip" id="download-chip" href="/learn">
-      <span class="chip-icon" aria-hidden="true">&#x2193;</span>
-      <span class="chip-label-text">Get the Desktop App</span>
-      <span class="chip-version" id="download-chip-version">Windows</span>
-    </a>
-  </nav>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/" aria-current="page">Review a game</a>
+        <a href="/learn">Desktop app</a>
+        <a href="/discord">Discord</a>
+      </nav>
+      <a class="btn-primary header-cta" id="download-chip" href="/learn">
+        Download
+        <span class="header-cta-meta" id="download-chip-version">Windows</span>
+      </a>
+    </div>
+  </header>
 
   <main class="app">
     <section class="search-screen" id="search-screen" aria-label="Find player">
-      <div class="search-card hud-card">
-        <span class="bracket bracket-tl"></span>
-        <span class="bracket bracket-tr"></span>
-        <span class="bracket bracket-bl"></span>
-        <span class="bracket bracket-br"></span>
+      <div class="search-intro">
         <h1>Find a game</h1>
-        <p class="sublead">Review a ranked match</p>
+        <p class="sublead">Review a ranked match in your browser.</p>
+      </div>
+      <div class="search-card card-raised">
 
         <form class="player-search" id="player-form">
           <label>
@@ -102,7 +107,7 @@
               <option value="oc1">OCE</option>
             </select>
           </label>
-          <button class="primary-button" type="submit">Search</button>
+          <button class="btn-primary" type="submit">Search</button>
         </form>
 
         <div class="recent-chips" id="recent-chips" aria-label="Recent searches" hidden>
@@ -116,10 +121,10 @@
 
     <section class="match-screen" id="match-screen" aria-label="Select match" hidden>
       <header class="screen-header">
-        <button class="text-button" id="back-to-search" type="button">&lt; Back</button>
+        <button class="btn-secondary" id="back-to-search" type="button">Back</button>
         <div class="screen-header-title">
           <p class="eyebrow">Matches</p>
-          <h1 id="matches-title">Recent Ranked Games</h1>
+          <h1 id="matches-title">Recent ranked games</h1>
         </div>
         <div class="header-meta">
           <span class="meta-pill" id="matches-count">0 games</span>
@@ -140,24 +145,20 @@
 
     <section class="review-screen" id="review-screen" aria-label="Review match" hidden>
       <header class="review-topbar">
-        <button class="text-button" id="back-to-matches" type="button">&lt; Matches</button>
+        <button class="btn-secondary" id="back-to-matches" type="button">Matches</button>
         <div class="match-summary">
           <p class="eyebrow" id="review-eyebrow">Ranked Solo/Duo</p>
           <h1 id="review-title">Champion</h1>
-          <p class="meta-strip" id="review-meta">7 / 6 / 8 // 32:15 // NA1_000000</p>
+          <p class="meta-strip" id="review-meta">7 / 6 / 8 · 32:15 · NA1_000000</p>
         </div>
         <div class="topbar-actions">
-          <span class="result-tag" id="review-result">LOSS</span>
-          <button class="text-button danger" id="clear-file" type="button" hidden>Clear File</button>
+          <span class="result-tag" id="review-result">Loss</span>
+          <button class="btn-danger" id="clear-file" type="button" hidden>Clear file</button>
         </div>
       </header>
 
       <div class="review-grid">
-        <section class="viewer-shell hud-card" aria-label="VOD viewer">
-          <span class="bracket bracket-tl"></span>
-          <span class="bracket bracket-tr"></span>
-          <span class="bracket bracket-bl"></span>
-          <span class="bracket bracket-br"></span>
+        <section class="viewer-shell" aria-label="VOD viewer">
 
           <video id="video-player" playsinline hidden></video>
 
@@ -181,10 +182,10 @@
               <span id="vod-speed-label">1.0x</span>
             </button>
             <button class="vod-btn" id="vod-mute" type="button" aria-label="Mute (M)">
-              <span class="vod-icon" id="vod-mute-icon">&#x1F50A;</span>
+              <span class="vod-icon" id="vod-mute-icon">Mute</span>
             </button>
             <button class="vod-btn" id="vod-fs" type="button" aria-label="Fullscreen (F)">
-              <span class="vod-icon">&#x26F6;</span>
+              <span class="vod-icon">Full</span>
             </button>
           </div>
 
@@ -213,53 +214,51 @@
           </label>
 
           <div class="rofl-mode" id="rofl-mode" hidden>
-            <p class="eyebrow">ROFL Companion</p>
+            <p class="eyebrow">ROFL companion</p>
             <h2>Open the replay in League</h2>
             <p>Use this timer while you watch the ROFL externally. Browser playback is not available for ROFL files.</p>
             <div class="clock" id="clock">00:00</div>
             <div class="clock-actions">
-              <button class="secondary-button" id="jump-back" type="button">-5s</button>
-              <button class="primary-button" id="timer-toggle" type="button">Start</button>
-              <button class="secondary-button" id="jump-forward" type="button">+5s</button>
+              <button class="btn-secondary" id="jump-back" type="button">-5s</button>
+              <button class="btn-primary" id="timer-toggle" type="button">Start</button>
+              <button class="btn-secondary" id="jump-forward" type="button">+5s</button>
             </div>
           </div>
         </section>
 
-        <aside class="notes-pane hud-card" aria-label="Review notes">
-          <span class="bracket bracket-tl"></span>
-          <span class="bracket bracket-tr"></span>
-          <span class="bracket bracket-bl"></span>
-          <span class="bracket bracket-br"></span>
-
-          <p class="eyebrow">Review Notes</p>
+        <aside class="notes-pane card" aria-label="Review notes">
+          <p class="eyebrow">Review notes</p>
           <textarea id="review-notes" rows="8" placeholder="Lane phase mistakes, missed objectives, positioning notes."></textarea>
           <div class="notes-actions">
-            <button class="secondary-button" id="export-review" type="button">Export Markdown</button>
+            <button class="btn-secondary" id="export-review" type="button">Export Markdown</button>
           </div>
         </aside>
       </div>
     </section>
-
-    <p class="riot-disclaimer">
-      Revu isn't endorsed by Riot Games and doesn't reflect the views
-      or opinions of anyone officially involved in producing or managing
-      League of Legends. League of Legends and Riot Games are trademarks
-      or registered trademarks of Riot Games, Inc.
-    </p>
   </main>
 
-  <footer>
-    <a href="https://github.com/samif0/lol-review" rel="noopener">github.com/samif0/lol-review</a>
-    <a href="/discord">discord</a>
-    <a href="/privacy.html">privacy</a>
-    <a href="/terms.html">terms</a>
-    <span id="footer-version"></span>
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/samif0/lol-review" rel="noopener">GitHub</a>
+        <a href="/discord">Discord</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <span id="footer-version"></span>
+      </nav>
+      <p class="riot-disclaimer">
+        Revu isn't endorsed by Riot Games and doesn't reflect the views
+        or opinions of anyone officially involved in producing or managing
+        League of Legends. League of Legends and Riot Games are trademarks
+        or registered trademarks of Riot Games, Inc.
+      </p>
+    </div>
   </footer>
 
   <div id="turnstile-container" aria-hidden="true"></div>
 
   <div id="lightbox" class="lightbox" aria-hidden="true" role="dialog" aria-label="Screenshot viewer">
-    <button class="lightbox-close" type="button" aria-label="Close screenshot">X</button>
+    <button class="lightbox-close btn-secondary" type="button" aria-label="Close screenshot">X</button>
     <img class="lightbox-img" alt="" />
     <span class="lightbox-caption"></span>
   </div>
@@ -267,7 +266,7 @@
   <script src="/app.js" defer></script>
   <script src="/lightbox.js" defer></script>
   <script>
-    // Keep the topbar chip's version label fresh, but leave its href pointing
+    // Keep the header pill's version label fresh, but leave its href pointing
     // at /learn (the dedicated desktop-app info page).
     (async () => {
       const versionLabel = document.querySelector('#download-chip-version');
@@ -279,7 +278,7 @@
         );
         if (!res.ok) return;
         const data = await res.json();
-        if (data.tag_name) versionLabel.textContent = `${data.tag_name} / Windows`;
+        if (data.tag_name) versionLabel.textContent = data.tag_name;
       } catch {}
     })();
   </script>

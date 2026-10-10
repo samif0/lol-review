@@ -1,6 +1,7 @@
 ﻿#nullable enable
 
 using Revu.Core.Models;
+using Revu.Core.Services;
 
 namespace Revu.Core.Data.Repositories;
 
@@ -65,6 +66,8 @@ public sealed partial class GameRepository
         // clean up on-disk clip extractions after the transaction commits.
         // Source recording files are preserved; we only touch generated clips.
         var clipPaths = new List<string>();
+        var narrationAudioPaths = new List<string>();
+        var narratedClipPaths = new List<string>();
         try
         {
             using (var clipsCmd = conn.CreateCommand())
@@ -83,10 +86,18 @@ public sealed partial class GameRepository
 
             var gamePk = await GetGamePkAsync(conn, tx, gameId).ConfigureAwait(false);
 
+            // 3.14: narration files (voice track + narrated render) of this game's clips,
+            // collected before their clip_narrations rows go.
+            await CollectNarrationPathsAsync(conn, tx, gameId, gamePk, narrationAudioPaths, narratedClipPaths)
+                .ConfigureAwait(false);
+
             await DeleteByCoachMomentGameAsync(conn, tx, "coach_labels", gameId, gamePk).ConfigureAwait(false);
             await DeleteByCoachMomentGameAsync(conn, tx, "coach_inferences", gameId, gamePk).ConfigureAwait(false);
             await DeleteByGameIdAsync(conn, tx, "coach_moments", gameId, gamePk).ConfigureAwait(false);
             await DeleteByGameIdAsync(conn, tx, "vod_bookmarks", gameId, gamePk).ConfigureAwait(false);
+            // clip_narrations.game_id always holds its bookmark's game_id, so the same
+            // two-key match removes exactly the deleted bookmarks' narration rows.
+            await DeleteByGameIdAsync(conn, tx, "clip_narrations", gameId, gamePk).ConfigureAwait(false);
 
             foreach (var table in childTables)
             {
@@ -161,31 +172,58 @@ public sealed partial class GameRepository
             }
         }
 
+        // Narrated renders behind the clip guard; voice tracks only from the narration
+        // folder. Best effort, after commit, like the clip files above.
+        foreach (var narrated in narratedClipPaths)
+        {
+            NarrationFileGuard.TryDeleteClipFile(narrated);
+        }
+        foreach (var audio in narrationAudioPaths)
+        {
+            NarrationFileGuard.TryDeleteNarrationAudio(audio);
+        }
+
         var dbDir = Path.GetDirectoryName(_factory.DatabasePath) ?? "";
         return Path.Combine(dbDir, "backups");
     }
-
-    private static readonly string[] ClipExtensions = { ".mp4", ".webm", ".mkv", ".mov" };
 
     /// <summary>
     /// True only when <paramref name="clipPath"/> is a well-formed path ending
     /// in a known clip video extension. Guards the cascade-delete file cleanup
     /// against a tampered <c>clip_path</c> pointing at a non-clip file.
     /// </summary>
-    private static bool IsDeletableClipPath(string clipPath)
+    private static bool IsDeletableClipPath(string clipPath) => NarrationFileGuard.IsDeletableClipPath(clipPath);
+
+    private static async Task CollectNarrationPathsAsync(
+        Microsoft.Data.Sqlite.SqliteConnection conn,
+        Microsoft.Data.Sqlite.SqliteTransaction tx,
+        long gameId,
+        long? gamePk,
+        List<string> audioPaths,
+        List<string> narratedPaths)
     {
-        if (string.IsNullOrWhiteSpace(clipPath)) return false;
-        string full;
-        try
+        if (!await TableExistsAsync(conn, tx, "clip_narrations").ConfigureAwait(false))
         {
-            full = Path.GetFullPath(clipPath);
+            return;
         }
-        catch
+
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = gamePk.HasValue
+            ? "SELECT audio_path, narrated_clip_path FROM clip_narrations WHERE game_id = @gameId OR game_id = @gamePk"
+            : "SELECT audio_path, narrated_clip_path FROM clip_narrations WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        if (gamePk.HasValue)
         {
-            return false; // malformed path
+            cmd.Parameters.AddWithValue("@gamePk", gamePk.Value);
         }
-        var ext = Path.GetExtension(full);
-        return Array.FindIndex(ClipExtensions, e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase)) >= 0;
+
+        using var reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
+        while (await reader.ReadAsync().ConfigureAwait(false))
+        {
+            if (!reader.IsDBNull(0) && reader.GetString(0).Length > 0) audioPaths.Add(reader.GetString(0));
+            if (!reader.IsDBNull(1) && reader.GetString(1).Length > 0) narratedPaths.Add(reader.GetString(1));
+        }
     }
 
     private static async Task<long?> GetGamePkAsync(
@@ -212,7 +250,7 @@ public sealed partial class GameRepository
         "prompt_answers", "matchup_notes", "tilt_checks", "review_drafts",
         "cleared_rule_breaks", "death_classifications", "game_summary",
         "review_concepts", "feature_values", "coach_moments", "vod_bookmarks",
-        "coach_labels", "coach_inferences",
+        "coach_labels", "coach_inferences", "clip_narrations",
     };
 
     private static string RequireDeletableTable(string table) =>

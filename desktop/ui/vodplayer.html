@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="./vod-review.css?v=match-navigation-20260912">
 <link rel="stylesheet" href="./vod-cinema.css">
 <link rel="stylesheet" href="./vod-composer.css">
+<link rel="stylesheet" href="./vod-narration.css">
 </head>
 <body class="vod-review-page">
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
@@ -77,7 +78,7 @@
          only when signed out (the JS checks get_auth_status on load). -->
     <a class="vp-signin-hint" id="vp-signin-hint" href="onboarding.html" hidden>
       <span class="vp-signin-dot"></span>
-      <span class="vp-signin-txt"><b>Sign in to share clips.</b> Saving and bookmarking work offline — publishing a clip link to revu.lol needs a signed-in account.</span>
+      <span class="vp-signin-txt"><b>Sign in to share clips.</b> Saving and bookmarking work offline. Publishing a clip link to revu.lol needs a signed-in account.</span>
       <span class="vp-signin-cta">Sign in →</span>
     </a>
 
@@ -396,7 +397,10 @@
           <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>Delete</span>
         </button>
+        <button class="vp-narrate-btn" data-action="narrate_clip" type="button" hidden>Narrate</button>
+        <span class="vp-narrated-chip" hidden>Narrated</span>
         <span class="vp-share-url" hidden></span>
+        <div class="vp-clip-transcript-host" hidden></div>
       </div>
       <!-- Inline edit/delete — shown only for plain bookmark rows (carry an id).
            The note field autosaves on blur/Enter; delete removes the bookmark. -->
@@ -430,6 +434,55 @@
       <button type="button" class="key vp-fix-revert" data-action="revert_correction">Revert</button>
     </div>
   </template>
+
+  <!-- Narration studio: talk over a saved clip at 1x. Stopping a take saves it and
+       renders the narrated copy; the studio then plays that real render. -->
+  <dialog id="vp-narration" class="vp-narration" aria-labelledby="vp-narration-title">
+    <div class="vp-nr-head">
+      <h2 id="vp-narration-title">Narrate clip</h2>
+      <button type="button" class="vp-nr-close" data-nr="close" aria-label="Close">✕</button>
+    </div>
+    <p class="vp-nr-shared" data-nr="shared" hidden>This clip is shared. Saving a narration removes the current link. Share again afterwards to get a new one.</p>
+    <div class="vp-nr-mic" data-nr="mic-block" hidden>
+      <label for="vp-nr-mic-select">Microphone</label>
+      <select class="inp" id="vp-nr-mic-select" data-nr="mic"></select>
+      <div class="vp-nr-level" aria-hidden="true"><span data-nr="level"></span></div>
+    </div>
+    <div class="vp-nr-blocked" data-nr="blocked" hidden>
+      <p>Windows is blocking microphone access for desktop apps. Turn it on in Settings, then try again.</p>
+      <button type="button" data-nr="open-settings">Open Windows settings</button>
+    </div>
+    <p class="vp-nr-hint">Use wired headphones so the clip's sound stays out of your narration. Bluetooth headsets can sound worse while the mic is on.</p>
+    <p class="vp-nr-disclosure">When you are signed in, Revu sends your narration audio to its server to write a transcript. The audio is not kept there.</p>
+    <div class="vp-nr-stage">
+      <video class="vp-nr-video" data-nr="video" playsinline preload="metadata"></video>
+      <div class="vp-nr-countdown" data-nr="countdown" aria-hidden="true" hidden></div>
+      <span class="vp-nr-rec" data-nr="rec" aria-hidden="true" hidden></span>
+    </div>
+    <div class="vp-nr-mix">
+      <label class="vp-nr-slider"><span>Game volume</span>
+        <input type="range" min="0" max="1.5" step="0.05" value="0.8" data-nr="game">
+        <output data-nr="game-out"></output></label>
+      <label class="vp-nr-slider"><span>Voice volume</span>
+        <input type="range" min="0" max="2" step="0.05" value="1" data-nr="voice">
+        <output data-nr="voice-out"></output></label>
+      <label class="vp-nr-check"><input type="checkbox" data-nr="duck" checked> Auto-duck game sound</label>
+      <div class="vp-nr-sync" data-nr="sync-row" hidden>
+        <button type="button" data-nr="nudge-minus" aria-label="Move narration 50 ms earlier">-50 ms</button>
+        <span data-nr="sync">Sync: +0 ms</span>
+        <button type="button" data-nr="nudge-plus" aria-label="Move narration 50 ms later">+50 ms</button>
+      </div>
+    </div>
+    <div class="vp-nr-actions">
+      <button type="button" class="vp-nr-primary" data-nr="record" hidden>Record</button>
+      <button type="button" class="vp-nr-primary" data-nr="stop" hidden>Stop</button>
+      <button type="button" class="vp-nr-primary" data-nr="apply" hidden>Apply mix</button>
+      <button type="button" data-nr="record-again" hidden>Record again</button>
+      <button type="button" class="vp-nr-danger" data-nr="remove" hidden>Remove narration</button>
+      <button type="button" data-nr="done">Done</button>
+    </div>
+    <p class="vp-nr-status" data-nr="status" role="status" aria-live="polite"></p>
+  </dialog>
 
   <script type="module" src="./vodplayer.js"></script>
   <script type="module" src="./tutorial.js"></script>

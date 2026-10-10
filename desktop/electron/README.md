@@ -6,9 +6,15 @@ There is one dependency lockfile at `desktop/package-lock.json`.
 
 - `main.mjs`: window creation, IPC admission, events, and application lifetime.
 - `configuration.mjs`: normal/isolated launch options, profile and packaged paths.
-- `native.mjs`: dialogs, exports, window sizing, external URLs and installed updates.
+- `native.mjs`: dialogs, exports, window sizing, external URLs, installed updates, and the Windows
+  microphone privacy status and settings page.
 - `sidecar.mjs`: launch-specific authenticated backend ownership, HTTP and SSE.
-- `protocols.mjs`: application assets and the renderer's network policy.
+- `protocols.mjs`: application assets, the renderer's network policy and its permissions. The only
+  permission granted is audio-only microphone capture for clip narration, requested from the app
+  origin (`revu-app://ui`, including its same-origin page iframe). Camera, screen capture, speaker
+  selection and every other permission stay denied, and the UI CSP is unchanged.
+- `narration.mjs`: validates a narration take, writes it atomically under
+  `<dataRoot>/Revu/Narration` and asks the sidecar to render the narrated clip.
 - `media.mjs`: revocable media grants and byte-range playback.
 - `preload.cjs`: the sandboxed renderer API; filesystem and bearer access stay private.
 

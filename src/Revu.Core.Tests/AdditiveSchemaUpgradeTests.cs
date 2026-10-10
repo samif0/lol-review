@@ -234,6 +234,42 @@ public sealed class AdditiveSchemaUpgradeTests
         Assert.Equal("Keep me", obj!.Title);
     }
 
+    /// <summary>
+    /// 3.14 clip_narrations: created by AllCreateStatements alone, with NO schema version
+    /// bump, so a downgrade to 3.13.x (which refuses a newer version) still opens the DB.
+    /// </summary>
+    [Fact]
+    public async Task ApplyAdditiveSchemaAsync_CreatesClipNarrationsWithoutVersionBump()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        using (var conn = scope.OpenConnection())
+        {
+            await Exec(conn, "DROP TABLE IF EXISTS clip_narrations");
+            await Exec(conn,
+                "INSERT INTO schema_metadata (key, value, updated_at) VALUES ('app_schema_version','18',0) "
+                + "ON CONFLICT(key) DO UPDATE SET value='18'");
+        }
+        Assert.False(await TableExists(scope, "clip_narrations"));
+
+        await scope.Initializer.ApplyAdditiveSchemaAsync();
+
+        Assert.True(await TableExists(scope, "clip_narrations"));
+        using (var conn = scope.OpenConnection())
+        {
+            using var index = conn.CreateCommand();
+            index.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_clip_narrations_game'";
+            Assert.Equal(1L, await index.ExecuteScalarAsync());
+
+            using var versionCmd = conn.CreateCommand();
+            versionCmd.CommandText = "SELECT value FROM schema_metadata WHERE key='app_schema_version'";
+            Assert.Equal("18", (string?)await versionCmd.ExecuteScalarAsync());
+        }
+        Assert.Equal(18, Schema.CurrentAppSchemaVersion);
+        Assert.DoesNotContain(Schema.VersionedMigrations, m => m.Version > 18);
+    }
+
     private static async Task Exec(SqliteConnection conn, string sql)
     {
         using var cmd = conn.CreateCommand();

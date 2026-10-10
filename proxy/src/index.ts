@@ -26,6 +26,14 @@ import {
   purgeExpiredClips,
   renderClipOgPage,
 } from "./clips";
+import { handleUploadComplete, handleUploadInit, handleUploadPart } from "./clip-uploads";
+import {
+  handleDeleteTranscript,
+  handleGetTranscript,
+  handlePutTranscript,
+  handleTranscribe,
+  pruneTranscribeUsage,
+} from "./transcripts";
 
 // ── Region mapping ──────────────────────────────────────────────────────
 
@@ -187,6 +195,20 @@ async function authOrDeny(
   }
 
   return jsonResponse({ error: "invalid_token" }, 401);
+}
+
+/**
+ * Auth for the 3.14.0 owner routes (multipart uploads, transcripts). Same
+ * resolution as authOrDeny, but any auth failure is the contract's single
+ * 401 `unauthorized` code. Legacy routes keep their historical codes.
+ */
+async function ownerAuthOrDeny(
+  request: Request,
+  env: Env,
+): Promise<{ tokenHash: string; userId?: number } | Response> {
+  const auth = await authOrDeny(request, env);
+  if (auth instanceof Response) return jsonResponse({ error: "unauthorized" }, 401);
+  return auth;
 }
 
 // ── Riot passthrough ────────────────────────────────────────────────────
@@ -537,7 +559,7 @@ function corsHeadersFor(origin: string | null, env: Env): Record<string, string>
   return {
     "Access-Control-Allow-Origin": origin,
     "Vary": "Origin",
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Access-Control-Max-Age": "86400",
   };
@@ -575,6 +597,9 @@ async function dispatchClips(
   if (request.method === "POST" && path.startsWith("/clip-view/")) {
     return withCors(await handleClipView(env, path.slice("/clip-view/".length)), cors);
   }
+  if ((request.method === "GET" || request.method === "HEAD") && path.startsWith("/clip-transcript/")) {
+    return withCors(await handleGetTranscript(request, env, path.slice("/clip-transcript/".length)), cors);
+  }
 
   // Authed routes — uploads, listing, deletes.
   if (path === "/clips" && request.method === "POST") {
@@ -589,6 +614,45 @@ async function dispatchClips(
     if (auth instanceof Response) return withCors(auth, cors);
     return withCors(await handleListMyClips(env, auth.userId), cors);
   }
+
+  // 3.14.0 multipart uploads + transcripts. Owner routes: ownerAuthOrDeny + a D1
+  // session (handlers 403 login_required without a userId). These never call
+  // rateLimitOrDeny (Riot DO budget); see user-limits.ts. They sit before the
+  // generic DELETE /clips/ matcher so /clips/:id/transcript isn't eaten by it.
+  if (path === "/clips/uploads" && request.method === "POST") {
+    const auth = await ownerAuthOrDeny(request, env);
+    if (auth instanceof Response) return withCors(auth, cors);
+    return withCors(await handleUploadInit(request, env, auth.userId), cors);
+  }
+  const partMatch = request.method === "PUT" ? /^\/clips\/([0-9A-Za-z]{7})\/parts\/(\d{1,5})$/.exec(path) : null;
+  if (partMatch) {
+    const auth = await ownerAuthOrDeny(request, env);
+    if (auth instanceof Response) return withCors(auth, cors);
+    return withCors(await handleUploadPart(request, env, auth.userId, partMatch[1], partMatch[2]), cors);
+  }
+  const completeMatch = request.method === "POST" ? /^\/clips\/([0-9A-Za-z]{7})\/complete$/.exec(path) : null;
+  if (completeMatch) {
+    const auth = await ownerAuthOrDeny(request, env);
+    if (auth instanceof Response) return withCors(auth, cors);
+    return withCors(await handleUploadComplete(request, env, auth.userId, completeMatch[1]), cors);
+  }
+  const transcriptMatch = request.method === "PUT" || request.method === "DELETE"
+    ? /^\/clips\/([0-9A-Za-z]{7})\/transcript$/.exec(path)
+    : null;
+  if (transcriptMatch) {
+    const auth = await ownerAuthOrDeny(request, env);
+    if (auth instanceof Response) return withCors(auth, cors);
+    const res = request.method === "PUT"
+      ? await handlePutTranscript(request, env, auth.userId, transcriptMatch[1])
+      : await handleDeleteTranscript(env, auth.userId, transcriptMatch[1]);
+    return withCors(res, cors);
+  }
+  if (path === "/transcribe" && request.method === "POST") {
+    const auth = await ownerAuthOrDeny(request, env);
+    if (auth instanceof Response) return withCors(auth, cors);
+    return withCors(await handleTranscribe(request, env, auth.userId), cors);
+  }
+
   if (path.startsWith("/clips/") && request.method === "DELETE") {
     const auth = await authOrDeny(request, env);
     if (auth instanceof Response) return withCors(auth, cors);
@@ -606,15 +670,26 @@ export { GlobalRateLimiter };
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Daily housekeeping: purge expired clips (R2 + D1) and stale sessions.
+    // Hourly housekeeping, in order: purge expired clips and expired pending
+    // uploads (R2 + D1), then stale sessions, then old transcribe_usage rows.
+    // Each step is isolated so one failure doesn't skip the rest.
     ctx.waitUntil(
       (async () => {
         try {
           const purged = await purgeExpiredClips(env);
-          await deleteExpiredSessions(env.DB);
           console.log(JSON.stringify({ scope: "cron.purge", clips: purged }));
         } catch (err) {
           console.error(JSON.stringify({ scope: "cron.purge", error: (err as Error).message }));
+        }
+        try {
+          await deleteExpiredSessions(env.DB);
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.sessions", error: (err as Error).message }));
+        }
+        try {
+          await pruneTranscribeUsage(env);
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.transcribe_usage", error: (err as Error).message }));
         }
       })(),
     );

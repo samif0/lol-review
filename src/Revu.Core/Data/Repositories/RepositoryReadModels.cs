@@ -132,8 +132,40 @@ public sealed record VodBookmarkRecord(
 
 /// <summary>The on-disk + remote handles of a clip, captured before its DB rows are
 /// deleted, so the caller can finish cleanup (delete the file, delete the uploaded
-/// copy). <see cref="ClipPath"/> / <see cref="ShareUrl"/> are empty when absent.</summary>
-public sealed record ClipDeletionInfo(string ClipPath, string ShareUrl);
+/// copy, delete the narration voice track and narrated render). Every field is empty
+/// when absent.</summary>
+public sealed record ClipDeletionInfo(
+    string ClipPath,
+    string ShareUrl,
+    string NarrationAudioPath = "",
+    string NarratedClipPath = "");
+
+/// <summary>
+/// 3.14: one clip_narrations row. Timestamps are unix seconds. <see cref="TranscriptJson"/>
+/// holds a C2 transcript document (empty until a transcript is ready).
+/// <see cref="TranscriptGeneration"/> is the compare-and-set token: every narration change
+/// bumps it, so a stale transcription run can never overwrite a newer narration.
+/// </summary>
+public sealed record ClipNarrationRecord(
+    long BookmarkId,
+    long GameId,
+    string NarrationId,
+    string AudioPath,
+    string NarratedClipPath,
+    string SourceClipPath,
+    int OffsetMs,
+    int DurationMs,
+    double GameVolume,
+    double NarrationVolume,
+    bool Duck,
+    string TranscriptStatus,
+    long TranscriptGeneration,
+    string TranscriptLanguage,
+    string TranscriptJson,
+    string TranscriptError,
+    string TranscriptPushedSlug,
+    long CreatedAt,
+    long UpdatedAt);
 
 public sealed record RuleRecord(
     long Id,

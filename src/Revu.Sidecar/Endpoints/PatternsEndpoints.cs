@@ -113,7 +113,7 @@ public static partial class SidecarEndpoints
                     var note = text.Length > 0 ? text : (body.Title ?? "Clip");
                     var quality = Revu.Core.Data.Repositories.EvidencePolarities.Normalize(body.Polarity);
                     clipPath = await w.Clips.ExtractClipAsync(
-                        body.VodPath!, startS, endS, body.ChampionName ?? "", w.Config.ClipsFolder);
+                        body.VodPath!, startS, endS, body.ChampionName ?? "", w.Config.ClipsFolder, ct);
 
                     if (!string.IsNullOrEmpty(clipPath))
                     {
